@@ -1,0 +1,83 @@
+{
+  "Comment": "Jarble Bot Deployment - Simple (CodeBuild does heavy lifting)",
+  "StartAt": "TriggerCodeBuild",
+  "States": {
+    "TriggerCodeBuild": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+      "Parameters": {
+        "ProjectName": "jarble-bot-builder",
+        "EnvironmentVariablesOverride": [
+          {
+            "Name": "BOT_ID",
+            "Value.$": "$.botId",
+            "Type": "PLAINTEXT"
+          },
+          {
+            "Name": "BOT_NAME",
+            "Value.$": "$.botName",
+            "Type": "PLAINTEXT"
+          },
+          {
+            "Name": "BOT_PERSONALITY",
+            "Value.$": "$.personality",
+            "Type": "PLAINTEXT"
+          },
+          {
+            "Name": "BOT_MODEL",
+            "Value.$": "$.model",
+            "Type": "PLAINTEXT"
+          },
+          {
+            "Name": "JARBLE_API_URL",
+            "Value": "https://jarble.ai/api/internal",
+            "Type": "PLAINTEXT"
+          },
+          {
+            "Name": "JARBLE_INTERNAL_KEY",
+            "Value": "{{resolve:secretsmanager:jarble/internal-api-key}}",
+            "Type": "SECRETS_MANAGER"
+          },
+          {
+            "Name": "DEPLOY_API_URL",
+            "Value": "http://ec2-13-218-236-179.compute-1.amazonaws.com:8080",
+            "Type": "PLAINTEXT"
+          },
+          {
+            "Name": "DEPLOY_API_KEY",
+            "Value": "{{resolve:secretsmanager:jarble/deploy-api-key}}",
+            "Type": "SECRETS_MANAGER"
+          }
+        ]
+      },
+      "ResultPath": "$.buildResult",
+      "Next": "CheckBuildResult",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "MarkFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "CheckBuildResult": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.buildResult.Build.BuildStatus",
+          "StringEquals": "SUCCEEDED",
+          "Next": "DeploymentSucceeded"
+        }
+      ],
+      "Default": "MarkFailed"
+    },
+    "DeploymentSucceeded": {
+      "Type": "Succeed"
+    },
+    "MarkFailed": {
+      "Type": "Fail",
+      "Error": "DeploymentFailed",
+      "Cause": "CodeBuild failed - check build logs"
+    }
+  }
+}

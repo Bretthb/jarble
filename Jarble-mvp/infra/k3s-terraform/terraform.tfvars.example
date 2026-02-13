@@ -1,0 +1,23 @@
+# terraform.tfvars.example
+# Copy to terraform.tfvars and fill in your values
+
+# REQUIRED: Get from https://console.hetzner.cloud/projects/*/security/tokens
+hetzner_token = "your-hetzner-api-token"
+
+# SSH keys (defaults work if you have ~/.ssh/id_rsa)
+ssh_public_key_path  = "~/.ssh/id_rsa.pub"
+ssh_private_key_path = "~/.ssh/id_rsa"
+
+# Cluster settings
+cluster_name       = "jarble"
+location           = "fsn1"        # fsn1 = Falkenstein (cheapest EU)
+control_plane_type = "cx32"        # 4 vCPU, 8GB - control plane + 2 bots
+worker_type        = "cx43"        # 8 vCPU, 16GB - 4 bots each
+worker_count       = 2             # Start with 2 workers = 8 bots capacity
+
+# OPTIONAL: Cloudflare R2 backup
+# backup_s3_endpoint   = "https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com"
+# backup_s3_bucket     = "jarble-backups"
+# backup_s3_region     = "auto"
+# backup_s3_access_key = "your-r2-access-key"
+# backup_s3_secret_key = "your-r2-secret-key"

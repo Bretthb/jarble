@@ -1,0 +1,187 @@
+# buildspec.yml - Base Image Builder
+# 
+# PURPOSE: Build/update the jarble-bot:base template image
+# NOT for per-bot builds - bots use the same base image + EFS
+#
+# WHEN TO RUN:
+# - Base dependencies change (Node.js version, etc.)
+# - Template workspace files updated
+# - NOT for OpenClaw updates (bots manage their own via npm)
+#
+# TRIGGERED BY: Manual or webhook on dependency updates
+
+version: 0.2
+
+env:
+  variables:
+    ECR_TEMPLATES: "590944885577.dkr.ecr.us-east-1.amazonaws.com/jarble/templates"
+    MIN_OPENCLAW_VERSION: "1.0.0"  # Minimum required version
+
+phases:
+  pre_build:
+    commands:
+      - echo "====== Building Base Template Image ======"
+      - echo "Min OpenClaw version: $MIN_OPENCLAW_VERSION"
+      
+      # Login to ECR
+      - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_TEMPLATES
+
+  build:
+    commands:
+      - echo "====== Building jarble-bot:base ======"
+      
+      # Create Dockerfile for base image
+      - |
+        cat > Dockerfile <<'EOF'
+        FROM node:20-slim
+
+        # Install system dependencies only (NO global openclaw)
+        RUN apt-get update && apt-get install -y \
+            git \
+            curl \
+            ca-certificates \
+            && rm -rf /var/lib/apt/lists/*
+
+        # Create app directory
+        WORKDIR /app
+
+        # Create default workspace structure (will be overwritten by EFS mount)
+        RUN mkdir -p /app/workspace /app/default-workspace
+
+        # Default workspace files (templates)
+        COPY workspace/ /app/default-workspace/
+
+        # Entrypoint script
+        COPY entrypoint.sh /app/entrypoint.sh
+        RUN chmod +x /app/entrypoint.sh
+
+        # Workspace is mounted from EFS at runtime
+        VOLUME ["/app/workspace"]
+
+        # Health check
+        HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+            CMD curl -f http://localhost:8080/health || exit 1
+
+        ENTRYPOINT ["/app/entrypoint.sh"]
+        EOF
+      
+      # Create entrypoint script (installs openclaw via npm, not globally)
+      - |
+        cat > entrypoint.sh <<'EOF'
+        #!/bin/bash
+        set -e
+
+        cd /app/workspace
+        MIN_VERSION="${MIN_OPENCLAW_VERSION:-1.0.0}"
+
+        # Prevent multiple instances
+        if pgrep -f "openclaw gateway"; then
+            echo "OpenClaw already running"
+            exit 1
+        fi
+
+        # If workspace is empty (fresh mount), copy defaults
+        if [ ! -f "SOUL.md" ]; then
+            echo "Initializing workspace from defaults..."
+            cp -r /app/default-workspace/* .
+        fi
+
+        # Initialize package.json if not present
+        if [ ! -f "package.json" ]; then
+            echo "Creating package.json..."
+            npm init -y
+        fi
+
+        # Install openclaw if not present
+        if [ ! -d "node_modules/openclaw" ]; then
+            echo "Installing OpenClaw via npm..."
+            npm install openclaw
+        fi
+
+        # Check minimum version, force update if needed
+        CURRENT=$(npx openclaw --version 2>/dev/null || echo "0.0.0")
+        if [ "$(printf '%s\n' "$MIN_VERSION" "$CURRENT" | sort -V | head -n1)" != "$MIN_VERSION" ]; then
+            echo "OpenClaw $CURRENT below minimum $MIN_VERSION, updating..."
+            npm update openclaw
+        fi
+
+        # Start OpenClaw gateway (from local node_modules)
+        echo "Starting OpenClaw gateway..."
+        exec npx openclaw gateway start
+        EOF
+      
+      # Create default workspace files
+      - mkdir -p workspace/memory workspace/skills
+      
+      - |
+        cat > workspace/SOUL.md <<'EOF'
+        # SOUL.md - Your Bot's Personality
+
+        *Define who you are here.*
+
+        ## Core Traits
+        - Helpful and friendly
+        - Clear and concise
+        - Respectful of boundaries
+
+        ## Guidelines
+        - Be genuinely helpful
+        - Keep responses focused
+        - Ask clarifying questions when needed
+        EOF
+      
+      - |
+        cat > workspace/AGENTS.md <<'EOF'
+        # AGENTS.md - Workspace Configuration
+
+        This is a Jarble-managed bot workspace.
+
+        ## Memory
+        - Daily notes: `memory/YYYY-MM-DD.md`
+        - Long-term: `MEMORY.md`
+
+        ## Skills
+        Skills are installed to `skills/` directory.
+        EOF
+      
+      - touch workspace/MEMORY.md
+      
+      # Build the image
+      - docker build -t $ECR_TEMPLATES:base .
+      - docker tag $ECR_TEMPLATES:base $ECR_TEMPLATES:base-$(date +%Y%m%d)
+      - docker tag $ECR_TEMPLATES:base $ECR_TEMPLATES:latest
+
+  post_build:
+    commands:
+      - echo "====== Pushing to ECR ======"
+      - docker push $ECR_TEMPLATES:base
+      - docker push $ECR_TEMPLATES:base-$(date +%Y%m%d)
+      - docker push $ECR_TEMPLATES:latest
+      
+      - echo "====== BUILD COMPLETE ======"
+      - echo "Image: $ECR_TEMPLATES:base"
+      - echo ""
+      - echo "To update Fargate tasks, just stop/start - they pull latest on start."
+
+cache:
+  paths:
+    - '/root/.docker/**/*'
+
+# ============================================
+# ARCHITECTURE NOTE:
+# ============================================
+# This buildspec creates the SINGLE base image used by ALL bots.
+# 
+# KEY DESIGN: OpenClaw installed via npm per-bot (NOT globally in image)
+# - Each bot has node_modules/ on EFS with openclaw installed
+# - Bots can self-update (persists on EFS between restarts)
+# - We can enforce minimum version via MIN_OPENCLAW_VERSION
+# - Different bots can run different versions if needed
+# 
+# Bot creation does NOT use CodeBuild - it's instant:
+# 1. Write config to EFS /bots/{id}/ (package.json, .env, SOUL.md)
+# 2. ECS RunTask(jarble-bot:base) with EFS mount
+# 3. Entrypoint installs openclaw if needed, then starts
+#
+# That's it. No per-bot image builds needed.
+# ============================================
