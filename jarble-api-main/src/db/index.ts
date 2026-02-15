@@ -65,12 +65,12 @@ export const sqliteDb = DB_PROVIDER === "sqlite"
 // Each provider uses its own table definitions to ensure correct SQL generation.
 function getActiveTables() {
   if (DB_PROVIDER === "sqlite") {
-    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, tiers: sqliteSchema.tiers };
+    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, runtimeCatalog: sqliteSchema.runtimeCatalog };
   }
   if (DB_PROVIDER === "postgres") {
-    return { users: pgSchema.users, deployments: pgSchema.deployments, tiers: pgSchema.tiers };
+    return { users: pgSchema.users, deployments: pgSchema.deployments, runtimeCatalog: pgSchema.runtimeCatalog };
   }
-  return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, tiers: mysqlSchema.tiers };
+  return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, runtimeCatalog: mysqlSchema.runtimeCatalog };
 }
 
 export const tables = getActiveTables();

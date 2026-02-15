@@ -88,7 +88,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         const subscription = event.data.object as any;
         const customerId = subscription.customer as string;
         logger.info({ customerId, status: subscription.status }, "Subscription updated");
-        // TODO: sync tier changes when subscription plan changes
+        // TODO: sync deployment status when subscription plan changes
         break;
       }
 
@@ -96,7 +96,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         const subscription = event.data.object as any;
         const customerId = subscription.customer as string;
         logger.info({ customerId }, "Subscription canceled");
-        // TODO: downgrade user to free tier
+        // TODO: stop paid deployments when subscription is canceled
         break;
       }
 
@@ -149,13 +149,13 @@ app.post("/api/stripe/checkout", async (req, res) => {
     return;
   }
 
-  const { tier } = req.body;
-  if (!tier || !["pro", "agency"].includes(tier)) {
-    res.status(400).json({ error: "Invalid tier. Must be 'pro' or 'agency'" });
+  const { runtimeSlug } = req.body;
+  if (!runtimeSlug) {
+    res.status(400).json({ error: "Missing runtimeSlug" });
     return;
   }
 
-  // If user already has a Stripe customer, redirect to portal for upgrades/downgrades
+  // If user already has a Stripe customer, redirect to portal for managing subscriptions
   if (user.stripeCustomerId) {
     res.json({ redirectToPortal: true });
     return;
@@ -165,7 +165,7 @@ app.post("/api/stripe/checkout", async (req, res) => {
     const session = await createCheckoutSession({
       userId: user.id,
       userEmail: user.email,
-      tier,
+      tier: runtimeSlug, // tier param maps to runtime slug for Stripe price lookup
       stripeCustomerId: user.stripeCustomerId,
       successUrl: `${env.FRONTEND_URL}/dashboard?checkout=success`,
       cancelUrl: `${env.FRONTEND_URL}/pricing?checkout=canceled`,
@@ -173,7 +173,7 @@ app.post("/api/stripe/checkout", async (req, res) => {
 
     res.json({ url: session.url });
   } catch (err) {
-    logger.error({ err, userId: user.id, tier }, "Failed to create checkout session");
+    logger.error({ err, userId: user.id, runtimeSlug }, "Failed to create checkout session");
     res.status(500).json({ error: "Failed to create checkout session" });
   }
 });
@@ -220,14 +220,14 @@ if (env.NODE_ENV === "development") {
     try {
       const users = await db.query.users.findMany();
       const deployments = await db.query.deployments.findMany();
-      const tiers = await db.query.tiers.findMany();
+      const runtimeCatalog = await db.query.runtimeCatalog.findMany();
 
       res.json({
         _info: "Development only - shows all database tables",
         tables: {
           users: { count: users.length, data: users },
           deployments: { count: deployments.length, data: deployments },
-          tiers: { count: tiers.length, data: tiers },
+          runtimeCatalog: { count: runtimeCatalog.length, data: runtimeCatalog },
         }
       });
     } catch (err) {

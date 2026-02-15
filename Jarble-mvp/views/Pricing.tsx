@@ -5,108 +5,51 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Sparkles,
-  Check,
-  X,
   Zap,
   HelpCircle,
   ArrowRight,
   Building2,
-  MessageSquare
+  MessageSquare,
+  Bot,
+  Cpu,
+  HardDrive,
+  MemoryStick,
+  Key,
+  Gift,
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { SubscribeButton } from "@/components/SubscribeButton";
+import { trpc } from "@/lib/trpc";
 
 const WatercolorBlob = dynamic(() => import("@/components/WatercolorBlob"), {
   ssr: false,
 });
 
-// Actual tiers — pricing is TBD, these are templates
-const TIERS = [
-  {
-    id: 1,
-    name: "free",
-    displayName: "Free",
-    description: "Get started with your first AI deployment",
-    price: 0,
-    popular: false,
-    maxDeployments: 1,
-    features: [
-      { name: "1 AI deployment", included: true },
-      { name: "OpenClaw runtime", included: true },
-      { name: "Community support", included: true },
-      { name: "Basic configuration", included: true },
-      { name: "Persistent storage", included: true },
-      { name: "Multiple platform connections", included: false },
-      { name: "Priority support", included: false },
-      { name: "Custom runtimes", included: false },
-    ]
-  },
-  {
-    id: 2,
-    name: "pro",
-    displayName: "Pro",
-    description: "For builders ready to go live",
-    price: null, // TBD
-    popular: true,
-    maxDeployments: 1,
-    features: [
-      { name: "1 AI deployment", included: true },
-      { name: "All runtimes", included: true },
-      { name: "Email support", included: true },
-      { name: "Full configuration", included: true },
-      { name: "Persistent storage", included: true },
-      { name: "Multiple platform connections", included: true },
-      { name: "Priority support", included: false },
-      { name: "Custom runtimes", included: false },
-    ]
-  },
-  {
-    id: 3,
-    name: "agency",
-    displayName: "Agency",
-    description: "For teams managing multiple deployments",
-    price: null, // TBD
-    popular: false,
-    maxDeployments: 2,
-    features: [
-      { name: "2 AI deployments", included: true },
-      { name: "All runtimes", included: true },
-      { name: "Priority support", included: true },
-      { name: "Full configuration", included: true },
-      { name: "Persistent storage", included: true },
-      { name: "Multiple platform connections", included: true },
-      { name: "Priority support", included: true },
-      { name: "Custom runtimes", included: true },
-    ]
-  },
-];
-
 const FAQ = [
   {
-    question: "Can I change plans later?",
-    answer: "Yes! You can upgrade or downgrade your plan at any time. When upgrading, you'll get immediate access to new features. When downgrading, changes take effect at the end of your billing cycle."
+    question: "How does the free trial work?",
+    answer: "Every new user gets one free deployment for 7 days — no credit card required. Pick any runtime and try it out. After 7 days, you can upgrade to a paid deployment to keep it running."
   },
   {
     question: "What is a deployment?",
     answer: "A deployment is a running AI instance on our infrastructure. Each deployment gets its own persistent storage, configuration, and platform connections. Think of it as your own dedicated AI agent."
   },
   {
+    question: "How is pricing calculated?",
+    answer: "Pricing is based on the runtime you choose. Each runtime has preset hardware specs (CPU, RAM, Storage) and a fixed monthly price. You only pay for what you deploy — no hidden fees."
+  },
+  {
     question: "Can I use my own API keys?",
-    answer: "Yes! You can bring your own OpenRouter, OpenAI, Anthropic, or Google API keys. This gives you full control over model selection and costs."
+    answer: "Yes! You can bring your own OpenRouter API key (BYOK) for full control over model selection and costs. Or use our included credits for a simpler experience."
   },
   {
     question: "What platforms can I connect?",
     answer: "Currently we support WhatsApp as the initial interface for OpenClaw. Discord, Slack, Telegram, and web chat integrations are coming soon."
   },
   {
-    question: "What happens to my data if I downgrade?",
-    answer: "Your deployment data is stored on persistent block storage and is never deleted automatically. If you exceed your plan's deployment limit, you'll need to remove deployments before creating new ones."
-  },
-  {
-    question: "Is there a free trial for paid plans?",
-    answer: "The Free tier is free forever with no credit card required. It's a great way to explore Jarble. Upgrade when you need more deployments or features."
+    question: "Can I create multiple deployments?",
+    answer: "Absolutely! There are no deployment limits. Create as many deployments as you need — each is billed separately based on its runtime."
   },
 ];
 
@@ -115,15 +58,15 @@ export default function Pricing() {
   const router = useRouter();
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
-  const handleGetStarted = (tierName: string) => {
-    if (tierName === "free") {
-      if (isAuthenticated) {
-        router.push("/dashboard");
-      } else {
-        loginWithRedirect();
-      }
+  // Fetch runtimes from API
+  const runtimesQuery = trpc.runtimeCatalog.list.useQuery();
+
+  const handleGetStarted = () => {
+    if (isAuthenticated) {
+      router.push("/onboarding/new");
+    } else {
+      loginWithRedirect();
     }
-    // Pro and Agency handled by SubscribeButton
   };
 
   return (
@@ -173,100 +116,223 @@ export default function Pricing() {
       <section className="pt-32 pb-16 relative z-10">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center animate-fade-in-up">
           <h1 className="text-5xl lg:text-6xl font-serif font-medium mb-6">
-            Simple, Transparent
+            Simple, Pay-As-You-Go
             <span className="block text-primary">Pricing</span>
           </h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Start free, scale as you grow. No hidden fees, no surprises.
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-6">
+            Pick a runtime, deploy instantly. Pay only for what you use.
           </p>
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-green-500/10 border border-green-500/30 text-green-400">
+            <Gift className="w-5 h-5" />
+            <span className="text-sm font-medium">First deployment free for 7 days — no credit card required</span>
+          </div>
         </div>
       </section>
 
-      {/* Pricing Cards */}
+      {/* Compute Pricing — Runtime Cards */}
       <section className="pb-20 relative z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid md:grid-cols-3 gap-6">
-            {TIERS.map((tier) => (
-              <div
-                key={tier.id}
-                className={`relative rounded-2xl p-6 border animate-fade-in-up-fast ${
-                  tier.popular
-                    ? "bg-card/80 backdrop-blur-md border-primary shadow-lg"
-                    : "bg-card/80 backdrop-blur-md border-border"
-                }`}
-              >
-                {tier.popular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <span className="bg-primary text-primary-foreground text-xs font-bold px-3 py-1 rounded-full">
-                      Most Popular
-                    </span>
+          <div className="text-center mb-12">
+            <div className="flex items-center justify-center gap-2 text-primary font-medium mb-4">
+              <Cpu className="w-5 h-5" />
+              Compute
+            </div>
+            <h2 className="text-3xl font-serif font-medium mb-2">Runtime Catalog</h2>
+            <p className="text-muted-foreground">Each runtime comes with preset hardware — choose what fits your needs</p>
+          </div>
+
+          {runtimesQuery.isLoading ? (
+            <div className="flex justify-center py-12">
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-2 gap-6">
+              {(runtimesQuery.data ?? []).map((runtime: {
+                id: number;
+                slug: string;
+                name: string;
+                description: string | null;
+                cpuLimit: string;
+                memoryMb: number;
+                storageMb: number;
+                monthlyPriceCents: number;
+              }) => (
+                <div
+                  key={runtime.id}
+                  className="relative rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border hover:border-primary/50 transition-all animate-fade-in-up-fast"
+                >
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${
+                      runtime.slug === "openclaw"
+                        ? "bg-gradient-to-br from-purple-500 to-blue-500"
+                        : "bg-gradient-to-br from-emerald-500 to-teal-500"
+                    }`}>
+                      <Bot className="w-7 h-7 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-serif font-medium">{runtime.name}</h3>
+                      <p className="text-sm text-muted-foreground">{runtime.description}</p>
+                    </div>
                   </div>
-                )}
 
-                <div className="text-center mb-6">
-                  <h3 className="text-xl font-serif font-medium mb-1">{tier.displayName}</h3>
-                  <p className="text-sm text-muted-foreground">{tier.description}</p>
-                </div>
+                  {/* Hardware Specs */}
+                  <div className="grid grid-cols-3 gap-3 mb-6">
+                    <div className="flex flex-col items-center p-3 rounded-lg bg-secondary/50 border border-border">
+                      <Cpu className="w-4 h-4 text-primary mb-1" />
+                      <span className="text-sm font-semibold">{runtime.cpuLimit}</span>
+                      <span className="text-xs text-muted-foreground">vCPU</span>
+                    </div>
+                    <div className="flex flex-col items-center p-3 rounded-lg bg-secondary/50 border border-border">
+                      <MemoryStick className="w-4 h-4 text-primary mb-1" />
+                      <span className="text-sm font-semibold">{runtime.memoryMb}</span>
+                      <span className="text-xs text-muted-foreground">MB RAM</span>
+                    </div>
+                    <div className="flex flex-col items-center p-3 rounded-lg bg-secondary/50 border border-border">
+                      <HardDrive className="w-4 h-4 text-primary mb-1" />
+                      <span className="text-sm font-semibold">{runtime.storageMb}</span>
+                      <span className="text-xs text-muted-foreground">MB Storage</span>
+                    </div>
+                  </div>
 
-                <div className="text-center mb-6">
-                  <div className="flex items-baseline justify-center gap-1">
-                    {tier.price === 0 ? (
-                      <span className="text-4xl font-bold">Free</span>
-                    ) : tier.price === null ? (
-                      <span className="text-3xl font-bold text-muted-foreground">Coming Soon</span>
-                    ) : (
-                      <>
-                        <span className="text-4xl font-bold">
-                          ${(tier.price / 100).toFixed(0)}
-                        </span>
+                  {/* Price */}
+                  <div className="text-center mb-6">
+                    {runtime.monthlyPriceCents > 0 ? (
+                      <div className="flex items-baseline justify-center gap-1">
+                        <span className="text-3xl font-bold">${(runtime.monthlyPriceCents / 100).toFixed(0)}</span>
                         <span className="text-muted-foreground">/mo</span>
-                      </>
+                      </div>
+                    ) : (
+                      <span className="text-2xl font-bold text-muted-foreground">Pricing TBD</span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {tier.maxDeployments} deployment{tier.maxDeployments > 1 ? "s" : ""} included
-                  </p>
+
+                  <Button
+                    onClick={handleGetStarted}
+                    className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
+                  >
+                    Get Started
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
                 </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
 
-                {tier.name === "free" ? (
-                  <Button
-                    onClick={() => handleGetStarted("free")}
-                    className="w-full mb-6 rounded-full border-input bg-background/50 backdrop-blur-sm hover:bg-secondary/50"
-                  >
-                    Get Started Free
-                  </Button>
-                ) : tier.price !== null ? (
-                  <div className="mb-6">
-                    <SubscribeButton
-                      tier={tier.name as "pro" | "agency"}
-                      className="w-full rounded-full"
-                    />
-                  </div>
-                ) : (
-                  <Button
-                    disabled
-                    className="w-full mb-6 rounded-full opacity-50"
-                  >
-                    Coming Soon
-                  </Button>
-                )}
+      {/* LLM Credits Pricing */}
+      <section className="py-20 relative z-10">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <div className="flex items-center justify-center gap-2 text-primary font-medium mb-4">
+              <Sparkles className="w-5 h-5" />
+              LLM Credits
+            </div>
+            <h2 className="text-3xl font-serif font-medium mb-2">AI Model Access</h2>
+            <p className="text-muted-foreground">Choose how your deployments access AI models</p>
+          </div>
 
-                <ul className="space-y-3">
-                  {tier.features.map((feature, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      {feature.included ? (
-                        <Check className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                      ) : (
-                        <X className="w-5 h-5 text-muted-foreground/50 flex-shrink-0 mt-0.5" />
-                      )}
-                      <span className={feature.included ? "text-foreground" : "text-muted-foreground"}>
-                        {feature.name}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* BYOK */}
+            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-primary shadow-lg animate-fade-in-up-fast">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2">
               </div>
-            ))}
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
+                  <Key className="w-7 h-7 text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-serif font-medium">Bring Your Own Key</h3>
+                    <span className="px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-xs font-medium">
+                      Recommended
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">Full control with your own OpenRouter API key</p>
+                </div>
+              </div>
+
+              <div className="text-center mb-6">
+                <span className="text-3xl font-bold">Free</span>
+                <p className="text-sm text-muted-foreground mt-1">You pay OpenRouter directly</p>
+              </div>
+
+              <ul className="space-y-3 mb-6">
+                <li className="flex items-start gap-2 text-sm">
+                  <span className="text-green-500 mt-0.5">&#10003;</span>
+                  <span>Access to all models (GPT-4, Claude, Llama, etc.)</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm">
+                  <span className="text-green-500 mt-0.5">&#10003;</span>
+                  <span>Full control over model selection and costs</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm">
+                  <span className="text-green-500 mt-0.5">&#10003;</span>
+                  <span>Pay only for what you use</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm">
+                  <span className="text-green-500 mt-0.5">&#10003;</span>
+                  <span>No markup on API costs</span>
+                </li>
+              </ul>
+
+              <Button
+                onClick={handleGetStarted}
+                className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
+              >
+                Get Started with BYOK
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+
+            {/* Included Credits */}
+            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border animate-fade-in-up-fast">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+                  <Sparkles className="w-7 h-7 text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-serif font-medium">Included Credits</h3>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-medium">
+                      Coming Soon
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">We handle everything — just deploy and go</p>
+                </div>
+              </div>
+
+              <div className="text-center mb-6">
+                <span className="text-2xl font-bold text-muted-foreground">Pricing TBD</span>
+                <p className="text-sm text-muted-foreground mt-1">Monthly credit packages</p>
+              </div>
+
+              <ul className="space-y-3 mb-6">
+                <li className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
+                  <span>No API key needed</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
+                  <span>Pre-configured model selection</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
+                  <span>Simple monthly billing</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
+                  <span>Managed by Jarble via OpenRouter</span>
+                </li>
+              </ul>
+
+              <Button
+                disabled
+                className="w-full rounded-full opacity-50"
+              >
+                Coming Soon
+              </Button>
+            </div>
           </div>
         </div>
       </section>
@@ -300,70 +366,6 @@ export default function Pricing() {
         </div>
       </section>
 
-      {/* Feature Comparison Table */}
-      <section className="py-20 relative z-10">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-serif font-medium text-center mb-12">
-            Compare Plans
-          </h2>
-
-          <div className="overflow-x-auto rounded-xl border border-border bg-card/80 backdrop-blur-md">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-4 px-4 font-medium text-muted-foreground">Feature</th>
-                  {TIERS.map((tier) => (
-                    <th key={tier.id} className="text-center py-4 px-4 font-bold">
-                      {tier.displayName}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-b border-border">
-                  <td className="py-4 px-4 text-foreground">Deployments</td>
-                  {TIERS.map((tier) => (
-                    <td key={tier.id} className="text-center py-4 px-4">{tier.maxDeployments}</td>
-                  ))}
-                </tr>
-                <tr className="border-b border-border">
-                  <td className="py-4 px-4 text-foreground">Persistent Storage</td>
-                  {TIERS.map((tier) => (
-                    <td key={tier.id} className="text-center py-4 px-4">
-                      <Check className="w-5 h-5 text-green-600 mx-auto" />
-                    </td>
-                  ))}
-                </tr>
-                <tr className="border-b border-border">
-                  <td className="py-4 px-4 text-foreground">Platform Connections</td>
-                  <td className="text-center py-4 px-4 text-muted-foreground">1</td>
-                  <td className="text-center py-4 px-4 text-muted-foreground">Multiple</td>
-                  <td className="text-center py-4 px-4 text-muted-foreground">Multiple</td>
-                </tr>
-                <tr className="border-b border-border">
-                  <td className="py-4 px-4 text-foreground">Runtimes</td>
-                  <td className="text-center py-4 px-4 text-muted-foreground">OpenClaw</td>
-                  <td className="text-center py-4 px-4 text-muted-foreground">All</td>
-                  <td className="text-center py-4 px-4 text-muted-foreground">All + Custom</td>
-                </tr>
-                <tr className="border-b border-border">
-                  <td className="py-4 px-4 text-foreground">Support</td>
-                  <td className="text-center py-4 px-4 text-muted-foreground">Community</td>
-                  <td className="text-center py-4 px-4 text-muted-foreground">Email</td>
-                  <td className="text-center py-4 px-4 text-muted-foreground">Priority</td>
-                </tr>
-                <tr>
-                  <td className="py-4 px-4 text-foreground">Custom Runtimes</td>
-                  <td className="text-center py-4 px-4"><X className="w-5 h-5 text-muted-foreground/50 mx-auto" /></td>
-                  <td className="text-center py-4 px-4"><X className="w-5 h-5 text-muted-foreground/50 mx-auto" /></td>
-                  <td className="text-center py-4 px-4"><Check className="w-5 h-5 text-green-600 mx-auto" /></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
       {/* FAQ Section */}
       <section className="py-20 relative z-10">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -389,7 +391,7 @@ export default function Pricing() {
                 >
                   <span className="font-medium">{item.question}</span>
                   <span className={`transform transition-transform ${openFaq === i ? "rotate-180" : ""}`}>
-                    ▼
+                    &#x25BC;
                   </span>
                 </button>
                 {openFaq === i && (
@@ -411,11 +413,11 @@ export default function Pricing() {
           </h2>
           <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
             Deploy your first AI agent in minutes.
-            Start free, no credit card required.
+            First deployment free for 7 days, no credit card required.
           </p>
           <Button
             size="lg"
-            onClick={() => isAuthenticated ? router.push("/dashboard") : loginWithRedirect()}
+            onClick={handleGetStarted}
             className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
           >
             <Zap className="w-5 h-5 mr-2" />

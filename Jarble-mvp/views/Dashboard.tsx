@@ -12,8 +12,9 @@ import {
   Bot,
   Send,
   Trash2,
-  AlertTriangle,
-  ArrowUpRight,
+  Gift,
+  Clock,
+  DollarSign,
 } from "lucide-react";
 import WizardLoader from "@/components/WizardLoader";
 import { toast } from "sonner";
@@ -28,15 +29,10 @@ export default function Dashboard() {
     enabled: isAuthenticated && !authLoading,
   });
 
-  const canDeployQuery = trpc.deployment.canDeploy.useQuery(undefined, {
-    enabled: isAuthenticated && !authLoading,
-  });
-
   const deleteDeploymentMutation = trpc.deployment.delete.useMutation({
     onSuccess: () => {
       toast.success("Deployment deleted");
       deploymentsQuery.refetch();
-      canDeployQuery.refetch();
     },
     onError: (error: { message?: string }) => {
       toast.error(error.message || "Failed to delete deployment");
@@ -44,12 +40,6 @@ export default function Dashboard() {
   });
 
   const handleCreateDeployment = () => {
-    if (canDeployQuery.data && !canDeployQuery.data.allowed) {
-      toast.error(
-        `You've reached the limit of ${canDeployQuery.data.max} deployment${canDeployQuery.data.max === 1 ? '' : 's'} on the ${canDeployQuery.data.tierName} plan. Upgrade to create more.`
-      );
-      return;
-    }
     router.push("/onboarding/new");
   };
 
@@ -76,9 +66,6 @@ export default function Dashboard() {
       </div>
     );
   }
-
-  const limits = canDeployQuery.data;
-  const isAtLimit = limits ? !limits.allowed : false;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -126,63 +113,19 @@ export default function Dashboard() {
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            whileHover={{ scale: isAtLimit ? 1 : 1.05 }}
-            whileTap={{ scale: isAtLimit ? 1 : 0.95 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
           >
             <Button
               onClick={handleCreateDeployment}
               size="lg"
-              disabled={isAtLimit}
-              className={`rounded-full font-semibold shadow-lg ${
-                isAtLimit
-                  ? 'bg-muted text-muted-foreground cursor-not-allowed shadow-none'
-                  : 'bg-primary hover:bg-primary/90 text-primary-foreground shadow-primary/25'
-              }`}
+              className="rounded-full font-semibold shadow-lg bg-primary hover:bg-primary/90 text-primary-foreground shadow-primary/25"
             >
               <Plus className="w-5 h-5 mr-2" />
               Create Deployment
             </Button>
           </motion.div>
         </div>
-
-        {/* Tier Usage Banner */}
-        {limits && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-8"
-          >
-            <div className={`rounded-lg border p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
-              isAtLimit
-                ? 'bg-amber-500/10 border-amber-500/30'
-                : 'bg-secondary/30 border-border'
-            }`}>
-              <div className="flex items-center gap-3">
-                {isAtLimit && <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />}
-                <div>
-                  <p className="text-sm font-medium">
-                    {limits.tierName} Plan — {limits.current}/{limits.max} deployment{limits.max === 1 ? '' : 's'} used
-                  </p>
-                  {isAtLimit && (
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      You&apos;ve reached your deployment limit. Upgrade to create more.
-                    </p>
-                  )}
-                </div>
-              </div>
-              {isAtLimit && (
-                <Button
-                  size="sm"
-                  onClick={() => router.push("/pricing")}
-                  className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
-                >
-                  Upgrade Plan
-                  <ArrowUpRight className="w-4 h-4 ml-1" />
-                </Button>
-              )}
-            </div>
-          </motion.div>
-        )}
 
         {/* Deployments Grid */}
         {deploymentsQuery.isLoading ? (
@@ -199,7 +142,18 @@ export default function Dashboard() {
           </div>
         ) : deploymentsQuery.data && deploymentsQuery.data.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {deploymentsQuery.data.map((deployment: { id: string; name: string; status: string; template: string | null; description: string | null }) => (
+            {deploymentsQuery.data.map((deployment: {
+              id: string;
+              name: string;
+              status: string;
+              runtime: string;
+              description: string | null;
+              isFree: boolean;
+              monthlyPriceCents: number;
+              freeExpiresAt: string | null;
+              freeTrialExpired?: boolean;
+              llmMode: string;
+            }) => (
               <DeploymentCard
                 key={deployment.id}
                 deployment={deployment}
@@ -247,9 +201,28 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function DeploymentCard({ deployment, onDelete }: { deployment: { id: string; name: string; status: string; template: string | null; description: string | null }; onDelete: (id: string) => void }) {
+function DeploymentCard({ deployment, onDelete }: {
+  deployment: {
+    id: string;
+    name: string;
+    status: string;
+    runtime: string;
+    description: string | null;
+    isFree: boolean;
+    monthlyPriceCents: number;
+    freeExpiresAt: string | null;
+    freeTrialExpired?: boolean;
+    llmMode: string;
+  };
+  onDelete: (id: string) => void;
+}) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Calculate days remaining for free trial
+  const daysRemaining = deployment.freeExpiresAt
+    ? Math.max(0, Math.ceil((new Date(deployment.freeExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : null;
 
   return (
     <motion.div
@@ -268,15 +241,37 @@ function DeploymentCard({ deployment, onDelete }: { deployment: { id: string; na
               </div>
               <div>
                 <h3 className="font-bold text-lg">{deployment.name}</h3>
-                {deployment.template && (
-                  <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
-                    <Send className="w-3 h-3" />
-                    <span>{deployment.template}</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
+                  <Send className="w-3 h-3" />
+                  <span>{deployment.runtime}</span>
+                </div>
               </div>
             </div>
             <StatusBadge status={deployment.status} />
+          </div>
+
+          {/* Pricing / Free Trial Badge */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            {deployment.isFree && !deployment.freeTrialExpired && daysRemaining !== null && daysRemaining > 0 ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/30">
+                <Gift className="w-3 h-3" />
+                Free trial — {daysRemaining} day{daysRemaining !== 1 ? "s" : ""} left
+              </span>
+            ) : deployment.isFree && (deployment.freeTrialExpired || (daysRemaining !== null && daysRemaining <= 0)) ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-medium border border-red-500/30">
+                <Clock className="w-3 h-3" />
+                Free trial expired
+              </span>
+            ) : deployment.monthlyPriceCents > 0 ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium border border-primary/30">
+                <DollarSign className="w-3 h-3" />
+                ${(deployment.monthlyPriceCents / 100).toFixed(0)}/mo
+              </span>
+            ) : null}
+
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/80 text-muted-foreground text-xs">
+              LLM: {deployment.llmMode === "byok" ? "BYOK" : "Included"}
+            </span>
           </div>
 
           {deployment.description && (

@@ -10,7 +10,8 @@ export const users = sqliteTable("users", {
   auth0Id: text("auth0_id").notNull().unique(),
   emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
   stripeCustomerId: text("stripe_customer_id"),
-  tierId: integer("tier_id").references(() => tiers.id),
+  freeDeploymentUsed: integer("free_deployment_used", { mode: "boolean" }).notNull().default(false),
+  freeTrialExpiresAt: text("free_trial_expires_at"),
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 });
@@ -20,35 +21,46 @@ export const deployments = sqliteTable("deployments", {
   userId: text("user_id").notNull().references(() => users.id),
   name: text("name").notNull(),
   description: text("description"),
-  template: text("template"),
   runtime: text("runtime").notNull().default("openclaw"),
   image: text("image"),
+  runtimeCatalogId: integer("runtime_catalog_id").references(() => runtimeCatalog.id),
+  isFree: integer("is_free", { mode: "boolean" }).notNull().default(false),
+  monthlyPriceCents: integer("monthly_price_cents").notNull().default(0),
+  freeExpiresAt: text("free_expires_at"),
+  llmMode: text("llm_mode").notNull().default("byok"), // "included" | "byok"
+  llmProvider: text("llm_provider").notNull().default("openrouter"), // "openrouter" | "openai" | "anthropic" | "google"
+  llmApiKey: text("llm_api_key"),
   status: text("status").notNull().default("creating"),
   error: text("error"),
-  tierId: integer("tier_id").references(() => tiers.id),
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 });
 
-export const tiers = sqliteTable("tiers", {
+export const runtimeCatalog = sqliteTable("runtime_catalog", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  slug: text("slug").notNull().unique(),
   name: text("name").notNull(),
   description: text("description"),
-  price: text("price").notNull(),
-  creditsPerMonth: integer("credits_per_month").notNull(),
-  maxDeployments: integer("max_deployments").notNull().default(1),
-  features: text("features"),
+  category: text("category").notNull().default("bot"),
+  dockerImage: text("docker_image").notNull(),
+  cpuLimit: text("cpu_limit").notNull().default("0.25"),
+  memoryMb: integer("memory_mb").notNull().default(512),
+  storageMb: integer("storage_mb").notNull().default(100),
+  monthlyPriceCents: integer("monthly_price_cents").notNull().default(0),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull().$defaultFn(now),
 });
 
 // Relations
-export const usersRelations = relations(users, ({ many, one }) => ({
+export const usersRelations = relations(users, ({ many }) => ({
   deployments: many(deployments),
-  tier: one(tiers, { fields: [users.tierId], references: [tiers.id] }),
 }));
 
 export const deploymentsRelations = relations(deployments, ({ one }) => ({
   user: one(users, { fields: [deployments.userId], references: [users.id] }),
-  tier: one(tiers, { fields: [deployments.tierId], references: [tiers.id] }),
+  runtimeCatalogEntry: one(runtimeCatalog, { fields: [deployments.runtimeCatalogId], references: [runtimeCatalog.id] }),
+}));
+
+export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => ({
+  deployments: many(deployments),
 }));

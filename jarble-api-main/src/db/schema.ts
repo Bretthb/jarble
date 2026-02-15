@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, text, int, timestamp, boolean, decimal } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, text, int, timestamp, boolean } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
 
 export const users = mysqlTable("users", {
@@ -8,7 +8,8 @@ export const users = mysqlTable("users", {
   auth0Id: varchar("auth0_id", { length: 255 }).notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
-  tierId: int("tier_id").references(() => tiers.id),
+  freeDeploymentUsed: boolean("free_deployment_used").notNull().default(false),
+  freeTrialExpiresAt: timestamp("free_trial_expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });
@@ -18,35 +19,46 @@ export const deployments = mysqlTable("deployments", {
   userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
-  template: varchar("template", { length: 100 }),
   runtime: varchar("runtime", { length: 100 }).notNull().default("openclaw"),
   image: varchar("image", { length: 255 }),
+  runtimeCatalogId: int("runtime_catalog_id").references(() => runtimeCatalog.id),
+  isFree: boolean("is_free").notNull().default(false),
+  monthlyPriceCents: int("monthly_price_cents").notNull().default(0),
+  freeExpiresAt: timestamp("free_expires_at"),
+  llmMode: varchar("llm_mode", { length: 20 }).notNull().default("byok"),
+  llmProvider: varchar("llm_provider", { length: 30 }).notNull().default("openrouter"),
+  llmApiKey: varchar("llm_api_key", { length: 255 }),
   status: varchar("status", { length: 50 }).notNull().default("creating"),
   error: text("error"),
-  tierId: int("tier_id").references(() => tiers.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });
 
-export const tiers = mysqlTable("tiers", {
+export const runtimeCatalog = mysqlTable("runtime_catalog", {
   id: int("id").primaryKey().autoincrement(),
+  slug: varchar("slug", { length: 50 }).notNull().unique(),
   name: varchar("name", { length: 100 }).notNull(),
   description: text("description"),
-  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
-  creditsPerMonth: int("credits_per_month").notNull(),
-  maxDeployments: int("max_deployments").notNull().default(1),
-  features: text("features"), // JSON string
+  category: varchar("category", { length: 50 }).notNull().default("bot"),
+  dockerImage: varchar("docker_image", { length: 255 }).notNull(),
+  cpuLimit: varchar("cpu_limit", { length: 10 }).notNull().default("0.25"),
+  memoryMb: int("memory_mb").notNull().default(512),
+  storageMb: int("storage_mb").notNull().default(100),
+  monthlyPriceCents: int("monthly_price_cents").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Relations
-export const usersRelations = relations(users, ({ many, one }) => ({
+export const usersRelations = relations(users, ({ many }) => ({
   deployments: many(deployments),
-  tier: one(tiers, { fields: [users.tierId], references: [tiers.id] }),
 }));
 
 export const deploymentsRelations = relations(deployments, ({ one }) => ({
   user: one(users, { fields: [deployments.userId], references: [users.id] }),
-  tier: one(tiers, { fields: [deployments.tierId], references: [tiers.id] }),
+  runtimeCatalogEntry: one(runtimeCatalog, { fields: [deployments.runtimeCatalogId], references: [runtimeCatalog.id] }),
+}));
+
+export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => ({
+  deployments: many(deployments),
 }));

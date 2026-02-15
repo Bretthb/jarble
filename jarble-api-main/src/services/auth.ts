@@ -78,10 +78,6 @@ export async function getUserFromToken(payload: TokenPayload) {
     if (emailVerified && !user.emailVerified) {
       updates.emailVerified = true;
     }
-    // Assign Free tier if user doesn't have one yet
-    if (!user.tierId) {
-      updates.tierId = 1; // Free tier
-    }
 
     if (Object.keys(updates).length > 0) {
       logger.info({ userId: user.id, updates }, "Updating user info from token");
@@ -98,18 +94,53 @@ export async function getUserFromToken(payload: TokenPayload) {
     return user;
   }
 
-  // Create new user
+  // Before creating a new user, check if someone with this email already exists
+  // This handles the case where a user signs up with Google first, then tries
+  // email/password with the same email (or vice versa)
+  if (payload.email) {
+    const existingByEmail = await db.query.users.findFirst({
+      where: eq(tables.users.email, payload.email),
+    });
+
+    if (existingByEmail) {
+      // Link this auth0Id to the existing user instead of creating a duplicate
+      const updates: Record<string, unknown> = {
+        auth0Id: payload.sub, // Update to the new auth method's ID
+      };
+      if (payload.name && !existingByEmail.name) {
+        updates.name = payload.name;
+      }
+      if (emailVerified && !existingByEmail.emailVerified) {
+        updates.emailVerified = true;
+      }
+
+      await (db as any).update(tables.users)
+        .set(updates)
+        .where(eq(tables.users.id, existingByEmail.id));
+
+      logger.info({
+        userId: existingByEmail.id,
+        email: payload.email,
+        newAuth0Id: payload.sub,
+        previousAuth0Id: existingByEmail.auth0Id,
+      }, "Linked new auth method to existing user (same email)");
+
+      user = await db.query.users.findFirst({
+        where: eq(tables.users.id, existingByEmail.id),
+      });
+      return user;
+    }
+  }
+
+  // Create new user — no existing account with this email
   const userId = nanoid(12);
 
-  // For email/password signups without verification, still create the user
-  // but mark emailVerified=false — they can't deploy until verified
   await (db as any).insert(tables.users).values({
     id: userId,
     auth0Id: payload.sub,
     email: payload.email || `${payload.sub}@auth0.user`,
     name: payload.name || null,
     emailVerified: emailVerified,
-    tierId: 1, // All new users start on Free tier
   });
 
   logger.info({

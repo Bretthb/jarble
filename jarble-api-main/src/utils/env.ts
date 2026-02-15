@@ -16,6 +16,8 @@ const envSchema = z.object({
   
   // OpenRouter - optional for testing
   OPENROUTER_API_KEY: z.string().default("sk-test-key"),
+  // OpenRouter Management API key (for provisioning tenant keys — "Included Credits" feature)
+  OPENROUTER_MANAGEMENT_KEY: z.string().optional(),
   
   // Stripe — all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
