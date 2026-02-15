@@ -31,15 +31,25 @@ import {
   ShieldCheck,
   ExternalLink,
   AlertCircle,
+  RotateCcw,
+  SlidersHorizontal,
 } from "lucide-react";
 import { DeploymentLoader } from "@/components/WizardLoader";
 import {
   getWizardSteps,
   detectProviderFromKey,
   LLM_PROVIDERS,
+  LLM_MODELS,
   getProviderById,
+  getModelsForProvider,
+  getDefaultModelForProvider,
+  DEFAULT_INCLUDED_MODEL,
+  CPU_OPTIONS,
+  MEMORY_OPTIONS,
+  STORAGE_OPTIONS,
   type WizardStepDef,
   type LLMProviderDef,
+  type LLMModelDef,
 } from "./onboarding/wizardStepConfig";
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -76,9 +86,15 @@ export default function OnboardingWizard() {
   const [selectedRuntimeSlug, setSelectedRuntimeSlug] = useState<string | null>(null);
   const [llmMode, setLlmMode] = useState<"included" | "byok">("byok");
   const [llmProvider, setLlmProvider] = useState<LLMProviderDef["id"]>("openrouter");
+  const [llmModel, setLlmModel] = useState<string>(DEFAULT_INCLUDED_MODEL);
   const [llmApiKey, setLlmApiKey] = useState("");
   const [keyValidation, setKeyValidation] = useState<KeyValidationStatus>("idle");
   const [whatsappConnected, setWhatsappConnected] = useState(false);
+
+  // Hardware config (optional overrides — null means "use runtime catalog defaults")
+  const [cpuLimit, setCpuLimit] = useState<string | null>(null);
+  const [memoryMb, setMemoryMb] = useState<number | null>(null);
+  const [storageMb, setStorageMb] = useState<number | null>(null);
 
   // Derived steps
   const steps = getWizardSteps(selectedRuntimeSlug);
@@ -98,11 +114,22 @@ export default function OnboardingWizard() {
       const detected = detectProviderFromKey(llmApiKey);
       if (detected) {
         setLlmProvider(detected);
+        // Set default model for the detected provider
+        const defaultModel = getDefaultModelForProvider(detected);
+        if (defaultModel) setLlmModel(defaultModel.id);
       }
     }
     // Reset validation when key changes
     setKeyValidation("idle");
   }, [llmApiKey, llmMode]);
+
+  // When provider changes manually (BYOK), reset model to that provider's default
+  // When switching to included mode, reset to the included default
+  useEffect(() => {
+    if (llmMode === "included") {
+      setLlmModel(DEFAULT_INCLUDED_MODEL);
+    }
+  }, [llmMode]);
 
   // Fetch runtimes from API
   const runtimesQuery = trpc.runtimeCatalog.list.useQuery();
@@ -198,7 +225,11 @@ export default function OnboardingWizard() {
           runtimeCatalogId: selectedRuntimeId!,
           llmMode,
           llmProvider: llmMode === "byok" ? llmProvider : "openrouter",
+          llmModel,
           llmApiKey: llmMode === "byok" ? llmApiKey : undefined,
+          cpuLimit: cpuLimit || undefined,
+          memoryMb: memoryMb || undefined,
+          storageMb: storageMb || undefined,
         });
       }
     } else if (currentStepId === "whatsapp") {
@@ -361,6 +392,8 @@ export default function OnboardingWizard() {
               setLlmMode={setLlmMode}
               llmProvider={llmProvider}
               setLlmProvider={setLlmProvider}
+              llmModel={llmModel}
+              setLlmModel={setLlmModel}
               llmApiKey={llmApiKey}
               setLlmApiKey={setLlmApiKey}
               keyValidation={keyValidation}
@@ -380,7 +413,14 @@ export default function OnboardingWizard() {
               }
               llmMode={llmMode}
               llmProvider={llmProvider}
+              llmModel={llmModel}
               isFree={!!isFreeAvailable}
+              cpuLimit={cpuLimit}
+              setCpuLimit={setCpuLimit}
+              memoryMb={memoryMb}
+              setMemoryMb={setMemoryMb}
+              storageMb={storageMb}
+              setStorageMb={setStorageMb}
             />
           )}
           {currentStepId === "whatsapp" && (
@@ -581,10 +621,10 @@ function StepChooseRuntime({
                   <Cpu className="w-3 h-3" /> {runtime.cpuLimit} vCPU
                 </span>
                 <span className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-secondary/80 text-muted-foreground">
-                  <MemoryStick className="w-3 h-3" /> {runtime.memoryMb} MB RAM
+                  <MemoryStick className="w-3 h-3" /> {runtime.memoryMb >= 1024 ? `${runtime.memoryMb / 1024} GB` : `${runtime.memoryMb} MB`} RAM
                 </span>
                 <span className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-secondary/80 text-muted-foreground">
-                  <HardDrive className="w-3 h-3" /> {runtime.storageMb} MB
+                  <HardDrive className="w-3 h-3" /> {runtime.storageMb} GB
                   Storage
                 </span>
               </div>
@@ -605,6 +645,59 @@ function StepChooseRuntime({
   );
 }
 
+// ─── Model Selector (shared by Included & BYOK) ─────────────────────
+
+function ModelSelector({
+  models,
+  selectedModel,
+  onSelectModel,
+}: {
+  models: LLMModelDef[];
+  selectedModel: string;
+  onSelectModel: (modelId: string) => void;
+}) {
+  return (
+    <div>
+      <Label className="mb-3 block text-sm font-medium">Choose Model</Label>
+      <div className="grid gap-2">
+        {models.map((model) => {
+          const isActive = selectedModel === model.id;
+          return (
+            <button
+              key={model.id}
+              onClick={() => onSelectModel(model.id)}
+              className={`w-full text-left px-4 py-3 rounded-lg border transition-all ${
+                isActive
+                  ? "border-primary bg-primary/10"
+                  : "border-border bg-secondary/30 hover:border-primary/50 hover:bg-secondary/50"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{model.name}</span>
+                    {model.isDefault && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400">
+                        Default
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {model.description}
+                  </p>
+                </div>
+                {isActive && (
+                  <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Step: LLM Setup (Enhanced) ─────────────────────────────────────
 
 function StepLlmSetup({
@@ -612,6 +705,8 @@ function StepLlmSetup({
   setLlmMode,
   llmProvider,
   setLlmProvider,
+  llmModel,
+  setLlmModel,
   llmApiKey,
   setLlmApiKey,
   keyValidation,
@@ -622,6 +717,8 @@ function StepLlmSetup({
   setLlmMode: (mode: "included" | "byok") => void;
   llmProvider: LLMProviderDef["id"];
   setLlmProvider: (provider: LLMProviderDef["id"]) => void;
+  llmModel: string;
+  setLlmModel: (model: string) => void;
   llmApiKey: string;
   setLlmApiKey: (key: string) => void;
   keyValidation: KeyValidationStatus;
@@ -629,6 +726,9 @@ function StepLlmSetup({
   isValidating: boolean;
 }) {
   const activeProvider = getProviderById(llmProvider);
+  const availableModels = getModelsForProvider(
+    llmMode === "included" ? "openrouter" : llmProvider
+  );
 
   return (
     <div className="space-y-6">
@@ -641,9 +741,12 @@ function StepLlmSetup({
 
       <div className="grid gap-4">
         {/* Included Credits Option */}
-        <button
+        <div
           onClick={() => setLlmMode("included")}
-          className={`w-full text-left p-6 rounded-lg border-2 transition-all ${
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && setLlmMode("included")}
+          className={`w-full text-left p-6 rounded-lg border-2 transition-all cursor-pointer ${
             llmMode === "included"
               ? "border-primary bg-primary/10"
               : "border-border hover:border-primary/50 bg-secondary/30 hover:bg-secondary/50"
@@ -670,22 +773,33 @@ function StepLlmSetup({
             )}
           </div>
           {llmMode === "included" && (
-            <div className="mt-4 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-green-400" />
-                <p className="text-sm text-green-300">
-                  An OpenRouter API key will be automatically provisioned when
-                  you deploy. Includes $5/month in LLM credits.
-                </p>
+            <div className="mt-4 space-y-4">
+              <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/30">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-green-400" />
+                  <p className="text-sm text-green-300">
+                    An OpenRouter API key will be automatically provisioned when
+                    you deploy. Includes $5/month in LLM credits.
+                  </p>
+                </div>
               </div>
+              {/* Model selector for included credits */}
+              <ModelSelector
+                models={availableModels}
+                selectedModel={llmModel}
+                onSelectModel={setLlmModel}
+              />
             </div>
           )}
-        </button>
+        </div>
 
         {/* BYOK Option */}
-        <button
+        <div
           onClick={() => setLlmMode("byok")}
-          className={`w-full text-left p-6 rounded-lg border-2 transition-all ${
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && setLlmMode("byok")}
+          className={`w-full text-left p-6 rounded-lg border-2 transition-all cursor-pointer ${
             llmMode === "byok"
               ? "border-primary bg-primary/10"
               : "border-border hover:border-primary/50 bg-secondary/30 hover:bg-secondary/50"
@@ -713,7 +827,7 @@ function StepLlmSetup({
               <CheckCircle2 className="w-6 h-6 text-primary shrink-0" />
             )}
           </div>
-        </button>
+        </div>
       </div>
 
       {/* BYOK: Provider Selection + Key Input */}
@@ -732,6 +846,9 @@ function StepLlmSetup({
                     key={provider.id}
                     onClick={() => {
                       setLlmProvider(provider.id);
+                      // Set default model for the new provider
+                      const defaultModel = getDefaultModelForProvider(provider.id);
+                      if (defaultModel) setLlmModel(defaultModel.id);
                       // Clear key if switching provider manually
                       if (llmApiKey.trim() && !llmApiKey.startsWith(provider.keyPrefix)) {
                         setLlmApiKey("");
@@ -841,6 +958,13 @@ function StepLlmSetup({
             </p>
           </div>
 
+          {/* Model selector for BYOK */}
+          <ModelSelector
+            models={availableModels}
+            selectedModel={llmModel}
+            onSelectModel={setLlmModel}
+          />
+
           {/* Auto-detection hint */}
           <div className="flex items-start gap-3 p-4 rounded-lg bg-blue-500/10 border border-blue-500/30">
             <HelpCircle className="w-5 h-5 text-blue-400 mt-0.5 shrink-0" />
@@ -865,7 +989,14 @@ function StepDeploy({
   runtime,
   llmMode,
   llmProvider,
+  llmModel,
   isFree,
+  cpuLimit,
+  setCpuLimit,
+  memoryMb,
+  setMemoryMb,
+  storageMb,
+  setStorageMb,
 }: {
   isDeploying: boolean;
   deployProgress: number;
@@ -873,9 +1004,30 @@ function StepDeploy({
   runtime?: RuntimeEntry;
   llmMode: "included" | "byok";
   llmProvider: string;
+  llmModel: string;
   isFree: boolean;
+  cpuLimit: string | null;
+  setCpuLimit: (v: string | null) => void;
+  memoryMb: number | null;
+  setMemoryMb: (v: number | null) => void;
+  storageMb: number | null;
+  setStorageMb: (v: number | null) => void;
 }) {
   const providerDef = getProviderById(llmProvider);
+  const modelDef = LLM_MODELS.find((m) => m.id === llmModel);
+  const [showHardware, setShowHardware] = useState(false);
+
+  // Effective values (custom or runtime defaults)
+  const effectiveCpu = cpuLimit ?? runtime?.cpuLimit ?? "2.0";
+  const effectiveMemory = memoryMb ?? runtime?.memoryMb ?? 2048;
+  const effectiveStorage = storageMb ?? runtime?.storageMb ?? 30;
+  const isCustomized = cpuLimit !== null || memoryMb !== null || storageMb !== null;
+
+  const handleResetToRecommended = () => {
+    setCpuLimit(null);
+    setMemoryMb(null);
+    setStorageMb(null);
+  };
 
   return (
     <div className="space-y-6 text-center">
@@ -919,8 +1071,21 @@ function StepDeploy({
                 <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/30">
                   <CheckCircle2 className="w-3 h-3" /> LLM:{" "}
                   {llmMode === "byok"
-                    ? `BYOK (${providerDef?.name ?? llmProvider})`
+                    ? `${providerDef?.name ?? llmProvider}`
                     : "Included Credits"}
+                </span>
+                <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/30">
+                  <CheckCircle2 className="w-3 h-3" /> Model:{" "}
+                  {modelDef?.name ?? llmModel}
+                </span>
+                <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/30">
+                  <Cpu className="w-3 h-3" /> {effectiveCpu} vCPU
+                </span>
+                <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/30">
+                  <MemoryStick className="w-3 h-3" /> {effectiveMemory >= 1024 ? `${effectiveMemory / 1024} GB` : `${effectiveMemory} MB`} RAM
+                </span>
+                <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/30">
+                  <HardDrive className="w-3 h-3" /> {effectiveStorage} GB Storage
                 </span>
                 {isFree && (
                   <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/30">
@@ -930,6 +1095,195 @@ function StepDeploy({
               </div>
             </div>
           </div>
+
+          {/* Hardware Configuration (collapsible) */}
+          <div className="text-left">
+            <button
+              onClick={() => setShowHardware(!showHardware)}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              <span className="font-medium">Hardware Configuration</span>
+              {isFree ? (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/20 text-blue-400">
+                  Free Tier
+                </span>
+              ) : isCustomized ? (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400">
+                  Custom
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-500/20 text-green-400">
+                  Recommended
+                </span>
+              )}
+              <ChevronRight
+                className={`w-4 h-4 ml-auto transition-transform ${
+                  showHardware ? "rotate-90" : ""
+                }`}
+              />
+            </button>
+
+            {showHardware && (
+              <div className="mt-4 space-y-5 p-5 rounded-lg border border-border bg-secondary/30">
+                {/* Free tier notice */}
+                {isFree && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                    <Gift className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
+                    <p className="text-xs text-blue-300">
+                      Free tier deployments use starter hardware specs ({CPU_OPTIONS[0]?.label} vCPU, 2 GB RAM, {STORAGE_OPTIONS[0]?.label} storage).
+                      Upgrade to a paid plan for customizable resources.
+                    </p>
+                  </div>
+                )}
+
+                {/* Recommended button */}
+                {!isFree && (
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    Defaults from <strong>{runtime?.name ?? "runtime"}</strong> catalog.
+                    Adjust if you need more (or less) resources.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResetToRecommended}
+                    disabled={!isCustomized}
+                    className="border-border hover:bg-green-500/10 hover:border-green-500/50 hover:text-green-400 text-xs shrink-0"
+                  >
+                    <RotateCcw className="w-3 h-3 mr-1.5" />
+                    Recommended
+                  </Button>
+                </div>
+                )}
+
+                {/* CPU selector */}
+                <div className={`space-y-2 ${isFree ? "opacity-50 pointer-events-none" : ""}`}>
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-1.5 text-sm">
+                      <Cpu className="w-4 h-4 text-blue-400" /> vCPU
+                    </Label>
+                    <span className="text-sm font-mono font-medium text-foreground">
+                      {effectiveCpu}
+                      {!isFree && cpuLimit === null && (
+                        <span className="text-[10px] text-green-400 ml-1.5">(recommended)</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    {CPU_OPTIONS.map((opt) => {
+                      const val = opt.value as string;
+                      const isRec = val === (runtime?.cpuLimit ?? "2.0");
+                      return (
+                        <button
+                          key={val}
+                          onClick={() => setCpuLimit(isRec ? null : val)}
+                          className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all border ${
+                            effectiveCpu === val
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-secondary/50 text-muted-foreground hover:border-primary/50"
+                          }`}
+                        >
+                          {opt.label}
+                          {isRec && (
+                            <span className="block text-[9px] text-green-400 mt-0.5">rec</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Memory selector */}
+                <div className={`space-y-2 ${isFree ? "opacity-50 pointer-events-none" : ""}`}>
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-1.5 text-sm">
+                      <MemoryStick className="w-4 h-4 text-purple-400" /> RAM
+                    </Label>
+                    <span className="text-sm font-mono font-medium text-foreground">
+                      {effectiveMemory >= 1024 ? `${effectiveMemory / 1024} GB` : `${effectiveMemory} MB`}
+                      {!isFree && memoryMb === null && (
+                        <span className="text-[10px] text-green-400 ml-1.5">(recommended)</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    {MEMORY_OPTIONS.map((opt) => {
+                      const val = opt.value as number;
+                      const isRec = val === (runtime?.memoryMb ?? 2048);
+                      return (
+                        <button
+                          key={val}
+                          onClick={() => setMemoryMb(isRec ? null : val)}
+                          className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all border ${
+                            effectiveMemory === val
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-secondary/50 text-muted-foreground hover:border-primary/50"
+                          }`}
+                        >
+                          {opt.label}
+                          {isRec && (
+                            <span className="block text-[9px] text-green-400 mt-0.5">rec</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Storage selector */}
+                <div className={`space-y-2 ${isFree ? "opacity-50 pointer-events-none" : ""}`}>
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-1.5 text-sm">
+                      <HardDrive className="w-4 h-4 text-amber-400" /> Storage
+                    </Label>
+                    <span className="text-sm font-mono font-medium text-foreground">
+                      {effectiveStorage} GB
+                      {!isFree && storageMb === null && (
+                        <span className="text-[10px] text-green-400 ml-1.5">(recommended)</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    {STORAGE_OPTIONS.map((opt) => {
+                      const val = opt.value as number;
+                      const isRec = val === (runtime?.storageMb ?? 30);
+                      return (
+                        <button
+                          key={val}
+                          onClick={() => setStorageMb(isRec ? null : val)}
+                          className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all border ${
+                            effectiveStorage === val
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-secondary/50 text-muted-foreground hover:border-primary/50"
+                          }`}
+                        >
+                          {opt.label}
+                          {isRec && (
+                            <span className="block text-[9px] text-green-400 mt-0.5">rec</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Info hint */}
+                {!isFree && (
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                  <HelpCircle className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
+                  <p className="text-xs text-blue-300">
+                    Not sure? Click <strong>Recommended</strong> to use the
+                    optimal settings for {runtime?.name ?? "this runtime"}.
+                    You can always adjust these later from the dashboard.
+                  </p>
+                </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
             <Rocket className="w-4 h-4 text-primary" />
             <p className="text-sm">

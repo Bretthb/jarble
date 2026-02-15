@@ -46,31 +46,6 @@ export function AdvancedTab({ deployment }: AdvancedTabProps) {
         </div>
 
         <div className="p-4 rounded-lg bg-secondary/80/50 border border-border">
-          <h3 className="font-semibold mb-2">Rate Limiting</h3>
-          <p className="text-sm text-muted-foreground mb-4">Control how often users can interact with your deployment</p>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="rateLimit" className="mb-2 block text-sm">Messages per minute</Label>
-              <Input
-                id="rateLimit"
-                type="number"
-                defaultValue={60}
-                className="bg-secondary border-border text-foreground"
-              />
-            </div>
-            <div>
-              <Label htmlFor="cooldown" className="mb-2 block text-sm">Cooldown (seconds)</Label>
-              <Input
-                id="cooldown"
-                type="number"
-                defaultValue={1}
-                className="bg-secondary border-border text-foreground"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 rounded-lg bg-secondary/80/50 border border-border">
           <h3 className="font-semibold mb-2">Webhooks</h3>
           <p className="text-sm text-muted-foreground mb-4">Receive notifications about deployment events</p>
           <div>

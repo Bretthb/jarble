@@ -96,39 +96,17 @@ export function ModelTab({ formData, updateFormData }: TabProps) {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="temperature" className="mb-2 block">
-              Temperature: {formData.temperature}
-            </Label>
-            <input
-              id="temperature"
-              type="range"
-              min="0"
-              max="2"
-              step="0.1"
-              value={formData.temperature}
-              onChange={(e) => updateFormData("temperature", parseFloat(e.target.value))}
-              className="w-full accent-primary"
-            />
-            <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span>Precise</span>
-              <span>Creative</span>
-            </div>
-          </div>
-
-          <div>
-            <Label htmlFor="maxTokens" className="mb-2 block">Max Tokens</Label>
-            <Input
-              id="maxTokens"
-              type="number"
-              value={formData.maxTokens}
-              onChange={(e) => updateFormData("maxTokens", parseInt(e.target.value))}
-              className="bg-secondary/80 border-border text-foreground"
-              min={256}
-              max={8192}
-            />
-          </div>
+        <div>
+          <Label htmlFor="maxTokens" className="mb-2 block">Max Tokens</Label>
+          <Input
+            id="maxTokens"
+            type="number"
+            value={formData.maxTokens}
+            onChange={(e) => updateFormData("maxTokens", parseInt(e.target.value))}
+            className="bg-secondary/80 border-border text-foreground"
+            min={256}
+            max={8192}
+          />
         </div>
       </div>
     </div>

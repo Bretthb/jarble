@@ -23,6 +23,9 @@ interface DeploymentConfig {
   platform?: string;
   runtime?: string;
   image?: string;
+  cpuLimit?: string;     // e.g. "2.0" — vCPU allocation
+  memoryMb?: number;     // e.g. 2048 — RAM in MB
+  storageMb?: number;    // e.g. 30 — persistent storage in GB (historical naming)
 }
 
 export async function createDeployment(
@@ -34,13 +37,26 @@ export async function createDeployment(
 
   const containerImage = config.image || DEFAULT_IMAGE;
 
+  // Derive resource values from config (with sensible defaults)
+  const cpuLimit = config.cpuLimit || "2.0";
+  const memoryMb = config.memoryMb || 2048;
+  const storageGbVal = config.storageMb || 30; // "storageMb" is actually GB (historical naming)
+
+  // Convert to K8s resource units
+  // CPU: "2.0" → "2000m" (millicores). Request = limit (guaranteed QoS).
+  const cpuMillicores = `${Math.round(parseFloat(cpuLimit) * 1000)}m`;
+  // Memory: MB → "XMi"
+  const memoryMi = `${memoryMb}Mi`;
+  // Storage: Value is already in GB → "XGi" (minimum 1Gi)
+  const storageGi = `${Math.max(1, storageGbVal)}Gi`;
+
   // 1. Create PVC for deployment storage
   await coreApi.createNamespacedPersistentVolumeClaim(NAMESPACE, {
     metadata: { name: `pvc-${deploymentId}` },
     spec: {
       accessModes: ["ReadWriteOnce"],
       storageClassName: "longhorn",
-      resources: { requests: { storage: "5Gi" } },
+      resources: { requests: { storage: storageGi } },
     },
   });
 
@@ -73,8 +89,8 @@ export async function createDeployment(
             name: "runtime",
             image: containerImage,
             resources: {
-              requests: { cpu: "500m", memory: "2Gi" },
-              limits: { cpu: "1000m", memory: "4Gi" },
+              requests: { cpu: cpuMillicores, memory: memoryMi },
+              limits: { cpu: cpuMillicores, memory: memoryMi },
             },
             envFrom: [{ secretRef: { name: `secret-${deploymentId}` } }],
             volumeMounts: [{ name: "data", mountPath: "/data" }],

@@ -91,7 +91,11 @@ export const deploymentRouter = router({
       image: z.string().optional(),
       llmMode: z.enum(["included", "byok"]).default("byok"),
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).default("openrouter"),
+      llmModel: z.string().optional(), // e.g. "openrouter/auto", "gpt-4o", "claude-sonnet-4-20250514"
       llmApiKey: z.string().optional(),
+      cpuLimit: z.string().optional(),    // e.g. "2.0" — overrides runtime catalog default
+      memoryMb: z.number().int().positive().optional(),   // e.g. 2048 — RAM in MB
+      storageMb: z.number().int().positive().optional(),  // e.g. 30 — storage in GB (historical naming)
     }))
     .mutation(async ({ ctx, input }) => {
       // Look up the runtime catalog entry
@@ -167,7 +171,10 @@ export const deploymentRouter = router({
         }
       }
 
-      // Insert deployment
+      // Free tier deployments get minimum specs (except 2GB RAM minimum)
+      const FREE_TIER_SPECS = { cpuLimit: "1", memoryMb: 2048, storageMb: 20 };
+
+      // Insert deployment — hardware overrides default from runtime catalog
       await (ctx.db as any).insert(deployments).values({
         id: deploymentId,
         userId: ctx.user.id,
@@ -178,8 +185,12 @@ export const deploymentRouter = router({
         isFree,
         monthlyPriceCents: isFree ? 0 : catalogEntry.monthlyPriceCents,
         freeExpiresAt,
+        cpuLimit: isFree ? FREE_TIER_SPECS.cpuLimit : (input.cpuLimit || catalogEntry.cpuLimit),
+        memoryMb: isFree ? FREE_TIER_SPECS.memoryMb : (input.memoryMb || catalogEntry.memoryMb),
+        storageMb: isFree ? FREE_TIER_SPECS.storageMb : (input.storageMb || catalogEntry.storageMb),
         llmMode: input.llmMode,
         llmProvider: resolvedProvider,
+        llmModel: input.llmModel || (input.llmMode === "included" ? "openrouter/auto" : null),
         llmApiKey: resolvedApiKey,
         status: "pending",
       });
@@ -206,6 +217,9 @@ export const deploymentRouter = router({
         isFree,
         llmMode: input.llmMode,
         llmProvider: resolvedProvider,
+        cpuLimit: isFree ? FREE_TIER_SPECS.cpuLimit : (input.cpuLimit || catalogEntry.cpuLimit),
+        memoryMb: isFree ? FREE_TIER_SPECS.memoryMb : (input.memoryMb || catalogEntry.memoryMb),
+        storageMb: isFree ? FREE_TIER_SPECS.storageMb : (input.storageMb || catalogEntry.storageMb),
         monthlyPriceCents: isFree ? 0 : catalogEntry.monthlyPriceCents,
       }, "Deployment created (pending)");
 
@@ -237,6 +251,9 @@ export const deploymentRouter = router({
             name: deployment.name,
             runtime: deployment.runtime,
             image: deployment.image || undefined,
+            cpuLimit: deployment.cpuLimit || undefined,
+            memoryMb: deployment.memoryMb || undefined,
+            storageMb: deployment.storageMb || undefined,
           });
           await (ctx.db as any).update(deployments)
             .set({ status: "running" })
@@ -276,7 +293,11 @@ export const deploymentRouter = router({
       description: z.string().optional(),
       llmMode: z.enum(["included", "byok"]).optional(),
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).optional(),
+      llmModel: z.string().optional(),
       llmApiKey: z.string().optional(),
+      cpuLimit: z.string().optional(),
+      memoryMb: z.number().int().positive().optional(),
+      storageMb: z.number().int().positive().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input;

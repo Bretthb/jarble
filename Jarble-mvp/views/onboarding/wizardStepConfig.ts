@@ -1,6 +1,7 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
  * Wizard Step Config — Single source of truth for onboarding wizard steps
+ * AND deployment config dashboard tabs
  * ═══════════════════════════════════════════════════════════════════════
  *
  * HOW THE WIZARD WORKS:
@@ -25,6 +26,12 @@
  *   3. Add the provider to the Zod enum in
  *      jarble-api-main/src/trpc/routers/deployment.ts → create + update
  *
+ * HOW TO CHANGE HARDWARE OPTIONS:
+ *   Edit CPU_OPTIONS, MEMORY_OPTIONS, or STORAGE_OPTIONS below.
+ *   Each has { value, label } — the wizard buttons update automatically.
+ *   The "recommended" badge comes from the runtime_catalog DB table,
+ *   not from these arrays.
+ *
  * EXAMPLE — Adding a "discordbot" runtime with Discord + Deploy steps:
  *
  *   // 1. In this file, add to RUNTIME_EXTRA_STEPS:
@@ -39,6 +46,19 @@
  *   // 3. Create the StepConnectDiscord component (inline or separate file)
  *
  *   That's it — progress bar, navigation, and button text adapt automatically.
+ *
+ * HOW TO CHANGE CONFIG DASHBOARD TABS FOR A RUNTIME:
+ *   1. Edit RUNTIME_CONFIG_TABS below (same pattern as RUNTIME_EXTRA_STEPS)
+ *   2. If a new tab ID is used, add the matching render block in
+ *      DeploymentConfiguration.tsx:
+ *        {activeTab === "yourid" && <YourTabComponent />}
+ *   3. Universal tabs (General, Advanced) are always shown for every runtime.
+ *
+ *   Example — Adding a "discordbot" runtime with Model + Platforms tabs:
+ *     discordbot: [
+ *       { id: "model", label: "Model", icon: Bot },
+ *       { id: "platforms", label: "Platforms", icon: Link2 },
+ *     ],
  */
 
 import {
@@ -47,6 +67,9 @@ import {
   Sparkles,
   Rocket,
   MessageCircle,
+  Settings,
+  Link2,
+  Shield,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -66,6 +89,14 @@ export interface LLMProviderDef {
   keyPlaceholder: string; // Placeholder text for the API key input
   keyUrl: string;       // Link to where users can get their API key
   recommended?: boolean; // Shows a "Recommended" badge on the provider card
+}
+
+export interface LLMModelDef {
+  id: string;           // Model ID sent to the API (e.g. "openrouter/auto", "gpt-4o")
+  name: string;         // Display name in the selector
+  provider: LLMProviderDef["id"]; // Which provider this model belongs to
+  description: string;  // Short description shown in the dropdown
+  isDefault?: boolean;  // Pre-selected default (one per provider)
 }
 
 // ─── Universal Steps (always shown first, before runtime-specific steps) ──
@@ -111,6 +142,79 @@ const DEFAULT_EXTRA_STEPS: WizardStepDef[] = [
   { id: "deploy", title: "Deploy", icon: Rocket },
 ];
 
+// ─── Config Dashboard Tabs (shown in the deployment config sidebar) ──
+//
+// These define which tabs appear in the deployment configuration dashboard
+// for each runtime. Works the same way as RUNTIME_EXTRA_STEPS above.
+//
+// HOW TO CHANGE CONFIG TABS FOR A RUNTIME:
+//   Just edit the arrays below. The config dashboard reads from here
+//   automatically. If you add a new tab ID, also add the matching
+//   render block in DeploymentConfiguration.tsx.
+//
+// Universal tabs (always shown): General, Advanced
+// Runtime-specific tabs: Model, Platforms, Skills, etc.
+
+export interface ConfigTabDef {
+  id: string;         // Unique tab ID — used to match render blocks in DeploymentConfiguration.tsx
+  label: string;      // Shown in the sidebar navigation
+  icon: LucideIcon;   // Lucide icon component
+}
+
+// Always shown for all runtimes
+export const UNIVERSAL_CONFIG_TABS: ConfigTabDef[] = [
+  { id: "general", label: "General", icon: Settings },
+];
+
+// Runtime-specific tabs (inserted between General and Advanced)
+const RUNTIME_CONFIG_TABS: Record<string, ConfigTabDef[]> = {
+  // OpenClaw — AI WhatsApp bot, needs Model + Platforms + Skills
+  openclaw: [
+    { id: "model", label: "Model", icon: Bot },
+    { id: "platforms", label: "Platforms", icon: Link2 },
+    { id: "skills", label: "Skills", icon: Sparkles },
+  ],
+
+  // ZeroClaw — lightweight bot, only Platforms
+  zeroclaw: [
+    { id: "platforms", label: "Platforms", icon: Link2 },
+  ],
+
+  // ── Add new runtimes here ──
+  // Example:
+  // discordbot: [
+  //   { id: "model", label: "Model", icon: Bot },
+  //   { id: "platforms", label: "Platforms", icon: Link2 },
+  // ],
+};
+
+// Fallback for unknown runtimes — show all tabs
+const DEFAULT_CONFIG_TABS: ConfigTabDef[] = [
+  { id: "model", label: "Model", icon: Bot },
+  { id: "platforms", label: "Platforms", icon: Link2 },
+  { id: "skills", label: "Skills", icon: Sparkles },
+];
+
+// Always shown last
+const ADVANCED_TAB: ConfigTabDef = { id: "advanced", label: "Advanced", icon: Shield };
+
+/**
+ * Get the config dashboard tabs for a runtime slug.
+ * Returns universal tabs + runtime-specific tabs + Advanced.
+ *
+ * Example:
+ *   getConfigTabs("openclaw")  → [General, Model, Platforms, Skills, Advanced]
+ *   getConfigTabs("zeroclaw")  → [General, Platforms, Advanced]
+ *   getConfigTabs(null)        → [General, Model, Platforms, Skills, Advanced]  (fallback)
+ */
+export function getConfigTabs(runtimeSlug: string | null): ConfigTabDef[] {
+  const extras = runtimeSlug
+    ? (RUNTIME_CONFIG_TABS[runtimeSlug] ?? DEFAULT_CONFIG_TABS)
+    : DEFAULT_CONFIG_TABS;
+
+  return [...UNIVERSAL_CONFIG_TABS, ...extras, ADVANCED_TAB];
+}
+
 // ─── LLM Providers (shown in the BYOK provider grid) ────────────────
 //
 // To add a new provider:
@@ -152,6 +256,88 @@ export const LLM_PROVIDERS: LLMProviderDef[] = [
     keyPlaceholder: "AIzaSy...",
     keyUrl: "https://aistudio.google.com/apikey",
   },
+];
+
+// ─── LLM Models (shown in model selector dropdown) ───────────────────
+//
+// Each model belongs to a provider. The UI filters this list by the
+// currently selected provider (or shows all for OpenRouter/included).
+// To add a new model, just add it here — the dropdown updates automatically.
+//
+// The model with isDefault: true is pre-selected when switching providers.
+// For "Included Credits" mode, the default is always "openrouter/auto".
+
+export const LLM_MODELS: LLMModelDef[] = [
+  // ── OpenRouter models ──
+  { id: "openrouter/auto",           name: "Auto (Best Available)",   provider: "openrouter", description: "OpenRouter picks the best model for each request", isDefault: true },
+  { id: "openai/gpt-4o",             name: "GPT-4o",                  provider: "openrouter", description: "OpenAI's flagship multimodal model" },
+  { id: "openai/gpt-4o-mini",        name: "GPT-4o Mini",             provider: "openrouter", description: "Fast and affordable for simple tasks" },
+  { id: "anthropic/claude-sonnet-4-20250514", name: "Claude Sonnet 4",  provider: "openrouter", description: "Anthropic's balanced model" },
+  { id: "anthropic/claude-haiku-3.5", name: "Claude Haiku 3.5",       provider: "openrouter", description: "Fast, cheap, and capable" },
+  { id: "google/gemini-2.0-flash-001", name: "Gemini 2.0 Flash",     provider: "openrouter", description: "Google's fast multimodal model" },
+
+  // ── OpenAI direct models ──
+  { id: "gpt-4o",                    name: "GPT-4o",                  provider: "openai", description: "Flagship multimodal model", isDefault: true },
+  { id: "gpt-4o-mini",               name: "GPT-4o Mini",             provider: "openai", description: "Fast and affordable" },
+  { id: "o1",                        name: "o1",                      provider: "openai", description: "Advanced reasoning model" },
+
+  // ── Anthropic direct models ──
+  { id: "claude-sonnet-4-20250514",  name: "Claude Sonnet 4",         provider: "anthropic", description: "Balanced performance and speed", isDefault: true },
+  { id: "claude-haiku-3.5",          name: "Claude Haiku 3.5",        provider: "anthropic", description: "Fast and affordable" },
+  { id: "claude-opus-4-20250514",    name: "Claude Opus 4",           provider: "anthropic", description: "Most capable model" },
+
+  // ── Google direct models ──
+  { id: "gemini-2.0-flash",          name: "Gemini 2.0 Flash",        provider: "google", description: "Fast multimodal model", isDefault: true },
+  { id: "gemini-2.0-pro",            name: "Gemini 2.0 Pro",          provider: "google", description: "Most capable Google model" },
+];
+
+// Default model for "Included Credits" mode (always via OpenRouter)
+export const DEFAULT_INCLUDED_MODEL = "openrouter/auto";
+
+// ─── Hardware Configuration Options (shown in Deploy step) ──────────
+//
+// These define the selectable values for CPU, RAM, and Storage in the
+// hardware configuration panel. Each option has a value and a display label.
+//
+// HOW TO CHANGE HARDWARE OPTIONS:
+//   Just edit the arrays below. The wizard reads from here automatically.
+//   The "recommended" value for each deployment comes from the runtime_catalog
+//   DB table (cpuLimit, memoryMb, storageMb), NOT from here.
+//   These arrays only control what buttons appear in the UI.
+
+export interface HardwareOptionDef {
+  value: number | string;  // The actual value (string for CPU, number for RAM in MB / Storage in GB)
+  label: string;           // Display label shown on the button
+}
+
+export const CPU_OPTIONS: HardwareOptionDef[] = [
+  { value: "1", label: "1" },
+  { value: "1.50", label: "1.50" },
+  { value: "2.0",  label: "2.0" },
+  { value: "2.5",  label: "2.5" },
+  { value: "3.0",  label: "3.0" },
+  { value: "3.5",  label: "3.5" },
+];
+
+export const MEMORY_OPTIONS: HardwareOptionDef[] = [
+  { value: 256,  label: "256 MB" },
+  { value: 512,  label: "512 MB" },
+  { value: 1024, label: "1 GB" },
+  { value: 2048, label: "2 GB" },
+  { value: 4096, label: "4 GB" },
+  { value: 8192, label: "8 GB" },
+];
+
+export const STORAGE_OPTIONS: HardwareOptionDef[] = [
+  { value: 20,   label: "20 gb" },
+  { value: 30,  label: "30 gb" },
+  { value: 40,  label: "40 gb" },
+  { value: 50,  label: "50 gb" },
+  { value: 60,  label: "60 gb" },
+  { value: 70,  label: "70 gb" },
+  { value: 80,  label: "80 gb" },
+  { value: 90,  label: "90 gb" },
+  { value: 100, label: "100 gb" },
 ];
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -218,4 +404,25 @@ export function runtimeNeedsLlm(runtimeSlug: string | null): boolean {
  */
 export function getProviderById(id: string): LLMProviderDef | undefined {
   return LLM_PROVIDERS.find((p) => p.id === id);
+}
+
+/**
+ * Get available models for a provider.
+ * Returns models filtered by provider ID.
+ *
+ * Example:
+ *   getModelsForProvider("openai")  → [GPT-4o, GPT-4o Mini, o1]
+ *   getModelsForProvider("openrouter") → [Auto, GPT-4o, Claude Sonnet 4, ...]
+ */
+export function getModelsForProvider(providerId: string): LLMModelDef[] {
+  return LLM_MODELS.filter((m) => m.provider === providerId);
+}
+
+/**
+ * Get the default model for a provider.
+ * Returns the model with isDefault: true, or the first model if none marked.
+ */
+export function getDefaultModelForProvider(providerId: string): LLMModelDef | undefined {
+  const models = getModelsForProvider(providerId);
+  return models.find((m) => m.isDefault) || models[0];
 }

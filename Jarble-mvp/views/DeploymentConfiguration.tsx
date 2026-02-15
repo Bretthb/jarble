@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
@@ -15,7 +15,8 @@ import {
   PowerOff,
   Loader2,
 } from "lucide-react";
-import { TABS } from "./deployment-config/types";
+import { createElement } from "react";
+import { getConfigTabs } from "./onboarding/wizardStepConfig";
 import type { Tab, DeploymentFormData } from "./deployment-config/types";
 import { GeneralTab } from "./deployment-config/GeneralTab";
 import { ModelTab } from "./deployment-config/ModelTab";
@@ -39,7 +40,6 @@ export default function DeploymentConfiguration() {
     modelName: "",
     apiKey: "",
     systemPrompt: "",
-    temperature: 0.7,
     maxTokens: 2048,
     platforms: [],
     skills: [],
@@ -74,6 +74,17 @@ export default function DeploymentConfiguration() {
 
   const deployment = deploymentQuery.data;
 
+  // Dynamic tabs based on the deployment's runtime
+  const runtimeSlug = deployment?.runtime ?? null;
+  const tabs = useMemo(() => getConfigTabs(runtimeSlug), [runtimeSlug]);
+
+  // If active tab no longer exists in the new tab set (e.g. after runtime changes), reset to general
+  useEffect(() => {
+    if (tabs.length > 0 && !tabs.some((t) => t.id === activeTab)) {
+      setActiveTab("general");
+    }
+  }, [tabs, activeTab]);
+
   useEffect(() => {
     if (deployment) {
       setFormData({
@@ -83,7 +94,6 @@ export default function DeploymentConfiguration() {
         modelName: "",
         apiKey: "",
         systemPrompt: "",
-        temperature: 0.7,
         maxTokens: 2048,
         platforms: [],
         skills: [],
@@ -176,7 +186,7 @@ export default function DeploymentConfiguration() {
           {/* Sidebar Navigation */}
           <aside data-tour="config-sidebar" className="w-56 flex-shrink-0">
             <nav className="space-y-1 sticky top-24">
-              {TABS.map((tab) => (
+              {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   data-tab={tab.id}
@@ -187,7 +197,7 @@ export default function DeploymentConfiguration() {
                       : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                   }`}
                 >
-                  {tab.icon}
+                  {createElement(tab.icon, { className: "w-4 h-4" })}
                   {tab.label}
                 </button>
               ))}

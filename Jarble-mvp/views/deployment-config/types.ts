@@ -1,15 +1,5 @@
-import { Settings, Bot, Link2, Sparkles, Shield } from "lucide-react";
-import { createElement } from "react";
-
-export type Tab = "general" | "model" | "platforms" | "skills" | "advanced";
-
-export const TABS = [
-  { id: "general" as Tab, label: "General", icon: createElement(Settings, { className: "w-4 h-4" }) },
-  { id: "model" as Tab, label: "Model", icon: createElement(Bot, { className: "w-4 h-4" }) },
-  { id: "platforms" as Tab, label: "Platforms", icon: createElement(Link2, { className: "w-4 h-4" }) },
-  { id: "skills" as Tab, label: "Skills", icon: createElement(Sparkles, { className: "w-4 h-4" }) },
-  { id: "advanced" as Tab, label: "Advanced", icon: createElement(Shield, { className: "w-4 h-4" }) },
-];
+// Tab type — now dynamic based on runtime (see wizardStepConfig.ts → getConfigTabs)
+export type Tab = string;
 
 export interface PlatformConfig {
   id: string;
@@ -125,7 +115,6 @@ export interface DeploymentFormData {
   modelName: string;
   apiKey: string;
   systemPrompt: string;
-  temperature: number;
   maxTokens: number;
   platforms: string[];
   skills: string[];

@@ -15,9 +15,9 @@ const CREATE_TABLES_SQL = `
     description TEXT,
     category TEXT DEFAULT 'bot' NOT NULL,
     docker_image TEXT NOT NULL,
-    cpu_limit TEXT DEFAULT '0.25' NOT NULL,
-    memory_mb INTEGER DEFAULT 512 NOT NULL,
-    storage_mb INTEGER DEFAULT 100 NOT NULL,
+    cpu_limit TEXT DEFAULT '2.0' NOT NULL,
+    memory_mb INTEGER DEFAULT 2048 NOT NULL,
+    storage_mb INTEGER DEFAULT 30 NOT NULL,
     monthly_price_cents INTEGER DEFAULT 0 NOT NULL,
     is_active INTEGER DEFAULT 1 NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL
@@ -47,8 +47,12 @@ const CREATE_TABLES_SQL = `
     is_free INTEGER DEFAULT 0 NOT NULL,
     monthly_price_cents INTEGER DEFAULT 0 NOT NULL,
     free_expires_at TEXT,
+    cpu_limit TEXT,
+    memory_mb INTEGER,
+    storage_mb INTEGER,
     llm_mode TEXT DEFAULT 'byok' NOT NULL,
     llm_provider TEXT DEFAULT 'openrouter' NOT NULL,
+    llm_model TEXT,
     llm_api_key TEXT,
     status TEXT DEFAULT 'creating' NOT NULL,
     error TEXT,
@@ -86,6 +90,7 @@ async function seedDatabase() {
   }
 
   // Seed runtime catalog (2 runtimes — pricing TBD)
+  // NOTE: storageMb values are in GB (historical naming — column is "storage_mb" but unit is GB)
   const runtimes = [
     {
       slug: "openclaw",
@@ -93,9 +98,9 @@ async function seedDatabase() {
       description: "AI-powered WhatsApp assistant with conversation memory and tool use",
       category: "bot",
       dockerImage: "ghcr.io/jarble-ai/openclaw:latest",
-      cpuLimit: "0.25",
-      memoryMb: 512,
-      storageMb: 100,
+      cpuLimit: "2.0",
+      memoryMb: 2048,
+      storageMb: 30,
       monthlyPriceCents: 0,
     },
     {
@@ -104,9 +109,9 @@ async function seedDatabase() {
       description: "Lightweight zero-config chatbot for quick deployment",
       category: "bot",
       dockerImage: "ghcr.io/jarble-ai/zeroclaw:latest",
-      cpuLimit: "0.15",
-      memoryMb: 256,
-      storageMb: 50,
+      cpuLimit: "2.0",
+      memoryMb: 2048,
+      storageMb: 30,
       monthlyPriceCents: 0,
     },
   ];
@@ -141,6 +146,7 @@ async function seedDatabase() {
     freeExpiresAt: expiresAt,
     llmMode: "byok",
     llmProvider: "openrouter",
+    llmModel: "openrouter/auto",
     status: "running",
   });
 
