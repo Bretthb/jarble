@@ -2,10 +2,12 @@
 
 ## Context
 
-The Jarble platform currently runs a simplified 3-table dev schema (users, bots, tiers). The user has defined the real production schema with 7 tables that properly models platform connections, usage tracking, bot task history, tier-based resource limits, and subscription management. This plan updates **both** the API (MySQL + SQLite schemas, tRPC routers, K8s deployment, auth) **and** the frontend (OnboardingWizard, Dashboard, BotConfiguration tabs) to match.
+The Jarble platform currently runs a simplified 3-table dev schema (users, deployments, tiers). The production schema will have 7 tables that properly model platform connections, usage tracking, deployment task history, tier-based resource limits, and subscription management. This plan updates **both** the API (MySQL + SQLite schemas, tRPC routers, K8s deployment, auth) **and** the frontend (OnboardingWizard, Dashboard, DeploymentConfiguration tabs) to match.
+
+> **Completed: bots → deployments rename.** The core entity was renamed from "bots" to "deployments" across the entire codebase. Two new fields were added: `runtime` (varchar 100, default "openclaw") and `image` (varchar 255, nullable) to support multiple container types beyond OpenClaw. Frontend routes changed from `/bot/[botId]/...` to `/d/[id]/...`.
 
 **Production architecture:**
-- Vercel (Next.js) → HTTPS → Hetzner K3s (Express/tRPC API pod + Bot pods)
+- Vercel (Next.js) → HTTPS → Hetzner K3s (Express/tRPC API pod + Deployment pods)
 - Longhorn distributed block storage across K3s VPS nodes
 - AWS RDS (MySQL) for production DB
 - External: Auth0, OpenRouter, Stripe
@@ -24,10 +26,10 @@ flowchart TB
             K8sClient["K8s Client"]
             Drizzle["Drizzle ORM"]
         end
-        subgraph Bots["Bot Pods"]
-            Bot1["bot-001"]
-            Bot2["bot-002"]
-            Bot3["bot-003"]
+        subgraph Deployments["Deployment Pods"]
+            Dep1["dep-abc123"]
+            Dep2["dep-def456"]
+            Dep3["dep-ghi789"]
         end
         Longhorn[("Longhorn Storage")]
     end
@@ -41,15 +43,15 @@ flowchart TB
     Express --> TRPC
     TRPC --> K8sClient
     TRPC --> Drizzle
-    K8sClient -->|"Create/Delete/Status"| Bots
+    K8sClient -->|"Create/Delete/Status"| Deployments
     Drizzle --> RDS
     TRPC --> Auth0
     TRPC --> OpenRouter
     TRPC --> Stripe
-    Bots --> Longhorn
+    Deployments --> Longhorn
 ```
 
-**Key decision:** Keep `id` as VARCHAR/TEXT (nanoid strings) for users and bots. The new schema spec says INT AUTO_INCREMENT, but the entire codebase uses string IDs. Changing to INT would cascade through every file. We keep string IDs.
+**Key decision:** Keep `id` as VARCHAR/TEXT (nanoid strings) for users and deployments. The new schema spec says INT AUTO_INCREMENT, but the entire codebase uses string IDs. Changing to INT would cascade through every file. We keep string IDs.
 
 ---
 
@@ -66,27 +68,28 @@ flowchart TB
 - subscriptionStatus (VARCHAR — "none"/"active"/"canceled"/"past_due"/"trialing", default "none")
 - createdAt, updatedAt, lastSignedIn (TIMESTAMP)
 
-### 2. bots
+### 2. deployments _(renamed from bots)_
 - id (PK, VARCHAR — nanoid string)
 - userId (FK → users)
 - name (VARCHAR 255)
+- description (TEXT)
+- template (VARCHAR 100)
+- **runtime** (VARCHAR 100, NOT NULL, default "openclaw") — container runtime type (openclaw, langchain, custom, etc.)
+- **image** (VARCHAR 255, nullable) — Docker image override per deployment
 - status (VARCHAR — "creating"/"deploying"/"running"/"restarting"/"error"/"deleted")
-- errorMessage (TEXT)
-- personality (TEXT) — generates SOUL.md
-- model (VARCHAR 100) — OpenRouter model ID
-- llmApiKey, llmApiKeyHash (VARCHAR 255) — per-bot OpenRouter key
-- storagePath (VARCHAR 255) — Longhorn mount path /bots/{id}
-- storageBytes (BIGINT) — current storage used
-- storageUpdatedAt (TIMESTAMP)
-- createdAt, updatedAt, deployedAt (TIMESTAMP)
+- error (TEXT)
+- tierId (FK → tiers)
+- createdAt, updatedAt (TIMESTAMP)
+
+> **Future columns (Phase 2+):** personality (TEXT), model (VARCHAR 100), llmApiKey/llmApiKeyHash (VARCHAR 255), storagePath (VARCHAR 255), storageBytes (BIGINT), storageUpdatedAt (TIMESTAMP), deployedAt (TIMESTAMP)
 
 ### 3. tiers
 - id (PK, INT auto-increment)
 - name (VARCHAR — "free"/"pro"/"agency")
 - displayName (VARCHAR 50)
-- maxBots (INT)
+- maxDeployments (INT)
 - monthlyCredits (INT)
-- maxStorageMb (INT) — per bot storage limit
+- maxStorageMb (INT) — per deployment storage limit
 - cpuLimit (VARCHAR 10) — e.g. "0.25"
 - memoryMb (INT) — e.g. 512
 - priceMonthly (INT) — in cents
@@ -99,9 +102,9 @@ flowchart TB
 - icon (VARCHAR 255)
 - configSchema (JSON) — defines credential fields for each platform
 
-### 5. botPlatforms
+### 5. deploymentPlatforms _(renamed from botPlatforms)_
 - id (PK, INT auto-increment)
-- botId (FK → bots)
+- deploymentId (FK → deployments)
 - platformId (FK → platforms)
 - status (VARCHAR — "pending"/"connected"/"disconnected"/"error")
 - config (JSON) — platform-specific settings
@@ -110,16 +113,16 @@ flowchart TB
 
 ### 6. usageRecords
 - id (PK, INT auto-increment)
-- botId (FK → bots)
+- deploymentId (FK → deployments)
 - userId (FK → users)
 - model (VARCHAR 100)
 - inputTokens, outputTokens (INT)
 - creditsUsed (INT)
 - createdAt (TIMESTAMP)
 
-### 7. botTasks
+### 7. deploymentTasks _(renamed from botTasks)_
 - id (PK, INT auto-increment)
-- botId (FK → bots)
+- deploymentId (FK → deployments)
 - podName (VARCHAR 255) — K3s pod name
 - status (VARCHAR — "pending"/"running"/"stopped"/"failed")
 - startedAt, stoppedAt (TIMESTAMP)
@@ -129,39 +132,42 @@ flowchart TB
 
 ---
 
-## Phase 1: MySQL Schema (`schema.ts`)
+## Phase 1: MySQL Schema (`schema.ts`) ✅ PARTIALLY DONE
 
 **File: `jarble-api-main/src/db/schema.ts`**
+
+> **Done:** Renamed `bots` → `deployments`, added `runtime` (varchar 100, default "openclaw") and `image` (varchar 255, nullable), updated all relations.
 
 ### 1a. Rewrite `users` table
 - **Keep:** id (varchar PK), email, name, auth0Id, stripeCustomerId, createdAt, updatedAt
 - **Add:** phoneNumber (varchar 20), tier (varchar — default "free"), subscriptionId (varchar 255), subscriptionStatus (varchar — default "none"), lastSignedIn (timestamp)
 
-### 1b. Rewrite `bots` table
-- **Keep:** id (varchar PK), userId (FK), name, status, createdAt, updatedAt
-- **Remove:** description, template, tierId, error
-- **Add:** errorMessage (text), personality (text), model (varchar 100), llmApiKey (varchar 255), llmApiKeyHash (varchar 255), storagePath (varchar 255), storageBytes (bigint default 0), storageUpdatedAt (timestamp), deployedAt (timestamp)
+### 1b. Expand `deployments` table (formerly bots)
+- **Current columns:** id, userId, name, description, template, runtime, image, status, error, tierId, createdAt, updatedAt
+- **Add (future):** personality (text), model (varchar 100), llmApiKey (varchar 255), llmApiKeyHash (varchar 255), storagePath (varchar 255), storageBytes (bigint default 0), storageUpdatedAt (timestamp), deployedAt (timestamp)
 
 ### 1c. Rewrite `tiers` table
 - **Complete replacement.** Old: name/description/price/creditsPerMonth/features/isActive/createdAt
-- **New:** name, displayName, maxBots, monthlyCredits, maxStorageMb, cpuLimit, memoryMb, priceMonthly (cents), stripePriceId
+- **New:** name, displayName, maxDeployments, monthlyCredits, maxStorageMb, cpuLimit, memoryMb, priceMonthly (cents), stripePriceId
 
 ### 1d–1g. Add 4 new tables
-- platforms, botPlatforms, usageRecords, botTasks (see schema above)
+- platforms, deploymentPlatforms, usageRecords, deploymentTasks (see schema above)
 
 ### 1h. Update relations
-- users → many(bots, usageRecords)
-- bots → one(users), many(botPlatforms, usageRecords, botTasks) — remove tier relation
-- platforms → many(botPlatforms)
-- botPlatforms → one(bots), one(platforms)
-- usageRecords → one(bots), one(users)
-- botTasks → one(bots)
+- users → many(deployments, usageRecords)
+- deployments → one(users), many(deploymentPlatforms, usageRecords, deploymentTasks) — remove tier relation
+- platforms → many(deploymentPlatforms)
+- deploymentPlatforms → one(deployments), one(platforms)
+- usageRecords → one(deployments), one(users)
+- deploymentTasks → one(deployments)
 
 ---
 
-## Phase 2: SQLite Schema (`schema.sqlite.ts`)
+## Phase 2: SQLite Schema (`schema.sqlite.ts`) ✅ PARTIALLY DONE
 
 **File: `jarble-api-main/src/db/schema.sqlite.ts`**
+
+> **Done:** Renamed `bots` → `deployments`, added `runtime` (text, default "openclaw") and `image` (text, nullable), updated all relations.
 
 Mirror every change from Phase 1 using SQLite equivalents:
 - MySQL varchar/enum → SQLite `text()`
@@ -172,27 +178,31 @@ Mirror every change from Phase 1 using SQLite equivalents:
 
 ---
 
-## Phase 3: DB Index + Init + Seed
+## Phase 3: DB Index + Init + Seed ✅ PARTIALLY DONE
+
+> **Done:** `db/index.ts` updated to export `deployments` (was `bots`). `db/init.ts` CREATE TABLE SQL updated to `deployments` with `runtime`/`image` columns, seed data updated.
 
 ### 3a. `db/index.ts` — expand `tables` export to include all 7 tables
 
 ### 3b. `db/init.ts` — rewrite CREATE TABLE SQL + seed data
-- **Tiers (3):** free ($0, 1 bot, 1000 credits, 100MB, 0.25 CPU, 512MB), pro ($19, 5 bots, 10K credits, 500MB, 0.5 CPU, 1024MB), agency ($99, 50 bots, 100K credits, 2000MB, 1.0 CPU, 2048MB)
+- **Tiers (3):** free ($0, 1 deployment, 1000 credits, 100MB, 0.25 CPU, 512MB), pro ($19, 5 deployments, 10K credits, 500MB, 0.5 CPU, 1024MB), agency ($99, 50 deployments, 100K credits, 2000MB, 1.0 CPU, 2048MB)
 - **Platforms (5):** whatsapp, telegram, discord, slack, web — each with configSchema JSON
 - **Test user:** tier "free", subscriptionStatus "none"
-- **Test bot:** personality "A helpful assistant", model "anthropic/claude-sonnet-4"
-- **Test botPlatform:** link test bot to whatsapp
+- **Test deployment:** runtime "openclaw", template "assistant"
+- **Test deploymentPlatform:** link test deployment to whatsapp
 
 ---
 
-## Phase 4: tRPC Router Updates
+## Phase 4: tRPC Router Updates ✅ PARTIALLY DONE
+
+> **Done:** `routers/bot.ts` renamed to `routers/deployment.ts`, `botRouter` → `deploymentRouter`, all queries use `deployments` table with `runtime`/`image` fields. `trpc/index.ts` updated to register `deployment` router.
 
 ### 4a. `routers/user.ts` — switch to `tables` import, add phoneNumber field
-### 4b. `routers/bot.ts` — update create/deploy/update/delete for new fields, add getTaskHistory
+### 4b. `routers/deployment.ts` — add getTaskHistory, expand fields for future columns
 ### 4c. `routers/tier.ts` — switch to `tables` import, update orderBy to priceMonthly
 ### 4d. NEW `routers/platform.ts` — list, getById
-### 4e. NEW `routers/botPlatform.ts` — listByBot, connect, updateConfig, disconnect, updateStatus
-### 4f. NEW `routers/usage.ts` — record, getByBot, getSummary
+### 4e. NEW `routers/deploymentPlatform.ts` — listByDeployment, connect, updateConfig, disconnect, updateStatus
+### 4f. NEW `routers/usage.ts` — record, getByDeployment, getSummary
 ### 4g. `trpc/index.ts` — add 3 new routers, remove template router
 
 ---
@@ -201,28 +211,34 @@ Mirror every change from Phase 1 using SQLite equivalents:
 - Add default tier/subscription fields when creating user
 - Update lastSignedIn timestamp
 
-## Phase 6: K8s Deployment Update (`k8s/bot-deployment.ts`)
-- Update BotConfig interface (personality/model/llmApiKey instead of template)
-- Use tier-based resource limits instead of hardcoded values
-- Update Secret env vars
+## Phase 6: K8s Deployment Update (`k8s/deployment.ts`) ✅ DONE
+> **Done:** Renamed from `bot-deployment.ts` to `deployment.ts`. `BotConfig` → `DeploymentConfig` with `runtime`/`image` fields. Functions renamed: `createDeployment`, `deleteDeployment`, `getDeploymentPodStatus`. K8s resources prefixed `dep-` instead of `bot-`. Container image supports per-deployment override via `config.image || DEFAULT_IMAGE`.
 
-## Phase 7: Server Entry Point (`src/index.ts`)
-- Update /debug/db to show all 7 tables
+- Use tier-based resource limits instead of hardcoded values (future)
+
+## Phase 7: Server Entry Point (`src/index.ts`) ✅ DONE
+> **Done:** Debug endpoint updated to query `deployments` table.
 
 ---
 
-## Phase 8: Frontend Types
-### 8a. `views/bot-config/types.ts` — Update BotFormData (personality/model/llmApiKey replace description/modelProvider/modelName/apiKey), remove PLATFORM_CONFIGS
+## Phase 8: Frontend Types ✅ PARTIALLY DONE
+
+> **Done:** `views/bot-config/` renamed to `views/deployment-config/`. `BotFormData` → `DeploymentFormData` with `runtime`/`image` fields. All tab files updated with new import paths and terminology.
+
+### 8a. `views/deployment-config/types.ts` — Add personality/model/llmApiKey fields (future)
 ### 8b. `lib/platformConfigs.ts` — Remove hardcoded configs, keep validation helpers
 
-## Phase 9: Frontend Views
-### 9a. `Dashboard.tsx` — Add new statuses, update BotCard (personality/model instead of template/description)
-### 9b. `OnboardingWizard.tsx` — Major rewrite: Name+Personality → Model → Deploy → Connect Platform
-### 9c. `BotConfiguration.tsx` — Update formData and handleSave for new fields
-### 9d. `GeneralTab.tsx` — Description → Personality
-### 9e. `ModelTab.tsx` — Single model selector using OpenRouter IDs
-### 9f. `PlatformsTab.tsx` — Major refactor: API-driven via trpc.platform.list + trpc.botPlatform.*
-### 9g. `AdvancedTab.tsx` — Add storage/deployment/task history sections
+## Phase 9: Frontend Views ✅ PARTIALLY DONE
+
+> **Done:** Full bots→deployments rename across all views. Routes changed: `/bot/[botId]/configure` → `/d/[id]/configure`, `/onboarding/[botId]` → `/onboarding/[id]`. `BotConfiguration.tsx` → `DeploymentConfiguration.tsx`. Dashboard uses `trpc.deployment.*`. OnboardingWizard step 2 changed to "Choose Runtime" with OpenClaw selected by default.
+
+### 9a. `Dashboard.tsx` — Add new statuses (future)
+### 9b. `OnboardingWizard.tsx` — Add personality/model steps (future, after schema columns added)
+### 9c. `DeploymentConfiguration.tsx` — Expand formData for future columns
+### 9d. `GeneralTab.tsx` — Description → Personality (future)
+### 9e. `ModelTab.tsx` — Single model selector using OpenRouter IDs (future)
+### 9f. `PlatformsTab.tsx` — Major refactor: API-driven via trpc.platform.list + trpc.deploymentPlatform.* (future)
+### 9g. `AdvancedTab.tsx` — Add storage/deployment/task history sections (future)
 ### 9h. Delete `TemplateSelector.tsx`
 
 ---
@@ -247,44 +263,53 @@ Phase 2 (SQLite schema) ─┤
 ## Files Modified (Complete List)
 
 **API — jarble-api-main/src/:**
-| File | Action |
-|------|--------|
-| `db/schema.ts` | Rewrite (3 tables → 7, column changes) |
-| `db/schema.sqlite.ts` | Rewrite (mirror schema.ts) |
-| `db/index.ts` | Update tables export (3 → 7 tables) |
-| `db/init.ts` | Rewrite CREATE TABLE SQL + seed data |
-| `trpc/index.ts` | Add 3 new routers, remove template |
-| `trpc/routers/bot.ts` | Update create/deploy/update/delete, add getTaskHistory |
-| `trpc/routers/user.ts` | Switch to tables import, add fields |
-| `trpc/routers/tier.ts` | Switch to tables import, update orderBy, add getByName |
-| `trpc/routers/platform.ts` | **NEW** — platform CRUD |
-| `trpc/routers/botPlatform.ts` | **NEW** — bot-platform connections |
-| `trpc/routers/usage.ts` | **NEW** — usage tracking |
-| `trpc/routers/template.ts` | **DELETE** |
-| `services/auth.ts` | Add default tier/subscription fields, update lastSignedIn |
-| `k8s/bot-deployment.ts` | Update BotConfig interface, env vars, resource limits |
-| `index.ts` | Update debug endpoint for 7 tables |
+| File | Action | Status |
+|------|--------|--------|
+| `db/schema.ts` | Renamed bots→deployments, added runtime/image | ✅ Done |
+| `db/schema.sqlite.ts` | Mirror schema.ts changes | ✅ Done |
+| `db/index.ts` | Updated tables export (bots→deployments) | ✅ Done |
+| `db/init.ts` | Updated CREATE TABLE + seed data | ✅ Done |
+| `trpc/index.ts` | Updated: bot→deployment router | ✅ Done |
+| `trpc/routers/deployment.ts` | **NEW** (replaced bot.ts) — all deployment CRUD | ✅ Done |
+| `trpc/routers/bot.ts` | **DELETED** | ✅ Done |
+| `trpc/routers/user.ts` | Switch to tables import, add fields | Pending |
+| `trpc/routers/tier.ts` | Switch to tables import, update orderBy, add getByName | Pending |
+| `trpc/routers/platform.ts` | **NEW** — platform CRUD | Pending |
+| `trpc/routers/deploymentPlatform.ts` | **NEW** — deployment-platform connections | Pending |
+| `trpc/routers/usage.ts` | **NEW** — usage tracking | Pending |
+| `trpc/routers/template.ts` | **DELETE** | Pending |
+| `services/auth.ts` | Add default tier/subscription fields, update lastSignedIn | Pending |
+| `k8s/deployment.ts` | **NEW** (replaced bot-deployment.ts) — DeploymentConfig with runtime/image | ✅ Done |
+| `k8s/bot-deployment.ts` | **DELETED** | ✅ Done |
+| `index.ts` | Updated debug endpoint (bots→deployments) | ✅ Done |
 
 **Frontend — Jarble-mvp/:**
-| File | Action |
-|------|--------|
-| `views/bot-config/types.ts` | Update BotFormData, remove PLATFORM_CONFIGS |
-| `views/Dashboard.tsx` | Update BotCard props, add statuses |
-| `views/OnboardingWizard.tsx` | Major rewrite — new 4-step flow |
-| `views/BotConfiguration.tsx` | Update formData, handleSave |
-| `views/bot-config/GeneralTab.tsx` | Description → Personality |
-| `views/bot-config/ModelTab.tsx` | Simplify to single model selector |
-| `views/bot-config/PlatformsTab.tsx` | Major refactor — API-driven |
-| `views/bot-config/AdvancedTab.tsx` | Add storage/deployment/task sections |
-| `lib/platformConfigs.ts` | Remove hardcoded configs, keep validation helpers |
-| `components/TemplateSelector.tsx` | **DELETE** |
+| File | Action | Status |
+|------|--------|--------|
+| `app/d/[id]/configure/page.tsx` | **NEW** (replaced app/bot/[botId]/configure/) | ✅ Done |
+| `app/onboarding/[id]/page.tsx` | **NEW** (replaced app/onboarding/[botId]/) | ✅ Done |
+| `app/bot/` | **DELETED** (old route directory) | ✅ Done |
+| `views/DeploymentConfiguration.tsx` | **NEW** (replaced BotConfiguration.tsx) | ✅ Done |
+| `views/BotConfiguration.tsx` | **DELETED** | ✅ Done |
+| `views/Dashboard.tsx` | Updated: trpc.deployment.*, DeploymentCard, /d/ routes | ✅ Done |
+| `views/OnboardingWizard.tsx` | Updated: trpc.deployment.*, runtime selector | ✅ Done |
+| `views/deployment-config/types.ts` | **NEW** (replaced bot-config/types.ts) — DeploymentFormData | ✅ Done |
+| `views/deployment-config/GeneralTab.tsx` | **NEW** (replaced bot-config/) — deployment terminology | ✅ Done |
+| `views/deployment-config/ModelTab.tsx` | **NEW** (replaced bot-config/) | ✅ Done |
+| `views/deployment-config/PlatformsTab.tsx` | **NEW** (replaced bot-config/) | ✅ Done |
+| `views/deployment-config/SkillsTab.tsx` | **NEW** (replaced bot-config/) | ✅ Done |
+| `views/deployment-config/AdvancedTab.tsx` | **NEW** (replaced bot-config/) | ✅ Done |
+| `views/bot-config/` | **DELETED** (old directory, 6 files) | ✅ Done |
+| `lib/platformConfigs.ts` | Remove hardcoded configs, keep validation helpers | Pending |
+| `components/TemplateSelector.tsx` | **DELETE** | Pending |
 
 ---
 
 ## Verification
 
-1. **API starts cleanly:** `cd jarble-api-main && npm run dev` — no crashes, 7 SQLite tables created, seed data inserted
-2. **Debug endpoint:** `curl http://localhost:3001/debug/db` — returns all 7 tables
+1. **API starts cleanly:** `cd jarble-api-main && npm run dev` — no crashes, SQLite `deployments` table created with `runtime`/`image` columns, seed data inserted
+2. **Debug endpoint:** `curl http://localhost:3001/debug/db` — returns `deployments` key with `runtime` field
 3. **TypeScript compiles:** `npx tsc --noEmit` (API) and `pnpm run check` (MVP)
-4. **Frontend loads:** Dashboard shows personality/model, OnboardingWizard has new flow, BotConfig tabs work
-5. **End-to-end:** Create bot → appears on dashboard → configure → connect platform → delete (cascades)
+4. **Frontend loads:** Dashboard at `/dashboard`, new deployment at `/onboarding/new`, configure at `/d/{id}/configure`
+5. **tRPC calls work:** `trpc.deployment.list`, `trpc.deployment.create`, etc. all resolve
+6. **End-to-end:** Create deployment → appears on dashboard → configure → delete

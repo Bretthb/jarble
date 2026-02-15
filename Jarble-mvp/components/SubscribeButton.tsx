@@ -1,6 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { useAuth0 } from '@auth0/auth0-react';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 type TierName = 'pro' | 'agency';
 
@@ -12,23 +15,37 @@ interface SubscribeButtonProps {
 
 export function SubscribeButton({ tier, currentTier, className }: SubscribeButtonProps) {
   const [loading, setLoading] = useState(false);
+  const { getAccessTokenSilently, isAuthenticated, loginWithRedirect } = useAuth0();
 
   const isCurrentTier = currentTier === tier;
   const isUpgrade = tier === 'agency' && currentTier === 'pro';
   const isDowngrade = tier === 'pro' && currentTier === 'agency';
 
+  const getAuthHeaders = async () => {
+    const token = await getAccessTokenSilently();
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    };
+  };
+
   const handleClick = async () => {
+    if (!isAuthenticated) {
+      loginWithRedirect();
+      return;
+    }
+
     if (isCurrentTier) {
-      // Open customer portal to manage subscription
       await openPortal();
       return;
     }
 
     setLoading(true);
     try {
-      const response = await fetch('/api/stripe/checkout', {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${API_URL}/api/stripe/checkout`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ tier }),
       });
 
@@ -40,10 +57,9 @@ export function SubscribeButton({ tier, currentTier, className }: SubscribeButto
       }
 
       if (data.url) {
-        // Redirect to Stripe Checkout
         window.location.href = data.url;
-      } else {
-        console.error('No checkout URL returned');
+      } else if (data.error) {
+        console.error('Checkout error:', data.error);
       }
     } catch (error) {
       console.error('Checkout error:', error);
@@ -55,14 +71,18 @@ export function SubscribeButton({ tier, currentTier, className }: SubscribeButto
   const openPortal = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/stripe/portal', {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${API_URL}/api/stripe/portal`, {
         method: 'POST',
+        headers,
       });
 
       const data = await response.json();
 
       if (data.url) {
         window.location.href = data.url;
+      } else if (data.error) {
+        console.error('Portal error:', data.error);
       }
     } catch (error) {
       console.error('Portal error:', error);
@@ -97,18 +117,25 @@ export function SubscribeButton({ tier, currentTier, className }: SubscribeButto
 // Manage subscription button (for existing subscribers)
 export function ManageSubscriptionButton({ className }: { className?: string }) {
   const [loading, setLoading] = useState(false);
+  const { getAccessTokenSilently } = useAuth0();
 
   const handleClick = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/stripe/portal', {
+      const token = await getAccessTokenSilently();
+      const response = await fetch(`${API_URL}/api/stripe/portal`, {
         method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
       const data = await response.json();
 
       if (data.url) {
         window.location.href = data.url;
+      } else if (data.error) {
+        console.error('Portal error:', data.error);
       }
     } catch (error) {
       console.error('Portal error:', error);

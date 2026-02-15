@@ -7,18 +7,18 @@ export function GeneralTab({ formData, updateFormData }: TabProps) {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold mb-1">General Settings</h2>
-        <p className="text-muted-foreground text-sm">Basic information about your bot</p>
+        <p className="text-muted-foreground text-sm">Basic information about your deployment</p>
       </div>
 
       <div className="space-y-4">
         <div>
-          <Label htmlFor="name" className="mb-2 block">Bot Name</Label>
+          <Label htmlFor="name" className="mb-2 block">Deployment Name</Label>
           <Input
             id="name"
             value={formData.name}
             onChange={(e) => updateFormData("name", e.target.value)}
             className="bg-secondary/80 border-border text-foreground"
-            placeholder="My Awesome Bot"
+            placeholder="My Deployment"
           />
         </div>
 
@@ -29,7 +29,7 @@ export function GeneralTab({ formData, updateFormData }: TabProps) {
             value={formData.description}
             onChange={(e) => updateFormData("description", e.target.value)}
             className="w-full min-h-[100px] px-3 py-2 bg-secondary/80 border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            placeholder="Describe what your bot does..."
+            placeholder="Describe what your deployment does..."
           />
         </div>
 
@@ -43,7 +43,7 @@ export function GeneralTab({ formData, updateFormData }: TabProps) {
             placeholder="You are a helpful assistant..."
           />
           <p className="text-xs text-muted-foreground mt-2">
-            This prompt defines your bot's personality and behavior. Be specific about how it should respond.
+            This prompt defines your deployment's personality and behavior. Be specific about how it should respond.
           </p>
         </div>
       </div>

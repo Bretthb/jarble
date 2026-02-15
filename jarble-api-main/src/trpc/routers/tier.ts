@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../middleware.js";
-import { tiers } from "../../db/schema.js";
+import { tables } from "../../db/index.js";
 import { eq } from "drizzle-orm";
+
+const { tiers } = tables;
 
 export const tierRouter = router({
   // List all tiers

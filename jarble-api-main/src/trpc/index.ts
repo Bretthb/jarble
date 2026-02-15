@@ -1,13 +1,13 @@
 import { router } from "./middleware.js";
 import { userRouter } from "./routers/user.js";
-import { botRouter } from "./routers/bot.js";
+import { deploymentRouter } from "./routers/deployment.js";
 import { tierRouter } from "./routers/tier.js";
 import { templateRouter } from "./routers/template.js";
 import { openrouterRouter } from "./routers/openrouter.js";
 
 export const appRouter = router({
   user: userRouter,
-  bot: botRouter,
+  deployment: deploymentRouter,
   tier: tierRouter,
   template: templateRouter,
   openrouter: openrouterRouter,

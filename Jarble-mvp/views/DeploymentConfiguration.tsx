@@ -15,16 +15,16 @@ import {
   PowerOff,
   Loader2,
 } from "lucide-react";
-import { TABS } from "./bot-config/types";
-import type { Tab, BotFormData } from "./bot-config/types";
-import { GeneralTab } from "./bot-config/GeneralTab";
-import { ModelTab } from "./bot-config/ModelTab";
-import { PlatformsTab } from "./bot-config/PlatformsTab";
-import { SkillsTab } from "./bot-config/SkillsTab";
-import { AdvancedTab } from "./bot-config/AdvancedTab";
+import { TABS } from "./deployment-config/types";
+import type { Tab, DeploymentFormData } from "./deployment-config/types";
+import { GeneralTab } from "./deployment-config/GeneralTab";
+import { ModelTab } from "./deployment-config/ModelTab";
+import { PlatformsTab } from "./deployment-config/PlatformsTab";
+import { SkillsTab } from "./deployment-config/SkillsTab";
+import { AdvancedTab } from "./deployment-config/AdvancedTab";
 
-export default function BotConfiguration() {
-  const { botId } = useParams() as { botId: string };
+export default function DeploymentConfiguration() {
+  const { id } = useParams() as { id: string };
   const router = useRouter();
   const { isAuthenticated } = useAuth0();
 
@@ -32,7 +32,7 @@ export default function BotConfiguration() {
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const [formData, setFormData] = useState<BotFormData>({
+  const [formData, setFormData] = useState<DeploymentFormData>({
     name: "",
     description: "",
     modelProvider: "",
@@ -45,40 +45,40 @@ export default function BotConfiguration() {
     skills: [],
   });
 
-  const botQuery = trpc.bot.getById.useQuery(
-    { id: botId },
-    { enabled: !!botId && isAuthenticated }
+  const deploymentQuery = trpc.deployment.getById.useQuery(
+    { id },
+    { enabled: !!id && isAuthenticated }
   );
 
-  const updateMutation = trpc.bot.update.useMutation({
+  const updateMutation = trpc.deployment.update.useMutation({
     onSuccess: () => {
       toast.success("Configuration saved!");
       setHasChanges(false);
-      botQuery.refetch();
+      deploymentQuery.refetch();
     },
-    onError: (err) => {
+    onError: (err: { message?: string }) => {
       toast.error(err.message || "Failed to save configuration");
     },
     onSettled: () => setIsSaving(false),
   });
 
-  const deleteMutation = trpc.bot.delete.useMutation({
+  const deleteMutation = trpc.deployment.delete.useMutation({
     onSuccess: () => {
-      toast.success("Bot deleted!");
+      toast.success("Deployment deleted!");
       router.push("/dashboard");
     },
-    onError: (err) => {
-      toast.error(err.message || "Failed to delete bot");
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Failed to delete deployment");
     },
   });
 
-  const bot = botQuery.data;
+  const deployment = deploymentQuery.data;
 
   useEffect(() => {
-    if (bot) {
+    if (deployment) {
       setFormData({
-        name: bot.name || "",
-        description: bot.description || "",
+        name: deployment.name || "",
+        description: deployment.description || "",
         modelProvider: "",
         modelName: "",
         apiKey: "",
@@ -89,7 +89,7 @@ export default function BotConfiguration() {
         skills: [],
       });
     }
-  }, [bot]);
+  }, [deployment]);
 
   const updateFormData = (key: string, value: string | number | string[]) => {
     setFormData(prev => ({ ...prev, [key]: value }));
@@ -99,7 +99,7 @@ export default function BotConfiguration() {
   const handleSave = () => {
     setIsSaving(true);
     updateMutation.mutate({
-      id: botId,
+      id,
       name: formData.name,
       description: formData.description,
     });
@@ -111,8 +111,8 @@ export default function BotConfiguration() {
   };
 
   const handleDelete = () => {
-    if (confirm("Are you sure you want to delete this bot?")) {
-      deleteMutation.mutate({ id: botId });
+    if (confirm("Are you sure you want to delete this deployment?")) {
+      deleteMutation.mutate({ id });
     }
   };
 
@@ -121,7 +121,7 @@ export default function BotConfiguration() {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="p-8 bg-card border-border text-center">
           <h2 className="text-2xl font-bold text-foreground mb-4">Access Denied</h2>
-          <p className="text-muted-foreground mb-4">Please log in to configure your bot</p>
+          <p className="text-muted-foreground mb-4">Please log in to configure your deployment</p>
           <Button onClick={() => router.push("/login")}>Sign In</Button>
         </Card>
       </div>
@@ -145,8 +145,8 @@ export default function BotConfiguration() {
             </Button>
             <div className="h-6 w-px bg-secondary/80" />
             <div>
-              <h1 className="text-xl font-bold">{formData.name || "Bot Configuration"}</h1>
-              <p className="text-sm text-muted-foreground">Bot ID: {botId}</p>
+              <h1 className="text-xl font-bold">{formData.name || "Deployment Configuration"}</h1>
+              <p className="text-sm text-muted-foreground">Deployment ID: {id}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -197,15 +197,15 @@ export default function BotConfiguration() {
                   onClick={handleToggleStatus}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
                 >
-                  {bot?.status === "running" ? (
+                  {deployment?.status === "running" ? (
                     <>
                       <PowerOff className="w-4 h-4" />
-                      Pause Bot
+                      Pause Deployment
                     </>
                   ) : (
                     <>
                       <Power className="w-4 h-4 text-green-600" />
-                      Activate Bot
+                      Activate Deployment
                     </>
                   )}
                 </button>
@@ -214,7 +214,7 @@ export default function BotConfiguration() {
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-all"
                 >
                   <Trash2 className="w-4 h-4" />
-                  Delete Bot
+                  Delete Deployment
                 </button>
               </div>
             </nav>
@@ -236,7 +236,7 @@ export default function BotConfiguration() {
                 <SkillsTab formData={formData} updateFormData={updateFormData} />
               )}
               {activeTab === "advanced" && (
-                <AdvancedTab formData={formData} updateFormData={updateFormData} bot={bot} />
+                <AdvancedTab formData={formData} updateFormData={updateFormData} deployment={deployment} />
               )}
             </Card>
           </main>

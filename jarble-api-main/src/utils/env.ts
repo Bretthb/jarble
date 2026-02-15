@@ -4,9 +4,10 @@ const envSchema = z.object({
   PORT: z.string().default("3001").transform(Number),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   FRONTEND_URL: z.string().default("http://localhost:3000"),
-  
-  // Database - MySQL or in-memory SQLite
-  USE_SQLITE: z.string().optional(), // "true" for in-memory SQLite (testing)
+
+  // Database provider: "mysql" | "postgres" | "sqlite" (in-memory, dev only)
+  DB_PROVIDER: z.enum(["mysql", "postgres", "sqlite"]).default("mysql"),
+  USE_SQLITE: z.string().optional(), // Legacy — same as DB_PROVIDER=sqlite
   DATABASE_URL: z.string().optional(), // Required when not using SQLite
   
   // Auth0 - optional for testing, required for production
@@ -16,9 +17,11 @@ const envSchema = z.object({
   // OpenRouter - optional for testing
   OPENROUTER_API_KEY: z.string().default("sk-test-key"),
   
-  // Stripe is optional for initial testing
+  // Stripe — all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_PRICE_PRO: z.string().optional(),
+  STRIPE_PRICE_AGENCY: z.string().optional(),
 }).refine((data) => {
   // DATABASE_URL required unless using SQLite
   if (data.USE_SQLITE !== "true" && data.USE_SQLITE !== "1" && !data.DATABASE_URL) {

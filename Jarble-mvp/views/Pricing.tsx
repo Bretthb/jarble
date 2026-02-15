@@ -16,99 +16,69 @@ import {
 import { useAuth0 } from "@auth0/auth0-react";
 import { useState } from "react";
 import dynamic from "next/dynamic";
+import { SubscribeButton } from "@/components/SubscribeButton";
 
 const WatercolorBlob = dynamic(() => import("@/components/WatercolorBlob"), {
   ssr: false,
 });
 
-// Pricing tiers - matches MOCK_TIERS in OnboardingWizard
+// Actual tiers — pricing is TBD, these are templates
 const TIERS = [
   {
     id: 1,
-    name: "bronze",
-    displayName: "Bronze",
-    description: "Perfect for getting started",
-    maxConnections: 2,
-    maxSkills: 5,
-    monthlyRequests: 1000,
+    name: "free",
+    displayName: "Free",
+    description: "Get started with your first AI deployment",
     price: 0,
     popular: false,
+    maxDeployments: 1,
     features: [
-      { name: "AI Bot deployment", included: true },
-      { name: "2 platform connections", included: true },
-      { name: "5 skills from marketplace", included: true },
-      { name: "1,000 requests/month", included: true },
+      { name: "1 AI deployment", included: true },
+      { name: "OpenClaw runtime", included: true },
       { name: "Community support", included: true },
-      { name: "Basic analytics", included: true },
-      { name: "Custom branding", included: false },
+      { name: "Basic configuration", included: true },
+      { name: "Persistent storage", included: true },
+      { name: "Multiple platform connections", included: false },
       { name: "Priority support", included: false },
-      { name: "API access", included: false },
+      { name: "Custom runtimes", included: false },
     ]
   },
   {
     id: 2,
-    name: "silver",
-    displayName: "Silver",
-    description: "For growing projects",
-    maxConnections: 5,
-    maxSkills: 15,
-    monthlyRequests: 10000,
-    price: 1999,
+    name: "pro",
+    displayName: "Pro",
+    description: "For builders ready to go live",
+    price: null, // TBD
     popular: true,
+    maxDeployments: 1,
     features: [
-      { name: "AI Bot deployment", included: true },
-      { name: "5 platform connections", included: true },
-      { name: "15 skills from marketplace", included: true },
-      { name: "10,000 requests/month", included: true },
+      { name: "1 AI deployment", included: true },
+      { name: "All runtimes", included: true },
       { name: "Email support", included: true },
-      { name: "Advanced analytics", included: true },
-      { name: "Custom branding", included: true },
+      { name: "Full configuration", included: true },
+      { name: "Persistent storage", included: true },
+      { name: "Multiple platform connections", included: true },
       { name: "Priority support", included: false },
-      { name: "API access", included: false },
+      { name: "Custom runtimes", included: false },
     ]
   },
   {
     id: 3,
-    name: "gold",
-    displayName: "Gold",
-    description: "For serious builders",
-    maxConnections: 15,
-    maxSkills: 50,
-    monthlyRequests: 100000,
-    price: 4999,
+    name: "agency",
+    displayName: "Agency",
+    description: "For teams managing multiple deployments",
+    price: null, // TBD
     popular: false,
+    maxDeployments: 2,
     features: [
-      { name: "AI Bot deployment", included: true },
-      { name: "15 platform connections", included: true },
-      { name: "50 skills from marketplace", included: true },
-      { name: "100,000 requests/month", included: true },
-      { name: "Priority email support", included: true },
-      { name: "Advanced analytics", included: true },
-      { name: "Custom branding", included: true },
+      { name: "2 AI deployments", included: true },
+      { name: "All runtimes", included: true },
       { name: "Priority support", included: true },
-      { name: "API access", included: true },
-    ]
-  },
-  {
-    id: 4,
-    name: "platinum",
-    displayName: "Platinum",
-    description: "Unlimited power",
-    maxConnections: -1,
-    maxSkills: -1,
-    monthlyRequests: -1,
-    price: 9999,
-    popular: false,
-    features: [
-      { name: "AI Bot deployment", included: true },
-      { name: "Unlimited connections", included: true },
-      { name: "Unlimited skills", included: true },
-      { name: "Unlimited requests", included: true },
-      { name: "Dedicated support", included: true },
-      { name: "Custom analytics dashboard", included: true },
-      { name: "White-label solution", included: true },
-      { name: "24/7 priority support", included: true },
-      { name: "Full API access", included: true },
+      { name: "Full configuration", included: true },
+      { name: "Persistent storage", included: true },
+      { name: "Multiple platform connections", included: true },
+      { name: "Priority support", included: true },
+      { name: "Custom runtimes", included: true },
     ]
   },
 ];
@@ -119,49 +89,41 @@ const FAQ = [
     answer: "Yes! You can upgrade or downgrade your plan at any time. When upgrading, you'll get immediate access to new features. When downgrading, changes take effect at the end of your billing cycle."
   },
   {
-    question: "What counts as a 'request'?",
-    answer: "A request is any message your bot processes and responds to. This includes messages from any connected platform. Unused requests don't roll over to the next month."
+    question: "What is a deployment?",
+    answer: "A deployment is a running AI instance on our infrastructure. Each deployment gets its own persistent storage, configuration, and platform connections. Think of it as your own dedicated AI agent."
   },
   {
     question: "Can I use my own API keys?",
-    answer: "Absolutely! You can bring your own API keys from OpenAI, Anthropic, Google, or Mistral. This gives you full control over costs and model selection. Alternatively, use our managed service and we handle everything."
+    answer: "Yes! You can bring your own OpenRouter, OpenAI, Anthropic, or Google API keys. This gives you full control over model selection and costs."
   },
   {
-    question: "What platforms can I connect to?",
-    answer: "We support 50+ platforms including WhatsApp, Discord, Slack, Telegram, web chat, email, and many more. New integrations are added regularly based on user feedback."
+    question: "What platforms can I connect?",
+    answer: "Currently we support WhatsApp as the initial interface for OpenClaw. Discord, Slack, Telegram, and web chat integrations are coming soon."
   },
   {
-    question: "Is there a free trial?",
-    answer: "The Bronze tier is free forever with no credit card required. It's a great way to explore Jarble and build your first bot. Upgrade when you're ready to scale."
+    question: "What happens to my data if I downgrade?",
+    answer: "Your deployment data is stored on persistent block storage and is never deleted automatically. If you exceed your plan's deployment limit, you'll need to remove deployments before creating new ones."
   },
   {
-    question: "What's included in priority support?",
-    answer: "Priority support includes faster response times (under 4 hours), dedicated support channels, and direct access to our engineering team for complex issues."
+    question: "Is there a free trial for paid plans?",
+    answer: "The Free tier is free forever with no credit card required. It's a great way to explore Jarble. Upgrade when you need more deployments or features."
   },
 ];
 
-function formatPrice(cents: number): string {
-  if (cents === 0) return "Free";
-  return `$${(cents / 100).toFixed(0)}`;
-}
-
 export default function Pricing() {
-  const { isAuthenticated } = useAuth0();
+  const { isAuthenticated, loginWithRedirect } = useAuth0();
   const router = useRouter();
-  const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
-  const getAnnualPrice = (monthlyPrice: number) => {
-    if (monthlyPrice === 0) return 0;
-    return Math.round(monthlyPrice * 12 * 0.8);
-  };
-
   const handleGetStarted = (tierName: string) => {
-    if (isAuthenticated) {
-      router.push("/dashboard");
-    } else {
-      router.push("/register");
+    if (tierName === "free") {
+      if (isAuthenticated) {
+        router.push("/dashboard");
+      } else {
+        loginWithRedirect();
+      }
     }
+    // Pro and Agency handled by SubscribeButton
   };
 
   return (
@@ -197,7 +159,7 @@ export default function Pricing() {
             ) : (
               <Button
                 size="sm"
-                onClick={() => router.push("/login")}
+                onClick={() => loginWithRedirect()}
                 className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
               >
                 Sign in
@@ -214,116 +176,97 @@ export default function Pricing() {
             Simple, Transparent
             <span className="block text-primary">Pricing</span>
           </h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
             Start free, scale as you grow. No hidden fees, no surprises.
           </p>
-
-          {/* Billing Toggle */}
-          <div className="inline-flex items-center gap-4 bg-secondary/80 backdrop-blur-sm rounded-full p-1.5 border border-border/50">
-            <button
-              onClick={() => setBillingPeriod("monthly")}
-              className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${
-                billingPeriod === "monthly"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-primary"
-              }`}
-            >
-              Monthly
-            </button>
-            <button
-              onClick={() => setBillingPeriod("annual")}
-              className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${
-                billingPeriod === "annual"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-primary"
-              }`}
-            >
-              Annual
-              <span className="ml-2 text-xs bg-green-600/20 text-green-600 px-2 py-0.5 rounded-full">
-                Save 20%
-              </span>
-            </button>
-          </div>
         </div>
       </section>
 
       {/* Pricing Cards */}
       <section className="pb-20 relative z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {TIERS.map((tier) => {
-              const price = billingPeriod === "annual"
-                ? getAnnualPrice(tier.price)
-                : tier.price;
-
-              return (
-                <div
-                  key={tier.id}
-                  className={`relative rounded-2xl p-6 border animate-fade-in-up-fast ${
-                    tier.popular
-                      ? "bg-card/80 backdrop-blur-md border-primary shadow-lg"
-                      : "bg-card/80 backdrop-blur-md border-border"
-                  }`}
-                >
-                  {tier.popular && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                      <span className="bg-primary text-primary-foreground text-xs font-bold px-3 py-1 rounded-full">
-                        Most Popular
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="text-center mb-6">
-                    <h3 className="text-xl font-serif font-medium mb-1">{tier.displayName}</h3>
-                    <p className="text-sm text-muted-foreground">{tier.description}</p>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid md:grid-cols-3 gap-6">
+            {TIERS.map((tier) => (
+              <div
+                key={tier.id}
+                className={`relative rounded-2xl p-6 border animate-fade-in-up-fast ${
+                  tier.popular
+                    ? "bg-card/80 backdrop-blur-md border-primary shadow-lg"
+                    : "bg-card/80 backdrop-blur-md border-border"
+                }`}
+              >
+                {tier.popular && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                    <span className="bg-primary text-primary-foreground text-xs font-bold px-3 py-1 rounded-full">
+                      Most Popular
+                    </span>
                   </div>
+                )}
 
-                  <div className="text-center mb-6">
-                    <div className="flex items-baseline justify-center gap-1">
-                      <span className="text-4xl font-bold">
-                        {formatPrice(price)}
-                      </span>
-                      {price > 0 && (
-                        <span className="text-muted-foreground">
-                          /{billingPeriod === "annual" ? "year" : "mo"}
+                <div className="text-center mb-6">
+                  <h3 className="text-xl font-serif font-medium mb-1">{tier.displayName}</h3>
+                  <p className="text-sm text-muted-foreground">{tier.description}</p>
+                </div>
+
+                <div className="text-center mb-6">
+                  <div className="flex items-baseline justify-center gap-1">
+                    {tier.price === 0 ? (
+                      <span className="text-4xl font-bold">Free</span>
+                    ) : tier.price === null ? (
+                      <span className="text-3xl font-bold text-muted-foreground">Coming Soon</span>
+                    ) : (
+                      <>
+                        <span className="text-4xl font-bold">
+                          ${(tier.price / 100).toFixed(0)}
                         </span>
-                      )}
-                    </div>
-                    {billingPeriod === "annual" && tier.price > 0 && (
-                      <p className="text-sm text-green-600 mt-1">
-                        ${(tier.price / 100).toFixed(0)}/mo billed annually
-                      </p>
+                        <span className="text-muted-foreground">/mo</span>
+                      </>
                     )}
                   </div>
-
-                  <Button
-                    onClick={() => handleGetStarted(tier.name)}
-                    className={`w-full mb-6 rounded-full ${
-                      tier.popular
-                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                        : "border-input bg-background/50 backdrop-blur-sm hover:bg-secondary/50"
-                    }`}
-                  >
-                    {tier.price === 0 ? "Get Started Free" : "Get Started"}
-                  </Button>
-
-                  <ul className="space-y-3">
-                    {tier.features.map((feature, i) => (
-                      <li key={i} className="flex items-start gap-2">
-                        {feature.included ? (
-                          <Check className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                        ) : (
-                          <X className="w-5 h-5 text-muted-foreground/50 flex-shrink-0 mt-0.5" />
-                        )}
-                        <span className={feature.included ? "text-foreground" : "text-muted-foreground"}>
-                          {feature.name}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {tier.maxDeployments} deployment{tier.maxDeployments > 1 ? "s" : ""} included
+                  </p>
                 </div>
-              );
-            })}
+
+                {tier.name === "free" ? (
+                  <Button
+                    onClick={() => handleGetStarted("free")}
+                    className="w-full mb-6 rounded-full border-input bg-background/50 backdrop-blur-sm hover:bg-secondary/50"
+                  >
+                    Get Started Free
+                  </Button>
+                ) : tier.price !== null ? (
+                  <div className="mb-6">
+                    <SubscribeButton
+                      tier={tier.name as "pro" | "agency"}
+                      className="w-full rounded-full"
+                    />
+                  </div>
+                ) : (
+                  <Button
+                    disabled
+                    className="w-full mb-6 rounded-full opacity-50"
+                  >
+                    Coming Soon
+                  </Button>
+                )}
+
+                <ul className="space-y-3">
+                  {tier.features.map((feature, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      {feature.included ? (
+                        <Check className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                      ) : (
+                        <X className="w-5 h-5 text-muted-foreground/50 flex-shrink-0 mt-0.5" />
+                      )}
+                      <span className={feature.included ? "text-foreground" : "text-muted-foreground"}>
+                        {feature.name}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -339,26 +282,18 @@ export default function Pricing() {
             </div>
             <h2 className="text-3xl font-serif font-medium mb-4">Need More?</h2>
             <p className="text-lg text-muted-foreground mb-8 max-w-xl mx-auto">
-              For large organizations with custom requirements, dedicated infrastructure,
-              SLA guarantees, and enterprise security needs.
+              For teams with custom requirements, dedicated infrastructure,
+              or enterprise security needs.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button
                 size="lg"
                 variant="outline"
-                onClick={() => window.location.href = "mailto:enterprise@jarble.ai"}
+                onClick={() => window.location.href = "mailto:hello@jarble.ai"}
                 className="rounded-full border-input bg-background/50 backdrop-blur-sm hover:bg-secondary/50"
               >
                 <MessageSquare className="w-5 h-5 mr-2" />
-                Contact Sales
-              </Button>
-              <Button
-                size="lg"
-                onClick={() => router.push("/about")}
-                className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
-              >
-                Learn More
-                <ArrowRight className="w-5 h-5 ml-2" />
+                Contact Us
               </Button>
             </div>
           </div>
@@ -367,7 +302,7 @@ export default function Pricing() {
 
       {/* Feature Comparison Table */}
       <section className="py-20 relative z-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl font-serif font-medium text-center mb-12">
             Compare Plans
           </h2>
@@ -386,53 +321,39 @@ export default function Pricing() {
               </thead>
               <tbody>
                 <tr className="border-b border-border">
+                  <td className="py-4 px-4 text-foreground">Deployments</td>
+                  {TIERS.map((tier) => (
+                    <td key={tier.id} className="text-center py-4 px-4">{tier.maxDeployments}</td>
+                  ))}
+                </tr>
+                <tr className="border-b border-border">
+                  <td className="py-4 px-4 text-foreground">Persistent Storage</td>
+                  {TIERS.map((tier) => (
+                    <td key={tier.id} className="text-center py-4 px-4">
+                      <Check className="w-5 h-5 text-green-600 mx-auto" />
+                    </td>
+                  ))}
+                </tr>
+                <tr className="border-b border-border">
                   <td className="py-4 px-4 text-foreground">Platform Connections</td>
-                  {TIERS.map((tier) => (
-                    <td key={tier.id} className="text-center py-4 px-4">
-                      {tier.maxConnections === -1 ? "Unlimited" : tier.maxConnections}
-                    </td>
-                  ))}
+                  <td className="text-center py-4 px-4 text-muted-foreground">1</td>
+                  <td className="text-center py-4 px-4 text-muted-foreground">Multiple</td>
+                  <td className="text-center py-4 px-4 text-muted-foreground">Multiple</td>
                 </tr>
                 <tr className="border-b border-border">
-                  <td className="py-4 px-4 text-foreground">Skills from Marketplace</td>
-                  {TIERS.map((tier) => (
-                    <td key={tier.id} className="text-center py-4 px-4">
-                      {tier.maxSkills === -1 ? "Unlimited" : tier.maxSkills}
-                    </td>
-                  ))}
-                </tr>
-                <tr className="border-b border-border">
-                  <td className="py-4 px-4 text-foreground">Monthly Requests</td>
-                  {TIERS.map((tier) => (
-                    <td key={tier.id} className="text-center py-4 px-4">
-                      {tier.monthlyRequests === -1 ? "Unlimited" : tier.monthlyRequests.toLocaleString()}
-                    </td>
-                  ))}
+                  <td className="py-4 px-4 text-foreground">Runtimes</td>
+                  <td className="text-center py-4 px-4 text-muted-foreground">OpenClaw</td>
+                  <td className="text-center py-4 px-4 text-muted-foreground">All</td>
+                  <td className="text-center py-4 px-4 text-muted-foreground">All + Custom</td>
                 </tr>
                 <tr className="border-b border-border">
                   <td className="py-4 px-4 text-foreground">Support</td>
                   <td className="text-center py-4 px-4 text-muted-foreground">Community</td>
                   <td className="text-center py-4 px-4 text-muted-foreground">Email</td>
                   <td className="text-center py-4 px-4 text-muted-foreground">Priority</td>
-                  <td className="text-center py-4 px-4 text-muted-foreground">Dedicated</td>
-                </tr>
-                <tr className="border-b border-border">
-                  <td className="py-4 px-4 text-foreground">API Access</td>
-                  <td className="text-center py-4 px-4"><X className="w-5 h-5 text-muted-foreground/50 mx-auto" /></td>
-                  <td className="text-center py-4 px-4"><X className="w-5 h-5 text-muted-foreground/50 mx-auto" /></td>
-                  <td className="text-center py-4 px-4"><Check className="w-5 h-5 text-green-600 mx-auto" /></td>
-                  <td className="text-center py-4 px-4"><Check className="w-5 h-5 text-green-600 mx-auto" /></td>
-                </tr>
-                <tr className="border-b border-border">
-                  <td className="py-4 px-4 text-foreground">Custom Branding</td>
-                  <td className="text-center py-4 px-4"><X className="w-5 h-5 text-muted-foreground/50 mx-auto" /></td>
-                  <td className="text-center py-4 px-4"><Check className="w-5 h-5 text-green-600 mx-auto" /></td>
-                  <td className="text-center py-4 px-4"><Check className="w-5 h-5 text-green-600 mx-auto" /></td>
-                  <td className="text-center py-4 px-4"><Check className="w-5 h-5 text-green-600 mx-auto" /></td>
                 </tr>
                 <tr>
-                  <td className="py-4 px-4 text-foreground">White Label</td>
-                  <td className="text-center py-4 px-4"><X className="w-5 h-5 text-muted-foreground/50 mx-auto" /></td>
+                  <td className="py-4 px-4 text-foreground">Custom Runtimes</td>
                   <td className="text-center py-4 px-4"><X className="w-5 h-5 text-muted-foreground/50 mx-auto" /></td>
                   <td className="text-center py-4 px-4"><X className="w-5 h-5 text-muted-foreground/50 mx-auto" /></td>
                   <td className="text-center py-4 px-4"><Check className="w-5 h-5 text-green-600 mx-auto" /></td>
@@ -489,12 +410,12 @@ export default function Pricing() {
             Ready to Get Started?
           </h2>
           <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
-            Join thousands of builders using Jarble to deploy AI bots.
+            Deploy your first AI agent in minutes.
             Start free, no credit card required.
           </p>
           <Button
             size="lg"
-            onClick={() => router.push(isAuthenticated ? "/dashboard" : "/register")}
+            onClick={() => isAuthenticated ? router.push("/dashboard") : loginWithRedirect()}
             className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
           >
             <Zap className="w-5 h-5 mr-2" />
@@ -515,8 +436,6 @@ export default function Pricing() {
               <Link href="/" className="text-muted-foreground hover:text-primary transition-colors">Home</Link>
               <Link href="/about" className="text-muted-foreground hover:text-primary transition-colors">About</Link>
               <Link href="/pricing" className="text-muted-foreground hover:text-primary transition-colors">Pricing</Link>
-              <a href="#" className="text-muted-foreground hover:text-primary transition-colors">Documentation</a>
-              <a href="#" className="text-muted-foreground hover:text-primary transition-colors">Contact</a>
             </nav>
           </div>
           <div className="mt-8 pt-8 border-t border-border text-center text-muted-foreground text-sm">

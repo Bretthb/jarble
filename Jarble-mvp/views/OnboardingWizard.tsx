@@ -29,43 +29,43 @@ import { DeploymentLoader } from "@/components/WizardLoader";
 type Step = 1 | 2 | 3 | 4;
 
 const STEPS = [
-  { id: 1, title: "Name Your Bot", icon: <Bot className="w-5 h-5" /> },
-  { id: 2, title: "Choose Template", icon: <FileCode className="w-5 h-5" /> },
+  { id: 1, title: "Name", icon: <Bot className="w-5 h-5" /> },
+  { id: 2, title: "Choose Runtime", icon: <FileCode className="w-5 h-5" /> },
   { id: 3, title: "Deploy", icon: <Rocket className="w-5 h-5" /> },
   { id: 4, title: "Connect WhatsApp", icon: <MessageCircle className="w-5 h-5" /> },
 ];
 
 export default function OnboardingWizard() {
-  const { botId } = useParams() as { botId: string };
+  const { id } = useParams() as { id: string };
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading, logout } = useAuth0();
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployProgress, setDeployProgress] = useState(0);
 
-  const [botName, setBotName] = useState("");
+  const [deploymentName, setDeploymentName] = useState("");
   const [whatsappConnected, setWhatsappConnected] = useState(false);
 
-  const deployMutation = trpc.bot.deploy.useMutation({
+  const deployMutation = trpc.deployment.deploy.useMutation({
     onSuccess: () => {
-      toast.success("Bot deployed! Now connect WhatsApp.");
+      toast.success("Deployed! Now connect WhatsApp.");
       setIsDeploying(false);
       setCurrentStep(4);
     },
-    onError: (error) => {
+    onError: (error: { message?: string }) => {
       toast.error(error.message || "Deployment failed");
       setIsDeploying(false);
     },
   });
 
-  const createMutation = trpc.bot.create.useMutation({
-    onSuccess: (data) => {
+  const createMutation = trpc.deployment.create.useMutation({
+    onSuccess: (data: { id?: string } | null | undefined) => {
       if (data?.id) {
         deployMutation.mutate(data.id);
       }
     },
-    onError: (error) => {
-      toast.error(error.message || "Failed to create bot");
+    onError: (error: { message?: string }) => {
+      toast.error(error.message || "Failed to create deployment");
       setIsDeploying(false);
     },
   });
@@ -73,7 +73,7 @@ export default function OnboardingWizard() {
   const canProceed = (): boolean => {
     switch (currentStep) {
       case 1:
-        return botName.trim().length >= 2;
+        return deploymentName.trim().length >= 2;
       case 2:
         return true;
       case 3:
@@ -88,19 +88,20 @@ export default function OnboardingWizard() {
   const handleNext = async () => {
     if (currentStep === 3 && !isDeploying) {
       setIsDeploying(true);
-      if (botId !== "new") {
-        // Deploy existing bot by string ID
-        deployMutation.mutate(botId);
+      if (id !== "new") {
+        // Deploy existing deployment by ID
+        deployMutation.mutate(id);
       } else {
-        // Create new bot then deploy
+        // Create new deployment then deploy
         createMutation.mutate({
-          name: botName,
+          name: deploymentName,
           template: "jarble-default",
           platform: "whatsapp",
+          runtime: "openclaw",
         });
       }
     } else if (currentStep === 4) {
-      toast.success("Setup complete! Your bot is ready.");
+      toast.success("Setup complete! Your deployment is ready.");
       router.push("/dashboard");
     } else if (currentStep < 4) {
       setCurrentStep((currentStep + 1) as Step);
@@ -139,7 +140,7 @@ export default function OnboardingWizard() {
         <div className="mb-12 flex items-center gap-4">
           <img src="https://azeubylyzvcqot5l.public.blob.vercel-storage.com/logos/jarblelogo.png" alt="Jarble Logo" className="w-16 h-16 object-contain rounded-lg" />
           <div className="flex-1">
-            <h1 className="text-4xl font-bold mb-2">Create Your AI Bot</h1>
+            <h1 className="text-4xl font-bold mb-2">Create Your Deployment</h1>
             <p className="text-muted-foreground">Step {currentStep} of {STEPS.length}</p>
           </div>
           <Button
@@ -194,9 +195,9 @@ export default function OnboardingWizard() {
 
         {/* Step Content */}
         <Card className="bg-card border-border p-8 mb-8">
-          {currentStep === 1 && <StepNameBot botName={botName} setBotName={setBotName} />}
-          {currentStep === 2 && <StepChooseTemplate />}
-          {currentStep === 3 && <StepDeploy isDeploying={isDeploying} deployProgress={deployProgress} botName={botName} />}
+          {currentStep === 1 && <StepName name={deploymentName} setName={setDeploymentName} />}
+          {currentStep === 2 && <StepChooseRuntime />}
+          {currentStep === 3 && <StepDeploy isDeploying={isDeploying} deployProgress={deployProgress} name={deploymentName} />}
           {currentStep === 4 && <StepConnectWhatsApp connected={whatsappConnected} setConnected={setWhatsappConnected} />}
         </Card>
 
@@ -224,7 +225,7 @@ export default function OnboardingWizard() {
                 </>
               ) : (
                 <>
-                  Deploy Bot
+                  Deploy
                   <Rocket className="w-4 h-4 ml-2" />
                 </>
               )
@@ -246,28 +247,28 @@ export default function OnboardingWizard() {
   );
 }
 
-function StepNameBot({ botName, setBotName }: { botName: string; setBotName: (name: string) => void }) {
+function StepName({ name, setName }: { name: string; setName: (name: string) => void }) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold mb-2">Name Your Bot</h2>
-        <p className="text-muted-foreground">Give your AI assistant a name</p>
+        <h2 className="text-2xl font-bold mb-2">Name Your Deployment</h2>
+        <p className="text-muted-foreground">Give your AI deployment a name</p>
       </div>
       <div>
-        <Label htmlFor="botName" className="mb-2 block">Bot Name</Label>
+        <Label htmlFor="deploymentName" className="mb-2 block">Deployment Name</Label>
         <Input
-          id="botName"
-          value={botName}
-          onChange={(e) => setBotName(e.target.value)}
+          id="deploymentName"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
           className="bg-secondary/80 border-border text-foreground text-lg py-6"
-          placeholder="My Awesome Bot"
+          placeholder="My Deployment"
           autoFocus
         />
         <p className="text-xs text-muted-foreground mt-2">
-          This is how your bot will introduce itself. You can change it later.
+          This is how your deployment will be identified. You can change it later.
         </p>
       </div>
-      {botName.trim().length >= 2 && (
+      {name.trim().length >= 2 && (
         <div className="flex items-center gap-2 text-green-400 text-sm">
           <CheckCircle2 className="w-4 h-4" />
           Great name!
@@ -277,12 +278,12 @@ function StepNameBot({ botName, setBotName }: { botName: string; setBotName: (na
   );
 }
 
-function StepChooseTemplate() {
+function StepChooseRuntime() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold mb-2">Choose Template</h2>
-        <p className="text-muted-foreground">Select a template for your bot</p>
+        <h2 className="text-2xl font-bold mb-2">Choose Runtime</h2>
+        <p className="text-muted-foreground">Select a runtime for your deployment</p>
       </div>
       <div className="p-6 rounded-lg border-2 border-primary bg-primary/10 cursor-default">
         <div className="flex items-center gap-4">
@@ -291,7 +292,7 @@ function StepChooseTemplate() {
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-lg">Jarble Default</h3>
+              <h3 className="font-semibold text-lg">OpenClaw</h3>
               <span className="px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-xs font-medium">Selected</span>
             </div>
             <p className="text-sm text-muted-foreground mt-1">
@@ -309,7 +310,7 @@ function StepChooseTemplate() {
       <div className="flex items-start gap-3 p-4 rounded-lg bg-blue-500/10 border border-blue-500/30">
         <HelpCircle className="w-5 h-5 text-blue-400 mt-0.5" />
         <p className="text-sm text-blue-300">
-          More templates coming soon! After launch, you'll be able to choose from community templates or create your own.
+          More runtimes coming soon! After launch, you'll be able to choose from additional runtimes like LangChain, custom Docker images, and more.
         </p>
       </div>
     </div>
@@ -323,7 +324,7 @@ function StepConnectWhatsApp({ connected, setConnected }: { connected: boolean; 
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold mb-2">Connect WhatsApp</h2>
-        <p className="text-muted-foreground">Link your WhatsApp to chat with your bot</p>
+        <p className="text-muted-foreground">Link your WhatsApp to chat with your deployment</p>
       </div>
       {connected ? (
         <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-8 text-center">
@@ -375,7 +376,7 @@ function StepConnectWhatsApp({ connected, setConnected }: { connected: boolean; 
               <HelpCircle className="w-5 h-5 text-blue-400 mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm text-blue-300 font-medium">Why WhatsApp?</p>
-                <p className="text-xs text-blue-400/80 mt-1">WhatsApp lets you chat with your bot from your phone instantly. No app downloads needed!</p>
+                <p className="text-xs text-blue-400/80 mt-1">WhatsApp lets you chat with your deployment from your phone instantly. No app downloads needed!</p>
               </div>
             </div>
             <div className="flex items-start gap-3 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
@@ -394,7 +395,7 @@ function StepConnectWhatsApp({ connected, setConnected }: { connected: boolean; 
   );
 }
 
-function StepDeploy({ isDeploying, deployProgress, botName }: { isDeploying: boolean; deployProgress: number; botName: string }) {
+function StepDeploy({ isDeploying, deployProgress, name }: { isDeploying: boolean; deployProgress: number; name: string }) {
   return (
     <div className="space-y-6 text-center">
       {isDeploying ? (
@@ -404,8 +405,8 @@ function StepDeploy({ isDeploying, deployProgress, botName }: { isDeploying: boo
       ) : (
         <>
           <div>
-            <h2 className="text-2xl font-bold mb-2">Deploy Your Bot</h2>
-            <p className="text-muted-foreground">Your bot is configured and ready to launch!</p>
+            <h2 className="text-2xl font-bold mb-2">Deploy</h2>
+            <p className="text-muted-foreground">Your deployment is configured and ready to launch!</p>
           </div>
           <div className="bg-secondary/50 rounded-lg p-12">
             <div className="flex flex-col items-center gap-4">
@@ -415,22 +416,22 @@ function StepDeploy({ isDeploying, deployProgress, botName }: { isDeploying: boo
               <div>
                 <p className="text-lg font-semibold">Ready for Takeoff!</p>
                 <p className="text-muted-foreground text-sm mt-1">
-                  <span className="text-primary font-medium">{botName}</span> is configured and waiting to be deployed
+                  <span className="text-primary font-medium">{name}</span> is configured and waiting to be deployed
                 </p>
               </div>
               <div className="flex flex-wrap justify-center gap-3 mt-4">
                 <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/30">
-                  <CheckCircle2 className="w-3 h-3" /> Bot named
+                  <CheckCircle2 className="w-3 h-3" /> Named
                 </span>
                 <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/30">
-                  <CheckCircle2 className="w-3 h-3" /> Template selected
+                  <CheckCircle2 className="w-3 h-3" /> Runtime selected
                 </span>
               </div>
             </div>
           </div>
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
             <Rocket className="w-4 h-4 text-primary" />
-            <p className="text-sm">Click "Deploy Bot" to launch, then connect WhatsApp!</p>
+            <p className="text-sm">Click "Deploy" to launch, then connect WhatsApp!</p>
           </div>
         </>
       )}

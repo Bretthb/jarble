@@ -1,19 +1,19 @@
-import { mysqlTable, varchar, text, int, timestamp, boolean, decimal } from "drizzle-orm/mysql-core";
+import { pgTable, varchar, text, integer, timestamp, boolean, numeric, serial } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
-export const users = mysqlTable("users", {
+export const users = pgTable("users", {
   id: varchar("id", { length: 255 }).primaryKey(),
   email: varchar("email", { length: 255 }).notNull().unique(),
   name: varchar("name", { length: 255 }),
   auth0Id: varchar("auth0_id", { length: 255 }).notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
-  tierId: int("tier_id").references(() => tiers.id),
+  tierId: integer("tier_id").references(() => tiers.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const deployments = mysqlTable("deployments", {
+export const deployments = pgTable("deployments", {
   id: varchar("id", { length: 255 }).primaryKey(),
   userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
   name: varchar("name", { length: 255 }).notNull(),
@@ -23,18 +23,18 @@ export const deployments = mysqlTable("deployments", {
   image: varchar("image", { length: 255 }),
   status: varchar("status", { length: 50 }).notNull().default("creating"),
   error: text("error"),
-  tierId: int("tier_id").references(() => tiers.id),
+  tierId: integer("tier_id").references(() => tiers.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const tiers = mysqlTable("tiers", {
-  id: int("id").primaryKey().autoincrement(),
+export const tiers = pgTable("tiers", {
+  id: serial("id").primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
   description: text("description"),
-  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
-  creditsPerMonth: int("credits_per_month").notNull(),
-  maxDeployments: int("max_deployments").notNull().default(1),
+  price: numeric("price", { precision: 10, scale: 2 }).notNull(),
+  creditsPerMonth: integer("credits_per_month").notNull(),
+  maxDeployments: integer("max_deployments").notNull().default(1),
   features: text("features"), // JSON string
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),

@@ -27,7 +27,7 @@ export function SkillsTab({ formData, updateFormData }: TabProps) {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold mb-1">Skills & Capabilities</h2>
-        <p className="text-muted-foreground text-sm">Enable pre-built skills for your bot</p>
+        <p className="text-muted-foreground text-sm">Enable pre-built skills for your deployment</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

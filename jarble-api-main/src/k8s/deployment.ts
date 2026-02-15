@@ -15,24 +15,28 @@ const coreApi = kc.makeApiClient(k8s.CoreV1Api);
 const appsApi = kc.makeApiClient(k8s.AppsV1Api);
 
 const NAMESPACE = "jarble";
-const BOT_IMAGE = "jarble/bot-base:latest";
+const DEFAULT_IMAGE = "jarble/bot-base:latest";
 
-interface BotConfig {
+interface DeploymentConfig {
   name: string;
   template?: string;
   platform?: string;
+  runtime?: string;
+  image?: string;
 }
 
-export async function createBotDeployment(
-  botId: string,
+export async function createDeployment(
+  deploymentId: string,
   userId: string,
-  config: BotConfig
+  config: DeploymentConfig
 ): Promise<void> {
-  logger.info({ botId, userId }, "Creating bot deployment");
+  logger.info({ deploymentId, userId }, "Creating deployment");
 
-  // 1. Create PVC for bot storage
+  const containerImage = config.image || DEFAULT_IMAGE;
+
+  // 1. Create PVC for deployment storage
   await coreApi.createNamespacedPersistentVolumeClaim(NAMESPACE, {
-    metadata: { name: `pvc-${botId}` },
+    metadata: { name: `pvc-${deploymentId}` },
     spec: {
       accessModes: ["ReadWriteOnce"],
       storageClassName: "longhorn",
@@ -40,85 +44,86 @@ export async function createBotDeployment(
     },
   });
 
-  // 2. Create Secret for bot env vars
+  // 2. Create Secret for deployment env vars
   await coreApi.createNamespacedSecret(NAMESPACE, {
-    metadata: { name: `secret-${botId}` },
+    metadata: { name: `secret-${deploymentId}` },
     stringData: {
-      BOT_ID: botId,
+      DEPLOYMENT_ID: deploymentId,
       USER_ID: userId,
-      BOT_NAME: config.name,
+      DEPLOYMENT_NAME: config.name,
       TEMPLATE: config.template || "personal",
+      RUNTIME: config.runtime || "openclaw",
       OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || "",
     },
   });
 
   // 3. Create Deployment
   await appsApi.createNamespacedDeployment(NAMESPACE, {
-    metadata: { 
-      name: `bot-${botId}`,
-      labels: { app: `bot-${botId}`, "jarble.ai/bot-id": botId },
+    metadata: {
+      name: `dep-${deploymentId}`,
+      labels: { app: `dep-${deploymentId}`, "jarble.ai/deployment-id": deploymentId },
     },
     spec: {
       replicas: 1,
-      selector: { matchLabels: { app: `bot-${botId}` } },
+      selector: { matchLabels: { app: `dep-${deploymentId}` } },
       template: {
-        metadata: { labels: { app: `bot-${botId}` } },
+        metadata: { labels: { app: `dep-${deploymentId}` } },
         spec: {
           containers: [{
-            name: "openclaw",
-            image: BOT_IMAGE,
+            name: "runtime",
+            image: containerImage,
             resources: {
               requests: { cpu: "500m", memory: "2Gi" },
               limits: { cpu: "1000m", memory: "4Gi" },
             },
-            envFrom: [{ secretRef: { name: `secret-${botId}` } }],
+            envFrom: [{ secretRef: { name: `secret-${deploymentId}` } }],
             volumeMounts: [{ name: "data", mountPath: "/data" }],
           }],
           volumes: [{
             name: "data",
-            persistentVolumeClaim: { claimName: `pvc-${botId}` },
+            persistentVolumeClaim: { claimName: `pvc-${deploymentId}` },
           }],
         },
       },
     },
   });
 
-  logger.info({ botId }, "Bot deployment created successfully");
+  logger.info({ deploymentId }, "Deployment created successfully");
 }
 
-export async function deleteBotDeployment(botId: string): Promise<void> {
-  logger.info({ botId }, "Deleting bot deployment");
+export async function deleteDeployment(deploymentId: string): Promise<void> {
+  logger.info({ deploymentId }, "Deleting deployment");
 
   try {
     // Delete in order: Deployment, Secret, PVC
-    await appsApi.deleteNamespacedDeployment(`bot-${botId}`, NAMESPACE);
+    await appsApi.deleteNamespacedDeployment(`dep-${deploymentId}`, NAMESPACE);
   } catch (err: unknown) {
     if (err instanceof Object && "statusCode" in err && err.statusCode !== 404) throw err;
   }
 
   try {
-    await coreApi.deleteNamespacedSecret(`secret-${botId}`, NAMESPACE);
+    await coreApi.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
   } catch (err: unknown) {
     if (err instanceof Object && "statusCode" in err && err.statusCode !== 404) throw err;
   }
 
   try {
-    await coreApi.deleteNamespacedPersistentVolumeClaim(`pvc-${botId}`, NAMESPACE);
+    await coreApi.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
   } catch (err: unknown) {
     if (err instanceof Object && "statusCode" in err && err.statusCode !== 404) throw err;
   }
 
-  logger.info({ botId }, "Bot deployment deleted");
+  logger.info({ deploymentId }, "Deployment deleted");
 }
 
-export interface BotPodStatus {
+export interface DeploymentPodStatus {
   status: "creating" | "running" | "failed" | "not_found";
   phase?: string;
   restarts?: number;
   error?: string;
 }
 
-export async function getBotPodStatus(botId: string): Promise<BotPodStatus> {
+export async function getDeploymentPodStatus(deploymentId: string): Promise<DeploymentPodStatus> {
   try {
     const pods = await coreApi.listNamespacedPod(
       NAMESPACE,
@@ -126,7 +131,7 @@ export async function getBotPodStatus(botId: string): Promise<BotPodStatus> {
       undefined,
       undefined,
       undefined,
-      `app=bot-${botId}`
+      `app=dep-${deploymentId}`
     );
 
     if (pods.body.items.length === 0) {
@@ -175,7 +180,7 @@ export async function getBotPodStatus(botId: string): Promise<BotPodStatus> {
       phase,
     };
   } catch (err) {
-    logger.error({ botId, err }, "Failed to get pod status");
+    logger.error({ deploymentId, err }, "Failed to get pod status");
     return { status: "not_found" };
   }
 }

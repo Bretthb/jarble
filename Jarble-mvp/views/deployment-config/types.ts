@@ -34,7 +34,7 @@ export const PLATFORM_CONFIGS: PlatformConfig[] = [
     id: "discord",
     name: "Discord",
     icon: "🎮",
-    description: "Connect your bot to Discord servers",
+    description: "Connect your deployment to Discord servers",
     docsUrl: "https://discord.com/developers/docs/intro",
     connected: false,
     fields: [
@@ -118,7 +118,7 @@ export const PLATFORM_CONFIGS: PlatformConfig[] = [
   },
 ];
 
-export interface BotFormData {
+export interface DeploymentFormData {
   name: string;
   description: string;
   modelProvider: string;
@@ -132,6 +132,6 @@ export interface BotFormData {
 }
 
 export interface TabProps {
-  formData: BotFormData;
+  formData: DeploymentFormData;
   updateFormData: (key: string, value: string | number | string[]) => void;
 }

@@ -97,7 +97,7 @@ export function PlatformsTab({ formData, updateFormData }: TabProps) {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold mb-1">Platform Integrations</h2>
-        <p className="text-muted-foreground text-sm">Connect and configure your bot's deployment channels</p>
+        <p className="text-muted-foreground text-sm">Connect and configure your deployment channels</p>
       </div>
 
       {/* Security Notice */}

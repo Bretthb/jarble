@@ -28,7 +28,8 @@ export default function Home() {
       router.push("/login");
       return;
     }
-    router.push("/onboarding/new");
+    // Send to dashboard — deploy gate checks happen there
+    router.push("/dashboard");
   };
 
   const handleViewDashboard = () => {

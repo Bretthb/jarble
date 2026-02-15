@@ -1,42 +1,76 @@
 import { drizzle as drizzleMysql, MySql2Database } from "drizzle-orm/mysql2";
-import { drizzle as drizzleSqlite, BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3";
+import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
 import mysql from "mysql2/promise";
 import Database from "better-sqlite3";
-import * as schema from "./schema.js";
+import pg from "pg";
+import * as mysqlSchema from "./schema.js";
 import * as sqliteSchema from "./schema.sqlite.js";
+import * as pgSchema from "./schema.pg.js";
 import { env } from "../utils/env.js";
 import { logger } from "../utils/logger.js";
 
-export const USE_SQLITE = env.USE_SQLITE === "true" || env.USE_SQLITE === "1";
+// Resolve provider: legacy USE_SQLITE takes precedence, then DB_PROVIDER
+const resolveProvider = (): "mysql" | "postgres" | "sqlite" => {
+  if (env.USE_SQLITE === "true" || env.USE_SQLITE === "1") return "sqlite";
+  return env.DB_PROVIDER;
+};
 
-// Type is always MySQL for consistency - SQLite is a dev-only fallback
-export type DbClient = MySql2Database<typeof schema>;
+export const DB_PROVIDER = resolveProvider();
+export const USE_SQLITE = DB_PROVIDER === "sqlite";
+
+// Use MySql2Database as the canonical type — all three Drizzle clients share
+// the same relational query API at runtime, so the cast is safe. This avoids
+// TypeScript union-type issues where method signatures become incompatible.
+export type DbClient = MySql2Database<typeof mysqlSchema>;
 
 let db: DbClient;
-let sqliteDb: BetterSQLite3Database<typeof sqliteSchema> | null = null;
 let sqliteRaw: Database.Database | null = null;
 
-if (USE_SQLITE) {
+if (DB_PROVIDER === "sqlite") {
   // In-memory SQLite for local testing
   sqliteRaw = new Database(":memory:");
-  sqliteDb = drizzleSqlite(sqliteRaw, { schema: sqliteSchema });
+  const sqliteDb = drizzleSqlite(sqliteRaw, { schema: sqliteSchema });
   db = sqliteDb as unknown as DbClient;
   logger.info("Using in-memory SQLite database");
+} else if (DB_PROVIDER === "postgres") {
+  if (!env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required for Postgres");
+  }
+  const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
+  const pgDb = drizzlePg(pool, { schema: pgSchema });
+  db = pgDb as unknown as DbClient;
+  logger.info("Using PostgreSQL database");
 } else {
+  // Default: MySQL
   if (!env.DATABASE_URL) {
     throw new Error("DATABASE_URL is required when not using SQLite");
   }
   const pool = mysql.createPool(env.DATABASE_URL);
-  db = drizzleMysql(pool, { schema, mode: "default" });
+  db = drizzleMysql(pool, { schema: mysqlSchema, mode: "default" });
   logger.info("Using MySQL database");
 }
 
-export { db, sqliteDb, sqliteRaw };
-export { schema, sqliteSchema };
+export { db, sqliteRaw };
+export { mysqlSchema, sqliteSchema, pgSchema };
+// Keep backward-compatible "schema" export pointing to MySQL
+export { mysqlSchema as schema };
+
+// For SQLite init
+export const sqliteDb = DB_PROVIDER === "sqlite"
+  ? (db as unknown as ReturnType<typeof drizzleSqlite<typeof sqliteSchema>>)
+  : null;
 
 // Export the active schema tables for use in queries.
-// When using SQLite, we must use the SQLite table definitions
-// to avoid MySQL-specific SQL generation (e.g., `now()`).
-export const tables = USE_SQLITE
-  ? { users: sqliteSchema.users, bots: sqliteSchema.bots, tiers: sqliteSchema.tiers }
-  : { users: schema.users, bots: schema.bots, tiers: schema.tiers };
+// Each provider uses its own table definitions to ensure correct SQL generation.
+function getActiveTables() {
+  if (DB_PROVIDER === "sqlite") {
+    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, tiers: sqliteSchema.tiers };
+  }
+  if (DB_PROVIDER === "postgres") {
+    return { users: pgSchema.users, deployments: pgSchema.deployments, tiers: pgSchema.tiers };
+  }
+  return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, tiers: mysqlSchema.tiers };
+}
+
+export const tables = getActiveTables();

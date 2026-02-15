@@ -11,7 +11,9 @@ import {
   Sparkles,
   Bot,
   Send,
-  Trash2
+  Trash2,
+  AlertTriangle,
+  ArrowUpRight,
 } from "lucide-react";
 import WizardLoader from "@/components/WizardLoader";
 import { toast } from "sonner";
@@ -22,19 +24,34 @@ export default function Dashboard() {
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth0();
   const router = useRouter();
 
-  const botsQuery = trpc.bot.list.useQuery(undefined, {
+  const deploymentsQuery = trpc.deployment.list.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading,
   });
 
-  const deleteBotMutation = trpc.bot.delete.useMutation({
+  const canDeployQuery = trpc.deployment.canDeploy.useQuery(undefined, {
+    enabled: isAuthenticated && !authLoading,
+  });
+
+  const deleteDeploymentMutation = trpc.deployment.delete.useMutation({
     onSuccess: () => {
-      toast.success("Bot deleted");
-      botsQuery.refetch();
+      toast.success("Deployment deleted");
+      deploymentsQuery.refetch();
+      canDeployQuery.refetch();
     },
-    onError: (error) => {
-      toast.error(error.message || "Failed to delete bot");
+    onError: (error: { message?: string }) => {
+      toast.error(error.message || "Failed to delete deployment");
     },
   });
+
+  const handleCreateDeployment = () => {
+    if (canDeployQuery.data && !canDeployQuery.data.allowed) {
+      toast.error(
+        `You've reached the limit of ${canDeployQuery.data.max} deployment${canDeployQuery.data.max === 1 ? '' : 's'} on the ${canDeployQuery.data.tierName} plan. Upgrade to create more.`
+      );
+      return;
+    }
+    router.push("/onboarding/new");
+  };
 
   if (authLoading) {
     return (
@@ -59,6 +76,9 @@ export default function Dashboard() {
       </div>
     );
   }
+
+  const limits = canDeployQuery.data;
+  const isAtLimit = limits ? !limits.allowed : false;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -95,52 +115,96 @@ export default function Dashboard() {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-12">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
           >
-            <h2 className="text-3xl font-bold mb-2">Your Bots</h2>
-            <p className="text-muted-foreground">Manage your AI assistants</p>
+            <h2 className="text-3xl font-bold mb-2">Your Deployments</h2>
+            <p className="text-muted-foreground">Manage your AI deployments</p>
           </motion.div>
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: isAtLimit ? 1 : 1.05 }}
+            whileTap={{ scale: isAtLimit ? 1 : 0.95 }}
           >
             <Button
-              onClick={() => router.push("/onboarding/new")}
+              onClick={handleCreateDeployment}
               size="lg"
-              className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-lg shadow-primary/25"
+              disabled={isAtLimit}
+              className={`rounded-full font-semibold shadow-lg ${
+                isAtLimit
+                  ? 'bg-muted text-muted-foreground cursor-not-allowed shadow-none'
+                  : 'bg-primary hover:bg-primary/90 text-primary-foreground shadow-primary/25'
+              }`}
             >
               <Plus className="w-5 h-5 mr-2" />
-              Create Bot
+              Create Deployment
             </Button>
           </motion.div>
         </div>
 
-        {/* Bots Grid */}
-        {botsQuery.isLoading ? (
+        {/* Tier Usage Banner */}
+        {limits && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8"
+          >
+            <div className={`rounded-lg border p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+              isAtLimit
+                ? 'bg-amber-500/10 border-amber-500/30'
+                : 'bg-secondary/30 border-border'
+            }`}>
+              <div className="flex items-center gap-3">
+                {isAtLimit && <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />}
+                <div>
+                  <p className="text-sm font-medium">
+                    {limits.tierName} Plan — {limits.current}/{limits.max} deployment{limits.max === 1 ? '' : 's'} used
+                  </p>
+                  {isAtLimit && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      You&apos;ve reached your deployment limit. Upgrade to create more.
+                    </p>
+                  )}
+                </div>
+              </div>
+              {isAtLimit && (
+                <Button
+                  size="sm"
+                  onClick={() => router.push("/pricing")}
+                  className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
+                >
+                  Upgrade Plan
+                  <ArrowUpRight className="w-4 h-4 ml-1" />
+                </Button>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Deployments Grid */}
+        {deploymentsQuery.isLoading ? (
           <div className="flex items-center justify-center py-20">
             <WizardLoader
               messages={[
-                "Gathering your bots...",
-                "Checking bot status...",
+                "Gathering your deployments...",
+                "Checking deployment status...",
                 "Loading your creations...",
                 "Almost there...",
               ]}
               size="lg"
             />
           </div>
-        ) : botsQuery.data && botsQuery.data.length > 0 ? (
+        ) : deploymentsQuery.data && deploymentsQuery.data.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {botsQuery.data.map((bot) => (
-              <BotCard
-                key={bot.id}
-                bot={bot}
-                onDelete={(botId) => {
-                  deleteBotMutation.mutate({ id: botId });
+            {deploymentsQuery.data.map((deployment: { id: string; name: string; status: string; template: string | null; description: string | null }) => (
+              <DeploymentCard
+                key={deployment.id}
+                deployment={deployment}
+                onDelete={(id) => {
+                  deleteDeploymentMutation.mutate({ id });
                 }}
               />
             ))}
@@ -148,10 +212,10 @@ export default function Dashboard() {
         ) : (
           <div className="text-center py-12">
             <Bot className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-xl font-semibold mb-2">No bots yet</h3>
-            <p className="text-muted-foreground mb-4">Create your first AI bot in under 2 minutes</p>
-            <Button onClick={() => router.push('/onboarding/new')}>
-              Create Your First Bot
+            <h3 className="text-xl font-semibold mb-2">No deployments yet</h3>
+            <p className="text-muted-foreground mb-4">Create your first deployment in under 2 minutes</p>
+            <Button onClick={handleCreateDeployment}>
+              Create Your First Deployment
             </Button>
           </div>
         )}
@@ -183,7 +247,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function BotCard({ bot, onDelete }: { bot: { id: string; name: string; status: string; template: string | null; description: string | null }; onDelete: (botId: string) => void }) {
+function DeploymentCard({ deployment, onDelete }: { deployment: { id: string; name: string; status: string; template: string | null; description: string | null }; onDelete: (id: string) => void }) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -203,28 +267,28 @@ function BotCard({ bot, onDelete }: { bot: { id: string; name: string; status: s
                 <Bot className="w-6 h-6 text-primary" />
               </div>
               <div>
-                <h3 className="font-bold text-lg">{bot.name}</h3>
-                {bot.template && (
+                <h3 className="font-bold text-lg">{deployment.name}</h3>
+                {deployment.template && (
                   <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
                     <Send className="w-3 h-3" />
-                    <span>{bot.template}</span>
+                    <span>{deployment.template}</span>
                   </div>
                 )}
               </div>
             </div>
-            <StatusBadge status={bot.status} />
+            <StatusBadge status={deployment.status} />
           </div>
 
-          {bot.description && (
-            <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{bot.description}</p>
+          {deployment.description && (
+            <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{deployment.description}</p>
           )}
 
           {/* Action buttons */}
           <div className="flex gap-2">
-            {bot.status === "pending" ? (
+            {deployment.status === "pending" ? (
               <Button
                 size="sm"
-                onClick={() => router.push(`/onboarding/${bot.id}`)}
+                onClick={() => router.push(`/onboarding/${deployment.id}`)}
                 className="flex-1 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
               >
                 Complete Setup
@@ -234,7 +298,7 @@ function BotCard({ bot, onDelete }: { bot: { id: string; name: string; status: s
                 size="sm"
                 variant="outline"
                 className="flex-1 border-border hover:bg-secondary hover:border-primary/50"
-                onClick={() => router.push(`/bot/${bot.id}/configure`)}
+                onClick={() => router.push(`/d/${deployment.id}/configure`)}
               >
                 Configure
               </Button>
@@ -244,7 +308,7 @@ function BotCard({ bot, onDelete }: { bot: { id: string; name: string; status: s
                 <Button
                   size="sm"
                   variant="destructive"
-                  onClick={() => { onDelete(bot.id); setConfirmDelete(false); }}
+                  onClick={() => { onDelete(deployment.id); setConfirmDelete(false); }}
                   className="text-xs"
                 >
                   Confirm
