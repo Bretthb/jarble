@@ -209,6 +209,62 @@ app.post("/api/stripe/portal", async (req, res) => {
   }
 });
 
+// ─── Auth0 webhook: email verification ───────────────────────────────────────
+// Called by Auth0 Post Email Verification Action when a user verifies their email.
+// Authenticated via M2M shared secret in Authorization header.
+app.post("/api/auth0/email-verified", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const m2mSecret = env.AUTH0_M2M_SECRET;
+
+  if (!m2mSecret) {
+    logger.warn("Auth0 email-verified webhook called but AUTH0_M2M_SECRET is not configured");
+    res.status(503).json({ error: "Webhook not configured" });
+    return;
+  }
+
+  if (!token || token !== m2mSecret) {
+    logger.warn("Auth0 email-verified webhook: invalid or missing token");
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const { auth0Id, email } = req.body;
+
+  if (!auth0Id) {
+    res.status(400).json({ error: "Missing auth0Id" });
+    return;
+  }
+
+  try {
+    const user = await db.query.users.findFirst({
+      where: eq(tables.users.auth0Id, auth0Id),
+    });
+
+    if (!user) {
+      logger.info({ auth0Id, email }, "Email verified webhook: user not found in DB (not yet provisioned)");
+      res.json({ received: true, updated: false, reason: "user_not_found" });
+      return;
+    }
+
+    if (user.emailVerified) {
+      logger.info({ userId: user.id }, "Email verified webhook: already verified");
+      res.json({ received: true, updated: false, reason: "already_verified" });
+      return;
+    }
+
+    await (db as any).update(tables.users)
+      .set({ emailVerified: true })
+      .where(eq(tables.users.id, user.id));
+
+    logger.info({ userId: user.id, email: user.email }, "Email verified via Auth0 webhook");
+    res.json({ received: true, updated: true });
+  } catch (err) {
+    logger.error({ err, auth0Id }, "Email verification webhook error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Health check for K8s probes
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

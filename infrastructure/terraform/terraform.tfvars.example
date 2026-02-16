@@ -1,0 +1,23 @@
+# Copy this file to terraform.tfvars and fill in your values
+# NEVER commit terraform.tfvars to git
+
+hcloud_token        = "your-hetzner-api-token"
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+ssh_private_key_path = "~/.ssh/id_rsa"
+
+# Cluster settings
+cluster_name       = "jarble"
+location           = "ash"          # ash (US East), fsn1 (Germany), nbg1 (Germany), hel1 (Finland)
+network_zone       = "us-east"      # us-east, eu-central
+
+# Server types — see https://www.hetzner.com/cloud#pricing
+master_server_type = "cpx21"        # 3 vCPU, 4GB RAM — $7.59/mo
+agent_server_type  = "cpx21"        # 3 vCPU, 4GB RAM — $7.59/mo
+agent_count        = 2              # Number of worker nodes
+
+# K3s
+k3s_version = "v1.29.2+k3s1"
+# k3s_token = ""                   # Leave empty to auto-generate
+
+# DNS
+domain = "jarble.ai"

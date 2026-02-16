@@ -19,6 +19,9 @@ const envSchema = z.object({
   // OpenRouter Management API key (for provisioning tenant keys — "Included Credits" feature)
   OPENROUTER_MANAGEMENT_KEY: z.string().optional(),
   
+  // Auth0 M2M — for webhook authentication from Auth0 Actions
+  AUTH0_M2M_SECRET: z.string().optional(),
+
   // Stripe — all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
