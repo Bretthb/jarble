@@ -33,7 +33,10 @@ export const deployments = sqliteTable("deployments", {
   llmMode: text("llm_mode").notNull().default("byok"), // "included" | "byok"
   llmProvider: text("llm_provider").notNull().default("openrouter"), // "openrouter" | "openai" | "anthropic" | "google"
   llmModel: text("llm_model"), // e.g. "openrouter/auto", "gpt-4o", "claude-sonnet-4-20250514"
-  llmApiKey: text("llm_api_key"),
+  llmApiKey: text("llm_api_key"),           // Encrypted API key (AES-256-GCM)
+  llmApiKeyId: text("llm_api_key_id"),     // OpenRouter key ID (for revocation / usage tracking)
+  llmCreditLimitDollars: integer("llm_credit_limit_dollars"),  // Monthly spending cap for "included" mode (e.g. 5, 10, 25, 50, 100)
+  llmApiKeySourceDeploymentId: text("llm_api_key_source_deployment_id"), // null = owns key, non-null = linked to owner deployment
   systemPrompt: text("system_prompt"),
   status: text("status").notNull().default("creating"),
   error: text("error"),

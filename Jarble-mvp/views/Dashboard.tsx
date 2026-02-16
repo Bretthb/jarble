@@ -14,11 +14,15 @@ import {
   Clock,
   DollarSign,
   MailWarning,
+  Play,
+  Square,
+  RotateCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { useState } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
+import { StatusBadge } from "@/components/StatusBadge";
 import { StorageMeter, StorageMeterSkeleton } from "@/components/StorageMeter";
 
 export default function Dashboard() {
@@ -36,6 +40,45 @@ export default function Dashboard() {
     },
     onError: (error: { message?: string }) => {
       toast.error(error.message || "Failed to delete deployment");
+    },
+  });
+
+  const stopMutation = trpc.deployment.stop.useMutation({
+    onSuccess: () => {
+      toast.success("Deployment stopped");
+      deploymentsQuery.refetch();
+    },
+    onError: (error: { message?: string }) => {
+      toast.error(error.message || "Failed to stop deployment");
+    },
+  });
+
+  const startMutation = trpc.deployment.start.useMutation({
+    onSuccess: () => {
+      toast.success("Deployment starting...");
+      // Poll for status updates while starting
+      const interval = setInterval(() => {
+        deploymentsQuery.refetch();
+      }, 3000);
+      setTimeout(() => clearInterval(interval), 60_000);
+    },
+    onError: (error: { message?: string }) => {
+      toast.error(error.message || "Failed to start deployment");
+      deploymentsQuery.refetch();
+    },
+  });
+
+  const restartMutation = trpc.deployment.restart.useMutation({
+    onSuccess: () => {
+      toast.success("Deployment restarting...");
+      const interval = setInterval(() => {
+        deploymentsQuery.refetch();
+      }, 3000);
+      setTimeout(() => clearInterval(interval), 60_000);
+    },
+    onError: (error: { message?: string }) => {
+      toast.error(error.message || "Failed to restart deployment");
+      deploymentsQuery.refetch();
     },
   });
 
@@ -141,9 +184,13 @@ export default function Dashboard() {
               <DeploymentCard
                 key={deployment.id}
                 deployment={deployment}
-                onDelete={(id) => {
-                  deleteDeploymentMutation.mutate({ id });
-                }}
+                onDelete={(id) => deleteDeploymentMutation.mutate({ id })}
+                onStop={(id) => stopMutation.mutate({ id })}
+                onStart={(id) => startMutation.mutate({ id })}
+                onRestart={(id) => restartMutation.mutate({ id })}
+                isToggling={
+                  stopMutation.isPending || startMutation.isPending || restartMutation.isPending
+                }
               />
             ))}
           </div>
@@ -172,30 +219,7 @@ export default function Dashboard() {
   );
 }
 
-// Map API status values to display config
-const STATUS_CONFIG: Record<string, { bg: string; border: string; text: string; label: string }> = {
-  running: { bg: "bg-primary/10", border: "border-primary/30", text: "text-primary", label: "Running" },
-  creating: { bg: "bg-primary/10", border: "border-primary/30", text: "text-primary", label: "Creating" },
-  pending: { bg: "bg-secondary", border: "border-border", text: "text-muted-foreground", label: "Pending" },
-  failed: { bg: "bg-secondary", border: "border-border", text: "text-muted-foreground", label: "Failed" },
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const config = STATUS_CONFIG[status] || { bg: "bg-muted-foreground/20", border: "border-muted-foreground/50", text: "text-muted-foreground", label: status };
-
-  return (
-    <div
-      className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border ${config.bg} ${config.border}`}
-    >
-      <div
-        className={`w-2 h-2 rounded-full ${config.text.replace("text-", "bg-")} ${status === "running" ? "animate-pulse" : ""}`}
-      />
-      <span className={`text-xs font-semibold ${config.text}`}>{config.label}</span>
-    </div>
-  );
-}
-
-function DeploymentCard({ deployment, onDelete }: {
+function DeploymentCard({ deployment, onDelete, onStop, onStart, onRestart, isToggling }: {
   deployment: {
     id: string;
     name: string;
@@ -209,12 +233,18 @@ function DeploymentCard({ deployment, onDelete }: {
     llmMode: string;
   };
   onDelete: (id: string) => void;
+  onStop: (id: string) => void;
+  onStart: (id: string) => void;
+  onRestart: (id: string) => void;
+  isToggling: boolean;
 }) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Query storage usage (only for running deployments)
   const isRunning = deployment.status === "running";
+  const isStopped = deployment.status === "stopped";
+  const isTransitioning = deployment.status === "creating";
   const storageQuery = trpc.deployment.getStorageUsage.useQuery(
     { id: deployment.id },
     {
@@ -293,7 +323,7 @@ function DeploymentCard({ deployment, onDelete }: {
             </div>
           )}
 
-          {/* Row 2: Metadata + Delete */}
+          {/* Row 2: Metadata + Actions */}
           <div className="flex items-center justify-between pt-3 border-t border-border/50">
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               {deployment.isFree && !deployment.freeTrialExpired && daysRemaining !== null && daysRemaining > 0 ? (
@@ -316,36 +346,101 @@ function DeploymentCard({ deployment, onDelete }: {
               <span>{deployment.llmMode === "byok" ? "BYOK" : "Included"} LLM</span>
             </div>
 
-            {/* Delete */}
-            {confirmDelete ? (
-              <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+            {/* Action buttons */}
+            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              {/* Stop/Start toggle */}
+              {isRunning && (
                 <Button
                   size="sm"
-                  variant="destructive"
-                  onClick={() => { onDelete(deployment.id); setConfirmDelete(false); }}
-                  className="text-xs h-7 px-2"
+                  variant="ghost"
+                  onClick={() => onStop(deployment.id)}
+                  disabled={isToggling}
+                  className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
+                  title="Stop"
                 >
-                  Delete
+                  {isToggling ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Square className="w-3.5 h-3.5" />
+                  )}
                 </Button>
+              )}
+
+              {isStopped && (
                 <Button
                   size="sm"
-                  variant="outline"
-                  onClick={() => setConfirmDelete(false)}
-                  className="text-xs border-border h-7 px-2"
+                  variant="ghost"
+                  onClick={() => onStart(deployment.id)}
+                  disabled={isToggling}
+                  className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
+                  title="Start"
                 >
-                  Cancel
+                  {isToggling ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5" />
+                  )}
                 </Button>
-              </div>
-            ) : (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
-                className="text-muted-foreground hover:text-red-500 h-7 w-7 p-0"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
-            )}
+              )}
+
+              {isTransitioning && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled
+                  className="text-muted-foreground h-7 w-7 p-0"
+                  title="Starting..."
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                </Button>
+              )}
+
+              {/* Restart (only for running) */}
+              {isRunning && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onRestart(deployment.id)}
+                  disabled={isToggling}
+                  className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
+                  title="Restart"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                </Button>
+              )}
+
+              {/* Delete */}
+              {confirmDelete ? (
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => { onDelete(deployment.id); setConfirmDelete(false); }}
+                    className="text-xs h-7 px-2"
+                  >
+                    Delete
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setConfirmDelete(false)}
+                    className="text-xs border-border h-7 px-2"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-muted-foreground hover:text-red-500 h-7 w-7 p-0"
+                  title="Delete"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </Card>

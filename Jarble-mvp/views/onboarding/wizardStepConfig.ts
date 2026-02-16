@@ -123,8 +123,9 @@ const RUNTIME_EXTRA_STEPS: Record<string, WizardStepDef[]> = {
     { id: "whatsapp", title: "Connect WhatsApp", icon: MessageCircle },
   ],
 
-  // ZeroClaw — lightweight bot, no LLM config needed
+  // ZeroClaw — lightweight chatbot with LLM config
   zeroclaw: [
+    { id: "llm", title: "LLM Setup", icon: Sparkles },
     { id: "deploy", title: "Deploy", icon: Rocket },
   ],
 
@@ -293,6 +294,33 @@ export const LLM_MODELS: LLMModelDef[] = [
 
 // Default model for "Included Credits" mode (always via OpenRouter)
 export const DEFAULT_INCLUDED_MODEL = "openrouter/auto";
+
+// ─── Credit Plans (shown when "Included Credits" is selected) ───────
+//
+// These define the monthly spending cap options for auto-provisioned
+// OpenRouter keys. The value is the dollar amount that gets passed to
+// the backend as `creditLimitDollars`.
+//
+// HOW TO CHANGE CREDIT PLANS:
+//   Just edit the array below. The wizard reads from here automatically.
+//   The "isDefault" plan is pre-selected when the user picks Included Credits.
+
+export interface CreditPlanDef {
+  value: number;         // Monthly spending cap in USD
+  label: string;         // Display label (e.g. "$5/mo")
+  description: string;   // Short description of what it gets you
+  isDefault?: boolean;   // Pre-selected plan
+}
+
+export const CREDIT_PLANS: CreditPlanDef[] = [
+  { value: 5,   label: "$5/mo",   description: "Light usage — great for testing & small bots",   isDefault: true },
+  { value: 10,  label: "$10/mo",  description: "Moderate usage — handles a few hundred messages" },
+  { value: 25,  label: "$25/mo",  description: "Active usage — supports busy bots with frequent conversations" },
+  { value: 50,  label: "$50/mo",  description: "Heavy usage — high-volume bots and power users" },
+  { value: 100, label: "$100/mo", description: "Enterprise — maximum capacity for production workloads" },
+];
+
+export const DEFAULT_CREDIT_PLAN = CREDIT_PLANS.find((p) => p.isDefault)?.value ?? 5;
 
 // ─── Hardware Configuration Options (shown in Deploy step) ──────────
 //

@@ -32,6 +32,9 @@ import {
   RotateCcw,
   SlidersHorizontal,
   MailWarning,
+  Link2,
+  Crown,
+  Plus,
 } from "lucide-react";
 import { DeploymentLoader } from "@/components/WizardLoader";
 import ProfileDropdown from "@/components/ProfileDropdown";
@@ -45,12 +48,15 @@ import {
   getModelsForProvider,
   getDefaultModelForProvider,
   DEFAULT_INCLUDED_MODEL,
+  CREDIT_PLANS,
+  DEFAULT_CREDIT_PLAN,
   CPU_OPTIONS,
   MEMORY_OPTIONS,
   STORAGE_OPTIONS,
   type WizardStepDef,
   type LLMProviderDef,
   type LLMModelDef,
+  type CreditPlanDef,
 } from "./onboarding/wizardStepConfig";
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -89,6 +95,8 @@ export default function OnboardingWizard() {
   const [llmProvider, setLlmProvider] = useState<LLMProviderDef["id"]>("openrouter");
   const [llmModel, setLlmModel] = useState<string>(DEFAULT_INCLUDED_MODEL);
   const [llmApiKey, setLlmApiKey] = useState("");
+  const [creditLimitDollars, setCreditLimitDollars] = useState<number>(DEFAULT_CREDIT_PLAN);
+  const [linkToDeploymentId, setLinkToDeploymentId] = useState<string | null>(null);
   const [keyValidation, setKeyValidation] = useState<KeyValidationStatus>("idle");
   const [whatsappConnected, setWhatsappConnected] = useState(false);
 
@@ -138,6 +146,11 @@ export default function OnboardingWizard() {
   // Check free deployment status
   const canDeployQuery = trpc.deployment.canDeploy.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading,
+  });
+
+  // Fetch linkable deployments (existing credit pool owners)
+  const linkableQuery = trpc.deployment.listLinkableDeployments.useQuery(undefined, {
+    enabled: isAuthenticated && !authLoading && llmMode === "included",
   });
 
   // Key validation mutation
@@ -232,6 +245,8 @@ export default function OnboardingWizard() {
           llmProvider: llmMode === "byok" ? llmProvider : "openrouter",
           llmModel,
           llmApiKey: llmMode === "byok" ? llmApiKey : undefined,
+          creditLimitDollars: llmMode === "included" && !linkToDeploymentId ? creditLimitDollars : undefined,
+          linkToDeploymentId: llmMode === "included" && linkToDeploymentId ? linkToDeploymentId : undefined,
           cpuLimit: cpuLimit || undefined,
           memoryMb: memoryMb || undefined,
           storageMb: storageMb || undefined,
@@ -383,6 +398,11 @@ export default function OnboardingWizard() {
                   setLlmModel={setLlmModel}
                   llmApiKey={llmApiKey}
                   setLlmApiKey={setLlmApiKey}
+                  creditLimitDollars={creditLimitDollars}
+                  setCreditLimitDollars={setCreditLimitDollars}
+                  linkToDeploymentId={linkToDeploymentId}
+                  setLinkToDeploymentId={setLinkToDeploymentId}
+                  linkableDeployments={linkableQuery.data ?? []}
                   keyValidation={keyValidation}
                   onValidateKey={handleValidateKey}
                   isValidating={validateKeyMutation.isPending}
@@ -699,6 +719,11 @@ function StepLlmSetup({
   setLlmModel,
   llmApiKey,
   setLlmApiKey,
+  creditLimitDollars,
+  setCreditLimitDollars,
+  linkToDeploymentId,
+  setLinkToDeploymentId,
+  linkableDeployments,
   keyValidation,
   onValidateKey,
   isValidating,
@@ -711,6 +736,11 @@ function StepLlmSetup({
   setLlmModel: (model: string) => void;
   llmApiKey: string;
   setLlmApiKey: (key: string) => void;
+  creditLimitDollars: number;
+  setCreditLimitDollars: (limit: number) => void;
+  linkToDeploymentId: string | null;
+  setLinkToDeploymentId: (id: string | null) => void;
+  linkableDeployments: { id: string; name: string; runtime: string; llmCreditLimitDollars: number | null }[];
   keyValidation: KeyValidationStatus;
   onValidateKey: () => void;
   isValidating: boolean;
@@ -767,11 +797,118 @@ function StepLlmSetup({
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-primary" />
                   <p className="text-sm text-muted-foreground">
-                    An OpenRouter API key will be automatically provisioned when
-                    you deploy. Includes $5/month in LLM credits.
+                    {linkToDeploymentId
+                      ? "This deployment will share an existing credit pool."
+                      : "An OpenRouter API key will be automatically provisioned when you deploy. Choose a monthly credit plan below."}
                   </p>
                 </div>
               </div>
+
+              {/* Credit Pool Selector (only shown if linkable deployments exist) */}
+              {linkableDeployments.length > 0 && (
+                <div>
+                  <Label className="mb-3 block text-sm font-medium">
+                    Credit Pool
+                  </Label>
+                  <div className="grid gap-2">
+                    {/* Create New Pool option */}
+                    <button
+                      onClick={() => setLinkToDeploymentId(null)}
+                      className={`w-full text-left px-4 py-3 rounded-lg border transition-all ${
+                        linkToDeploymentId === null
+                          ? "border-primary bg-primary/10"
+                          : "border-border bg-secondary/30 hover:border-primary/50 hover:bg-secondary/50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Plus className="w-4 h-4 text-primary" />
+                          <span className="font-medium text-sm">Create New Pool</span>
+                        </div>
+                        {linkToDeploymentId === null && (
+                          <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 ml-6">
+                        Provision a new OpenRouter API key with its own spending cap
+                      </p>
+                    </button>
+
+                    {/* Existing pools */}
+                    {linkableDeployments.map((dep) => (
+                      <button
+                        key={dep.id}
+                        onClick={() => setLinkToDeploymentId(dep.id)}
+                        className={`w-full text-left px-4 py-3 rounded-lg border transition-all ${
+                          linkToDeploymentId === dep.id
+                            ? "border-primary bg-primary/10"
+                            : "border-border bg-secondary/30 hover:border-primary/50 hover:bg-secondary/50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Link2 className="w-4 h-4 text-muted-foreground" />
+                            <span className="font-medium text-sm">{dep.name}</span>
+                            {dep.llmCreditLimitDollars && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
+                                ${dep.llmCreditLimitDollars}/mo
+                              </span>
+                            )}
+                          </div>
+                          {linkToDeploymentId === dep.id && (
+                            <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 ml-6">
+                          Share the credit pool from this deployment
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Linked deployments share the same OpenRouter API key and monthly spending cap.
+                  </p>
+                </div>
+              )}
+
+              {/* Credit Plan Selector (only shown when creating new pool) */}
+              {linkToDeploymentId === null && (
+              <div>
+                <Label className="mb-3 block text-sm font-medium">
+                  Monthly Credit Plan
+                </Label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {CREDIT_PLANS.map((plan) => {
+                    const isActive = creditLimitDollars === plan.value;
+                    return (
+                      <button
+                        key={plan.value}
+                        onClick={() => setCreditLimitDollars(plan.value)}
+                        className={`relative p-3 rounded-lg border-2 text-left transition-all ${
+                          isActive
+                            ? "border-primary bg-primary/10 shadow-sm"
+                            : "border-border bg-secondary/30 hover:border-primary/50 hover:bg-secondary/40"
+                        }`}
+                      >
+                        <div className="font-semibold text-base">{plan.label}</div>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">
+                          {plan.description}
+                        </p>
+                        {plan.isDefault && (
+                          <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-secondary text-muted-foreground">
+                            Default
+                          </span>
+                        )}
+                        {isActive && (
+                          <CheckCircle2 className="absolute top-1.5 right-1.5 w-4 h-4 text-primary" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              )}
+
               {/* Model selector for included credits */}
               <ModelSelector
                 models={availableModels}

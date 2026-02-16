@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Settings, LogOut, Moon, Sun, User } from "lucide-react";
+import { Settings, LogOut, Moon, Sun, User, LayoutDashboard, Layers } from "lucide-react";
 
 export default function ProfileDropdown() {
   const { user, logout } = useAuth0();
@@ -50,6 +50,14 @@ export default function ProfileDropdown() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
+          <DropdownMenuItem onClick={() => router.push("/dashboard")}>
+            <LayoutDashboard className="w-4 h-4" />
+            Dashboard
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push("/deployments")}>
+            <Layers className="w-4 h-4" />
+            Linked Deployments
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => router.push("/settings")}>
             <User className="w-4 h-4" />
             Profile Settings

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { router, publicProcedure } from "../middleware.js";
 import { tables } from "../../db/index.js";
 import { eq } from "drizzle-orm";
+import { getHandlerOrNull } from "../../runtimes/index.js";
 
 const { runtimeCatalog } = tables;
 
@@ -30,5 +31,21 @@ export const runtimeCatalogRouter = router({
       return ctx.db.query.runtimeCatalog.findFirst({
         where: eq(runtimeCatalog.slug, input.slug),
       });
+    }),
+
+  // Get runtime capabilities from the handler registry
+  getCapabilities: publicProcedure
+    .input(z.object({ slug: z.string() }))
+    .query(({ input }) => {
+      const handler = getHandlerOrNull(input.slug);
+      if (!handler) {
+        return null;
+      }
+      return {
+        slug: handler.slug,
+        name: handler.name,
+        capabilities: handler.capabilities,
+        configFiles: handler.configFiles,
+      };
     }),
 });

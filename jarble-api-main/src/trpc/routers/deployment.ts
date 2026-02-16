@@ -1,12 +1,16 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../middleware.js";
 import { tables } from "../../db/index.js";
-import { eq, and } from "drizzle-orm";
-import { createDeployment, deleteDeployment, getDeploymentPodStatus, getDeploymentStorageUsage } from "../../k8s/deployment.js";
+import { eq, and, isNull } from "drizzle-orm";
+import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage } from "../../k8s/deployment.js";
 import { nanoid } from "nanoid";
 import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
 import { env } from "../../utils/env.js";
+import { getHandlerOrNull } from "../../runtimes/index.js";
+import type { DeploymentFields } from "../../runtimes/types.js";
+import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
+import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrouter.js";
 
 const { deployments, users, runtimeCatalog } = tables;
 
@@ -69,6 +73,25 @@ export const deploymentRouter = router({
     }));
   }),
 
+  // List deployments that can be linked to (owner deployments with included credits)
+  listLinkableDeployments: protectedProcedure.query(async ({ ctx }) => {
+    const result = await ctx.db.query.deployments.findMany({
+      where: and(
+        eq(deployments.userId, ctx.user.id),
+        eq((deployments as any).llmMode, "included"),
+        isNull((deployments as any).llmApiKeySourceDeploymentId),
+      ),
+      orderBy: (d: any, { desc }: any) => [desc(d.createdAt)],
+    });
+
+    return result.map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      runtime: d.runtime,
+      llmCreditLimitDollars: d.llmCreditLimitDollars,
+    }));
+  }),
+
   // Get single deployment
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -94,6 +117,8 @@ export const deploymentRouter = router({
       llmModel: z.string().optional(), // e.g. "openrouter/auto", "gpt-4o", "claude-sonnet-4-20250514"
       llmApiKey: z.string().optional(),
       systemPrompt: z.string().optional(),
+      creditLimitDollars: z.number().min(1).max(1000).optional(), // Monthly spending cap for "included" mode (default $5)
+      linkToDeploymentId: z.string().optional(), // Link to an existing deployment's credit pool instead of provisioning a new key
       cpuLimit: z.string().optional(),    // e.g. "2.0" — overrides runtime catalog default
       memoryMb: z.number().int().positive().optional(),   // e.g. 2048 — RAM in MB
       storageMb: z.number().int().positive().optional(),  // e.g. 30 — storage in GB (historical naming)
@@ -111,6 +136,21 @@ export const deploymentRouter = router({
         });
       }
 
+      // Runtime-specific validation via handler (e.g. OpenClaw requires LLM key for BYOK)
+      const handler = getHandlerOrNull(catalogEntry.slug);
+      if (handler) {
+        const validationError = handler.validateCreate({
+          llmMode: input.llmMode,
+          llmApiKey: input.llmApiKey,
+          llmProvider: input.llmProvider,
+          llmModel: input.llmModel,
+          systemPrompt: input.systemPrompt,
+        });
+        if (validationError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: validationError });
+        }
+      }
+
       // Check if this will be a free deployment
       const freeStatus = await checkFreeDeployment(ctx.db, ctx.user.id);
       const isFree = !freeStatus.freeUsed;
@@ -121,55 +161,103 @@ export const deploymentRouter = router({
         ? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
         : null;
 
-      // If "included" mode, auto-provision an OpenRouter tenant key
+      // ── Resolve LLM credentials ──────────────────────────────────
       let resolvedApiKey = input.llmApiKey || null;
       let resolvedProvider: string = input.llmProvider;
+      let resolvedApiKeyId: string | null = null;
+      let resolvedSourceDeploymentId: string | null = null;
+      let resolvedCreditLimit: number | null = input.llmMode === "included" ? (input.creditLimitDollars ?? 5) : null;
 
       if (input.llmMode === "included") {
-        const managementKey = env.OPENROUTER_MANAGEMENT_KEY;
-        if (!managementKey) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "Included credits are not yet configured. Please use BYOK mode.",
-          });
-        }
-
-        try {
-          const res = await fetch("https://openrouter.ai/api/v1/keys", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${managementKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              name: `jarble-${ctx.user.id}-${deploymentId}`,
-              limit: 5, // $5 default monthly limit
-            }),
+        if (input.linkToDeploymentId) {
+          // ── Link to an existing deployment's credit pool ──────────
+          const sourceDeployment = await ctx.db.query.deployments.findFirst({
+            where: and(
+              eq(deployments.id, input.linkToDeploymentId),
+              eq(deployments.userId, ctx.user.id),
+            ),
           });
 
-          if (!res.ok) {
-            const errorBody = await res.text();
-            logger.error({ status: res.status, body: errorBody }, "OpenRouter provisioning failed during deployment create");
-            throw new Error(`OpenRouter Management API error: ${res.status}`);
+          if (!sourceDeployment) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Source deployment not found" });
           }
 
-          const data = (await res.json()) as { key?: string; data?: { key?: string } };
-          const provisionedKey = data.key || data.data?.key;
-
-          if (!provisionedKey) {
-            throw new Error("No key returned from OpenRouter Management API");
+          const src = sourceDeployment as any;
+          if (src.llmMode !== "included" || !src.llmApiKey) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Source deployment does not have included credits configured",
+            });
           }
 
-          resolvedApiKey = provisionedKey;
-          resolvedProvider = "openrouter"; // Included credits always use OpenRouter
-          logger.info({ deploymentId, userId: ctx.user.id }, "Auto-provisioned OpenRouter tenant key");
-        } catch (err) {
-          logger.error({ err, deploymentId, userId: ctx.user.id }, "Failed to auto-provision OpenRouter key");
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to provision LLM credits. Please try again or use BYOK mode.",
-          });
+          // Resolve to root owner (follow the chain if source is itself linked)
+          let rootId = sourceDeployment.id;
+          let rootDeployment = src;
+          if (src.llmApiKeySourceDeploymentId) {
+            const root = await ctx.db.query.deployments.findFirst({
+              where: and(
+                eq(deployments.id, src.llmApiKeySourceDeploymentId),
+                eq(deployments.userId, ctx.user.id),
+              ),
+            });
+            if (root) {
+              rootId = root.id;
+              rootDeployment = root as any;
+            }
+          }
+
+          // Copy the root owner's encrypted key + hash (no decryption needed)
+          resolvedApiKey = null; // We'll set the encrypted key directly
+          resolvedApiKeyId = rootDeployment.llmApiKeyId;
+          resolvedSourceDeploymentId = rootId;
+          resolvedProvider = "openrouter";
+          resolvedCreditLimit = rootDeployment.llmCreditLimitDollars;
+
+          logger.info({
+            deploymentId,
+            sourceDeploymentId: rootId,
+            userId: ctx.user.id,
+          }, "Linking deployment to existing credit pool");
+        } else {
+          // ── Provision a new OpenRouter tenant key ──────────────────
+          if (!env.OPENROUTER_MANAGEMENT_KEY) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Included credits are not yet configured. Please use BYOK mode.",
+            });
+          }
+
+          try {
+            const provisioned = await provisionOpenRouterKey({
+              userId: ctx.user.id,
+              deploymentId,
+              limitDollars: input.creditLimitDollars, // Uses default ($5) if not specified
+            });
+
+            resolvedApiKey = provisioned.key;
+            resolvedApiKeyId = provisioned.hash;
+            resolvedProvider = "openrouter"; // Included credits always use OpenRouter
+          } catch (err) {
+            logger.error({ err, deploymentId, userId: ctx.user.id }, "Failed to auto-provision OpenRouter key");
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Failed to provision LLM credits. Please try again or use BYOK mode.",
+            });
+          }
         }
+      }
+
+      // Encrypt the API key before storing in DB
+      // For linked deployments, copy the encrypted key directly from the root owner
+      let encryptedKey: string | null = null;
+      if (resolvedSourceDeploymentId) {
+        // Linked: copy the root owner's already-encrypted key
+        const rootDep = await ctx.db.query.deployments.findFirst({
+          where: eq(deployments.id, resolvedSourceDeploymentId),
+        });
+        encryptedKey = (rootDep as any)?.llmApiKey || null;
+      } else {
+        encryptedKey = resolvedApiKey ? encryptApiKey(resolvedApiKey) : null;
       }
 
       // Free tier deployments get minimum specs (except 2GB RAM minimum)
@@ -192,7 +280,10 @@ export const deploymentRouter = router({
         llmMode: input.llmMode,
         llmProvider: resolvedProvider,
         llmModel: input.llmModel || (input.llmMode === "included" ? "openrouter/auto" : null),
-        llmApiKey: resolvedApiKey,
+        llmApiKey: encryptedKey,
+        llmApiKeyId: resolvedApiKeyId,
+        llmCreditLimitDollars: resolvedCreditLimit,
+        llmApiKeySourceDeploymentId: resolvedSourceDeploymentId,
         systemPrompt: input.systemPrompt || null,
         status: "pending",
       });
@@ -219,6 +310,7 @@ export const deploymentRouter = router({
         isFree,
         llmMode: input.llmMode,
         llmProvider: resolvedProvider,
+        hasApiKeyId: !!resolvedApiKeyId,
         cpuLimit: isFree ? FREE_TIER_SPECS.cpuLimit : (input.cpuLimit || catalogEntry.cpuLimit),
         memoryMb: isFree ? FREE_TIER_SPECS.memoryMb : (input.memoryMb || catalogEntry.memoryMb),
         storageMb: isFree ? FREE_TIER_SPECS.storageMb : (input.storageMb || catalogEntry.storageMb),
@@ -246,6 +338,27 @@ export const deploymentRouter = router({
         .set({ status: "creating" })
         .where(eq(deployments.id, deploymentId));
 
+      // Decrypt the API key for injection into K8s Secrets
+      const rawApiKey = (deployment as any).llmApiKey
+        ? decryptApiKey((deployment as any).llmApiKey)
+        : null;
+
+      // Build runtime handler data for K8s (config files + secret entries)
+      const runtimeHandler = getHandlerOrNull(deployment.runtime);
+      const deploymentFields: DeploymentFields = {
+        id: deployment.id,
+        runtime: deployment.runtime,
+        name: deployment.name,
+        description: deployment.description ?? null,
+        systemPrompt: (deployment as any).systemPrompt ?? null,
+        llmMode: (deployment as any).llmMode ?? "byok",
+        llmProvider: (deployment as any).llmProvider ?? "openrouter",
+        llmModel: (deployment as any).llmModel ?? null,
+        llmApiKey: rawApiKey,
+      };
+      const initialConfigs = runtimeHandler?.renderConfigs(deploymentFields) ?? [];
+      const extraSecretEntries = runtimeHandler?.getSecretEntries(deploymentFields) ?? {};
+
       // Start K8s deployment (fire-and-forget — don't block the response)
       void (async () => {
         try {
@@ -256,6 +369,8 @@ export const deploymentRouter = router({
             cpuLimit: deployment.cpuLimit || undefined,
             memoryMb: deployment.memoryMb || undefined,
             storageMb: deployment.storageMb || undefined,
+            initialConfigs,
+            extraSecretEntries,
           });
           await (ctx.db as any).update(deployments)
             .set({ status: "running" })
@@ -324,7 +439,98 @@ export const deploymentRouter = router({
       storageMb: z.number().int().positive().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updates } = input;
+      const { id, ...rawUpdates } = input;
+
+      // Fetch the existing deployment to detect mode switches
+      const existing = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!existing) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      const updates: Record<string, any> = { ...rawUpdates };
+
+      // ── Handle LLM mode switching ──────────────────────────────
+      const currentMode = (existing as any).llmMode;
+      const newMode = rawUpdates.llmMode;
+
+      if (newMode && newMode !== currentMode) {
+        if (newMode === "included") {
+          // Switching BYOK → Included: provision a new OpenRouter key
+          if (!env.OPENROUTER_MANAGEMENT_KEY) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Included credits are not yet configured. Please use BYOK mode.",
+            });
+          }
+
+          try {
+            const provisioned = await provisionOpenRouterKey({
+              userId: ctx.user.id,
+              deploymentId: id,
+            });
+
+            updates.llmApiKey = encryptApiKey(provisioned.key);
+            updates.llmApiKeyId = provisioned.hash;
+            updates.llmProvider = "openrouter";
+            updates.llmModel = updates.llmModel || "openrouter/auto";
+            updates.llmCreditLimitDollars = 5; // Default plan on mode switch
+            updates.llmApiKeySourceDeploymentId = null; // Own key, not linked
+          } catch (err) {
+            logger.error({ err, deploymentId: id }, "Failed to provision key during mode switch to included");
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Failed to provision LLM credits. Please try again.",
+            });
+          }
+        } else if (newMode === "byok") {
+          // Switching Included → BYOK: check if this is a pool owner with linked children
+          if (!(existing as any).llmApiKeySourceDeploymentId) {
+            const linkedChildren = await ctx.db.query.deployments.findMany({
+              where: and(
+                eq((deployments as any).llmApiKeySourceDeploymentId, id),
+                eq(deployments.userId, ctx.user.id),
+              ),
+            });
+
+            if (linkedChildren.length > 0) {
+              const names = linkedChildren.map((c: any) => c.name).join(", ");
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message: `Cannot switch to BYOK: ${linkedChildren.length} deployment(s) are linked to this credit pool (${names}). Unlink them first.`,
+              });
+            }
+          }
+
+          // Revoke the old OpenRouter key
+          if (!rawUpdates.llmApiKey) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "API key is required when switching to BYOK mode.",
+            });
+          }
+
+          // Revoke the old provisioned key (best-effort, don't block)
+          const oldKeyId = (existing as any).llmApiKeyId;
+          if (oldKeyId) {
+            revokeOpenRouterKey(oldKeyId).catch((err: unknown) => {
+              logger.warn({ err, deploymentId: id, oldKeyId }, "Failed to revoke old OpenRouter key during mode switch");
+            });
+          }
+
+          // Encrypt the new BYOK key
+          updates.llmApiKey = encryptApiKey(rawUpdates.llmApiKey);
+          updates.llmApiKeyId = null; // BYOK keys don't have an OpenRouter hash
+          updates.llmCreditLimitDollars = null; // Clear credit plan for BYOK
+          updates.llmApiKeySourceDeploymentId = null; // Clear any link
+        }
+      } else if (rawUpdates.llmApiKey) {
+        // Mode didn't change but user provided a new API key — encrypt it
+        updates.llmApiKey = encryptApiKey(rawUpdates.llmApiKey);
+      }
+
       await (ctx.db as any).update(deployments)
         .set(updates)
         .where(and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)));
@@ -335,11 +541,213 @@ export const deploymentRouter = router({
       });
     }),
 
+  // Stop deployment (scale to 0 replicas, PVC persists)
+  stop: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      if (deployment.status !== "running") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Cannot stop a deployment that is ${deployment.status}`,
+        });
+      }
+
+      try {
+        await stopDeployment(input.id);
+        await (ctx.db as any).update(deployments)
+          .set({ status: "stopped" })
+          .where(eq(deployments.id, input.id));
+        logger.info({ deploymentId: input.id }, "Deployment stopped");
+      } catch (err) {
+        logger.error({ deploymentId: input.id, err }, "Failed to stop deployment");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to stop deployment",
+        });
+      }
+
+      return { success: true };
+    }),
+
+  // Start a stopped deployment (scale to 1 replica)
+  start: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      if (deployment.status !== "stopped") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Cannot start a deployment that is ${deployment.status}`,
+        });
+      }
+
+      try {
+        await (ctx.db as any).update(deployments)
+          .set({ status: "creating" })
+          .where(eq(deployments.id, input.id));
+
+        await startDeployment(input.id);
+
+        // Poll for pod readiness (fire-and-forget)
+        void (async () => {
+          try {
+            let ready = false;
+            for (let i = 0; i < 30; i++) {
+              const podStatus = await getDeploymentPodStatus(input.id);
+              if (podStatus.status === "running") { ready = true; break; }
+              if (podStatus.status === "failed") break;
+              await new Promise((r) => setTimeout(r, 2000));
+            }
+            await (ctx.db as any).update(deployments)
+              .set({ status: ready ? "running" : "failed" })
+              .where(eq(deployments.id, input.id));
+            logger.info({ deploymentId: input.id, ready }, "Deployment start completed");
+          } catch (err) {
+            await (ctx.db as any).update(deployments)
+              .set({ status: "failed", error: "Failed to confirm pod startup" })
+              .where(eq(deployments.id, input.id));
+            logger.error({ deploymentId: input.id, err }, "Failed to confirm start");
+          }
+        })();
+
+        logger.info({ deploymentId: input.id }, "Deployment start initiated");
+      } catch (err) {
+        await (ctx.db as any).update(deployments)
+          .set({ status: "stopped" })
+          .where(eq(deployments.id, input.id));
+        logger.error({ deploymentId: input.id, err }, "Failed to start deployment");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to start deployment",
+        });
+      }
+
+      return { success: true };
+    }),
+
+  // Restart a running deployment (stop then start)
+  restart: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      if (deployment.status !== "running") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Cannot restart a deployment that is ${deployment.status}`,
+        });
+      }
+
+      try {
+        await (ctx.db as any).update(deployments)
+          .set({ status: "creating" })
+          .where(eq(deployments.id, input.id));
+
+        // Fire-and-forget restart + status polling
+        void (async () => {
+          try {
+            await restartDeployment(input.id);
+
+            let ready = false;
+            for (let i = 0; i < 30; i++) {
+              const podStatus = await getDeploymentPodStatus(input.id);
+              if (podStatus.status === "running") { ready = true; break; }
+              if (podStatus.status === "failed") break;
+              await new Promise((r) => setTimeout(r, 2000));
+            }
+            await (ctx.db as any).update(deployments)
+              .set({ status: ready ? "running" : "failed" })
+              .where(eq(deployments.id, input.id));
+            logger.info({ deploymentId: input.id, ready }, "Deployment restart completed");
+          } catch (err) {
+            await (ctx.db as any).update(deployments)
+              .set({ status: "failed", error: "Restart failed" })
+              .where(eq(deployments.id, input.id));
+            logger.error({ deploymentId: input.id, err }, "Failed to restart");
+          }
+        })();
+
+        logger.info({ deploymentId: input.id }, "Deployment restart initiated");
+      } catch (err) {
+        logger.error({ deploymentId: input.id, err }, "Failed to initiate restart");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to restart deployment",
+        });
+      }
+
+      return { success: true };
+    }),
+
   // Delete deployment + K8s resources
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Delete K8s resources first
+      // Fetch deployment first to get the OpenRouter key hash (for revocation)
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Check if this is a credit pool owner with linked deployments
+      const dep = deployment as any;
+      if (dep.llmMode === "included" && !dep.llmApiKeySourceDeploymentId) {
+        // This is an owner — check for linked children
+        const linkedChildren = await ctx.db.query.deployments.findMany({
+          where: and(
+            eq((deployments as any).llmApiKeySourceDeploymentId, input.id),
+            eq(deployments.userId, ctx.user.id),
+          ),
+        });
+
+        if (linkedChildren.length > 0) {
+          const names = linkedChildren.map((c: any) => c.name).join(", ");
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Cannot delete: ${linkedChildren.length} deployment(s) are linked to this credit pool (${names}). Unlink or delete them first.`,
+          });
+        }
+      }
+
+      // Revoke the OpenRouter key if this is an owner "included" deployment (not linked)
+      const llmMode = dep.llmMode;
+      const keyId = dep.llmApiKeyId;
+      const isLinked = !!dep.llmApiKeySourceDeploymentId;
+      if (llmMode === "included" && keyId && !isLinked) {
+        // Only revoke if this deployment owns the key (not linked)
+        try {
+          await revokeOpenRouterKey(keyId);
+        } catch (err) {
+          // Don't block deletion if revocation fails — log and continue
+          logger.warn({ err, deploymentId: input.id, keyId }, "Failed to revoke OpenRouter key during delete");
+        }
+      }
+
+      // Delete K8s resources
       await deleteDeployment(input.id);
 
       // Then delete from DB

@@ -1,8 +1,19 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../middleware.js";
+import { tables } from "../../db/index.js";
+import { eq, and } from "drizzle-orm";
 import { env } from "../../utils/env.js";
 import { logger } from "../../utils/logger.js";
+import {
+  provisionOpenRouterKey,
+  revokeOpenRouterKey,
+  getOpenRouterKeyUsage,
+  updateOpenRouterKeyLimit,
+} from "../../utils/openrouter.js";
+import { encryptApiKey } from "../../utils/encryption.js";
+
+const { deployments } = tables;
 
 export const openrouterRouter = router({
   // Health check
@@ -104,73 +115,192 @@ export const openrouterRouter = router({
     }),
 
   // Provision an OpenRouter tenant API key (for "Included Credits" mode)
+  // Now uses the shared utility and stores the key hash for revocation
   provisionKey: protectedProcedure
     .input(
       z.object({
         deploymentId: z.string(),
-        limitDollars: z.number().default(5), // $5 monthly limit default
+        limitDollars: z.number().default(5),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const managementKey = env.OPENROUTER_MANAGEMENT_KEY;
-      if (!managementKey) {
+      if (!env.OPENROUTER_MANAGEMENT_KEY) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message:
-            "Included credits are not yet configured. Please use BYOK mode.",
+          message: "Included credits are not yet configured. Please use BYOK mode.",
         });
+      }
+
+      // Verify the deployment belongs to the user
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(
+          eq(deployments.id, input.deploymentId),
+          eq(deployments.userId, ctx.user.id)
+        ),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
       try {
-        const res = await fetch("https://openrouter.ai/api/v1/keys", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${managementKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name: `jarble-${ctx.user.id}-${input.deploymentId}`,
-            limit: input.limitDollars,
-          }),
+        const provisioned = await provisionOpenRouterKey({
+          userId: ctx.user.id,
+          deploymentId: input.deploymentId,
+          limitDollars: input.limitDollars,
         });
 
-        if (!res.ok) {
-          const errorBody = await res.text();
-          logger.error(
-            { status: res.status, body: errorBody },
-            "OpenRouter Management API error"
-          );
-          throw new Error(
-            `OpenRouter Management API error: ${res.status}`
-          );
-        }
+        // Encrypt and store the key + hash in the deployment record
+        await (ctx.db as any).update(deployments)
+          .set({
+            llmApiKey: encryptApiKey(provisioned.key),
+            llmApiKeyId: provisioned.hash,
+            llmMode: "included",
+            llmProvider: "openrouter",
+          })
+          .where(eq(deployments.id, input.deploymentId));
 
-        const data = (await res.json()) as {
-          key?: string;
-          data?: { key?: string };
-        };
-        const provisionedKey = data.key || data.data?.key;
-
-        if (!provisionedKey) {
-          throw new Error("No key returned from OpenRouter Management API");
-        }
-
-        logger.info(
-          { userId: ctx.user.id, deploymentId: input.deploymentId },
-          "Provisioned OpenRouter tenant key"
-        );
-
-        return { success: true, key: provisionedKey };
+        return { success: true, hash: provisioned.hash };
       } catch (err) {
-        logger.error(
-          { err, userId: ctx.user.id },
-          "Failed to provision OpenRouter key"
-        );
+        logger.error({ err, userId: ctx.user.id }, "Failed to provision OpenRouter key");
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message:
-            "Failed to provision LLM credits. Please try again or use BYOK mode.",
+          message: "Failed to provision LLM credits. Please try again or use BYOK mode.",
         });
       }
+    }),
+
+  // Get LLM credit usage for a deployment (Included Credits only)
+  getKeyUsage: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      if (!env.OPENROUTER_MANAGEMENT_KEY) {
+        return null; // Management API not configured
+      }
+
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(
+          eq(deployments.id, input.deploymentId),
+          eq(deployments.userId, ctx.user.id)
+        ),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // If this deployment is linked, resolve to the owner's key
+      let keyId = (deployment as any).llmApiKeyId;
+      const sourceId = (deployment as any).llmApiKeySourceDeploymentId;
+      if (sourceId) {
+        const owner = await ctx.db.query.deployments.findFirst({
+          where: and(
+            eq(deployments.id, sourceId),
+            eq(deployments.userId, ctx.user.id)
+          ),
+        });
+        keyId = (owner as any)?.llmApiKeyId || keyId;
+      }
+
+      if (!keyId || (deployment as any).llmMode !== "included") {
+        return null; // Not an included-credits deployment or no key hash stored
+      }
+
+      return getOpenRouterKeyUsage(keyId);
+    }),
+
+  // Update the credit limit for an included-credits deployment
+  updateKeyLimit: protectedProcedure
+    .input(z.object({
+      deploymentId: z.string(),
+      limitDollars: z.number().min(1).max(1000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!env.OPENROUTER_MANAGEMENT_KEY) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Management API not configured.",
+        });
+      }
+
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(
+          eq(deployments.id, input.deploymentId),
+          eq(deployments.userId, ctx.user.id)
+        ),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Block linked deployments — must update the owner instead
+      if ((deployment as any).llmApiKeySourceDeploymentId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This deployment is linked to a credit pool. Update the pool owner instead.",
+        });
+      }
+
+      const keyId = (deployment as any).llmApiKeyId;
+      if (!keyId || (deployment as any).llmMode !== "included") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This deployment does not use included credits.",
+        });
+      }
+
+      const ok = await updateOpenRouterKeyLimit(keyId, input.limitDollars);
+      if (!ok) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to update credit limit.",
+        });
+      }
+
+      return { success: true };
+    }),
+
+  // Revoke (disable) an OpenRouter key — admin/cleanup utility
+  revokeKey: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(
+          eq(deployments.id, input.deploymentId),
+          eq(deployments.userId, ctx.user.id)
+        ),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      const keyId = (deployment as any).llmApiKeyId;
+      if (!keyId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No OpenRouter key associated with this deployment.",
+        });
+      }
+
+      const ok = await revokeOpenRouterKey(keyId);
+      if (!ok) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to revoke the OpenRouter key.",
+        });
+      }
+
+      // Clear the key from the DB
+      await (ctx.db as any).update(deployments)
+        .set({
+          llmApiKey: null,
+          llmApiKeyId: null,
+          llmMode: "byok",
+        })
+        .where(eq(deployments.id, input.deploymentId));
+
+      return { success: true };
     }),
 });

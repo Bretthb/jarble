@@ -1,6 +1,7 @@
 import * as k8s from "@kubernetes/client-node";
 import stream from "stream";
 import { logger } from "../utils/logger.js";
+import type { ConfigFile } from "../runtimes/types.js";
 
 // Initialize K8s client
 const kc = new k8s.KubeConfig();
@@ -17,7 +18,7 @@ const appsApi = kc.makeApiClient(k8s.AppsV1Api);
 const exec = new k8s.Exec(kc);
 
 const NAMESPACE = "jarble";
-const DEFAULT_IMAGE = "jarble/bot-base:latest";
+const DEFAULT_IMAGE = "ghcr.io/jarble-ai/openclaw:latest";
 
 interface DeploymentConfig {
   name: string;
@@ -28,7 +29,16 @@ interface DeploymentConfig {
   cpuLimit?: string;     // e.g. "2.0" — vCPU allocation
   memoryMb?: number;     // e.g. 2048 — RAM in MB
   storageMb?: number;    // e.g. 30 — persistent storage in GB (historical naming)
+  containerPort?: number;  // Runtime-specific gateway port (openclaw: 18789, zeroclaw: 3000)
+  initialConfigs?: ConfigFile[];              // Config files to write to PVC after pod starts
+  extraSecretEntries?: Record<string, string>; // Additional K8s Secret env vars from runtime handler
 }
+
+// Default gateway ports per runtime
+const RUNTIME_PORTS: Record<string, number> = {
+  openclaw: 18789,
+  zeroclaw: 3000,
+};
 
 export async function createDeployment(
   deploymentId: string,
@@ -63,16 +73,19 @@ export async function createDeployment(
   });
 
   // 2. Create Secret for deployment env vars
+  // Base entries are always included; runtime handler provides extras (e.g. LLM keys)
+  const baseSecretData: Record<string, string> = {
+    DEPLOYMENT_ID: deploymentId,
+    USER_ID: userId,
+    DEPLOYMENT_NAME: config.name,
+    TEMPLATE: config.template || "personal",
+    RUNTIME: config.runtime || "openclaw",
+  };
+  const secretData = { ...baseSecretData, ...(config.extraSecretEntries ?? {}) };
+
   await coreApi.createNamespacedSecret(NAMESPACE, {
     metadata: { name: `secret-${deploymentId}` },
-    stringData: {
-      DEPLOYMENT_ID: deploymentId,
-      USER_ID: userId,
-      DEPLOYMENT_NAME: config.name,
-      TEMPLATE: config.template || "personal",
-      RUNTIME: config.runtime || "openclaw",
-      OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || "",
-    },
+    stringData: secretData,
   });
 
   // 3. Create Deployment
@@ -90,6 +103,10 @@ export async function createDeployment(
           containers: [{
             name: "runtime",
             image: containerImage,
+            ports: [{
+              containerPort: config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789,
+              name: "gateway",
+            }],
             resources: {
               requests: { cpu: cpuMillicores, memory: memoryMi },
               limits: { cpu: cpuMillicores, memory: memoryMi },
@@ -106,8 +123,97 @@ export async function createDeployment(
     },
   });
 
+  // 4. Write initial config files to PVC (if any provided by the runtime handler)
+  if (config.initialConfigs && config.initialConfigs.length > 0) {
+    try {
+      // Wait for pod to be ready (poll every 2s, max 60s)
+      let ready = false;
+      for (let i = 0; i < 30; i++) {
+        const status = await getDeploymentPodStatus(deploymentId);
+        if (status.status === "running") { ready = true; break; }
+        if (status.status === "failed") {
+          logger.warn({ deploymentId }, "Pod failed to start, skipping initial config write");
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+
+      if (ready) {
+        await writeConfigsToPvc(deploymentId, config.initialConfigs);
+      } else {
+        logger.warn({ deploymentId }, "Pod not ready after 60s, skipping initial config write");
+      }
+    } catch (err) {
+      // Don't fail the entire deployment if config write fails — deployment still exists
+      logger.error({ deploymentId, err }, "Failed to write initial config files");
+    }
+  }
+
   logger.info({ deploymentId }, "Deployment created successfully");
 }
+
+// ── Stop / Start (replica scaling) ────────────────────────────────────
+
+/**
+ * Stop a deployment by scaling replicas to 0.
+ * PVC and Secret remain intact — data persists. Pod is terminated.
+ */
+export async function stopDeployment(deploymentId: string): Promise<void> {
+  logger.info({ deploymentId }, "Stopping deployment (scaling to 0)");
+
+  await appsApi.patchNamespacedDeployment(
+    `dep-${deploymentId}`,
+    NAMESPACE,
+    { spec: { replicas: 0 } },
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { headers: { "Content-Type": "application/strategic-merge-patch+json" } }
+  );
+
+  logger.info({ deploymentId }, "Deployment stopped");
+}
+
+/**
+ * Start a previously stopped deployment by scaling replicas to 1.
+ * Pod starts fresh from the container image, PVC data is still there.
+ */
+export async function startDeployment(deploymentId: string): Promise<void> {
+  logger.info({ deploymentId }, "Starting deployment (scaling to 1)");
+
+  await appsApi.patchNamespacedDeployment(
+    `dep-${deploymentId}`,
+    NAMESPACE,
+    { spec: { replicas: 1 } },
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { headers: { "Content-Type": "application/strategic-merge-patch+json" } }
+  );
+
+  logger.info({ deploymentId }, "Deployment started");
+}
+
+/**
+ * Restart a running deployment by scaling to 0 then back to 1.
+ * Useful for picking up config changes.
+ */
+export async function restartDeployment(deploymentId: string): Promise<void> {
+  logger.info({ deploymentId }, "Restarting deployment");
+
+  await stopDeployment(deploymentId);
+  // Brief pause to let K8s terminate the pod
+  await new Promise((r) => setTimeout(r, 2000));
+  await startDeployment(deploymentId);
+
+  logger.info({ deploymentId }, "Deployment restarted");
+}
+
+// ── Delete ──────────────────────────────────────────────────────────────
 
 export async function deleteDeployment(deploymentId: string): Promise<void> {
   logger.info({ deploymentId }, "Deleting deployment");
@@ -309,4 +415,131 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
     logger.error({ deploymentId, err }, "Failed to get storage usage");
     return null;
   }
+}
+
+// ── Config File Writing ───────────────────────────────────────────────
+
+/**
+ * Write config files to a deployment's PVC by exec-ing into the running pod.
+ * Files are written to /data/config/{path} — the config/ subdirectory keeps
+ * Jarble-managed configs separate from runtime data (node_modules, etc.).
+ *
+ * Exported so the deployment router can call this for config updates (Phase 2).
+ */
+export async function writeConfigsToPvc(
+  deploymentId: string,
+  files: ConfigFile[]
+): Promise<void> {
+  if (files.length === 0) return;
+
+  // Find the running pod
+  const pods = await coreApi.listNamespacedPod(
+    NAMESPACE,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    `app=dep-${deploymentId}`
+  );
+
+  if (pods.body.items.length === 0) {
+    throw new Error(`No pods found for deployment ${deploymentId}`);
+  }
+
+  const pod = pods.body.items[0];
+  const podName = pod.metadata?.name;
+  if (!podName) throw new Error("Pod has no name");
+
+  for (const file of files) {
+    // Config files go under /data/config/ — handler paths are relative (e.g. "soul.md")
+    const filePath = `/data/config/${file.path}`;
+
+    // Ensure parent directory exists (e.g. /data/config/skills/)
+    const dir = filePath.substring(0, filePath.lastIndexOf("/"));
+    if (dir && dir !== "/data/config") {
+      await execInPod(podName, ["mkdir", "-p", dir]);
+    }
+
+    // Write file content via stdin pipe
+    await execInPodWithStdin(podName, ["sh", "-c", `cat > ${filePath}`], file.content);
+
+    logger.info({ deploymentId, path: file.path }, "Wrote config file to PVC");
+  }
+}
+
+/**
+ * Execute a command in a pod (no stdin, capture stdout/stderr).
+ */
+async function execInPod(podName: string, command: string[]): Promise<string> {
+  const stdout = new stream.PassThrough();
+  const stderr = new stream.PassThrough();
+
+  let stdoutData = "";
+  let stderrData = "";
+  stdout.on("data", (chunk) => { stdoutData += chunk.toString(); });
+  stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
+
+  await new Promise<void>((resolve, reject) => {
+    exec.exec(
+      NAMESPACE,
+      podName,
+      "runtime",
+      command,
+      stdout,
+      stderr,
+      null,
+      false,
+      (status) => {
+        if (status.status === "Success") {
+          resolve();
+        } else {
+          reject(new Error(`exec failed: ${status.message || stderrData || "unknown"}`));
+        }
+      }
+    ).catch(reject);
+  });
+
+  return stdoutData;
+}
+
+/**
+ * Execute a command in a pod with stdin content piped in.
+ * Used for writing file contents via `cat > /path`.
+ */
+async function execInPodWithStdin(
+  podName: string,
+  command: string[],
+  stdinContent: string
+): Promise<void> {
+  const stdout = new stream.PassThrough();
+  const stderr = new stream.PassThrough();
+
+  let stderrData = "";
+  stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
+
+  await new Promise<void>((resolve, reject) => {
+    exec.exec(
+      NAMESPACE,
+      podName,
+      "runtime",
+      command,
+      stdout,
+      stderr,
+      null,
+      false,
+      (status) => {
+        if (status.status === "Success") {
+          resolve();
+        } else {
+          reject(new Error(`exec failed: ${status.message || stderrData || "unknown"}`));
+        }
+      }
+    ).then((ws) => {
+      // Pipe stdin content and close
+      if (ws) {
+        ws.send(Buffer.from(stdinContent));
+        ws.close();
+      }
+    }).catch(reject);
+  });
 }

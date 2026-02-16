@@ -31,7 +31,10 @@ export const deployments = mysqlTable("deployments", {
   llmMode: varchar("llm_mode", { length: 20 }).notNull().default("byok"),
   llmProvider: varchar("llm_provider", { length: 30 }).notNull().default("openrouter"),
   llmModel: varchar("llm_model", { length: 100 }),
-  llmApiKey: varchar("llm_api_key", { length: 255 }),
+  llmApiKey: varchar("llm_api_key", { length: 512 }),       // Encrypted API key (AES-256-GCM)
+  llmApiKeyId: varchar("llm_api_key_id", { length: 255 }), // OpenRouter key ID (for revocation / usage tracking)
+  llmCreditLimitDollars: int("llm_credit_limit_dollars"),  // Monthly spending cap for "included" mode (e.g. 5, 10, 25, 50, 100)
+  llmApiKeySourceDeploymentId: varchar("llm_api_key_source_deployment_id", { length: 255 }), // null = owns key, non-null = linked to owner deployment
   systemPrompt: text("system_prompt"),
   status: varchar("status", { length: 50 }).notNull().default("creating"),
   error: text("error"),

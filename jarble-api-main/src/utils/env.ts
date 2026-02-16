@@ -18,6 +18,11 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().default("sk-test-key"),
   // OpenRouter Management API key (for provisioning tenant keys — "Included Credits" feature)
   OPENROUTER_MANAGEMENT_KEY: z.string().optional(),
+
+  // Encryption key for API keys stored in DB (32 bytes as hex = 64 chars)
+  // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  // Optional in dev (keys stored as plaintext), required in production
+  API_KEY_ENCRYPTION_KEY: z.string().length(64).optional(),
   
   // Auth0 M2M — for webhook authentication from Auth0 Actions
   AUTH0_M2M_SECRET: z.string().optional(),
