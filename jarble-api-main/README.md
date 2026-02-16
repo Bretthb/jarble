@@ -6,7 +6,7 @@ Express + tRPC backend service for Jarble. Runs in K3s cluster.
 
 - **Express.js** - HTTP server
 - **tRPC** - Type-safe API
-- **Drizzle ORM** - Database (MySQL/RDS)
+- **Drizzle ORM** - Database (MySQL prod, PostgreSQL alt, SQLite dev)
 - **@kubernetes/client-node** - K8s pod management
 - **jose** - JWT verification (Auth0)
 
@@ -19,7 +19,7 @@ npm install
 # Copy env file and configure
 cp .env.example .env
 
-# Run in development
+# Run in development (SQLite, no external DB needed)
 npm run dev
 
 # Type check
@@ -31,19 +31,54 @@ npm run build
 
 ## API Endpoints
 
-All endpoints use tRPC at `/trpc/*`:
+### tRPC Routers (`/trpc/*`)
 
-- `user.me` - Get current user
+**Deployment Router:**
+- `deployment.list` - List user's deployments
+- `deployment.create` - Create new deployment + K8s resources
+- `deployment.deploy` - Deploy a pending deployment
+- `deployment.getById` - Get deployment details
+- `deployment.getStatus` - Get K8s pod status
+- `deployment.getStorageUsage` - Get PVC storage usage
+- `deployment.update` - Update deployment config
+- `deployment.delete` - Delete deployment + K8s resources
+- `deployment.stop` - Scale replicas to 0 (PVC persists)
+- `deployment.start` - Scale replicas to 1
+- `deployment.restart` - Stop then start
+- `deployment.listLinkableDeployments` - List credit pool owners for linking
+
+**User Router:**
+- `user.me` - Get current user (public)
 - `user.getProfile` - Get user profile
-- `bot.list` - List user's bots
-- `bot.create` - Create new bot
-- `bot.delete` - Delete bot
-- `bot.getStatus` - Get K8s pod status
-- `tier.list` - List subscription tiers
-- `template.list` - List bot templates
-- `openrouter.models` - List LLM models
+- `user.updateProfile` - Update profile
+- `user.completeProfile` - Complete profile setup
 
-Health check at `GET /health`
+**OpenRouter Router:**
+- `openrouter.healthCheck` - Check OpenRouter API status
+- `openrouter.models` - List available LLM models
+- `openrouter.validateApiKey` - Validate an API key
+- `openrouter.provisionKey` - Provision tenant API key
+- `openrouter.getKeyUsage` - Get usage for deployment's key
+- `openrouter.updateKeyLimit` - Update spending limit
+- `openrouter.revokeKey` - Revoke a provisioned key
+
+**Runtime Catalog Router:**
+- `runtimeCatalog.list` - List available runtimes
+- `runtimeCatalog.getById` - Get runtime by ID
+- `runtimeCatalog.getBySlug` - Get runtime by slug
+
+**Template Router:**
+- `template.list` - List bot templates
+
+### REST Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | /health | None | K8s liveness/readiness probe |
+| POST | /api/stripe/webhook | Stripe sig | Stripe event webhooks |
+| POST | /api/stripe/checkout | JWT | Create checkout session |
+| POST | /api/stripe/portal | JWT | Create billing portal |
+| POST | /api/auth0/email-verified | M2M | Auth0 email verification sync |
 
 ## Deployment
 
@@ -77,21 +112,37 @@ kubectl logs -n jarble -l app=jarble-api
 
 ```
 src/
-├── index.ts              # Express entry point
+├── index.ts              # Express entry point + REST webhooks
 ├── trpc/
 │   ├── index.ts          # Router exports
 │   ├── context.ts        # Request context
-│   ├── middleware.ts     # tRPC setup
-│   └── routers/          # API routers
+│   ├── middleware.ts      # tRPC setup + JWT auth
+│   └── routers/
+│       ├── deployment.ts  # CRUD + K8s + linking + stop/start
+│       ├── openrouter.ts  # Key provisioning + usage
+│       ├── user.ts        # Profile management
+│       ├── runtimeCatalog.ts # Runtime listing
+│       └── template.ts    # Static templates
 ├── db/
 │   ├── index.ts          # Drizzle client
-│   └── schema.ts         # Table definitions
+│   ├── init.ts           # SQLite CREATE TABLE + seed
+│   ├── schema.ts         # MySQL schema (prod)
+│   ├── schema.pg.ts      # PostgreSQL schema (alt)
+│   └── schema.sqlite.ts  # SQLite schema (dev)
 ├── k8s/
-│   └── bot-deployment.ts # K8s operations
+│   └── deployment.ts     # K8s orchestration (create/delete/stop/start/restart/exec)
+├── runtimes/
+│   ├── index.ts          # Handler resolution
+│   ├── types.ts          # DeploymentFields interface
+│   └── handlers/
+│       ├── openclaw.ts    # OpenClaw K8s config + env vars
+│       └── zeroclaw.ts    # ZeroClaw K8s config + env vars
 ├── services/
-│   └── auth.ts           # JWT verification
+│   └── auth.ts           # JWT verification (Auth0 JWKS)
 └── utils/
-    ├── env.ts            # Environment config
+    ├── encryption.ts     # AES-256-GCM encrypt/decrypt
+    ├── openrouter.ts     # OpenRouter Management API
+    ├── env.ts            # Environment variable validation
     └── logger.ts         # Pino logger
 ```
 
