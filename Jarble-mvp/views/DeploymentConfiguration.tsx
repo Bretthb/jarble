@@ -356,7 +356,7 @@ export default function DeploymentConfiguration() {
                   <ModelTab formData={formData} updateFormData={updateFormData} />
                 )}
                 {activeTab === "platforms" && (
-                  <PlatformsTab formData={formData} updateFormData={updateFormData} />
+                  <PlatformsTab formData={formData} updateFormData={updateFormData} deploymentId={id} />
                 )}
                 {activeTab === "skills" && (
                   <SkillsTab formData={formData} updateFormData={updateFormData} />

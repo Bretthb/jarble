@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, text, int, timestamp, boolean } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, text, int, timestamp, boolean, uniqueIndex } from "drizzle-orm/mysql-core";
 import { relations } from "drizzle-orm";
 
 export const users = mysqlTable("users", {
@@ -60,16 +60,32 @@ export const runtimeCatalog = mysqlTable("runtime_catalog", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const platformCredentials = mysqlTable("platform_credentials", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  platformId: varchar("platform_id", { length: 50 }).notNull(), // "discord", "slack", etc.
+  credentials: text("credentials").notNull(), // AES-256-GCM encrypted JSON
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  deploymentPlatformIdx: uniqueIndex("uq_deployment_platform").on(table.deploymentId, table.platformId),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   deployments: many(deployments),
 }));
 
-export const deploymentsRelations = relations(deployments, ({ one }) => ({
+export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   user: one(users, { fields: [deployments.userId], references: [users.id] }),
   runtimeCatalogEntry: one(runtimeCatalog, { fields: [deployments.runtimeCatalogId], references: [runtimeCatalog.id] }),
+  platformCredentials: many(platformCredentials),
 }));
 
 export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => ({
   deployments: many(deployments),
+}));
+
+export const platformCredentialsRelations = relations(platformCredentials, ({ one }) => ({
+  deployment: one(deployments, { fields: [platformCredentials.deploymentId], references: [deployments.id] }),
 }));

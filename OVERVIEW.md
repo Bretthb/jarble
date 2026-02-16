@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 16, 2026 (Session 4 — Deployment Cancellation + Config Export)
+📅 Last updated: February 16, 2026 (Session 5 — Platform Credential Storage)
 
 </aside>
 
@@ -207,6 +207,13 @@ graph TB
         OR8[revokeKey - mutation]
     end
 
+    subgraph "Platform Credentials Router"
+        PC1[getByDeployment - query]
+        PC2[save - mutation upsert]
+        PC3[delete - mutation]
+        PC4[testConnection - mutation]
+    end
+
     subgraph "Template Router"
         T1[list - public query]
     end
@@ -284,8 +291,18 @@ erDiagram
         timestamp createdAt
     }
 
+    platformCredentials {
+        varchar id PK
+        varchar deploymentId FK
+        varchar platformId "discord, slack, etc."
+        text credentials "AES-256-GCM encrypted JSON"
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
     users ||--o{ deployments : "has many"
     runtimeCatalog ||--o{ deployments : "used by"
+    deployments ||--o{ platformCredentials : "has many"
 ```
 
 ---
@@ -595,6 +612,7 @@ flowchart TD
 - [x]  **Cancel subscription flow** — Cancel button on DeploymentConfiguration sidebar for paid deployments, confirmation dialog, grace period card (CancellationGracePeriod component)
 - [x]  **Config export as ZIP** — Export button during cancellation grace period, base64→Blob browser download
 - [x]  **Cancelling badge on Dashboard** — Orange "Cancelling (Xd left)" badge + export button on Dashboard cards
+- [x]  **Platform credential storage** — PlatformsTab wired to API (save/delete/test), encrypted credential storage, OpenClaw `openclaw.json` channel config generation
 
 ## Backend ✅
 
@@ -617,6 +635,7 @@ flowchart TD
 - [x]  **Cancel/Reactivate mutations** — `cancel` schedules Stripe `cancel_at_period_end`, `reactivate` clears it. DB tracks `cancelledAt` + `cancelAtPeriodEnd`
 - [x]  **Config export (ZIP)** — `exportConfigs` mutation execs into K8s pod, reads `/data/config/` files, builds ZIP with `archiver`, returns base64
 - [x]  **Stripe webhook `subscription.deleted`** — Auto-stops deployment when billing period ends (finds deployment by `stripeSubscriptionId`, calls `stopDeployment`)
+- [x]  **Platform credential storage** — `platform_credentials` table (AES-256-GCM encrypted JSON), `platformCredentials` tRPC router (getByDeployment, save, delete, testConnection), OpenClaw `openclaw.json` channel config + env var fallback injection during deploy
 
 ## Infrastructure ✅
 
@@ -632,7 +651,7 @@ flowchart TD
 
 ## 🔴 Critical (Must-Have for Launch)
 
-1. **Platform credential storage** — Wire PlatformsTab to API, save WhatsApp/Discord credentials to DB
+1. ~~**Platform credential storage**~~ — ✅ Done (Session 5). `platform_credentials` table + tRPC router + OpenClaw `openclaw.json` channel config
 2. **Stripe subscription → deployment sync** — ~~subscription.deleted wired (Session 4)~~, still need subscription.updated sync
 3. **Drizzle migrations regeneration** — Current migrations stale
 4. **WhatsApp QR integration** — Replace mock QR with real WhatsApp Business API
@@ -735,6 +754,7 @@ monorepo/
 │   │   │   ├── openrouter.ts          # Key provisioning, usage, validation
 │   │   │   ├── user.ts                # Profile management
 │   │   │   ├── runtimeCatalog.ts      # Runtime listing + capabilities
+│   │   │   ├── platformCredentials.ts # Platform cred CRUD + OpenClaw mappings
 │   │   │   └── template.ts            # Static templates
 │   │   ├── db/
 │   │   │   ├── schema.ts             # MySQL schema (prod)
@@ -766,7 +786,7 @@ monorepo/
 ---
 
 <aside>
-📚 This document provides a complete snapshot of the Jarble platform as of February 16, 2026. Use the roadmap section to prioritize next steps.
+📚 This document provides a complete snapshot of the Jarble platform as of February 16, 2026 (Session 5). Use the roadmap section to prioritize next steps.
 
 </aside>
 
@@ -832,7 +852,7 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph TODO_CRITICAL["🔴 TODO — Critical for Launch"]
-        PLATCREDS["❌ Platform Credentials\nSave tokens to DB"]
+        PLATCREDS["✅ Platform Credentials\nDone - Session 5"]
         STRIPESYNC["❌ Stripe → Deploy Sync"]
         MIGRATIONS["❌ Drizzle Migrations"]
         WHATSAPP["❌ WhatsApp QR\nReal Business API"]
@@ -883,7 +903,7 @@ flowchart LR
     end
 
     subgraph NeedLaunch["🔴 Need: Launch"]
-        PLATCREDS["Platform Creds"]
+        PLATCREDS["✅ Platform Creds"]
         STRIPESYNC["Stripe Sync"]
     end
 
@@ -1073,8 +1093,8 @@ Subsequent boots: starts gateway directly from persistent storage.
 
 ### Env Var Mapping (K8s Secret → Runtime)
 
-- **OpenClaw:** `OPENROUTER_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`
-- **ZeroClaw:** `API_KEY`, `PROVIDER`, `ZEROCLAW_MODEL`
+- **OpenClaw:** `OPENROUTER_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL` + platform env var fallbacks (`DISCORD_BOT_TOKEN`, `TELEGRAM_BOT_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, etc.)
+- **ZeroClaw:** `API_KEY`, `PROVIDER`, `ZEROCLAW_MODEL` + platform env var fallbacks (same as OpenClaw)
 
 ### CI/CD
 
@@ -1197,7 +1217,67 @@ User clicks "Export" button
 
 ---
 
-# 24. Dev Servers
+# 24. Platform Credential Storage (Session 5)
+
+### Architecture
+
+Platform credentials (Discord bot tokens, Telegram tokens, Slack tokens, etc.) are stored in the `platform_credentials` DB table as AES-256-GCM encrypted JSON blobs. Each row links a single platform's credentials to a deployment.
+
+### OpenClaw Channel Config (`openclaw.json`)
+
+OpenClaw uses a native `openclaw.json` config file with a `channels` section. At deploy time, the OpenClaw runtime handler writes this file to the PVC:
+
+```json
+{
+  "agent": { "model": "anthropic/claude-opus-4-6" },
+  "channels": {
+    "discord": { "token": "...", "enabled": true, "dmPolicy": "pairing" },
+    "telegram": { "botToken": "...", "enabled": true, "dmPolicy": "pairing" },
+    "slack": { "botToken": "xoxb-...", "appToken": "xapp-...", "enabled": true },
+    "whatsapp": { "enabled": true, "dmPolicy": "pairing" }
+  }
+}
+```
+
+OpenClaw also falls back to env vars (`DISCORD_BOT_TOKEN`, `TELEGRAM_BOT_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`), so both are set during deploy for maximum compatibility.
+
+### Data Flow
+
+```
+Frontend PlatformsTab
+  → trpc.platformCredentials.save({ deploymentId, platformId, credentials })
+    → Server encrypts JSON blob with AES-256-GCM
+    → Upserts into platform_credentials table (unique on deploymentId+platformId)
+
+Deploy button
+  → trpc.deployment.deploy(id)
+    → Loads platform_credentials rows from DB, decrypts each
+    → Builds DeploymentFields.platformCredentials map
+    → OpenClaw handler: writes openclaw.json with channels section to PVC
+    → OpenClaw handler: injects env var fallbacks into K8s Secret
+    → ZeroClaw handler: injects env var fallbacks only (no openclaw.json)
+```
+
+### Frontend Field → OpenClaw Config Key Mapping
+
+| Platform | Frontend Field | OpenClaw Channel Key | Env Var Fallback |
+|----------|---------------|---------------------|------------------|
+| Discord | botToken | channels.discord.token | DISCORD_BOT_TOKEN |
+| Telegram | botToken | channels.telegram.botToken | TELEGRAM_BOT_TOKEN |
+| Slack | botToken | channels.slack.botToken | SLACK_BOT_TOKEN |
+| Slack | appToken | channels.slack.appToken | SLACK_APP_TOKEN |
+| WhatsApp | (none) | channels.whatsapp.dmPolicy | (QR pairing) |
+
+### Credential Security
+
+- Encrypted at rest with AES-256-GCM (reuses `encryptApiKey`/`decryptApiKey`)
+- Masked for frontend display (first 4 + last 4 chars visible)
+- Users must re-enter credentials to update (cannot retrieve plaintext)
+- Cascade delete when deployment is deleted
+
+---
+
+# 25. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)

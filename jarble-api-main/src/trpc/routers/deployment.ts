@@ -13,7 +13,7 @@ import type { DeploymentFields } from "../../runtimes/types.js";
 import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrouter.js";
 
-const { deployments, users, runtimeCatalog } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials } = tables;
 
 /**
  * Helper: Check free deployment status for a user.
@@ -344,6 +344,21 @@ export const deploymentRouter = router({
         ? decryptApiKey((deployment as any).llmApiKey)
         : null;
 
+      // Load and decrypt platform credentials from DB
+      const platformCredsRows = await ctx.db.query.platformCredentials.findMany({
+        where: eq(platformCredentials.deploymentId, deploymentId),
+      });
+
+      const platformCredsMap: Record<string, Record<string, string>> = {};
+      for (const row of platformCredsRows as any[]) {
+        try {
+          const decrypted = decryptApiKey(row.credentials);
+          platformCredsMap[row.platformId] = JSON.parse(decrypted);
+        } catch (err) {
+          logger.warn({ deploymentId, platformId: row.platformId, err }, "Failed to decrypt platform credentials — skipping");
+        }
+      }
+
       // Build runtime handler data for K8s (config files + secret entries)
       const runtimeHandler = getHandlerOrNull(deployment.runtime);
       const deploymentFields: DeploymentFields = {
@@ -356,6 +371,7 @@ export const deploymentRouter = router({
         llmProvider: (deployment as any).llmProvider ?? "openrouter",
         llmModel: (deployment as any).llmModel ?? null,
         llmApiKey: rawApiKey,
+        platformCredentials: Object.keys(platformCredsMap).length > 0 ? platformCredsMap : undefined,
       };
       const initialConfigs = runtimeHandler?.renderConfigs(deploymentFields) ?? [];
       const extraSecretEntries = runtimeHandler?.getSecretEntries(deploymentFields) ?? {};

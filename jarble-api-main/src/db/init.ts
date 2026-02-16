@@ -66,6 +66,17 @@ const CREATE_TABLES_SQL = `
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS platform_credentials (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    platform_id TEXT NOT NULL,
+    credentials TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_platform ON platform_credentials(deployment_id, platform_id);
 `;
 
 export async function initDatabase() {

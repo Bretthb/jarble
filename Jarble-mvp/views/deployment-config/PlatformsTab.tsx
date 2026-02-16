@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,64 +24,113 @@ import {
   Save,
   X,
 } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 import { PLATFORM_CONFIGS } from "./types";
-import type { PlatformConfig, TabProps } from "./types";
+import type { PlatformConfig, PlatformsTabProps } from "./types";
 
-export function PlatformsTab({ formData, updateFormData }: TabProps) {
+export function PlatformsTab({ formData, updateFormData, deploymentId }: PlatformsTabProps) {
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformConfig | null>(null);
   const [platformCredentials, setPlatformCredentials] = useState<Record<string, string>>({});
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
-  const [isSaving, setIsSaving] = useState(false);
-  const [isValidating, setIsValidating] = useState(false);
+
+  // ── API queries & mutations ─────────────────────────────────────────
+  const credentialsQuery = trpc.platformCredentials.getByDeployment.useQuery(
+    { deploymentId },
+    { enabled: !!deploymentId }
+  );
+
+  const saveMutation = trpc.platformCredentials.save.useMutation({
+    onSuccess: () => {
+      toast.success(`${selectedPlatform?.name} configuration saved!`);
+      setConfigModalOpen(false);
+      credentialsQuery.refetch();
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Failed to save credentials");
+    },
+  });
+
+  const deleteMutation = trpc.platformCredentials.delete.useMutation({
+    onSuccess: (_data: unknown, variables: { platformId: string }) => {
+      const platform = PLATFORM_CONFIGS.find(p => p.id === variables.platformId);
+      toast.success(`${platform?.name} disconnected`);
+      credentialsQuery.refetch();
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Failed to disconnect platform");
+    },
+  });
+
+  const testMutation = trpc.platformCredentials.testConnection.useMutation({
+    onSuccess: (data: { success: boolean; message: string }) => {
+      if (data.success) {
+        toast.success(data.message);
+      } else {
+        toast.error(data.message);
+      }
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Connection test failed");
+    },
+  });
+
+  // ── Sync connected platforms from API data into formData ────────────
+  useEffect(() => {
+    if (credentialsQuery.data) {
+      const connectedIds = credentialsQuery.data.map((c: any) => c.platformId);
+      const currentPlatforms = formData.platforms || [];
+
+      // Only update if the list actually changed
+      const changed =
+        connectedIds.length !== currentPlatforms.length ||
+        connectedIds.some((id: string) => !currentPlatforms.includes(id));
+
+      if (changed) {
+        updateFormData("platforms", connectedIds);
+      }
+    }
+  }, [credentialsQuery.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openConfigModal = (platform: PlatformConfig) => {
     setSelectedPlatform(platform);
-    setPlatformCredentials(platform.credentials || {});
+    // Pre-fill with masked credentials if connected (user must re-enter to update)
+    const existing = credentialsQuery.data?.find((c: any) => c.platformId === platform.id);
+    if (existing) {
+      setPlatformCredentials(existing.maskedCredentials || {});
+    } else {
+      setPlatformCredentials({});
+    }
     setShowSecrets({});
     setConfigModalOpen(true);
   };
 
-  const handleSaveCredentials = async () => {
+  const handleSaveCredentials = () => {
     if (!selectedPlatform) return;
 
-    setIsSaving(true);
-
-    // TODO: Wire up to API when platform credential storage is implemented
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    toast.success(`${selectedPlatform.name} configuration saved!`);
-    setConfigModalOpen(false);
-    setIsSaving(false);
-
-    const current = formData.platforms || [];
-    if (!current.includes(selectedPlatform.id)) {
-      updateFormData("platforms", [...current, selectedPlatform.id]);
-    }
+    saveMutation.mutate({
+      deploymentId,
+      platformId: selectedPlatform.id,
+      credentials: platformCredentials,
+    });
   };
 
-  const handleTestConnection = async () => {
+  const handleTestConnection = () => {
     if (!selectedPlatform) return;
 
-    setIsValidating(true);
-
-    // TODO: Wire up to API when platform validation is implemented
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    toast.success(`Successfully connected to ${selectedPlatform.name}!`);
-    setIsValidating(false);
+    testMutation.mutate({
+      deploymentId,
+      platformId: selectedPlatform.id,
+      credentials: platformCredentials,
+    });
   };
 
-  const handleDisconnect = async (platformId: string) => {
+  const handleDisconnect = (platformId: string) => {
     if (!confirm("Are you sure you want to disconnect this platform? This will remove all credentials.")) {
       return;
     }
 
-    const platform = PLATFORM_CONFIGS.find(p => p.id === platformId);
-    toast.success(`${platform?.name} disconnected`);
-
-    const current = formData.platforms || [];
-    updateFormData("platforms", current.filter((id: string) => id !== platformId));
+    deleteMutation.mutate({ deploymentId, platformId });
   };
 
   const copyToClipboard = (text: string) => {
@@ -153,9 +202,14 @@ export function PlatformsTab({ formData, updateFormData }: TabProps) {
                       variant="outline"
                       size="sm"
                       onClick={() => handleDisconnect(platform.id)}
+                      disabled={deleteMutation.isPending}
                       className="border-border text-muted-foreground hover:bg-secondary/80"
                     >
-                      <X className="w-4 h-4" />
+                      {deleteMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <X className="w-4 h-4" />
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -233,6 +287,16 @@ export function PlatformsTab({ formData, updateFormData }: TabProps) {
                   </p>
                 </div>
 
+                {/* WhatsApp special case — no credential fields */}
+                {selectedPlatform.id === "whatsapp" && selectedPlatform.fields.length === 0 && (
+                  <div className="p-4 rounded-lg bg-secondary/50 border border-border text-center">
+                    <p className="text-sm text-foreground font-medium mb-1">QR Code Pairing</p>
+                    <p className="text-xs text-muted-foreground">
+                      WhatsApp uses QR code pairing via Baileys. No credentials needed — connect via the deployment console after deploying.
+                    </p>
+                  </div>
+                )}
+
                 {/* Credential Fields */}
                 {selectedPlatform.fields.map((field) => (
                   <div key={field.key}>
@@ -303,10 +367,10 @@ export function PlatformsTab({ formData, updateFormData }: TabProps) {
                 <Button
                   variant="outline"
                   onClick={handleTestConnection}
-                  disabled={isValidating}
+                  disabled={testMutation.isPending}
                   className="border-border"
                 >
-                  {isValidating ? (
+                  {testMutation.isPending ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       Testing...
@@ -328,10 +392,10 @@ export function PlatformsTab({ formData, updateFormData }: TabProps) {
                   </Button>
                   <Button
                     onClick={handleSaveCredentials}
-                    disabled={isSaving}
+                    disabled={saveMutation.isPending}
                     className="bg-primary hover:bg-primary/90 text-primary-foreground"
                   >
-                    {isSaving ? (
+                    {saveMutation.isPending ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                         Saving...

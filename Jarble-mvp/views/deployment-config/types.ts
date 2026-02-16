@@ -123,3 +123,7 @@ export interface TabProps {
   formData: DeploymentFormData;
   updateFormData: (key: string, value: string | number | string[]) => void;
 }
+
+export interface PlatformsTabProps extends TabProps {
+  deploymentId: string;
+}

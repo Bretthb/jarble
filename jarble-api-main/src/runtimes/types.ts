@@ -52,7 +52,8 @@ export interface DeploymentFields {
   llmProvider: string;
   llmModel: string | null;
   llmApiKey: string | null;
-  // Future: platformCredentials, skills, etc.
+  /** Platform credentials: { platformId: { fieldKey: value } } e.g. { discord: { botToken: "..." } } */
+  platformCredentials?: Record<string, Record<string, string>>;
 }
 
 /**

@@ -7,8 +7,22 @@
  *
  * Config files on PVC:
  *   /data/soul.md          — System prompt / personality
+ *   /data/openclaw.json    — Agent + channel configuration (OpenClaw native format)
  *   /data/skills/*         — Skill definitions (future)
- *   /data/platforms/*      — Platform credentials (future)
+ *
+ * OpenClaw channel config format (openclaw.json):
+ *   {
+ *     agent: { model: "anthropic/claude-opus-4-6" },
+ *     channels: {
+ *       discord: { token: "...", enabled: true, dmPolicy: "pairing" },
+ *       telegram: { botToken: "...", enabled: true, dmPolicy: "pairing" },
+ *       slack: { botToken: "xoxb-...", appToken: "xapp-...", enabled: true },
+ *       whatsapp: { dmPolicy: "pairing" }
+ *     }
+ *   }
+ *
+ * OpenClaw also falls back to env vars: DISCORD_BOT_TOKEN, TELEGRAM_BOT_TOKEN,
+ * SLACK_BOT_TOKEN, SLACK_APP_TOKEN — we set both for maximum compatibility.
  */
 
 import type {
@@ -19,6 +33,7 @@ import type {
   DeploymentFields,
   ParsedDeploymentFields,
 } from "../types.js";
+import { PLATFORM_CREDENTIAL_KEYS, PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
 
 const capabilities: RuntimeCapabilities = {
   needsLlm: true,
@@ -29,9 +44,9 @@ const capabilities: RuntimeCapabilities = {
 
 const configFiles: ConfigFileSpec[] = [
   { path: "soul.md", description: "System prompt / personality", isGlob: false },
+  { path: "openclaw.json", description: "Agent + channel configuration (OpenClaw native)", isGlob: false },
   // Future:
   // { path: "skills/*", description: "Skill definitions", isGlob: true },
-  // { path: "platforms/*", description: "Platform credentials", isGlob: true },
 ];
 
 export const openclawHandler: RuntimeHandler = {
@@ -51,8 +66,58 @@ export const openclawHandler: RuntimeHandler = {
       });
     }
 
+    // openclaw.json — agent config + channel credentials
+    const openclawConfig: Record<string, any> = {};
+
+    // Agent section (model config)
+    if (deployment.llmModel) {
+      openclawConfig.agent = { model: deployment.llmModel };
+    }
+
+    // Channels section — build from platformCredentials
+    if (deployment.platformCredentials && Object.keys(deployment.platformCredentials).length > 0) {
+      const channels: Record<string, any> = {};
+
+      for (const [platformId, creds] of Object.entries(deployment.platformCredentials)) {
+        const keyMap = PLATFORM_CREDENTIAL_KEYS[platformId];
+        if (!keyMap) continue;
+
+        const channelConfig: Record<string, any> = { enabled: true };
+
+        // Map frontend field keys → OpenClaw channel config keys
+        for (const [fieldKey, openClawKey] of Object.entries(keyMap)) {
+          if (creds[fieldKey]) {
+            channelConfig[openClawKey] = creds[fieldKey];
+          }
+        }
+
+        // WhatsApp: always include dmPolicy for QR pairing
+        if (platformId === "whatsapp") {
+          channelConfig.dmPolicy = "pairing";
+        }
+
+        // Discord/Telegram: default dmPolicy
+        if (platformId === "discord" || platformId === "telegram") {
+          channelConfig.dmPolicy = channelConfig.dmPolicy || "pairing";
+        }
+
+        channels[platformId] = channelConfig;
+      }
+
+      if (Object.keys(channels).length > 0) {
+        openclawConfig.channels = channels;
+      }
+    }
+
+    // Always write openclaw.json if we have any config
+    if (Object.keys(openclawConfig).length > 0) {
+      files.push({
+        path: "openclaw.json",
+        content: JSON.stringify(openclawConfig, null, 2) + "\n",
+      });
+    }
+
     // Future: render skills/*.json from DB skills data
-    // Future: render platforms/*.yaml from DB platform credentials
 
     return files;
   },
@@ -65,7 +130,7 @@ export const openclawHandler: RuntimeHandler = {
       result.systemPrompt = soulMd.content;
     }
 
-    // Future: parse skills, platforms
+    // Future: parse openclaw.json channels back to platformCredentials
 
     return result;
   },
@@ -73,6 +138,7 @@ export const openclawHandler: RuntimeHandler = {
   getSecretEntries(deployment: DeploymentFields): Record<string, string> {
     const entries: Record<string, string> = {};
 
+    // LLM config
     if (deployment.llmApiKey) {
       entries["OPENROUTER_API_KEY"] = deployment.llmApiKey;
     }
@@ -81,6 +147,20 @@ export const openclawHandler: RuntimeHandler = {
     }
     if (deployment.llmModel) {
       entries["LLM_MODEL"] = deployment.llmModel;
+    }
+
+    // Platform credential env var fallbacks (OpenClaw reads these as backup)
+    if (deployment.platformCredentials) {
+      for (const [platformId, creds] of Object.entries(deployment.platformCredentials)) {
+        const envMap = PLATFORM_ENV_MAP[platformId];
+        if (!envMap) continue;
+
+        for (const [fieldKey, envVarName] of Object.entries(envMap)) {
+          if (creds[fieldKey]) {
+            entries[envVarName] = creds[fieldKey];
+          }
+        }
+      }
     }
 
     return entries;

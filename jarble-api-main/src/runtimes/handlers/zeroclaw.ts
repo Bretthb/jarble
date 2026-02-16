@@ -26,6 +26,7 @@ import type {
   DeploymentFields,
   ParsedDeploymentFields,
 } from "../types.js";
+import { PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
 
 const capabilities: RuntimeCapabilities = {
   needsLlm: true,       // ZeroClaw supports 22+ AI providers
@@ -86,6 +87,20 @@ export const zeroclawHandler: RuntimeHandler = {
     }
     if (deployment.llmModel) {
       entries["ZEROCLAW_MODEL"] = deployment.llmModel;
+    }
+
+    // Platform credential env vars (ZeroClaw uses env vars only, no openclaw.json)
+    if (deployment.platformCredentials) {
+      for (const [platformId, creds] of Object.entries(deployment.platformCredentials)) {
+        const envMap = PLATFORM_ENV_MAP[platformId];
+        if (!envMap) continue;
+
+        for (const [fieldKey, envVarName] of Object.entries(envMap)) {
+          if (creds[fieldKey]) {
+            entries[envVarName] = creds[fieldKey];
+          }
+        }
+      }
     }
 
     return entries;

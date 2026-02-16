@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 
 const now = () => new Date().toISOString();
@@ -62,16 +62,32 @@ export const runtimeCatalog = sqliteTable("runtime_catalog", {
   createdAt: text("created_at").notNull().$defaultFn(now),
 });
 
+export const platformCredentials = sqliteTable("platform_credentials", {
+  id: text("id").primaryKey(),
+  deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  platformId: text("platform_id").notNull(), // "discord", "slack", etc.
+  credentials: text("credentials").notNull(), // AES-256-GCM encrypted JSON
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+}, (table) => ({
+  deploymentPlatformIdx: uniqueIndex("uq_deployment_platform").on(table.deploymentId, table.platformId),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   deployments: many(deployments),
 }));
 
-export const deploymentsRelations = relations(deployments, ({ one }) => ({
+export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   user: one(users, { fields: [deployments.userId], references: [users.id] }),
   runtimeCatalogEntry: one(runtimeCatalog, { fields: [deployments.runtimeCatalogId], references: [runtimeCatalog.id] }),
+  platformCredentials: many(platformCredentials),
 }));
 
 export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => ({
   deployments: many(deployments),
+}));
+
+export const platformCredentialsRelations = relations(platformCredentials, ({ one }) => ({
+  deployment: one(deployments, { fields: [platformCredentials.deploymentId], references: [deployments.id] }),
 }));
