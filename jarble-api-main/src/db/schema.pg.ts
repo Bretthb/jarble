@@ -36,6 +36,9 @@ export const deployments = pgTable("deployments", {
   llmCreditLimitDollars: integer("llm_credit_limit_dollars"),  // Monthly spending cap for "included" mode (e.g. 5, 10, 25, 50, 100)
   llmApiKeySourceDeploymentId: varchar("llm_api_key_source_deployment_id", { length: 255 }), // null = owns key, non-null = linked to owner deployment
   systemPrompt: text("system_prompt"),
+  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }), // Links deployment to Stripe subscription
+  cancelledAt: timestamp("cancelled_at"),          // When user initiated cancellation
+  cancelAtPeriodEnd: timestamp("cancel_at_period_end"), // Billing period end (when deployment auto-stops)
   status: varchar("status", { length: 50 }).notNull().default("creating"),
   error: text("error"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

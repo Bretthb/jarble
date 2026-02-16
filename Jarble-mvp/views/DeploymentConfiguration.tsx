@@ -14,10 +14,12 @@ import {
   Power,
   PowerOff,
   Loader2,
+  XCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createElement } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
+import CancellationGracePeriod from "@/components/CancellationGracePeriod";
 import { getConfigTabs } from "./onboarding/wizardStepConfig";
 import type { Tab, DeploymentFormData } from "./deployment-config/types";
 import { GeneralTab } from "./deployment-config/GeneralTab";
@@ -25,6 +27,23 @@ import { ModelTab } from "./deployment-config/ModelTab";
 import { PlatformsTab } from "./deployment-config/PlatformsTab";
 import { SkillsTab } from "./deployment-config/SkillsTab";
 import { AdvancedTab } from "./deployment-config/AdvancedTab";
+
+/** Decode a base64 string to a Blob and trigger a browser download. */
+function base64ToBlob(b64: string, mime = "application/zip"): Blob {
+  const bytes = atob(b64);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function DeploymentConfiguration() {
   const { id } = useParams() as { id: string };
@@ -73,7 +92,42 @@ export default function DeploymentConfiguration() {
     },
   });
 
+  const cancelMutation = trpc.deployment.cancel.useMutation({
+    onSuccess: (data: { cancelAt: string }) => {
+      const date = new Date(data.cancelAt).toLocaleDateString();
+      toast.success(`Subscription cancelled — access until ${date}`);
+      deploymentQuery.refetch();
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Failed to cancel subscription");
+    },
+  });
+
+  const reactivateMutation = trpc.deployment.reactivate.useMutation({
+    onSuccess: () => {
+      toast.success("Subscription reactivated!");
+      deploymentQuery.refetch();
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Failed to reactivate subscription");
+    },
+  });
+
+  const exportMutation = trpc.deployment.exportConfigs.useMutation({
+    onSuccess: (data: { filename: string; data: string }) => {
+      const blob = base64ToBlob(data.data);
+      downloadBlob(blob, data.filename);
+      toast.success("Config files exported!");
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Failed to export configs");
+    },
+  });
+
   const deployment = deploymentQuery.data;
+  const dep = deployment as any;
+  const isCancelled = !!dep?.cancelledAt;
+  const isPaid = deployment && !dep?.isFree;
 
   // Dynamic tabs based on the deployment's runtime
   const runtimeSlug = deployment?.runtime ?? null;
@@ -122,6 +176,20 @@ export default function DeploymentConfiguration() {
   const handleToggleStatus = () => {
     // TODO: Implement when API supports status toggle
     toast.info("Status toggle not yet implemented");
+  };
+
+  const handleCancel = () => {
+    if (confirm("Cancel your subscription? Your deployment will remain active until the end of the current billing period.")) {
+      cancelMutation.mutate({ id });
+    }
+  };
+
+  const handleReactivate = () => {
+    reactivateMutation.mutate({ id });
+  };
+
+  const handleExport = () => {
+    exportMutation.mutate({ id });
   };
 
   const handleDelete = () => {
@@ -210,6 +278,37 @@ export default function DeploymentConfiguration() {
                   {tab.label}
                 </button>
               ))}
+
+              {/* Subscription section — paid deployments only */}
+              {isPaid && (
+                <div className="pt-4 mt-4 border-t border-border/40 space-y-0.5">
+                  <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">Subscription</p>
+                  {isCancelled && dep.cancelAtPeriodEnd ? (
+                    <div className="px-1">
+                      <CancellationGracePeriod
+                        cancelAtPeriodEnd={dep.cancelAtPeriodEnd}
+                        onExport={handleExport}
+                        onReactivate={handleReactivate}
+                        isExporting={exportMutation.isPending}
+                        isReactivating={reactivateMutation.isPending}
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleCancel}
+                      disabled={cancelMutation.isPending}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
+                    >
+                      {cancelMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                      ) : (
+                        <XCircle className="w-4 h-4 shrink-0" />
+                      )}
+                      Cancel Subscription
+                    </button>
+                  )}
+                </div>
+              )}
 
               <div className="pt-4 mt-4 border-t border-border/40 space-y-0.5">
                 <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">Actions</p>

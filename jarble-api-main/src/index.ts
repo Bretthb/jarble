@@ -15,6 +15,7 @@ import {
   createPortalSession,
   constructWebhookEvent,
 } from "./services/stripe.js";
+import { stopDeployment } from "./k8s/deployment.js";
 import { eq } from "drizzle-orm";
 
 const app = express();
@@ -94,9 +95,27 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
 
       case "customer.subscription.deleted": {
         const subscription = event.data.object as any;
+        const subscriptionId = subscription.id as string;
         const customerId = subscription.customer as string;
-        logger.info({ customerId }, "Subscription canceled");
-        // TODO: stop paid deployments when subscription is canceled
+        logger.info({ customerId, subscriptionId }, "Subscription canceled — stopping deployment");
+
+        // Find the deployment linked to this subscription and stop it
+        try {
+          const allDeployments = await db.query.deployments.findMany();
+          const linked = allDeployments.find((d: any) => d.stripeSubscriptionId === subscriptionId);
+
+          if (linked) {
+            await stopDeployment(linked.id);
+            await (db as any).update(tables.deployments)
+              .set({ status: "stopped" })
+              .where(eq(tables.deployments.id, linked.id));
+            logger.info({ deploymentId: linked.id, subscriptionId }, "Deployment stopped after subscription deletion");
+          } else {
+            logger.warn({ subscriptionId }, "No deployment found for deleted subscription");
+          }
+        } catch (err) {
+          logger.error({ err, subscriptionId }, "Failed to stop deployment after subscription deletion");
+        }
         break;
       }
 

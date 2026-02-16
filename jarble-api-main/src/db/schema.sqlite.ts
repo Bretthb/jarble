@@ -38,6 +38,9 @@ export const deployments = sqliteTable("deployments", {
   llmCreditLimitDollars: integer("llm_credit_limit_dollars"),  // Monthly spending cap for "included" mode (e.g. 5, 10, 25, 50, 100)
   llmApiKeySourceDeploymentId: text("llm_api_key_source_deployment_id"), // null = owns key, non-null = linked to owner deployment
   systemPrompt: text("system_prompt"),
+  stripeSubscriptionId: text("stripe_subscription_id"), // Links deployment to Stripe subscription
+  cancelledAt: text("cancelled_at"),          // When user initiated cancellation (ISO string)
+  cancelAtPeriodEnd: text("cancel_at_period_end"), // Billing period end (when deployment auto-stops, ISO string)
   status: text("status").notNull().default("creating"),
   error: text("error"),
   createdAt: text("created_at").notNull().$defaultFn(now),

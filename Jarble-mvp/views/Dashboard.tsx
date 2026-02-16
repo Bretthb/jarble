@@ -17,6 +17,8 @@ import {
   Play,
   Square,
   RotateCw,
+  AlertCircle,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -24,6 +26,22 @@ import { useState } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StorageMeter, StorageMeterSkeleton } from "@/components/StorageMeter";
+
+function base64ToBlob(b64: string, mime = "application/zip"): Blob {
+  const bytes = atob(b64);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function Dashboard() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
@@ -79,6 +97,17 @@ export default function Dashboard() {
     onError: (error: { message?: string }) => {
       toast.error(error.message || "Failed to restart deployment");
       deploymentsQuery.refetch();
+    },
+  });
+
+  const exportMutation = trpc.deployment.exportConfigs.useMutation({
+    onSuccess: (data: { filename: string; data: string }) => {
+      const blob = base64ToBlob(data.data);
+      downloadBlob(blob, data.filename);
+      toast.success("Config files exported!");
+    },
+    onError: (error: { message?: string }) => {
+      toast.error(error.message || "Failed to export configs");
     },
   });
 
@@ -180,6 +209,8 @@ export default function Dashboard() {
               freeExpiresAt: string | null;
               freeTrialExpired?: boolean;
               llmMode: string;
+              cancelledAt?: string | null;
+              cancelAtPeriodEnd?: string | null;
             }) => (
               <DeploymentCard
                 key={deployment.id}
@@ -188,9 +219,11 @@ export default function Dashboard() {
                 onStop={(id) => stopMutation.mutate({ id })}
                 onStart={(id) => startMutation.mutate({ id })}
                 onRestart={(id) => restartMutation.mutate({ id })}
+                onExport={(id) => exportMutation.mutate({ id })}
                 isToggling={
                   stopMutation.isPending || startMutation.isPending || restartMutation.isPending
                 }
+                isExporting={exportMutation.isPending}
               />
             ))}
           </div>
@@ -219,7 +252,7 @@ export default function Dashboard() {
   );
 }
 
-function DeploymentCard({ deployment, onDelete, onStop, onStart, onRestart, isToggling }: {
+function DeploymentCard({ deployment, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting }: {
   deployment: {
     id: string;
     name: string;
@@ -231,12 +264,16 @@ function DeploymentCard({ deployment, onDelete, onStop, onStart, onRestart, isTo
     freeExpiresAt: string | null;
     freeTrialExpired?: boolean;
     llmMode: string;
+    cancelledAt?: string | null;
+    cancelAtPeriodEnd?: string | null;
   };
   onDelete: (id: string) => void;
   onStop: (id: string) => void;
   onStart: (id: string) => void;
   onRestart: (id: string) => void;
+  onExport: (id: string) => void;
   isToggling: boolean;
+  isExporting: boolean;
 }) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -326,6 +363,17 @@ function DeploymentCard({ deployment, onDelete, onStop, onStart, onRestart, isTo
           {/* Row 2: Metadata + Actions */}
           <div className="flex items-center justify-between pt-3 border-t border-border/50">
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {/* Cancelling badge */}
+              {deployment.cancelledAt && deployment.cancelAtPeriodEnd && (() => {
+                const cancelDays = Math.max(0, Math.ceil((new Date(deployment.cancelAtPeriodEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+                return (
+                  <span className="inline-flex items-center gap-1 text-orange-500">
+                    <AlertCircle className="w-3 h-3" />
+                    Cancelling ({cancelDays}d left)
+                  </span>
+                );
+              })()}
+              {deployment.cancelledAt && deployment.cancelAtPeriodEnd && <span className="text-border">·</span>}
               {deployment.isFree && !deployment.freeTrialExpired && daysRemaining !== null && daysRemaining > 0 ? (
                 <span className="inline-flex items-center gap-1">
                   <Gift className="w-3 h-3 text-primary" />
@@ -392,6 +440,24 @@ function DeploymentCard({ deployment, onDelete, onStop, onStart, onRestart, isTo
                   title="Starting..."
                 >
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                </Button>
+              )}
+
+              {/* Export (only for cancelled running deployments) */}
+              {deployment.cancelledAt && isRunning && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onExport(deployment.id)}
+                  disabled={isExporting}
+                  className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
+                  title="Export configs"
+                >
+                  {isExporting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
                 </Button>
               )}
 

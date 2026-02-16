@@ -2,7 +2,8 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../middleware.js";
 import { tables } from "../../db/index.js";
 import { eq, and, isNull } from "drizzle-orm";
-import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage } from "../../k8s/deployment.js";
+import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs } from "../../k8s/deployment.js";
+import { cancelSubscriptionAtPeriodEnd, reactivateSubscription } from "../../services/stripe.js";
 import { nanoid } from "nanoid";
 import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
@@ -698,6 +699,134 @@ export const deploymentRouter = router({
       }
 
       return { success: true };
+    }),
+
+  // Cancel subscription (deployment stays active until billing period ends)
+  cancel: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      const dep = deployment as any;
+
+      if (dep.isFree) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Free deployments cannot be cancelled — they expire automatically",
+        });
+      }
+
+      if (!dep.stripeSubscriptionId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No subscription linked to this deployment",
+        });
+      }
+
+      if (dep.cancelledAt) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Deployment is already cancelled",
+        });
+      }
+
+      // Schedule Stripe cancellation at period end
+      const { cancelAt } = await cancelSubscriptionAtPeriodEnd(dep.stripeSubscriptionId);
+
+      // Update DB with cancellation timestamps
+      await (ctx.db as any).update(deployments)
+        .set({
+          cancelledAt: new Date().toISOString(),
+          cancelAtPeriodEnd: cancelAt.toISOString(),
+        })
+        .where(eq(deployments.id, input.id));
+
+      logger.info({ deploymentId: input.id, cancelAt: cancelAt.toISOString() }, "Deployment cancellation scheduled");
+
+      return { success: true, cancelAt: cancelAt.toISOString() };
+    }),
+
+  // Reactivate a cancelled subscription (remove cancel_at_period_end)
+  reactivate: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      const dep = deployment as any;
+
+      if (!dep.cancelledAt) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Deployment is not cancelled",
+        });
+      }
+
+      if (!dep.stripeSubscriptionId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No subscription linked to this deployment",
+        });
+      }
+
+      // Reactivate on Stripe
+      await reactivateSubscription(dep.stripeSubscriptionId);
+
+      // Clear cancellation timestamps
+      await (ctx.db as any).update(deployments)
+        .set({
+          cancelledAt: null,
+          cancelAtPeriodEnd: null,
+        })
+        .where(eq(deployments.id, input.id));
+
+      logger.info({ deploymentId: input.id }, "Deployment reactivated");
+
+      return { success: true };
+    }),
+
+  // Export deployment config files as a ZIP (base64-encoded)
+  exportConfigs: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      if (deployment.status !== "running") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Deployment must be running to export configs",
+        });
+      }
+
+      try {
+        const result = await exportDeploymentConfigs(input.id);
+        logger.info({ deploymentId: input.id }, "Config export completed");
+        return result;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Export failed";
+        logger.error({ deploymentId: input.id, err }, "Config export failed");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message,
+        });
+      }
     }),
 
   // Delete deployment + K8s resources

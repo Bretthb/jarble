@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 16, 2026 (Session 3 — Container Images + GHCR + Stop/Start Toggle)
+📅 Last updated: February 16, 2026 (Session 4 — Deployment Cancellation + Config Export)
 
 </aside>
 
@@ -185,6 +185,9 @@ graph TB
         D9[stop - mutation]
         D10[start - mutation]
         D11[restart - mutation]
+        D12[cancel - mutation]
+        D13[reactivate - mutation]
+        D14[exportConfigs - mutation]
     end
 
     subgraph "Runtime Catalog Router"
@@ -261,6 +264,9 @@ erDiagram
         int llmCreditLimitDollars
         varchar llmApiKeySourceDeploymentId FK "null=owner, set=linked"
         text systemPrompt
+        varchar stripeSubscriptionId "Links to Stripe sub"
+        timestamp cancelledAt "User initiated cancel"
+        timestamp cancelAtPeriodEnd "Auto-stop date"
         varchar status
         text error
         timestamp createdAt
@@ -586,6 +592,9 @@ flowchart TD
 - [x]  **StorageMeter component** — Visual storage usage with color-coded progress bar
 - [x]  **ZeroClaw LLM step** — ZeroClaw now has LLM Setup step in wizard (was deploy-only)
 - [x]  **Stop/Start/Restart controls** — Per-deployment stop (Square), start (Play), restart (RotateCw) buttons on Dashboard cards
+- [x]  **Cancel subscription flow** — Cancel button on DeploymentConfiguration sidebar for paid deployments, confirmation dialog, grace period card (CancellationGracePeriod component)
+- [x]  **Config export as ZIP** — Export button during cancellation grace period, base64→Blob browser download
+- [x]  **Cancelling badge on Dashboard** — Orange "Cancelling (Xd left)" badge + export button on Dashboard cards
 
 ## Backend ✅
 
@@ -605,6 +614,9 @@ flowchart TD
 - [x]  **Runtime Registry pattern** — `src/runtimes/` with per-runtime handlers for K8s config
 - [x]  **Storage usage monitoring** — K8s exec `df -B1 /data` with percentage calculation
 - [x]  **Stop/Start/Restart** — K8s replica scaling (0↔1) via `stopDeployment()`, `startDeployment()`, `restartDeployment()` with tRPC mutations + fire-and-forget pod status polling
+- [x]  **Cancel/Reactivate mutations** — `cancel` schedules Stripe `cancel_at_period_end`, `reactivate` clears it. DB tracks `cancelledAt` + `cancelAtPeriodEnd`
+- [x]  **Config export (ZIP)** — `exportConfigs` mutation execs into K8s pod, reads `/data/config/` files, builds ZIP with `archiver`, returns base64
+- [x]  **Stripe webhook `subscription.deleted`** — Auto-stops deployment when billing period ends (finds deployment by `stripeSubscriptionId`, calls `stopDeployment`)
 
 ## Infrastructure ✅
 
@@ -621,7 +633,7 @@ flowchart TD
 ## 🔴 Critical (Must-Have for Launch)
 
 1. **Platform credential storage** — Wire PlatformsTab to API, save WhatsApp/Discord credentials to DB
-2. **Stripe subscription → deployment sync** — When subscription changes/cancels, update deployment
+2. **Stripe subscription → deployment sync** — ~~subscription.deleted wired (Session 4)~~, still need subscription.updated sync
 3. **Drizzle migrations regeneration** — Current migrations stale
 4. **WhatsApp QR integration** — Replace mock QR with real WhatsApp Business API
 5. **Email verification resend** — Add "Resend" button for unverified users
@@ -647,7 +659,7 @@ flowchart TD
 
 # 13. Component Inventory
 
-Shared: ProfileDropdown, IntegrationsMarquee, TemplateSelector, WizardLoader, ErrorBoundary, ThemeToggle, PlatformConfigForm, SubscribeButton, StatusBadge, StorageMeter
+Shared: ProfileDropdown, IntegrationsMarquee, TemplateSelector, WizardLoader, ErrorBoundary, ThemeToggle, SubscribeButton, StatusBadge, StorageMeter, CancellationGracePeriod
 
 Auth: Auth0Provider, LoginButton, LogoutButton
 
@@ -1139,7 +1151,53 @@ running ──stop──→ stopped ──start──→ creating ──poll─�
 
 ---
 
-# 23. Dev Servers
+# 23. Deployment Cancellation & Config Export (Session 4)
+
+### Cancellation Flow
+
+```
+User clicks "Cancel Subscription" (DeploymentConfiguration sidebar)
+  → confirm() dialog
+  → trpc.deployment.cancel({ id })
+    → Validates: not free, has stripeSubscriptionId, not already cancelled
+    → Stripe API: subscriptions.update(id, { cancel_at_period_end: true })
+    → DB: sets cancelledAt = now(), cancelAtPeriodEnd = current_period_end
+  → UI shows CancellationGracePeriod card (orange, with countdown)
+
+During grace period (deployment stays running):
+  → User can Export configs (ZIP of /data/config/ from K8s pod)
+  → User can Reactivate (clears cancel_at_period_end on Stripe + DB)
+
+At billing period end:
+  → Stripe fires customer.subscription.deleted webhook
+  → index.ts webhook handler finds deployment by stripeSubscriptionId
+  → Calls stopDeployment() → scales K8s replicas to 0
+  → Updates DB status to "stopped"
+```
+
+### Config Export Flow
+
+```
+User clicks "Export" button
+  → trpc.deployment.exportConfigs({ id })
+    → K8s exec: find /data/config -type f (list files)
+    → K8s exec: cat <file> (read each file)
+    → archiver creates ZIP in memory
+    → Returns { filename: "config-{id}.zip", data: base64 }
+  → Frontend: base64 → Blob → browser download
+```
+
+### New DB Columns (deployments table)
+
+| Column | Type | Description |
+| --- | --- | --- |
+| stripeSubscriptionId | varchar(255) | Links deployment to its Stripe subscription |
+| cancelledAt | timestamp | When user initiated cancellation |
+| cancelAtPeriodEnd | timestamp | Billing period end — auto-stop date |
+
+---
+
+# 24. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)

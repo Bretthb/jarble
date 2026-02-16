@@ -1,5 +1,6 @@
 import * as k8s from "@kubernetes/client-node";
 import stream from "stream";
+import archiver from "archiver";
 import { logger } from "../utils/logger.js";
 import type { ConfigFile } from "../runtimes/types.js";
 
@@ -415,6 +416,85 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
     logger.error({ deploymentId, err }, "Failed to get storage usage");
     return null;
   }
+}
+
+// ── Config Export (ZIP) ──────────────────────────────────────────────
+
+/**
+ * Export all user config files from a running deployment as a ZIP archive.
+ * Reads `/data/config/` from the pod, builds a ZIP in memory, returns as base64.
+ */
+export async function exportDeploymentConfigs(deploymentId: string): Promise<{ filename: string; data: string }> {
+  // Find the running pod
+  const pods = await coreApi.listNamespacedPod(
+    NAMESPACE,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    `app=dep-${deploymentId}`
+  );
+
+  if (pods.body.items.length === 0) {
+    throw new Error(`No pods found for deployment ${deploymentId}`);
+  }
+
+  const pod = pods.body.items[0];
+  const podName = pod.metadata?.name;
+  const isRunning = pod.status?.phase === "Running" && pod.status?.containerStatuses?.[0]?.ready;
+
+  if (!podName || !isRunning) {
+    throw new Error("Pod is not running — cannot export configs");
+  }
+
+  // List all config files in /data/config/
+  const fileListOutput = await execInPod(podName, ["find", "/data/config", "-type", "f"]);
+  const filePaths = fileListOutput.trim().split("\n").filter(Boolean);
+
+  if (filePaths.length === 0) {
+    throw new Error("No config files found in /data/config/");
+  }
+
+  // Read each file's content via exec
+  const files: Array<{ path: string; content: string }> = [];
+  for (const fullPath of filePaths) {
+    try {
+      const content = await execInPod(podName, ["cat", fullPath]);
+      // Strip the /data/config/ prefix for archive paths
+      const relativePath = fullPath.replace(/^\/data\/config\//, "");
+      files.push({ path: relativePath, content });
+    } catch (err) {
+      logger.warn({ deploymentId, path: fullPath, err }, "Skipping unreadable config file");
+    }
+  }
+
+  if (files.length === 0) {
+    throw new Error("All config files were unreadable");
+  }
+
+  // Build ZIP archive in memory
+  const zipBuffer = await new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const archive = archiver("zip", { zlib: { level: 9 } });
+
+    archive.on("data", (chunk: Buffer) => chunks.push(chunk));
+    archive.on("end", () => resolve(Buffer.concat(chunks)));
+    archive.on("error", reject);
+
+    for (const file of files) {
+      archive.append(file.content, { name: file.path });
+    }
+
+    archive.finalize();
+  });
+
+  const filename = `config-${deploymentId}.zip`;
+  logger.info({ deploymentId, fileCount: files.length, sizeBytes: zipBuffer.length }, "Exported deployment configs");
+
+  return {
+    filename,
+    data: zipBuffer.toString("base64"),
+  };
 }
 
 // ── Config File Writing ───────────────────────────────────────────────

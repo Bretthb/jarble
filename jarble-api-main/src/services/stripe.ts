@@ -107,3 +107,42 @@ export function constructWebhookEvent(
 
   return s.webhooks.constructEvent(body, signature, webhookSecret);
 }
+
+/**
+ * Cancel a subscription at the end of the current billing period.
+ * The subscription stays active until `current_period_end`, then Stripe fires
+ * `customer.subscription.deleted` and we auto-stop the deployment.
+ */
+export async function cancelSubscriptionAtPeriodEnd(
+  subscriptionId: string
+): Promise<{ cancelAt: Date }> {
+  const s = getStripe();
+
+  const subscription = await s.subscriptions.update(subscriptionId, {
+    cancel_at_period_end: true,
+  });
+
+  const cancelAt = new Date((subscription as any).current_period_end * 1000);
+  logger.info(
+    { subscriptionId, cancelAt: cancelAt.toISOString() },
+    "Subscription scheduled for cancellation at period end"
+  );
+
+  return { cancelAt };
+}
+
+/**
+ * Reactivate a subscription that was scheduled for cancellation.
+ * Clears the `cancel_at_period_end` flag so billing continues normally.
+ */
+export async function reactivateSubscription(
+  subscriptionId: string
+): Promise<void> {
+  const s = getStripe();
+
+  await s.subscriptions.update(subscriptionId, {
+    cancel_at_period_end: false,
+  });
+
+  logger.info({ subscriptionId }, "Subscription reactivated");
+}
