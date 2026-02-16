@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 16, 2026 (Session 3 — Container Images + GHCR + PVC Layout)
+📅 Last updated: February 16, 2026 (Session 3 — Container Images + GHCR + Stop/Start Toggle)
 
 </aside>
 
@@ -182,6 +182,9 @@ graph TB
         D6b[getStorageUsage - query]
         D7[update - mutation + owner protection]
         D8[delete - mutation + owner protection]
+        D9[stop - mutation]
+        D10[start - mutation]
+        D11[restart - mutation]
     end
 
     subgraph "Runtime Catalog Router"
@@ -582,6 +585,7 @@ flowchart TD
 - [x]  **StatusBadge shared component** — Extracted from Dashboard, used by Dashboard + Linked Deployments
 - [x]  **StorageMeter component** — Visual storage usage with color-coded progress bar
 - [x]  **ZeroClaw LLM step** — ZeroClaw now has LLM Setup step in wizard (was deploy-only)
+- [x]  **Stop/Start/Restart controls** — Per-deployment stop (Square), start (Play), restart (RotateCw) buttons on Dashboard cards
 
 ## Backend ✅
 
@@ -600,6 +604,7 @@ flowchart TD
 - [x]  **`listLinkableDeployments` query** — Returns owner deployments eligible for linking
 - [x]  **Runtime Registry pattern** — `src/runtimes/` with per-runtime handlers for K8s config
 - [x]  **Storage usage monitoring** — K8s exec `df -B1 /data` with percentage calculation
+- [x]  **Stop/Start/Restart** — K8s replica scaling (0↔1) via `stopDeployment()`, `startDeployment()`, `restartDeployment()` with tRPC mutations + fire-and-forget pod status polling
 
 ## Infrastructure ✅
 
@@ -617,10 +622,9 @@ flowchart TD
 
 1. **Platform credential storage** — Wire PlatformsTab to API, save WhatsApp/Discord credentials to DB
 2. **Stripe subscription → deployment sync** — When subscription changes/cancels, update deployment
-3. **Deployment stop/start toggle** — Scale K8s replicas to 0/1 from dashboard
-4. **Drizzle migrations regeneration** — Current migrations stale
-5. **WhatsApp QR integration** — Replace mock QR with real WhatsApp Business API
-6. **Email verification resend** — Add "Resend" button for unverified users
+3. **Drizzle migrations regeneration** — Current migrations stale
+4. **WhatsApp QR integration** — Replace mock QR with real WhatsApp Business API
+5. **Email verification resend** — Add "Resend" button for unverified users
 
 ## 🟡 Important (Post-Launch)
 
@@ -706,7 +710,7 @@ monorepo/
 │   │       └── wizardStepConfig.ts    # Runtime steps, LLM providers, models, credit plans, hardware options
 │   ├── components/
 │   │   ├── ProfileDropdown.tsx        # User menu (Dashboard, Linked Deployments, Settings)
-│   │   ├── StatusBadge.tsx            # Shared status indicator (running, creating, pending, failed)
+│   │   ├── StatusBadge.tsx            # Shared status indicator (running, starting, stopped, pending, failed)
 │   │   ├── StorageMeter.tsx           # Storage usage bar with color coding
 │   │   └── ...                        # 40+ shadcn/ui components
 │   └── lib/trpc.ts
@@ -791,6 +795,7 @@ flowchart TB
         CREDITPOOL["✅ Shared Credit Pools"]
         OWNERGUARD["✅ Owner Protection (delete/update)"]
         STORAGE["✅ Storage Usage Monitoring"]
+        STOPSTART_DONE["✅ Stop/Start/Restart Toggle"]
     end
 
     subgraph DONE_INFRA["✅ DONE — Infrastructure"]
@@ -799,6 +804,7 @@ flowchart TB
         LONGHORN["✅ Longhorn Storage"]
         TRAEFIK["✅ Traefik Ingress"]
         AUTH0ACTION["✅ Auth0 Action Script"]
+        GHCR["✅ Container Images + GHCR"]
     end
 
     HOME --> LOGIN --> DASH
@@ -816,7 +822,6 @@ flowchart TB
     subgraph TODO_CRITICAL["🔴 TODO — Critical for Launch"]
         PLATCREDS["❌ Platform Credentials\nSave tokens to DB"]
         STRIPESYNC["❌ Stripe → Deploy Sync"]
-        STOPSTART["❌ Stop/Start Bots\nScale replicas 0↔1"]
         MIGRATIONS["❌ Drizzle Migrations"]
         WHATSAPP["❌ WhatsApp QR\nReal Business API"]
         EMAILRESEND["❌ Resend Verification"]
@@ -855,6 +860,8 @@ flowchart LR
         ORPROV["OpenRouter Provisioning"]
         ENCRYPT["Key Encryption"]
         LINKED["Linked Deployments Page"]
+        STOPSTART_DEP["Stop/Start Toggle"]
+        GHCR_DEP["Container Images + GHCR"]
     end
 
     subgraph NeedSync["🟡 Need: Config Sync"]
@@ -865,7 +872,6 @@ flowchart LR
 
     subgraph NeedLaunch["🔴 Need: Launch"]
         PLATCREDS["Platform Creds"]
-        STOPSTART["Stop/Start Toggle"]
         STRIPESYNC["Stripe Sync"]
     end
 
@@ -875,10 +881,10 @@ flowchart LR
     PVCWRITE -.->|NEED| RESTART
 
     CONFIG -.->|NEED| PLATCREDS
-    DASH -.->|NEED| STOPSTART
     STRIPE -.->|NEED| STRIPESYNC
     CREDITPOOL --> ORPROV --> ENCRYPT
     CREDITPOOL --> LINKED
+    DASH --> STOPSTART_DEP
 ```
 
 ---
@@ -1075,14 +1081,56 @@ GitHub Actions workflow at `.github/workflows/build-runtime-images.yml`. Trigger
 
 ---
 
-# 20. Known Issues
+# 20. Deployment Stop/Start/Restart (Session 3)
+
+### How It Works
+
+Deployments can be stopped, started, and restarted from the Dashboard. This uses **K8s replica scaling** — stopping a deployment sets replicas to 0 (pod terminates, PVC persists), starting sets replicas back to 1.
+
+### K8s Layer (`src/k8s/deployment.ts`)
+
+| Function | Action |
+|----------|--------|
+| `stopDeployment(id)` | Patches K8s deployment replicas → 0 via strategic merge patch |
+| `startDeployment(id)` | Patches K8s deployment replicas → 1 |
+| `restartDeployment(id)` | Stop → 2s delay → Start |
+
+### tRPC Mutations (`deployment.ts` router)
+
+| Mutation | Validation | DB Status Flow |
+|----------|-----------|----------------|
+| `stop` | Must be `running` | `running` → `stopped` |
+| `start` | Must be `stopped` | `stopped` → `creating` → `running` (or `failed`) |
+| `restart` | Must be `running` | `running` → `creating` → `running` (or `failed`) |
+
+**Start/Restart** use fire-and-forget async polling: after scaling up, polls pod status every 2s for up to 60s, updating DB when pod is ready or timeout/failure occurs.
+
+### Frontend (Dashboard.tsx)
+
+- **Running:** Shows Stop (Square, orange) + Restart (RotateCw) buttons
+- **Stopped:** Shows Start (Play, green) button
+- **Transitioning (creating):** Shows spinner, all buttons disabled
+- Start/restart success triggers frontend polling every 3s for 60s to update card status
+
+### Status Flow
+
+```
+running ──stop──→ stopped ──start──→ creating ──poll──→ running
+   │                                                      │
+   └──restart──→ creating ──poll──→ running                │
+                                   └──timeout──→ failed    │
+```
+
+---
+
+# 21. Known Issues
 
 - **Pre-existing tRPC type errors in frontend:** All files using `trpc.deployment.*` or `trpc.runtimeCatalog.*` show "Property does not exist" TypeScript errors. This is a monorepo type linking issue (types not auto-synced from API). Does NOT affect runtime — Next.js dev server compiles fine. Eventually needs proper tRPC type generation setup.
 - **API builds clean:** `npm run build` in jarble-api-main passes with no errors.
 
 ---
 
-# 21. Outstanding Work (Shared Credit Pools)
+# 22. Outstanding Work (Shared Credit Pools)
 
 - Testing the full linking flow end-to-end with real deployments
 - Secret manager migration (DB encryption is fine for now)
@@ -1091,7 +1139,7 @@ GitHub Actions workflow at `.github/workflows/build-runtime-images.yml`. Trigger
 
 ---
 
-# 22. Dev Servers
+# 23. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)
