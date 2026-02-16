@@ -2,8 +2,8 @@
 
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { Sparkles, ArrowRight, Github, Chrome, Loader2 } from "lucide-react";
-import WatercolorBlob from "@/components/WatercolorBlob";
+import { ArrowRight, Github, Chrome, Loader2 } from "lucide-react";
+
 import { useAuth0 } from "@auth0/auth0-react";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -55,13 +55,10 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-4 relative">
-      <WatercolorBlob />
-
       <div className="w-full max-w-md relative z-10">
         {/* Logo */}
         <div className="text-center mb-8 animate-fade-in-up">
           <Link href="/" className="inline-flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <Sparkles className="w-8 h-8 text-primary" />
             <span className="font-serif font-bold text-2xl tracking-tight">Jarble</span>
           </Link>
           <h1 className="text-2xl font-serif font-medium mt-6 mb-2">Welcome back</h1>

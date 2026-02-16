@@ -5,8 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { 
-  Sparkles, 
-  Github, 
+  Bot,
+  Github,
   Package, 
   CheckCircle2,
   ExternalLink,
@@ -27,7 +27,7 @@ const TEMPLATE_OPTIONS = [
     id: "jarble" as TemplateSource,
     name: "Jarble Default",
     description: "Pre-configured bot template with best practices. Recommended for most users.",
-    icon: <Sparkles className="w-6 h-6" />,
+    icon: <Bot className="w-6 h-6" />,
     recommended: true,
   },
   {

@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { Sparkles } from "lucide-react";
 import type { TabProps } from "./types";
 
 const AVAILABLE_SKILLS = [
@@ -37,8 +36,8 @@ export function SkillsTab({ formData, updateFormData }: TabProps) {
             onClick={() => toggleSkill(skill.id)}
             className={`p-4 rounded-lg border text-left transition-all ${
               formData.skills?.includes(skill.id)
-                ? "border-primary bg-primary/10"
-                : "border-border bg-secondary/80/50 hover:border-border"
+                ? "border-primary bg-primary/10 shadow-sm"
+                : "border-border bg-secondary/50 hover:border-primary/30 hover:shadow-sm"
             }`}
           >
             <div className="flex items-start gap-3">
@@ -54,8 +53,8 @@ export function SkillsTab({ formData, updateFormData }: TabProps) {
                 )}
               </div>
               <div>
-                <h3 className="font-semibold">{skill.name}</h3>
-                <p className="text-sm text-muted-foreground">{skill.description}</p>
+                <h3 className="font-semibold text-sm">{skill.name}</h3>
+                <p className="text-xs text-muted-foreground">{skill.description}</p>
               </div>
             </div>
           </button>
@@ -63,8 +62,7 @@ export function SkillsTab({ formData, updateFormData }: TabProps) {
       </div>
 
       <div className="pt-4 border-t border-border">
-        <Button variant="outline" className="border-border">
-          <Sparkles className="w-4 h-4 mr-2" />
+        <Button variant="outline" className="border-border hover:border-primary/30">
           Browse Skill Marketplace
         </Button>
       </div>

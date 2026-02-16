@@ -329,15 +329,15 @@ export const MEMORY_OPTIONS: HardwareOptionDef[] = [
 ];
 
 export const STORAGE_OPTIONS: HardwareOptionDef[] = [
-  { value: 20,   label: "20 gb" },
-  { value: 30,  label: "30 gb" },
-  { value: 40,  label: "40 gb" },
-  { value: 50,  label: "50 gb" },
-  { value: 60,  label: "60 gb" },
-  { value: 70,  label: "70 gb" },
-  { value: 80,  label: "80 gb" },
-  { value: 90,  label: "90 gb" },
-  { value: 100, label: "100 gb" },
+  { value: 20,   label: "20 GB" },
+  { value: 30,  label: "30 GB" },
+  { value: 40,  label: "40 GB" },
+  { value: 50,  label: "50 GB" },
+  { value: 60,  label: "60 GB" },
+  { value: 70,  label: "70 GB" },
+  { value: 80,  label: "80 GB" },
+  { value: 90,  label: "90 GB" },
+  { value: 100, label: "100 GB" },
 ];
 
 // ─── Helpers ────────────────────────────────────────────────────────

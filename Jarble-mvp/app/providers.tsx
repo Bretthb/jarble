@@ -82,7 +82,7 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
         <ErrorBoundary>
-          <ThemeProvider defaultTheme="light">
+          <ThemeProvider defaultTheme="light" switchable>
             <TooltipProvider>
               <Toaster />
               {process.env.NODE_ENV === "development" && <DevNav />}

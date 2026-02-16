@@ -101,11 +101,11 @@ export function PlatformsTab({ formData, updateFormData }: TabProps) {
       </div>
 
       {/* Security Notice */}
-      <div className="flex items-start gap-3 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
-        <Shield className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+      <div className="flex items-start gap-3 p-4 rounded-lg bg-secondary/50 border border-border">
+        <Shield className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
         <div>
-          <p className="text-sm text-green-300 font-medium">Credentials are encrypted</p>
-          <p className="text-xs text-green-600/80 mt-1">
+          <p className="text-sm font-medium text-foreground">Credentials are encrypted</p>
+          <p className="text-xs text-muted-foreground mt-1">
             All API keys and tokens are encrypted at rest and never logged. Only you can access them.
           </p>
         </div>
@@ -115,14 +115,14 @@ export function PlatformsTab({ formData, updateFormData }: TabProps) {
       {formData.platforms?.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-green-600" />
+            <CheckCircle2 className="w-4 h-4 text-primary" />
             Connected Platforms
           </h3>
           <div className="space-y-3">
             {PLATFORM_CONFIGS.filter(p => formData.platforms?.includes(p.id)).map((platform) => (
               <div
                 key={platform.id}
-                className="p-4 rounded-lg border border-green-500/30 bg-green-500/5"
+                className="p-4 rounded-lg border border-border bg-secondary/30 hover:border-primary/30 transition-all"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -132,7 +132,7 @@ export function PlatformsTab({ formData, updateFormData }: TabProps) {
                     <div>
                       <h3 className="font-semibold flex items-center gap-2">
                         {platform.name}
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-600">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
                           Connected
                         </span>
                       </h3>
@@ -153,7 +153,7 @@ export function PlatformsTab({ formData, updateFormData }: TabProps) {
                       variant="outline"
                       size="sm"
                       onClick={() => handleDisconnect(platform.id)}
-                      className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                      className="border-border text-muted-foreground hover:bg-secondary/80"
                     >
                       <X className="w-4 h-4" />
                     </Button>
@@ -174,7 +174,7 @@ export function PlatformsTab({ formData, updateFormData }: TabProps) {
           {PLATFORM_CONFIGS.filter(p => !formData.platforms?.includes(p.id)).map((platform) => (
             <div
               key={platform.id}
-              className="p-4 rounded-lg border border-border bg-secondary/80/50 hover:border-border transition-all"
+              className="p-4 rounded-lg border border-border bg-secondary/50 hover:border-primary/30 hover:shadow-sm transition-all"
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
@@ -226,8 +226,8 @@ export function PlatformsTab({ formData, updateFormData }: TabProps) {
 
               <div className="space-y-4 mt-4">
                 {/* Security reminder */}
-                <div className="flex items-start gap-2 p-3 rounded-lg bg-secondary/80/50 border border-border">
-                  <Shield className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-secondary/50 border border-border">
+                  <Shield className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
                   <p className="text-xs text-muted-foreground">
                     Your credentials are encrypted and stored securely. They are never logged or shared.
                   </p>

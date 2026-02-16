@@ -15,7 +15,9 @@ import {
   PowerOff,
   Loader2,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { createElement } from "react";
+import ProfileDropdown from "@/components/ProfileDropdown";
 import { getConfigTabs } from "./onboarding/wizardStepConfig";
 import type { Tab, DeploymentFormData } from "./deployment-config/types";
 import { GeneralTab } from "./deployment-config/GeneralTab";
@@ -141,42 +143,46 @@ export default function DeploymentConfiguration() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
-      <header className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <header className="border-b border-border/60 bg-background/95 backdrop-blur-sm sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => router.push("/dashboard")}
-              className="text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground h-8 px-2"
             >
-              <ChevronLeft className="w-4 h-4 mr-1" />
-              Back to Dashboard
+              <ChevronLeft className="w-4 h-4" />
             </Button>
-            <div className="h-6 w-px bg-secondary/80" />
-            <div>
-              <h1 className="text-xl font-bold">{formData.name || "Deployment Configuration"}</h1>
-              <p className="text-sm text-muted-foreground">Deployment ID: {id}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {hasChanges && (
-              <span className="text-xs text-primary bg-primary/10 px-2 py-1 rounded">
-                Unsaved changes
+            <h1 className="text-base font-semibold">{formData.name || "Configuration"}</h1>
+            {deployment?.status && (
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                deployment.status === "running"
+                  ? "bg-primary/10 text-primary"
+                  : "bg-secondary text-muted-foreground"
+              }`}>
+                {deployment.status}
               </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {hasChanges && (
+              <span className="text-xs text-primary font-medium">Unsaved</span>
             )}
             <Button
               onClick={handleSave}
               disabled={!hasChanges || isSaving}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+              size="sm"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium h-8"
             >
               {isSaving ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
               ) : (
-                <Save className="w-4 h-4 mr-2" />
+                <Save className="w-3.5 h-3.5 mr-1.5" />
               )}
-              Save Changes
+              Save
             </Button>
+            <ProfileDropdown />
           </div>
         </div>
       </header>
@@ -184,47 +190,49 @@ export default function DeploymentConfiguration() {
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex gap-8">
           {/* Sidebar Navigation */}
-          <aside data-tour="config-sidebar" className="w-56 flex-shrink-0">
-            <nav className="space-y-1 sticky top-24">
+          <aside data-tour="config-sidebar" className="w-48 flex-shrink-0">
+            <nav className="space-y-0.5 sticky top-20">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">Settings</p>
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   data-tab={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all ${
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm transition-colors ${
                     activeTab === tab.id
-                      ? "bg-primary/10 text-primary border border-primary/30"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
                   }`}
                 >
-                  {createElement(tab.icon, { className: "w-4 h-4" })}
+                  {createElement(tab.icon, { className: "w-4 h-4 shrink-0" })}
                   {tab.label}
                 </button>
               ))}
 
-              <div className="pt-6 mt-6 border-t border-border space-y-2">
+              <div className="pt-4 mt-4 border-t border-border/40 space-y-0.5">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">Actions</p>
                 <button
                   onClick={handleToggleStatus}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
                 >
                   {deployment?.status === "running" ? (
                     <>
-                      <PowerOff className="w-4 h-4" />
-                      Pause Deployment
+                      <PowerOff className="w-4 h-4 shrink-0" />
+                      Pause
                     </>
                   ) : (
                     <>
-                      <Power className="w-4 h-4 text-green-600" />
-                      Activate Deployment
+                      <Power className="w-4 h-4 text-primary shrink-0" />
+                      Activate
                     </>
                   )}
                 </button>
                 <button
                   onClick={handleDelete}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-all"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
                 >
-                  <Trash2 className="w-4 h-4" />
-                  Delete Deployment
+                  <Trash2 className="w-4 h-4 shrink-0" />
+                  Delete
                 </button>
               </div>
             </nav>
@@ -232,23 +240,31 @@ export default function DeploymentConfiguration() {
 
           {/* Main Content */}
           <main className="flex-1 min-w-0">
-            <Card className="bg-card border-border p-6">
-              {activeTab === "general" && (
-                <GeneralTab formData={formData} updateFormData={updateFormData} />
-              )}
-              {activeTab === "model" && (
-                <ModelTab formData={formData} updateFormData={updateFormData} />
-              )}
-              {activeTab === "platforms" && (
-                <PlatformsTab formData={formData} updateFormData={updateFormData} />
-              )}
-              {activeTab === "skills" && (
-                <SkillsTab formData={formData} updateFormData={updateFormData} />
-              )}
-              {activeTab === "advanced" && (
-                <AdvancedTab formData={formData} updateFormData={updateFormData} deployment={deployment} />
-              )}
-            </Card>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+              >
+                {activeTab === "general" && (
+                  <GeneralTab formData={formData} updateFormData={updateFormData} />
+                )}
+                {activeTab === "model" && (
+                  <ModelTab formData={formData} updateFormData={updateFormData} />
+                )}
+                {activeTab === "platforms" && (
+                  <PlatformsTab formData={formData} updateFormData={updateFormData} />
+                )}
+                {activeTab === "skills" && (
+                  <SkillsTab formData={formData} updateFormData={updateFormData} />
+                )}
+                {activeTab === "advanced" && (
+                  <AdvancedTab formData={formData} updateFormData={updateFormData} deployment={deployment} />
+                )}
+              </motion.div>
+            </AnimatePresence>
           </main>
         </div>
       </div>

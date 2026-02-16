@@ -11,7 +11,7 @@ function generateBlobPositions(count: number) {
     height: `${120 + Math.random() * 200}px`,
     borderRadius: `${60 + Math.random() * 20}% ${40 + Math.random() * 20}% ${50 + Math.random() * 20}% ${70 + Math.random() * 20}% / ${50 + Math.random() * 20}% ${60 + Math.random() * 20}% ${40 + Math.random() * 20}% ${60 + Math.random() * 20}%`,
     color: BLOB_COLORS[Math.floor(Math.random() * BLOB_COLORS.length)],
-    opacity: 0.45 + Math.random() * 0.05,
+    opacity: 0.10 + Math.random() * 0.05,
   }));
 }
 
@@ -26,8 +26,8 @@ export default function WatercolorBlob() {
   // Only generate blobs on the client to avoid hydration mismatch from Math.random()
   useEffect(() => setMounted(true), []);
 
-  const blur = isMobile ? 40 : 80;
-  const opacityMultiplier = isMobile ? 0.3 : 1;
+  const blur = isMobile ? 60 : 120;
+  const opacityMultiplier = isMobile ? 0.5 : 1;
 
   return (
     <div

@@ -6,17 +6,15 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { ArrowRight, Sparkles, Zap, Shield, Gauge, Loader2 } from "lucide-react";
+import { ArrowRight, Zap, Shield, Gauge, Loader2 } from "lucide-react";
 import { useState } from "react";
+import ProfileDropdown from "@/components/ProfileDropdown";
 
 const IntegrationsMarquee = dynamic(() => import("@/components/IntegrationsMarquee"), {
   ssr: false,
   loading: () => <div className="w-full h-64" />,
 });
 
-const WatercolorBlob = dynamic(() => import("@/components/WatercolorBlob"), {
-  ssr: false,
-});
 
 export default function Home() {
   const { user, isAuthenticated, isLoading } = useAuth0();
@@ -32,23 +30,16 @@ export default function Home() {
     router.push("/dashboard");
   };
 
-  const handleViewDashboard = () => {
-    router.push("/dashboard");
-  };
-
   if (isLoading) {
     return <div className="min-h-screen bg-background" />;
   }
 
   return (
     <div className="min-h-screen bg-background text-foreground relative">
-      <WatercolorBlob />
-
       {/* Navigation */}
       <nav className="fixed inset-x-0 top-0 z-50 bg-background/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-primary" />
             <h1 className="font-serif font-bold text-2xl tracking-tight">Jarble</h1>
           </div>
           <div className="flex items-center gap-4">
@@ -60,15 +51,10 @@ export default function Home() {
             </Link>
             {isAuthenticated ? (
               <>
-                <span className="text-sm text-muted-foreground">Welcome, {user?.name || "User"}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleViewDashboard}
-                  className="rounded-full border-input bg-background/50 backdrop-blur-sm hover:bg-secondary/50"
-                >
+                <Link href="/dashboard" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
                   Dashboard
-                </Button>
+                </Link>
+                <ProfileDropdown />
               </>
             ) : (
               <Button
@@ -91,7 +77,6 @@ export default function Home() {
             {/* Mobile: static image - positioned behind hero text */}
             <div className="absolute inset-0 flex items-start justify-end -top-6 -right-16 sm:hidden pointer-events-none animate-fade-in-scale">
               <div className="relative w-full max-w-sm aspect-square flex items-center justify-center">
-                <div className="absolute inset-0 bg-gradient-to-tr from-muted to-transparent rounded-full blur-3xl opacity-60" />
                 <Image
                   src="/hero-mobile.webp"
                   alt=""
@@ -161,7 +146,7 @@ export default function Home() {
             {/* Desktop: video with moving character - only visible on sm+ screens */}
             <div className="hidden sm:flex justify-center lg:justify-start lg:-ml-4 animate-fade-in-scale">
               <div className="relative w-full max-w-lg aspect-square flex items-center justify-center">
-                <div className="absolute inset-0 bg-gradient-to-tr from-muted to-transparent rounded-full blur-3xl opacity-60" />
+                <div className="absolute inset-0 bg-gradient-to-tr from-muted to-transparent rounded-full blur-3xl opacity-25" />
                 <video
                   autoPlay
                   muted
@@ -243,7 +228,6 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-primary" />
               <span className="font-serif font-bold text-foreground">Jarble</span>
             </div>
             <nav className="flex flex-wrap justify-center gap-x-8 gap-y-2">

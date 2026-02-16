@@ -81,37 +81,37 @@
 }
 
 .dark {
-  --primary: #000000;
-  --primary-foreground: #ffffff;
-  --sidebar-primary: #000000;
-  --sidebar-primary-foreground: #ffffff;
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --card: #141414;
-  --card-foreground: #fafafa;
-  --popover: #141414;
-  --popover-foreground: #fafafa;
-  --secondary: #262626;
-  --secondary-foreground: #fafafa;
-  --muted: #262626;
+  --primary: #e4e4e7;
+  --primary-foreground: #09090b;
+  --sidebar-primary: #e4e4e7;
+  --sidebar-primary-foreground: #09090b;
+  --background: #09090b;
+  --foreground: #f4f4f5;
+  --card: #111113;
+  --card-foreground: #f4f4f5;
+  --popover: #111113;
+  --popover-foreground: #f4f4f5;
+  --secondary: #1c1c1f;
+  --secondary-foreground: #f4f4f5;
+  --muted: #1c1c1f;
   --muted-foreground: #a1a1aa;
-  --accent: #262626;
-  --accent-foreground: #fafafa;
-  --destructive: #dc2626;
+  --accent: #1c1c1f;
+  --accent-foreground: #f4f4f5;
+  --destructive: #ef4444;
   --destructive-foreground: #ffffff;
-  --border: #27272a;
-  --input: #27272a;
+  --border: #232326;
+  --input: #232326;
   --ring: #a1a1aa;
-  --chart-1: #71717a;
-  --chart-2: #52525b;
-  --chart-3: #3f3f46;
-  --chart-4: #27272a;
-  --chart-5: #18181b;
-  --sidebar: #141414;
-  --sidebar-foreground: #fafafa;
-  --sidebar-accent: #262626;
-  --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: #27272a;
+  --chart-1: #a1a1aa;
+  --chart-2: #71717a;
+  --chart-3: #52525b;
+  --chart-4: #3f3f46;
+  --chart-5: #27272a;
+  --sidebar: #111113;
+  --sidebar-foreground: #f4f4f5;
+  --sidebar-accent: #1c1c1f;
+  --sidebar-accent-foreground: #f4f4f5;
+  --sidebar-border: #232326;
   --sidebar-ring: #a1a1aa;
 }
 
@@ -139,6 +139,26 @@
 .animate-fade-in-scale {
   animation: fade-in-scale 0.8s ease-out 0.2s forwards;
   opacity: 0;
+}
+
+/* Step/tab transition animation */
+@keyframes step-enter {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.animate-step-enter {
+  animation: step-enter 0.3s ease-out forwards;
+}
+
+/* Subtle shimmer for loading skeletons */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, var(--secondary) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 @layer base {
@@ -220,4 +240,35 @@
       max-width: 1280px; /* Standard content width */
     }
   }
+
+  /* Elevated card surface with subtle shadow + backdrop blur */
+  .card-surface {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+    backdrop-filter: blur(8px);
+  }
+
+  /* Grouped form field section container */
+  .section-group {
+    background: color-mix(in srgb, var(--secondary) 30%, transparent);
+    border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+    padding: 1.25rem;
+    border-radius: var(--radius-lg);
+  }
+
+  /* Info boxes — standardized across all views */
+  .info-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem;
+    border-radius: var(--radius-lg);
+    font-size: 0.875rem;
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    color: var(--foreground);
+  }
+
 }

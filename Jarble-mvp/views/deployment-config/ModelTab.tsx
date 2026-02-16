@@ -50,8 +50,8 @@ export function ModelTab({ formData, updateFormData }: TabProps) {
                 }}
                 className={`p-4 rounded-lg border-2 text-left transition-all ${
                   formData.modelProvider === provider.id
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-secondary/80/50 hover:border-border"
+                    ? "border-primary bg-primary/10 shadow-sm"
+                    : "border-border bg-secondary/50 hover:border-primary/30 hover:shadow-sm"
                 }`}
               >
                 <h3 className="font-semibold">{provider.name}</h3>
@@ -68,7 +68,7 @@ export function ModelTab({ formData, updateFormData }: TabProps) {
               id="modelName"
               value={formData.modelName}
               onChange={(e) => updateFormData("modelName", e.target.value)}
-              className="w-full px-3 py-2 bg-secondary/80 border border-border rounded-md text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {MODELS[formData.modelProvider]?.map((model) => (
                 <option key={model.id} value={model.id}>
@@ -87,7 +87,7 @@ export function ModelTab({ formData, updateFormData }: TabProps) {
               type="password"
               value={formData.apiKey}
               onChange={(e) => updateFormData("apiKey", e.target.value)}
-              className="bg-secondary/80 border-border text-foreground font-mono"
+              className="bg-secondary/50 border-border text-foreground font-mono"
               placeholder="sk-..."
             />
             <p className="text-xs text-muted-foreground mt-2">
@@ -103,7 +103,7 @@ export function ModelTab({ formData, updateFormData }: TabProps) {
             type="number"
             value={formData.maxTokens}
             onChange={(e) => updateFormData("maxTokens", parseInt(e.target.value))}
-            className="bg-secondary/80 border-border text-foreground"
+            className="bg-secondary/50 border-border text-foreground"
             min={256}
             max={8192}
           />

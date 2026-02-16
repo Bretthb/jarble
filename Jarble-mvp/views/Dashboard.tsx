@@ -8,21 +8,20 @@ import { useRouter } from "next/navigation";
 import {
   Plus,
   Loader2,
-  Sparkles,
   Bot,
-  Send,
   Trash2,
   Gift,
   Clock,
   DollarSign,
+  MailWarning,
 } from "lucide-react";
-import WizardLoader from "@/components/WizardLoader";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { useState } from "react";
+import ProfileDropdown from "@/components/ProfileDropdown";
 
 export default function Dashboard() {
-  const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth0();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const router = useRouter();
 
   const deploymentsQuery = trpc.deployment.list.useQuery(undefined, {
@@ -39,7 +38,13 @@ export default function Dashboard() {
     },
   });
 
+  const emailVerified = user?.email_verified ?? false;
+
   const handleCreateDeployment = () => {
+    if (!emailVerified) {
+      toast.error("Please verify your email before creating a deployment.");
+      return;
+    }
     router.push("/onboarding/new");
   };
 
@@ -70,75 +75,53 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Navigation */}
-      <nav className="border-b border-border backdrop-blur-sm sticky top-0 z-50 bg-background/80">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <motion.div
+      <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
+          <div
             className="flex items-center gap-2 cursor-pointer"
-            whileHover={{ scale: 1.02 }}
             onClick={() => router.push("/")}
           >
-            <motion.div
-              animate={{ rotate: [0, 10, -10, 0] }}
-              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-            >
-              <Sparkles className="w-6 h-6 text-primary" />
-            </motion.div>
-            <h1 className="text-xl font-serif font-bold">Jarble</h1>
-          </motion.div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground">{user?.name || "User"}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
-              className="rounded-full border-input hover:bg-secondary/50"
-            >
-              Logout
-            </Button>
+            <span className="font-semibold">Jarble</span>
           </div>
+          <ProfileDropdown />
         </div>
       </nav>
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+        {/* Email Verification Banner */}
+        {!emailVerified && (
+          <div className="mb-6 flex items-center gap-3 rounded-lg border border-border bg-secondary/50 px-4 py-3">
+            <MailWarning className="w-5 h-5 text-muted-foreground shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium">Verify your email to deploy</p>
+              <p className="text-xs text-muted-foreground">
+                Check your inbox for a verification link from Jarble. You need to verify your email before creating deployments.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-semibold">Deployments</h2>
+          <Button
+            onClick={handleCreateDeployment}
+            size="sm"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium h-8"
           >
-            <h2 className="text-3xl font-bold mb-2">Your Deployments</h2>
-            <p className="text-muted-foreground">Manage your AI deployments</p>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Button
-              onClick={handleCreateDeployment}
-              size="lg"
-              className="rounded-full font-semibold shadow-lg bg-primary hover:bg-primary/90 text-primary-foreground shadow-primary/25"
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              Create Deployment
-            </Button>
-          </motion.div>
+            <Plus className="w-4 h-4 mr-1.5" />
+            New Deployment
+          </Button>
         </div>
 
         {/* Deployments Grid */}
         {deploymentsQuery.isLoading ? (
           <div className="flex items-center justify-center py-20">
-            <WizardLoader
-              messages={[
-                "Gathering your deployments...",
-                "Checking deployment status...",
-                "Loading your creations...",
-                "Almost there...",
-              ]}
-              size="lg"
-            />
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Loading deployments...</p>
+            </div>
           </div>
         ) : deploymentsQuery.data && deploymentsQuery.data.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -164,14 +147,24 @@ export default function Dashboard() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-12">
-            <Bot className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-xl font-semibold mb-2">No deployments yet</h3>
-            <p className="text-muted-foreground mb-4">Create your first deployment in under 2 minutes</p>
-            <Button onClick={handleCreateDeployment}>
-              Create Your First Deployment
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="text-center py-24"
+          >
+            <Bot className="w-12 h-12 mx-auto mb-4 text-muted-foreground/40" />
+            <h3 className="text-xl font-semibold mb-1">No deployments yet</h3>
+            <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">Create your first AI deployment in under 2 minutes</p>
+            <Button
+              onClick={handleCreateDeployment}
+              size="lg"
+              className="font-semibold bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
+              <Plus className="w-5 h-5 mr-2" />
+              Create Deployment
             </Button>
-          </div>
+          </motion.div>
         )}
       </div>
     </div>
@@ -180,10 +173,10 @@ export default function Dashboard() {
 
 // Map API status values to display config
 const STATUS_CONFIG: Record<string, { bg: string; border: string; text: string; label: string }> = {
-  running: { bg: "bg-emerald-500/20", border: "border-emerald-500/50", text: "text-emerald-400", label: "Running" },
-  creating: { bg: "bg-primary/20", border: "border-primary/50", text: "text-primary", label: "Creating" },
-  pending: { bg: "bg-muted-foreground/20", border: "border-muted-foreground/50", text: "text-muted-foreground", label: "Pending" },
-  failed: { bg: "bg-red-500/20", border: "border-red-500/50", text: "text-red-400", label: "Failed" },
+  running: { bg: "bg-primary/10", border: "border-primary/30", text: "text-primary", label: "Running" },
+  creating: { bg: "bg-primary/10", border: "border-primary/30", text: "text-primary", label: "Creating" },
+  pending: { bg: "bg-secondary", border: "border-border", text: "text-muted-foreground", label: "Pending" },
+  failed: { bg: "bg-secondary", border: "border-border", text: "text-muted-foreground", label: "Failed" },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -194,7 +187,7 @@ function StatusBadge({ status }: { status: string }) {
       className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border ${config.bg} ${config.border}`}
     >
       <div
-        className={`w-2 h-2 rounded-full ${config.text.replace("text-", "bg-")}`}
+        className={`w-2 h-2 rounded-full ${config.text.replace("text-", "bg-")} ${status === "running" ? "animate-pulse" : ""}`}
       />
       <span className={`text-xs font-semibold ${config.text}`}>{config.label}</span>
     </div>
@@ -224,95 +217,93 @@ function DeploymentCard({ deployment, onDelete }: {
     ? Math.max(0, Math.ceil((new Date(deployment.freeExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : null;
 
+  const isPending = deployment.status === "pending";
+  const handleCardClick = () => {
+    if (isPending) {
+      router.push(`/onboarding/${deployment.id}`);
+    } else {
+      router.push(`/d/${deployment.id}/configure`);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -4 }}
+      whileHover={{ y: -3 }}
       transition={{ duration: 0.3 }}
     >
-      <Card className="bg-card/80 backdrop-blur border-border hover:border-primary/30 transition-all overflow-hidden">
-        <div className="p-6">
-          {/* Header */}
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
-                <Bot className="w-6 h-6 text-primary" />
+      <Card
+        className="bg-card border-border hover:border-primary/30 transition-all overflow-hidden cursor-pointer group"
+        onClick={handleCardClick}
+      >
+        <div className="p-5">
+          {/* Row 1: Name + Status */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Bot className="w-5 h-5 text-primary" />
               </div>
-              <div>
-                <h3 className="font-bold text-lg">{deployment.name}</h3>
-                <div className="flex items-center gap-1.5 text-muted-foreground text-sm">
-                  <Send className="w-3 h-3" />
-                  <span>{deployment.runtime}</span>
-                </div>
+              <div className="min-w-0">
+                <h3 className="font-semibold text-base truncate group-hover:text-primary transition-colors">{deployment.name}</h3>
+                <p className="text-xs text-muted-foreground">{deployment.runtime}</p>
               </div>
             </div>
             <StatusBadge status={deployment.status} />
           </div>
 
-          {/* Pricing / Free Trial Badge */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {deployment.isFree && !deployment.freeTrialExpired && daysRemaining !== null && daysRemaining > 0 ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-medium border border-green-500/30">
-                <Gift className="w-3 h-3" />
-                Free trial — {daysRemaining} day{daysRemaining !== 1 ? "s" : ""} left
-              </span>
-            ) : deployment.isFree && (deployment.freeTrialExpired || (daysRemaining !== null && daysRemaining <= 0)) ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-medium border border-red-500/30">
-                <Clock className="w-3 h-3" />
-                Free trial expired
-              </span>
-            ) : deployment.monthlyPriceCents > 0 ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium border border-primary/30">
-                <DollarSign className="w-3 h-3" />
-                ${(deployment.monthlyPriceCents / 100).toFixed(0)}/mo
-              </span>
-            ) : null}
-
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/80 text-muted-foreground text-xs">
-              LLM: {deployment.llmMode === "byok" ? "BYOK" : "Included"}
-            </span>
-          </div>
-
-          {deployment.description && (
-            <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{deployment.description}</p>
+          {/* Pending banner */}
+          {isPending && (
+            <div className="mb-3 px-3 py-2 rounded-md bg-secondary border border-border flex items-center gap-2">
+              <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs font-medium text-muted-foreground">Setup incomplete — click to finish</span>
+            </div>
           )}
 
-          {/* Action buttons */}
-          <div className="flex gap-2">
-            {deployment.status === "pending" ? (
-              <Button
-                size="sm"
-                onClick={() => router.push(`/onboarding/${deployment.id}`)}
-                className="flex-1 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
-              >
-                Complete Setup
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 border-border hover:bg-secondary hover:border-primary/50"
-                onClick={() => router.push(`/d/${deployment.id}/configure`)}
-              >
-                Configure
-              </Button>
-            )}
+          {/* Description */}
+          {deployment.description && (
+            <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{deployment.description}</p>
+          )}
+
+          {/* Row 2: Metadata + Delete */}
+          <div className="flex items-center justify-between pt-3 border-t border-border/50">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {deployment.isFree && !deployment.freeTrialExpired && daysRemaining !== null && daysRemaining > 0 ? (
+                <span className="inline-flex items-center gap-1">
+                  <Gift className="w-3 h-3 text-primary" />
+                  {daysRemaining}d free
+                </span>
+              ) : deployment.isFree && (deployment.freeTrialExpired || (daysRemaining !== null && daysRemaining <= 0)) ? (
+                <span className="inline-flex items-center gap-1 text-muted-foreground">
+                  <Clock className="w-3 h-3" />
+                  Trial expired
+                </span>
+              ) : deployment.monthlyPriceCents > 0 ? (
+                <span className="inline-flex items-center gap-1">
+                  <DollarSign className="w-3 h-3" />
+                  ${(deployment.monthlyPriceCents / 100).toFixed(0)}/mo
+                </span>
+              ) : null}
+              <span className="text-border">·</span>
+              <span>{deployment.llmMode === "byok" ? "BYOK" : "Included"} LLM</span>
+            </div>
+
+            {/* Delete */}
             {confirmDelete ? (
-              <div className="flex gap-1">
+              <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                 <Button
                   size="sm"
                   variant="destructive"
                   onClick={() => { onDelete(deployment.id); setConfirmDelete(false); }}
-                  className="text-xs"
+                  className="text-xs h-7 px-2"
                 >
-                  Confirm
+                  Delete
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => setConfirmDelete(false)}
-                  className="text-xs border-border"
+                  className="text-xs border-border h-7 px-2"
                 >
                   Cancel
                 </Button>
@@ -320,11 +311,11 @@ function DeploymentCard({ deployment, onDelete }: {
             ) : (
               <Button
                 size="sm"
-                variant="outline"
-                onClick={() => setConfirmDelete(true)}
-                className="border-border hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-500"
+                variant="ghost"
+                onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+                className="text-muted-foreground hover:text-red-500 h-7 w-7 p-0"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-3.5 h-3.5" />
               </Button>
             )}
           </div>

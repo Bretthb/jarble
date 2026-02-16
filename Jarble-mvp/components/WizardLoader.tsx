@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Loader2 } from "lucide-react";
 
 interface WizardLoaderProps {
   /** Loading message to display */
@@ -23,40 +24,24 @@ interface WizardLoaderProps {
 }
 
 const DEFAULT_MESSAGES = [
-  "Summoning the wizard...",
-  "Brewing some magic...",
-  "Consulting the crystal ball...",
-  "Waving the wand...",
-  "Mixing potions...",
-  "Reading ancient scrolls...",
-  "Casting spells...",
+  "Loading...",
   "Almost there...",
 ];
 
 const DEPLOYMENT_MESSAGES = [
-  "Initializing your bot...",
+  "Initializing deployment...",
   "Configuring AI models...",
   "Setting up connections...",
-  "Preparing the magic...",
   "Deploying to the cloud...",
   "Running final checks...",
   "Almost ready...",
-  "Polishing the crystal ball...",
 ];
-
-const SIZE_CONFIG = {
-  sm: { video: "w-16 h-16", text: "text-sm", container: "gap-3" },
-  md: { video: "w-24 h-24", text: "text-base", container: "gap-4" },
-  lg: { video: "w-32 h-32", text: "text-lg", container: "gap-5" },
-  xl: { video: "w-48 h-48", text: "text-xl", container: "gap-6" },
-};
 
 export default function WizardLoader({
   message,
   messages = DEFAULT_MESSAGES,
   messageInterval = 2500,
   size = "lg",
-  showVideo = true,
   fullPage = false,
   subMessage,
   showProgress = false,
@@ -86,101 +71,51 @@ export default function WizardLoader({
     }
   }, [currentMessageIndex, message, messages]);
 
-  const config = SIZE_CONFIG[size];
-
   const content = (
     <motion.div
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.9 }}
-      className={`flex flex-col items-center ${config.container}`}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="flex flex-col items-center gap-4"
     >
-      {/* Wizard Animation */}
-      <div className="relative">
-        {/* Glow effect */}
-        <motion.div
-          className="absolute inset-0 rounded-full bg-primary/20 blur-xl"
-          animate={{
-            scale: [1, 1.2, 1],
-            opacity: [0.3, 0.5, 0.3],
-          }}
-          transition={{
-            duration: 2,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-        />
-        
-        {showVideo ? (
-          <div className={`${config.video} rounded-full overflow-hidden relative z-10 border-2 border-primary/30`}>
-            <video
-              autoPlay
-              loop
-              muted
-              playsInline
-              preload="metadata"
-              className="w-full h-full object-cover scale-150"
-            >
-              <source src="/wizard-animation.mp4" type="video/mp4" />
-            </video>
-          </div>
-        ) : (
-          <motion.div
-            className={`${config.video} rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center relative z-10 border-2 border-primary/30`}
-            animate={{ rotate: [0, 5, -5, 0] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          >
-            <span className="text-4xl">🧙‍♂️</span>
-          </motion.div>
-        )}
-
-        {/* Sparkles */}
-        {[...Array(6)].map((_, i) => (
-          <motion.div
-            key={i}
-            className="absolute w-2 h-2 bg-primary rounded-full"
-            style={{
-              left: `${20 + (i % 3) * 30}%`,
-              top: `${10 + Math.floor(i / 3) * 60}%`,
-            }}
-            animate={{
-              scale: [0, 1, 0],
-              opacity: [0, 1, 0],
-              y: [-5, -15, -25],
-            }}
-            transition={{
-              duration: 1.5,
-              repeat: Infinity,
-              delay: i * 0.3,
-            }}
-          />
-        ))}
-      </div>
+      {/* Spinner */}
+      <Loader2
+        className={`animate-spin text-primary ${
+          size === "sm" ? "w-6 h-6" :
+          size === "md" ? "w-8 h-8" :
+          size === "xl" ? "w-10 h-10" :
+          "w-8 h-8"
+        }`}
+      />
 
       {/* Message */}
       <div className="text-center">
         <AnimatePresence mode="wait">
           <motion.p
             key={displayMessage}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3 }}
-            className={`font-semibold text-foreground ${config.text}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className={`text-muted-foreground ${
+              size === "sm" ? "text-xs" :
+              size === "md" ? "text-sm" :
+              "text-sm"
+            }`}
           >
             {displayMessage}
           </motion.p>
         </AnimatePresence>
-        
+
         {subMessage && (
-          <p className="text-muted-foreground text-sm mt-1">{subMessage}</p>
+          <p className="text-muted-foreground/60 text-xs mt-1.5">{subMessage}</p>
         )}
       </div>
 
       {/* Progress Bar */}
       {showProgress && (
         <div className="w-48 max-w-full">
-          <div className="h-2 bg-secondary rounded-full overflow-hidden">
+          <div className="h-1 bg-secondary rounded-full overflow-hidden">
             <motion.div
               className="h-full bg-primary rounded-full"
               initial={{ width: 0 }}
@@ -188,28 +123,9 @@ export default function WizardLoader({
               transition={{ duration: 0.5 }}
             />
           </div>
-          <p className="text-xs text-muted-foreground text-center mt-2">{Math.round(progress)}%</p>
+          <p className="text-[11px] text-muted-foreground/60 text-center mt-1.5">{Math.round(progress)}%</p>
         </div>
       )}
-
-      {/* Animated dots */}
-      <div className="flex gap-1">
-        {[0, 1, 2].map((i) => (
-          <motion.div
-            key={i}
-            className="w-2 h-2 rounded-full bg-primary"
-            animate={{
-              scale: [1, 1.5, 1],
-              opacity: [0.3, 1, 0.3],
-            }}
-            transition={{
-              duration: 1,
-              repeat: Infinity,
-              delay: i * 0.2,
-            }}
-          />
-        ))}
-      </div>
     </motion.div>
   );
 
@@ -230,7 +146,7 @@ export function DeploymentLoader({ progress }: { progress?: number }) {
     <WizardLoader
       messages={DEPLOYMENT_MESSAGES}
       messageInterval={3000}
-      size="xl"
+      size="lg"
       showProgress={progress !== undefined}
       progress={progress}
       subMessage="This usually takes about 30 seconds"
@@ -253,7 +169,6 @@ export function InlineLoader({ message }: { message?: string }) {
     <WizardLoader
       message={message}
       size="md"
-      showVideo={false}
     />
   );
 }

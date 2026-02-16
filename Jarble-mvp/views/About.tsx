@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Sparkles,
   ArrowRight,
   Target,
   Lightbulb,
@@ -18,11 +17,8 @@ import {
   Zap
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
-import dynamic from "next/dynamic";
 
-const WatercolorBlob = dynamic(() => import("@/components/WatercolorBlob"), {
-  ssr: false,
-});
+
 
 export default function About() {
   const { user, isAuthenticated } = useAuth0();
@@ -30,13 +26,10 @@ export default function About() {
 
   return (
     <div className="min-h-screen bg-background text-foreground relative">
-      <WatercolorBlob />
-
       {/* Navigation */}
       <nav className="fixed inset-x-0 top-0 z-50 bg-background/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <Sparkles className="w-6 h-6 text-primary" />
             <h1 className="font-serif font-bold text-2xl tracking-tight">Jarble</h1>
           </Link>
           <div className="flex items-center gap-4">
@@ -75,7 +68,6 @@ export default function About() {
       <section className="pt-32 pb-20 relative overflow-hidden z-10">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center animate-fade-in-up">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary/80 backdrop-blur-sm text-xs font-medium text-muted-foreground border border-border/50 mb-8">
-            <Sparkles className="w-4 h-4" />
             The Future of AI Deployment
           </div>
           <h1 className="text-5xl lg:text-6xl font-serif font-medium mb-6 leading-tight">
@@ -106,8 +98,8 @@ export default function About() {
               </p>
               <ul className="space-y-4">
                 <li className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0 mt-1">
-                    <span className="text-red-400 text-sm">✕</span>
+                  <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center flex-shrink-0 mt-1">
+                    <span className="text-muted-foreground text-sm">✕</span>
                   </div>
                   <div>
                     <span className="font-semibold">Technical complexity</span>
@@ -115,8 +107,8 @@ export default function About() {
                   </div>
                 </li>
                 <li className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0 mt-1">
-                    <span className="text-red-400 text-sm">✕</span>
+                  <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center flex-shrink-0 mt-1">
+                    <span className="text-muted-foreground text-sm">✕</span>
                   </div>
                   <div>
                     <span className="font-semibold">Platform fragmentation</span>
@@ -124,8 +116,8 @@ export default function About() {
                   </div>
                 </li>
                 <li className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0 mt-1">
-                    <span className="text-red-400 text-sm">✕</span>
+                  <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center flex-shrink-0 mt-1">
+                    <span className="text-muted-foreground text-sm">✕</span>
                   </div>
                   <div>
                     <span className="font-semibold">Model lock-in</span>
@@ -133,8 +125,8 @@ export default function About() {
                   </div>
                 </li>
                 <li className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0 mt-1">
-                    <span className="text-red-400 text-sm">✕</span>
+                  <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center flex-shrink-0 mt-1">
+                    <span className="text-muted-foreground text-sm">✕</span>
                   </div>
                   <div>
                     <span className="font-semibold">Scaling challenges</span>
@@ -289,7 +281,7 @@ export default function About() {
                 "Tiered pricing for all segments",
               ].map((point, i) => (
                 <div key={i} className="flex items-center gap-3">
-                  <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
+                  <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0" />
                   <span className="text-foreground">{point}</span>
                 </div>
               ))}
@@ -391,7 +383,6 @@ export default function About() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-              <Sparkles className="w-5 h-5 text-primary" />
               <span className="font-serif font-bold text-foreground">Jarble</span>
             </Link>
             <nav className="flex flex-wrap justify-center gap-x-8 gap-y-2">

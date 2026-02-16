@@ -10,14 +10,14 @@ export function GeneralTab({ formData, updateFormData }: TabProps) {
         <p className="text-muted-foreground text-sm">Basic information about your deployment</p>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-5 bg-secondary/20 border border-border/40 p-5 rounded-lg">
         <div>
           <Label htmlFor="name" className="mb-2 block">Deployment Name</Label>
           <Input
             id="name"
             value={formData.name}
             onChange={(e) => updateFormData("name", e.target.value)}
-            className="bg-secondary/80 border-border text-foreground"
+            className="bg-secondary/50 border-border text-foreground"
             placeholder="My Deployment"
           />
         </div>
@@ -28,7 +28,7 @@ export function GeneralTab({ formData, updateFormData }: TabProps) {
             id="description"
             value={formData.description}
             onChange={(e) => updateFormData("description", e.target.value)}
-            className="w-full min-h-[100px] px-3 py-2 bg-secondary/80 border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+            className="w-full min-h-[100px] px-3 py-2 bg-secondary/50 border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
             placeholder="Describe what your deployment does..."
           />
         </div>
@@ -39,7 +39,7 @@ export function GeneralTab({ formData, updateFormData }: TabProps) {
             id="systemPrompt"
             value={formData.systemPrompt}
             onChange={(e) => updateFormData("systemPrompt", e.target.value)}
-            className="w-full min-h-[150px] px-3 py-2 bg-secondary/80 border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-mono text-sm"
+            className="w-full min-h-[150px] px-3 py-2 bg-secondary/50 border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-mono text-sm"
             placeholder="You are a helpful assistant..."
           />
           <p className="text-xs text-muted-foreground mt-2">

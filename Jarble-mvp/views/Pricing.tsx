@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Sparkles,
   Zap,
   HelpCircle,
   ArrowRight,
@@ -19,12 +18,9 @@ import {
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useState } from "react";
-import dynamic from "next/dynamic";
+
 import { trpc } from "@/lib/trpc";
 
-const WatercolorBlob = dynamic(() => import("@/components/WatercolorBlob"), {
-  ssr: false,
-});
 
 const FAQ = [
   {
@@ -71,13 +67,10 @@ export default function Pricing() {
 
   return (
     <div className="min-h-screen bg-background text-foreground relative">
-      <WatercolorBlob />
-
       {/* Navigation */}
       <nav className="fixed inset-x-0 top-0 z-50 bg-background/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <Sparkles className="w-6 h-6 text-primary" />
             <h1 className="font-serif font-bold text-2xl tracking-tight">Jarble</h1>
           </Link>
           <div className="flex items-center gap-4">
@@ -122,8 +115,8 @@ export default function Pricing() {
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-6">
             Pick a runtime, deploy instantly. Pay only for what you use.
           </p>
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-green-500/10 border border-green-500/30 text-green-400">
-            <Gift className="w-5 h-5" />
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary/50 border border-border text-foreground">
+            <Gift className="w-5 h-5 text-primary" />
             <span className="text-sm font-medium">First deployment free for 7 days — no credit card required</span>
           </div>
         </div>
@@ -225,7 +218,6 @@ export default function Pricing() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
             <div className="flex items-center justify-center gap-2 text-primary font-medium mb-4">
-              <Sparkles className="w-5 h-5" />
               LLM Credits
             </div>
             <h2 className="text-3xl font-serif font-medium mb-2">AI Model Access</h2>
@@ -244,7 +236,7 @@ export default function Pricing() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-xl font-serif font-medium">Bring Your Own Key</h3>
-                    <span className="px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-xs font-medium">
+                    <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
                       Recommended
                     </span>
                   </div>
@@ -259,19 +251,19 @@ export default function Pricing() {
 
               <ul className="space-y-3 mb-6">
                 <li className="flex items-start gap-2 text-sm">
-                  <span className="text-green-500 mt-0.5">&#10003;</span>
+                  <span className="text-primary mt-0.5">&#10003;</span>
                   <span>Access to all models (GPT-4, Claude, Llama, etc.)</span>
                 </li>
                 <li className="flex items-start gap-2 text-sm">
-                  <span className="text-green-500 mt-0.5">&#10003;</span>
+                  <span className="text-primary mt-0.5">&#10003;</span>
                   <span>Full control over model selection and costs</span>
                 </li>
                 <li className="flex items-start gap-2 text-sm">
-                  <span className="text-green-500 mt-0.5">&#10003;</span>
+                  <span className="text-primary mt-0.5">&#10003;</span>
                   <span>Pay only for what you use</span>
                 </li>
                 <li className="flex items-start gap-2 text-sm">
-                  <span className="text-green-500 mt-0.5">&#10003;</span>
+                  <span className="text-primary mt-0.5">&#10003;</span>
                   <span>No markup on API costs</span>
                 </li>
               </ul>
@@ -289,12 +281,11 @@ export default function Pricing() {
             <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border animate-fade-in-up-fast">
               <div className="flex items-center gap-4 mb-4">
                 <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
-                  <Sparkles className="w-7 h-7 text-white" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-xl font-serif font-medium">Included Credits</h3>
-                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-medium">
+                    <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
                       Coming Soon
                     </span>
                   </div>
@@ -431,7 +422,6 @@ export default function Pricing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-              <Sparkles className="w-5 h-5 text-primary" />
               <span className="font-serif font-bold text-foreground">Jarble</span>
             </Link>
             <nav className="flex flex-wrap justify-center gap-x-8 gap-y-2">
