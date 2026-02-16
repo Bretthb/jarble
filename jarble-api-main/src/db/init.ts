@@ -30,6 +30,8 @@ const CREATE_TABLES_SQL = `
     auth0_id TEXT NOT NULL UNIQUE,
     email_verified INTEGER DEFAULT 0 NOT NULL,
     stripe_customer_id TEXT,
+    pending_stripe_subscription_id TEXT,
+    pending_stripe_tier TEXT,
     free_deployment_used INTEGER DEFAULT 0 NOT NULL,
     free_trial_expires_at TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,

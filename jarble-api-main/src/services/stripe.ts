@@ -146,3 +146,21 @@ export async function reactivateSubscription(
 
   logger.info({ subscriptionId }, "Subscription reactivated");
 }
+
+/**
+ * List active subscriptions for a Stripe customer.
+ * Used by linkSubscription fallback to find unlinked subscriptions.
+ */
+export async function listActiveSubscriptions(
+  customerId: string
+): Promise<Stripe.Subscription[]> {
+  const s = getStripe();
+
+  const result = await s.subscriptions.list({
+    customer: customerId,
+    status: "active",
+    limit: 10,
+  });
+
+  return result.data;
+}

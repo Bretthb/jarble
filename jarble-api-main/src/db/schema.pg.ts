@@ -8,6 +8,8 @@ export const users = pgTable("users", {
   auth0Id: varchar("auth0_id", { length: 255 }).notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+  pendingStripeSubscriptionId: varchar("pending_stripe_subscription_id", { length: 255 }),
+  pendingStripeTier: varchar("pending_stripe_tier", { length: 50 }),
   freeDeploymentUsed: boolean("free_deployment_used").notNull().default(false),
   freeTrialExpiresAt: timestamp("free_trial_expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

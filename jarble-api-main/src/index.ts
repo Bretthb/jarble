@@ -70,26 +70,79 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         const session = event.data.object as any;
         const userId = session.metadata?.userId || session.client_reference_id;
         const customerId = session.customer as string;
+        const subscriptionId = session.subscription as string | null;
+        const tier = session.metadata?.tier as string | null;
 
         if (userId) {
-          // Update user with Stripe customer ID and subscription status
+          // Update user with Stripe customer ID + store pending subscription for deployment linking
           await (db as any).update(tables.users)
             .set({
               stripeCustomerId: customerId,
               emailVerified: true, // If they can pay, they're verified
+              ...(subscriptionId ? { pendingStripeSubscriptionId: subscriptionId } : {}),
+              ...(tier ? { pendingStripeTier: tier } : {}),
             })
             .where(eq(tables.users.id, userId));
 
-          logger.info({ userId, customerId }, "User subscription activated");
+          logger.info({ userId, customerId, subscriptionId, tier }, "Checkout completed — subscription pending link");
         }
         break;
       }
 
       case "customer.subscription.updated": {
         const subscription = event.data.object as any;
+        const subscriptionId = subscription.id as string;
         const customerId = subscription.customer as string;
-        logger.info({ customerId, status: subscription.status }, "Subscription updated");
-        // TODO: sync deployment status when subscription plan changes
+        const status = subscription.status as string;
+        const cancelAtPeriodEnd = subscription.cancel_at_period_end as boolean;
+        const currentPeriodEnd = subscription.current_period_end
+          ? new Date(subscription.current_period_end * 1000)
+          : null;
+
+        logger.info({ customerId, subscriptionId, status, cancelAtPeriodEnd }, "Subscription updated");
+
+        try {
+          // Find deployment linked to this subscription
+          const linked = await db.query.deployments.findFirst({
+            where: eq(tables.deployments.stripeSubscriptionId, subscriptionId),
+          });
+
+          if (!linked) {
+            logger.warn({ subscriptionId }, "No deployment found for updated subscription");
+            break;
+          }
+
+          const dep = linked as any;
+          const updates: Record<string, any> = {};
+
+          // Sync cancellation state (handles cancel/reactivate via Stripe portal)
+          if (cancelAtPeriodEnd && !dep.cancelledAt) {
+            updates.cancelledAt = new Date().toISOString();
+            updates.cancelAtPeriodEnd = currentPeriodEnd?.toISOString() || null;
+            logger.info({ deploymentId: linked.id }, "Subscription cancellation synced from Stripe");
+          } else if (!cancelAtPeriodEnd && dep.cancelledAt) {
+            updates.cancelledAt = null;
+            updates.cancelAtPeriodEnd = null;
+            logger.info({ deploymentId: linked.id }, "Subscription reactivation synced from Stripe");
+          }
+
+          // Sync payment status
+          if (status === "past_due" || status === "unpaid") {
+            updates.error = `Subscription ${status}: please update your payment method`;
+            logger.warn({ deploymentId: linked.id, status }, "Subscription payment issue");
+          } else if (status === "active" && dep.error?.startsWith("Subscription ")) {
+            // Clear payment-related error when subscription becomes active again
+            updates.error = null;
+          }
+
+          if (Object.keys(updates).length > 0) {
+            await (db as any).update(tables.deployments)
+              .set(updates)
+              .where(eq(tables.deployments.id, linked.id));
+          }
+        } catch (err) {
+          logger.error({ err, subscriptionId }, "Failed to handle subscription update");
+        }
         break;
       }
 
@@ -99,15 +152,16 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         const customerId = subscription.customer as string;
         logger.info({ customerId, subscriptionId }, "Subscription canceled — stopping deployment");
 
-        // Find the deployment linked to this subscription and stop it
         try {
-          const allDeployments = await db.query.deployments.findMany();
-          const linked = allDeployments.find((d: any) => d.stripeSubscriptionId === subscriptionId);
+          // Find the deployment linked to this subscription (proper WHERE query)
+          const linked = await db.query.deployments.findFirst({
+            where: eq(tables.deployments.stripeSubscriptionId, subscriptionId),
+          });
 
           if (linked) {
             await stopDeployment(linked.id);
             await (db as any).update(tables.deployments)
-              .set({ status: "stopped" })
+              .set({ status: "stopped", error: null })
               .where(eq(tables.deployments.id, linked.id));
             logger.info({ deploymentId: linked.id, subscriptionId }, "Deployment stopped after subscription deletion");
           } else {
@@ -122,8 +176,45 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
       case "invoice.payment_failed": {
         const invoice = event.data.object as any;
         const customerId = invoice.customer as string;
-        logger.warn({ customerId }, "Payment failed");
-        // TODO: flag account, notify user
+        const invoiceSubscriptionId = invoice.subscription as string | null;
+
+        logger.warn({ customerId, subscriptionId: invoiceSubscriptionId }, "Invoice payment failed");
+
+        try {
+          if (invoiceSubscriptionId) {
+            // Find the deployment linked to this subscription
+            const linked = await db.query.deployments.findFirst({
+              where: eq(tables.deployments.stripeSubscriptionId, invoiceSubscriptionId),
+            });
+
+            if (linked) {
+              await (db as any).update(tables.deployments)
+                .set({ error: "Payment failed — please update your payment method" })
+                .where(eq(tables.deployments.id, linked.id));
+              logger.warn({ deploymentId: linked.id, subscriptionId: invoiceSubscriptionId }, "Deployment flagged for payment failure");
+            }
+          } else {
+            // No subscription ID on invoice — find user's deployments by customer ID
+            const user = await db.query.users.findFirst({
+              where: eq(tables.users.stripeCustomerId, customerId),
+            });
+
+            if (user) {
+              const userDeployments = await db.query.deployments.findMany({
+                where: eq(tables.deployments.userId, user.id),
+              });
+              for (const dep of userDeployments) {
+                if (!(dep as any).isFree && (dep as any).stripeSubscriptionId) {
+                  await (db as any).update(tables.deployments)
+                    .set({ error: "Payment failed — please update your payment method" })
+                    .where(eq(tables.deployments.id, dep.id));
+                }
+              }
+            }
+          }
+        } catch (err) {
+          logger.error({ err, customerId }, "Failed to handle payment failure");
+        }
         break;
       }
 
@@ -168,9 +259,9 @@ app.post("/api/stripe/checkout", async (req, res) => {
     return;
   }
 
-  const { runtimeSlug } = req.body;
-  if (!runtimeSlug) {
-    res.status(400).json({ error: "Missing runtimeSlug" });
+  const tier = req.body.tier || req.body.runtimeSlug; // Frontend sends { tier }, legacy sends { runtimeSlug }
+  if (!tier) {
+    res.status(400).json({ error: "Missing tier" });
     return;
   }
 
@@ -184,7 +275,7 @@ app.post("/api/stripe/checkout", async (req, res) => {
     const session = await createCheckoutSession({
       userId: user.id,
       userEmail: user.email,
-      tier: runtimeSlug, // tier param maps to runtime slug for Stripe price lookup
+      tier,
       stripeCustomerId: user.stripeCustomerId,
       successUrl: `${env.FRONTEND_URL}/dashboard?checkout=success`,
       cancelUrl: `${env.FRONTEND_URL}/pricing?checkout=canceled`,
@@ -192,7 +283,7 @@ app.post("/api/stripe/checkout", async (req, res) => {
 
     res.json({ url: session.url });
   } catch (err) {
-    logger.error({ err, userId: user.id, runtimeSlug }, "Failed to create checkout session");
+    logger.error({ err, userId: user.id, tier }, "Failed to create checkout session");
     res.status(500).json({ error: "Failed to create checkout session" });
   }
 });

@@ -10,6 +10,8 @@ export const users = sqliteTable("users", {
   auth0Id: text("auth0_id").notNull().unique(),
   emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
   stripeCustomerId: text("stripe_customer_id"),
+  pendingStripeSubscriptionId: text("pending_stripe_subscription_id"),
+  pendingStripeTier: text("pending_stripe_tier"),
   freeDeploymentUsed: integer("free_deployment_used", { mode: "boolean" }).notNull().default(false),
   freeTrialExpiresAt: text("free_trial_expires_at"),
   createdAt: text("created_at").notNull().$defaultFn(now),

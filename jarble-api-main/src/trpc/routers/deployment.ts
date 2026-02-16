@@ -3,7 +3,7 @@ import { router, protectedProcedure } from "../middleware.js";
 import { tables } from "../../db/index.js";
 import { eq, and, isNull } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs } from "../../k8s/deployment.js";
-import { cancelSubscriptionAtPeriodEnd, reactivateSubscription } from "../../services/stripe.js";
+import { cancelSubscriptionAtPeriodEnd, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
 import { nanoid } from "nanoid";
 import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
@@ -162,6 +162,29 @@ export const deploymentRouter = router({
         ? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
         : null;
 
+      // ── Link Stripe subscription if available ──────────────────────
+      let stripeSubscriptionId: string | null = null;
+
+      if (!isFree && isStripeConfigured()) {
+        const currentUser = await ctx.db.query.users.findFirst({
+          where: eq(users.id, ctx.user.id),
+        });
+
+        if ((currentUser as any)?.pendingStripeSubscriptionId) {
+          stripeSubscriptionId = (currentUser as any).pendingStripeSubscriptionId;
+
+          // Clear the pending fields (consumed)
+          await (ctx.db as any).update(users)
+            .set({
+              pendingStripeSubscriptionId: null,
+              pendingStripeTier: null,
+            })
+            .where(eq(users.id, ctx.user.id));
+
+          logger.info({ deploymentId, stripeSubscriptionId, userId: ctx.user.id }, "Linked pending Stripe subscription to deployment");
+        }
+      }
+
       // ── Resolve LLM credentials ──────────────────────────────────
       let resolvedApiKey = input.llmApiKey || null;
       let resolvedProvider: string = input.llmProvider;
@@ -286,6 +309,7 @@ export const deploymentRouter = router({
         llmCreditLimitDollars: resolvedCreditLimit,
         llmApiKeySourceDeploymentId: resolvedSourceDeploymentId,
         systemPrompt: input.systemPrompt || null,
+        stripeSubscriptionId,
         status: "pending",
       });
 
@@ -810,6 +834,90 @@ export const deploymentRouter = router({
       logger.info({ deploymentId: input.id }, "Deployment reactivated");
 
       return { success: true };
+    }),
+
+  // Link a Stripe subscription to a deployment (fallback if pending link was missed)
+  linkSubscription: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      const dep = deployment as any;
+
+      if (dep.stripeSubscriptionId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Deployment already has a subscription linked",
+        });
+      }
+
+      if (dep.isFree) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Cannot link subscription to a free deployment",
+        });
+      }
+
+      // Check if user has a pending subscription from checkout
+      const user = await ctx.db.query.users.findFirst({
+        where: eq(users.id, ctx.user.id),
+      });
+
+      const pendingSub = (user as any)?.pendingStripeSubscriptionId;
+
+      if (pendingSub) {
+        // Use pending subscription
+        await (ctx.db as any).update(deployments)
+          .set({ stripeSubscriptionId: pendingSub })
+          .where(eq(deployments.id, input.deploymentId));
+
+        // Clear pending
+        await (ctx.db as any).update(users)
+          .set({ pendingStripeSubscriptionId: null, pendingStripeTier: null })
+          .where(eq(users.id, ctx.user.id));
+
+        logger.info({ deploymentId: input.deploymentId, subscriptionId: pendingSub }, "Subscription linked to deployment (from pending)");
+        return { success: true, subscriptionId: pendingSub };
+      }
+
+      // Fallback: look up active subscriptions via Stripe API
+      if (!isStripeConfigured() || !(user as any)?.stripeCustomerId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No pending subscription found. Please subscribe first.",
+        });
+      }
+
+      const activeSubs = await listActiveSubscriptions((user as any).stripeCustomerId);
+
+      // Find an unlinked subscription (not already used by another deployment)
+      const userDeployments = await ctx.db.query.deployments.findMany({
+        where: eq(deployments.userId, ctx.user.id),
+      });
+      const usedSubIds = new Set(
+        userDeployments.map((d: any) => d.stripeSubscriptionId).filter(Boolean)
+      );
+
+      const unlinked = activeSubs.find(s => !usedSubIds.has(s.id));
+      if (!unlinked) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No unlinked active subscription found. Please subscribe first.",
+        });
+      }
+
+      await (ctx.db as any).update(deployments)
+        .set({ stripeSubscriptionId: unlinked.id })
+        .where(eq(deployments.id, input.deploymentId));
+
+      logger.info({ deploymentId: input.deploymentId, subscriptionId: unlinked.id }, "Subscription linked to deployment (from Stripe API)");
+      return { success: true, subscriptionId: unlinked.id };
     }),
 
   // Export deployment config files as a ZIP (base64-encoded)

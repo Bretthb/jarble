@@ -15,6 +15,7 @@ import {
   PowerOff,
   Loader2,
   XCircle,
+  Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createElement } from "react";
@@ -327,6 +328,18 @@ export default function DeploymentConfiguration() {
                       Activate
                     </>
                   )}
+                </button>
+                <button
+                  onClick={handleExport}
+                  disabled={exportMutation.isPending}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+                >
+                  {exportMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 shrink-0" />
+                  )}
+                  Export Config
                 </button>
                 <button
                   onClick={handleDelete}

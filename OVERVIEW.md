@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 16, 2026 (Session 5 — Platform Credential Storage)
+📅 Last updated: February 16, 2026 (Session 6 — Stripe Subscription Sync)
 
 </aside>
 
@@ -187,7 +187,8 @@ graph TB
         D11[restart - mutation]
         D12[cancel - mutation]
         D13[reactivate - mutation]
-        D14[exportConfigs - mutation]
+        D14[linkSubscription - mutation + Stripe API fallback]
+        D15[exportConfigs - mutation]
     end
 
     subgraph "Runtime Catalog Router"
@@ -553,13 +554,14 @@ flowchart TD
         USER[User selects plan] --> CHECKOUT[API creates Stripe Checkout]
         CHECKOUT --> STRIPE[Stripe hosted page]
         STRIPE -->|Success| WEBHOOK[Webhook: checkout.session.completed]
-        WEBHOOK --> DB_UPDATE[Update user stripeCustomerId]
+        WEBHOOK --> DB_UPDATE[Update user stripeCustomerId + pendingStripeSubscriptionId]
+        DB_UPDATE --> CREATE[deployment.create consumes pending subscription]
     end
 
     subgraph "Subscription Lifecycle"
         ACTIVE[Active Subscription]
-        ACTIVE -->|Change plan| SUB_UPDATE[Webhook: subscription.updated]
-        ACTIVE -->|Cancel| SUB_DELETE[Webhook: subscription.deleted]
+        ACTIVE -->|Change plan / cancel via portal| SUB_UPDATE[Webhook: subscription.updated]
+        ACTIVE -->|Period ends| SUB_DELETE[Webhook: subscription.deleted]
         ACTIVE -->|Payment fail| PAY_FAIL[Webhook: invoice.payment_failed]
     end
 
@@ -568,9 +570,9 @@ flowchart TD
         STRIPE_PORTAL --> MANAGE[Update/Cancel subscription]
     end
 
-    SUB_UPDATE -.->|TODO| SYNC[Sync deployment status]
-    SUB_DELETE -.->|TODO| STOP[Stop paid deployments]
-    PAY_FAIL -.->|TODO| FLAG[Flag account + notify]
+    SUB_UPDATE -->|Syncs| SYNC[cancelledAt / error on deployment]
+    SUB_DELETE -->|Stops| STOP[stopDeployment + status=stopped]
+    PAY_FAIL -->|Flags| FLAG[deployment.error = payment failed]
 ```
 
 ### Stripe Integration Status
@@ -580,10 +582,12 @@ flowchart TD
 | Checkout session creation | ✅ Implemented |
 | Portal session creation | ✅ Implemented |
 | Webhook signature verification | ✅ Implemented |
-| checkout.session.completed | ✅ Implemented |
-| subscription.updated → sync | ❌ TODO |
-| subscription.deleted → stop | ❌ TODO |
-| invoice.payment_failed → flag | ❌ TODO |
+| checkout.session.completed | ✅ Sets stripeCustomerId + pendingStripeSubscriptionId |
+| subscription.updated → sync | ✅ Syncs cancel state + payment errors to deployment |
+| subscription.deleted → stop | ✅ Stops deployment via proper WHERE query |
+| invoice.payment_failed → flag | ✅ Sets deployment.error with payment warning |
+| Subscription → deployment link | ✅ Pending subscription consumed in deployment.create |
+| linkSubscription fallback | ✅ tRPC mutation for manual re-linking |
 
 ---
 
@@ -636,6 +640,7 @@ flowchart TD
 - [x]  **Config export (ZIP)** — `exportConfigs` mutation execs into K8s pod, reads `/data/config/` files, builds ZIP with `archiver`, returns base64
 - [x]  **Stripe webhook `subscription.deleted`** — Auto-stops deployment when billing period ends (finds deployment by `stripeSubscriptionId`, calls `stopDeployment`)
 - [x]  **Platform credential storage** — `platform_credentials` table (AES-256-GCM encrypted JSON), `platformCredentials` tRPC router (getByDeployment, save, delete, testConnection), OpenClaw `openclaw.json` channel config + env var fallback injection during deploy
+- [x]  **Stripe subscription → deployment sync** — `pendingStripeSubscriptionId` handoff from checkout webhook to `deployment.create`, `subscription.updated` syncs cancel state + payment errors, `invoice.payment_failed` flags deployments, `linkSubscription` fallback mutation
 
 ## Infrastructure ✅
 
@@ -652,7 +657,7 @@ flowchart TD
 ## 🔴 Critical (Must-Have for Launch)
 
 1. ~~**Platform credential storage**~~ — ✅ Done (Session 5). `platform_credentials` table + tRPC router + OpenClaw `openclaw.json` channel config
-2. **Stripe subscription → deployment sync** — ~~subscription.deleted wired (Session 4)~~, still need subscription.updated sync
+2. ~~**Stripe subscription → deployment sync**~~ — ✅ Done (Session 6). `pendingStripeSubscriptionId` handoff, all 4 webhook handlers implemented, `linkSubscription` fallback
 3. **Drizzle migrations regeneration** — Current migrations stale
 4. **WhatsApp QR integration** — Replace mock QR with real WhatsApp Business API
 5. **Email verification resend** — Add "Resend" button for unverified users
@@ -786,7 +791,7 @@ monorepo/
 ---
 
 <aside>
-📚 This document provides a complete snapshot of the Jarble platform as of February 16, 2026 (Session 5). Use the roadmap section to prioritize next steps.
+📚 This document provides a complete snapshot of the Jarble platform as of February 16, 2026 (Session 6). Use the roadmap section to prioritize next steps.
 
 </aside>
 
@@ -853,7 +858,7 @@ flowchart TB
 flowchart TB
     subgraph TODO_CRITICAL["🔴 TODO — Critical for Launch"]
         PLATCREDS["✅ Platform Credentials\nDone - Session 5"]
-        STRIPESYNC["❌ Stripe → Deploy Sync"]
+        STRIPESYNC["✅ Stripe → Deploy Sync\nDone - Session 6"]
         MIGRATIONS["❌ Drizzle Migrations"]
         WHATSAPP["❌ WhatsApp QR\nReal Business API"]
         EMAILRESEND["❌ Resend Verification"]
@@ -902,9 +907,9 @@ flowchart LR
         RESTART["Rolling Restart"]
     end
 
-    subgraph NeedLaunch["🔴 Need: Launch"]
+    subgraph NeedLaunch["✅ Done: Launch Items"]
         PLATCREDS["✅ Platform Creds"]
-        STRIPESYNC["Stripe Sync"]
+        STRIPESYNC["✅ Stripe Sync"]
     end
 
     CONFIG -->|saves| SYSPROMPT
@@ -1277,7 +1282,54 @@ Deploy button
 
 ---
 
-# 25. Dev Servers
+# 25. Stripe Subscription Sync (Session 6)
+
+### The Problem
+
+The `stripeSubscriptionId` column on deployments was never populated. When a user completed Stripe checkout, only `user.stripeCustomerId` was set. When the user subsequently created a deployment, there was no mechanism to link it to their Stripe subscription. This meant cancel/reactivate mutations (which check `stripeSubscriptionId`) could never work.
+
+### Solution: Pending Subscription Handoff
+
+```
+Stripe Checkout → checkout.session.completed webhook
+  → Sets user.pendingStripeSubscriptionId + pendingStripeTier
+  → (subscription ID from session.subscription)
+
+User creates deployment → deployment.create tRPC mutation
+  → If !isFree and isStripeConfigured():
+    → Reads user.pendingStripeSubscriptionId
+    → Links it to the new deployment
+    → Clears pending fields on user (consumed)
+
+Fallback → deployment.linkSubscription tRPC mutation
+  → Checks user's pending subscription first
+  → Falls back to Stripe API (listActiveSubscriptions) to find unlinked ones
+```
+
+### Webhook Handlers (All 4 Implemented)
+
+| Event | Handler | Action |
+|-------|---------|--------|
+| checkout.session.completed | Stores `pendingStripeSubscriptionId` + `pendingStripeTier` on user | Links subscription on next deployment create |
+| customer.subscription.updated | Finds deployment by `stripeSubscriptionId` | Syncs cancel state (portal cancel/reactivate) + payment status (past_due/unpaid → error) |
+| customer.subscription.deleted | Finds deployment by `stripeSubscriptionId` | Stops deployment via `stopDeployment()`, clears error |
+| invoice.payment_failed | Finds deployment by subscription or user | Sets `deployment.error = "Payment failed"` |
+
+### DB Schema Addition
+
+Added to `users` table (all 3 schema variants):
+- `pendingStripeSubscriptionId` — varchar(255), nullable
+- `pendingStripeTier` — varchar(50), nullable
+
+### Edge Cases
+
+- **Race condition (webhook vs create)**: Webhook arrives within seconds of redirect; user must fill out forms first. Extremely unlikely. `linkSubscription` fallback covers it.
+- **User never creates a deployment**: Pending subscription stays on user harmlessly. Gets overwritten on next checkout.
+- **Portal cancel/reactivate**: `subscription.updated` handler syncs `cancelledAt`/`cancelAtPeriodEnd` to DB, keeping in-app UI consistent with Stripe portal actions.
+
+---
+
+# 26. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)
