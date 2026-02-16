@@ -2,13 +2,35 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Trash2 } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { StorageMeter, StorageMeterSkeleton } from "@/components/StorageMeter";
 import type { TabProps } from "./types";
 
 interface AdvancedTabProps extends TabProps {
-  deployment: { id?: string; status?: string; runtime?: string; createdAt?: string | Date; updatedAt?: string | Date } | null | undefined;
+  deployment: {
+    id?: string;
+    status?: string;
+    runtime?: string;
+    createdAt?: string | Date;
+    updatedAt?: string | Date;
+    cpuLimit?: string;
+    memoryMb?: number;
+    storageMb?: number;
+  } | null | undefined;
 }
 
 export function AdvancedTab({ deployment }: AdvancedTabProps) {
+  // Query storage usage (only for running deployments)
+  const isRunning = deployment?.status === "running";
+  const storageQuery = trpc.deployment.getStorageUsage.useQuery(
+    { id: deployment?.id || "" },
+    {
+      enabled: !!deployment?.id && isRunning,
+      refetchInterval: 30_000,
+      staleTime: 15_000,
+    }
+  );
+
   return (
     <div className="space-y-6">
       <div>
@@ -42,6 +64,45 @@ export function AdvancedTab({ deployment }: AdvancedTabProps) {
               <span className="text-muted-foreground">Last Updated</span>
               <span>{deployment?.updatedAt ? new Date(deployment.updatedAt).toLocaleDateString() : "N/A"}</span>
             </div>
+          </div>
+        </div>
+
+        {/* Resource Usage */}
+        <div className="p-5 rounded-lg bg-secondary/30 border border-border/60">
+          <h3 className="font-semibold mb-3">Resources</h3>
+          <div className="space-y-4">
+            {/* Hardware Specs */}
+            <div className="flex flex-wrap gap-3 text-sm">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/60 border border-border/40">
+                <span className="text-muted-foreground">CPU</span>
+                <span className="font-mono font-medium">{deployment?.cpuLimit || "2.0"} vCPU</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/60 border border-border/40">
+                <span className="text-muted-foreground">Memory</span>
+                <span className="font-mono font-medium">{deployment?.memoryMb || 2048} MB</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/60 border border-border/40">
+                <span className="text-muted-foreground">Storage</span>
+                <span className="font-mono font-medium">{deployment?.storageMb || 30} GB</span>
+              </div>
+            </div>
+
+            {/* Storage Usage Meter */}
+            {isRunning ? (
+              storageQuery.isLoading ? (
+                <StorageMeterSkeleton />
+              ) : storageQuery.data?.usedGb != null ? (
+                <StorageMeter
+                  usedGb={storageQuery.data.usedGb}
+                  totalGb={storageQuery.data.totalGb}
+                  percentUsed={storageQuery.data.percentUsed}
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">Storage metrics unavailable</p>
+              )
+            ) : (
+              <p className="text-xs text-muted-foreground">Storage metrics available when deployment is running</p>
+            )}
           </div>
         </div>
 

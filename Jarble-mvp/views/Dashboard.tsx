@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { useState } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
+import { StorageMeter, StorageMeterSkeleton } from "@/components/StorageMeter";
 
 export default function Dashboard() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
@@ -212,6 +213,17 @@ function DeploymentCard({ deployment, onDelete }: {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Query storage usage (only for running deployments)
+  const isRunning = deployment.status === "running";
+  const storageQuery = trpc.deployment.getStorageUsage.useQuery(
+    { id: deployment.id },
+    {
+      enabled: isRunning,
+      refetchInterval: 60_000, // Refresh every 60s
+      staleTime: 30_000,
+    }
+  );
+
   // Calculate days remaining for free trial
   const daysRemaining = deployment.freeExpiresAt
     ? Math.max(0, Math.ceil((new Date(deployment.freeExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
@@ -263,6 +275,22 @@ function DeploymentCard({ deployment, onDelete }: {
           {/* Description */}
           {deployment.description && (
             <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{deployment.description}</p>
+          )}
+
+          {/* Storage Usage (running deployments only) */}
+          {isRunning && (
+            <div className="mb-3">
+              {storageQuery.isLoading ? (
+                <StorageMeterSkeleton compact />
+              ) : storageQuery.data?.usedGb != null ? (
+                <StorageMeter
+                  usedGb={storageQuery.data.usedGb}
+                  totalGb={storageQuery.data.totalGb}
+                  percentUsed={storageQuery.data.percentUsed}
+                  compact
+                />
+              ) : null}
+            </div>
           )}
 
           {/* Row 2: Metadata + Delete */}

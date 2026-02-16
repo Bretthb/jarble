@@ -2,7 +2,7 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../middleware.js";
 import { tables } from "../../db/index.js";
 import { eq, and } from "drizzle-orm";
-import { createDeployment, deleteDeployment, getDeploymentPodStatus } from "../../k8s/deployment.js";
+import { createDeployment, deleteDeployment, getDeploymentPodStatus, getDeploymentStorageUsage } from "../../k8s/deployment.js";
 import { nanoid } from "nanoid";
 import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
@@ -285,6 +285,27 @@ export const deploymentRouter = router({
       }
 
       return getDeploymentPodStatus(input.id);
+    }),
+
+  // Get storage usage from K8s (exec df inside the pod)
+  getStorageUsage: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Verify ownership
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        return null;
+      }
+
+      // Get live usage from the pod + DB-configured limit
+      const usage = await getDeploymentStorageUsage(input.id);
+      return {
+        ...usage,
+        // Include the user's configured limit from DB (storageMb is actually GB)
+        allocatedGb: (deployment as any).storageMb || 30,
+      };
     }),
 
   // Update deployment
