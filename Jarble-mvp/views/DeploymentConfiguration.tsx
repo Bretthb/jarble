@@ -42,7 +42,6 @@ export default function DeploymentConfiguration() {
     modelName: "",
     apiKey: "",
     systemPrompt: "",
-    maxTokens: 2048,
     platforms: [],
     skills: [],
   });
@@ -92,11 +91,10 @@ export default function DeploymentConfiguration() {
       setFormData({
         name: deployment.name || "",
         description: deployment.description || "",
-        modelProvider: "",
-        modelName: "",
+        modelProvider: (deployment as any).llmProvider || "",
+        modelName: (deployment as any).llmModel || "",
         apiKey: "",
-        systemPrompt: "",
-        maxTokens: 2048,
+        systemPrompt: (deployment as any).systemPrompt || "",
         platforms: [],
         skills: [],
       });
@@ -114,6 +112,10 @@ export default function DeploymentConfiguration() {
       id,
       name: formData.name,
       description: formData.description,
+      systemPrompt: formData.systemPrompt || undefined,
+      llmProvider: formData.modelProvider ? formData.modelProvider as any : undefined,
+      llmModel: formData.modelName || undefined,
+      llmApiKey: formData.apiKey || undefined,
     });
   };
 

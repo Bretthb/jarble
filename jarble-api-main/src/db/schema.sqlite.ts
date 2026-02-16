@@ -34,6 +34,7 @@ export const deployments = sqliteTable("deployments", {
   llmProvider: text("llm_provider").notNull().default("openrouter"), // "openrouter" | "openai" | "anthropic" | "google"
   llmModel: text("llm_model"), // e.g. "openrouter/auto", "gpt-4o", "claude-sonnet-4-20250514"
   llmApiKey: text("llm_api_key"),
+  systemPrompt: text("system_prompt"),
   status: text("status").notNull().default("creating"),
   error: text("error"),
   createdAt: text("created_at").notNull().$defaultFn(now),

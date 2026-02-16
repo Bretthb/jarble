@@ -115,7 +115,6 @@ export interface DeploymentFormData {
   modelName: string;
   apiKey: string;
   systemPrompt: string;
-  maxTokens: number;
   platforms: string[];
   skills: string[];
 }

@@ -32,6 +32,7 @@ export const deployments = mysqlTable("deployments", {
   llmProvider: varchar("llm_provider", { length: 30 }).notNull().default("openrouter"),
   llmModel: varchar("llm_model", { length: 100 }),
   llmApiKey: varchar("llm_api_key", { length: 255 }),
+  systemPrompt: text("system_prompt"),
   status: varchar("status", { length: 50 }).notNull().default("creating"),
   error: text("error"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

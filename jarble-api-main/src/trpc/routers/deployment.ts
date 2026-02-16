@@ -93,6 +93,7 @@ export const deploymentRouter = router({
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).default("openrouter"),
       llmModel: z.string().optional(), // e.g. "openrouter/auto", "gpt-4o", "claude-sonnet-4-20250514"
       llmApiKey: z.string().optional(),
+      systemPrompt: z.string().optional(),
       cpuLimit: z.string().optional(),    // e.g. "2.0" — overrides runtime catalog default
       memoryMb: z.number().int().positive().optional(),   // e.g. 2048 — RAM in MB
       storageMb: z.number().int().positive().optional(),  // e.g. 30 — storage in GB (historical naming)
@@ -192,6 +193,7 @@ export const deploymentRouter = router({
         llmProvider: resolvedProvider,
         llmModel: input.llmModel || (input.llmMode === "included" ? "openrouter/auto" : null),
         llmApiKey: resolvedApiKey,
+        systemPrompt: input.systemPrompt || null,
         status: "pending",
       });
 
@@ -291,6 +293,7 @@ export const deploymentRouter = router({
       id: z.string(),
       name: z.string().min(1).optional(),
       description: z.string().optional(),
+      systemPrompt: z.string().optional(),
       llmMode: z.enum(["included", "byok"]).optional(),
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).optional(),
       llmModel: z.string().optional(),

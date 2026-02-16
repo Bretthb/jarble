@@ -96,18 +96,6 @@ export function ModelTab({ formData, updateFormData }: TabProps) {
           </div>
         )}
 
-        <div>
-          <Label htmlFor="maxTokens" className="mb-2 block">Max Tokens</Label>
-          <Input
-            id="maxTokens"
-            type="number"
-            value={formData.maxTokens}
-            onChange={(e) => updateFormData("maxTokens", parseInt(e.target.value))}
-            className="bg-secondary/50 border-border text-foreground"
-            min={256}
-            max={8192}
-          />
-        </div>
       </div>
     </div>
   );

@@ -54,6 +54,7 @@ const CREATE_TABLES_SQL = `
     llm_provider TEXT DEFAULT 'openrouter' NOT NULL,
     llm_model TEXT,
     llm_api_key TEXT,
+    system_prompt TEXT,
     status TEXT DEFAULT 'creating' NOT NULL,
     error TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
