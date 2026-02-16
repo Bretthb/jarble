@@ -1,6 +1,6 @@
 # Jarble Platform — Complete Overview & Roadmap
 
-*Last updated: February 15, 2026*
+*Last updated: February 16, 2026*
 
 ---
 
@@ -18,7 +18,7 @@ Jarble is a **no-code AI deployment platform** that lets users deploy AI-powered
 | **Database** | Drizzle ORM — MySQL (prod), PostgreSQL (alt), SQLite (dev) |
 | **Auth** | Auth0 (Email/Password, Google OAuth, GitHub OAuth) |
 | **Payments** | Stripe (subscriptions, checkout, webhooks) |
-| **Infrastructure** | Kubernetes (Longhorn storage, Traefik ingress) |
+| **Infrastructure** | Hetzner Cloud, Terraform IaC, K3s (Longhorn storage, Traefik ingress) |
 | **LLM Providers** | OpenRouter, OpenAI, Anthropic, Google |
 | **State Management** | React Query + tRPC hooks |
 
@@ -41,6 +41,7 @@ graph TB
         J[Runtime Catalog Router]
         K[OpenRouter Router]
         L[Template Router]
+        WH[Auth0 Webhook Endpoint]
     end
 
     subgraph "Services"
@@ -55,10 +56,16 @@ graph TB
         R[Drizzle ORM]
     end
 
-    subgraph "Infrastructure"
-        S[Kubernetes Cluster]
+    subgraph "Infrastructure - Hetzner Cloud"
+        TF[Terraform IaC]
+        S[K3s Cluster]
         T[Longhorn Storage]
         U[Traefik Ingress]
+    end
+
+    subgraph "External Services"
+        AUTH0[Auth0]
+        STRIPE[Stripe]
     end
 
     C -->|tRPC| H
@@ -69,6 +76,10 @@ graph TB
     E -->|tRPC| I
     F -->|tRPC| H
 
+    AUTH0 -->|Post Login Action| WH
+    WH -->|Update emailVerified| R
+    STRIPE -->|Webhooks| N
+
     H --> M
     I --> O
     I --> N
@@ -78,6 +89,7 @@ graph TB
     J --> R
     R --> Q
 
+    TF -->|Provision| S
     O --> S
     S --> T
     U --> S
@@ -123,10 +135,10 @@ graph LR
 | `/register` | — | Registration flow | ✅ Complete |
 | `/about` | About.tsx | Company story, market stats, team | ✅ Complete (team placeholder) |
 | `/pricing` | Pricing.tsx | Runtime catalog pricing, LLM credits, FAQ | ✅ Complete |
-| `/dashboard` | Dashboard.tsx | Deployment cards, create/delete, status badges | ✅ Complete |
+| `/dashboard` | Dashboard.tsx | Deployment cards, create/delete, status badges, email verification banner | ✅ Complete |
 | `/onboarding/[id]` | OnboardingWizard.tsx | 5-step wizard: Name → Runtime → LLM → Deploy → WhatsApp | ✅ Complete |
 | `/d/[id]/configure` | DeploymentConfiguration.tsx | Tabbed config (General, Model, Platforms, Skills, Advanced) | ✅ Complete |
-| `/settings` | Settings.tsx | Profile, theme, password reset, account info | ✅ Complete |
+| `/settings` | Settings.tsx | Profile, theme, password reset (email/password users), account info | ✅ Complete |
 
 ---
 
@@ -201,6 +213,17 @@ graph TB
         T1[list - public query]
     end
 ```
+
+### REST Endpoints (Non-tRPC)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/health` | None | K8s liveness/readiness probe |
+| `POST` | `/api/stripe/webhook` | Stripe signature | Stripe event webhooks (raw body) |
+| `POST` | `/api/stripe/checkout` | JWT Bearer | Create Stripe checkout session |
+| `POST` | `/api/stripe/portal` | JWT Bearer | Create Stripe billing portal session |
+| `POST` | `/api/auth0/email-verified` | M2M Bearer | Auth0 email verification sync webhook |
+| `GET` | `/debug/db` | None (dev only) | View all database tables |
 
 ### Procedures Detail
 
@@ -289,10 +312,13 @@ erDiagram
 
 **users table**
 - `id` — nanoid(12) primary key
+- `emailVerified` — synced from Auth0 via Post Login Action webhook
+- `freeDeploymentUsed` — one-time flag, user gets exactly 1 free deployment
+
+**deployments table**
 - `llmMode` — "included" or "byok" (bring-your-own-key)
 - `llmProvider` — "openrouter", "openai", "anthropic", or "google"
 - `status` — "pending", "creating", "running", or "failed"
-- `freeDeploymentUsed` — one-time flag, user gets exactly 1 free deployment
 
 ---
 
@@ -340,7 +366,101 @@ sequenceDiagram
 
 ---
 
-## 7. Kubernetes Resource Architecture
+## 7. Infrastructure — Hetzner Cloud + Terraform
+
+### Cluster Provisioning Architecture
+
+```mermaid
+graph TB
+    subgraph "Terraform IaC"
+        TF_VARS[terraform.tfvars]
+        TF_MAIN[main.tf]
+        TF_OUT[outputs.tf]
+    end
+
+    subgraph "Hetzner Cloud"
+        SSH[SSH Key]
+        NET[Private Network - 10.0.0.0/16]
+        FW[Firewall - SSH, HTTP, HTTPS, K3s API]
+        FIP[Floating IP - Ingress]
+
+        subgraph "K3s Cluster"
+            MASTER[Master Node - cpx21]
+            AGENT1[Agent Node 1 - cpx21]
+            AGENT2[Agent Node 2 - cpx21]
+        end
+    end
+
+    subgraph "Cluster Services"
+        TRAEFIK[Traefik Ingress Controller]
+        LONGHORN[Longhorn Storage Class]
+    end
+
+    TF_VARS --> TF_MAIN
+    TF_MAIN -->|hcloud provider| SSH
+    TF_MAIN -->|hcloud provider| NET
+    TF_MAIN -->|hcloud provider| FW
+    TF_MAIN -->|hcloud provider| FIP
+    TF_MAIN -->|hcloud provider| MASTER
+    TF_MAIN -->|hcloud provider| AGENT1
+    TF_MAIN -->|hcloud provider| AGENT2
+
+    MASTER -->|install| TRAEFIK
+    MASTER -->|install| LONGHORN
+    AGENT1 -->|k3s join| MASTER
+    AGENT2 -->|k3s join| MASTER
+    FIP --> TRAEFIK
+```
+
+### Terraform Configuration
+
+| File | Purpose |
+|------|---------|
+| `main.tf` | SSH key, private network, firewall, K3s master + agents, floating IP, Longhorn install |
+| `variables.tf` | hcloud_token, SSH keys, cluster_name, location, server types, agent_count, k3s_version, domain |
+| `outputs.tf` | Master/agent IPs, floating IP, kubeconfig command, SSH command, DNS records |
+| `terraform.tfvars.example` | Template config with Hetzner pricing and location references |
+| `.gitignore` | Excludes state files, tfvars (secrets), kubeconfig |
+
+### Default Cluster Specs
+
+| Resource | Default | Notes |
+|----------|---------|-------|
+| **Master Node** | cpx21 (3 vCPU, 4 GB RAM) | ~$7.59/mo |
+| **Agent Nodes** | 2x cpx21 | Scales via `agent_count` variable |
+| **Network** | 10.0.0.0/16 private | Internal K3s communication |
+| **Storage** | Longhorn (default StorageClass) | Replicated persistent volumes |
+| **Ingress** | Traefik (bundled with K3s) | TLS termination, host-based routing |
+| **Location** | Ashburn, VA (ash) | Also supports: Falkenstein, Nuremberg, Helsinki |
+| **K3s Version** | v1.29.2+k3s1 | Lightweight Kubernetes |
+
+### Firewall Rules
+
+| Port | Protocol | Description |
+|------|----------|-------------|
+| 22 | TCP | SSH access |
+| 80 | TCP | HTTP (Traefik redirect) |
+| 443 | TCP | HTTPS (Traefik TLS) |
+| 6443 | TCP | K3s API server |
+| 10250 | TCP | Kubelet metrics (internal) |
+| 8472 | UDP | VXLAN (Flannel networking) |
+
+### Quick Start
+
+```bash
+cd infrastructure/terraform
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your Hetzner token + SSH key path
+terraform init
+terraform plan
+terraform apply
+# Fetch kubeconfig
+scp root@<MASTER_IP>:/etc/rancher/k3s/k3s.yaml ./kubeconfig.yaml
+```
+
+---
+
+## 8. Kubernetes Resource Architecture
 
 ```mermaid
 graph TB
@@ -392,7 +512,7 @@ graph TB
 
 ---
 
-## 8. Auth & Security Flow
+## 9. Auth & Security Flow
 
 ```mermaid
 flowchart TD
@@ -425,6 +545,42 @@ flowchart TD
     end
 ```
 
+### Auth0 Email Verification Sync
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Auth0
+    participant Action as Post Login Action
+    participant API as Jarble API
+    participant DB as Database
+
+    User->>Auth0: Click verification link in email
+    Auth0-->>Auth0: Mark email_verified = true
+
+    User->>Auth0: Next login
+    Auth0->>Action: onExecutePostLogin(event, api)
+
+    Note over Action: Check: auth0| prefix?
+    Note over Action: Check: email_verified?
+
+    Action->>API: POST /api/auth0/email-verified
+    Note over Action,API: Authorization: Bearer {M2M_SECRET}
+    Note over Action,API: Body: { auth0Id, email }
+
+    API->>API: Verify M2M secret
+    API->>DB: Find user by auth0Id
+
+    alt User found & not yet verified
+        API->>DB: UPDATE emailVerified = true
+        API-->>Action: { updated: true }
+    else User already verified
+        API-->>Action: { updated: false, reason: already_verified }
+    else User not in DB yet
+        API-->>Action: { updated: false, reason: user_not_found }
+    end
+```
+
 ### Auth Details
 
 | Feature | Implementation |
@@ -436,10 +592,21 @@ flowchart TD
 | **Google Users** | Auto-verified email, account linking by email |
 | **Email/Password** | Reset password via Auth0 `dbconnections/change_password` |
 | **Email Gate** | Deployments blocked until `email_verified === true` |
+| **Email Sync** | Auth0 Post Login Action webhook → `POST /api/auth0/email-verified` |
+| **M2M Auth** | Shared secret (`AUTH0_M2M_SECRET`) in Bearer token header |
+
+### Auth0 Action Setup
+
+The Post Login Action (`infrastructure/auth0/post-email-verification-action.js`) requires two secrets in the Auth0 Dashboard:
+
+| Secret | Value |
+|--------|-------|
+| `JARBLE_API_URL` | `https://api.jarble.ai` (or `http://localhost:3001` for dev) |
+| `JARBLE_M2M_SECRET` | Same value as `AUTH0_M2M_SECRET` in the API `.env` |
 
 ---
 
-## 9. Payment Flow (Stripe)
+## 10. Payment Flow (Stripe)
 
 ```mermaid
 flowchart TD
@@ -481,7 +648,7 @@ flowchart TD
 
 ---
 
-## 10. What's Built (Complete)
+## 11. What's Built (Complete)
 
 ### Frontend ✅
 
@@ -489,12 +656,14 @@ flowchart TD
 - [x] Auth0 login/register with Google, GitHub, Email/Password
 - [x] Protected route guards with auth redirects
 - [x] Dashboard with deployment cards (status, pricing, delete)
+- [x] Email verification banner on dashboard (blocks deployment creation)
 - [x] 5-step onboarding wizard (Name → Runtime → LLM → Deploy → WhatsApp)
+- [x] Deploy step blocks unverified email users with warning
 - [x] Deployment configuration (General, Model, Platforms, Skills, Advanced tabs)
-- [x] Settings page (profile, theme toggle, password reset)
+- [x] Settings page (profile, theme toggle, account info)
+- [x] Password reset button for email/password auth users
 - [x] Dark mode with localStorage persistence + system preference detection
-- [x] Email verification gate on deployments
-- [x] Profile dropdown (avatar, settings, theme, logout)
+- [x] Profile dropdown (avatar, settings, theme, logout) — shown on all pages
 - [x] About page (company narrative, market stats)
 - [x] Pricing page (runtime catalog, LLM credits, FAQ)
 - [x] Error boundaries + toast notifications
@@ -513,13 +682,27 @@ flowchart TD
 - [x] API key validation per provider
 - [x] OpenRouter tenant key provisioning ($5/mo limit)
 - [x] Stripe checkout + portal + webhook handling
+- [x] Auth0 email verification webhook (`POST /api/auth0/email-verified`)
+- [x] M2M shared secret authentication for webhooks
 - [x] CORS configuration
 - [x] Health checks (K8s liveness/readiness probes)
 - [x] Multi-database support (MySQL, PostgreSQL, SQLite)
 
+### Infrastructure ✅
+
+- [x] Terraform config for Hetzner Cloud K3s cluster provisioning
+- [x] Master node + configurable agent nodes with auto-join
+- [x] Private networking (10.0.0.0/16) for internal cluster communication
+- [x] Firewall rules (SSH, HTTP, HTTPS, K3s API, VXLAN)
+- [x] Floating IP for ingress load balancing
+- [x] Longhorn storage class auto-installation
+- [x] Traefik ingress (bundled with K3s)
+- [x] Auth0 Post Login Action script for email verification sync
+- [x] K8s deployment manifests (ServiceAccount, Role, RoleBinding, Deployment, Service, Ingress)
+
 ---
 
-## 11. What's NOT Built Yet — Roadmap
+## 12. What's NOT Built Yet — Roadmap
 
 ### 🔴 Critical (Must-Have for Launch)
 
@@ -527,7 +710,7 @@ flowchart TD
 |---|------|-------------|--------|
 | 1 | **Platform credential storage** | Wire PlatformsTab to API — save WhatsApp/Discord/Slack/Telegram credentials to DB, test connections, disconnect | Medium |
 | 2 | **Stripe subscription → deployment sync** | When subscription changes/cancels, update deployment status. Handle payment failures. | Medium |
-| 3 | **Deployment status toggle** | Pause/resume deployments from config page (API + K8s support) | Medium |
+| 3 | **Deployment status toggle (stop/start)** | Pause/resume deployments from dashboard and config page — scale K8s replicas to 0/1 | Medium |
 | 4 | **Drizzle migrations regeneration** | Current migrations are stale — regenerate from updated schemas | Small |
 | 5 | **Webhook configuration** | Save webhook URLs, send events on deployment status changes | Medium |
 | 6 | **WhatsApp QR integration** | Replace mock QR code with real WhatsApp Business API connection | Large |
@@ -545,25 +728,28 @@ flowchart TD
 | 13 | **Rate limiting** | Add rate limiting on API routes to prevent abuse | Small |
 | 14 | **Templates database** | Move hardcoded templates to DB, allow custom templates | Medium |
 | 15 | **Deployment history** | Track config changes, restarts, status transitions | Medium |
+| 16 | **Terraform CI/CD** | GitHub Actions pipeline for `terraform plan` on PR, `terraform apply` on merge | Medium |
 
 ### 🟢 Nice-to-Have (Future)
 
 | # | Task | Description | Effort |
 |---|------|-------------|--------|
-| 16 | **Multi-deployment management** | Bulk actions, deployment groups, labels | Medium |
-| 17 | **Custom domain support** | Allow users to point custom domains to their bots | Large |
-| 18 | **Team/organization support** | Multi-user orgs, role-based access, shared deployments | Large |
-| 19 | **Chat testing playground** | In-browser chat interface to test bot before deploying | Medium |
-| 20 | **Skill marketplace** | Browse, install, configure pre-built skills/plugins | Large |
-| 21 | **CI/CD integration** | GitHub Actions / GitLab CI for deployment automation | Medium |
-| 22 | **Image upload for avatar** | Settings page avatar change | Small |
-| 23 | **Guided tour** | Interactive onboarding tour for new users | Small |
-| 24 | **About page team section** | Replace placeholder team cards with real profiles | Small |
-| 25 | **LLM fine-tuning integration** | Allow users to fine-tune models on their data | Large |
+| 17 | **Multi-deployment management** | Bulk actions, deployment groups, labels | Medium |
+| 18 | **Custom domain support** | Allow users to point custom domains to their bots | Large |
+| 19 | **Team/organization support** | Multi-user orgs, role-based access, shared deployments | Large |
+| 20 | **Chat testing playground** | In-browser chat interface to test bot before deploying | Medium |
+| 21 | **Skill marketplace** | Browse, install, configure pre-built skills/plugins | Large |
+| 22 | **CI/CD integration** | GitHub Actions / GitLab CI for deployment automation | Medium |
+| 23 | **Image upload for avatar** | Settings page avatar change | Small |
+| 24 | **Guided tour** | Interactive onboarding tour for new users | Small |
+| 25 | **About page team section** | Replace placeholder team cards with real profiles | Small |
+| 26 | **LLM fine-tuning integration** | Allow users to fine-tune models on their data | Large |
+| 27 | **Multi-region cluster support** | Terraform modules for deploying K3s to multiple Hetzner regions | Large |
+| 28 | **Cluster auto-scaling** | Scale agent nodes based on deployment count/resource usage | Large |
 
 ---
 
-## 12. Component Inventory
+## 13. Component Inventory
 
 ### Shared Components
 
@@ -593,7 +779,7 @@ flowchart TD
 
 ---
 
-## 13. Environment Variables
+## 14. Environment Variables
 
 ### Frontend (.env.local)
 
@@ -612,8 +798,10 @@ flowchart TD
 | `FRONTEND_URL` | No (default: http://localhost:3000) | CORS origin |
 | `DATABASE_URL` | Yes (unless SQLite) | Database connection string |
 | `DB_PROVIDER` | No (default: mysql) | mysql, postgres, or sqlite |
+| `USE_SQLITE` | No | Legacy flag — same as DB_PROVIDER=sqlite |
 | `AUTH0_DOMAIN` | Yes | Auth0 tenant domain |
 | `AUTH0_AUDIENCE` | Yes | Auth0 API audience |
+| `AUTH0_M2M_SECRET` | No | Shared secret for Auth0 Action webhooks (generate with `openssl rand -hex 32`) |
 | `OPENROUTER_API_KEY` | No | OpenRouter API key |
 | `OPENROUTER_MANAGEMENT_KEY` | No | OpenRouter Management API key for provisioning |
 | `STRIPE_SECRET_KEY` | No | Stripe secret key (Stripe disabled if not set) |
@@ -621,9 +809,30 @@ flowchart TD
 | `STRIPE_PRICE_PRO` | If Stripe enabled | Stripe price ID for Pro tier |
 | `STRIPE_PRICE_AGENCY` | If Stripe enabled | Stripe price ID for Agency tier |
 
+### Terraform (terraform.tfvars)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `hcloud_token` | Yes | Hetzner Cloud API token |
+| `ssh_public_key_path` | No (default: ~/.ssh/id_rsa.pub) | Path to SSH public key |
+| `cluster_name` | No (default: jarble) | K3s cluster name prefix |
+| `location` | No (default: ash) | Hetzner datacenter (ash, fsn1, nbg1, hel1) |
+| `master_server_type` | No (default: cpx21) | Master node instance type |
+| `agent_server_type` | No (default: cpx21) | Worker node instance type |
+| `agent_count` | No (default: 2) | Number of worker nodes |
+| `k3s_version` | No (default: v1.29.2+k3s1) | K3s version |
+| `domain` | No (default: jarble.ai) | Base domain for DNS records |
+
+### Auth0 Action Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `JARBLE_API_URL` | API base URL (https://api.jarble.ai or http://localhost:3001) |
+| `JARBLE_M2M_SECRET` | Must match `AUTH0_M2M_SECRET` in API .env |
+
 ---
 
-## 14. File Structure Overview
+## 15. File Structure Overview
 
 ```
 monorepo/
@@ -651,6 +860,8 @@ monorepo/
 │   │   ├── About.tsx
 │   │   ├── Pricing.tsx
 │   │   ├── NotFound.tsx
+│   │   ├── onboarding/
+│   │   │   └── wizardStepConfig.ts
 │   │   └── deployment-config/
 │   │       ├── GeneralTab.tsx
 │   │       ├── ModelTab.tsx
@@ -669,7 +880,6 @@ monorepo/
 │   │   ├── SubscribeButton.tsx
 │   │   ├── ErrorBoundary.tsx
 │   │   ├── ThemeToggle.tsx
-│   │   ├── WatercolorBlob.tsx
 │   │   ├── GuidedTour.tsx
 │   │   └── DevNav.tsx
 │   ├── contexts/
@@ -683,6 +893,8 @@ monorepo/
 │   │   ├── const.ts
 │   │   ├── platformConfigs.ts
 │   │   └── utils.ts
+│   ├── docs/
+│   │   └── JARBLE_PLATFORM_OVERVIEW.md
 │   └── public/                        # Static assets
 │       ├── hero-animation.webm
 │       ├── hero-mobile.webp
@@ -690,7 +902,7 @@ monorepo/
 │
 ├── jarble-api-main/                   # Backend (Express + tRPC)
 │   ├── src/
-│   │   ├── index.ts                   # Server entry + Stripe webhooks
+│   │   ├── index.ts                   # Server entry + Stripe/Auth0 webhooks
 │   │   ├── trpc/
 │   │   │   ├── index.ts               # Router exports
 │   │   │   ├── context.ts             # tRPC context (auth + DB)
@@ -716,8 +928,19 @@ monorepo/
 │   │   └── deployment.yaml           # K8s manifests (SA, Role, Deployment, Service, Ingress)
 │   ├── drizzle/                       # MySQL migrations (stale)
 │   └── drizzle-pg/                    # Postgres migrations (stale)
+│
+├── infrastructure/                    # Infrastructure-as-Code
+│   ├── terraform/                     # Hetzner Cloud K3s provisioning
+│   │   ├── main.tf                    # SSH, network, firewall, K3s master + agents, floating IP
+│   │   ├── variables.tf               # All configurable variables
+│   │   ├── outputs.tf                 # IPs, kubeconfig command, DNS records
+│   │   ├── terraform.tfvars.example   # Template config
+│   │   ├── .gitignore                 # Excludes state, tfvars, kubeconfig
+│   │   └── README.md                  # Quick start guide
+│   └── auth0/
+│       └── post-email-verification-action.js  # Auth0 Post Login Action (email sync webhook)
 ```
 
 ---
 
-*This document provides a complete snapshot of the Jarble platform as of February 2026. Use the roadmap section to prioritize next steps.*
+*This document provides a complete snapshot of the Jarble platform as of February 16, 2026. Use the roadmap section to prioritize next steps.*
