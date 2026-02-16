@@ -1329,7 +1329,54 @@ Added to `users` table (all 3 schema variants):
 
 ---
 
-# 26. Dev Servers
+# 26. Session Log
+
+### Session 6 — February 16, 2026
+
+**Commit:** `a41f9a6` — "Add Stripe subscription-to-deployment sync and Export Config button"
+**Branch:** `main` (pushed to remote)
+
+#### What was done:
+
+1. **Export Config button fix** — The Export Config button was only visible inside `CancellationGracePeriod` (after cancelling). Added a standalone Export Config button to the always-visible Actions section of the `DeploymentConfiguration` sidebar, so users can export anytime.
+
+2. **Stripe subscription → deployment sync** (the main task) — The `stripeSubscriptionId` column on deployments was never populated. Fixed with:
+   - Added `pendingStripeSubscriptionId` + `pendingStripeTier` columns to `users` table (all 3 schema files + SQLite init)
+   - `checkout.session.completed` webhook now stores `session.subscription` as pending fields on user
+   - `deployment.create` mutation consumes `pendingStripeSubscriptionId` for non-free deployments
+   - `customer.subscription.updated` handler: syncs cancel state + payment errors from Stripe portal to DB
+   - `customer.subscription.deleted` handler: fixed from full-table scan to proper WHERE query
+   - `invoice.payment_failed` handler: flags deployments with error message
+   - Added `linkSubscription` tRPC mutation (fallback for edge cases)
+   - Added `listActiveSubscriptions()` Stripe helper
+   - Fixed checkout route field name mismatch (`tier` vs `runtimeSlug`)
+
+#### Files modified (9):
+- `jarble-api-main/src/db/schema.ts` — 2 new user columns
+- `jarble-api-main/src/db/schema.pg.ts` — same
+- `jarble-api-main/src/db/schema.sqlite.ts` — same
+- `jarble-api-main/src/db/init.ts` — SQLite CREATE TABLE updated
+- `jarble-api-main/src/index.ts` — All 4 webhook handlers + checkout route fix
+- `jarble-api-main/src/services/stripe.ts` — `listActiveSubscriptions()`
+- `jarble-api-main/src/trpc/routers/deployment.ts` — Pending sub consumption in create + `linkSubscription` mutation
+- `Jarble-mvp/views/DeploymentConfiguration.tsx` — Standalone Export Config button
+- `OVERVIEW.md` — Session 6 docs + Section 25
+
+#### Build status: ✅ Clean (`npm run build` passes)
+
+#### What's next (remaining critical roadmap items):
+- **Drizzle migrations regeneration** — Current migrations are stale
+- **WhatsApp QR integration** — Replace mock QR with real WhatsApp Business API
+- **Email verification resend** — Add "Resend" button for unverified users
+
+#### Notes:
+- Dev servers: API on port 3001, Frontend on port 3000
+- Test deployment is seeded as `isFree: true`, so cancel subscription button won't appear in dev (that's expected — it only shows for paid deployments where `isPaid = !dep.isFree`)
+- Commits should NOT include `Co-Authored-By` line (user preference)
+
+---
+
+# 27. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)
