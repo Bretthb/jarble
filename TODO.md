@@ -4,16 +4,21 @@
 
 ### DB → Container (on frontend save)
 - When user saves config on frontend, render runtime-specific config files and write to PVC
-- For OpenClaw: render `soul.md` from DB fields (systemPrompt, LLM settings)
+- For OpenClaw: **multiple config files** on PVC (not just soul.md):
+  - `soul.md` — system prompt / personality
+  - Skills config (TBD)
+  - Platform configs (TBD)
+  - Possibly more — full file structure TBD once OpenClaw internals are mapped
 - Restart pod to pick up new config
 - Inject LLM API key + provider into K8s Secret on update
 
 ### Container → DB (reverse sync / drift detection)
 - Detect changes made inside the container (manual edits to soul.md, runtime self-modification)
-- Compare container config with DB version, update DB if changed
+- Compare container config files with DB version, update DB if changed
 - Frontend reflects changes on next query
+- Must watch **all** config files, not just soul.md (skills, platforms, etc.)
 - **Option A (interim):** Polling via K8s exec — API periodically reads config files from pod, compares hash with DB
-- **Option B (long-term):** File watcher webhook in base image — container watches `/data/soul.md`, POSTs to Jarble API on change
+- **Option B (long-term):** File watcher webhook in base image — container watches `/data/` config files, POSTs to Jarble API on change
 
 ### Platform credentials sync
 - WhatsApp/Discord/Slack/Telegram connections configured inside the container need to surface back to frontend
@@ -26,7 +31,7 @@ All config sync logic MUST be gated by runtime slug. Use a strategy/registry pat
 
 ```
 runtimeConfigs = {
-  openclaw: { configFile: "soul.md", renderer: openclawRenderer, tabs: ["general","model","platforms","skills","advanced"] },
+  openclaw: { configFiles: ["soul.md", "skills/*", "platforms/*", ...TBD], renderer: openclawRenderer, tabs: ["general","model","platforms","skills","advanced"] },
   zeroclaw: { configFile: "config.yaml", renderer: zeroclawRenderer, tabs: ["general","advanced"] },
   // future non-bot runtimes define their own or skip config sync
 }
@@ -79,7 +84,7 @@ runtimeConfigs = {
 ## Architecture Decisions (Locked In)
 - One base Docker image per runtime on **public GHCR** (`ghcr.io/jarble-ai/openclaw:latest`)
 - Hardware specs (CPU, memory, storage) enforced at **K8s level**, not Docker image level
-- All behavioral config via **PVC-mounted files** (soul.md for OpenClaw)
+- All behavioral config via **PVC-mounted files** (multiple config files for OpenClaw: soul.md, skills, platforms, + others TBD)
 - **DB is source of truth**, PVC files are rendered outputs
 - OpenRouter handles token limits via **credit system** (no maxTokens needed)
 - `storageMb` column is actually **GB** (historical naming — documented throughout)
