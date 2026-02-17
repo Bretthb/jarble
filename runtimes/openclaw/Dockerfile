@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     tini \
     ca-certificates \
+    inotify-tools \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Create PVC directory structure ────────────────────────────────────
@@ -29,9 +31,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # entrypoint works even without a volume (for local testing).
 RUN mkdir -p /data/config /data/runtime /data/logs /data/.openclaw/workspace
 
-# ── Copy entrypoint ──────────────────────────────────────────────────
+# ── Copy entrypoint + file watcher ─────────────────────────────────
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY file-watcher.sh /usr/local/bin/file-watcher.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/file-watcher.sh
 
 # ── Environment defaults ─────────────────────────────────────────────
 # These can be overridden by K8s Secret env vars

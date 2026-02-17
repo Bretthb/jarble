@@ -16,6 +16,7 @@ import {
   constructWebhookEvent,
 } from "./services/stripe.js";
 import { stopDeployment } from "./k8s/deployment.js";
+import { syncConfigsFromPvc } from "./services/configSync.js";
 import { eq } from "drizzle-orm";
 
 const app = express();
@@ -371,6 +372,41 @@ app.post("/api/auth0/email-verified", async (req, res) => {
     res.json({ received: true, updated: true });
   } catch (err) {
     logger.error({ err, auth0Id }, "Email verification webhook error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Config change webhook (PVC → DB sync) ──────────────────────────────────
+// Called by the file watcher running inside runtime containers when config files
+// on the PVC change (e.g., user edited soul.md directly via OpenClaw).
+// Auth: DEPLOYMENT_ID is a random nanoid only the pod knows from its K8s Secret.
+app.post("/api/config-changed", async (req, res) => {
+  try {
+    const { deploymentId } = req.body;
+
+    if (!deploymentId || typeof deploymentId !== "string") {
+      res.status(400).json({ error: "deploymentId is required" });
+      return;
+    }
+
+    // Verify deployment exists
+    const { deployments: deploymentsTable } = tables;
+    const deployment = await db.query.deployments.findFirst({
+      where: eq(deploymentsTable.id, deploymentId),
+    });
+
+    if (!deployment) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+
+    // Fire-and-forget: read PVC config files and sync to DB
+    void syncConfigsFromPvc(deploymentId);
+
+    logger.info({ deploymentId }, "Config change webhook received, syncing from PVC");
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "Config change webhook error");
     res.status(500).json({ error: "Internal server error" });
   }
 });

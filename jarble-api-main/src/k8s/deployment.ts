@@ -2,7 +2,7 @@ import * as k8s from "@kubernetes/client-node";
 import stream from "stream";
 import archiver from "archiver";
 import { logger } from "../utils/logger.js";
-import type { ConfigFile } from "../runtimes/types.js";
+import type { ConfigFile, ConfigFileSpec } from "../runtimes/types.js";
 
 // Initialize K8s client
 const kc = new k8s.KubeConfig();
@@ -82,6 +82,12 @@ export async function createDeployment(
     TEMPLATE: config.template || "personal",
     RUNTIME: config.runtime || "openclaw",
   };
+
+  // Include JARBLE_API_URL for file watcher callback (PVC → DB sync)
+  if (process.env.JARBLE_API_URL) {
+    baseSecretData.JARBLE_API_URL = process.env.JARBLE_API_URL;
+  }
+
   const secretData = { ...baseSecretData, ...(config.extraSecretEntries ?? {}) };
 
   await coreApi.createNamespacedSecret(NAMESPACE, {
@@ -550,7 +556,7 @@ export async function writeConfigsToPvc(
 /**
  * Execute a command in a pod (no stdin, capture stdout/stderr).
  */
-async function execInPod(podName: string, command: string[]): Promise<string> {
+export async function execInPod(podName: string, command: string[]): Promise<string> {
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
 
@@ -622,4 +628,122 @@ async function execInPodWithStdin(
       }
     }).catch(reject);
   });
+}
+
+// ── Secret Updates ─────────────────────────────────────────────────────
+
+/**
+ * Replace the K8s Secret for a deployment with updated stringData.
+ * Uses replaceNamespacedSecret (not patch) to ensure removed env vars
+ * are cleaned out (e.g., when a platform credential is deleted).
+ */
+export async function updateDeploymentSecret(
+  deploymentId: string,
+  userId: string,
+  name: string,
+  runtime: string,
+  secretEntries: Record<string, string>
+): Promise<void> {
+  const baseData: Record<string, string> = {
+    DEPLOYMENT_ID: deploymentId,
+    USER_ID: userId,
+    DEPLOYMENT_NAME: name,
+    TEMPLATE: "personal",
+    RUNTIME: runtime,
+  };
+
+  // Include JARBLE_API_URL for file watcher callback
+  if (process.env.JARBLE_API_URL) {
+    baseData.JARBLE_API_URL = process.env.JARBLE_API_URL;
+  }
+
+  const fullData = { ...baseData, ...secretEntries };
+
+  await coreApi.replaceNamespacedSecret(
+    `secret-${deploymentId}`,
+    NAMESPACE,
+    {
+      metadata: { name: `secret-${deploymentId}` },
+      stringData: fullData,
+    }
+  );
+
+  logger.info({ deploymentId, entryCount: Object.keys(fullData).length }, "K8s Secret updated");
+}
+
+// ── Config File Reading (PVC → DB sync) ────────────────────────────────
+
+/**
+ * Read config files from a running pod's PVC.
+ * Used for reverse sync: reading what's on the PVC back to the DB.
+ *
+ * @param deploymentId - Deployment to read from
+ * @param configFileSpecs - Which files to read (from runtime handler's configFiles)
+ * @returns Array of ConfigFile with current content from PVC
+ */
+export async function readConfigsFromPvc(
+  deploymentId: string,
+  configFileSpecs: ConfigFileSpec[]
+): Promise<ConfigFile[]> {
+  // Find the running pod
+  const pods = await coreApi.listNamespacedPod(
+    NAMESPACE,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    `app=dep-${deploymentId}`
+  );
+
+  if (pods.body.items.length === 0) {
+    throw new Error(`No pods found for deployment ${deploymentId}`);
+  }
+
+  const pod = pods.body.items[0];
+  const podName = pod.metadata?.name;
+  if (!podName) throw new Error("Pod has no name");
+
+  // Check pod is running
+  const isRunning = pod.status?.phase === "Running" && pod.status?.containerStatuses?.[0]?.ready;
+  if (!isRunning) {
+    throw new Error(`Pod ${podName} is not ready`);
+  }
+
+  const files: ConfigFile[] = [];
+
+  for (const spec of configFileSpecs) {
+    if (spec.isGlob) {
+      // Glob pattern (e.g., "skills/*") — find all matching files
+      const basePath = `/data/config/${spec.path.replace("/*", "")}`;
+      try {
+        const findOutput = await execInPod(podName, ["find", basePath, "-type", "f"]);
+        const filePaths = findOutput.trim().split("\n").filter(Boolean);
+
+        for (const fullPath of filePaths) {
+          try {
+            const content = await execInPod(podName, ["cat", fullPath]);
+            const relativePath = fullPath.replace(/^\/data\/config\//, "");
+            files.push({ path: relativePath, content });
+          } catch (err) {
+            logger.warn({ deploymentId, path: fullPath, err }, "Failed to read config file from PVC");
+          }
+        }
+      } catch {
+        // Directory doesn't exist yet — that's fine
+        logger.debug({ deploymentId, path: basePath }, "Config directory not found on PVC");
+      }
+    } else {
+      // Exact file path (e.g., "soul.md")
+      const filePath = `/data/config/${spec.path}`;
+      try {
+        const content = await execInPod(podName, ["cat", filePath]);
+        files.push({ path: spec.path, content });
+      } catch {
+        // File doesn't exist — that's fine (e.g., no soul.md set)
+        logger.debug({ deploymentId, path: spec.path }, "Config file not found on PVC");
+      }
+    }
+  }
+
+  return files;
 }

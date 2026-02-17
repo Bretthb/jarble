@@ -85,6 +85,16 @@ else
   echo "[entrypoint] Deployment: ${DEPLOYMENT_NAME:-unknown} (${DEPLOYMENT_ID:-unknown})"
 fi
 
+# ── Start file watcher (background) ──────────────────────────────────
+# Watches /data/config/ for changes and notifies Jarble API so the
+# frontend stays in sync with config files modified inside the container.
+if command -v inotifywait >/dev/null 2>&1; then
+  /usr/local/bin/file-watcher.sh &
+  echo "[entrypoint] File watcher started in background"
+else
+  echo "[entrypoint] Warning: inotifywait not found, file watcher disabled"
+fi
+
 # ── Start OpenClaw Gateway ───────────────────────────────────────────
 cd "$RUNTIME_DIR"
 echo "[entrypoint] Starting OpenClaw gateway on port 18789..."

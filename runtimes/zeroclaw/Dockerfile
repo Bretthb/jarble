@@ -26,6 +26,8 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tini \
+    inotify-tools \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy ZeroClaw binary from upstream image
@@ -35,9 +37,10 @@ RUN chmod +x /usr/local/bin/zeroclaw
 # ── Create PVC directory structure ────────────────────────────────────
 RUN mkdir -p /data/config /data/zeroclaw-data /data/logs
 
-# ── Copy entrypoint ──────────────────────────────────────────────────
+# ── Copy entrypoint + file watcher ─────────────────────────────────
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY file-watcher.sh /usr/local/bin/file-watcher.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/file-watcher.sh
 
 # ── Environment defaults ─────────────────────────────────────────────
 # ZeroClaw reads these env vars directly

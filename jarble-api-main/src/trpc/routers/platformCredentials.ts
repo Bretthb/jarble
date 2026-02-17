@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
 import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
+import { syncConfigsToPvc } from "../../services/configSync.js";
 
 const { deployments, platformCredentials } = tables;
 
@@ -146,6 +147,11 @@ export const platformCredentialsRouter = router({
         }, "Platform credentials saved");
       }
 
+      // Config sync: push updated configs to PVC if deployment is running
+      if ((deployment as any).status === "running") {
+        void syncConfigsToPvc(input.deploymentId);
+      }
+
       return { success: true };
     }),
 
@@ -175,6 +181,11 @@ export const platformCredentialsRouter = router({
         deploymentId: input.deploymentId,
         platformId: input.platformId,
       }, "Platform credentials deleted");
+
+      // Config sync: push updated configs to PVC if deployment is running
+      if ((deployment as any).status === "running") {
+        void syncConfigsToPvc(input.deploymentId);
+      }
 
       return { success: true };
     }),

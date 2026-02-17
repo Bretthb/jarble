@@ -12,6 +12,7 @@ import { getHandlerOrNull } from "../../runtimes/index.js";
 import type { DeploymentFields } from "../../runtimes/types.js";
 import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrouter.js";
+import { syncConfigsToPvc } from "../../services/configSync.js";
 
 const { deployments, users, runtimeCatalog, platformCredentials } = tables;
 
@@ -575,6 +576,11 @@ export const deploymentRouter = router({
       await (ctx.db as any).update(deployments)
         .set(updates)
         .where(and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)));
+
+      // Config sync: push updated configs to PVC if deployment is running
+      if (existing.status === "running") {
+        void syncConfigsToPvc(id);
+      }
 
       return ctx.db.query.deployments.findFirst({
         where: eq(deployments.id, id),
