@@ -190,6 +190,68 @@ export const platformCredentialsRouter = router({
       return { success: true };
     }),
 
+  // Check if WhatsApp is connected for a deployment
+  checkWhatsAppStatus: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user!.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      const existing = await ctx.db.query.platformCredentials.findFirst({
+        where: and(
+          eq(platformCredentials.deploymentId, input.deploymentId),
+          eq(platformCredentials.platformId, "whatsapp"),
+        ),
+      });
+
+      return { connected: !!existing };
+    }),
+
+  // Mark WhatsApp as connected (called by the QR SSE endpoint after successful pairing)
+  markWhatsAppConnected: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user!.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Upsert: only insert if no existing whatsapp row
+      const existing = await ctx.db.query.platformCredentials.findFirst({
+        where: and(
+          eq(platformCredentials.deploymentId, input.deploymentId),
+          eq(platformCredentials.platformId, "whatsapp"),
+        ),
+      });
+
+      if (!existing) {
+        const encrypted = encryptApiKey(JSON.stringify({}));
+        await (ctx.db as any).insert(platformCredentials).values({
+          id: nanoid(12),
+          deploymentId: input.deploymentId,
+          platformId: "whatsapp",
+          credentials: encrypted,
+        });
+
+        logger.info({ deploymentId: input.deploymentId }, "WhatsApp marked as connected");
+      }
+
+      // Trigger config sync so openclaw.json gets WhatsApp channel written
+      if ((deployment as any).status === "running") {
+        void syncConfigsToPvc(input.deploymentId);
+      }
+
+      return { success: true };
+    }),
+
   // Test connection (placeholder — validates required fields are present)
   testConnection: protectedProcedure
     .input(z.object({

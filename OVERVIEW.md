@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 17, 2026 (Session 10 — Billing Page)
+📅 Last updated: February 17, 2026 (Session 11 — WhatsApp QR Pairing)
 
 </aside>
 
@@ -1625,7 +1625,45 @@ file-watcher.sh (runs as background process in container)
 
 ---
 
-# 30. Dev Servers
+# 30. Session 11 — WhatsApp QR Pairing
+
+**Date:** February 17, 2026
+
+#### What was done:
+- **WhatsApp QR pairing flow** — Replaced mock QR grid with real Baileys QR code streaming from OpenClaw inside K8s pods
+- **Backend SSE endpoint** — `GET /api/deployments/:id/whatsapp/qr` streams QR data via K8s exec into running pod, runs `openclaw channels login --channel whatsapp`, parses stdout for QR strings and connection status
+- **K8s exec streaming** — Added `streamExecInPod()` (line-by-line streaming exec, unlike `execInPod()` which waits for exit) and `findPodForDeployment()` helpers to `deployment.ts`
+- **WhatsApp status tRPC** — Added `checkWhatsAppStatus` query and `markWhatsAppConnected` mutation to `platformCredentialsRouter`
+- **Frontend QR hook** — Created `useQrStream` hook (mirrors `useLogStream` pattern) with EventSource for `qr`, `connected`, `timeout`, `error` events
+- **Reusable QR modal** — Created `WhatsAppQrModal` component with QR display, connecting/timeout/error states, auto-close on success
+- **PlatformsTab integration** — WhatsApp section now shows real status check + "Start QR Pairing" button (or "Re-pair" if connected), hides Save/Test buttons
+- **OnboardingWizard integration** — `StepConnectWhatsApp` now renders real QR from `useQrStream`, auto-starts when deployment is ready, captures `createdDeploymentId` from deploy mutation
+- **react-qr-code** dependency added to frontend
+
+#### Files changed:
+| File | Action |
+|------|--------|
+| `jarble-api-main/src/k8s/deployment.ts` | Modified — added `findPodForDeployment()`, `streamExecInPod()` |
+| `jarble-api-main/src/index.ts` | Modified — added WhatsApp QR SSE endpoint |
+| `jarble-api-main/src/trpc/routers/platformCredentials.ts` | Modified — added `checkWhatsAppStatus`, `markWhatsAppConnected` |
+| `Jarble-mvp/hooks/useQrStream.ts` | Created — SSE hook for QR streaming |
+| `Jarble-mvp/components/WhatsAppQrModal.tsx` | Created — reusable QR pairing dialog |
+| `Jarble-mvp/views/deployment-config/PlatformsTab.tsx` | Modified — real QR pairing for WhatsApp |
+| `Jarble-mvp/views/OnboardingWizard.tsx` | Modified — real QR in wizard, captures deployment ID |
+
+#### Build status: ✅ API builds clean.
+
+#### Architecture note:
+The QR flow uses K8s exec (`streamExecInPod`) to run `openclaw channels login` inside the pod and stream stdout via SSE. Baileys QR strings are detected by heuristic (length > 50, contains commas/@) and rendered client-side with `react-qr-code`. When connected, the SSE endpoint auto-saves a `platformCredentials` row for WhatsApp and triggers config sync. The QR data format may need runtime tuning based on actual OpenClaw output.
+
+#### What's next (remaining roadmap items):
+- **Rate limiting** on API routes
+- **Terraform CI/CD** — GitHub Actions for plan/apply
+- **TLS/cert-manager** — Ingress has Traefik annotation but no certificate resources
+
+---
+
+# 31. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)

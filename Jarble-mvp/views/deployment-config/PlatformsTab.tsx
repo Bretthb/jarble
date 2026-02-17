@@ -23,16 +23,19 @@ import {
   Copy,
   Save,
   X,
+  Smartphone,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { PLATFORM_CONFIGS } from "./types";
 import type { PlatformConfig, PlatformsTabProps } from "./types";
+import { WhatsAppQrModal } from "@/components/WhatsAppQrModal";
 
 export function PlatformsTab({ formData, updateFormData, deploymentId }: PlatformsTabProps) {
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformConfig | null>(null);
   const [platformCredentials, setPlatformCredentials] = useState<Record<string, string>>({});
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
+  const [showQrPairing, setShowQrPairing] = useState(false);
 
   // ── API queries & mutations ─────────────────────────────────────────
   const credentialsQuery = trpc.platformCredentials.getByDeployment.useQuery(
@@ -74,6 +77,11 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
       toast.error(err.message || "Connection test failed");
     },
   });
+
+  const whatsAppStatusQuery = trpc.platformCredentials.checkWhatsAppStatus.useQuery(
+    { deploymentId },
+    { enabled: !!deploymentId }
+  );
 
   // ── Sync connected platforms from API data into formData ────────────
   useEffect(() => {
@@ -287,13 +295,52 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                   </p>
                 </div>
 
-                {/* WhatsApp special case — no credential fields */}
+                {/* WhatsApp special case — QR code pairing */}
                 {selectedPlatform.id === "whatsapp" && selectedPlatform.fields.length === 0 && (
-                  <div className="p-4 rounded-lg bg-secondary/50 border border-border text-center">
-                    <p className="text-sm text-foreground font-medium mb-1">QR Code Pairing</p>
-                    <p className="text-xs text-muted-foreground">
-                      WhatsApp uses QR code pairing via Baileys. No credentials needed — connect via the deployment console after deploying.
-                    </p>
+                  <div className="space-y-4">
+                    {whatsAppStatusQuery.data?.connected ? (
+                      <div className="p-4 rounded-lg bg-primary/5 border border-primary/20 text-center">
+                        <CheckCircle2 className="w-10 h-10 text-primary mx-auto mb-2" />
+                        <p className="text-sm text-foreground font-medium">WhatsApp is connected</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Your bot is linked to WhatsApp via Baileys
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3"
+                          onClick={() => setShowQrPairing(true)}
+                        >
+                          Re-pair WhatsApp
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-lg bg-secondary/50 border border-border text-center">
+                        <Smartphone className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-foreground font-medium mb-1">QR Code Pairing</p>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          WhatsApp uses QR code pairing via Baileys. No credentials needed.
+                        </p>
+                        <Button
+                          onClick={() => setShowQrPairing(true)}
+                          className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                        >
+                          <Smartphone className="w-4 h-4 mr-2" />
+                          Start QR Pairing
+                        </Button>
+                      </div>
+                    )}
+                    <WhatsAppQrModal
+                      deploymentId={deploymentId}
+                      isOpen={showQrPairing}
+                      onClose={() => setShowQrPairing(false)}
+                      onConnected={() => {
+                        setShowQrPairing(false);
+                        credentialsQuery.refetch();
+                        whatsAppStatusQuery.refetch();
+                        toast.success("WhatsApp connected!");
+                      }}
+                    />
                   </div>
                 )}
 
@@ -362,7 +409,8 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                 </a>
               </div>
 
-              {/* Actions */}
+              {/* Actions — hide for WhatsApp (uses QR pairing instead) */}
+              {selectedPlatform.id !== "whatsapp" && (
               <div className="flex items-center justify-between mt-6 pt-4 border-t border-border">
                 <Button
                   variant="outline"
@@ -409,6 +457,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                   </Button>
                 </div>
               </div>
+              )}
             </>
           )}
         </DialogContent>

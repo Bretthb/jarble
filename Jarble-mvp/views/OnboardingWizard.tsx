@@ -37,6 +37,8 @@ import {
   Crown,
   Plus,
 } from "lucide-react";
+import QRCode from "react-qr-code";
+import { useQrStream } from "@/hooks/useQrStream";
 import { DeploymentLoader } from "@/components/WizardLoader";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { motion, AnimatePresence } from "framer-motion";
@@ -100,6 +102,7 @@ export default function OnboardingWizard() {
   const [linkToDeploymentId, setLinkToDeploymentId] = useState<string | null>(null);
   const [keyValidation, setKeyValidation] = useState<KeyValidationStatus>("idle");
   const [whatsappConnected, setWhatsappConnected] = useState(false);
+  const [createdDeploymentId, setCreatedDeploymentId] = useState<string | null>(null);
 
   // Hardware config (optional overrides — null means "use runtime catalog defaults")
   const [cpuLimit, setCpuLimit] = useState<string | null>(null);
@@ -192,6 +195,7 @@ export default function OnboardingWizard() {
   const createMutation = trpc.deployment.create.useMutation({
     onSuccess: (data: { id?: string } | null | undefined) => {
       if (data?.id) {
+        setCreatedDeploymentId(data.id);
         deployMutation.mutate(data.id);
       }
     },
@@ -237,6 +241,7 @@ export default function OnboardingWizard() {
       }
       setIsDeploying(true);
       if (id !== "new") {
+        setCreatedDeploymentId(id);
         deployMutation.mutate(id);
       } else {
         createMutation.mutate({
@@ -436,6 +441,7 @@ export default function OnboardingWizard() {
                 <StepConnectWhatsApp
                   connected={whatsappConnected}
                   setConnected={setWhatsappConnected}
+                  deploymentId={createdDeploymentId}
                 />
               )}
             </motion.div>
@@ -1472,11 +1478,37 @@ function StepDeploy({
 function StepConnectWhatsApp({
   connected,
   setConnected,
+  deploymentId,
 }: {
   connected: boolean;
   setConnected: (connected: boolean) => void;
+  deploymentId: string | null;
 }) {
-  const [qrExpired, setQrExpired] = useState(false);
+  const {
+    qrData,
+    connected: qrConnected,
+    timedOut,
+    isConnecting,
+    error,
+    start,
+  } = useQrStream({
+    deploymentId: deploymentId || "",
+    enabled: !!deploymentId,
+  });
+
+  // Auto-start QR stream when deploymentId becomes available
+  useEffect(() => {
+    if (deploymentId && !connected) {
+      start();
+    }
+  }, [deploymentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When QR stream reports connected, update parent state
+  useEffect(() => {
+    if (qrConnected) {
+      setConnected(true);
+    }
+  }, [qrConnected, setConnected]);
 
   return (
     <div className="space-y-6">
@@ -1503,37 +1535,59 @@ function StepConnectWhatsApp({
           <div className="bg-secondary/50 rounded-lg p-6">
             <div className="flex flex-col md:flex-row gap-6 items-center">
               <div className="relative">
-                <div
-                  className={`w-48 h-48 bg-white rounded-lg flex items-center justify-center ${
-                    qrExpired ? "opacity-50" : ""
-                  }`}
-                >
-                  <div className="p-4">
-                    <div className="grid grid-cols-8 gap-0.5">
-                      {Array.from({ length: 64 }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={`w-4 h-4 ${
-                            Math.random() > 0.5 ? "bg-black" : "bg-white"
-                          }`}
-                        />
-                      ))}
-                    </div>
+                {/* QR Code display */}
+                {qrData && (
+                  <div className="bg-white p-4 rounded-xl shadow-sm">
+                    <QRCode value={qrData} size={192} level="M" />
                   </div>
-                </div>
-                {qrExpired && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg">
+                )}
+
+                {/* Loading state */}
+                {isConnecting && !qrData && (
+                  <div className="w-48 h-48 bg-secondary/80 rounded-lg flex flex-col items-center justify-center gap-3">
+                    <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground">Generating QR...</p>
+                  </div>
+                )}
+
+                {/* No deployment yet */}
+                {!deploymentId && !isConnecting && (
+                  <div className="w-48 h-48 bg-secondary/80 rounded-lg flex items-center justify-center">
+                    <p className="text-xs text-muted-foreground text-center px-4">
+                      Waiting for deployment...
+                    </p>
+                  </div>
+                )}
+
+                {/* Timeout */}
+                {timedOut && (
+                  <div className="w-48 h-48 bg-secondary/80 rounded-lg flex flex-col items-center justify-center gap-3">
+                    <AlertCircle className="w-8 h-8 text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground">QR expired</p>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        setQrExpired(false);
-                        setConnected(false);
-                      }}
+                      onClick={() => start()}
                       className="bg-white text-black hover:bg-gray-100"
                     >
                       <RefreshCw className="w-4 h-4 mr-2" />
                       Refresh QR
+                    </Button>
+                  </div>
+                )}
+
+                {/* Error */}
+                {error && !timedOut && (
+                  <div className="w-48 h-48 bg-secondary/80 rounded-lg flex flex-col items-center justify-center gap-3 px-4">
+                    <AlertCircle className="w-8 h-8 text-destructive" />
+                    <p className="text-xs text-destructive text-center">{error}</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => start()}
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Retry
                     </Button>
                   </div>
                 )}
@@ -1571,19 +1625,7 @@ function StepConnectWhatsApp({
               </div>
             </div>
             <div className="flex items-start gap-3 p-4 rounded-lg bg-secondary/50 border border-border">
-              <svg
-                className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
-                />
-              </svg>
+              <ShieldCheck className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm text-foreground font-medium">
                   Your privacy is protected

@@ -15,8 +15,10 @@ import {
   createPortalSession,
   constructWebhookEvent,
 } from "./services/stripe.js";
-import { stopDeployment, streamDeploymentLogs, getDeploymentPodStatus } from "./k8s/deployment.js";
-import { syncConfigsFromPvc } from "./services/configSync.js";
+import { stopDeployment, streamDeploymentLogs, getDeploymentPodStatus, findPodForDeployment, streamExecInPod } from "./k8s/deployment.js";
+import { encryptApiKey } from "./utils/encryption.js";
+import { syncConfigsFromPvc, syncConfigsToPvc } from "./services/configSync.js";
+import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import stream from "stream";
 
@@ -535,6 +537,191 @@ app.get("/api/deployments/:id/logs/stream", async (req, res) => {
     });
   } catch (err) {
     logger.error({ err }, "SSE log stream error");
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+});
+
+// ─── SSE: WhatsApp QR code pairing ──────────────────────────────────────────
+// Streams QR code data from OpenClaw's `channels login` command via K8s exec.
+// Auth: Bearer header OR ?token= query param (EventSource can't set headers).
+// Events: qr (QR string), connected, timeout, error, log (debug lines).
+app.get("/api/deployments/:id/whatsapp/qr", async (req, res) => {
+  try {
+    // Authenticate — accept token from header or query param
+    const authHeader = req.headers.authorization;
+    const headerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const queryToken = req.query.token as string | undefined;
+    const token = headerToken || queryToken;
+
+    if (!token) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    let user;
+    try {
+      const payload = await verifyToken(token);
+      user = await getUserFromToken(payload);
+    } catch {
+      res.status(401).json({ error: "Invalid token" });
+      return;
+    }
+
+    if (!user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const deploymentId = req.params.id;
+
+    // Verify ownership
+    const { deployments: deploymentsTable, platformCredentials } = tables;
+    const deployment = await db.query.deployments.findFirst({
+      where: and(
+        eq(deploymentsTable.id, deploymentId),
+        eq(deploymentsTable.userId, user.id)
+      ),
+    });
+
+    if (!deployment) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+
+    if ((deployment as any).status !== "running") {
+      res.status(400).json({ error: "Deployment is not running" });
+      return;
+    }
+
+    // Find running pod
+    const podName = await findPodForDeployment(deploymentId);
+    if (!podName) {
+      res.status(400).json({ error: "No running pod found for deployment" });
+      return;
+    }
+
+    // Set SSE headers
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    res.write(": connected\n\n");
+
+    let connected = false;
+    let abortFn: (() => void) | null = null;
+
+    // Heuristic: detect Baileys QR string (long comma/@ containing string)
+    // Baileys QR format: sequences separated by commas, contains @, length > 50
+    const isQrLine = (line: string): boolean => {
+      const trimmed = line.trim();
+      // Match Baileys QR data: long strings with commas and/or @ signs
+      if (trimmed.length > 50 && (trimmed.includes(",") || trimmed.includes("@"))) {
+        // Exclude obvious log lines
+        if (trimmed.startsWith("[") || trimmed.startsWith("ERROR") || trimmed.startsWith("WARN")) {
+          return false;
+        }
+        return true;
+      }
+      return false;
+    };
+
+    const isConnectedLine = (line: string): boolean => {
+      const lower = line.toLowerCase();
+      return lower.includes("successfully logged in") ||
+             lower.includes("whatsapp connected") ||
+             lower.includes("connection open") ||
+             lower.includes("session saved") ||
+             (lower.includes("logged in") && lower.includes("whatsapp"));
+    };
+
+    // Mark WhatsApp connected in DB
+    const markConnected = async () => {
+      if (connected) return;
+      connected = true;
+      try {
+        const existing = await db.query.platformCredentials.findFirst({
+          where: and(
+            eq(platformCredentials.deploymentId, deploymentId),
+            eq(platformCredentials.platformId, "whatsapp"),
+          ),
+        });
+        if (!existing) {
+          const encrypted = encryptApiKey(JSON.stringify({}));
+          await (db as any).insert(platformCredentials).values({
+            id: nanoid(12),
+            deploymentId,
+            platformId: "whatsapp",
+            credentials: encrypted,
+          });
+          logger.info({ deploymentId }, "WhatsApp marked as connected via QR pairing");
+        }
+        void syncConfigsToPvc(deploymentId);
+      } catch (err) {
+        logger.error({ deploymentId, err }, "Failed to mark WhatsApp connected");
+      }
+    };
+
+    const result = await streamExecInPod(
+      podName,
+      ["npx", "openclaw", "channels", "login", "--channel", "whatsapp"],
+      (line) => {
+        if (res.writableEnded) return;
+
+        if (isQrLine(line)) {
+          res.write(`event: qr\ndata: ${JSON.stringify({ qr: line.trim() })}\n\n`);
+        } else if (isConnectedLine(line)) {
+          void markConnected();
+          res.write(`event: connected\ndata: {}\n\n`);
+        } else {
+          // Forward as debug log line
+          res.write(`event: log\ndata: ${JSON.stringify({ line: line.trim() })}\n\n`);
+        }
+      },
+      (success, message) => {
+        if (res.writableEnded) return;
+        if (success && !connected) {
+          void markConnected();
+          res.write(`event: connected\ndata: {}\n\n`);
+        } else if (!success && !connected) {
+          res.write(`event: error\ndata: ${JSON.stringify({ message: message || "Pairing process exited" })}\n\n`);
+        }
+        res.end();
+      }
+    );
+    abortFn = result.abort;
+
+    logger.info({ deploymentId, podName }, "WhatsApp QR pairing stream started");
+
+    // 90-second timeout for the entire pairing session
+    const timeout = setTimeout(() => {
+      if (!res.writableEnded && !connected) {
+        res.write(`event: timeout\ndata: {}\n\n`);
+        res.end();
+        if (abortFn) abortFn();
+      }
+    }, 90_000);
+
+    // Keep-alive ping every 30s
+    const keepAlive = setInterval(() => {
+      if (!res.writableEnded) {
+        res.write(": ping\n\n");
+      }
+    }, 30_000);
+
+    // Clean up when client disconnects
+    req.on("close", () => {
+      logger.debug({ deploymentId }, "WhatsApp QR stream client disconnected");
+      clearTimeout(timeout);
+      clearInterval(keepAlive);
+      if (abortFn) abortFn();
+    });
+  } catch (err) {
+    logger.error({ err }, "WhatsApp QR stream error");
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error" });
     }

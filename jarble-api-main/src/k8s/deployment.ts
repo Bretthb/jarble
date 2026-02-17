@@ -589,6 +589,92 @@ export async function execInPod(podName: string, command: string[]): Promise<str
 }
 
 /**
+ * Find the running pod for a deployment.
+ * Returns the pod name or null if no running pod exists.
+ */
+export async function findPodForDeployment(deploymentId: string): Promise<string | null> {
+  const pods = await coreApi.listNamespacedPod(
+    NAMESPACE,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    `app=dep-${deploymentId}`
+  );
+
+  if (pods.body.items.length === 0) return null;
+
+  const pod = pods.body.items[0];
+  const podName = pod.metadata?.name;
+  const isRunning = pod.status?.phase === "Running" && pod.status?.containerStatuses?.[0]?.ready;
+
+  if (!podName || !isRunning) return null;
+  return podName;
+}
+
+/**
+ * Execute a command in a pod with streaming stdout (long-running processes).
+ * Unlike execInPod() which waits for exit, this streams output line-by-line.
+ * Returns an abort handle to terminate the exec WebSocket.
+ */
+export async function streamExecInPod(
+  podName: string,
+  command: string[],
+  onLine: (line: string) => void,
+  onExit: (success: boolean, message?: string) => void
+): Promise<{ abort: () => void }> {
+  const stdout = new stream.PassThrough();
+  const stderr = new stream.PassThrough();
+  let buffer = "";
+
+  stdout.on("data", (chunk: Buffer) => {
+    buffer += chunk.toString();
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.trim()) {
+        onLine(line);
+      }
+    }
+  });
+
+  let stderrData = "";
+  stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
+
+  let execWs: any;
+  try {
+    execWs = await exec.exec(
+      NAMESPACE,
+      podName,
+      "runtime",
+      command,
+      stdout,
+      stderr,
+      null,
+      false,
+      (status) => {
+        // Flush remaining buffer
+        if (buffer.trim()) {
+          onLine(buffer);
+          buffer = "";
+        }
+        onExit(status.status === "Success", status.message || stderrData || undefined);
+      }
+    );
+  } catch (err: any) {
+    onExit(false, err.message || "exec failed to start");
+    return { abort: () => {} };
+  }
+
+  return {
+    abort: () => {
+      try { execWs?.close?.(); } catch {}
+    },
+  };
+}
+
+/**
  * Execute a command in a pod with stdin content piped in.
  * Used for writing file contents via `cat > /path`.
  */
