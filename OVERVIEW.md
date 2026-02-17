@@ -1715,7 +1715,7 @@ The QR flow uses K8s exec (`streamExecInPod`) to run `openclaw channels login` i
 
 **Remote state backend (Terraform Cloud):**
 - Created `infrastructure/terraform/backend.tf` — Terraform Cloud backend with local execution mode (TFC stores state + locking only, plan/apply runs in GHA or locally)
-- Organization: `jarble-ai`, workspace: `jarble-infrastructure`
+- Organization: `jarble`, workspace: `jarble-infrastructure`
 - Removed `.terraform.lock.hcl` from `.gitignore` to ensure reproducible provider versions across environments
 
 **SSH key CI compatibility:**
@@ -1734,6 +1734,7 @@ The QR flow uses K8s exec (`streamExecInPod`) to run `openclaw channels login` i
 **Documentation:**
 - Updated `infrastructure/terraform/README.md` with CI/CD section (triggers, manual dispatch modes, required secrets, local dev instructions)
 - Updated `terraform.tfvars.example` with CI variable comment
+- Updated `DEVELOPER-GUIDE.md` with Sessions 11-13 additions: rate limiting (Section 5), WhatsApp QR pairing (Section 9), TLS/cert-manager + Terraform CI/CD (Section 15), CI/CD pipeline table (Section 20)
 
 #### Files changed:
 | File | Action |
