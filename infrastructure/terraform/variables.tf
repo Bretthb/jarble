@@ -64,6 +64,14 @@ variable "agent_count" {
   default     = 2
 }
 
+# ─── Block Storage (Longhorn) ────────────────────────────────────────────────
+
+variable "longhorn_volume_size" {
+  description = "Size in GB of Hetzner Block Storage per worker node for Longhorn persistent data (formula: deployments_per_node x max_storage_per_deployment)"
+  type        = number
+  default     = 100 # 1 deployment x 100 GB max — increase for higher density
+}
+
 variable "os_image" {
   description = "Operating system image"
   type        = string

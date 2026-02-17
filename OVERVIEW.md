@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 17, 2026 (Session 13 — Terraform CI/CD + Diagram Refresh)
+📅 Last updated: February 17, 2026 (Session 14 — Hetzner Block Storage for Longhorn)
 
 </aside>
 
@@ -476,7 +476,7 @@ Where:
 | cpx21 (free tier) | 3 | 20 GB | 60 GB |
 | cpx21 (min specs) | 3 | 100 GB | 300 GB |
 
-> **⚠️ Current limitation:** Terraform does not yet provision Hetzner Block Storage volumes. Longhorn currently uses local node disk (80 GB), which cannot support 100 GB PVCs. See roadmap for planned fix.
+Hetzner Block Storage volumes are provisioned via Terraform (`hcloud_volume`), attached to each worker node, and mounted at `/var/lib/longhorn` before K3s starts. Longhorn automatically uses this path as its data directory — no Longhorn config changes needed.
 
 ### Quick Start
 
@@ -839,7 +839,7 @@ flowchart TD
 
 ## 🟡 Important (Infrastructure)
 
-1. **Hetzner Block Storage provisioning** — Terraform needs to create and attach block storage volumes to worker nodes for Longhorn. Currently Longhorn uses local node disk (80 GB cpx21), which cannot support 100 GB PVCs. Block storage volumes (d × p GB per node) must be provisioned, formatted, mounted, and configured as Longhorn's backing store.
+1. ~~Hetzner Block Storage provisioning~~ — ✅ Done (Session 14). Terraform provisions `hcloud_volume` per worker node, attaches via `hcloud_volume_attachment`, mounts at `/var/lib/longhorn` in agent `user_data`. Default 100 GB per node (configurable via `longhorn_volume_size`).
 
 ## 🟢 Nice-to-Have (Future)
 
@@ -1010,7 +1010,7 @@ monorepo/
 ---
 
 <aside>
-📚 This document provides a complete snapshot of the Jarble platform as of February 17, 2026 (Session 13). Use the roadmap section to prioritize next steps.
+📚 This document provides a complete snapshot of the Jarble platform as of February 17, 2026 (Session 14). Use the roadmap section to prioritize next steps.
 
 </aside>
 
@@ -1074,6 +1074,7 @@ flowchart TB
         API_CI["✅ API Docker Image CI"]
         TLS["✅ TLS (cert-manager + Let's Encrypt)"]
         TF_CICD["✅ Terraform CI/CD Pipeline"]
+        BLOCKSTORAGE["✅ Block Storage (Longhorn)"]
     end
 
     HOME --> LOGIN --> DASH
@@ -1086,6 +1087,7 @@ flowchart TB
     TERRAFORM --> K3SMASTER --> LONGHORN
     K3SMASTER --> TLS
     TERRAFORM --> TF_CICD
+    TERRAFORM --> BLOCKSTORAGE --> LONGHORN
 ```
 
 ### Remaining Work
@@ -1115,6 +1117,7 @@ flowchart TB
         BILLING_DONE["✅ Billing Page\nSession 10"]
         RATELIMIT_DONE["✅ Rate Limiting\nSession 12"]
         TFCICD_DONE["✅ Terraform CI/CD\nSession 13"]
+        BLOCKSTORAGE_DONE["✅ Block Storage\nSession 14"]
     end
 
     subgraph DONE_DEPLOY["✅ DONE — Production Readiness"]
@@ -2109,7 +2112,70 @@ graph LR
 
 ---
 
-# 33. Dev Servers
+# 33. Session 14 — Hetzner Block Storage for Longhorn
+
+**Date:** February 17, 2026
+
+```mermaid
+graph LR
+    subgraph Terraform
+        VAR["longhorn_volume_size<br/>(default: 100 GB)"]
+        VOL["hcloud_volume<br/>(ext4, per agent)"]
+        ATT["hcloud_volume_attachment"]
+    end
+
+    subgraph AgentBoot["Agent user_data"]
+        WAIT["Poll for /dev/disk/by-id/<br/>scsi-0HC_Volume_{id}"]
+        MOUNT["Mount at /var/lib/longhorn"]
+        FSTAB["Persist in /etc/fstab"]
+        K3S["Start K3s agent"]
+    end
+
+    subgraph Longhorn
+        DISCOVER["Discovers block storage<br/>at default data path"]
+        PVC["User PVCs (20-100 GB)"]
+    end
+
+    VAR --> VOL --> ATT
+    ATT --> WAIT --> MOUNT --> FSTAB --> K3S
+    K3S --> DISCOVER --> PVC
+
+    style VOL fill:#7c3aed,color:#fff
+    style MOUNT fill:#059669,color:#fff
+    style PVC fill:#2563eb,color:#fff
+```
+
+#### What was done:
+
+**Terraform resources:**
+- Added `longhorn_volume_size` variable (default: 100 GB, configurable for higher deployment density)
+- Added `hcloud_volume.longhorn` resource — one per agent node, ext4-formatted at creation via Hetzner API
+- Added `hcloud_volume_attachment.longhorn` — attaches volume to corresponding agent server, `automount = false` for reliability
+- Added outputs: `longhorn_volume_ids`, `longhorn_volume_size_gb`
+
+**Agent user_data mount logic:**
+- Polls up to 5 minutes (60 × 5s) for `/dev/disk/by-id/scsi-0HC_Volume_{id}` to appear
+- Mounts at `/var/lib/longhorn` (Longhorn's default data directory) — zero Longhorn config changes needed
+- Persists mount via `/etc/fstab` with `nofail` (safe boot if volume temporarily unavailable) and `discard` (TRIM for SSD)
+- Mount happens BEFORE K3s starts, so Longhorn discovers block storage on node registration
+
+**Key design decision:** Instead of modifying Longhorn's `default-data-path` setting (which has known issues — see [longhorn/longhorn#7698](https://github.com/longhorn/longhorn/issues/7698)), we mount block storage directly at Longhorn's existing default path `/var/lib/longhorn`. This eliminates any Longhorn configuration changes.
+
+**Cost impact:** ~€0.052/GB/month → 100 GB × 2 agents = ~$11.50/month added to base cluster cost.
+
+#### Files changed:
+| File | Action |
+|------|--------|
+| `infrastructure/terraform/variables.tf` | Modified — added `longhorn_volume_size` variable |
+| `infrastructure/terraform/main.tf` | Modified — added `hcloud_volume`, `hcloud_volume_attachment`, updated agent `user_data` with mount logic |
+| `infrastructure/terraform/outputs.tf` | Modified — added volume outputs |
+| `infrastructure/terraform/terraform.tfvars.example` | Modified — added volume size comment |
+| `OVERVIEW.md` | Modified — removed limitation warnings, marked roadmap item done, added session log |
+| `DEVELOPER-GUIDE.md` | Modified — removed future work warnings, updated block storage docs |
+
+---
+
+# 34. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)

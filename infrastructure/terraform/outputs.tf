@@ -48,3 +48,13 @@ output "dns_records" {
     "*.${var.domain}"      = hcloud_server.master.ipv4_address
   }
 }
+
+output "longhorn_volume_ids" {
+  description = "Hetzner Block Storage volume IDs for Longhorn"
+  value       = hcloud_volume.longhorn[*].id
+}
+
+output "longhorn_volume_size_gb" {
+  description = "Size (GB) of each Longhorn block storage volume"
+  value       = var.longhorn_volume_size
+}

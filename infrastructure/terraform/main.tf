@@ -235,6 +235,36 @@ resource "hcloud_server" "agent" {
     systemctl enable iscsid
     systemctl start iscsid
 
+    # ── Mount Hetzner Block Storage at Longhorn default data path ──
+    VOLUME_DEVICE="/dev/disk/by-id/scsi-0HC_Volume_${hcloud_volume.longhorn[count.index].id}"
+    MOUNT_PATH="/var/lib/longhorn"
+
+    # Wait for volume device to appear (attachment may be in progress)
+    echo "Waiting for block storage device..."
+    for i in $(seq 1 60); do
+      if [ -b "$VOLUME_DEVICE" ]; then
+        echo "Volume device found: $VOLUME_DEVICE"
+        break
+      fi
+      if [ "$i" -eq 60 ]; then
+        echo "ERROR: Volume device not found after 5 minutes"
+        exit 1
+      fi
+      sleep 5
+    done
+
+    # Mount (volume is pre-formatted as ext4 by Hetzner API)
+    mkdir -p "$MOUNT_PATH"
+    mount -o discard,defaults "$VOLUME_DEVICE" "$MOUNT_PATH"
+
+    # Persist mount across reboots via fstab
+    if ! grep -q "$VOLUME_DEVICE" /etc/fstab; then
+      echo "$VOLUME_DEVICE $MOUNT_PATH ext4 discard,nofail,defaults 0 0" >> /etc/fstab
+    fi
+
+    echo "Block storage mounted at $MOUNT_PATH"
+    # ────────────────────────────────────────────────────────────────
+
     # Install K3s agent — joins the master
     curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${var.k3s_version}" sh -s - agent \
       --server "https://10.0.1.10:6443" \
@@ -246,6 +276,29 @@ resource "hcloud_server" "agent" {
   EOF
 
   depends_on = [hcloud_server.master, hcloud_network_subnet.cluster]
+}
+
+# ─── Block Storage for Longhorn ──────────────────────────────────────────────
+
+resource "hcloud_volume" "longhorn" {
+  count    = var.agent_count
+  name     = "${var.cluster_name}-longhorn-${count.index + 1}"
+  size     = var.longhorn_volume_size
+  location = var.location
+  format   = "ext4"
+
+  labels = {
+    cluster = var.cluster_name
+    role    = "longhorn-data"
+    agent   = tostring(count.index + 1)
+  }
+}
+
+resource "hcloud_volume_attachment" "longhorn" {
+  count     = var.agent_count
+  volume_id = hcloud_volume.longhorn[count.index].id
+  server_id = hcloud_server.agent[count.index].id
+  automount = false
 }
 
 # ─── Floating IP for Ingress ────────────────────────────────────────────────

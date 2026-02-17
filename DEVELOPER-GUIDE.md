@@ -599,7 +599,7 @@ With default specs (2 vCPU, 2GB RAM), only **~1 deployment fits per cpx21 node**
 - 1 deployment x 100 GB = **100 GB block storage**
 - 3 deployments x 100 GB = **300 GB block storage**
 
-> **⚠️ Important:** The cpx21's local disk is only 80 GB. A single 100 GB PVC cannot fit on local disk. Hetzner Block Storage volumes must be attached to each worker node and configured as Longhorn's data directory. Hetzner supports up to **10 TB** per block storage volume.
+Hetzner Block Storage volumes are provisioned by Terraform (`hcloud_volume`, default 100 GB per node) and mounted at `/var/lib/longhorn` on each worker node. Longhorn automatically uses this path — no config changes needed. Hetzner supports up to **10 TB** per block storage volume.
 
 ### Status Flow
 
@@ -1402,7 +1402,7 @@ Longhorn is a **distributed storage system** for Kubernetes. When we create a PV
 
 **Why Block Storage?** The cpx21 only has 80 GB local disk (for OS + K3s + images). Users can allocate up to 100 GB per deployment, so PVCs must live on separately attached Hetzner Block Storage volumes (up to 10 TB each). The required size follows the formula **d x p** — deployments per node multiplied by max storage per deployment. See Section 6 "Storage Architecture" for a detailed breakdown.
 
-> **⚠️ Future work:** Terraform currently does not provision Hetzner Block Storage volumes. This needs to be added — creating volumes, attaching to worker nodes, formatting + mounting, and configuring Longhorn's data directory path.
+**How it works:** Terraform provisions `hcloud_volume` resources (default 100 GB, ext4-formatted) per worker node. The agent `user_data` script mounts each volume at `/var/lib/longhorn` before K3s starts, so Longhorn discovers the block storage on node registration. The mount is persisted via `/etc/fstab` with `nofail` (safe boot) and `discard` (TRIM for SSD).
 
 ### TLS (cert-manager + Let's Encrypt)
 

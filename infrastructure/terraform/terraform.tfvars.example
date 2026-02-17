@@ -16,6 +16,9 @@ master_server_type = "cpx21"        # 3 vCPU, 4GB RAM — $7.59/mo
 agent_server_type  = "cpx21"        # 3 vCPU, 4GB RAM — $7.59/mo
 agent_count        = 2              # Number of worker nodes
 
+# Block Storage (Longhorn persistent volumes)
+# longhorn_volume_size = 100       # GB per worker node (default: 100, increase for more deployments)
+
 # K3s
 k3s_version = "v1.29.2+k3s1"
 # k3s_token = ""                   # Leave empty to auto-generate
