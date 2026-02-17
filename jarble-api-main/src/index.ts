@@ -15,9 +15,10 @@ import {
   createPortalSession,
   constructWebhookEvent,
 } from "./services/stripe.js";
-import { stopDeployment } from "./k8s/deployment.js";
+import { stopDeployment, streamDeploymentLogs } from "./k8s/deployment.js";
 import { syncConfigsFromPvc } from "./services/configSync.js";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import stream from "stream";
 
 const app = express();
 
@@ -408,6 +409,135 @@ app.post("/api/config-changed", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "Config change webhook error");
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── SSE: Deployment log streaming ──────────────────────────────────────────
+// Streams K8s pod logs in real-time via Server-Sent Events.
+// Auth: Bearer header OR ?token= query param (EventSource can't set headers).
+app.get("/api/deployments/:id/logs/stream", async (req, res) => {
+  try {
+    // Authenticate — accept token from header or query param
+    const authHeader = req.headers.authorization;
+    const headerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const queryToken = req.query.token as string | undefined;
+    const token = headerToken || queryToken;
+
+    if (!token) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    let user;
+    try {
+      const payload = await verifyToken(token);
+      user = await getUserFromToken(payload);
+    } catch {
+      res.status(401).json({ error: "Invalid token" });
+      return;
+    }
+
+    if (!user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const deploymentId = req.params.id;
+
+    // Verify ownership
+    const { deployments: deploymentsTable } = tables;
+    const deployment = await db.query.deployments.findFirst({
+      where: and(
+        eq(deploymentsTable.id, deploymentId),
+        eq(deploymentsTable.userId, user.id)
+      ),
+    });
+
+    if (!deployment) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+
+    if ((deployment as any).status !== "running") {
+      res.status(400).json({ error: "Deployment is not running" });
+      return;
+    }
+
+    // Set SSE headers
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    // Send initial comment to establish connection
+    res.write(": connected\n\n");
+
+    // Create PassThrough stream that converts K8s log chunks to SSE events
+    const logStream = new stream.PassThrough();
+    let buffer = "";
+
+    logStream.on("data", (chunk: Buffer) => {
+      buffer += chunk.toString();
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.trim()) {
+          res.write(`data: ${JSON.stringify({ line })}\n\n`);
+        }
+      }
+    });
+
+    logStream.on("end", () => {
+      if (buffer.trim()) {
+        res.write(`data: ${JSON.stringify({ line: buffer })}\n\n`);
+      }
+      res.write(`event: end\ndata: {}\n\n`);
+      res.end();
+    });
+
+    logStream.on("error", (err) => {
+      logger.error({ deploymentId, err }, "Log stream error");
+      res.write(`event: error\ndata: ${JSON.stringify({ message: "Stream error" })}\n\n`);
+      res.end();
+    });
+
+    // Start streaming from K8s
+    const tailLines = Math.min(parseInt(req.query.tailLines as string) || 100, 1000);
+    let abortFn: (() => void) | null = null;
+
+    try {
+      const result = await streamDeploymentLogs(deploymentId, logStream, { tailLines });
+      abortFn = result.abort;
+      logger.info({ deploymentId, podName: result.podName }, "Log stream started");
+    } catch (err) {
+      logger.error({ deploymentId, err }, "Failed to start log stream");
+      res.write(`event: error\ndata: ${JSON.stringify({ message: "Failed to connect to pod logs" })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // Keep-alive ping every 30s to prevent proxy/load-balancer timeouts
+    const keepAlive = setInterval(() => {
+      if (!res.writableEnded) {
+        res.write(": ping\n\n");
+      }
+    }, 30_000);
+
+    // Clean up when client disconnects
+    req.on("close", () => {
+      logger.debug({ deploymentId }, "Log stream client disconnected");
+      clearInterval(keepAlive);
+      logStream.destroy();
+      if (abortFn) abortFn();
+    });
+  } catch (err) {
+    logger.error({ err }, "SSE log stream error");
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error" });
+    }
   }
 });
 

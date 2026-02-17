@@ -28,6 +28,7 @@ import { ModelTab } from "./deployment-config/ModelTab";
 import { PlatformsTab } from "./deployment-config/PlatformsTab";
 import { SkillsTab } from "./deployment-config/SkillsTab";
 import { AdvancedTab } from "./deployment-config/AdvancedTab";
+import { LogsTab } from "./deployment-config/LogsTab";
 
 /** Decode a base64 string to a Blob and trigger a browser download. */
 function base64ToBlob(b64: string, mime = "application/zip"): Blob {
@@ -373,6 +374,9 @@ export default function DeploymentConfiguration() {
                 )}
                 {activeTab === "skills" && (
                   <SkillsTab formData={formData} updateFormData={updateFormData} />
+                )}
+                {activeTab === "logs" && (
+                  <LogsTab deploymentId={id} deploymentStatus={deployment?.status} />
                 )}
                 {activeTab === "advanced" && (
                   <AdvancedTab formData={formData} updateFormData={updateFormData} deployment={deployment} />

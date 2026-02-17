@@ -32,6 +32,7 @@ import {
   RotateCcw,
   SlidersHorizontal,
   MailWarning,
+  MailCheck,
   Link2,
   Crown,
   Plus,
@@ -1144,6 +1145,17 @@ function StepDeploy({
   const providerDef = getProviderById(llmProvider);
   const modelDef = LLM_MODELS.find((m) => m.id === llmModel);
   const [showHardware, setShowHardware] = useState(false);
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
+
+  const resendVerificationMutation = trpc.user.resendVerificationEmail.useMutation({
+    onSuccess: () => {
+      toast.success("Verification email sent! Check your inbox.");
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Failed to send verification email");
+    },
+    onSettled: () => setIsResendingVerification(false),
+  });
 
   // Effective values (custom or runtime defaults)
   const effectiveCpu = cpuLimit ?? runtime?.cpuLimit ?? "2.0";
@@ -1180,12 +1192,29 @@ function StepDeploy({
           {!emailVerified && (
             <div className="flex items-center gap-3 rounded-lg border border-border bg-secondary/50 px-4 py-3 text-left">
               <MailWarning className="w-5 h-5 text-muted-foreground shrink-0" />
-              <div>
+              <div className="flex-1">
                 <p className="text-sm font-medium">Email verification required</p>
                 <p className="text-xs text-muted-foreground">
                   Check your inbox for a verification link. You need to verify your email before deploying.
                 </p>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsResendingVerification(true);
+                  resendVerificationMutation.mutate();
+                }}
+                disabled={isResendingVerification}
+                className="shrink-0 border-border hover:bg-secondary/50"
+              >
+                {isResendingVerification ? (
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <MailCheck className="w-3.5 h-3.5 mr-1.5" />
+                )}
+                Resend
+              </Button>
             </div>
           )}
 

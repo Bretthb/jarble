@@ -20,6 +20,7 @@ import {
   Moon,
   Sun,
   KeyRound,
+  MailCheck,
 } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import ProfileDropdown from "@/components/ProfileDropdown";
@@ -34,6 +35,7 @@ export default function SettingsView() {
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
 
   const profileQuery = trpc.user.getProfile.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading,
@@ -97,6 +99,21 @@ export default function SettingsView() {
     } finally {
       setIsResettingPassword(false);
     }
+  };
+
+  const resendVerificationMutation = trpc.user.resendVerificationEmail.useMutation({
+    onSuccess: () => {
+      toast.success("Verification email sent! Check your inbox.");
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Failed to send verification email");
+    },
+    onSettled: () => setIsResendingVerification(false),
+  });
+
+  const handleResendVerification = () => {
+    setIsResendingVerification(true);
+    resendVerificationMutation.mutate();
   };
 
   const initials = (name || user?.name || "U")
@@ -209,10 +226,15 @@ export default function SettingsView() {
                   className="bg-secondary/50 border-border text-foreground"
                   placeholder="you@example.com"
                 />
-                {user?.email_verified && (
+                {user?.email_verified ? (
                   <p className="text-xs text-green-600 dark:text-green-400 mt-1.5 flex items-center gap-1">
                     <Shield className="w-3 h-3" />
                     Email verified
+                  </p>
+                ) : (
+                  <p className="text-xs text-orange-500 mt-1.5 flex items-center gap-1">
+                    <Shield className="w-3 h-3" />
+                    Not verified
                   </p>
                 )}
               </div>
@@ -305,6 +327,33 @@ export default function SettingsView() {
                 <span className="font-mono text-xs text-muted-foreground">{user?.sub?.slice(0, 20)}...</span>
               </div>
             </div>
+
+            {!user?.email_verified && (
+              <div className="mt-5 pt-5 border-t border-border/50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Email Verification</p>
+                    <p className="text-xs text-muted-foreground">
+                      Resend the verification link to your email
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResendVerification}
+                    disabled={isResendingVerification}
+                    className="border-border hover:bg-secondary/50"
+                  >
+                    {isResendingVerification ? (
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <MailCheck className="w-3.5 h-3.5 mr-1.5" />
+                    )}
+                    Resend Verification
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {isEmailPasswordUser && (
               <div className="mt-5 pt-5 border-t border-border/50">

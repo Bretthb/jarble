@@ -27,6 +27,11 @@ const envSchema = z.object({
   // Auth0 M2M — for webhook authentication from Auth0 Actions
   AUTH0_M2M_SECRET: z.string().optional(),
 
+  // Auth0 Management API — for resending verification emails
+  // Create an M2M application in Auth0 with "update:users" permission
+  AUTH0_MGMT_CLIENT_ID: z.string().optional(),
+  AUTH0_MGMT_CLIENT_SECRET: z.string().optional(),
+
   // Stripe — all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),

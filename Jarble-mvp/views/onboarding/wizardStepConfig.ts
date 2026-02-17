@@ -70,6 +70,7 @@ import {
   Settings,
   Link2,
   Shield,
+  Terminal,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -196,6 +197,9 @@ const DEFAULT_CONFIG_TABS: ConfigTabDef[] = [
   { id: "skills", label: "Skills", icon: Sparkles },
 ];
 
+// Always shown (before Advanced)
+const LOGS_TAB: ConfigTabDef = { id: "logs", label: "Logs", icon: Terminal };
+
 // Always shown last
 const ADVANCED_TAB: ConfigTabDef = { id: "advanced", label: "Advanced", icon: Shield };
 
@@ -213,7 +217,7 @@ export function getConfigTabs(runtimeSlug: string | null): ConfigTabDef[] {
     ? (RUNTIME_CONFIG_TABS[runtimeSlug] ?? DEFAULT_CONFIG_TABS)
     : DEFAULT_CONFIG_TABS;
 
-  return [...UNIVERSAL_CONFIG_TABS, ...extras, ADVANCED_TAB];
+  return [...UNIVERSAL_CONFIG_TABS, ...extras, LOGS_TAB, ADVANCED_TAB];
 }
 
 // ─── LLM Providers (shown in the BYOK provider grid) ────────────────

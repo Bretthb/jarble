@@ -14,6 +14,7 @@ import {
   Clock,
   DollarSign,
   MailWarning,
+  MailCheck,
   Play,
   Square,
   RotateCw,
@@ -111,6 +112,18 @@ export default function Dashboard() {
     },
   });
 
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
+
+  const resendVerificationMutation = trpc.user.resendVerificationEmail.useMutation({
+    onSuccess: () => {
+      toast.success("Verification email sent! Check your inbox.");
+    },
+    onError: (error: { message?: string }) => {
+      toast.error(error.message || "Failed to send verification email");
+    },
+    onSettled: () => setIsResendingVerification(false),
+  });
+
   const emailVerified = user?.email_verified ?? false;
 
   const handleCreateDeployment = () => {
@@ -172,6 +185,23 @@ export default function Dashboard() {
                 Check your inbox for a verification link from Jarble. You need to verify your email before creating deployments.
               </p>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setIsResendingVerification(true);
+                resendVerificationMutation.mutate();
+              }}
+              disabled={isResendingVerification}
+              className="shrink-0 border-border hover:bg-secondary/50"
+            >
+              {isResendingVerification ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <MailCheck className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              Resend
+            </Button>
           </div>
         )}
 

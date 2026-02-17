@@ -2,7 +2,7 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../middleware.js";
 import { tables } from "../../db/index.js";
 import { eq, and, isNull } from "drizzle-orm";
-import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs } from "../../k8s/deployment.js";
+import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs } from "../../k8s/deployment.js";
 import { cancelSubscriptionAtPeriodEnd, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
 import { nanoid } from "nanoid";
 import { logger } from "../../utils/logger.js";
@@ -463,6 +463,32 @@ export const deploymentRouter = router({
         // Include the user's configured limit from DB (storageMb is actually GB)
         allocatedGb: (deployment as any).storageMb || 30,
       };
+    }),
+
+  // Get deployment logs from K8s pod
+  getLogs: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      tailLines: z.number().min(1).max(5000).default(200),
+    }))
+    .query(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+      if ((deployment as any).status !== "running") {
+        return { logs: "", podName: null };
+      }
+
+      try {
+        const result = await getDeploymentLogs(input.id, input.tailLines);
+        return result;
+      } catch (err) {
+        logger.warn({ deploymentId: input.id, err }, "Failed to fetch logs");
+        return { logs: "", podName: null };
+      }
     }),
 
   // Update deployment
