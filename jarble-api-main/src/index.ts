@@ -15,7 +15,7 @@ import {
   createPortalSession,
   constructWebhookEvent,
 } from "./services/stripe.js";
-import { stopDeployment, streamDeploymentLogs } from "./k8s/deployment.js";
+import { stopDeployment, streamDeploymentLogs, getDeploymentPodStatus } from "./k8s/deployment.js";
 import { syncConfigsFromPvc } from "./services/configSync.js";
 import { eq, and } from "drizzle-orm";
 import stream from "stream";
@@ -535,6 +535,168 @@ app.get("/api/deployments/:id/logs/stream", async (req, res) => {
     });
   } catch (err) {
     logger.error({ err }, "SSE log stream error");
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+});
+
+// ─── SSE: Deployment status streaming ────────────────────────────────────────
+// Streams real-time status updates for ALL of a user's deployments via SSE.
+// Replaces frontend setInterval polling with push-based updates.
+// Auth: Bearer header OR ?token= query param (EventSource can't set headers).
+app.get("/api/deployments/status/stream", async (req, res) => {
+  try {
+    // Authenticate — accept token from header or query param
+    const authHeader = req.headers.authorization;
+    const headerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const queryToken = req.query.token as string | undefined;
+    const token = headerToken || queryToken;
+
+    if (!token) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    let user;
+    try {
+      const payload = await verifyToken(token);
+      user = await getUserFromToken(payload);
+    } catch {
+      res.status(401).json({ error: "Invalid token" });
+      return;
+    }
+
+    if (!user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    // Set SSE headers
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    res.write(": connected\n\n");
+
+    // Track last known statuses to only push deltas
+    const lastKnown = new Map<string, string>();
+
+    // Helper: build status snapshot for all user deployments
+    async function buildStatusSnapshot() {
+      const { deployments: deploymentsTable } = tables;
+      const userDeployments = await db.query.deployments.findMany({
+        where: eq(deploymentsTable.userId, user!.id),
+      });
+
+      const results: Array<{
+        deploymentId: string;
+        status: string;
+        restarts?: number;
+        error?: string;
+      }> = [];
+
+      for (const dep of userDeployments) {
+        const d = dep as any;
+        const dbStatus = d.status as string;
+
+        // For deployments with K8s pods, check live status
+        if (dbStatus === "creating" || dbStatus === "running" || dbStatus === "failed") {
+          try {
+            const podStatus = await getDeploymentPodStatus(d.id);
+            results.push({
+              deploymentId: d.id,
+              status: podStatus.status,
+              restarts: podStatus.restarts,
+              error: podStatus.error,
+            });
+
+            // Sync K8s status back to DB if they diverge
+            if (podStatus.status !== dbStatus
+                && (podStatus.status === "running" || podStatus.status === "failed")) {
+              void (db as any).update(deploymentsTable)
+                .set({
+                  status: podStatus.status,
+                  ...(podStatus.error ? { error: podStatus.error } : {}),
+                })
+                .where(eq(deploymentsTable.id, d.id));
+            }
+          } catch {
+            // K8s unreachable for this pod — return DB status
+            results.push({ deploymentId: d.id, status: dbStatus });
+          }
+        } else {
+          // stopped, pending — no K8s pod, use DB status directly
+          results.push({ deploymentId: d.id, status: dbStatus });
+        }
+      }
+
+      return results;
+    }
+
+    // Send initial snapshot
+    try {
+      const snapshot = await buildStatusSnapshot();
+      for (const s of snapshot) {
+        lastKnown.set(s.deploymentId, JSON.stringify(s));
+      }
+      res.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
+    } catch (err) {
+      logger.error({ err, userId: user.id }, "Failed to build initial status snapshot");
+      res.write(`event: error\ndata: ${JSON.stringify({ message: "Failed to fetch deployment statuses" })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // Poll for changes every 5 seconds
+    const pollInterval = setInterval(async () => {
+      if (res.writableEnded) {
+        clearInterval(pollInterval);
+        return;
+      }
+
+      try {
+        const current = await buildStatusSnapshot();
+
+        for (const s of current) {
+          const serialized = JSON.stringify(s);
+          if (lastKnown.get(s.deploymentId) !== serialized) {
+            lastKnown.set(s.deploymentId, serialized);
+            res.write(`data: ${serialized}\n\n`);
+          }
+        }
+
+        // Detect removed deployments
+        const currentIds = new Set(current.map((s) => s.deploymentId));
+        for (const [id] of lastKnown) {
+          if (!currentIds.has(id)) {
+            lastKnown.delete(id);
+            res.write(`data: ${JSON.stringify({ deploymentId: id, status: "not_found" })}\n\n`);
+          }
+        }
+      } catch (err) {
+        logger.error({ err, userId: user.id }, "Status stream poll error");
+      }
+    }, 5_000);
+
+    // Keep-alive ping every 30s
+    const keepAlive = setInterval(() => {
+      if (!res.writableEnded) {
+        res.write(": ping\n\n");
+      }
+    }, 30_000);
+
+    // Clean up when client disconnects
+    req.on("close", () => {
+      logger.debug({ userId: user!.id }, "Status stream client disconnected");
+      clearInterval(pollInterval);
+      clearInterval(keepAlive);
+    });
+  } catch (err) {
+    logger.error({ err }, "SSE status stream error");
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error" });
     }

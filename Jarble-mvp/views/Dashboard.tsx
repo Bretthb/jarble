@@ -27,6 +27,7 @@ import { useState } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StorageMeter, StorageMeterSkeleton } from "@/components/StorageMeter";
+import { useStatusStream } from "@/hooks/useStatusStream";
 
 function base64ToBlob(b64: string, mime = "application/zip"): Blob {
   const bytes = atob(b64);
@@ -49,6 +50,11 @@ export default function Dashboard() {
   const router = useRouter();
 
   const deploymentsQuery = trpc.deployment.list.useQuery(undefined, {
+    enabled: isAuthenticated && !authLoading,
+  });
+
+  // Real-time status stream — pushes status changes via SSE
+  const { getStatus: getLiveStatus } = useStatusStream({
     enabled: isAuthenticated && !authLoading,
   });
 
@@ -75,11 +81,7 @@ export default function Dashboard() {
   const startMutation = trpc.deployment.start.useMutation({
     onSuccess: () => {
       toast.success("Deployment starting...");
-      // Poll for status updates while starting
-      const interval = setInterval(() => {
-        deploymentsQuery.refetch();
-      }, 3000);
-      setTimeout(() => clearInterval(interval), 60_000);
+      deploymentsQuery.refetch(); // Pick up "creating" status; SSE will push "running"
     },
     onError: (error: { message?: string }) => {
       toast.error(error.message || "Failed to start deployment");
@@ -90,10 +92,7 @@ export default function Dashboard() {
   const restartMutation = trpc.deployment.restart.useMutation({
     onSuccess: () => {
       toast.success("Deployment restarting...");
-      const interval = setInterval(() => {
-        deploymentsQuery.refetch();
-      }, 3000);
-      setTimeout(() => clearInterval(interval), 60_000);
+      deploymentsQuery.refetch(); // Pick up "creating" status; SSE will push "running"
     },
     onError: (error: { message?: string }) => {
       toast.error(error.message || "Failed to restart deployment");
@@ -245,6 +244,7 @@ export default function Dashboard() {
               <DeploymentCard
                 key={deployment.id}
                 deployment={deployment}
+                liveStatus={getLiveStatus(deployment.id)?.status}
                 onDelete={(id) => deleteDeploymentMutation.mutate({ id })}
                 onStop={(id) => stopMutation.mutate({ id })}
                 onStart={(id) => startMutation.mutate({ id })}
@@ -282,7 +282,7 @@ export default function Dashboard() {
   );
 }
 
-function DeploymentCard({ deployment, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting }: {
+function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting }: {
   deployment: {
     id: string;
     name: string;
@@ -297,6 +297,7 @@ function DeploymentCard({ deployment, onDelete, onStop, onStart, onRestart, onEx
     cancelledAt?: string | null;
     cancelAtPeriodEnd?: string | null;
   };
+  liveStatus?: string;
   onDelete: (id: string) => void;
   onStop: (id: string) => void;
   onStart: (id: string) => void;
@@ -308,10 +309,13 @@ function DeploymentCard({ deployment, onDelete, onStop, onStart, onRestart, onEx
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Use live SSE status if available, fall back to DB status
+  const status = liveStatus || deployment.status;
+
   // Query storage usage (only for running deployments)
-  const isRunning = deployment.status === "running";
-  const isStopped = deployment.status === "stopped";
-  const isTransitioning = deployment.status === "creating";
+  const isRunning = status === "running";
+  const isStopped = status === "stopped";
+  const isTransitioning = status === "creating";
   const storageQuery = trpc.deployment.getStorageUsage.useQuery(
     { id: deployment.id },
     {
@@ -326,7 +330,7 @@ function DeploymentCard({ deployment, onDelete, onStop, onStart, onRestart, onEx
     ? Math.max(0, Math.ceil((new Date(deployment.freeExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : null;
 
-  const isPending = deployment.status === "pending";
+  const isPending = status === "pending";
   const handleCardClick = () => {
     if (isPending) {
       router.push(`/onboarding/${deployment.id}`);
@@ -358,7 +362,7 @@ function DeploymentCard({ deployment, onDelete, onStop, onStart, onRestart, onEx
                 <p className="text-xs text-muted-foreground">{deployment.runtime}</p>
               </div>
             </div>
-            <StatusBadge status={deployment.status} />
+            <StatusBadge status={status} />
           </div>
 
           {/* Pending banner */}

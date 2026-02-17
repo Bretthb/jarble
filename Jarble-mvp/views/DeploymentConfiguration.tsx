@@ -29,6 +29,7 @@ import { PlatformsTab } from "./deployment-config/PlatformsTab";
 import { SkillsTab } from "./deployment-config/SkillsTab";
 import { AdvancedTab } from "./deployment-config/AdvancedTab";
 import { LogsTab } from "./deployment-config/LogsTab";
+import { useStatusStream } from "@/hooks/useStatusStream";
 
 /** Decode a base64 string to a Blob and trigger a browser download. */
 function base64ToBlob(b64: string, mime = "application/zip"): Blob {
@@ -131,6 +132,12 @@ export default function DeploymentConfiguration() {
   const isCancelled = !!dep?.cancelledAt;
   const isPaid = deployment && !dep?.isFree;
 
+  // Real-time status via SSE
+  const { getStatus: getLiveStatus } = useStatusStream({
+    enabled: !!id && isAuthenticated,
+  });
+  const displayStatus = getLiveStatus(id)?.status || deployment?.status;
+
   // Dynamic tabs based on the deployment's runtime
   const runtimeSlug = deployment?.runtime ?? null;
   const tabs = useMemo(() => getConfigTabs(runtimeSlug), [runtimeSlug]);
@@ -227,13 +234,13 @@ export default function DeploymentConfiguration() {
               <ChevronLeft className="w-4 h-4" />
             </Button>
             <h1 className="text-base font-semibold">{formData.name || "Configuration"}</h1>
-            {deployment?.status && (
+            {displayStatus && (
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                deployment.status === "running"
+                displayStatus === "running"
                   ? "bg-primary/10 text-primary"
                   : "bg-secondary text-muted-foreground"
               }`}>
-                {deployment.status}
+                {displayStatus}
               </span>
             )}
           </div>
@@ -318,7 +325,7 @@ export default function DeploymentConfiguration() {
                   onClick={handleToggleStatus}
                   className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
                 >
-                  {deployment?.status === "running" ? (
+                  {displayStatus === "running" ? (
                     <>
                       <PowerOff className="w-4 h-4 shrink-0" />
                       Pause
@@ -376,7 +383,7 @@ export default function DeploymentConfiguration() {
                   <SkillsTab formData={formData} updateFormData={updateFormData} />
                 )}
                 {activeTab === "logs" && (
-                  <LogsTab deploymentId={id} deploymentStatus={deployment?.status} />
+                  <LogsTab deploymentId={id} deploymentStatus={displayStatus} />
                 )}
                 {activeTab === "advanced" && (
                   <AdvancedTab formData={formData} updateFormData={updateFormData} deployment={deployment} />
