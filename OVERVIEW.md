@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 16, 2026 (Session 6 — Stripe Subscription Sync)
+📅 Last updated: February 16, 2026 (Session 8 — Usage Analytics + API Key Management)
 
 </aside>
 
@@ -117,6 +117,7 @@ graph LR
         R2["/onboarding/id"]
         R3["/d/id/configure"]
         R4["/settings"]
+        R5["/analytics"]
     end
 
     P1 -->|Sign In| P2
@@ -124,6 +125,7 @@ graph LR
     R1 -->|New Deployment| R2
     R1 -->|Click Deployment| R3
     R1 -->|Profile Icon| R4
+    R1 -->|Profile Menu| R5
     R2 -->|Complete| R1
 ```
 
@@ -229,6 +231,9 @@ graph TB
 | POST | /api/stripe/checkout | JWT | Create checkout session |
 | POST | /api/stripe/portal | JWT | Create billing portal |
 | POST | /api/auth0/email-verified | M2M | Auth0 email verification sync |
+| GET | /api/deployments/status/stream | JWT | SSE stream of deployment status changes |
+| GET | /api/deployments/:id/logs | JWT | SSE stream of K8s container logs |
+| POST | /api/auth0/resend-verification | JWT | Resend Auth0 email verification |
 | GET | /debug/db | None | View DB tables (dev only) |
 
 ---
@@ -617,6 +622,12 @@ flowchart TD
 - [x]  **Config export as ZIP** — Export button during cancellation grace period, base64→Blob browser download
 - [x]  **Cancelling badge on Dashboard** — Orange "Cancelling (Xd left)" badge + export button on Dashboard cards
 - [x]  **Platform credential storage** — PlatformsTab wired to API (save/delete/test), encrypted credential storage, OpenClaw `openclaw.json` channel config generation
+- [x]  **Email verification resend** — "Resend" button on Dashboard banner and Deploy step, calls Auth0 Management API
+- [x]  **Deployment log streaming** — Real-time container logs via SSE, auto-scroll, severity-colored lines (ERROR=red, WARN=yellow, INFO=blue)
+- [x]  **Real-time status via SSE** — `useStatusStream` hook replaces polling, Dashboard + DeploymentConfiguration cards update instantly on status changes
+- [x]  **Usage Analytics dashboard** — `/analytics` page with summary cards (total/active/spend/mode split), status + runtime distribution charts, LLM credit usage meters, sortable per-deployment drill-down table
+- [x]  **API Key Management UI** — ModelTab rewritten with 3 context-aware sections: Included Credits (usage meter, credit limit editor, regenerate/revoke), Linked (pool usage, link to owner), BYOK (status badge, validate, update key)
+- [x]  **Deployment Logs tab** — Terminal-style log viewer (LogsTab), auto-scroll, pause/resume, clear, download, severity-colored lines, registered in wizardStepConfig for all runtimes
 
 ## Backend ✅
 
@@ -641,6 +652,11 @@ flowchart TD
 - [x]  **Stripe webhook `subscription.deleted`** — Auto-stops deployment when billing period ends (finds deployment by `stripeSubscriptionId`, calls `stopDeployment`)
 - [x]  **Platform credential storage** — `platform_credentials` table (AES-256-GCM encrypted JSON), `platformCredentials` tRPC router (getByDeployment, save, delete, testConnection), OpenClaw `openclaw.json` channel config + env var fallback injection during deploy
 - [x]  **Stripe subscription → deployment sync** — `pendingStripeSubscriptionId` handoff from checkout webhook to `deployment.create`, `subscription.updated` syncs cancel state + payment errors, `invoice.payment_failed` flags deployments, `linkSubscription` fallback mutation
+- [x]  **Email verification resend endpoint** — `POST /api/auth0/resend-verification` calls Auth0 Management API to resend verification email
+- [x]  **Deployment log streaming** — `GET /api/deployments/:id/logs` SSE endpoint streams K8s container logs via `@kubernetes/client-node` log API
+- [x]  **Real-time deployment status SSE** — `GET /api/deployments/status/stream` polls all user deployments every 5s, emits status changes as SSE events
+- [x]  **Two-way config sync** — Frontend→PVC: `syncConfigsToPvc()` writes configs to PVC + restarts pod on update. PVC→Frontend: `file-watcher.sh` (inotifywait) detects changes, POSTs to webhook, `syncConfigsFromPvc()` updates DB if values differ
+- [x]  **Drizzle migrations regenerated** — Fresh PostgreSQL migrations matching current schema
 
 ## Infrastructure ✅
 
@@ -658,16 +674,16 @@ flowchart TD
 
 1. ~~**Platform credential storage**~~ — ✅ Done (Session 5). `platform_credentials` table + tRPC router + OpenClaw `openclaw.json` channel config
 2. ~~**Stripe subscription → deployment sync**~~ — ✅ Done (Session 6). `pendingStripeSubscriptionId` handoff, all 4 webhook handlers implemented, `linkSubscription` fallback
-3. **Drizzle migrations regeneration** — Current migrations stale
+3. ~~**Drizzle migrations regeneration**~~ — ✅ Done (Session 7). Fresh PostgreSQL migrations generated
 4. **WhatsApp QR integration** — Replace mock QR with real WhatsApp Business API
-5. **Email verification resend** — Add "Resend" button for unverified users
+5. ~~**Email verification resend**~~ — ✅ Done (Session 7). Resend button on Dashboard banner + Deploy step
 
 ## 🟡 Important (Post-Launch)
 
-1. Deployment logs — Stream container logs from K8s
-2. Real-time status — WebSocket/SSE instead of polling
-3. Usage analytics dashboard
-4. API key management — Rotate, revoke, regenerate
+1. ~~Deployment logs~~ — ✅ Done (Session 7). SSE endpoint streams K8s container logs
+2. ~~Real-time status~~ — ✅ Done (Session 8). SSE-based `useStatusStream` hook replaces polling
+3. ~~Usage analytics dashboard~~ — ✅ Done (Session 8). `/analytics` page with summary cards, distribution charts, credit meters
+4. ~~API key management~~ — ✅ Done (Session 8). ModelTab rewritten with included/linked/BYOK sections
 5. Rate limiting on API routes
 6. Terraform CI/CD — GitHub Actions for plan/apply
 
@@ -685,9 +701,11 @@ flowchart TD
 
 Shared: ProfileDropdown, IntegrationsMarquee, TemplateSelector, WizardLoader, ErrorBoundary, ThemeToggle, SubscribeButton, StatusBadge, StorageMeter, CancellationGracePeriod
 
+Hooks: useStatusStream (SSE-based real-time deployment status)
+
 Auth: Auth0Provider, LoginButton, LogoutButton
 
-Views: Dashboard, Deployments (Linked Deployments), OnboardingWizard, DeploymentConfiguration, Settings
+Views: Dashboard, Deployments (Linked Deployments), OnboardingWizard, DeploymentConfiguration, Settings, Analytics
 
 UI Library: 40+ shadcn/ui components (Button, Card, Dialog, Tabs, Toast, Badge, etc.)
 
@@ -733,19 +751,27 @@ monorepo/
 │   │   ├── page.tsx                   # Landing page
 │   │   ├── dashboard/page.tsx         # Dashboard route
 │   │   ├── deployments/page.tsx       # Linked Deployments route
+│   │   ├── analytics/page.tsx         # Usage Analytics route
 │   │   ├── settings/page.tsx          # Settings route
 │   │   ├── d/[id]/configure/page.tsx  # Deployment config route
 │   │   └── onboarding/[id]/page.tsx   # Onboarding wizard route
 │   ├── views/
-│   │   ├── Dashboard.tsx              # Main deployment list
+│   │   ├── Dashboard.tsx              # Main deployment list (SSE real-time status)
 │   │   ├── Deployments.tsx            # Linked Deployments (credit pool clusters)
 │   │   ├── DeploymentConfiguration.tsx # Config tabs (General, Model, Platforms, Skills, Advanced)
+│   │   ├── Analytics.tsx              # Usage analytics dashboard (summary, charts, credit meters, table)
 │   │   ├── OnboardingWizard.tsx       # Multi-step wizard with credit pool linking
 │   │   ├── Settings.tsx               # Profile settings
+│   │   ├── deployment-config/
+│   │   │   ├── ModelTab.tsx           # API key management (included/linked/BYOK sections)
+│   │   │   └── LogsTab.tsx            # Terminal-style deployment log viewer
 │   │   └── onboarding/
 │   │       └── wizardStepConfig.ts    # Runtime steps, LLM providers, models, credit plans, hardware options
+│   ├── hooks/
+│   │   ├── useStatusStream.ts         # SSE hook for real-time deployment status changes
+│   │   └── useLogStream.ts            # SSE hook for deployment container log streaming
 │   ├── components/
-│   │   ├── ProfileDropdown.tsx        # User menu (Dashboard, Linked Deployments, Settings)
+│   │   ├── ProfileDropdown.tsx        # User menu (Dashboard, Linked Deployments, Analytics, Settings)
 │   │   ├── StatusBadge.tsx            # Shared status indicator (running, starting, stopped, pending, failed)
 │   │   ├── StorageMeter.tsx           # Storage usage bar with color coding
 │   │   └── ...                        # 40+ shadcn/ui components
@@ -775,8 +801,10 @@ monorepo/
 │   │   │   ├── openrouter.ts         # OpenRouter Management API utilities
 │   │   │   ├── env.ts                # Environment variable validation
 │   │   │   └── logger.ts             # Pino logger
-│   │   ├── services/                  # Auth + Stripe
-│   │   └── k8s/                       # K8s orchestration
+│   │   ├── services/
+│   │   │   ├── stripe.ts             # Stripe checkout, portal, subscriptions
+│   │   │   └── configSync.ts         # Two-way config sync (Frontend↔PVC)
+│   │   └── k8s/                       # K8s orchestration (deploy, stop, start, logs)
 │   └── k8s/                           # K8s manifests
 │
 └── infrastructure/                    # IaC
@@ -791,7 +819,7 @@ monorepo/
 ---
 
 <aside>
-📚 This document provides a complete snapshot of the Jarble platform as of February 16, 2026 (Session 6). Use the roadmap section to prioritize next steps.
+📚 This document provides a complete snapshot of the Jarble platform as of February 16, 2026 (Session 8). Use the roadmap section to prioritize next steps.
 
 </aside>
 
@@ -808,14 +836,17 @@ flowchart TB
     subgraph DONE_FE["✅ DONE — Frontend"]
         HOME["✅ Landing Page"]
         LOGIN["✅ Auth0 Login"]
-        DASH["✅ Dashboard + Storage Meter"]
+        DASH["✅ Dashboard + Storage Meter + SSE Status"]
         WIZARD["✅ Onboarding Wizard + Credit Pool Linking"]
         CONFIG["✅ Deployment Config (5 tabs)"]
         SETTINGS["✅ Settings"]
-        EMAILGATE["✅ Email Verification Gate"]
+        EMAILGATE["✅ Email Verification Gate + Resend"]
         DARKMODE["✅ Dark Mode"]
         LINKED["✅ Linked Deployments Page"]
         CREDITUI["✅ Credit Plan Selector"]
+        ANALYTICS_FE["✅ Usage Analytics Dashboard"]
+        KEYMGMT_FE["✅ API Key Management UI"]
+        LOGS_FE["✅ Deployment Log Viewer"]
     end
 
     subgraph DONE_API["✅ DONE — API"]
@@ -825,7 +856,7 @@ flowchart TB
         FREE["✅ Free Tier System"]
         LLM["✅ Multi-LLM Support (4 providers)"]
         STRIPE_API["✅ Stripe Webhooks"]
-        EMAIL_WH["✅ Auth0 Email Webhook"]
+        EMAIL_WH["✅ Auth0 Email Webhook + Resend"]
         SYSPROMPT["✅ systemPrompt in DB"]
         ORPROV["✅ OpenRouter Key Provisioning"]
         ENCRYPT["✅ AES-256-GCM Key Encryption"]
@@ -833,6 +864,8 @@ flowchart TB
         OWNERGUARD["✅ Owner Protection (delete/update)"]
         STORAGE["✅ Storage Usage Monitoring"]
         STOPSTART_DONE["✅ Stop/Start/Restart Toggle"]
+        SSE_STATUS["✅ Real-time Status SSE"]
+        LOG_STREAM["✅ Deployment Log Streaming"]
     end
 
     subgraph DONE_INFRA["✅ DONE — Infrastructure"]
@@ -859,22 +892,26 @@ flowchart TB
     subgraph TODO_CRITICAL["🔴 TODO — Critical for Launch"]
         PLATCREDS["✅ Platform Credentials\nDone - Session 5"]
         STRIPESYNC["✅ Stripe → Deploy Sync\nDone - Session 6"]
-        MIGRATIONS["❌ Drizzle Migrations"]
+        EMAILRESEND_DONE["✅ Email Resend\nDone - Session 7"]
+        MIGRATIONS_DONE["✅ Drizzle Migrations\nDone - Session 7"]
         WHATSAPP["❌ WhatsApp QR\nReal Business API"]
-        EMAILRESEND["❌ Resend Verification"]
     end
 
-    subgraph TODO_SYNC["🟡 TODO — Config ↔ Container Sync"]
-        SOULMD["❌ soul.md Generation"]
-        PVCWRITE["❌ Write to PVC"]
-        CONFIGSYNC["❌ Config Change → Restart"]
-        WEBHOOKURL["❌ Webhook Config"]
+    subgraph DONE_SYNC["✅ DONE — Config ↔ Container Sync (Session 7)"]
+        SOULMD["✅ soul.md / Config Generation"]
+        PVCWRITE["✅ Write to PVC"]
+        CONFIGSYNC["✅ Config Change → Restart"]
+        WEBHOOKURL["✅ File Watcher Webhook"]
+    end
+
+    subgraph DONE_POST["✅ DONE — Post-Launch Items"]
+        LOGS_DONE["✅ Deployment Logs\nDone - Session 7"]
+        REALTIME_DONE["✅ Real-time Status\nDone - Session 8"]
+        ANALYTICS_DONE["✅ Usage Analytics\nDone - Session 8"]
+        KEYMGMT_DONE["✅ API Key Management\nDone - Session 8"]
     end
 
     subgraph TODO_POST["🟢 TODO — Post-Launch"]
-        LOGS["❌ Deployment Logs"]
-        REALTIME["❌ Real-time Status"]
-        ANALYTICS["❌ Usage Analytics"]
         BILLING["❌ Billing Page"]
         RATELIMIT["❌ Rate Limiting"]
         TFCICD["❌ Terraform CI/CD"]
@@ -892,19 +929,22 @@ flowchart LR
         CONFIG["Config Page"]
         SYSPROMPT["systemPrompt DB"]
         STRIPE["Stripe Webhooks"]
-        DASH["Dashboard"]
+        DASH["Dashboard + SSE"]
         CREDITPOOL["Shared Credit Pools"]
         ORPROV["OpenRouter Provisioning"]
         ENCRYPT["Key Encryption"]
         LINKED["Linked Deployments Page"]
         STOPSTART_DEP["Stop/Start Toggle"]
         GHCR_DEP["Container Images + GHCR"]
+        ANALYTICS_DEP["Usage Analytics"]
+        KEYMGMT_DEP["API Key Management"]
+        LOGS_DEP["Deployment Logs"]
     end
 
-    subgraph NeedSync["🟡 Need: Config Sync"]
-        SOULMD["soul.md Generation"]
-        PVCWRITE["Write to PVC"]
-        RESTART["Rolling Restart"]
+    subgraph DoneSync["✅ Done: Config Sync"]
+        SOULMD["✅ Config Generation"]
+        PVCWRITE["✅ Write to PVC"]
+        RESTART["✅ Rolling Restart"]
     end
 
     subgraph NeedLaunch["✅ Done: Launch Items"]
@@ -913,15 +953,18 @@ flowchart LR
     end
 
     CONFIG -->|saves| SYSPROMPT
-    SYSPROMPT -.->|NEED| SOULMD
-    SOULMD -.->|NEED| PVCWRITE
-    PVCWRITE -.->|NEED| RESTART
+    SYSPROMPT --> SOULMD
+    SOULMD --> PVCWRITE
+    PVCWRITE --> RESTART
 
-    CONFIG -.->|NEED| PLATCREDS
-    STRIPE -.->|NEED| STRIPESYNC
+    CONFIG --> PLATCREDS
+    STRIPE --> STRIPESYNC
     CREDITPOOL --> ORPROV --> ENCRYPT
     CREDITPOOL --> LINKED
     DASH --> STOPSTART_DEP
+    ORPROV --> KEYMGMT_DEP
+    DASH --> ANALYTICS_DEP
+    DASH --> LOGS_DEP
 ```
 
 ---
@@ -1329,7 +1372,47 @@ Added to `users` table (all 3 schema variants):
 
 ---
 
-# 26. Session Log
+# 26. Two-Way Config Sync (Session 7)
+
+### Architecture
+
+Config changes can originate from either the frontend (user edits in config tabs) or from inside the container (manual file edits). A two-way sync ensures both sources stay in sync.
+
+### Frontend → PVC (Push)
+
+```
+User saves config (deployment.update / platformCredentials.save)
+  → syncConfigsToPvc(deploymentId)
+    → Reads deployment + platform creds from DB
+    → Runtime handler renders config files (e.g. openclaw.json, soul.md)
+    → K8s exec: writes files to /data/config/ inside pod
+    → Updates K8s Secret with latest env vars
+    → Restarts pod (rolling restart via kubectl rollout)
+```
+
+### PVC → Frontend (Pull via File Watcher)
+
+```
+file-watcher.sh (runs as background process in container)
+  → inotifywait monitors /data/config/ for modify/create/delete
+  → On change: POST /api/config-changed { deploymentId, file, event }
+    → syncConfigsFromPvc(deploymentId)
+      → K8s exec: reads all config files from pod
+      → Runtime handler parses files back to structured data
+      → Compares with DB values — only updates if different
+      → Prevents circular sync (change detection, not blind overwrite)
+```
+
+### Files
+
+- `jarble-api-main/src/services/configSync.ts` — Core sync service (syncConfigsToPvc, syncConfigsFromPvc)
+- `runtimes/file-watcher.sh` — inotifywait wrapper, shared across runtimes
+- `runtimes/openclaw/entrypoint.sh` — Starts file watcher as background process
+- `runtimes/zeroclaw/entrypoint.sh` — Same
+
+---
+
+# 27. Session Log
 
 ### Session 6 — February 16, 2026
 
@@ -1374,9 +1457,84 @@ Added to `users` table (all 3 schema variants):
 - Test deployment is seeded as `isFree: true`, so cancel subscription button won't appear in dev (that's expected — it only shows for paid deployments where `isPaid = !dep.isFree`)
 - Commits should NOT include `Co-Authored-By` line (user preference)
 
+### Session 7 — February 16, 2026
+
+**Commits:**
+- `4bf215b` — "Add two-way config sync and regenerate Drizzle migrations"
+- `4ebb0fa` — "Add deployment log streaming and email verification resend"
+
+**Branch:** `main` (pushed to remote)
+
+#### What was done:
+
+1. **Two-way config sync** — Frontend→PVC: `syncConfigsToPvc()` renders configs from DB, writes to PVC, updates K8s Secret, and restarts the pod. Fires on deployment update and platform credential save/delete. PVC→Frontend: `file-watcher.sh` (inotifywait) detects config changes inside the container and POSTs to `/api/config-changed` webhook. `syncConfigsFromPvc()` reads files from the pod, parses via runtime handler, and updates DB only if values differ (prevents circular sync). Runtime images (OpenClaw + ZeroClaw) now include inotify-tools and curl.
+
+2. **Drizzle migrations regeneration** — Fresh PostgreSQL migrations generated to match current schema.
+
+3. **Deployment log streaming** — SSE endpoint (`GET /api/deployments/:id/logs/stream`) streams K8s pod logs in real-time. tRPC `getLogs` query for one-shot fetch. `useLogStream` hook manages EventSource lifecycle. LogsTab component with terminal-style viewer, auto-scroll, pause/resume, clear, download, severity-colored lines.
+
+4. **Email verification resend** — `resendVerificationEmail` tRPC mutation calls Auth0 Management API. Resend button added to Dashboard banner, Settings page, and OnboardingWizard deploy step. Requires `AUTH0_MGMT_CLIENT_ID`/`AUTH0_MGMT_CLIENT_SECRET` env vars.
+
+#### Files modified (28 across both commits):
+- `jarble-api-main/src/services/configSync.ts` — NEW: Two-way config sync service
+- `jarble-api-main/src/k8s/deployment.ts` — syncConfigsToPvc + log streaming functions
+- `jarble-api-main/src/index.ts` — Config-changed webhook + log stream SSE endpoint
+- `jarble-api-main/src/trpc/routers/deployment.ts` — getLogs query + sync calls on update
+- `jarble-api-main/src/trpc/routers/platformCredentials.ts` — Sync calls on save/delete
+- `jarble-api-main/src/trpc/routers/user.ts` — resendVerificationEmail mutation
+- `jarble-api-main/src/utils/env.ts` — AUTH0_MGMT_CLIENT_ID/SECRET vars
+- `jarble-api-main/drizzle-pg/` — Fresh PostgreSQL migrations (3 files)
+- `runtimes/*/Dockerfile` — inotify-tools + curl added
+- `runtimes/*/entrypoint.sh` — file-watcher.sh background process
+- `runtimes/*/file-watcher.sh` — inotifywait → POST webhook
+- `Jarble-mvp/hooks/useLogStream.ts` — NEW: SSE log streaming hook
+- `Jarble-mvp/views/deployment-config/LogsTab.tsx` — NEW: Terminal-style log viewer
+- `Jarble-mvp/views/Dashboard.tsx` — Resend verification button
+- `Jarble-mvp/views/OnboardingWizard.tsx` — Resend verification button
+- `Jarble-mvp/views/Settings.tsx` — Resend verification button
+- `Jarble-mvp/views/onboarding/wizardStepConfig.ts` — Logs tab for all runtimes
+
 ---
 
-# 27. Dev Servers
+### Session 8 — February 16, 2026
+
+**Commits:**
+- `75733af` — "Add real-time deployment status streaming and usage analytics dashboard"
+- `094024c` — "Add API key management to Model tab"
+
+**Branch:** `main` (pushed to remote)
+
+#### What was done:
+
+1. **Real-time deployment status via SSE** — New SSE endpoint (`GET /api/deployments/status/stream`) polls all user deployments every 5s and emits status change events. `useStatusStream` hook manages EventSource lifecycle and provides a status override map. Dashboard and DeploymentConfiguration pages replaced `setInterval` polling with push-based SSE for instant status updates.
+
+2. **Usage Analytics dashboard** — New `/analytics` page with: 4 summary cards (total deployments, active count, monthly spend, LLM mode split), status + runtime distribution charts with CSS progress bars, LLM credit usage meters for each included-credits deployment, and a sortable per-deployment drill-down table with storage + credit queries per row. Accessible via ProfileDropdown → "Usage Analytics" menu item.
+
+3. **API Key Management UI** — ModelTab rewritten with 3 context-aware sections:
+   - **Included Credits** (`llmMode === "included"`): Key status badge, credit usage progress bar with daily/weekly/monthly breakdown, editable credit limit with Update button, Regenerate Key + Revoke Key actions with confirmation dialogs
+   - **Linked** (`llmApiKeySourceDeploymentId` set): Shared pool usage meter (read-only), "Go to Pool Owner" button
+   - **BYOK** (`llmMode === "byok"`): Configured/Not Set status badge, key update input with Validate button, provider key validation
+
+#### Files modified (10):
+- `jarble-api-main/src/index.ts` — SSE status stream endpoint
+- `Jarble-mvp/hooks/useStatusStream.ts` — NEW: SSE status stream hook
+- `Jarble-mvp/app/analytics/page.tsx` — NEW: Analytics route
+- `Jarble-mvp/views/Analytics.tsx` — NEW: Full analytics view (~705 lines)
+- `Jarble-mvp/views/Dashboard.tsx` — Replaced polling with useStatusStream
+- `Jarble-mvp/views/DeploymentConfiguration.tsx` — Integrated useStatusStream + passed deployment/deploymentId to ModelTab
+- `Jarble-mvp/components/ProfileDropdown.tsx` — Added "Usage Analytics" menu item
+- `Jarble-mvp/views/deployment-config/ModelTab.tsx` — Rewritten with 3 key management sections (~541 lines)
+- `Jarble-mvp/views/deployment-config/types.ts` — Added ModelTabProps interface
+
+#### What's next (remaining roadmap items):
+- **WhatsApp QR integration** — Replace mock QR with real WhatsApp Business API
+- **Rate limiting** on API routes
+- **Terraform CI/CD** — GitHub Actions for plan/apply
+- **Billing page** — Dedicated billing/invoices UI
+
+---
+
+# 28. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)

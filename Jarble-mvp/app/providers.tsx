@@ -18,19 +18,38 @@ import { useAuth0 } from "@auth0/auth0-react";
  * Creates the tRPC client with Auth0 Bearer token in headers.
  */
 function TrpcProviders({ children }: { children: React.ReactNode }) {
-  const { getAccessTokenSilently, isAuthenticated } = useAuth0();
+  const { getAccessTokenSilently, isAuthenticated, isLoading } = useAuth0();
 
   // Store the auth getter in a ref so the tRPC client (created once) always
   // has access to the latest auth state without re-creating the client.
-  const authRef = useRef({ getAccessTokenSilently, isAuthenticated });
-  authRef.current = { getAccessTokenSilently, isAuthenticated };
+  const authRef = useRef({ getAccessTokenSilently, isAuthenticated, isLoading });
+  authRef.current = { getAccessTokenSilently, isAuthenticated, isLoading };
 
   const [queryClient] = useState(() => {
-    const client = new QueryClient();
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          // Don't refetch on window focus while auth is settling — this prevents
+          // the race condition where React Query refetches after Auth0 redirect
+          // but the token isn't ready yet.
+          refetchOnWindowFocus: () => !authRef.current.isLoading,
+          // Retry auth errors once after a short delay (token might be settling)
+          retry: (failureCount, error) => {
+            if (error instanceof TRPCClientError && error.message?.includes("logged in")) {
+              return failureCount < 2;
+            }
+            return failureCount < 3;
+          },
+          retryDelay: (attemptIndex) => Math.min(1000 * (attemptIndex + 1), 5000),
+        },
+      },
+    });
 
     const redirectToLoginIfUnauthorized = (error: unknown) => {
       if (!(error instanceof TRPCClientError)) return;
       if (typeof window === "undefined") return;
+      // Don't redirect while auth is still loading (token might be settling)
+      if (authRef.current.isLoading) return;
       // Only redirect if user is NOT authenticated with Auth0
       if (authRef.current.isAuthenticated) return;
       window.location.href = "/login";
@@ -40,7 +59,10 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
       if (event.type === "updated" && event.action.type === "error") {
         const error = event.query.state.error;
         redirectToLoginIfUnauthorized(error);
-        console.error("[API Query Error]", error);
+        // Only log if auth is settled — suppress noise during auth callback
+        if (!authRef.current.isLoading) {
+          console.error("[API Query Error]", error);
+        }
       }
     });
 
@@ -63,13 +85,16 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
           url: `${API_URL}/trpc`,
           transformer: superjson,
           async headers() {
-            if (authRef.current.isAuthenticated) {
-              try {
-                const token = await authRef.current.getAccessTokenSilently();
+            // Always attempt to get the token — getAccessTokenSilently() can
+            // resolve from the cache or refresh token even before isAuthenticated
+            // flips to true (e.g. during Auth0 callback processing).
+            try {
+              const token = await authRef.current.getAccessTokenSilently();
+              if (token) {
                 return { Authorization: `Bearer ${token}` };
-              } catch {
-                return {};
               }
+            } catch {
+              // No token available — send request without auth header
             }
             return {};
           },
