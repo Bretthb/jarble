@@ -164,3 +164,27 @@ export async function listActiveSubscriptions(
 
   return result.data;
 }
+
+/**
+ * List invoices for a Stripe customer (newest first).
+ */
+export async function listInvoices(
+  customerId: string,
+  limit = 24
+): Promise<Stripe.Invoice[]> {
+  const s = getStripe();
+  const result = await s.invoices.list({ customer: customerId, limit });
+  return result.data;
+}
+
+/**
+ * Retrieve a subscription with expanded price details.
+ */
+export async function getSubscriptionDetails(
+  subscriptionId: string
+): Promise<Stripe.Subscription> {
+  const s = getStripe();
+  return s.subscriptions.retrieve(subscriptionId, {
+    expand: ["default_payment_method"],
+  });
+}

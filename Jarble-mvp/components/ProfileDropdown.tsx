@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Settings, LogOut, Moon, Sun, User, LayoutDashboard, Layers, BarChart3 } from "lucide-react";
+import { Settings, LogOut, Moon, Sun, User, LayoutDashboard, Layers, BarChart3, CreditCard } from "lucide-react";
 
 export default function ProfileDropdown() {
   const { user, logout } = useAuth0();
@@ -61,6 +61,10 @@ export default function ProfileDropdown() {
           <DropdownMenuItem onClick={() => router.push("/analytics")}>
             <BarChart3 className="w-4 h-4" />
             Usage Analytics
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push("/billing")}>
+            <CreditCard className="w-4 h-4" />
+            Billing
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => router.push("/settings")}>
             <User className="w-4 h-4" />

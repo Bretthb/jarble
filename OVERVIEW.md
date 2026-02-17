@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 17, 2026 (Session 9 — Production Deployment Readiness)
+📅 Last updated: February 17, 2026 (Session 10 — Billing Page)
 
 </aside>
 
@@ -1586,7 +1586,46 @@ file-watcher.sh (runs as background process in container)
 
 ---
 
-# 29. Dev Servers
+# 29. Session 10 — Billing Page
+
+**Date:** February 17, 2026
+**Machine:** Desktop (continued from Session 9)
+
+#### What was done:
+- **Stripe helpers** — Added `listInvoices(customerId)` and `getSubscriptionDetails(subscriptionId)` to `services/stripe.ts`
+- **Billing tRPC router** — Created `trpc/routers/billing.ts` with 3 procedures:
+  - `billing.getOverview` — aggregates monthly spend, active sub count, next billing date, payment method last4
+  - `billing.getInvoices` — maps Stripe invoices to DTOs (id, date, description, amount, status, PDF URL)
+  - `billing.getSubscriptions` — enriches DB deployment data with Stripe period dates via `Promise.allSettled`
+- **Frontend billing page** — Created `/billing` route and `views/Billing.tsx` with:
+  - 4 overview cards (Monthly Spend, Active Subscriptions, Next Payment, Payment Method)
+  - Subscriptions table with status badges (active/cancelling/past_due), period display, config page links
+  - Invoice history table with PDF download links
+  - Manage Billing card (opens Stripe portal via `POST /api/stripe/portal`)
+  - Auth guards, loading/empty states, framer-motion animations
+- **ProfileDropdown** — Added Billing menu item between Usage Analytics and Profile Settings
+
+#### Files changed:
+| File | Action |
+|------|--------|
+| `jarble-api-main/src/services/stripe.ts` | Modified — added `listInvoices`, `getSubscriptionDetails` |
+| `jarble-api-main/src/trpc/routers/billing.ts` | Created — 3 tRPC procedures |
+| `jarble-api-main/src/trpc/index.ts` | Modified — registered `billingRouter` |
+| `Jarble-mvp/app/billing/page.tsx` | Created — route shell |
+| `Jarble-mvp/views/Billing.tsx` | Created — full billing view |
+| `Jarble-mvp/components/ProfileDropdown.tsx` | Modified — added Billing menu item |
+
+#### Build status: ✅ API builds clean. Frontend has pre-existing type error in Analytics.tsx (unrelated to billing changes).
+
+#### What's next (remaining roadmap items):
+- **WhatsApp QR integration** — Replace mock QR with real WhatsApp Business API
+- **Rate limiting** on API routes
+- **Terraform CI/CD** — GitHub Actions for plan/apply
+- **TLS/cert-manager** — Ingress has Traefik annotation but no certificate resources
+
+---
+
+# 30. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)
