@@ -12,6 +12,12 @@ variable "ssh_public_key_path" {
   default     = "~/.ssh/id_rsa.pub"
 }
 
+variable "ssh_public_key" {
+  description = "SSH public key content (used in CI; takes precedence over ssh_public_key_path)"
+  type        = string
+  default     = ""
+}
+
 variable "ssh_private_key_path" {
   description = "Path to SSH private key for provisioning"
   type        = string

@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 17, 2026 (Session 12 — TLS + Rate Limiting)
+📅 Last updated: February 17, 2026 (Session 13 — Terraform CI/CD)
 
 </aside>
 
@@ -1707,7 +1707,57 @@ The QR flow uses K8s exec (`streamExecInPod`) to run `openclaw channels login` i
 
 ---
 
-# 32. Dev Servers
+# 32. Session 13 — Terraform CI/CD
+
+**Date:** February 17, 2026
+
+#### What was done:
+
+**Remote state backend (Terraform Cloud):**
+- Created `infrastructure/terraform/backend.tf` — Terraform Cloud backend with local execution mode (TFC stores state + locking only, plan/apply runs in GHA or locally)
+- Organization: `jarble-ai`, workspace: `jarble-infrastructure`
+- Removed `.terraform.lock.hcl` from `.gitignore` to ensure reproducible provider versions across environments
+
+**SSH key CI compatibility:**
+- Added `ssh_public_key` variable to `variables.tf` — accepts key content directly for CI (via `TF_VAR_ssh_public_key`)
+- Updated `main.tf` SSH key resource with conditional: uses content if provided, falls back to file path for local dev
+
+**GitHub Actions workflow (`.github/workflows/terraform.yml`):**
+- **PR trigger**: `infrastructure/terraform/**` changes → fmt check, validate, plan, post plan as PR comment (update-or-create pattern)
+- **Push to main**: plan + apply with `environment: production` manual approval gate
+- **Manual dispatch**: `plan-only`, `apply`, and `destroy` modes
+- **Destroy safety**: typed confirmation string (`destroy-jarble-infrastructure`) + environment approval — two layers
+- Secrets: `HCLOUD_TOKEN`, `TF_API_TOKEN`, `SSH_PUBLIC_KEY` (all via `TF_VAR_*` env vars)
+- Uses `hashicorp/setup-terraform@v3` with `cli_config_credentials_token` for TFC auth
+- Plan uses `-detailed-exitcode` (0 = no changes, 2 = changes, 1 = error)
+
+**Documentation:**
+- Updated `infrastructure/terraform/README.md` with CI/CD section (triggers, manual dispatch modes, required secrets, local dev instructions)
+- Updated `terraform.tfvars.example` with CI variable comment
+
+#### Files changed:
+| File | Action |
+|------|--------|
+| `infrastructure/terraform/backend.tf` | Created — Terraform Cloud backend |
+| `infrastructure/terraform/variables.tf` | Modified — added `ssh_public_key` variable |
+| `infrastructure/terraform/main.tf` | Modified — conditional SSH key logic |
+| `infrastructure/terraform/.gitignore` | Modified — allow `.terraform.lock.hcl` |
+| `.github/workflows/terraform.yml` | Created — full CI/CD workflow |
+| `infrastructure/terraform/terraform.tfvars.example` | Modified — CI variable comment |
+| `infrastructure/terraform/README.md` | Modified — CI/CD section |
+
+#### Pre-requisites (manual, before first CI run):
+1. Sign up for Terraform Cloud, create org + workspace (execution mode: Local)
+2. Migrate local state: `terraform login && terraform init`
+3. Add GitHub secrets: `HCLOUD_TOKEN`, `TF_API_TOKEN`, `SSH_PUBLIC_KEY`
+4. Create `production` environment with required reviewer
+
+#### What's next (remaining roadmap items):
+- **Deploy to production** — Build Docker images, apply secrets, apply manifests
+
+---
+
+# 33. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)

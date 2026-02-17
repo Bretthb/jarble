@@ -35,7 +35,7 @@ provider "hcloud" {
 
 resource "hcloud_ssh_key" "default" {
   name       = "${var.cluster_name}-key"
-  public_key = file(var.ssh_public_key_path)
+  public_key = var.ssh_public_key != "" ? var.ssh_public_key : file(var.ssh_public_key_path)
 }
 
 # ─── Network ────────────────────────────────────────────────────────────────

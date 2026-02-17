@@ -33,6 +33,45 @@ export KUBECONFIG=./kubeconfig.yaml
 kubectl get nodes
 ```
 
+## CI/CD Pipeline
+
+Infrastructure changes are managed through GitHub Actions (`.github/workflows/terraform.yml`).
+State is stored in [Terraform Cloud](https://app.terraform.io) (free tier) with locking.
+
+### Automatic Triggers
+
+- **Pull Request** — When files in `infrastructure/terraform/` change, the pipeline runs `fmt -check`, `validate`, and `plan`, posting the plan output as a PR comment.
+- **Push to main** — When changes land on main, the pipeline runs plan + apply with a manual approval gate (requires approval in the GitHub UI).
+
+### Manual Dispatch
+
+Go to **Actions > Terraform > Run workflow** and select a mode:
+
+| Mode | What it does |
+|------|-------------|
+| `plan-only` | Run plan without applying |
+| `apply` | Run plan + apply (requires environment approval) |
+| `destroy` | Destroy all infrastructure (requires confirmation string + approval) |
+
+### Required GitHub Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `HCLOUD_TOKEN` | Hetzner Cloud API token |
+| `TF_API_TOKEN` | Terraform Cloud API token (for remote state) |
+| `SSH_PUBLIC_KEY` | SSH public key content for server access |
+
+### Local Development
+
+Local terraform commands still work — state is shared via Terraform Cloud:
+
+```bash
+terraform login   # One-time: authenticates with Terraform Cloud
+terraform init
+terraform plan
+terraform apply
+```
+
 ## Adding Worker Nodes
 
 Change `agent_count` in `terraform.tfvars` and re-apply:
