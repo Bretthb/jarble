@@ -315,6 +315,42 @@ void (async () => {
 
 **Analogy:** When you order food at a restaurant, the waiter doesn't stand at your table until the food is ready. They take your order, go to the kitchen, and come back when it's done. The frontend watches for the status to change via SSE.
 
+### Rate Limiting
+
+The API has three tiers of rate limiting via `express-rate-limit` (see `src/middleware/rateLimit.ts`):
+
+```mermaid
+graph TD
+    REQ["Incoming Request"] --> GLOBAL{"Global Limiter<br/>300 req/min per IP"}
+
+    GLOBAL -->|Pass| ROUTE{"Which Route?"}
+    GLOBAL -->|Exceeded| REJECT["429 Too Many Requests"]
+
+    ROUTE -->|"/trpc/*"| AUTH{"Auth Limiter<br/>120 req/min per user"}
+    ROUTE -->|"/api/stripe/checkout<br/>/api/stripe/portal"| STRIPE{"Stripe Limiter<br/>10 req/min per user"}
+    ROUTE -->|Other| HANDLER["Route Handler"]
+
+    AUTH -->|Pass| HANDLER
+    AUTH -->|Exceeded| REJECT
+    STRIPE -->|Pass| HANDLER
+    STRIPE -->|Exceeded| REJECT
+
+    style REJECT fill:#ef4444,color:#fff
+    style HANDLER fill:#22c55e,color:#fff
+```
+
+| Limiter | Scope | Limit | Key | Skips |
+|---------|-------|-------|-----|-------|
+| `globalLimiter` | All traffic | 300/min | Client IP | `/health`, webhooks, Auth0 M2M |
+| `authLimiter` | tRPC endpoints | 120/min | User ID (JWT `sub`) | — |
+| `stripeActionLimiter` | Payment actions | 10/min | User ID (JWT `sub`) | — |
+
+**How user identification works:** The rate limiter extracts the `sub` claim from the JWT by base64url-decoding the payload (no signature verification — that happens later in the actual route handler). If no token is present, it falls back to the client IP.
+
+**Trust proxy:** `app.set("trust proxy", 1)` is set so that `req.ip` returns the real client IP from the `X-Forwarded-For` header (set by Traefik), not the K8s pod IP.
+
+**Response headers:** All limiters use `standardHeaders: "draft-7"`, which adds `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers to every response.
+
 ---
 
 ## 6. Kubernetes — The Server Room
@@ -832,6 +868,51 @@ Both are set because different runtime versions may read from either source.
 | Messenger | `pageAccessToken`, `verifyToken` | `MESSENGER_PAGE_ACCESS_TOKEN`, `MESSENGER_VERIFY_TOKEN` |
 | Web | `allowedDomains` | — |
 
+### WhatsApp QR Pairing
+
+WhatsApp is unique among platforms — it doesn't use a static API token. Instead, it requires **QR code pairing** through the WhatsApp Web protocol (via the Baileys library inside OpenClaw).
+
+The pairing flow runs `openclaw channels login --channel whatsapp` inside the deployed K8s pod and streams the QR data to the frontend in real-time:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant FE as Frontend<br/>(WhatsAppQrModal)
+    participant HOOK as useQrStream<br/>(EventSource)
+    participant API as API Server<br/>(SSE endpoint)
+    participant K8S as K8s Pod<br/>(OpenClaw)
+    participant WA as WhatsApp<br/>Servers
+
+    User->>FE: Click "Start QR Pairing"
+    FE->>HOOK: start()
+    HOOK->>API: GET /api/deployments/:id/whatsapp/qr?token=JWT
+
+    Note over API,K8S: K8s exec into pod
+    API->>K8S: exec: npx openclaw channels login --channel whatsapp
+    K8S->>WA: Request pairing QR
+    WA-->>K8S: QR string (stdout)
+    K8S-->>API: Stream stdout line-by-line
+    API-->>HOOK: SSE event: qr (QR data string)
+    HOOK-->>FE: Update qrData state
+    FE-->>User: Render QR code (react-qr-code)
+
+    User->>WA: Scan QR with phone
+    WA-->>K8S: Session authenticated
+    K8S-->>API: stdout: "successfully logged in"
+    API->>API: Save WhatsApp credentials + sync configs
+    API-->>HOOK: SSE event: connected
+    HOOK-->>FE: Show success state
+    FE-->>User: "WhatsApp Connected!"
+```
+
+**Key implementation details:**
+
+- **`streamExecInPod()`** (`src/k8s/deployment.ts`): Unlike `execInPod()` which waits for the process to exit, this function streams stdout line-by-line via a PassThrough stream. Essential because `openclaw channels login` stays alive until the QR is scanned.
+- **QR detection heuristic**: Lines longer than 50 characters containing commas or `@` signs are treated as QR data (Baileys emits QR strings in this format).
+- **Connected detection**: Lines containing "successfully logged in", "whatsapp connected", "connection open", or "session saved".
+- **90-second timeout**: If no QR is scanned within 90 seconds, the exec is aborted and a timeout event is sent.
+- **Auth via query param**: EventSource can't set headers, so the JWT is passed as `?token=` (same pattern as log streaming).
+
 ---
 
 ## 10. Config Sync — The Two-Way Mirror
@@ -1254,6 +1335,74 @@ Longhorn is a **distributed storage system** for Kubernetes. When we create a PV
 
 **Analogy:** Longhorn is like a RAID array spread across multiple buildings. Even if one building burns down, your data is safe in the others.
 
+### TLS (cert-manager + Let's Encrypt)
+
+HTTPS certificates are automatically provisioned via **cert-manager** and **Let's Encrypt**:
+
+```mermaid
+graph LR
+    CM["cert-manager<br/>(installed via Terraform)"] --> CI["ClusterIssuer<br/>letsencrypt-prod"]
+    CI --> ACME["Let's Encrypt ACME<br/>HTTP-01 challenge"]
+    ACME --> CERT["Certificate<br/>jarble-api-tls"]
+    CERT --> ING["Ingress<br/>api.jarble.ai"]
+    ING --> TRAEFIK["Traefik"]
+
+    style CERT fill:#22c55e,color:#fff
+```
+
+| Resource | File | Purpose |
+|----------|------|---------|
+| ClusterIssuer | `k8s/cert-manager.yaml` | Configures Let's Encrypt ACME with HTTP-01 solver through Traefik |
+| Ingress TLS | `k8s/deployment.yaml` | `spec.tls` block references the issuer, stores cert in `jarble-api-tls` secret |
+| cert-manager install | `terraform/main.tf` | Auto-installed in K3s master `user_data` (v1.14.5) |
+
+**How it works:** When the Ingress is created with the `cert-manager.io/cluster-issuer` annotation, cert-manager automatically requests a certificate from Let's Encrypt, proves domain ownership via an HTTP-01 challenge (served through Traefik), and stores the signed certificate in a K8s Secret. Certificates auto-renew before expiry.
+
+### Terraform CI/CD
+
+Infrastructure changes are managed through a GitHub Actions pipeline (`.github/workflows/terraform.yml`):
+
+```mermaid
+graph LR
+    subgraph Triggers
+        PR["PR to main"]
+        PUSH["Push to main"]
+        MANUAL["Manual Dispatch"]
+    end
+
+    subgraph Pipeline
+        CHECK["Format & Validate"]
+        PLAN["Plan"]
+        APPROVE["Manual Approval<br/>(production environment)"]
+        APPLY["Apply"]
+    end
+
+    subgraph State
+        TFC["Terraform Cloud<br/>(free tier)<br/>State + Locking"]
+    end
+
+    PR --> CHECK --> PLAN -->|"PR comment"| PR
+    PUSH --> CHECK --> PLAN --> APPROVE --> APPLY
+    MANUAL --> CHECK --> PLAN --> APPROVE --> APPLY
+    PLAN <--> TFC
+    APPLY <--> TFC
+
+    style APPROVE fill:#f59e0b,color:#fff
+    style TFC fill:#7c3aed,color:#fff
+```
+
+| Trigger | What Happens |
+|---------|-------------|
+| PR to main (`infrastructure/terraform/**`) | fmt check, validate, plan — posts plan as PR comment |
+| Push to main | Plan + apply with manual approval gate |
+| Manual: `plan-only` | Run plan without applying |
+| Manual: `apply` | Plan + apply with approval |
+| Manual: `destroy` | Requires typed confirmation string + approval (two safety layers) |
+
+**Remote state:** Terraform Cloud (free tier) stores state and provides locking. Execution mode is "Local" — plan/apply runs in GitHub Actions runners (or locally), not in TFC runners. Both local and CI operations share the same state.
+
+**Required secrets:** `HCLOUD_TOKEN` (Hetzner API), `TF_API_TOKEN` (Terraform Cloud), `SSH_PUBLIC_KEY` (server access key content).
+
 ---
 
 ## 16. Runtime Images (Docker)
@@ -1509,14 +1658,15 @@ The API starts with an **in-memory SQLite database** pre-seeded with test data. 
 
 ### CI/CD Pipeline
 
-Two GitHub Actions workflows build and push Docker images to GHCR:
+Three GitHub Actions workflows handle CI/CD:
 
-| Workflow | Trigger | Image |
+| Workflow | Trigger | What It Does |
 |---|---|---|
-| `build-api-image.yml` | Push to main when `jarble-api-main/**` changes | `ghcr.io/jarble-ai/api:latest` |
-| `build-runtime-images.yml` | Push to main when `runtimes/**` changes | `ghcr.io/jarble-ai/openclaw:latest`, `ghcr.io/jarble-ai/zeroclaw:latest` |
+| `build-api-image.yml` | Push to main when `jarble-api-main/**` changes | Builds and pushes `ghcr.io/jarble-ai/api:latest` (+ `:sha` tag) |
+| `build-runtime-images.yml` | Push to main when `runtimes/**` changes | Builds and pushes `ghcr.io/jarble-ai/openclaw:latest` and `ghcr.io/jarble-ai/zeroclaw:latest` |
+| `terraform.yml` | Push/PR when `infrastructure/terraform/**` changes | Terraform fmt, validate, plan (PR comment), apply (with approval gate) |
 
-Both also support `workflow_dispatch` for manual builds.
+All three support `workflow_dispatch` for manual runs. The Terraform workflow additionally supports `plan-only`, `apply`, and `destroy` modes via manual dispatch.
 
 ### API Container Boot Sequence
 
