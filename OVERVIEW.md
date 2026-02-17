@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 16, 2026 (Session 8 — Usage Analytics + API Key Management)
+📅 Last updated: February 17, 2026 (Session 9 — Production Deployment Readiness)
 
 </aside>
 
@@ -1532,9 +1532,61 @@ file-watcher.sh (runs as background process in container)
 - **Terraform CI/CD** — GitHub Actions for plan/apply
 - **Billing page** — Dedicated billing/invoices UI
 
+### Session 9 — February 17, 2026
+
+**Branch:** `main`
+
+#### What was done:
+
+**Production Deployment Readiness** — Fixed all blockers preventing the API from being deployed to the K3s cluster.
+
+1. **Dockerfile fix** — Updated both stages from `node:20-alpine` to `node:22-alpine`. Added `drizzle-pg/` migration folder and `entrypoint.sh` to the production image. Changed CMD to run entrypoint (migrate → seed → start).
+
+2. **Migration runner** (`src/db/migrate.pg.ts`) — Standalone script using `drizzle-orm/node-postgres/migrator` to apply PostgreSQL migrations at boot. Avoids needing `drizzle-kit` (devDependency) in the production image.
+
+3. **Production seed** (`src/db/seed.pg.ts`) — Idempotent `INSERT ... ON CONFLICT DO NOTHING` for openclaw + zeroclaw runtime catalog rows. Uses raw `pg.Pool.query()`.
+
+4. **Entrypoint script** (`entrypoint.sh`) — Runs migrations, seeds runtime catalog, then `exec node dist/index.js`.
+
+5. **API CI workflow** (`.github/workflows/build-api-image.yml`) — Builds and pushes `ghcr.io/jarble-ai/api:latest` (+ `:sha` tag) on push to main when `jarble-api-main/**` changes. Modeled after `build-runtime-images.yml`.
+
+6. **K8s manifest fixes** (`k8s/deployment.yaml`):
+   - Image: `jarble/api:latest` → `ghcr.io/jarble-ai/api:latest`
+   - RBAC: Added `pods/log` resource with `get` verb (log streaming was missing this)
+   - Added commented-out `imagePullSecrets` for private repo future-proofing
+
+7. **Secrets template** (`k8s/secrets.yaml.example`) — Updated from MySQL to PostgreSQL `DATABASE_URL`, added `DB_PROVIDER`, `API_KEY_ENCRYPTION_KEY`, Auth0 management vars, OpenRouter management key, Stripe price IDs. Labeled REQUIRED vs OPTIONAL.
+
+#### Files modified/created (8):
+- `jarble-api-main/Dockerfile` — node:22, copy migrations + entrypoint
+- `jarble-api-main/entrypoint.sh` — NEW: migrate → seed → start
+- `jarble-api-main/src/db/migrate.pg.ts` — NEW: drizzle-orm migrator runner
+- `jarble-api-main/src/db/seed.pg.ts` — NEW: idempotent runtime_catalog seed
+- `.github/workflows/build-api-image.yml` — NEW: API image CI
+- `jarble-api-main/k8s/deployment.yaml` — image ref, RBAC, imagePullSecrets
+- `jarble-api-main/k8s/secrets.yaml.example` — PostgreSQL + missing env vars
+- `OVERVIEW.md` — Session 9 log
+
+#### Build status: ✅ Clean (`npm run build` passes, `dist/db/migrate.pg.js` + `dist/db/seed.pg.js` confirmed)
+
+#### Deployment flow after these changes:
+1. Push to `main` → CI builds `ghcr.io/jarble-ai/api:latest`
+2. On cluster: `kubectl apply -f secrets.yaml` (from template) + `kubectl apply -f deployment.yaml`
+3. Pod boots → `entrypoint.sh` runs migrations (idempotent) → seeds catalog → starts server
+
+#### What's next (remaining roadmap items):
+- **WhatsApp QR integration** — Replace mock QR with real WhatsApp Business API
+- **Rate limiting** on API routes
+- **Terraform CI/CD** — GitHub Actions for plan/apply
+- **Billing page** — Dedicated billing/invoices UI
+- **TLS/cert-manager** — Ingress has Traefik annotation but no certificate resources
+
+#### Notes:
+- Commits should NOT include `Co-Authored-By` line (user preference)
+
 ---
 
-# 28. Dev Servers
+# 29. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)

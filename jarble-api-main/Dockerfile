@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # Production image
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
@@ -21,6 +21,13 @@ COPY package*.json ./
 RUN npm ci --only=production
 
 COPY --from=builder /app/dist ./dist
+
+# Migration artifacts (drizzle-orm migrator reads these at runtime)
+COPY drizzle-pg/ ./drizzle-pg/
+
+# Entrypoint: migrate → seed → start
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x entrypoint.sh
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s \
@@ -31,4 +38,4 @@ USER node
 
 EXPOSE 3001
 
-CMD ["node", "dist/index.js"]
+CMD ["./entrypoint.sh"]

@@ -25,8 +25,9 @@
 17. [The Database](#17-the-database)
 18. [Environment Variables](#18-environment-variables)
 19. [Local Development Setup](#19-local-development-setup)
-20. [Common Workflows](#20-common-workflows)
-21. [Glossary](#21-glossary)
+20. [Production Deployment](#20-production-deployment)
+21. [Common Workflows](#21-common-workflows)
+22. [Glossary](#22-glossary)
 
 ---
 
@@ -1333,8 +1334,8 @@ flowchart TD
 | Environment | Database | Connection |
 |---|---|---|
 | **Development** | SQLite (in-memory) | No setup needed, auto-creates tables + seed data |
-| **Production** | MySQL | `DATABASE_URL` env var |
-| **Alternative** | PostgreSQL | Separate schema file, Drizzle migrations |
+| **Production** | PostgreSQL | `DATABASE_URL` env var, Drizzle migrations in `drizzle-pg/` |
+| **Legacy** | MySQL | Separate schema file, no migrations generated |
 
 ### Tables
 
@@ -1504,7 +1505,72 @@ The API starts with an **in-memory SQLite database** pre-seeded with test data. 
 
 ---
 
-## 20. Common Workflows
+## 20. Production Deployment
+
+### CI/CD Pipeline
+
+Two GitHub Actions workflows build and push Docker images to GHCR:
+
+| Workflow | Trigger | Image |
+|---|---|---|
+| `build-api-image.yml` | Push to main when `jarble-api-main/**` changes | `ghcr.io/jarble-ai/api:latest` |
+| `build-runtime-images.yml` | Push to main when `runtimes/**` changes | `ghcr.io/jarble-ai/openclaw:latest`, `ghcr.io/jarble-ai/zeroclaw:latest` |
+
+Both also support `workflow_dispatch` for manual builds.
+
+### API Container Boot Sequence
+
+The API image uses an `entrypoint.sh` that runs three steps on every boot:
+
+```
+1. node dist/db/migrate.pg.js    → Apply Drizzle migrations (idempotent)
+2. node dist/db/seed.pg.js       → Seed runtime_catalog (ON CONFLICT DO NOTHING)
+3. exec node dist/index.js       → Start the API server
+```
+
+The migration runner uses `drizzle-orm/node-postgres/migrator` (a production dependency) rather than `drizzle-kit` (which is a devDependency and not in the production image).
+
+### Deploying to the K3s Cluster
+
+```bash
+# 1. Provision infrastructure (one-time)
+cd infrastructure/terraform
+terraform apply
+
+# 2. Create the secrets (from template)
+cd jarble-api-main/k8s
+cp secrets.yaml.example secrets.yaml
+# Edit secrets.yaml with real values
+kubectl apply -f secrets.yaml
+
+# 3. Deploy the API
+kubectl apply -f deployment.yaml
+
+# 4. Verify
+kubectl get pods -n jarble
+kubectl logs -n jarble deployment/jarble-api
+```
+
+The `deployment.yaml` creates: ServiceAccount, RBAC Role + Binding, Deployment (2 replicas), ClusterIP Service, and Ingress (`api.jarble.ai` via Traefik).
+
+### Required Secrets
+
+See `jarble-api-main/k8s/secrets.yaml.example` for the full template. Critical ones:
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `DB_PROVIDER` | Yes | Must be `"postgres"` |
+| `AUTH0_DOMAIN` | Yes | Your Auth0 tenant |
+| `AUTH0_AUDIENCE` | Yes | JWT audience validation |
+| `OPENROUTER_API_KEY` | Yes | LLM model listing + health check |
+| `API_KEY_ENCRYPTION_KEY` | Yes (prod) | 64-char hex for AES-256-GCM |
+| `STRIPE_*` | Optional | Enables paid subscriptions |
+| `OPENROUTER_MANAGEMENT_KEY` | Optional | Enables "Included Credits" key provisioning |
+
+---
+
+## 21. Common Workflows
 
 ### "I need to add a new runtime"
 
@@ -1561,7 +1627,7 @@ Check in this order:
 
 ---
 
-## 21. Glossary
+## 22. Glossary
 
 | Term | What It Means |
 |---|---|
