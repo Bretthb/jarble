@@ -186,6 +186,11 @@ resource "hcloud_server" "master" {
     kubectl patch storageclass longhorn -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
     kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
 
+    # Install cert-manager for automatic TLS certificate provisioning
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.5/cert-manager.yaml
+    kubectl rollout status deployment/cert-manager -n cert-manager --timeout=120s
+    kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=120s
+
     echo "K3s master setup complete" > /var/log/k3s-setup.log
   EOF
 

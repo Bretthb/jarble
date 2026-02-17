@@ -21,8 +21,12 @@ import { syncConfigsFromPvc, syncConfigsToPvc } from "./services/configSync.js";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import stream from "stream";
+import { globalLimiter, authLimiter, stripeActionLimiter } from "./middleware/rateLimit.js";
 
 const app = express();
+
+// Trust first proxy (Traefik) so req.ip returns the real client IP
+app.set("trust proxy", 1);
 
 // CORS - allow frontend origin
 const allowedOrigins = [
@@ -51,6 +55,9 @@ app.use(cors({
   },
   credentials: true
 }));
+
+// Global rate limiter — 300 req/min per IP (skips /health, webhooks)
+app.use(globalLimiter);
 
 // ─── Stripe webhook (MUST be before express.json() — needs raw body) ───
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
@@ -251,7 +258,7 @@ async function getUserFromRequest(req: express.Request) {
 }
 
 // ─── Stripe checkout route ───
-app.post("/api/stripe/checkout", async (req, res) => {
+app.post("/api/stripe/checkout", stripeActionLimiter, async (req, res) => {
   if (!isStripeConfigured()) {
     res.status(503).json({ error: "Stripe is not configured" });
     return;
@@ -293,7 +300,7 @@ app.post("/api/stripe/checkout", async (req, res) => {
 });
 
 // ─── Stripe portal route ───
-app.post("/api/stripe/portal", async (req, res) => {
+app.post("/api/stripe/portal", stripeActionLimiter, async (req, res) => {
   if (!isStripeConfigured()) {
     res.status(503).json({ error: "Stripe is not configured" });
     return;
@@ -920,7 +927,7 @@ if (env.NODE_ENV === "development") {
 }
 
 // tRPC handler
-app.use("/trpc", createExpressMiddleware({
+app.use("/trpc", authLimiter, createExpressMiddleware({
   router: appRouter,
   createContext,
   onError: ({ error, path }) => {

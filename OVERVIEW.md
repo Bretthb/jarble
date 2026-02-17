@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 17, 2026 (Session 11 — WhatsApp QR Pairing)
+📅 Last updated: February 17, 2026 (Session 12 — TLS + Rate Limiting)
 
 </aside>
 
@@ -1663,7 +1663,51 @@ The QR flow uses K8s exec (`streamExecInPod`) to run `openclaw channels login` i
 
 ---
 
-# 31. Dev Servers
+# 31. Session 12 — TLS + Rate Limiting
+
+**Date:** February 17, 2026
+
+#### What was done:
+
+**TLS/cert-manager:**
+- Created `k8s/cert-manager.yaml` — Let's Encrypt ClusterIssuer with HTTP-01 solver through Traefik
+- Updated Ingress in `k8s/deployment.yaml` — added `cert-manager.io/cluster-issuer` annotation and `spec.tls` block with `secretName: jarble-api-tls`
+- Updated `infrastructure/terraform/main.tf` — cert-manager v1.14.5 installed in K3s master user_data after Longhorn
+
+**Rate limiting (express-rate-limit):**
+- Created `src/middleware/rateLimit.ts` — three tiers:
+  - `globalLimiter`: 300 req/min per IP (all traffic, skips /health + webhooks)
+  - `authLimiter`: 120 req/min per user ID (tRPC endpoints)
+  - `stripeActionLimiter`: 10 req/min per user ID (checkout + portal)
+- User ID extracted via lightweight JWT base64url decode (no signature verification — full verify happens in route handlers)
+- Applied `app.set("trust proxy", 1)` so `req.ip` returns real client IP behind Traefik
+- SSE endpoints exempt (long-lived connections, JWT-authenticated)
+- Uses `standardHeaders: "draft-7"` for `RateLimit-*` response headers
+
+#### Files changed:
+| File | Action |
+|------|--------|
+| `jarble-api-main/k8s/cert-manager.yaml` | Created — ClusterIssuer |
+| `jarble-api-main/k8s/deployment.yaml` | Modified — Ingress TLS |
+| `infrastructure/terraform/main.tf` | Modified — cert-manager install |
+| `jarble-api-main/src/middleware/rateLimit.ts` | Created — rate limiting |
+| `jarble-api-main/src/index.ts` | Modified — applied limiters |
+| `jarble-api-main/package.json` | Modified — added express-rate-limit |
+
+#### Build status: ✅ API builds clean.
+
+#### Deployment order for TLS (fresh cluster):
+1. `terraform apply` → provisions K3s + cert-manager
+2. `kubectl apply -f k8s/cert-manager.yaml` → creates ClusterIssuer
+3. `kubectl apply -f k8s/deployment.yaml` → Ingress triggers certificate issuance
+
+#### What's next (remaining roadmap items):
+- **Terraform CI/CD** — GitHub Actions for plan/apply
+- **Deploy to production** — Build Docker images, apply secrets, apply manifests
+
+---
+
+# 32. Dev Servers
 
 - Frontend: `npm run dev` → localhost:3000 (from `Jarble-mvp/`)
 - API: `npm run dev` → localhost:3001 (from `jarble-api-main/`)

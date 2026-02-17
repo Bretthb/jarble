@@ -103,7 +103,12 @@ metadata:
   namespace: jarble
   annotations:
     traefik.ingress.kubernetes.io/router.tls: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
+  tls:
+  - hosts:
+    - api.jarble.ai
+    secretName: jarble-api-tls
   rules:
   - host: api.jarble.ai
     http:
