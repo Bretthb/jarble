@@ -536,6 +536,71 @@ flowchart LR
 
 **Before deleting a deployment**, users can export their configs as a ZIP file via the config page. This downloads all files from `/data/config/` so they can be re-imported later.
 
+### Storage Architecture (Block Storage + Longhorn)
+
+Each worker node has **two types of disk**, and it's important to understand the difference:
+
+```mermaid
+graph TB
+    subgraph Node["Worker Node (cpx21 — 3 vCPU, 4GB RAM)"]
+        subgraph Local["Local Disk (80 GB)"]
+            OS["Linux OS + K3s"]
+            IMAGES["Container image layers"]
+            LH_META["Longhorn metadata"]
+        end
+
+        subgraph Block["Hetzner Block Storage (up to 10 TB)"]
+            LH_DATA["Longhorn data directory<br/>(mounted at /var/lib/longhorn)"]
+        end
+    end
+
+    subgraph Longhorn["Longhorn Storage Engine"]
+        MGR["Longhorn Manager"]
+    end
+
+    subgraph UserPods["User Bot Pods"]
+        PVC1["PVC: deploy-abc<br/>30 GB → /data"]
+        PVC2["PVC: deploy-def<br/>100 GB → /data"]
+    end
+
+    LH_DATA -->|"backing store"| MGR
+    MGR -->|"provisions"| PVC1
+    MGR -->|"provisions"| PVC2
+
+    style Local fill:#94a3b8,color:#fff
+    style Block fill:#22c55e,color:#fff
+    style MGR fill:#7c3aed,color:#fff
+```
+
+**Analogy:** Think of each worker node as a **warehouse building**:
+- The **local disk** is the building itself — walls, roof, electrical, the loading dock. You need it for the building to function, but you don't store customer goods there.
+- The **block storage** is the **warehouse floor space** — this is where all the storage lockers (PVCs) are placed. The more floor space you attach, the more/bigger lockers you can fit.
+- **Longhorn** is the **warehouse manager** — it carves the floor space into individual lockers and assigns them to tenants (pods).
+
+**The capacity formula:**
+
+```
+Block storage needed per node = d x p
+
+Where:
+  d = max deployments that fit on the node (limited by CPU + RAM)
+  p = max persistent storage per deployment
+```
+
+| Resource | cpx21 has | Per deployment (default) | Per deployment (min) |
+|----------|-----------|------------------------|---------------------|
+| CPU | 3 vCPU | 2 vCPU | 1 vCPU |
+| RAM | 4 GB | 2 GB | 256 MB |
+| Storage (PVC) | Block storage | 30 GB | 20 GB |
+| Max deployments | — | ~1 per node | ~3 per node |
+
+With default specs (2 vCPU, 2GB RAM), only **~1 deployment fits per cpx21 node**. With minimum specs, up to **~3 deployments** fit (CPU-limited). The user can allocate up to **100 GB storage per deployment**, so the block storage volume must be sized accordingly:
+
+- 1 deployment x 100 GB = **100 GB block storage**
+- 3 deployments x 100 GB = **300 GB block storage**
+
+> **⚠️ Important:** The cpx21's local disk is only 80 GB. A single 100 GB PVC cannot fit on local disk. Hetzner Block Storage volumes must be attached to each worker node and configured as Longhorn's data directory. Hetzner supports up to **10 TB** per block storage volume.
+
 ### Status Flow
 
 ```mermaid
@@ -1326,14 +1391,18 @@ Total: ~$24/month for the base cluster
 
 **Analogy:** K3s is to K8s what a compact car is to a semi-truck. Same road rules, same fuel, but much easier to park.
 
-### Longhorn Storage
+### Longhorn Storage + Hetzner Block Storage
 
 Longhorn is a **distributed storage system** for Kubernetes. When we create a PVC (storage locker), Longhorn:
-- Allocates the disk space
+- Allocates the disk space from the node's **Hetzner Block Storage** volume
 - Replicates data across nodes (survives node failure)
 - Handles attach/detach when pods move between nodes
 
 **Analogy:** Longhorn is like a RAID array spread across multiple buildings. Even if one building burns down, your data is safe in the others.
+
+**Why Block Storage?** The cpx21 only has 80 GB local disk (for OS + K3s + images). Users can allocate up to 100 GB per deployment, so PVCs must live on separately attached Hetzner Block Storage volumes (up to 10 TB each). The required size follows the formula **d x p** — deployments per node multiplied by max storage per deployment. See Section 6 "Storage Architecture" for a detailed breakdown.
+
+> **⚠️ Future work:** Terraform currently does not provision Hetzner Block Storage volumes. This needs to be added — creating volumes, attaching to worker nodes, formatting + mounting, and configuring Longhorn's data directory path.
 
 ### TLS (cert-manager + Let's Encrypt)
 
@@ -1655,6 +1724,51 @@ The API starts with an **in-memory SQLite database** pre-seeded with test data. 
 ---
 
 ## 20. Production Deployment
+
+### End-to-End Deployment Flow
+
+```mermaid
+graph TB
+    subgraph Dev["Development"]
+        CODE["Push code to main"]
+    end
+
+    subgraph CI["GitHub Actions CI/CD"]
+        API_CI["build-api-image.yml<br/>→ ghcr.io/jarble-ai/api"]
+        RT_CI["build-runtime-images.yml<br/>→ ghcr.io/jarble-ai/openclaw<br/>→ ghcr.io/jarble-ai/zeroclaw"]
+        TF_CI["terraform.yml<br/>→ Plan / Apply"]
+    end
+
+    subgraph Infra["Hetzner Cloud (via Terraform)"]
+        K3S["K3s Cluster"]
+        TRAEFIK["Traefik + TLS"]
+        LONGHORN["Longhorn Storage"]
+    end
+
+    subgraph K8s["K8s Namespace: jarble"]
+        SECRETS["Secrets<br/>(DB, Auth0, Stripe, Keys)"]
+        API_DEP["API Deployment<br/>(2 replicas)"]
+        ING["Ingress<br/>api.jarble.ai"]
+        BOTS["User Bot Pods<br/>(managed by API)"]
+    end
+
+    CODE -->|"jarble-api-main/**"| API_CI
+    CODE -->|"runtimes/**"| RT_CI
+    CODE -->|"infrastructure/terraform/**"| TF_CI
+
+    TF_CI -->|"terraform apply"| K3S
+    API_CI -->|"image pull"| API_DEP
+    RT_CI -->|"image pull"| BOTS
+
+    K3S --> TRAEFIK --> ING --> API_DEP
+    K3S --> LONGHORN --> BOTS
+    SECRETS --> API_DEP
+    API_DEP -->|"creates/manages"| BOTS
+
+    style API_CI fill:#22c55e,color:#fff
+    style RT_CI fill:#22c55e,color:#fff
+    style TF_CI fill:#f59e0b,color:#fff
+```
 
 ### CI/CD Pipeline
 

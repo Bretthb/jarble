@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 17, 2026 (Session 13 — Terraform CI/CD)
+📅 Last updated: February 17, 2026 (Session 13 — Terraform CI/CD + Diagram Refresh)
 
 </aside>
 
@@ -415,6 +415,69 @@ graph TB
 | Location | Ashburn (ash) | Also: Falkenstein, Nuremberg, Helsinki |
 | K3s Version | v1.29.2+k3s1 | Lightweight Kubernetes |
 
+### Storage Architecture (Longhorn + Hetzner Block Storage)
+
+Each worker node has **two types of disk**:
+
+1. **Local disk (80 GB on cpx21)** — OS, K3s binaries, container image layers, Longhorn metadata. Ephemeral — not for user data.
+2. **Hetzner Block Storage (up to 10 TB per VPS)** — Attached volume that Longhorn uses as its backing store. All PVCs (user bot data) live here.
+
+```mermaid
+graph TB
+    subgraph Node["Worker Node (cpx21)"]
+        LOCAL["Local Disk (80 GB)<br/>OS, K3s, container images"]
+        BS["Hetzner Block Storage<br/>(d x p GB, up to 10 TB)<br/>Attached volume"]
+    end
+
+    subgraph LH["Longhorn Storage Engine"]
+        MGR["Longhorn Manager<br/>Replication + scheduling"]
+    end
+
+    subgraph Pods["User Bot Pods"]
+        PVC1["PVC: deploy-abc<br/>30 GB at /data"]
+        PVC2["PVC: deploy-def<br/>100 GB at /data"]
+        PVC3["PVC: deploy-xyz<br/>20 GB at /data"]
+    end
+
+    BS -->|"backing store"| MGR
+    MGR --> PVC1
+    MGR --> PVC2
+    MGR --> PVC3
+
+    style LOCAL fill:#94a3b8,color:#fff
+    style BS fill:#22c55e,color:#fff
+    style MGR fill:#7c3aed,color:#fff
+```
+
+### Capacity Planning
+
+The required block storage per worker node follows the formula: **block storage = d x p**
+
+Where:
+- **d** = max deployments that fit on the node (limited by CPU + RAM)
+- **p** = max persistent storage per deployment (currently 100 GB)
+
+| Factor | Value | Notes |
+|--------|-------|-------|
+| Max storage per deployment (p) | 100 GB | User-configurable: 20-100 GB |
+| Hetzner Block Storage max | 10 TB | Per VPS |
+| cpx21 local disk | 80 GB | OS + K3s + images only — NOT for PVCs |
+| cpx21 CPU | 3 vCPU | |
+| cpx21 RAM | 4 GB | |
+| Default deployment resources | 2 vCPU, 2 GB RAM, 30 GB | Only ~1 fits per cpx21 |
+| Free tier resources | 1 vCPU, 2 GB RAM, 20 GB | Up to ~3 per cpx21 |
+| Min deployment resources | 1 vCPU, 256 MB RAM, 20 GB | Up to ~3 per cpx21 (CPU-limited) |
+
+**Example scenarios:**
+
+| Node Type | Deployments (d) | Max Storage Each (p) | Block Storage Needed |
+|-----------|----------------|---------------------|---------------------|
+| cpx21 (default specs) | 1 | 100 GB | 100 GB |
+| cpx21 (free tier) | 3 | 20 GB | 60 GB |
+| cpx21 (min specs) | 3 | 100 GB | 300 GB |
+
+> **⚠️ Current limitation:** Terraform does not yet provision Hetzner Block Storage volumes. Longhorn currently uses local node disk (80 GB), which cannot support 100 GB PVCs. See roadmap for planned fix.
+
 ### Quick Start
 
 ```bash
@@ -426,6 +489,81 @@ terraform plan
 terraform apply
 # Fetch kubeconfig
 scp root@<MASTER_IP>:/etc/rancher/k3s/k3s.yaml ./kubeconfig.yaml
+```
+
+### TLS Architecture
+
+```mermaid
+graph LR
+    INTERNET["Internet (HTTPS)"] --> TRAEFIK["Traefik Ingress"]
+    TRAEFIK --> ING["Ingress<br/>api.jarble.ai"]
+    ING --> API["API Service"]
+
+    CM["cert-manager"] -->|"watches"| ING
+    CM -->|"HTTP-01 challenge"| LE["Let's Encrypt"]
+    LE -->|"signed cert"| SECRET["K8s Secret<br/>jarble-api-tls"]
+    SECRET -->|"mounts cert"| TRAEFIK
+
+    style CM fill:#7c3aed,color:#fff
+    style SECRET fill:#22c55e,color:#fff
+```
+
+### CI/CD Pipeline Architecture
+
+```mermaid
+graph TB
+    subgraph Triggers["GitHub Events"]
+        PUSH_API["Push to main<br/>(jarble-api-main/**)"]
+        PUSH_RT["Push to main<br/>(runtimes/**)"]
+        PUSH_TF["Push to main<br/>(infrastructure/terraform/**)"]
+        PR_TF["PR to main<br/>(infrastructure/terraform/**)"]
+    end
+
+    subgraph Workflows["GitHub Actions Workflows"]
+        WF_API["build-api-image.yml"]
+        WF_RT["build-runtime-images.yml"]
+        WF_TF["terraform.yml"]
+    end
+
+    subgraph Artifacts["Output"]
+        IMG_API["ghcr.io/jarble-ai/api:latest"]
+        IMG_OC["ghcr.io/jarble-ai/openclaw:latest"]
+        IMG_ZC["ghcr.io/jarble-ai/zeroclaw:latest"]
+        TF_PLAN["Plan as PR comment"]
+        TF_APPLY["Apply (with approval gate)"]
+    end
+
+    PUSH_API --> WF_API --> IMG_API
+    PUSH_RT --> WF_RT --> IMG_OC
+    WF_RT --> IMG_ZC
+    PUSH_TF --> WF_TF --> TF_APPLY
+    PR_TF --> WF_TF --> TF_PLAN
+
+    style IMG_API fill:#22c55e,color:#fff
+    style IMG_OC fill:#22c55e,color:#fff
+    style IMG_ZC fill:#22c55e,color:#fff
+    style TF_APPLY fill:#f59e0b,color:#fff
+```
+
+### Rate Limiting Architecture
+
+```mermaid
+graph TD
+    REQ["Incoming Request"] --> GLOBAL{"Global Limiter<br/>300 req/min per IP"}
+    GLOBAL -->|Pass| ROUTE{"Route?"}
+    GLOBAL -->|Exceeded| REJECT["429 Too Many Requests"]
+
+    ROUTE -->|"/trpc/*"| AUTH{"Auth Limiter<br/>120 req/min per user"}
+    ROUTE -->|"/api/stripe/*"| STRIPE{"Stripe Limiter<br/>10 req/min per user"}
+    ROUTE -->|Other| HANDLER["Route Handler"]
+
+    AUTH -->|Pass| HANDLER
+    AUTH -->|Exceeded| REJECT
+    STRIPE -->|Pass| HANDLER
+    STRIPE -->|Exceeded| REJECT
+
+    style REJECT fill:#ef4444,color:#fff
+    style HANDLER fill:#22c55e,color:#fff
 ```
 
 ---
@@ -628,6 +766,8 @@ flowchart TD
 - [x]  **Usage Analytics dashboard** — `/analytics` page with summary cards (total/active/spend/mode split), status + runtime distribution charts, LLM credit usage meters, sortable per-deployment drill-down table
 - [x]  **API Key Management UI** — ModelTab rewritten with 3 context-aware sections: Included Credits (usage meter, credit limit editor, regenerate/revoke), Linked (pool usage, link to owner), BYOK (status badge, validate, update key)
 - [x]  **Deployment Logs tab** — Terminal-style log viewer (LogsTab), auto-scroll, pause/resume, clear, download, severity-colored lines, registered in wizardStepConfig for all runtimes
+- [x]  **Billing page** — `/billing` with overview cards (Monthly Spend, Active Subs, Next Payment, Payment Method), subscriptions table with status badges, invoice history with PDF links, Stripe portal link
+- [x]  **WhatsApp QR Pairing (real)** — `WhatsAppQrModal` + `useQrStream` hook, real Baileys QR from OpenClaw via K8s exec streaming, auto-connect detection
 
 ## Backend ✅
 
@@ -657,6 +797,10 @@ flowchart TD
 - [x]  **Real-time deployment status SSE** — `GET /api/deployments/status/stream` polls all user deployments every 5s, emits status changes as SSE events
 - [x]  **Two-way config sync** — Frontend→PVC: `syncConfigsToPvc()` writes configs to PVC + restarts pod on update. PVC→Frontend: `file-watcher.sh` (inotifywait) detects changes, POSTs to webhook, `syncConfigsFromPvc()` updates DB if values differ
 - [x]  **Drizzle migrations regenerated** — Fresh PostgreSQL migrations matching current schema
+- [x]  **Billing tRPC router** — `billing.getOverview`, `billing.getInvoices`, `billing.getSubscriptions` with Stripe API enrichment
+- [x]  **WhatsApp QR SSE endpoint** — `GET /api/deployments/:id/whatsapp/qr` streams Baileys QR via `streamExecInPod()`
+- [x]  **Rate limiting middleware** — Global (300/min/IP), auth (120/min/user), stripe (10/min/user) via express-rate-limit
+- [x]  **Production Docker image** — Multi-stage Dockerfile, entrypoint.sh (migrate → seed → start)
 
 ## Infrastructure ✅
 
@@ -665,6 +809,12 @@ flowchart TD
 - [x]  Private networking + firewall rules
 - [x]  Floating IP + Longhorn storage + Traefik ingress
 - [x]  Auth0 Post Login Action for email verification sync
+- [x]  **API Dockerfile + entrypoint** — Multi-stage build (Node.js 22), entrypoint runs: migrate → seed → start
+- [x]  **API image CI** — `.github/workflows/build-api-image.yml` builds + pushes `ghcr.io/jarble-ai/api:latest`
+- [x]  **TLS / cert-manager** — ClusterIssuer (Let's Encrypt, HTTP-01), Ingress TLS, cert-manager installed via Terraform
+- [x]  **Rate limiting** — express-rate-limit with 3 tiers: global (300/min/IP), auth (120/min/user), stripe (10/min/user)
+- [x]  **Terraform CI/CD** — GitHub Actions for plan (PR comment), apply (approval gate), destroy (typed confirmation + approval)
+- [x]  **Terraform Cloud remote state** — Free tier, local execution mode, state + locking
 
 ---
 
@@ -675,7 +825,7 @@ flowchart TD
 1. ~~**Platform credential storage**~~ — ✅ Done (Session 5). `platform_credentials` table + tRPC router + OpenClaw `openclaw.json` channel config
 2. ~~**Stripe subscription → deployment sync**~~ — ✅ Done (Session 6). `pendingStripeSubscriptionId` handoff, all 4 webhook handlers implemented, `linkSubscription` fallback
 3. ~~**Drizzle migrations regeneration**~~ — ✅ Done (Session 7). Fresh PostgreSQL migrations generated
-4. **WhatsApp QR integration** — Replace mock QR with real WhatsApp Business API
+4. ~~**WhatsApp QR integration**~~ — ✅ Done (Session 11). Real Baileys QR streaming via K8s exec + SSE
 5. ~~**Email verification resend**~~ — ✅ Done (Session 7). Resend button on Dashboard banner + Deploy step
 
 ## 🟡 Important (Post-Launch)
@@ -684,8 +834,12 @@ flowchart TD
 2. ~~Real-time status~~ — ✅ Done (Session 8). SSE-based `useStatusStream` hook replaces polling
 3. ~~Usage analytics dashboard~~ — ✅ Done (Session 8). `/analytics` page with summary cards, distribution charts, credit meters
 4. ~~API key management~~ — ✅ Done (Session 8). ModelTab rewritten with included/linked/BYOK sections
-5. Rate limiting on API routes
-6. Terraform CI/CD — GitHub Actions for plan/apply
+5. ~~Rate limiting on API routes~~ — ✅ Done (Session 12). Three-tier rate limiting (global/auth/stripe) via express-rate-limit
+6. ~~Terraform CI/CD — GitHub Actions for plan/apply~~ — ✅ Done (Session 13). Full pipeline with PR plan comments, approval gates, manual dispatch
+
+## 🟡 Important (Infrastructure)
+
+1. **Hetzner Block Storage provisioning** — Terraform needs to create and attach block storage volumes to worker nodes for Longhorn. Currently Longhorn uses local node disk (80 GB cpx21), which cannot support 100 GB PVCs. Block storage volumes (d × p GB per node) must be provisioned, formatted, mounted, and configured as Longhorn's backing store.
 
 ## 🟢 Nice-to-Have (Future)
 
@@ -752,46 +906,58 @@ monorepo/
 │   │   ├── dashboard/page.tsx         # Dashboard route
 │   │   ├── deployments/page.tsx       # Linked Deployments route
 │   │   ├── analytics/page.tsx         # Usage Analytics route
+│   │   ├── billing/page.tsx           # Billing route
 │   │   ├── settings/page.tsx          # Settings route
 │   │   ├── d/[id]/configure/page.tsx  # Deployment config route
 │   │   └── onboarding/[id]/page.tsx   # Onboarding wizard route
 │   ├── views/
 │   │   ├── Dashboard.tsx              # Main deployment list (SSE real-time status)
 │   │   ├── Deployments.tsx            # Linked Deployments (credit pool clusters)
-│   │   ├── DeploymentConfiguration.tsx # Config tabs (General, Model, Platforms, Skills, Advanced)
-│   │   ├── Analytics.tsx              # Usage analytics dashboard (summary, charts, credit meters, table)
-│   │   ├── OnboardingWizard.tsx       # Multi-step wizard with credit pool linking
+│   │   ├── DeploymentConfiguration.tsx # Config tabs (General, Model, Platforms, Skills, Advanced, Logs)
+│   │   ├── Analytics.tsx              # Usage analytics dashboard
+│   │   ├── Billing.tsx                # Billing overview, subscriptions, invoices
+│   │   ├── OnboardingWizard.tsx       # Multi-step wizard with credit pool linking + WhatsApp QR
 │   │   ├── Settings.tsx               # Profile settings
 │   │   ├── deployment-config/
 │   │   │   ├── ModelTab.tsx           # API key management (included/linked/BYOK sections)
+│   │   │   ├── PlatformsTab.tsx       # Platform credentials + WhatsApp QR pairing
 │   │   │   └── LogsTab.tsx            # Terminal-style deployment log viewer
 │   │   └── onboarding/
 │   │       └── wizardStepConfig.ts    # Runtime steps, LLM providers, models, credit plans, hardware options
 │   ├── hooks/
 │   │   ├── useStatusStream.ts         # SSE hook for real-time deployment status changes
-│   │   └── useLogStream.ts            # SSE hook for deployment container log streaming
+│   │   ├── useLogStream.ts            # SSE hook for deployment container log streaming
+│   │   └── useQrStream.ts            # SSE hook for WhatsApp QR pairing
 │   ├── components/
-│   │   ├── ProfileDropdown.tsx        # User menu (Dashboard, Linked Deployments, Analytics, Settings)
-│   │   ├── StatusBadge.tsx            # Shared status indicator (running, starting, stopped, pending, failed)
+│   │   ├── ProfileDropdown.tsx        # User menu (Dashboard, Billing, Analytics, Settings)
+│   │   ├── StatusBadge.tsx            # Shared status indicator
 │   │   ├── StorageMeter.tsx           # Storage usage bar with color coding
+│   │   ├── WhatsAppQrModal.tsx        # Reusable QR pairing dialog
 │   │   └── ...                        # 40+ shadcn/ui components
 │   └── lib/trpc.ts
 │
 ├── jarble-api-main/                   # Backend (Express + tRPC)
+│   ├── Dockerfile                     # Multi-stage build (node:22-alpine)
+│   ├── entrypoint.sh                  # migrate → seed → start
 │   ├── src/
-│   │   ├── index.ts                   # Server entry + REST webhooks
+│   │   ├── index.ts                   # Server entry + REST webhooks + SSE endpoints
+│   │   ├── middleware/
+│   │   │   └── rateLimit.ts           # 3-tier rate limiting (global/auth/stripe)
 │   │   ├── trpc/routers/
 │   │   │   ├── deployment.ts          # CRUD + linking + owner protection
 │   │   │   ├── openrouter.ts          # Key provisioning, usage, validation
-│   │   │   ├── user.ts                # Profile management
+│   │   │   ├── user.ts                # Profile management + email resend
+│   │   │   ├── billing.ts             # Billing overview, invoices, subscriptions
 │   │   │   ├── runtimeCatalog.ts      # Runtime listing + capabilities
-│   │   │   ├── platformCredentials.ts # Platform cred CRUD + OpenClaw mappings
+│   │   │   ├── platformCredentials.ts # Platform cred CRUD + WhatsApp QR status
 │   │   │   └── template.ts            # Static templates
 │   │   ├── db/
-│   │   │   ├── schema.ts             # MySQL schema (prod)
-│   │   │   ├── schema.pg.ts          # PostgreSQL schema (alt)
+│   │   │   ├── schema.ts             # MySQL schema
+│   │   │   ├── schema.pg.ts          # PostgreSQL schema (production)
 │   │   │   ├── schema.sqlite.ts      # SQLite schema (dev)
-│   │   │   └── init.ts               # SQLite CREATE TABLE + seed
+│   │   │   ├── init.ts               # SQLite CREATE TABLE + seed
+│   │   │   ├── migrate.pg.ts         # PostgreSQL migration runner
+│   │   │   └── seed.pg.ts            # Production seed (runtime_catalog)
 │   │   ├── runtimes/                  # Runtime Registry pattern
 │   │   │   ├── index.ts              # Handler resolution
 │   │   │   ├── types.ts              # DeploymentFields interface
@@ -802,24 +968,49 @@ monorepo/
 │   │   │   ├── env.ts                # Environment variable validation
 │   │   │   └── logger.ts             # Pino logger
 │   │   ├── services/
-│   │   │   ├── stripe.ts             # Stripe checkout, portal, subscriptions
+│   │   │   ├── stripe.ts             # Stripe checkout, portal, subscriptions, invoices
 │   │   │   └── configSync.ts         # Two-way config sync (Frontend↔PVC)
-│   │   └── k8s/                       # K8s orchestration (deploy, stop, start, logs)
-│   └── k8s/                           # K8s manifests
+│   │   └── k8s/                       # K8s orchestration (deploy, stop, start, logs, exec streaming)
+│   ├── k8s/                           # K8s manifests
+│   │   ├── deployment.yaml            # API deployment + RBAC + Ingress (TLS)
+│   │   ├── cert-manager.yaml          # Let's Encrypt ClusterIssuer
+│   │   └── secrets.yaml.example       # Secrets template
+│   └── drizzle-pg/                    # PostgreSQL migrations
 │
-└── infrastructure/                    # IaC
-    ├── terraform/
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── outputs.tf
-    └── auth0/
-        └── post-email-verification-action.js
+├── runtimes/                          # Bot runtime Docker images
+│   ├── openclaw/
+│   │   ├── Dockerfile                 # Node.js 22 + OpenClaw
+│   │   ├── entrypoint.sh             # Install + file watcher + gateway
+│   │   └── file-watcher.sh           # inotifywait → config sync webhook
+│   └── zeroclaw/
+│       ├── Dockerfile                 # Debian + Rust binary
+│       ├── entrypoint.sh
+│       └── file-watcher.sh
+│
+├── infrastructure/                    # IaC
+│   └── terraform/
+│       ├── main.tf                    # Hetzner Cloud resources + cert-manager install
+│       ├── variables.tf               # Cluster config + SSH key (file or content)
+│       ├── outputs.tf                 # Master IP, floating IP
+│       ├── backend.tf                 # Terraform Cloud remote state
+│       ├── terraform.tfvars.example   # Variable template
+│       └── .terraform.lock.hcl        # Provider version lock (committed)
+│
+├── .github/workflows/                 # CI/CD
+│   ├── build-api-image.yml            # API Docker image → GHCR
+│   ├── build-runtime-images.yml       # Runtime images → GHCR
+│   └── terraform.yml                  # Terraform plan/apply/destroy
+│
+├── OVERVIEW.md                        # This file
+├── DEVELOPER-GUIDE.md                 # Detailed dev walkthrough
+└── infrastructure/auth0/
+    └── post-email-verification-action.js
 ```
 
 ---
 
 <aside>
-📚 This document provides a complete snapshot of the Jarble platform as of February 16, 2026 (Session 8). Use the roadmap section to prioritize next steps.
+📚 This document provides a complete snapshot of the Jarble platform as of February 17, 2026 (Session 13). Use the roadmap section to prioritize next steps.
 
 </aside>
 
@@ -838,7 +1029,7 @@ flowchart TB
         LOGIN["✅ Auth0 Login"]
         DASH["✅ Dashboard + Storage Meter + SSE Status"]
         WIZARD["✅ Onboarding Wizard + Credit Pool Linking"]
-        CONFIG["✅ Deployment Config (5 tabs)"]
+        CONFIG["✅ Deployment Config (6 tabs)"]
         SETTINGS["✅ Settings"]
         EMAILGATE["✅ Email Verification Gate + Resend"]
         DARKMODE["✅ Dark Mode"]
@@ -847,6 +1038,8 @@ flowchart TB
         ANALYTICS_FE["✅ Usage Analytics Dashboard"]
         KEYMGMT_FE["✅ API Key Management UI"]
         LOGS_FE["✅ Deployment Log Viewer"]
+        BILLING_FE["✅ Billing Page + Invoice History"]
+        WHATSAPP_FE["✅ WhatsApp QR Pairing (real)"]
     end
 
     subgraph DONE_API["✅ DONE — API"]
@@ -855,7 +1048,7 @@ flowchart TB
         K8SORCH["✅ K8s Orchestration"]
         FREE["✅ Free Tier System"]
         LLM["✅ Multi-LLM Support (4 providers)"]
-        STRIPE_API["✅ Stripe Webhooks"]
+        STRIPE_API["✅ Stripe Webhooks (all 4)"]
         EMAIL_WH["✅ Auth0 Email Webhook + Resend"]
         SYSPROMPT["✅ systemPrompt in DB"]
         ORPROV["✅ OpenRouter Key Provisioning"]
@@ -866,6 +1059,9 @@ flowchart TB
         STOPSTART_DONE["✅ Stop/Start/Restart Toggle"]
         SSE_STATUS["✅ Real-time Status SSE"]
         LOG_STREAM["✅ Deployment Log Streaming"]
+        BILLING_API["✅ Billing tRPC Router"]
+        RATELIMIT["✅ Rate Limiting (3 tiers)"]
+        WHATSAPP_API["✅ WhatsApp QR SSE Endpoint"]
     end
 
     subgraph DONE_INFRA["✅ DONE — Infrastructure"]
@@ -875,6 +1071,9 @@ flowchart TB
         TRAEFIK["✅ Traefik Ingress"]
         AUTH0ACTION["✅ Auth0 Action Script"]
         GHCR["✅ Container Images + GHCR"]
+        API_CI["✅ API Docker Image CI"]
+        TLS["✅ TLS (cert-manager + Let's Encrypt)"]
+        TF_CICD["✅ Terraform CI/CD Pipeline"]
     end
 
     HOME --> LOGIN --> DASH
@@ -882,19 +1081,23 @@ flowchart TB
     WIZARD --> CRUD --> K8SORCH
     WIZARD --> CREDITPOOL --> ORPROV
     DASH --> LINKED
+    DASH --> BILLING_FE
+    DASH --> ANALYTICS_FE
     TERRAFORM --> K3SMASTER --> LONGHORN
+    K3SMASTER --> TLS
+    TERRAFORM --> TF_CICD
 ```
 
 ### Remaining Work
 
 ```mermaid
 flowchart TB
-    subgraph TODO_CRITICAL["🔴 TODO — Critical for Launch"]
-        PLATCREDS["✅ Platform Credentials\nDone - Session 5"]
-        STRIPESYNC["✅ Stripe → Deploy Sync\nDone - Session 6"]
-        EMAILRESEND_DONE["✅ Email Resend\nDone - Session 7"]
-        MIGRATIONS_DONE["✅ Drizzle Migrations\nDone - Session 7"]
-        WHATSAPP["❌ WhatsApp QR\nReal Business API"]
+    subgraph DONE_CRITICAL["✅ DONE — Critical for Launch"]
+        PLATCREDS["✅ Platform Credentials\nSession 5"]
+        STRIPESYNC["✅ Stripe → Deploy Sync\nSession 6"]
+        EMAILRESEND_DONE["✅ Email Resend\nSession 7"]
+        MIGRATIONS_DONE["✅ Drizzle Migrations\nSession 7"]
+        WHATSAPP_DONE["✅ WhatsApp QR Pairing\nSession 11"]
     end
 
     subgraph DONE_SYNC["✅ DONE — Config ↔ Container Sync (Session 7)"]
@@ -905,27 +1108,43 @@ flowchart TB
     end
 
     subgraph DONE_POST["✅ DONE — Post-Launch Items"]
-        LOGS_DONE["✅ Deployment Logs\nDone - Session 7"]
-        REALTIME_DONE["✅ Real-time Status\nDone - Session 8"]
-        ANALYTICS_DONE["✅ Usage Analytics\nDone - Session 8"]
-        KEYMGMT_DONE["✅ API Key Management\nDone - Session 8"]
+        LOGS_DONE["✅ Deployment Logs\nSession 7"]
+        REALTIME_DONE["✅ Real-time Status\nSession 8"]
+        ANALYTICS_DONE["✅ Usage Analytics\nSession 8"]
+        KEYMGMT_DONE["✅ API Key Management\nSession 8"]
+        BILLING_DONE["✅ Billing Page\nSession 10"]
+        RATELIMIT_DONE["✅ Rate Limiting\nSession 12"]
+        TFCICD_DONE["✅ Terraform CI/CD\nSession 13"]
     end
 
-    subgraph TODO_POST["🟢 TODO — Post-Launch"]
-        BILLING["❌ Billing Page"]
-        RATELIMIT["❌ Rate Limiting"]
-        TFCICD["❌ Terraform CI/CD"]
+    subgraph DONE_DEPLOY["✅ DONE — Production Readiness"]
+        DOCKERFILE_DONE["✅ API Dockerfile + Entrypoint\nSession 9"]
+        APICI_DONE["✅ API Image CI/CD\nSession 9"]
+        K8SMANIFEST_DONE["✅ K8s Manifest Fixes\nSession 9"]
+        TLS_DONE["✅ TLS + cert-manager\nSession 12"]
+    end
+
+    subgraph TODO_OPS["🟡 TODO — Operations (Deploy to Production)"]
+        HETZNER["❌ Hetzner Account + Token"]
+        GHSECRETS["❌ GitHub Secrets (3)"]
+        TFAPPLY["❌ terraform apply"]
+        DNS["❌ DNS → Floating IP"]
+        K8SSECRETS["❌ K8s Secrets (DB, Auth0, Stripe...)"]
+        MANIFESTS["❌ kubectl apply manifests"]
+        POSTGRES["❌ PostgreSQL Database"]
     end
 
     SOULMD --> PVCWRITE --> CONFIGSYNC
     PLATCREDS -.-> SOULMD
+    HETZNER --> GHSECRETS --> TFAPPLY --> DNS --> K8SSECRETS --> MANIFESTS
+    POSTGRES -.-> K8SSECRETS
 ```
 
 ### Feature Dependencies
 
 ```mermaid
 flowchart LR
-    subgraph Done["✅ Done"]
+    subgraph Core["✅ Core Platform"]
         CONFIG["Config Page"]
         SYSPROMPT["systemPrompt DB"]
         STRIPE["Stripe Webhooks"]
@@ -933,38 +1152,41 @@ flowchart LR
         CREDITPOOL["Shared Credit Pools"]
         ORPROV["OpenRouter Provisioning"]
         ENCRYPT["Key Encryption"]
-        LINKED["Linked Deployments Page"]
+        LINKED["Linked Deployments"]
         STOPSTART_DEP["Stop/Start Toggle"]
-        GHCR_DEP["Container Images + GHCR"]
-        ANALYTICS_DEP["Usage Analytics"]
-        KEYMGMT_DEP["API Key Management"]
         LOGS_DEP["Deployment Logs"]
     end
 
-    subgraph DoneSync["✅ Done: Config Sync"]
-        SOULMD["✅ Config Generation"]
-        PVCWRITE["✅ Write to PVC"]
-        RESTART["✅ Rolling Restart"]
+    subgraph Sessions9to13["✅ Sessions 9-13"]
+        GHCR_DEP["Container Images + GHCR"]
+        ANALYTICS_DEP["Usage Analytics"]
+        KEYMGMT_DEP["API Key Management"]
+        BILLING_DEP["Billing Page"]
+        WHATSAPP_DEP["WhatsApp QR Pairing"]
+        RATELIMIT_DEP["Rate Limiting"]
+        TLS_DEP["TLS + cert-manager"]
+        TFCICD_DEP["Terraform CI/CD"]
     end
 
-    subgraph NeedLaunch["✅ Done: Launch Items"]
-        PLATCREDS["✅ Platform Creds"]
-        STRIPESYNC["✅ Stripe Sync"]
+    subgraph Infra["✅ Infrastructure"]
+        TERRAFORM["Terraform IaC"]
+        K3S["K3s Cluster"]
+        CERTMGR["cert-manager"]
     end
 
     CONFIG -->|saves| SYSPROMPT
-    SYSPROMPT --> SOULMD
-    SOULMD --> PVCWRITE
-    PVCWRITE --> RESTART
-
-    CONFIG --> PLATCREDS
-    STRIPE --> STRIPESYNC
+    SYSPROMPT --> CONFIG
+    STRIPE --> BILLING_DEP
     CREDITPOOL --> ORPROV --> ENCRYPT
     CREDITPOOL --> LINKED
     DASH --> STOPSTART_DEP
+    DASH --> LOGS_DEP
     ORPROV --> KEYMGMT_DEP
     DASH --> ANALYTICS_DEP
-    DASH --> LOGS_DEP
+    DASH --> WHATSAPP_DEP
+    TERRAFORM --> K3S --> CERTMGR --> TLS_DEP
+    TERRAFORM --> TFCICD_DEP
+    GHCR_DEP --> K3S
 ```
 
 ---
@@ -1536,6 +1758,28 @@ file-watcher.sh (runs as background process in container)
 
 **Branch:** `main`
 
+```mermaid
+graph LR
+    subgraph CI["GitHub Actions"]
+        PUSH["Push to main<br/>(jarble-api-main/**)"] --> BUILD["Docker Build<br/>(node:22-alpine)"]
+        BUILD --> GHCR["ghcr.io/jarble-ai/api<br/>:latest + :sha"]
+    end
+
+    subgraph Boot["API Container Boot"]
+        ENTRY["entrypoint.sh"]
+        MIG["1. migrate.pg.js<br/>(Drizzle migrations)"]
+        SEED["2. seed.pg.js<br/>(runtime_catalog)"]
+        START["3. node dist/index.js"]
+
+        ENTRY --> MIG --> SEED --> START
+    end
+
+    GHCR -->|"kubectl apply"| Boot
+
+    style GHCR fill:#22c55e,color:#fff
+    style START fill:#3b82f6,color:#fff
+```
+
 #### What was done:
 
 **Production Deployment Readiness** — Fixed all blockers preventing the API from being deployed to the K3s cluster.
@@ -1591,6 +1835,36 @@ file-watcher.sh (runs as background process in container)
 **Date:** February 17, 2026
 **Machine:** Desktop (continued from Session 9)
 
+```mermaid
+graph TB
+    subgraph Frontend["Billing Page (/billing)"]
+        CARDS["4 Overview Cards<br/>Spend | Active Subs | Next Payment | Method"]
+        SUBS["Subscriptions Table<br/>Status badges, period dates, config links"]
+        INVOICES["Invoice History<br/>PDF download links"]
+        PORTAL["Manage Billing<br/>→ Stripe Customer Portal"]
+    end
+
+    subgraph API["Billing tRPC Router"]
+        OVERVIEW["billing.getOverview"]
+        GETINV["billing.getInvoices"]
+        GETSUBS["billing.getSubscriptions"]
+    end
+
+    subgraph Stripe["Stripe API"]
+        CUST["Customer data"]
+        INV["Invoice list"]
+        SUB["Subscription details"]
+    end
+
+    CARDS --> OVERVIEW --> CUST
+    INVOICES --> GETINV --> INV
+    SUBS --> GETSUBS --> SUB
+    PORTAL -->|"POST /api/stripe/portal"| Stripe
+
+    style CARDS fill:#3b82f6,color:#fff
+    style PORTAL fill:#7c3aed,color:#fff
+```
+
 #### What was done:
 - **Stripe helpers** — Added `listInvoices(customerId)` and `getSubscriptionDetails(subscriptionId)` to `services/stripe.ts`
 - **Billing tRPC router** — Created `trpc/routers/billing.ts` with 3 procedures:
@@ -1629,6 +1903,31 @@ file-watcher.sh (runs as background process in container)
 
 **Date:** February 17, 2026
 
+```mermaid
+sequenceDiagram
+    actor User
+    participant FE as Frontend<br/>(WhatsAppQrModal)
+    participant API as API Server<br/>(SSE endpoint)
+    participant K8S as K8s Pod<br/>(OpenClaw + Baileys)
+    participant WA as WhatsApp Servers
+
+    User->>FE: Click "Start QR Pairing"
+    FE->>API: GET /api/deployments/:id/whatsapp/qr
+    API->>K8S: streamExecInPod: openclaw channels login
+    K8S->>WA: Request QR
+    WA-->>K8S: QR string (stdout)
+    K8S-->>API: Stream stdout
+    API-->>FE: SSE event: qr
+    FE-->>User: Render QR code
+
+    User->>WA: Scan QR with phone
+    WA-->>K8S: Authenticated
+    K8S-->>API: "successfully logged in"
+    API->>API: Save credentials + sync
+    API-->>FE: SSE event: connected
+    FE-->>User: "WhatsApp Connected!"
+```
+
 #### What was done:
 - **WhatsApp QR pairing flow** — Replaced mock QR grid with real Baileys QR code streaming from OpenClaw inside K8s pods
 - **Backend SSE endpoint** — `GET /api/deployments/:id/whatsapp/qr` streams QR data via K8s exec into running pod, runs `openclaw channels login --channel whatsapp`, parses stdout for QR strings and connection status
@@ -1666,6 +1965,28 @@ The QR flow uses K8s exec (`streamExecInPod`) to run `openclaw channels login` i
 # 31. Session 12 — TLS + Rate Limiting
 
 **Date:** February 17, 2026
+
+```mermaid
+graph LR
+    subgraph TLS["TLS Stack"]
+        CM["cert-manager<br/>v1.14.5"] --> CI["ClusterIssuer<br/>letsencrypt-prod"]
+        CI -->|"HTTP-01"| LE["Let's Encrypt"]
+        LE --> CERT["Certificate<br/>jarble-api-tls"]
+        CERT --> ING["Ingress"]
+    end
+
+    subgraph RL["Rate Limiting Stack"]
+        GLOBAL["Global: 300/min per IP"]
+        AUTH_RL["Auth: 120/min per user"]
+        STRIPE_RL["Stripe: 10/min per user"]
+    end
+
+    GLOBAL --> AUTH_RL
+    GLOBAL --> STRIPE_RL
+
+    style CERT fill:#22c55e,color:#fff
+    style GLOBAL fill:#f59e0b,color:#fff
+```
 
 #### What was done:
 
@@ -1710,6 +2031,36 @@ The QR flow uses K8s exec (`streamExecInPod`) to run `openclaw channels login` i
 # 32. Session 13 — Terraform CI/CD
 
 **Date:** February 17, 2026
+
+```mermaid
+graph LR
+    subgraph Triggers
+        PR["PR to main"]
+        PUSH["Push to main"]
+        MANUAL["Manual Dispatch"]
+    end
+
+    subgraph Pipeline
+        FMT["fmt + validate"]
+        PLAN["Plan"]
+        APPROVE["Manual Approval"]
+        APPLY["Apply"]
+    end
+
+    subgraph State
+        TFC["Terraform Cloud<br/>(free tier)"]
+    end
+
+    PR --> FMT --> PLAN -->|"PR comment"| PR
+    PUSH --> FMT
+    PLAN --> APPROVE --> APPLY
+    MANUAL --> FMT
+    PLAN <--> TFC
+    APPLY <--> TFC
+
+    style APPROVE fill:#f59e0b,color:#fff
+    style TFC fill:#7c3aed,color:#fff
+```
 
 #### What was done:
 
