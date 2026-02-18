@@ -85,6 +85,26 @@ const CREATE_TABLES_SQL = `
     event_type TEXT NOT NULL,
     processed_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS skills_catalog (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    runtime TEXT DEFAULT 'openclaw' NOT NULL,
+    config TEXT NOT NULL,
+    author TEXT,
+    is_official INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS deployment_skills (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    skill_id TEXT NOT NULL REFERENCES skills_catalog(id),
+    installed_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_skill ON deployment_skills(deployment_id, skill_id);
 `;
 
 export async function initDatabase() {
@@ -176,5 +196,17 @@ async function seedDatabase() {
     status: "running",
   });
 
-  logger.info("Seeded: 2 runtimes, 1 user, 1 deployment");
+  // Seed sample skills marketplace catalog
+  const skills = [
+    { id: nanoid(), name: "Web Search", description: "Search the web for real-time information", runtime: "openclaw", config: JSON.stringify({ tool: "web_search", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Weather", description: "Get current weather for any location", runtime: "openclaw", config: JSON.stringify({ tool: "weather", params: { units: "metric" } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Calculator", description: "Perform math calculations", runtime: "openclaw", config: JSON.stringify({ tool: "calculator" }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Wikipedia", description: "Look up information from Wikipedia", runtime: "openclaw", config: JSON.stringify({ tool: "wikipedia", params: { language: "en" } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Translator", description: "Translate text between languages", runtime: "openclaw", config: JSON.stringify({ tool: "translator" }), author: "Jarble", isOfficial: true },
+  ];
+  for (const skill of skills) {
+    await sqliteDb.insert(sqliteSchema.skillsCatalog).values(skill);
+  }
+
+  logger.info("Seeded: 2 runtimes, 1 user, 1 deployment, 5 skills");
 }

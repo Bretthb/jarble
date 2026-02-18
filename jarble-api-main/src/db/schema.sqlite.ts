@@ -81,6 +81,28 @@ export const processedWebhookEvents = sqliteTable("processed_webhook_events", {
   processedAt: text("processed_at").notNull().$defaultFn(now),
 });
 
+// Global skills marketplace catalog — all available skills across runtimes
+export const skillsCatalog = sqliteTable("skills_catalog", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  runtime: text("runtime").notNull().default("openclaw"), // which runtime supports it
+  config: text("config").notNull(), // JSON skill definition (tool name, params, etc.)
+  author: text("author"),
+  isOfficial: integer("is_official", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+});
+
+// Join table — which skills are installed on which deployment
+export const deploymentSkills = sqliteTable("deployment_skills", {
+  id: text("id").primaryKey(),
+  deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  skillId: text("skill_id").notNull().references(() => skillsCatalog.id),
+  installedAt: text("installed_at").notNull().$defaultFn(now),
+}, (table) => ({
+  deploymentSkillIdx: uniqueIndex("uq_deployment_skill").on(table.deploymentId, table.skillId),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   deployments: many(deployments),
@@ -98,4 +120,13 @@ export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => (
 
 export const platformCredentialsRelations = relations(platformCredentials, ({ one }) => ({
   deployment: one(deployments, { fields: [platformCredentials.deploymentId], references: [deployments.id] }),
+}));
+
+export const skillsCatalogRelations = relations(skillsCatalog, ({ many }) => ({
+  deploymentSkills: many(deploymentSkills),
+}));
+
+export const deploymentSkillsRelations = relations(deploymentSkills, ({ one }) => ({
+  deployment: one(deployments, { fields: [deploymentSkills.deploymentId], references: [deployments.id] }),
+  skill: one(skillsCatalog, { fields: [deploymentSkills.skillId], references: [skillsCatalog.id] }),
 }));

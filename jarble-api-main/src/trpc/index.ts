@@ -6,6 +6,7 @@ import { templateRouter } from "./routers/template.js";
 import { openrouterRouter } from "./routers/openrouter.js";
 import { platformCredentialsRouter } from "./routers/platformCredentials.js";
 import { billingRouter } from "./routers/billing.js";
+import { skillsRouter } from "./routers/skills.js";
 
 export const appRouter = router({
   user: userRouter,
@@ -15,6 +16,7 @@ export const appRouter = router({
   openrouter: openrouterRouter,
   platformCredentials: platformCredentialsRouter,
   billing: billingRouter,
+  skills: skillsRouter,
 });
 
 // Export type for frontend

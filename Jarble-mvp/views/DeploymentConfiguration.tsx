@@ -440,7 +440,7 @@ export default function DeploymentConfiguration() {
                   <PlatformsTab formData={formData} updateFormData={updateFormData} deploymentId={id} />
                 )}
                 {activeTab === "skills" && (
-                  <SkillsTab formData={formData} updateFormData={updateFormData} />
+                  <SkillsTab formData={formData} updateFormData={updateFormData} deploymentId={id} />
                 )}
                 {activeTab === "logs" && (
                   <LogsTab deploymentId={id} deploymentStatus={displayStatus} />

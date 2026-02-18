@@ -79,6 +79,28 @@ export const processedWebhookEvents = mysqlTable("processed_webhook_events", {
   processedAt: timestamp("processed_at").defaultNow().notNull(),
 });
 
+// Global skills marketplace catalog — all available skills across runtimes
+export const skillsCatalog = mysqlTable("skills_catalog", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  runtime: varchar("runtime", { length: 50 }).notNull().default("openclaw"), // which runtime supports it
+  config: text("config").notNull(), // JSON skill definition (tool name, params, etc.)
+  author: varchar("author", { length: 100 }),
+  isOfficial: boolean("is_official").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Join table — which skills are installed on which deployment
+export const deploymentSkills = mysqlTable("deployment_skills", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  skillId: varchar("skill_id", { length: 255 }).notNull().references(() => skillsCatalog.id),
+  installedAt: timestamp("installed_at").defaultNow().notNull(),
+}, (table) => ({
+  deploymentSkillIdx: uniqueIndex("uq_deployment_skill").on(table.deploymentId, table.skillId),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   deployments: many(deployments),
@@ -96,4 +118,13 @@ export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => (
 
 export const platformCredentialsRelations = relations(platformCredentials, ({ one }) => ({
   deployment: one(deployments, { fields: [platformCredentials.deploymentId], references: [deployments.id] }),
+}));
+
+export const skillsCatalogRelations = relations(skillsCatalog, ({ many }) => ({
+  deploymentSkills: many(deploymentSkills),
+}));
+
+export const deploymentSkillsRelations = relations(deploymentSkills, ({ one }) => ({
+  deployment: one(deployments, { fields: [deploymentSkills.deploymentId], references: [deployments.id] }),
+  skill: one(skillsCatalog, { fields: [deploymentSkills.skillId], references: [skillsCatalog.id] }),
 }));

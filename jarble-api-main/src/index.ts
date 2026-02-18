@@ -997,6 +997,8 @@ if (env.NODE_ENV === "development") {
       const users = await db.query.users.findMany();
       const deployments = await db.query.deployments.findMany();
       const runtimeCatalog = await db.query.runtimeCatalog.findMany();
+      const skillsCatalog = await db.query.skillsCatalog.findMany();
+      const deploymentSkills = await db.query.deploymentSkills.findMany();
 
       res.json({
         _info: "Development only - shows all database tables",
@@ -1004,6 +1006,8 @@ if (env.NODE_ENV === "development") {
           users: { count: users.length, data: users },
           deployments: { count: deployments.length, data: deployments },
           runtimeCatalog: { count: runtimeCatalog.length, data: runtimeCatalog },
+          skillsCatalog: { count: skillsCatalog.length, data: skillsCatalog },
+          deploymentSkills: { count: deploymentSkills.length, data: deploymentSkills },
         }
       });
     } catch (err) {
@@ -1060,6 +1064,73 @@ if (env.NODE_ENV === "development") {
   });
 
   logger.info("📊 Debug endpoint enabled: /debug/mock-pvc");
+
+  // Seed a test deployment for the currently authenticated user (dev testing helper)
+  app.post("/debug/seed-deployment", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith("Bearer ")) {
+        res.status(401).json({ error: "Bearer token required" });
+        return;
+      }
+      const token = authHeader.slice(7);
+      const payload = await verifyToken(token);
+      const auth0Id = payload.sub as string;
+
+      // Find or create the user
+      const { users: usersTable, deployments: deploymentsTable } = tables;
+      let user = await db.query.users.findFirst({ where: eq(usersTable.auth0Id, auth0Id) });
+
+      if (!user) {
+        const userId = nanoid();
+        await (db as any).insert(usersTable).values({
+          id: userId,
+          email: `dev-${nanoid(6)}@jarble.local`,
+          name: "Dev User",
+          auth0Id,
+          emailVerified: true,
+          freeDeploymentUsed: false,
+        });
+        user = await db.query.users.findFirst({ where: eq(usersTable.auth0Id, auth0Id) });
+      }
+
+      // Check if they already have a deployment
+      const existing = await db.query.deployments.findFirst({
+        where: eq(deploymentsTable.userId, user!.id),
+      });
+      if (existing) {
+        res.json({ message: "User already has a deployment", deployment: existing });
+        return;
+      }
+
+      // Create a running test deployment
+      const deploymentId = nanoid();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      await (db as any).insert(deploymentsTable).values({
+        id: deploymentId,
+        userId: user!.id,
+        name: "Dev Test Deployment",
+        description: "Auto-seeded for local testing",
+        runtime: "openclaw",
+        runtimeCatalogId: 1,
+        isFree: true,
+        monthlyPriceCents: 0,
+        freeExpiresAt: expiresAt,
+        llmMode: "byok",
+        llmProvider: "openrouter",
+        llmModel: "openrouter/auto",
+        status: "running",
+      });
+
+      const deployment = await db.query.deployments.findFirst({ where: eq(deploymentsTable.id, deploymentId) });
+      logger.info({ auth0Id, deploymentId }, "Seeded dev deployment for authenticated user");
+      res.json({ message: "Dev deployment created", deployment });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to seed deployment", details: String(err) });
+    }
+  });
+
+  logger.info("📊 Debug endpoint enabled: /debug/seed-deployment");
 }
 
 // tRPC handler
