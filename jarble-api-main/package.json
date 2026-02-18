@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Jarble API - Express + tRPC backend",
   "main": "dist/index.js",
-  "types": "src/trpc/index.ts",
+  "types": "dist/trpc/index.d.ts",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "dev:test": "USE_SQLITE=true tsx watch src/index.ts",

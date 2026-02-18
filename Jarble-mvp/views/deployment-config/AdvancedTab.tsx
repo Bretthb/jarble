@@ -13,9 +13,9 @@ interface AdvancedTabProps extends TabProps {
     runtime?: string;
     createdAt?: string | Date;
     updatedAt?: string | Date;
-    cpuLimit?: string;
-    memoryMb?: number;
-    storageMb?: number;
+    cpuLimit?: string | null;
+    memoryMb?: number | null;
+    storageMb?: number | null;
   } | null | undefined;
 }
 
@@ -94,8 +94,8 @@ export function AdvancedTab({ deployment }: AdvancedTabProps) {
               ) : storageQuery.data?.usedGb != null ? (
                 <StorageMeter
                   usedGb={storageQuery.data.usedGb}
-                  totalGb={storageQuery.data.totalGb}
-                  percentUsed={storageQuery.data.percentUsed}
+                  totalGb={storageQuery.data.totalGb ?? 0}
+                  percentUsed={storageQuery.data.percentUsed ?? 0}
                 />
               ) : (
                 <p className="text-xs text-muted-foreground">Storage metrics unavailable</p>

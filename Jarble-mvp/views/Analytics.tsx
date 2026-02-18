@@ -676,8 +676,8 @@ function DeploymentTableRow({
           ) : storageQuery.data?.usedGb != null ? (
             <StorageMeter
               usedGb={storageQuery.data.usedGb}
-              totalGb={storageQuery.data.totalGb}
-              percentUsed={storageQuery.data.percentUsed}
+              totalGb={storageQuery.data.totalGb ?? 0}
+              percentUsed={storageQuery.data.percentUsed ?? 0}
               compact
             />
           ) : (
