@@ -238,11 +238,40 @@ trpc.deployment.delete   → Delete a bot
 trpc.openrouter.provisionKey → Get a new LLM API key
 ```
 
-**2. REST Endpoints** (10 total)
+**2. REST Endpoints** (12 total)
 Plain HTTP routes for things that can't use tRPC:
 - **Webhooks** (Stripe, Auth0) — external services POST to us
-- **SSE Streams** (logs, status) — long-lived connections that push data
+- **SSE Streams** (logs, status, WhatsApp QR) — long-lived connections that push data
 - **Health check** — for Kubernetes to know we're alive
+- **Debug endpoints** (dev only) — inspect DB and mock PVC state
+
+### Background Services
+
+Two enforcement services start automatically at API boot (skipped in dev/SQLite mode):
+
+**Subscription Enforcement** (every 5 minutes):
+- Stops free-trial bots past their expiration date
+- Stops paid bots without a valid Stripe subscription
+- Stops bots at end of cancelled billing period
+- Validates active subscriptions against Stripe API
+- Cleans up orphaned deployments (every 30 min)
+
+**Storage Enforcement** (every 5 minutes):
+- Checks disk usage (`df /data`) inside each running pod
+- Stops pods exceeding their storage quota (>= 100%)
+- Clears storage errors when usage drops below limit
+
+### Hardware-Based Pricing
+
+Monthly subscription price is calculated dynamically from hardware specs:
+
+| Resource | Rate |
+|---|---|
+| vCPU | $10.00/mo per 1.0 vCPU |
+| RAM | $2.50/mo per GB |
+| Storage | $0.08/mo per GB |
+
+The `calculateMonthlyPriceCents()` utility in `src/utils/pricing.ts` computes this. Example: a bot with 2 vCPU, 2 GB RAM, 30 GB storage = $20 + $5 + $2.40 = **$27.40/month**.
 
 ### How Auth Works on the Backend
 
@@ -631,16 +660,23 @@ stateDiagram-v2
 
 ### How We Talk to Kubernetes
 
-Our API server uses the official `@kubernetes/client-node` library. It works in two modes:
+Our API server uses the official `@kubernetes/client-node` library. It works in three modes:
 
 ```
 In production (inside K8s cluster):
   → loadFromCluster() — uses the service account token automatically
 
-In development (your laptop):
+In development (your laptop, with cluster):
   → loadFromDefault() — uses your ~/.kube/config file
-  → Usually talks to a local or remote cluster
+
+In development (no cluster — MOCK_K8S=true):
+  → All K8s operations use an in-memory store (Map)
+  → No kubeconfig needed, no real cluster needed
+  → Full API functionality with simulated PVCs, Secrets, Deployments
+  → Inspect state via /debug/mock-pvc endpoint
 ```
+
+**Mock K8s mode** is the easiest way to develop locally. Set `MOCK_K8S=true` and all K8s functions (create, stop, start, delete, logs, exec, storage usage) short-circuit to the in-memory mock store. The mock even simulates storage usage based on actual byte sizes of stored file contents.
 
 ### K8s RBAC (Permissions)
 
@@ -780,6 +816,8 @@ We encrypt it and store it. That's it.
 
 Analogy: Bringing your own food to a potluck.
 ```
+
+> **Dev bypass:** In SQLite/dev mode, any key prefixed with `dev-` (e.g., `dev-test-key`) is accepted as valid without calling the real provider API. This lets you test the full onboarding flow locally without real LLM credentials.
 
 **Included Credits**
 ```
@@ -1280,6 +1318,17 @@ stateDiagram-v2
 
 **Fallback:** If the timing is weird, there's a `linkSubscription` mutation that searches Stripe for unlinked subscriptions.
 
+### Webhook Idempotency
+
+Stripe may re-deliver events (retries, network issues). We prevent duplicate processing via the `processedWebhookEvents` table:
+
+1. Webhook arrives → check if `eventId` exists in the table
+2. If exists → skip (already processed)
+3. If not → insert the row first (atomically), then process
+4. Concurrent inserts (multiple workers) are caught by primary key constraint → treated as "already being handled"
+
+This makes the webhook handler safe against duplicate deliveries across multiple API replicas.
+
 ---
 
 ## 14. Encryption
@@ -1559,9 +1608,11 @@ flowchart TD
 
 | Environment | Database | Connection |
 |---|---|---|
-| **Development** | SQLite (in-memory) | No setup needed, auto-creates tables + seed data |
-| **Production** | PostgreSQL | `DATABASE_URL` env var, Drizzle migrations in `drizzle-pg/` |
-| **Legacy** | MySQL | Separate schema file, migrations in `drizzle/` |
+| **Development** | SQLite (in-memory) | No setup needed, auto-creates tables + seed data. Set `USE_SQLITE=true` or `DB_PROVIDER=sqlite` |
+| **Production** | PostgreSQL | `DATABASE_URL` env var, Drizzle migrations in `drizzle-pg/`. Set `DB_PROVIDER=postgres` |
+| **Legacy** | MySQL | Separate schema file, migrations in `drizzle/`. Set `DB_PROVIDER=mysql` |
+
+> **New: `DB_PROVIDER` env var** — explicitly selects the database backend (`sqlite`, `mysql`, `postgres`). Takes precedence over the legacy `USE_SQLITE` flag.
 
 ### Tables
 
@@ -1609,6 +1660,12 @@ erDiagram
         string platformId
         text credentials
     }
+
+    processedWebhookEvents {
+        string eventId PK
+        string eventType
+        timestamp processedAt
+    }
 ```
 
 ### The ORM (Drizzle)
@@ -1655,8 +1712,13 @@ PORT=3001
 NODE_ENV=development
 FRONTEND_URL=http://localhost:3000
 
-# Database (not needed for SQLite dev mode)
-DATABASE_URL=mysql://user:pass@localhost:3306/jarble
+# Database
+DB_PROVIDER=sqlite                    # sqlite | mysql | postgres (overrides USE_SQLITE)
+USE_SQLITE=true                       # Legacy: same as DB_PROVIDER=sqlite
+DATABASE_URL=mysql://user:pass@localhost:3306/jarble  # Not needed for SQLite
+
+# Mock K8s (local dev without a real cluster)
+MOCK_K8S=true                         # Enables in-memory K8s simulation
 
 # Auth0
 AUTH0_DOMAIN=jarble-dev.us.auth0.com
@@ -1722,12 +1784,13 @@ The API starts with an **in-memory SQLite database** pre-seeded with test data. 
 | Frontend UI | Yes | Full navigation and forms |
 | Auth0 login | Yes | Uses dev tenant (pre-configured) |
 | Dashboard | Yes | Shows seeded test deployment |
-| Onboarding wizard | Yes | All steps render |
+| Onboarding wizard | Yes | All steps render. Use `dev-*` prefix keys to bypass LLM validation |
 | tRPC queries | Yes | SQLite has seed data |
-| K8s deployment | No | Need a K8s cluster (use Hetzner or minikube) |
-| Stripe payments | Partial | Need Stripe test keys |
+| K8s deployment | Yes (mock) | Set `MOCK_K8S=true` — uses in-memory simulation. Inspect via `/debug/mock-pvc` |
+| Stripe payments | Partial | Need Stripe test keys. Subscription/storage enforcement skipped in dev |
 | OpenRouter provisioning | Partial | Need management key |
-| Config sync | No | Requires running K8s pods |
+| Config sync | Yes (mock) | With `MOCK_K8S=true`, config files read/write to in-memory store |
+| LLM key validation | Yes (bypass) | Keys prefixed with `dev-` are accepted without calling provider APIs |
 
 ---
 
@@ -1907,6 +1970,7 @@ Check in this order:
 | **BYOK** | "Bring Your Own Key" — user provides their own LLM API key |
 | **Credit Pool** | Shared LLM budget across multiple bots (owner/linked model) |
 | **Deployment** | One user's bot instance (database record + K8s resources) |
+| **DB_PROVIDER** | Env var to select database backend: `sqlite`, `mysql`, `postgres` |
 | **Drizzle** | Our database ORM (like Prisma but lighter) |
 | **EventSource / SSE** | Browser API for receiving server-pushed updates |
 | **Hetzner** | German cloud hosting provider (cheaper than AWS/GCP) |
@@ -1915,6 +1979,7 @@ Check in this order:
 | **K3s** | Lightweight Kubernetes (same API, smaller footprint) |
 | **K8s** | Kubernetes — container orchestration platform |
 | **Longhorn** | Distributed storage system for Kubernetes |
+| **Mock K8s** | In-memory K8s simulation (`MOCK_K8S=true`) for local dev without a cluster |
 | **Namespace** | K8s isolation boundary (we use `jarble`) |
 | **Next.js** | React framework with routing, SSR, and build tooling |
 | **OpenClaw** | TypeScript/Node.js bot runtime (primary) |
@@ -1930,4 +1995,5 @@ Check in this order:
 | **Traefik** | Reverse proxy / ingress controller for K8s |
 | **tRPC** | Type-safe RPC framework (frontend calls backend functions directly) |
 | **ZeroClaw** | Rust-based bot runtime (lightweight, ~3.4MB binary) |
+| **Webhook Idempotency** | `processedWebhookEvents` table prevents duplicate Stripe event processing |
 | **ZIP export** | Download bot configs as a ZIP file (for backup/migration) |

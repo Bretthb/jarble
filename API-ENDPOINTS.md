@@ -1,6 +1,7 @@
 # Jarble API Endpoints Reference
 
 > Complete reference for every API endpoint in the Jarble platform. Covers all 45 tRPC procedures and 10 REST endpoints.
+> Last updated: February 18, 2026 (Session 15)
 
 ---
 
@@ -327,7 +328,7 @@ graph LR
 | `openrouter.healthCheck` | query | -- | Test OpenRouter connectivity using server API key |
 | `openrouter.models` | query | -- | List all available models from OpenRouter |
 | `openrouter.validateApiKey` | mutation | `{ apiKey }` | Validate an OpenRouter key (legacy) |
-| `openrouter.validateProviderKey` | mutation | `{ provider, apiKey }` | Multi-provider key validation (OpenAI, Anthropic, Google, OpenRouter) |
+| `openrouter.validateProviderKey` | mutation | `{ provider, apiKey }` | Multi-provider key validation (OpenAI, Anthropic, Google, OpenRouter). **Dev bypass:** accepts `dev-*` keys in SQLite/dev mode |
 | `openrouter.provisionKey` | mutation | `{ deploymentId, limitDollars? }` | Provision tenant API key via Management API. Encrypts + stores |
 | `openrouter.getKeyUsage` | query | `{ deploymentId }` | Credit usage for "included" mode deployments. Resolves to owner if linked |
 | `openrouter.updateKeyLimit` | mutation | `{ deploymentId, limitDollars: 1-1000 }` | Update monthly credit cap. Must be owner (not linked) |
@@ -465,7 +466,7 @@ sequenceDiagram
 
 | Method | Path | Auth | Rate Limit | Description |
 |---|---|---|---|---|
-| POST | `/api/stripe/webhook` | Stripe signature (`stripe-signature` header) | Exempt | Handles 4 event types: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed` |
+| POST | `/api/stripe/webhook` | Stripe signature (`stripe-signature` header) | Exempt | Handles 4 event types: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. **Idempotent** — deduplicates via `processedWebhookEvents` table |
 | POST | `/api/auth0/email-verified` | M2M Bearer secret (`AUTH0_M2M_SECRET`) | Exempt | Auth0 Post Login Action webhook. Updates `emailVerified` flag in DB |
 | POST | `/api/config-changed` | deploymentId in body | Global | Called by pod file-watcher when PVC config files change. Triggers reverse sync (PVC → DB) |
 
@@ -562,6 +563,8 @@ sequenceDiagram
 |---|---|---|---|
 | GET | `/health` | None | K8s liveness/readiness probe. Returns `{ status: "ok", timestamp }` |
 | GET | `/debug/db` | None | **Dev only** (`NODE_ENV=development`). Dumps all DB tables |
+| GET | `/debug/mock-pvc` | None | **Dev only** (`MOCK_K8S=true`). Inspect in-memory PVC store |
+| POST | `/debug/mock-pvc` | None | **Dev only** (`MOCK_K8S=true`). Write files to mock PVC |
 
 ---
 
@@ -574,8 +577,8 @@ sequenceDiagram
 | REST Webhooks | 3 | signature/M2M/deploymentId | global/exempt | No |
 | REST Payment | 2 | JWT Bearer | 10 req/min | No |
 | SSE Streams | 3 | JWT (header or query) | 120 req/min | Yes |
-| Health/Debug | 2 | none | exempt | No |
-| **Total** | **55** | -- | -- | -- |
+| Health/Debug | 4 | none | exempt | No |
+| **Total** | **57** | -- | -- | -- |
 
 ### Quick Reference by Router
 
@@ -589,8 +592,8 @@ sequenceDiagram
 | `platformCredentials` | 2 | 4 | 6 |
 | `template` | 1 | 0 | 1 |
 | **tRPC Total** | **22** | **23** | **45** |
-| REST endpoints | -- | -- | **10** |
-| **Grand Total** | -- | -- | **55** |
+| REST endpoints | -- | -- | **12** |
+| **Grand Total** | -- | -- | **57** |
 
 ### Key Files
 
@@ -602,6 +605,10 @@ sequenceDiagram
 | `jarble-api-main/src/middleware/rateLimit.ts` | Three-tier rate limiting configuration |
 | `jarble-api-main/src/services/auth.ts` | Auth0 JWT verification + user provisioning |
 | `jarble-api-main/src/services/stripe.ts` | Stripe checkout, portal, subscriptions |
+| `jarble-api-main/src/services/subscriptionEnforcement.ts` | Background subscription validation (5-min cycle) |
+| `jarble-api-main/src/services/storageEnforcement.ts` | Background storage quota enforcement (5-min cycle) |
+| `jarble-api-main/src/utils/pricing.ts` | Hardware-based pricing calculator ($10/vCPU, $2.50/GB RAM, $0.08/GB storage) |
+| `jarble-api-main/src/utils/openrouter.ts` | OpenRouter Management API (provision, revoke, usage, limit updates) |
 | `jarble-api-main/src/trpc/routers/deployment.ts` | 18 procedures (CRUD, lifecycle, billing) |
 | `jarble-api-main/src/trpc/routers/openrouter.ts` | 8 procedures (LLM key management) |
 | `jarble-api-main/src/trpc/routers/user.ts` | 5 procedures (profile, email verification) |

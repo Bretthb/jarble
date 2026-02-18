@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 17, 2026 (Session 14 — Hetzner Block Storage for Longhorn)
+📅 Last updated: February 18, 2026 (Session 15 — Drizzle Migrations, Dev BYOK Bypass, Subscription/Storage Enforcement)
 
 </aside>
 
@@ -15,7 +15,7 @@ Jarble is a **no-code AI deployment platform** that lets users deploy AI-powered
 
 | Layer | Technology |
 | --- | --- |
-| Frontend | Next.js 15 (App Router), React 18, TypeScript |
+| Frontend | Next.js 15 (App Router), React 19, TypeScript |
 | Styling | Tailwind CSS v4, shadcn/ui (40+ components), Framer Motion |
 | API | Express + tRPC, SuperJSON serialization |
 | Database | Drizzle ORM — MySQL (prod), PostgreSQL (alt), SQLite (dev) |
@@ -44,6 +44,8 @@ graph TB
         J[Runtime Catalog Router]
         K[OpenRouter Router]
         L[Template Router]
+        BILL[Billing Router]
+        PC[Platform Credentials Router]
         WH[Auth0 Webhook Endpoint]
     end
 
@@ -52,6 +54,8 @@ graph TB
         N[Stripe Service - Subscriptions]
         O[K8s Service - Pod Management]
         P[OpenRouter Service - Key Provisioning]
+        SUB_ENF[Subscription Enforcement]
+        STOR_ENF[Storage Enforcement]
     end
 
     subgraph "Data Layer"
@@ -304,6 +308,12 @@ erDiagram
         text credentials "AES-256-GCM encrypted JSON"
         timestamp createdAt
         timestamp updatedAt
+    }
+
+    processedWebhookEvents {
+        varchar eventId PK "Stripe event ID (evt_xxx)"
+        varchar eventType "e.g. checkout.session.completed"
+        timestamp processedAt "defaultNow()"
     }
 
     users ||--o{ deployments : "has many"
@@ -608,6 +618,8 @@ graph TB
 | Secret | DEPLOYMENT_ID, USER_ID, RUNTIME, OPENROUTER_API_KEY |
 | Deployment | 1 replica, custom CPU/RAM limits, /data mount |
 
+> **Mock K8s Mode:** Set `MOCK_K8S=true` for local dev without a real cluster. All K8s operations use an in-memory store. Inspect with `/debug/mock-pvc`.
+
 ---
 
 # 9. Auth & Security Flow
@@ -725,6 +737,7 @@ flowchart TD
 | Checkout session creation | ✅ Implemented |
 | Portal session creation | ✅ Implemented |
 | Webhook signature verification | ✅ Implemented |
+| Webhook idempotency | ✅ `processedWebhookEvents` table prevents duplicate processing |
 | checkout.session.completed | ✅ Sets stripeCustomerId + pendingStripeSubscriptionId |
 | subscription.updated → sync | ✅ Syncs cancel state + payment errors to deployment |
 | subscription.deleted → stop | ✅ Stops deployment via proper WHERE query |
@@ -796,7 +809,15 @@ flowchart TD
 - [x]  **Deployment log streaming** — `GET /api/deployments/:id/logs` SSE endpoint streams K8s container logs via `@kubernetes/client-node` log API
 - [x]  **Real-time deployment status SSE** — `GET /api/deployments/status/stream` polls all user deployments every 5s, emits status changes as SSE events
 - [x]  **Two-way config sync** — Frontend→PVC: `syncConfigsToPvc()` writes configs to PVC + restarts pod on update. PVC→Frontend: `file-watcher.sh` (inotifywait) detects changes, POSTs to webhook, `syncConfigsFromPvc()` updates DB if values differ
-- [x]  **Drizzle migrations regenerated** — Fresh PostgreSQL migrations matching current schema
+- [x]  **Drizzle migrations regenerated** — Fresh PostgreSQL migrations matching current schema + initial SQLite migration
+- [x]  **Subscription enforcement** — Background service (every 5 min): free trial expiration, missing subscriptions, cancel-at-period-end, live Stripe validation, orphan cleanup (every 30 min)
+- [x]  **Storage enforcement** — Background service (every 5 min): stops pods exceeding storage quota, clears errors when usage drops below limit
+- [x]  **Webhook idempotency** — `processedWebhookEvents` table prevents duplicate Stripe event processing across workers
+- [x]  **Hardware-based pricing** — `calculateMonthlyPriceCents()` utility: $10/vCPU + $2.50/GB RAM + $0.08/GB storage per month
+- [x]  **Mock K8s mode** — `MOCK_K8S=true` enables full API with in-memory PVC/Secret/Deployment simulation, debug endpoints
+- [x]  **Dev BYOK bypass** — `dev-*` prefixed API keys accepted without validation in SQLite/dev mode
+- [x]  **Multi-provider key validation** — `validateProviderKey` validates keys against OpenRouter, OpenAI, Anthropic, and Google APIs
+- [x]  **DB_PROVIDER env var** — New explicit database provider selector (`sqlite` / `mysql` / `postgres`) alongside legacy `USE_SQLITE`
 - [x]  **Billing tRPC router** — `billing.getOverview`, `billing.getInvoices`, `billing.getSubscriptions` with Stripe API enrichment
 - [x]  **WhatsApp QR SSE endpoint** — `GET /api/deployments/:id/whatsapp/qr` streams Baileys QR via `streamExecInPod()`
 - [x]  **Rate limiting middleware** — Global (300/min/IP), auth (120/min/user), stripe (10/min/user) via express-rate-limit
@@ -836,10 +857,20 @@ flowchart TD
 4. ~~API key management~~ — ✅ Done (Session 8). ModelTab rewritten with included/linked/BYOK sections
 5. ~~Rate limiting on API routes~~ — ✅ Done (Session 12). Three-tier rate limiting (global/auth/stripe) via express-rate-limit
 6. ~~Terraform CI/CD — GitHub Actions for plan/apply~~ — ✅ Done (Session 13). Full pipeline with PR plan comments, approval gates, manual dispatch
+7. ~~Subscription enforcement~~ — ✅ Done (Session 15). Background service validates free trials, missing subs, cancel-at-period-end, Stripe status, orphans
+8. ~~Storage enforcement~~ — ✅ Done (Session 15). Background service stops pods exceeding storage quota
+9. ~~Webhook idempotency~~ — ✅ Done (Session 15). `processedWebhookEvents` table deduplicates Stripe events
+10. ~~Hardware-based pricing~~ — ✅ Done (Session 15). Dynamic pricing from CPU/RAM/storage specs
 
 ## 🟡 Important (Infrastructure)
 
 1. ~~Hetzner Block Storage provisioning~~ — ✅ Done (Session 14). Terraform provisions `hcloud_volume` per worker node, attaches via `hcloud_volume_attachment`, mounts at `/var/lib/longhorn` in agent `user_data`. Default 100 GB per node (configurable via `longhorn_volume_size`).
+
+## 🟡 Important (Developer Experience)
+
+1. ~~Mock K8s mode~~ — ✅ Done (Session 15). `MOCK_K8S=true` for full API testing without a real cluster
+2. ~~Dev BYOK bypass~~ — ✅ Done (Session 15). `dev-*` prefixed keys accepted in SQLite/dev mode
+3. ~~Drizzle migrations (SQLite + PostgreSQL)~~ — ✅ Done (Session 15). Initial migrations generated and version-controlled
 
 ## 🟢 Nice-to-Have (Future)
 
@@ -878,6 +909,9 @@ UI Library: 40+ shadcn/ui components (Button, Card, Dialog, Tabs, Toast, Badge, 
 ### Backend (.env)
 
 - `DATABASE_URL` — Connection string (required unless SQLite)
+- `DB_PROVIDER` — Database provider: `sqlite`, `mysql`, or `postgres` (overrides `USE_SQLITE`)
+- `USE_SQLITE` — Legacy flag: `true` to use in-memory SQLite for local dev
+- `MOCK_K8S` — Set `true` to use in-memory K8s simulation (no real cluster needed for dev)
 - `AUTH0_DOMAIN`, `AUTH0_AUDIENCE` — Auth0 config (required)
 - `AUTH0_M2M_SECRET` — Shared secret for email verification webhook
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — Stripe keys
@@ -982,18 +1016,22 @@ monorepo/
 │   │   ├── utils/
 │   │   │   ├── encryption.ts         # AES-256-GCM encrypt/decrypt
 │   │   │   ├── openrouter.ts         # OpenRouter Management API utilities
+│   │   │   ├── pricing.ts            # Hardware-based pricing calculator
 │   │   │   ├── env.ts                # Environment variable validation
 │   │   │   └── logger.ts             # Pino logger
 │   │   ├── services/
 │   │   │   ├── auth.ts               # Auth0 JWT verification + user provisioning
 │   │   │   ├── stripe.ts             # Stripe checkout, portal, subscriptions, invoices
-│   │   │   └── configSync.ts         # Two-way config sync (Frontend↔PVC)
+│   │   │   ├── configSync.ts         # Two-way config sync (Frontend↔PVC)
+│   │   │   ├── subscriptionEnforcement.ts # Background subscription validation (5-min cycle)
+│   │   │   └── storageEnforcement.ts # Background storage quota enforcement (5-min cycle)
 │   │   └── k8s/                       # K8s orchestration (deploy, stop, start, logs, exec streaming)
 │   ├── k8s/                           # K8s manifests
 │   │   ├── deployment.yaml            # API deployment + RBAC + Ingress (TLS)
 │   │   ├── cert-manager.yaml          # Let's Encrypt ClusterIssuer
 │   │   └── secrets.yaml.example       # Secrets template
-│   └── drizzle-pg/                    # PostgreSQL migrations
+│   ├── drizzle/                       # SQLite/MySQL migrations (0000_gorgeous_silvermane.sql)
+│   └── drizzle-pg/                    # PostgreSQL migrations (0000 + 0001_messy_killmonger.sql)
 │
 ├── runtimes/                          # Bot runtime Docker images
 │   ├── openclaw/
@@ -1028,7 +1066,7 @@ monorepo/
 ---
 
 <aside>
-📚 This document provides a complete snapshot of the Jarble platform as of February 17, 2026 (Session 14). Use the roadmap section to prioritize next steps.
+📚 This document provides a complete snapshot of the Jarble platform as of February 18, 2026 (Session 15). Use the roadmap section to prioritize next steps.
 
 </aside>
 
@@ -1080,6 +1118,13 @@ flowchart TB
         BILLING_API["✅ Billing tRPC Router"]
         RATELIMIT["✅ Rate Limiting (3 tiers)"]
         WHATSAPP_API["✅ WhatsApp QR SSE Endpoint"]
+        SUB_ENF_DONE["✅ Subscription Enforcement"]
+        STOR_ENF_DONE["✅ Storage Enforcement"]
+        WEBHOOK_IDEMP["✅ Webhook Idempotency"]
+        HW_PRICING["✅ Hardware-Based Pricing"]
+        MOCK_K8S_DONE["✅ Mock K8s Mode"]
+        DEV_BYOK["✅ Dev BYOK Bypass"]
+        MULTI_VALIDATE["✅ Multi-Provider Key Validation"]
     end
 
     subgraph DONE_INFRA["✅ DONE — Infrastructure"]
@@ -1093,6 +1138,7 @@ flowchart TB
         TLS["✅ TLS (cert-manager + Let's Encrypt)"]
         TF_CICD["✅ Terraform CI/CD Pipeline"]
         BLOCKSTORAGE["✅ Block Storage (Longhorn)"]
+        DRIZZLE_MIG["✅ Drizzle Migrations (SQLite + PG)"]
     end
 
     HOME --> LOGIN --> DASH
@@ -1136,6 +1182,11 @@ flowchart TB
         RATELIMIT_DONE["✅ Rate Limiting\nSession 12"]
         TFCICD_DONE["✅ Terraform CI/CD\nSession 13"]
         BLOCKSTORAGE_DONE["✅ Block Storage\nSession 14"]
+        SUBENF_DONE["✅ Subscription Enforcement\nSession 15"]
+        STORENF_DONE["✅ Storage Enforcement\nSession 15"]
+        MOCKK8S_DONE["✅ Mock K8s Mode\nSession 15"]
+        DEVBYOK_DONE["✅ Dev BYOK Bypass\nSession 15"]
+        DRIZZLE_DONE["✅ Drizzle Migrations\nSession 15"]
     end
 
     subgraph DONE_DEPLOY["✅ DONE — Production Readiness"]
