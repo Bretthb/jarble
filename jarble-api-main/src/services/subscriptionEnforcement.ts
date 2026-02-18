@@ -133,6 +133,7 @@ async function checkDeploymentSubscription(dep: {
 async function validateSubscriptionWithStripe(dep: {
   id: string;
   stripeSubscriptionId: string | null;
+  cancelledAt?: Date | string | null;
   error: string | null;
 }): Promise<void> {
   if (!dep.stripeSubscriptionId) return;
@@ -191,7 +192,7 @@ async function validateSubscriptionWithStripe(dep: {
       if (cancelAtPeriodEnd && currentPeriodEnd) {
         const currentCancelAt = currentPeriodEnd.toISOString();
         updates.cancelAtPeriodEnd = currentCancelAt;
-        if (!updates.cancelledAt) {
+        if (!(dep as any).cancelledAt) {
           updates.cancelledAt = new Date().toISOString();
         }
       } else if (!cancelAtPeriodEnd) {

@@ -11,7 +11,11 @@ let jwks: jose.JWTVerifyGetKey | null = null;
 async function getJWKS() {
   if (!jwks) {
     jwks = jose.createRemoteJWKSet(
-      new URL(`https://${env.AUTH0_DOMAIN}/.well-known/jwks.json`)
+      new URL(`https://${env.AUTH0_DOMAIN}/.well-known/jwks.json`),
+      {
+        cooldownDuration: 30_000,   // 30s between JWKS refetch attempts
+        cacheMaxAge: 600_000,       // Refresh cached keys every 10 minutes
+      }
     );
   }
   return jwks;
@@ -135,21 +139,38 @@ export async function getUserFromToken(payload: TokenPayload) {
   // Create new user — no existing account with this email
   const userId = nanoid(12);
 
-  await (db as any).insert(tables.users).values({
-    id: userId,
-    auth0Id: payload.sub,
-    email: payload.email || `${payload.sub}@auth0.user`,
-    name: payload.name || null,
-    emailVerified: emailVerified,
-  });
+  try {
+    await (db as any).insert(tables.users).values({
+      id: userId,
+      auth0Id: payload.sub,
+      email: payload.email || `${payload.sub}@auth0.user`,
+      name: payload.name || null,
+      emailVerified: emailVerified,
+    });
 
-  logger.info({
-    userId,
-    auth0Id: payload.sub,
-    email: payload.email,
-    emailVerified,
-    isGoogleUser,
-  }, "New user created");
+    logger.info({
+      userId,
+      auth0Id: payload.sub,
+      email: payload.email,
+      emailVerified,
+      isGoogleUser,
+    }, "New user created");
+  } catch (err: any) {
+    // Handle race condition: two concurrent first-requests both try to INSERT.
+    // The second one hits a unique constraint violation — re-fetch instead of 500.
+    const isConstraintViolation =
+      err?.code === "SQLITE_CONSTRAINT" ||  // SQLite
+      err?.code === "ER_DUP_ENTRY" ||       // MySQL
+      err?.code === "23505";                // Postgres
+    if (isConstraintViolation) {
+      logger.info({ auth0Id: payload.sub }, "User creation race condition — re-fetching");
+      user = await db.query.users.findFirst({
+        where: eq(tables.users.auth0Id, payload.sub),
+      });
+      return user;
+    }
+    throw err;
+  }
 
   user = await db.query.users.findFirst({
     where: eq(tables.users.id, userId),

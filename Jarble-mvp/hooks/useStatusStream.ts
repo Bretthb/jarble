@@ -22,6 +22,8 @@ interface UseStatusStreamReturn {
   error: string | null;
 }
 
+const MAX_RECONNECT_DELAY = 30_000;
+
 export function useStatusStream({
   enabled,
 }: UseStatusStreamOptions): UseStatusStreamReturn {
@@ -33,6 +35,8 @@ export function useStatusStream({
   const [error, setError] = useState<string | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
+  const retryCountRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!enabled || !isAuthenticated) return;
@@ -40,6 +44,8 @@ export function useStatusStream({
     let cancelled = false;
 
     async function connect() {
+      if (cancelled) return;
+
       try {
         const token = await getAccessTokenSilently();
         const url = `${API_URL}/api/deployments/status/stream?token=${encodeURIComponent(token)}`;
@@ -51,6 +57,7 @@ export function useStatusStream({
           if (!cancelled) {
             setIsConnected(true);
             setError(null);
+            retryCountRef.current = 0; // Reset on successful connection
           }
         };
 
@@ -89,12 +96,26 @@ export function useStatusStream({
         es.addEventListener("error", () => {
           if (!cancelled) {
             setIsConnected(false);
+            es.close();
+            eventSourceRef.current = null;
+            // Reconnect with exponential backoff
+            const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), MAX_RECONNECT_DELAY);
+            retryCountRef.current++;
+            reconnectTimerRef.current = setTimeout(() => {
+              if (!cancelled) connect();
+            }, delay);
           }
         });
       } catch {
         if (!cancelled) {
           setError("Failed to connect to status stream");
           setIsConnected(false);
+          // Retry after delay
+          const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), MAX_RECONNECT_DELAY);
+          retryCountRef.current++;
+          reconnectTimerRef.current = setTimeout(() => {
+            if (!cancelled) connect();
+          }, delay);
         }
       }
     }
@@ -103,6 +124,10 @@ export function useStatusStream({
 
     return () => {
       cancelled = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;

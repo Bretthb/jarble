@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../middleware.js";
 import { tables } from "../../db/index.js";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, or, isNull } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs } from "../../k8s/deployment.js";
-import { cancelSubscriptionAtPeriodEnd, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
+import { cancelSubscriptionAtPeriodEnd, cancelSubscriptionImmediately, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
 import { nanoid } from "nanoid";
 import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
@@ -420,15 +420,16 @@ export const deploymentRouter = router({
             initialConfigs,
             extraSecretEntries,
           });
+          // Only update if still in transitional state (don't overwrite enforcement actions)
           await (ctx.db as any).update(deployments)
             .set({ status: "running" })
-            .where(eq(deployments.id, deploymentId));
+            .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
           logger.info({ deploymentId }, "Deployment succeeded");
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Unknown deployment error";
           await (ctx.db as any).update(deployments)
             .set({ status: "failed", error: message })
-            .where(eq(deployments.id, deploymentId));
+            .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
           logger.error({ deploymentId, err }, "Deployment failed");
         }
       })();
@@ -711,14 +712,15 @@ export const deploymentRouter = router({
               if (podStatus.status === "failed") break;
               await new Promise((r) => setTimeout(r, 2000));
             }
+            // Only update if still in transitional state (don't overwrite enforcement actions)
             await (ctx.db as any).update(deployments)
               .set({ status: ready ? "running" : "failed" })
-              .where(eq(deployments.id, input.id));
+              .where(and(eq(deployments.id, input.id), eq(deployments.status, "creating")));
             logger.info({ deploymentId: input.id, ready }, "Deployment start completed");
           } catch (err) {
             await (ctx.db as any).update(deployments)
               .set({ status: "failed", error: "Failed to confirm pod startup" })
-              .where(eq(deployments.id, input.id));
+              .where(and(eq(deployments.id, input.id), eq(deployments.status, "creating")));
             logger.error({ deploymentId: input.id, err }, "Failed to confirm start");
           }
         })();
@@ -777,14 +779,15 @@ export const deploymentRouter = router({
               if (podStatus.status === "failed") break;
               await new Promise((r) => setTimeout(r, 2000));
             }
+            // Only update if still in transitional state (don't overwrite enforcement actions)
             await (ctx.db as any).update(deployments)
               .set({ status: ready ? "running" : "failed" })
-              .where(eq(deployments.id, input.id));
+              .where(and(eq(deployments.id, input.id), eq(deployments.status, "restarting")));
             logger.info({ deploymentId: input.id, ready }, "Deployment restart completed");
           } catch (err) {
             await (ctx.db as any).update(deployments)
               .set({ status: "failed", error: "Restart failed" })
-              .where(eq(deployments.id, input.id));
+              .where(and(eq(deployments.id, input.id), eq(deployments.status, "restarting")));
             logger.error({ deploymentId: input.id, err }, "Failed to restart");
           }
         })();
@@ -1057,6 +1060,15 @@ export const deploymentRouter = router({
         } catch (err) {
           // Don't block deletion if revocation fails — log and continue
           logger.warn({ err, deploymentId: input.id, keyId }, "Failed to revoke OpenRouter key during delete");
+        }
+      }
+
+      // Cancel Stripe subscription if one exists (prevent orphaned billing)
+      if (dep.stripeSubscriptionId && isStripeConfigured()) {
+        try {
+          await cancelSubscriptionImmediately(dep.stripeSubscriptionId);
+        } catch (err) {
+          logger.warn({ err, deploymentId: input.id, subscriptionId: dep.stripeSubscriptionId }, "Failed to cancel subscription during delete");
         }
       }
 

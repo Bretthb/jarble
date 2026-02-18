@@ -161,6 +161,11 @@ export async function createDeployment(
   const storageGi = `${Math.max(1, storageGbVal)}Gi`;
 
   // 1. Create PVC for deployment storage
+  // Resources are created sequentially with rollback on failure to prevent orphans.
+  let pvcCreated = false;
+  let secretCreated = false;
+
+  try {
   await coreApi!.createNamespacedPersistentVolumeClaim(NAMESPACE, {
     metadata: { name: `pvc-${deploymentId}` },
     spec: {
@@ -169,6 +174,7 @@ export async function createDeployment(
       resources: { requests: { storage: storageGi } },
     },
   });
+  pvcCreated = true;
 
   // 2. Create Secret for deployment env vars
   // Base entries are always included; runtime handler provides extras (e.g. LLM keys)
@@ -184,6 +190,10 @@ export async function createDeployment(
   if (process.env.JARBLE_API_URL) {
     baseSecretData.JARBLE_API_URL = process.env.JARBLE_API_URL;
   }
+  // Include CONFIG_WEBHOOK_SECRET for authenticated config-changed callbacks
+  if (process.env.CONFIG_WEBHOOK_SECRET) {
+    baseSecretData.CONFIG_WEBHOOK_SECRET = process.env.CONFIG_WEBHOOK_SECRET;
+  }
 
   const secretData = { ...baseSecretData, ...(config.extraSecretEntries ?? {}) };
 
@@ -191,6 +201,7 @@ export async function createDeployment(
     metadata: { name: `secret-${deploymentId}` },
     stringData: secretData,
   });
+  secretCreated = true;
 
   // 3. Create Deployment
   await appsApi!.createNamespacedDeployment(NAMESPACE, {
@@ -200,6 +211,7 @@ export async function createDeployment(
     },
     spec: {
       replicas: 1,
+      strategy: { type: "Recreate" }, // RWO PVCs can only mount to one pod at a time
       selector: { matchLabels: { app: `dep-${deploymentId}` } },
       template: {
         metadata: { labels: { app: `dep-${deploymentId}` } },
@@ -226,6 +238,26 @@ export async function createDeployment(
       },
     },
   });
+
+  } catch (err) {
+    // Rollback: clean up any resources created before the failure
+    logger.error({ deploymentId, err, pvcCreated, secretCreated }, "createDeployment failed, rolling back");
+    try {
+      if (secretCreated) {
+        await coreApi!.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
+      }
+    } catch (cleanupErr) {
+      logger.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete secret");
+    }
+    try {
+      if (pvcCreated) {
+        await coreApi!.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
+      }
+    } catch (cleanupErr) {
+      logger.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete PVC");
+    }
+    throw err;
+  }
 
   // 4. Write initial config files to PVC (if any provided by the runtime handler)
   if (config.initialConfigs && config.initialConfigs.length > 0) {
@@ -332,8 +364,18 @@ export async function restartDeployment(deploymentId: string): Promise<void> {
   logger.info({ deploymentId }, "Restarting deployment");
 
   await stopDeployment(deploymentId);
-  // Brief pause to let K8s terminate the pod
-  await new Promise((r) => setTimeout(r, 2000));
+
+  // Wait for the pod to fully terminate before starting a new one.
+  // RWO PVCs can only be mounted by one pod — starting too early causes multi-attach errors.
+  const maxWaitMs = 60_000;
+  const pollMs = 2_000;
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const status = await getDeploymentPodStatus(deploymentId);
+    if (status.status === "not_found") break;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+
   await startDeployment(deploymentId);
 
   logger.info({ deploymentId }, "Deployment restarted");
@@ -751,8 +793,8 @@ export async function writeConfigsToPvc(
       await execInPod(podName, ["mkdir", "-p", dir]);
     }
 
-    // Write file content via stdin pipe
-    await execInPodWithStdin(podName, ["sh", "-c", `cat > ${filePath}`], file.content);
+    // Write file content via stdin pipe (use tee to avoid shell injection via filePath)
+    await execInPodWithStdin(podName, ["tee", filePath], file.content);
 
     logger.info({ deploymentId, path: file.path }, "Wrote config file to PVC");
   }
@@ -966,19 +1008,24 @@ export async function updateDeploymentSecret(
   userId: string,
   name: string,
   runtime: string,
-  secretEntries: Record<string, string>
+  secretEntries: Record<string, string>,
+  template?: string,
 ): Promise<void> {
   const baseData: Record<string, string> = {
     DEPLOYMENT_ID: deploymentId,
     USER_ID: userId,
     DEPLOYMENT_NAME: name,
-    TEMPLATE: "personal",
+    TEMPLATE: template || "personal",
     RUNTIME: runtime,
   };
 
   // Include JARBLE_API_URL for file watcher callback
   if (process.env.JARBLE_API_URL) {
     baseData.JARBLE_API_URL = process.env.JARBLE_API_URL;
+  }
+  // Include CONFIG_WEBHOOK_SECRET for authenticated config-changed callbacks
+  if (process.env.CONFIG_WEBHOOK_SECRET) {
+    baseData.CONFIG_WEBHOOK_SECRET = process.env.CONFIG_WEBHOOK_SECRET;
   }
 
   const fullData = { ...baseData, ...secretEntries };

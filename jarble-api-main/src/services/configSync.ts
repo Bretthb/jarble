@@ -179,23 +179,23 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
       await new Promise((r) => setTimeout(r, 2000));
     }
 
-    // 11. Update DB status
+    // 11. Update DB status (only if still in transitional state — don't overwrite enforcement)
     await (db as any).update(deployments)
       .set({ status: ready ? "running" : "failed" })
-      .where(eq(deployments.id, deploymentId));
+      .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
 
     logger.info({ deploymentId, ready }, "configSync→PVC: sync completed");
   } catch (err) {
     logger.error({ deploymentId, err }, "configSync→PVC: failed");
 
-    // Best-effort: set status back to running with error
+    // Best-effort: set error on the deployment (only if still in transitional state)
     try {
       await (db as any).update(deployments)
         .set({
           status: "running",
           error: "Config sync failed — pod may have stale config. Try restarting.",
         })
-        .where(eq(deployments.id, deploymentId));
+        .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
     } catch {
       // ignore
     }

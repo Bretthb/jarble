@@ -32,6 +32,9 @@ const envSchema = z.object({
   AUTH0_MGMT_CLIENT_ID: z.string().optional(),
   AUTH0_MGMT_CLIENT_SECRET: z.string().optional(),
 
+  // Config webhook — shared secret for pod-to-API config-changed callbacks
+  CONFIG_WEBHOOK_SECRET: z.string().optional(),
+
   // Stripe — all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),

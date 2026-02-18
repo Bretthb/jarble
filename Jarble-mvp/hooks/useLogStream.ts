@@ -28,6 +28,8 @@ interface UseLogStreamReturn {
   downloadLogs: () => void;
 }
 
+const MAX_RECONNECT_DELAY = 30_000;
+
 export function useLogStream({
   deploymentId,
   enabled,
@@ -42,6 +44,9 @@ export function useLogStream({
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const lineIdRef = useRef(0);
+  const isPausedRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Parse a K8s log line with optional timestamp prefix
   const parseLogLine = useCallback((raw: string): LogLine => {
@@ -63,6 +68,8 @@ export function useLogStream({
     let cancelled = false;
 
     async function connect() {
+      if (cancelled) return;
+
       try {
         const token = await getAccessTokenSilently();
 
@@ -77,11 +84,12 @@ export function useLogStream({
           if (!cancelled) {
             setIsConnected(true);
             setError(null);
+            retryCountRef.current = 0;
           }
         };
 
         es.onmessage = (event) => {
-          if (cancelled) return;
+          if (cancelled || isPausedRef.current) return;
           try {
             const data = JSON.parse(event.data);
             if (data.line) {
@@ -110,18 +118,34 @@ export function useLogStream({
         es.addEventListener("error", () => {
           if (!cancelled) {
             setIsConnected(false);
+            es.close();
+            eventSourceRef.current = null;
+            // Reconnect with exponential backoff
+            const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), MAX_RECONNECT_DELAY);
+            retryCountRef.current++;
+            reconnectTimerRef.current = setTimeout(() => {
+              if (!cancelled) connect();
+            }, delay);
           }
         });
 
         es.addEventListener("end", () => {
           if (!cancelled) {
             setIsConnected(false);
+            es.close();
+            eventSourceRef.current = null;
           }
         });
       } catch {
         if (!cancelled) {
           setError("Failed to connect to log stream");
           setIsConnected(false);
+          // Retry after delay
+          const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), MAX_RECONNECT_DELAY);
+          retryCountRef.current++;
+          reconnectTimerRef.current = setTimeout(() => {
+            if (!cancelled) connect();
+          }, delay);
         }
       }
     }
@@ -130,6 +154,10 @@ export function useLogStream({
 
     return () => {
       cancelled = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
@@ -139,8 +167,14 @@ export function useLogStream({
   }, [deploymentId, enabled, isAuthenticated, tailLines, maxLines,
       getAccessTokenSilently, parseLogLine]);
 
-  const pause = useCallback(() => setIsPaused(true), []);
-  const resume = useCallback(() => setIsPaused(false), []);
+  const pause = useCallback(() => {
+    setIsPaused(true);
+    isPausedRef.current = true;
+  }, []);
+  const resume = useCallback(() => {
+    setIsPaused(false);
+    isPausedRef.current = false;
+  }, []);
   const clear = useCallback(() => setLines([]), []);
 
   const downloadLogs = useCallback(() => {

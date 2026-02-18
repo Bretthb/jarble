@@ -44,7 +44,8 @@ async function checkDeploymentStorage(dep: {
   const usage = await getDeploymentStorageUsage(dep.id);
   if (!usage) return;
 
-  const allocatedGb = dep.storageMb || 30;
+  // Use actual PVC size from `df` output (not DB value which may be stale after plan changes)
+  const allocatedGb = usage.totalGb > 0 ? usage.totalGb : (dep.storageMb || 30);
   const percentOfAllocated = allocatedGb > 0
     ? Math.round((usage.usedGb / allocatedGb) * 1000) / 10
     : 0;

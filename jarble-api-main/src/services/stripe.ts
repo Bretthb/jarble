@@ -128,6 +128,19 @@ export async function cancelSubscriptionAtPeriodEnd(
 }
 
 /**
+ * Cancel a subscription immediately. Used when a deployment is deleted —
+ * the user should not be billed for a resource that no longer exists.
+ */
+export async function cancelSubscriptionImmediately(
+  subscriptionId: string
+): Promise<void> {
+  const s = getStripe();
+
+  await s.subscriptions.cancel(subscriptionId);
+  logger.info({ subscriptionId }, "Subscription canceled immediately");
+}
+
+/**
  * Reactivate a subscription that was scheduled for cancellation.
  * Clears the `cancel_at_period_end` flag so billing continues normally.
  */

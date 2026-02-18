@@ -251,9 +251,11 @@ export default function Dashboard() {
                 onRestart={(id) => restartMutation.mutate({ id })}
                 onExport={(id) => exportMutation.mutate({ id })}
                 isToggling={
-                  stopMutation.isPending || startMutation.isPending || restartMutation.isPending
+                  (stopMutation.isPending && stopMutation.variables?.id === deployment.id)
+                  || (startMutation.isPending && startMutation.variables?.id === deployment.id)
+                  || (restartMutation.isPending && restartMutation.variables?.id === deployment.id)
                 }
-                isExporting={exportMutation.isPending}
+                isExporting={exportMutation.isPending && exportMutation.variables?.id === deployment.id}
               />
             ))}
           </div>

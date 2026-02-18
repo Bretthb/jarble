@@ -202,7 +202,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
           if (linked) {
             await stopDeployment(linked.id);
             await (db as any).update(tables.deployments)
-              .set({ status: "stopped", error: null })
+              .set({ status: "stopped", error: null, stripeSubscriptionId: null, cancelledAt: null, cancelAtPeriodEnd: null })
               .where(eq(tables.deployments.id, linked.id));
             logger.info({ deploymentId: linked.id, subscriptionId }, "Deployment stopped after subscription deletion");
           } else {
@@ -300,9 +300,23 @@ app.post("/api/stripe/checkout", stripeActionLimiter, async (req, res) => {
     return;
   }
 
-  const { runtimeSlug, monthlyPriceCents } = req.body;
-  if (!runtimeSlug || !monthlyPriceCents) {
-    res.status(400).json({ error: "Missing runtimeSlug or monthlyPriceCents" });
+  const { runtimeSlug } = req.body;
+  if (!runtimeSlug) {
+    res.status(400).json({ error: "Missing runtimeSlug" });
+    return;
+  }
+
+  // Look up runtime catalog to get the canonical price (never trust client-sent price)
+  const runtime = await db.query.runtimeCatalog.findFirst({
+    where: eq(tables.runtimeCatalog.slug, runtimeSlug),
+  });
+  if (!runtime) {
+    res.status(400).json({ error: "Unknown runtime" });
+    return;
+  }
+  const monthlyPriceCents = (runtime as any).monthlyPriceCents;
+  if (!monthlyPriceCents || monthlyPriceCents <= 0) {
+    res.status(400).json({ error: "Runtime has no configured price" });
     return;
   }
 
@@ -420,9 +434,19 @@ app.post("/api/auth0/email-verified", async (req, res) => {
 // ─── Config change webhook (PVC → DB sync) ──────────────────────────────────
 // Called by the file watcher running inside runtime containers when config files
 // on the PVC change (e.g., user edited soul.md directly via OpenClaw).
-// Auth: DEPLOYMENT_ID is a random nanoid only the pod knows from its K8s Secret.
+// Auth: Shared secret in Authorization header (CONFIG_WEBHOOK_SECRET).
 app.post("/api/config-changed", async (req, res) => {
   try {
+    // Validate shared secret if configured
+    if (env.CONFIG_WEBHOOK_SECRET) {
+      const authHeader = req.headers.authorization;
+      const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+      if (!token || token !== env.CONFIG_WEBHOOK_SECRET) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+    }
+
     const { deploymentId } = req.body;
 
     if (!deploymentId || typeof deploymentId !== "string") {
@@ -511,6 +535,7 @@ app.get("/api/deployments/:id/logs/stream", async (req, res) => {
       "Connection": "keep-alive",
       "X-Accel-Buffering": "no",
     });
+    res.flushHeaders();
 
     // Send initial comment to establish connection
     res.write(": connected\n\n");
@@ -668,6 +693,7 @@ app.get("/api/deployments/:id/whatsapp/qr", async (req, res) => {
       "Connection": "keep-alive",
       "X-Accel-Buffering": "no",
     });
+    res.flushHeaders();
 
     res.write(": connected\n\n");
 
@@ -825,6 +851,7 @@ app.get("/api/deployments/status/stream", async (req, res) => {
       "Connection": "keep-alive",
       "X-Accel-Buffering": "no",
     });
+    res.flushHeaders();
 
     res.write(": connected\n\n");
 
@@ -862,15 +889,22 @@ app.get("/api/deployments/status/stream", async (req, res) => {
               error: podStatus.error,
             });
 
-            // Sync K8s status back to DB if they diverge
+            // Sync K8s status back to DB if they diverge (only if not in enforcement-managed state)
             if (podStatus.status !== dbStatus
                 && (podStatus.status === "running" || podStatus.status === "failed")) {
-              void (db as any).update(deploymentsTable)
-                .set({
-                  status: podStatus.status,
-                  ...(podStatus.error ? { error: podStatus.error } : {}),
-                })
-                .where(eq(deploymentsTable.id, d.id));
+              try {
+                await (db as any).update(deploymentsTable)
+                  .set({
+                    status: podStatus.status,
+                    ...(podStatus.error ? { error: podStatus.error } : {}),
+                  })
+                  .where(and(
+                    eq(deploymentsTable.id, d.id),
+                    eq(deploymentsTable.status, dbStatus as any), // Only update if status hasn't changed
+                  ));
+              } catch (syncErr) {
+                logger.warn({ deploymentId: d.id, syncErr }, "SSE status sync: failed to update DB");
+              }
             }
           } catch {
             // K8s unreachable for this pod — return DB status
