@@ -183,7 +183,7 @@ export default function OnboardingWizard() {
         setCurrentStepIndex(deployStepIdx + 1);
       } else {
         toast.success("Setup complete! Your deployment is ready.");
-        router.push("/dashboard");
+        router.replace("/dashboard");
       }
     },
     onError: (error: { message?: string }) => {
@@ -233,8 +233,20 @@ export default function OnboardingWizard() {
     }
   };
 
+  const hasDeployed = !!createdDeploymentId && !isDeploying && deployMutation.isSuccess;
+
   const handleNext = async () => {
     if (currentStepId === "deploy" && !isDeploying) {
+      // Prevent duplicate deploys — if already deployed, just advance
+      if (hasDeployed) {
+        const deployStepIdx = steps.findIndex((s) => s.id === "deploy");
+        if (deployStepIdx < steps.length - 1) {
+          setCurrentStepIndex(deployStepIdx + 1);
+        } else {
+          router.replace("/dashboard");
+        }
+        return;
+      }
       if (!user?.email_verified) {
         toast.error("Please verify your email before deploying.");
         return;
@@ -243,6 +255,9 @@ export default function OnboardingWizard() {
       if (id !== "new") {
         setCreatedDeploymentId(id);
         deployMutation.mutate(id);
+      } else if (createdDeploymentId) {
+        // Deployment already created but deploy failed — retry deploy only
+        deployMutation.mutate(createdDeploymentId);
       } else {
         createMutation.mutate({
           name: deploymentName,
@@ -260,7 +275,7 @@ export default function OnboardingWizard() {
       }
     } else if (currentStepId === "whatsapp") {
       toast.success("Setup complete! Your deployment is ready.");
-      router.push("/dashboard");
+      router.replace("/dashboard");
     } else if (currentStepIndex < steps.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
     }
@@ -347,8 +362,8 @@ export default function OnboardingWizard() {
             return (
               <div key={step.id} className="flex items-center">
                 <button
-                  onClick={() => idx <= currentStepIndex && setCurrentStepIndex(idx)}
-                  disabled={idx > currentStepIndex}
+                  onClick={() => idx <= currentStepIndex && !hasDeployed && setCurrentStepIndex(idx)}
+                  disabled={idx > currentStepIndex || hasDeployed}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                     isCurrent
                       ? "bg-primary text-primary-foreground"
@@ -453,7 +468,7 @@ export default function OnboardingWizard() {
           <Button
             variant="ghost"
             onClick={handlePrevious}
-            disabled={currentStepIndex === 0 || isDeploying}
+            disabled={currentStepIndex === 0 || isDeploying || hasDeployed}
             className="text-muted-foreground hover:text-foreground"
           >
             <ChevronLeft className="w-4 h-4 mr-1" />
