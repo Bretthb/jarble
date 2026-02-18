@@ -192,9 +192,23 @@ export default function DeploymentConfiguration() {
     setHasChanges(true);
   };
 
+  // Detect BYOK provider switch without a new key
+  const savedProvider = (deployment as any)?.llmProvider as string | undefined;
+  const savedMode = (deployment as any)?.llmMode as string | undefined;
+  const isJarbleManaged = formData.modelProvider === "jarble";
+  const isByokProviderSwitch =
+    !isJarbleManaged &&
+    savedMode !== "included" &&
+    savedProvider &&
+    formData.modelProvider !== savedProvider &&
+    !formData.apiKey;
+
   const handleSave = () => {
+    if (isByokProviderSwitch) {
+      toast.error("Please enter an API key for the new provider before saving.");
+      return;
+    }
     setIsSaving(true);
-    const isJarbleManaged = formData.modelProvider === "jarble";
     updateMutation.mutate({
       id,
       name: formData.name,
@@ -280,12 +294,14 @@ export default function DeploymentConfiguration() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {hasChanges && (
+            {isByokProviderSwitch ? (
+              <span className="text-xs text-amber-500 font-medium">New API key required</span>
+            ) : hasChanges ? (
               <span className="text-xs text-primary font-medium">Unsaved</span>
-            )}
+            ) : null}
             <Button
               onClick={handleSave}
-              disabled={!hasChanges || isSaving}
+              disabled={!hasChanges || isSaving || !!isByokProviderSwitch}
               size="sm"
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium h-8"
             >

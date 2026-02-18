@@ -1,6 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { StorageMeter, StorageMeterSkeleton } from "@/components/StorageMeter";
@@ -103,20 +101,6 @@ export function AdvancedTab({ deployment }: AdvancedTabProps) {
             ) : (
               <p className="text-xs text-muted-foreground">Storage metrics available when deployment is running</p>
             )}
-          </div>
-        </div>
-
-        <div className="p-5 rounded-lg bg-secondary/30 border border-border/60">
-          <h3 className="font-semibold mb-2">Webhooks</h3>
-          <p className="text-sm text-muted-foreground mb-4">Receive notifications about deployment events</p>
-          <div>
-            <Label htmlFor="webhookUrl" className="mb-2 block text-sm">Webhook URL</Label>
-            <Input
-              id="webhookUrl"
-              type="url"
-              placeholder="https://your-server.com/webhook"
-              className="bg-secondary/50 border-border text-foreground"
-            />
           </div>
         </div>
 

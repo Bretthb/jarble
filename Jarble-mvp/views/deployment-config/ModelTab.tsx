@@ -28,8 +28,12 @@ const PROVIDERS = [
   { id: "google", name: "Google", description: "Gemini models" },
 ];
 
-const MODELS: Record<string, { id: string; name: string }[]> = {
-  jarble: [{ id: "auto", name: "Auto (Recommended)" }],
+const PROVIDER_NAMES: Record<string, string> = {
+  jarble: "Jarble Managed", openrouter: "OpenRouter",
+  anthropic: "Anthropic", openai: "OpenAI", google: "Google",
+};
+
+const BYOK_MODELS: Record<string, { id: string; name: string }[]> = {
   anthropic: [
     { id: "claude-opus-4.5", name: "Claude Opus 4.5" },
     { id: "claude-sonnet-4", name: "Claude Sonnet 4" },
@@ -46,15 +50,34 @@ const MODELS: Record<string, { id: string; name: string }[]> = {
   ],
 };
 
+// Jarble Managed uses OpenRouter — all models are available
+const MANAGED_MODELS = [
+  { id: "openrouter/auto", name: "Auto (Recommended)", group: "OpenRouter" },
+  { id: "anthropic/claude-opus-4.5", name: "Claude Opus 4.5", group: "Anthropic" },
+  { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", group: "Anthropic" },
+  { id: "anthropic/claude-haiku", name: "Claude Haiku", group: "Anthropic" },
+  { id: "openai/gpt-4o", name: "GPT-4o", group: "OpenAI" },
+  { id: "openai/gpt-4-turbo", name: "GPT-4 Turbo", group: "OpenAI" },
+  { id: "openai/gpt-3.5-turbo", name: "GPT-3.5 Turbo", group: "OpenAI" },
+  { id: "google/gemini-2.0-pro", name: "Gemini 2.0 Pro", group: "Google" },
+  { id: "google/gemini-2.0-flash", name: "Gemini 2.0 Flash", group: "Google" },
+];
+
 export function ModelTab({ formData, updateFormData, deployment, deploymentId }: ModelTabProps) {
   const dep = deployment as any;
-  const llmMode = dep?.llmMode as string | undefined;
+  const savedMode = dep?.llmMode as string | undefined;
   const isLinked = !!dep?.llmApiKeySourceDeploymentId;
-  const isIncluded = llmMode === "included" && !isLinked;
-  const isByok = llmMode === "byok" || (!llmMode && formData.modelProvider !== "jarble");
+  // Use the form selection to determine which section to show, not just the DB state
+  const wantsManaged = formData.modelProvider === "jarble";
+  const isIncluded = isLinked ? false : wantsManaged || (savedMode === "included" && !formData.modelProvider);
+  const isByok = !isLinked && !isIncluded;
   const hasKey = !!dep?.llmApiKey;
+  const savedProvider = dep?.llmProvider as string | undefined;
+  // Transitioning from BYOK → Managed (not yet saved)
+  const isUpgrading = wantsManaged && savedMode !== "included";
 
   const showProviderModel = !isLinked; // Linked deployments can't change provider/model
+  const isJarbleManaged = formData.modelProvider === "jarble";
 
   return (
     <div className="space-y-6">
@@ -74,7 +97,12 @@ export function ModelTab({ formData, updateFormData, deployment, deploymentId }:
                   key={provider.id}
                   onClick={() => {
                     updateFormData("modelProvider", provider.id);
-                    updateFormData("modelName", MODELS[provider.id]?.[0]?.id || "");
+                    // Set default model based on mode
+                    if (provider.id === "jarble") {
+                      updateFormData("modelName", MANAGED_MODELS[0].id);
+                    } else {
+                      updateFormData("modelName", BYOK_MODELS[provider.id]?.[0]?.id || "");
+                    }
                   }}
                   className={`p-4 rounded-lg border-2 text-left transition-all ${
                     formData.modelProvider === provider.id
@@ -92,18 +120,42 @@ export function ModelTab({ formData, updateFormData, deployment, deploymentId }:
           {formData.modelProvider && (
             <div>
               <Label htmlFor="modelName" className="mb-2 block">Model</Label>
-              <select
-                id="modelName"
-                value={formData.modelName}
-                onChange={(e) => updateFormData("modelName", e.target.value)}
-                className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              >
-                {MODELS[formData.modelProvider]?.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name}
-                  </option>
-                ))}
-              </select>
+              {isJarbleManaged ? (
+                <select
+                  id="modelName"
+                  value={formData.modelName}
+                  onChange={(e) => updateFormData("modelName", e.target.value)}
+                  className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  {Object.entries(
+                    MANAGED_MODELS.reduce<Record<string, typeof MANAGED_MODELS>>((acc, m) => {
+                      (acc[m.group] ??= []).push(m);
+                      return acc;
+                    }, {})
+                  ).map(([group, models]) => (
+                    <optgroup key={group} label={group}>
+                      {models.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  id="modelName"
+                  value={formData.modelName}
+                  onChange={(e) => updateFormData("modelName", e.target.value)}
+                  className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  {BYOK_MODELS[formData.modelProvider]?.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
         </div>
@@ -114,6 +166,17 @@ export function ModelTab({ formData, updateFormData, deployment, deploymentId }:
         <div className="pt-2">
           {isLinked ? (
             <LinkedKeySection deploymentId={deploymentId} deployment={dep} />
+          ) : isUpgrading ? (
+            <Card className="p-5 bg-card border-border space-y-3">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold">Upgrade to Jarble Managed</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Save to switch from BYOK to Jarble Managed. We&apos;ll provision an OpenRouter API key and handle LLM access for you.
+                {hasKey && " Your existing API key will no longer be used."}
+              </p>
+            </Card>
           ) : isIncluded ? (
             <IncludedKeySection deploymentId={deploymentId} deployment={dep} />
           ) : isByok ? (
@@ -123,6 +186,7 @@ export function ModelTab({ formData, updateFormData, deployment, deploymentId }:
               deploymentId={deploymentId}
               deployment={dep}
               hasKey={hasKey}
+              savedProvider={savedProvider}
             />
           ) : null}
         </div>
@@ -421,14 +485,17 @@ function ByokKeySection({
   deploymentId,
   deployment,
   hasKey,
+  savedProvider,
 }: {
   formData: { apiKey: string; modelProvider: string };
   updateFormData: (key: string, value: string) => void;
   deploymentId: string;
   deployment: any;
   hasKey: boolean;
+  savedProvider?: string;
 }) {
   const [validationStatus, setValidationStatus] = useState<"idle" | "validating" | "valid" | "invalid">("idle");
+  const providerChanged = hasKey && savedProvider && formData.modelProvider !== savedProvider && formData.modelProvider !== "jarble";
 
   const validateMutation = trpc.openrouter.validateProviderKey.useMutation({
     onSuccess: (data: { valid: boolean }) => {
@@ -471,9 +538,14 @@ function ByokKeySection({
           <h3 className="text-sm font-semibold">API Key (BYOK)</h3>
         </div>
         <span className={`flex items-center gap-1.5 text-xs font-medium ${
-          hasKey ? "text-green-500" : "text-muted-foreground"
+          providerChanged ? "text-amber-500" : hasKey ? "text-green-500" : "text-muted-foreground"
         }`}>
-          {hasKey ? (
+          {providerChanged ? (
+            <>
+              <ShieldX className="w-3.5 h-3.5" />
+              New Key Required
+            </>
+          ) : hasKey ? (
             <>
               <Shield className="w-3.5 h-3.5" />
               Configured
@@ -487,11 +559,15 @@ function ByokKeySection({
         </span>
       </div>
 
-      {hasKey && (
+      {providerChanged ? (
+        <p className="text-xs text-amber-500">
+          You switched from {PROVIDER_NAMES[savedProvider] ?? savedProvider} to {PROVIDER_NAMES[formData.modelProvider] ?? formData.modelProvider}. Please enter a new API key for this provider.
+        </p>
+      ) : hasKey ? (
         <p className="text-xs text-muted-foreground">
           An API key is configured and encrypted. Enter a new key below to replace it.
         </p>
-      )}
+      ) : null}
 
       {showApiKey && (
         <div>

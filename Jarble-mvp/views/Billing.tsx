@@ -111,12 +111,15 @@ export default function Billing() {
 
   const overviewQuery = trpc.billing.getOverview.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading,
+    retry: 1,
   });
   const invoicesQuery = trpc.billing.getInvoices.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading,
+    retry: 1,
   });
   const subsQuery = trpc.billing.getSubscriptions.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading,
+    retry: 1,
   });
 
   const handleManageBilling = async () => {
@@ -156,6 +159,7 @@ export default function Billing() {
     );
   }
 
+  const overviewSettled = !overviewQuery.isLoading;
   const overview = overviewQuery.data;
   const invoices = invoicesQuery.data ?? [];
   const subs = subsQuery.data ?? [];
@@ -198,7 +202,7 @@ export default function Billing() {
               <span className="text-sm text-muted-foreground">Monthly Spend</span>
             </div>
             <p className="text-2xl font-bold">
-              {overviewQuery.isLoading ? (
+              {!overviewSettled ? (
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               ) : (
                 formatCents(overview?.totalMonthlyCents ?? 0)
@@ -214,7 +218,7 @@ export default function Billing() {
               <span className="text-sm text-muted-foreground">Active Subscriptions</span>
             </div>
             <p className="text-2xl font-bold">
-              {overviewQuery.isLoading ? (
+              {!overviewSettled ? (
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               ) : (
                 overview?.activeSubscriptionCount ?? 0
@@ -271,7 +275,7 @@ export default function Billing() {
               <h2 className="font-semibold text-sm">Active Subscriptions</h2>
             </div>
 
-            {subsQuery.isLoading ? (
+            {subsQuery.isLoading && !subsQuery.isError ? (
               <div className="p-8 text-center">
                 <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
               </div>
@@ -332,7 +336,7 @@ export default function Billing() {
               <h2 className="font-semibold text-sm">Invoice History</h2>
             </div>
 
-            {invoicesQuery.isLoading ? (
+            {invoicesQuery.isLoading && !invoicesQuery.isError ? (
               <div className="p-8 text-center">
                 <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
               </div>
