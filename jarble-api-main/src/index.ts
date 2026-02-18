@@ -82,7 +82,6 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         const userId = session.metadata?.userId || session.client_reference_id;
         const customerId = session.customer as string;
         const subscriptionId = session.subscription as string | null;
-        const tier = session.metadata?.tier as string | null;
 
         if (userId) {
           // Update user with Stripe customer ID + store pending subscription for deployment linking
@@ -91,11 +90,10 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
               stripeCustomerId: customerId,
               emailVerified: true, // If they can pay, they're verified
               ...(subscriptionId ? { pendingStripeSubscriptionId: subscriptionId } : {}),
-              ...(tier ? { pendingStripeTier: tier } : {}),
             })
             .where(eq(tables.users.id, userId));
 
-          logger.info({ userId, customerId, subscriptionId, tier }, "Checkout completed — subscription pending link");
+          logger.info({ userId, customerId, subscriptionId }, "Checkout completed — subscription pending link");
         }
         break;
       }
@@ -270,9 +268,9 @@ app.post("/api/stripe/checkout", stripeActionLimiter, async (req, res) => {
     return;
   }
 
-  const tier = req.body.tier || req.body.runtimeSlug; // Frontend sends { tier }, legacy sends { runtimeSlug }
-  if (!tier) {
-    res.status(400).json({ error: "Missing tier" });
+  const { runtimeSlug, monthlyPriceCents } = req.body;
+  if (!runtimeSlug || !monthlyPriceCents) {
+    res.status(400).json({ error: "Missing runtimeSlug or monthlyPriceCents" });
     return;
   }
 
@@ -286,7 +284,8 @@ app.post("/api/stripe/checkout", stripeActionLimiter, async (req, res) => {
     const session = await createCheckoutSession({
       userId: user.id,
       userEmail: user.email,
-      tier,
+      runtimeSlug,
+      monthlyPriceCents,
       stripeCustomerId: user.stripeCustomerId,
       successUrl: `${env.FRONTEND_URL}/dashboard?checkout=success`,
       cancelUrl: `${env.FRONTEND_URL}/pricing?checkout=canceled`,
@@ -294,7 +293,7 @@ app.post("/api/stripe/checkout", stripeActionLimiter, async (req, res) => {
 
     res.json({ url: session.url });
   } catch (err) {
-    logger.error({ err, userId: user.id, tier }, "Failed to create checkout session");
+    logger.error({ err, userId: user.id, runtimeSlug }, "Failed to create checkout session");
     res.status(500).json({ error: "Failed to create checkout session" });
   }
 });

@@ -19,45 +19,41 @@ export function isStripeConfigured(): boolean {
   return !!env.STRIPE_SECRET_KEY;
 }
 
-// Tier → Stripe price ID mapping
-// Set STRIPE_PRICE_PRO and STRIPE_PRICE_AGENCY env vars after creating products in Stripe Dashboard
-const TIER_PRICE_MAP: Record<string, string> = {
-  pro: env.STRIPE_PRICE_PRO || "",
-  agency: env.STRIPE_PRICE_AGENCY || "",
-};
-
-export function getPriceIdForTier(tier: string): string | null {
-  return TIER_PRICE_MAP[tier] || null;
-}
-
 /**
- * Create a Stripe Checkout session for subscribing to a tier
+ * Create a Stripe Checkout session for a hardware-based subscription.
+ * Price is calculated from the deployment's vCPU, RAM, and storage specs.
  */
 export async function createCheckoutSession(params: {
   userId: string;
   userEmail: string;
-  tier: string;
+  runtimeSlug: string;
+  monthlyPriceCents: number;
   stripeCustomerId?: string | null;
   successUrl: string;
   cancelUrl: string;
 }): Promise<Stripe.Checkout.Session> {
   const s = getStripe();
-  const priceId = getPriceIdForTier(params.tier);
-
-  if (!priceId) {
-    throw new Error(`No Stripe price configured for tier: ${params.tier}`);
-  }
 
   const sessionParams: Stripe.Checkout.SessionCreateParams = {
     mode: "subscription",
     payment_method_types: ["card"],
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: [{
+      price_data: {
+        currency: "usd",
+        unit_amount: params.monthlyPriceCents,
+        recurring: { interval: "month" },
+        product_data: {
+          name: `Jarble Deployment (${params.runtimeSlug})`,
+        },
+      },
+      quantity: 1,
+    }],
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
     client_reference_id: params.userId,
     metadata: {
       userId: params.userId,
-      tier: params.tier,
+      runtimeSlug: params.runtimeSlug,
     },
   };
 
@@ -69,7 +65,7 @@ export async function createCheckoutSession(params: {
   }
 
   const session = await s.checkout.sessions.create(sessionParams);
-  logger.info({ userId: params.userId, tier: params.tier, sessionId: session.id }, "Stripe checkout session created");
+  logger.info({ userId: params.userId, runtimeSlug: params.runtimeSlug, sessionId: session.id }, "Stripe checkout session created");
   return session;
 }
 

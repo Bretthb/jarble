@@ -27,19 +27,19 @@ Things to configure before production. These are deferred from development and c
 
 ## 2. Stripe Integration
 
-**Status:** Backend fully wired up, frontend buttons exist but show "Coming Soon" for Pro/Agency since pricing is TBD.
+**Status:** Backend fully wired up with hardware-based pricing. Subscriptions are created dynamically using `price_data` (no pre-created Stripe price IDs needed).
 
-### 2a. Create Stripe Products & Prices
+### 2a. Pricing Model
 
-1. Go to [Stripe Dashboard → Products](https://dashboard.stripe.com/products)
-2. Create two subscription products:
-   - **Pro** — set your monthly price, note the Price ID (starts with `price_`)
-   - **Agency** — set your monthly price, note the Price ID
-3. Add Price IDs to your API `.env`:
-   ```
-   STRIPE_PRICE_PRO=price_xxxxxxxxx
-   STRIPE_PRICE_AGENCY=price_xxxxxxxxx
-   ```
+Pricing is hardware-based — each deployment's monthly cost is calculated from its vCPU, RAM, and storage specs:
+
+| Resource | Per Unit | Price/mo |
+|----------|----------|----------|
+| vCPU | 1.0 | $10.00 |
+| RAM | 1 GB | $2.50 |
+| Storage | 1 GB | $0.08 |
+
+The checkout flow uses Stripe's `price_data` to create subscriptions with the calculated amount. No pre-created Stripe products/prices needed.
 
 ### 2b. Set Up Stripe Webhook
 
@@ -62,19 +62,13 @@ Things to configure before production. These are deferred from development and c
 3. Forward webhooks: `stripe listen --forward-to localhost:3001/api/stripe/webhook`
 4. Copy the webhook secret it prints to your `.env`
 
-### 2d. Update Frontend Pricing
+### 2d. Webhook Handlers (Implemented)
 
-Once pricing is decided, update `Jarble-mvp/views/Pricing.tsx`:
-- Set actual prices for Pro and Agency tiers
-- Remove the "Coming Soon" disabled state
-- Enable the SubscribeButton for those tiers
-
-### 2e. Webhook TODOs (Code Changes Needed)
-
-The webhook handler in `jarble-api-main/src/index.ts` has these incomplete handlers:
-- **`customer.subscription.updated`** — TODO: sync tier changes (upgrade/downgrade user's `tierId`)
-- **`customer.subscription.deleted`** — TODO: downgrade user to Free tier
-- **`invoice.payment_failed`** — TODO: flag account and notify user
+All 4 webhook handlers are fully implemented:
+- **`checkout.session.completed`** — Stores `pendingStripeSubscriptionId` on user for deployment linking
+- **`customer.subscription.updated`** — Syncs cancel state + payment errors
+- **`customer.subscription.deleted`** — Stops deployment
+- **`invoice.payment_failed`** — Flags deployment with error
 
 ---
 
@@ -106,9 +100,6 @@ NODE_ENV=development
 # Stripe (optional — features disabled if not set)
 STRIPE_SECRET_KEY=sk_test_xxxxxxxxx
 STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxx
-STRIPE_PRICE_PRO=price_xxxxxxxxx
-STRIPE_PRICE_AGENCY=price_xxxxxxxxx
-
 # OpenRouter (for AI features)
 OPENROUTER_API_KEY=sk-or-xxxxxxxxx
 ```

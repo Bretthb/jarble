@@ -853,13 +853,13 @@ flowchart TD
 
 # 13. Component Inventory
 
-Shared: ProfileDropdown, IntegrationsMarquee, TemplateSelector, WizardLoader, ErrorBoundary, ThemeToggle, SubscribeButton, StatusBadge, StorageMeter, CancellationGracePeriod
+Shared: ProfileDropdown, IntegrationsMarquee, TemplateSelector, WizardLoader, ErrorBoundary, ThemeToggle, StatusBadge, StorageMeter, CancellationGracePeriod, WhatsAppQrModal, DevNav
 
-Hooks: useStatusStream (SSE-based real-time deployment status)
+Hooks: useStatusStream (SSE real-time status), useLogStream (SSE deployment logs), useQrStream (SSE WhatsApp QR), useComposition (IME composition), useMobile (responsive breakpoint), usePersistFn (stable fn ref)
 
 Auth: Auth0Provider, LoginButton, LogoutButton
 
-Views: Dashboard, Deployments (Linked Deployments), OnboardingWizard, DeploymentConfiguration, Settings, Analytics
+Views: Home, About, Pricing, Login, NotFound, Dashboard, Deployments (Linked Deployments), OnboardingWizard, DeploymentConfiguration, Settings, Analytics, Billing
 
 UI Library: 40+ shadcn/ui components (Button, Card, Dialog, Tabs, Toast, Badge, etc.)
 
@@ -872,6 +872,8 @@ UI Library: 40+ shadcn/ui components (Button, Card, Dialog, Tabs, Toast, Badge, 
 - `NEXT_PUBLIC_AUTH0_DOMAIN` — Auth0 tenant domain
 - `NEXT_PUBLIC_AUTH0_CLIENT_ID` — Auth0 application client ID
 - `NEXT_PUBLIC_AUTH0_AUDIENCE` — Auth0 API audience
+- `NEXT_PUBLIC_API_URL` — Backend API endpoint (default: `http://localhost:3001`)
+- `NEXT_PUBLIC_APP_URL` — Frontend URL for Auth0 callbacks (default: `http://localhost:3000`)
 
 ### Backend (.env)
 
@@ -881,7 +883,7 @@ UI Library: 40+ shadcn/ui components (Button, Card, Dialog, Tabs, Toast, Badge, 
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — Stripe keys
 - `OPENROUTER_API_KEY` — OpenRouter API key for model listing / health checks
 - `OPENROUTER_MANAGEMENT_KEY` — OpenRouter Management API key for tenant key provisioning (optional — required for "Included Credits" mode)
-- `ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM API key encryption
+- `API_KEY_ENCRYPTION_KEY` — 32-byte hex key (64 hex chars) for AES-256-GCM API key encryption
 
 ### Terraform (terraform.tfvars)
 
@@ -903,6 +905,10 @@ monorepo/
 ├── Jarble-mvp/                        # Frontend (Next.js 15)
 │   ├── app/
 │   │   ├── page.tsx                   # Landing page
+│   │   ├── about/page.tsx             # About page
+│   │   ├── pricing/page.tsx           # Pricing page
+│   │   ├── login/page.tsx             # Login page
+│   │   ├── register/page.tsx          # Registration page
 │   │   ├── dashboard/page.tsx         # Dashboard route
 │   │   ├── deployments/page.tsx       # Linked Deployments route
 │   │   ├── analytics/page.tsx         # Usage Analytics route
@@ -911,6 +917,11 @@ monorepo/
 │   │   ├── d/[id]/configure/page.tsx  # Deployment config route
 │   │   └── onboarding/[id]/page.tsx   # Onboarding wizard route
 │   ├── views/
+│   │   ├── Home.tsx                   # Landing page view
+│   │   ├── About.tsx                  # About page view
+│   │   ├── Pricing.tsx                # Pricing page view
+│   │   ├── Login.tsx                  # Login page view
+│   │   ├── NotFound.tsx               # 404 page view
 │   │   ├── Dashboard.tsx              # Main deployment list (SSE real-time status)
 │   │   ├── Deployments.tsx            # Linked Deployments (credit pool clusters)
 │   │   ├── DeploymentConfiguration.tsx # Config tabs (General, Model, Platforms, Skills, Advanced, Logs)
@@ -927,12 +938,16 @@ monorepo/
 │   ├── hooks/
 │   │   ├── useStatusStream.ts         # SSE hook for real-time deployment status changes
 │   │   ├── useLogStream.ts            # SSE hook for deployment container log streaming
-│   │   └── useQrStream.ts            # SSE hook for WhatsApp QR pairing
+│   │   ├── useQrStream.ts             # SSE hook for WhatsApp QR pairing
+│   │   ├── useComposition.ts          # IME composition event handling for inputs
+│   │   ├── useMobile.tsx              # Responsive breakpoint detection (768px)
+│   │   └── usePersistFn.ts            # Stable function reference (useCallback alternative)
 │   ├── components/
 │   │   ├── ProfileDropdown.tsx        # User menu (Dashboard, Billing, Analytics, Settings)
 │   │   ├── StatusBadge.tsx            # Shared status indicator
 │   │   ├── StorageMeter.tsx           # Storage usage bar with color coding
 │   │   ├── WhatsAppQrModal.tsx        # Reusable QR pairing dialog
+│   │   ├── DevNav.tsx                 # Dev-only navigation sidebar
 │   │   └── ...                        # 40+ shadcn/ui components
 │   └── lib/trpc.ts
 │
@@ -959,15 +974,18 @@ monorepo/
 │   │   │   ├── migrate.pg.ts         # PostgreSQL migration runner
 │   │   │   └── seed.pg.ts            # Production seed (runtime_catalog)
 │   │   ├── runtimes/                  # Runtime Registry pattern
-│   │   │   ├── index.ts              # Handler resolution
-│   │   │   ├── types.ts              # DeploymentFields interface
-│   │   │   └── openclaw.ts           # OpenClaw-specific K8s config
+│   │   │   ├── index.ts              # Handler resolution + registry
+│   │   │   ├── types.ts              # RuntimeHandler interface + DeploymentFields
+│   │   │   └── handlers/
+│   │   │       ├── openclaw.ts       # OpenClaw runtime handler (WhatsApp/multi-platform)
+│   │   │       └── zeroclaw.ts       # ZeroClaw runtime handler
 │   │   ├── utils/
 │   │   │   ├── encryption.ts         # AES-256-GCM encrypt/decrypt
 │   │   │   ├── openrouter.ts         # OpenRouter Management API utilities
 │   │   │   ├── env.ts                # Environment variable validation
 │   │   │   └── logger.ts             # Pino logger
 │   │   ├── services/
+│   │   │   ├── auth.ts               # Auth0 JWT verification + user provisioning
 │   │   │   ├── stripe.ts             # Stripe checkout, portal, subscriptions, invoices
 │   │   │   └── configSync.ts         # Two-way config sync (Frontend↔PVC)
 │   │   └── k8s/                       # K8s orchestration (deploy, stop, start, logs, exec streaming)
@@ -1283,29 +1301,33 @@ Uses `runtimeNeedsLlm(slug)` from `wizardStepConfig.ts` to determine if a runtim
 
 # 17. Runtime Registry Pattern (Session 2)
 
-Each runtime can define custom K8s configuration logic via handlers in `src/runtimes/`:
+Each runtime implements the `RuntimeHandler` interface via handlers in `src/runtimes/handlers/`:
 
 ```typescript
 // src/runtimes/types.ts
-interface DeploymentFields {
-  id: string;
-  runtime: string;
-  llmApiKey: string | null;
-  llmProvider: string;
-  llmModel: string | null;
-  systemPrompt: string | null;
-  // ...hardware specs
+interface RuntimeHandler {
+  readonly slug: string;
+  readonly name: string;
+  readonly capabilities: RuntimeCapabilities;
+  readonly configFiles: ConfigFileSpec[];
+  renderConfigs(deployment: DeploymentFields): ConfigFile[];
+  parseConfigs(files: ConfigFile[]): ParsedDeploymentFields;
+  getSecretEntries(deployment: DeploymentFields): Record<string, string>;
+  validateCreate(input: Partial<DeploymentFields>): string | null;
 }
 
-// src/runtimes/openclaw.ts
-export function getEnvVars(dep: DeploymentFields): Record<string, string> { ... }
-export function getConfigFiles(dep: DeploymentFields): { path: string; content: string }[] { ... }
+// src/runtimes/handlers/openclaw.ts
+export const openclawHandler: RuntimeHandler = { slug: "openclaw", ... }
 
-// src/runtimes/index.ts
-export function getHandlerOrNull(runtime: string) { ... }
+// src/runtimes/handlers/zeroclaw.ts
+export const zeroclawHandler: RuntimeHandler = { slug: "zeroclaw", ... }
+
+// src/runtimes/index.ts — Registry
+export function getHandler(runtimeSlug: string): RuntimeHandler { ... }
+export function getHandlerOrNull(runtimeSlug: string): RuntimeHandler | null { ... }
 ```
 
-The deployment router calls `getHandlerOrNull(runtime)` to get runtime-specific env vars and config files. Falls back to generic behavior if no handler exists.
+The deployment router calls `getHandler(runtime)` to get runtime-specific secret entries, config files, and validation. The registry maps slug → handler automatically.
 
 ---
 
@@ -1560,25 +1582,37 @@ The `stripeSubscriptionId` column on deployments was never populated. When a use
 
 ```
 Stripe Checkout → checkout.session.completed webhook
-  → Sets user.pendingStripeSubscriptionId + pendingStripeTier
+  → Sets user.pendingStripeSubscriptionId
   → (subscription ID from session.subscription)
 
 User creates deployment → deployment.create tRPC mutation
   → If !isFree and isStripeConfigured():
     → Reads user.pendingStripeSubscriptionId
     → Links it to the new deployment
-    → Clears pending fields on user (consumed)
+    → Clears pending field on user (consumed)
 
 Fallback → deployment.linkSubscription tRPC mutation
   → Checks user's pending subscription first
   → Falls back to Stripe API (listActiveSubscriptions) to find unlinked ones
 ```
 
+### Pricing Model
+
+Hardware-based pricing — users build their own monthly subscription by choosing vCPU, RAM, and storage:
+
+| Resource | Per Unit | Price/mo |
+|----------|----------|----------|
+| vCPU | 1.0 | $10.00 |
+| RAM | 1 GB | $2.50 |
+| Storage | 1 GB | $0.08 |
+
+Price is calculated via `calculateMonthlyPriceCents()` in `src/utils/pricing.ts`. Stripe Checkout uses `price_data` with the computed amount (no pre-created price IDs).
+
 ### Webhook Handlers (All 4 Implemented)
 
 | Event | Handler | Action |
 |-------|---------|--------|
-| checkout.session.completed | Stores `pendingStripeSubscriptionId` + `pendingStripeTier` on user | Links subscription on next deployment create |
+| checkout.session.completed | Stores `pendingStripeSubscriptionId` on user | Links subscription on next deployment create |
 | customer.subscription.updated | Finds deployment by `stripeSubscriptionId` | Syncs cancel state (portal cancel/reactivate) + payment status (past_due/unpaid → error) |
 | customer.subscription.deleted | Finds deployment by `stripeSubscriptionId` | Stops deployment via `stopDeployment()`, clears error |
 | invoice.payment_failed | Finds deployment by subscription or user | Sets `deployment.error = "Payment failed"` |
@@ -1587,7 +1621,6 @@ Fallback → deployment.linkSubscription tRPC mutation
 
 Added to `users` table (all 3 schema variants):
 - `pendingStripeSubscriptionId` — varchar(255), nullable
-- `pendingStripeTier` — varchar(50), nullable
 
 ### Edge Cases
 
@@ -1649,8 +1682,8 @@ file-watcher.sh (runs as background process in container)
 1. **Export Config button fix** — The Export Config button was only visible inside `CancellationGracePeriod` (after cancelling). Added a standalone Export Config button to the always-visible Actions section of the `DeploymentConfiguration` sidebar, so users can export anytime.
 
 2. **Stripe subscription → deployment sync** (the main task) — The `stripeSubscriptionId` column on deployments was never populated. Fixed with:
-   - Added `pendingStripeSubscriptionId` + `pendingStripeTier` columns to `users` table (all 3 schema files + SQLite init)
-   - `checkout.session.completed` webhook now stores `session.subscription` as pending fields on user
+   - Added `pendingStripeSubscriptionId` column to `users` table (all 3 schema files + SQLite init)
+   - `checkout.session.completed` webhook now stores `session.subscription` as pending field on user
    - `deployment.create` mutation consumes `pendingStripeSubscriptionId` for non-free deployments
    - `customer.subscription.updated` handler: syncs cancel state + payment errors from Stripe portal to DB
    - `customer.subscription.deleted` handler: fixed from full-table scan to proper WHERE query

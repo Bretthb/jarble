@@ -8,6 +8,13 @@
       "when": 1771283874817,
       "tag": "0000_lowly_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1771373805773,
+      "tag": "0001_messy_killmonger",
+      "breakpoints": true
     }
   ]
 }

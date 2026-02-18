@@ -35,8 +35,6 @@ const envSchema = z.object({
   // Stripe — all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
-  STRIPE_PRICE_PRO: z.string().optional(),
-  STRIPE_PRICE_AGENCY: z.string().optional(),
 }).refine((data) => {
   // DATABASE_URL required unless using SQLite
   if (data.USE_SQLITE !== "true" && data.USE_SQLITE !== "1" && !data.DATABASE_URL) {

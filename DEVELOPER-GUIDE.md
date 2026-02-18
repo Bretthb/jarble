@@ -52,7 +52,7 @@ graph LR
     subgraph Servers["Our Servers"]
         API["Express API<br/>port 3001"]
         K8S["K8s Cluster<br/>(user bots run here)"]
-        DB[("Database<br/>SQLite / MySQL")]
+        DB[("Database<br/>SQLite / PostgreSQL")]
     end
 
     subgraph External["External Services"]
@@ -124,6 +124,7 @@ graph LR
         CONFIG["/d/[id]/configure"]
         LINKED["/deployments"]
         ANALYTICS["/analytics"]
+        BILLING["/billing"]
         SETTINGS["/settings"]
     end
 
@@ -132,6 +133,7 @@ graph LR
     DASH -->|New Bot| WIZARD
     DASH -->|Click Bot| CONFIG
     DASH -->|Profile Menu| ANALYTICS
+    DASH -->|Profile Menu| BILLING
     DASH -->|Profile Menu| SETTINGS
     DASH -->|Profile Menu| LINKED
     WIZARD -->|Complete| DASH
@@ -140,13 +142,16 @@ graph LR
 | Page | URL | What It Does |
 |---|---|---|
 | Home | `/` | Marketing page — "Deploy AI bots in 2 minutes" |
+| About | `/about` | About page |
 | Login | `/login` | Auth0 login (Google, GitHub, email) |
+| Register | `/register` | Registration page |
 | Pricing | `/pricing` | Shows runtime options and costs |
 | **Dashboard** | `/dashboard` | Lists all your bots with status, controls |
 | **Onboarding** | `/onboarding/[id]` | Step-by-step wizard to create a new bot |
 | **Config** | `/d/[id]/configure` | Edit an existing bot (6 tabs) |
 | Linked Deployments | `/deployments` | Shows credit pool sharing between bots |
 | Analytics | `/analytics` | Usage stats, credit meters, sortable table |
+| **Billing** | `/billing` | Billing overview, subscriptions, invoices |
 | Settings | `/settings` | Profile, theme, password reset |
 
 ### How the Frontend Talks to the Backend
@@ -222,7 +227,7 @@ The API is an **Express.js** server with **tRPC** for structured endpoints and p
 
 ### Two Types of Endpoints
 
-**1. tRPC Procedures** (37 total)
+**1. tRPC Procedures** (45 total)
 Structured, typed function calls. Protected by JWT auth. Used for all normal CRUD operations.
 
 ```
@@ -278,13 +283,15 @@ graph TD
     ROUTER -->|"deployment.*"| DEPLOY["deployment.ts<br/>18 procedures"]
     ROUTER -->|"openrouter.*"| OR["openrouter.ts<br/>8 procedures"]
     ROUTER -->|"user.*"| USER["user.ts<br/>5 procedures"]
-    ROUTER -->|"platformCredentials.*"| PLAT["platformCredentials.ts<br/>4 procedures"]
+    ROUTER -->|"billing.*"| BILL["billing.ts<br/>3 procedures"]
+    ROUTER -->|"platformCredentials.*"| PLAT["platformCredentials.ts<br/>6 procedures"]
     ROUTER -->|"runtimeCatalog.*"| RUNTIME["runtimeCatalog.ts<br/>4 procedures"]
     ROUTER -->|"template.*"| TMPL["template.ts<br/>1 procedure"]
 
     DEPLOY --> DB[("Database")]
     DEPLOY --> K8S["K8s Cluster"]
     OR --> ORAPI["OpenRouter API"]
+    BILL --> STRIPE_API["Stripe API"]
     PLAT --> DB
 ```
 
@@ -293,7 +300,8 @@ src/trpc/routers/
   ├── deployment.ts          ← 18 procedures (the biggest one)
   ├── openrouter.ts          ← 8 procedures (LLM key management)
   ├── user.ts                ← 5 procedures (profile, email verify)
-  ├── platformCredentials.ts ← 4 procedures (Discord/Slack tokens)
+  ├── billing.ts             ← 3 procedures (overview, invoices, subscriptions)
+  ├── platformCredentials.ts ← 6 procedures (Discord/Slack tokens, WhatsApp QR)
   ├── runtimeCatalog.ts      ← 4 procedures (list available runtimes)
   └── template.ts            ← 1 procedure (bot templates)
 ```
@@ -1290,7 +1298,7 @@ graph LR
     subgraph Encrypt["Encryption"]
         PLAIN["Plaintext<br/>sk-or-v1-abc123..."]
         IV["Random 16-byte IV"]
-        KEY["ENCRYPTION_KEY<br/>(env var)"]
+        KEY["API_KEY_ENCRYPTION_KEY<br/>(env var)"]
         AES["AES-256-GCM"]
         STORED["Stored in DB<br/>enc:iv:tag:ciphertext"]
 
@@ -1317,7 +1325,7 @@ graph LR
     style RESULT fill:#ef4444,color:#fff
 ```
 
-**Development mode:** If `ENCRYPTION_KEY` is not set, keys are stored as `plain:sk-or-v1-abc123...` (not encrypted). This is fine for local dev with SQLite.
+**Development mode:** If `API_KEY_ENCRYPTION_KEY` is not set, keys are stored as `plain:sk-or-v1-abc123...` (not encrypted). This is fine for local dev with SQLite.
 
 **Analogy:** AES-256-GCM is like a lockbox with a tamper-evident seal. You need the key to open it, and if anyone tries to modify the contents without the key, the seal breaks and decryption fails.
 
@@ -1553,7 +1561,7 @@ flowchart TD
 |---|---|---|
 | **Development** | SQLite (in-memory) | No setup needed, auto-creates tables + seed data |
 | **Production** | PostgreSQL | `DATABASE_URL` env var, Drizzle migrations in `drizzle-pg/` |
-| **Legacy** | MySQL | Separate schema file, no migrations generated |
+| **Legacy** | MySQL | Separate schema file, migrations in `drizzle/` |
 
 ### Tables
 

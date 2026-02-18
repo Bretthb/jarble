@@ -13,6 +13,7 @@ import type { DeploymentFields } from "../../runtimes/types.js";
 import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrouter.js";
 import { syncConfigsToPvc } from "../../services/configSync.js";
+import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
 
 const { deployments, users, runtimeCatalog, platformCredentials } = tables;
 
@@ -178,7 +179,6 @@ export const deploymentRouter = router({
           await (ctx.db as any).update(users)
             .set({
               pendingStripeSubscriptionId: null,
-              pendingStripeTier: null,
             })
             .where(eq(users.id, ctx.user.id));
 
@@ -288,7 +288,13 @@ export const deploymentRouter = router({
       // Free tier deployments get minimum specs (except 2GB RAM minimum)
       const FREE_TIER_SPECS = { cpuLimit: "1", memoryMb: 2048, storageMb: 20 };
 
-      // Insert deployment — hardware overrides default from runtime catalog
+      // Resolve final hardware specs
+      const finalCpu = isFree ? FREE_TIER_SPECS.cpuLimit : (input.cpuLimit || catalogEntry.cpuLimit);
+      const finalMemory = isFree ? FREE_TIER_SPECS.memoryMb : (input.memoryMb || catalogEntry.memoryMb);
+      const finalStorage = isFree ? FREE_TIER_SPECS.storageMb : (input.storageMb || catalogEntry.storageMb);
+      const monthlyPriceCents = isFree ? 0 : calculateMonthlyPriceCents(finalCpu, finalMemory, finalStorage);
+
+      // Insert deployment — price calculated from hardware specs
       await (ctx.db as any).insert(deployments).values({
         id: deploymentId,
         userId: ctx.user.id,
@@ -297,11 +303,11 @@ export const deploymentRouter = router({
         image: input.image || catalogEntry.dockerImage,
         runtimeCatalogId: input.runtimeCatalogId,
         isFree,
-        monthlyPriceCents: isFree ? 0 : catalogEntry.monthlyPriceCents,
+        monthlyPriceCents,
         freeExpiresAt,
-        cpuLimit: isFree ? FREE_TIER_SPECS.cpuLimit : (input.cpuLimit || catalogEntry.cpuLimit),
-        memoryMb: isFree ? FREE_TIER_SPECS.memoryMb : (input.memoryMb || catalogEntry.memoryMb),
-        storageMb: isFree ? FREE_TIER_SPECS.storageMb : (input.storageMb || catalogEntry.storageMb),
+        cpuLimit: finalCpu,
+        memoryMb: finalMemory,
+        storageMb: finalStorage,
         llmMode: input.llmMode,
         llmProvider: resolvedProvider,
         llmModel: input.llmModel || (input.llmMode === "included" ? "openrouter/auto" : null),
@@ -337,10 +343,10 @@ export const deploymentRouter = router({
         llmMode: input.llmMode,
         llmProvider: resolvedProvider,
         hasApiKeyId: !!resolvedApiKeyId,
-        cpuLimit: isFree ? FREE_TIER_SPECS.cpuLimit : (input.cpuLimit || catalogEntry.cpuLimit),
-        memoryMb: isFree ? FREE_TIER_SPECS.memoryMb : (input.memoryMb || catalogEntry.memoryMb),
-        storageMb: isFree ? FREE_TIER_SPECS.storageMb : (input.storageMb || catalogEntry.storageMb),
-        monthlyPriceCents: isFree ? 0 : catalogEntry.monthlyPriceCents,
+        cpuLimit: finalCpu,
+        memoryMb: finalMemory,
+        storageMb: finalStorage,
+        monthlyPriceCents,
       }, "Deployment created (pending)");
 
       return deployment;
@@ -597,6 +603,16 @@ export const deploymentRouter = router({
       } else if (rawUpdates.llmApiKey) {
         // Mode didn't change but user provided a new API key — encrypt it
         updates.llmApiKey = encryptApiKey(rawUpdates.llmApiKey);
+      }
+
+      // Recalculate price if hardware specs changed
+      if (updates.cpuLimit || updates.memoryMb || updates.storageMb) {
+        const newCpu = updates.cpuLimit || (existing as any).cpuLimit;
+        const newMemory = updates.memoryMb || (existing as any).memoryMb;
+        const newStorage = updates.storageMb || (existing as any).storageMb;
+        if (!(existing as any).isFree) {
+          updates.monthlyPriceCents = calculateMonthlyPriceCents(newCpu, newMemory, newStorage);
+        }
       }
 
       await (ctx.db as any).update(deployments)
@@ -911,7 +927,7 @@ export const deploymentRouter = router({
 
         // Clear pending
         await (ctx.db as any).update(users)
-          .set({ pendingStripeSubscriptionId: null, pendingStripeTier: null })
+          .set({ pendingStripeSubscriptionId: null })
           .where(eq(users.id, ctx.user.id));
 
         logger.info({ deploymentId: input.deploymentId, subscriptionId: pendingSub }, "Subscription linked to deployment (from pending)");
