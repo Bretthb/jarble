@@ -65,7 +65,9 @@ export interface ParsedDeploymentFields {
   systemPrompt?: string;
   llmProvider?: string;
   llmModel?: string;
-  // Future: platformCredentials, skills, etc.
+  /** Platform credentials parsed from config files: { platformId: { fieldKey: value } } */
+  platformCredentials?: Record<string, Record<string, string>>;
+  // Future: skills, etc.
   // Note: llmApiKey is NEVER parsed from config files (security)
 }
 

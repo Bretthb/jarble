@@ -19,7 +19,7 @@
  */
 
 import { db, tables } from "../db/index.js";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   writeConfigsToPvc,
   readConfigsFromPvc,
@@ -29,8 +29,9 @@ import {
 } from "../k8s/deployment.js";
 import { getHandlerOrNull } from "../runtimes/index.js";
 import type { DeploymentFields } from "../runtimes/types.js";
-import { decryptApiKey } from "../utils/encryption.js";
+import { decryptApiKey, encryptApiKey } from "../utils/encryption.js";
 import { logger } from "../utils/logger.js";
+import { nanoid } from "nanoid";
 
 const { deployments, platformCredentials } = tables;
 
@@ -272,21 +273,93 @@ export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
       updates.llmModel = parsed.llmModel;
     }
 
-    if (Object.keys(updates).length === 0) {
-      logger.debug({ deploymentId }, "configSync←PVC: no changes detected, skipping DB update");
-      return;
+    // 7. Update deployments table if there are changes
+    if (Object.keys(updates).length > 0) {
+      await (db as any).update(deployments)
+        .set(updates)
+        .where(eq(deployments.id, deploymentId));
+
+      logger.info(
+        { deploymentId, updatedFields: Object.keys(updates) },
+        "configSync←PVC: deployments table updated from PVC config"
+      );
     }
 
-    // 7. Update DB
-    await (db as any).update(deployments)
-      .set(updates)
-      .where(eq(deployments.id, deploymentId));
-
-    logger.info(
-      { deploymentId, updatedFields: Object.keys(updates) },
-      "configSync←PVC: DB updated from PVC config"
-    );
+    // 8. Sync platformCredentials if parsed from config
+    if (parsed.platformCredentials && Object.keys(parsed.platformCredentials).length > 0) {
+      await syncPlatformCredentialsFromPvc(deploymentId, parsed.platformCredentials);
+    }
   } catch (err) {
     logger.error({ deploymentId, err }, "configSync←PVC: failed to sync from PVC");
+  }
+}
+
+/**
+ * Sync platform credentials parsed from PVC config back to the DB.
+ * Compares with existing credentials and upserts any changes.
+ */
+async function syncPlatformCredentialsFromPvc(
+  deploymentId: string,
+  parsedCreds: Record<string, Record<string, string>>
+): Promise<void> {
+  // Load existing platform credentials from DB
+  const existingRows = await (db as any).query.platformCredentials.findMany({
+    where: eq(platformCredentials.deploymentId, deploymentId),
+  });
+
+  const existingMap = new Map<string, { id: string; creds: Record<string, string> }>();
+  for (const row of existingRows as any[]) {
+    try {
+      const decrypted = decryptApiKey(row.credentials);
+      existingMap.set(row.platformId, {
+        id: row.id,
+        creds: JSON.parse(decrypted),
+      });
+    } catch {
+      // Skip corrupted rows
+    }
+  }
+
+  let upsertCount = 0;
+
+  for (const [platformId, newCreds] of Object.entries(parsedCreds)) {
+    const existing = existingMap.get(platformId);
+
+    // Compare credentials (simple JSON comparison)
+    const existingJson = existing ? JSON.stringify(existing.creds) : "";
+    const newJson = JSON.stringify(newCreds);
+
+    if (existingJson === newJson) {
+      continue; // No change
+    }
+
+    const encrypted = encryptApiKey(newJson);
+
+    if (existing) {
+      // Update existing row
+      await (db as any).update(platformCredentials)
+        .set({
+          credentials: encrypted,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(platformCredentials.id, existing.id));
+    } else {
+      // Insert new row
+      await (db as any).insert(platformCredentials).values({
+        id: nanoid(12),
+        deploymentId,
+        platformId,
+        credentials: encrypted,
+      });
+    }
+
+    upsertCount++;
+  }
+
+  if (upsertCount > 0) {
+    logger.info(
+      { deploymentId, platformIds: Object.keys(parsedCreds), upsertCount },
+      "configSync←PVC: platform credentials synced from PVC"
+    );
   }
 }

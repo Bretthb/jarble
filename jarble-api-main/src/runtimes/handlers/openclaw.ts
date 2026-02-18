@@ -125,12 +125,59 @@ export const openclawHandler: RuntimeHandler = {
   parseConfigs(files: ConfigFile[]): ParsedDeploymentFields {
     const result: ParsedDeploymentFields = {};
 
+    // Parse soul.md → systemPrompt
     const soulMd = files.find((f) => f.path === "soul.md");
     if (soulMd) {
       result.systemPrompt = soulMd.content;
     }
 
-    // Future: parse openclaw.json channels back to platformCredentials
+    // Parse openclaw.json → llmModel + platformCredentials
+    const openclawJson = files.find((f) => f.path === "openclaw.json");
+    if (openclawJson) {
+      try {
+        const config = JSON.parse(openclawJson.content);
+
+        // Extract LLM model from agent.model
+        if (config.agent?.model) {
+          result.llmModel = config.agent.model;
+        }
+
+        // Extract platform credentials from channels
+        // Reverse mapping: OpenClaw JSON key → frontend field key
+        if (config.channels && typeof config.channels === "object") {
+          const platformCredentials: Record<string, Record<string, string>> = {};
+
+          for (const [platformId, channelConfig] of Object.entries(config.channels)) {
+            if (!channelConfig || typeof channelConfig !== "object") continue;
+
+            const keyMap = PLATFORM_CREDENTIAL_KEYS[platformId];
+            if (!keyMap) continue;
+
+            const creds: Record<string, string> = {};
+            const channel = channelConfig as Record<string, any>;
+
+            // Reverse the mapping: openClawKey → fieldKey
+            for (const [fieldKey, openClawKey] of Object.entries(keyMap)) {
+              if (channel[openClawKey] && typeof channel[openClawKey] === "string") {
+                creds[fieldKey] = channel[openClawKey];
+              }
+            }
+
+            // Only include if we found at least one credential
+            // (WhatsApp has no tokens, but we still want to track it's connected)
+            if (Object.keys(creds).length > 0 || platformId === "whatsapp") {
+              platformCredentials[platformId] = creds;
+            }
+          }
+
+          if (Object.keys(platformCredentials).length > 0) {
+            result.platformCredentials = platformCredentials;
+          }
+        }
+      } catch {
+        // Invalid JSON — skip parsing, don't crash
+      }
+    }
 
     return result;
   },
