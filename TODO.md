@@ -58,9 +58,10 @@
 
 ## Remaining Work
 
-### 1. Reverse Sync Enhancement (Nice to Have)
-- [ ] parseConfigs() for openclaw.json channels → Extract platform credentials back to DB
-- [ ] Currently only soul.md is reverse-synced; openclaw.json channels are write-only
+### 1. Reverse Sync Enhancement ✅
+- [x] parseConfigs() for openclaw.json channels → Extract platform credentials back to DB
+- [x] Extract llmModel from agent.model section
+- [x] Sync parsed credentials to platformCredentials table
 
 ### 2. Skills Marketplace (Future Feature)
 - [ ] DB table for skills definitions
