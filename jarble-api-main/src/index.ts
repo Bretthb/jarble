@@ -18,6 +18,7 @@ import {
 import { stopDeployment, streamDeploymentLogs, getDeploymentPodStatus, findPodForDeployment, streamExecInPod } from "./k8s/deployment.js";
 import { encryptApiKey } from "./utils/encryption.js";
 import { syncConfigsFromPvc, syncConfigsToPvc } from "./services/configSync.js";
+import { startStorageEnforcement } from "./services/storageEnforcement.js";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import stream from "stream";
@@ -938,6 +939,9 @@ app.use("/trpc", authLimiter, createExpressMiddleware({
 async function start() {
   // Initialize database (creates tables for in-memory SQLite, optionally seeds)
   await initDatabase();
+
+  // Start periodic storage enforcement (K8s only, skips in SQLite dev mode)
+  startStorageEnforcement();
 
   const PORT = env.PORT;
   app.listen(PORT, () => {

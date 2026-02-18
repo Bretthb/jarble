@@ -687,7 +687,7 @@ export const deploymentRouter = router({
 
       try {
         await (ctx.db as any).update(deployments)
-          .set({ status: "creating" })
+          .set({ status: "creating", error: null })
           .where(eq(deployments.id, input.id));
 
         await startDeployment(input.id);
