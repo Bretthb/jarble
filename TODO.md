@@ -1,91 +1,99 @@
 # Jarble Platform — Critical TODOs
 
-## 1. Bidirectional Config Sync (CRITICAL)
+## Completed
 
-### DB → Container (on frontend save)
-- When user saves config on frontend, render runtime-specific config files and write to PVC
-- For OpenClaw: **multiple config files** on PVC (not just soul.md):
-  - `soul.md` — system prompt / personality
-  - Skills config (TBD)
-  - Platform configs (TBD)
-  - Possibly more — full file structure TBD once OpenClaw internals are mapped
-- Restart pod to pick up new config
-- Inject LLM API key + provider into K8s Secret on update
+### Bidirectional Config Sync ✅
+- [x] DB → Container (syncConfigsToPvc): Renders runtime-specific config files and writes to PVC
+- [x] Container → DB (syncConfigsFromPvc): Webhook endpoint `/api/config-changed` for reverse sync
+- [x] Platform credentials sync: platformCredentials table with AES-256-GCM encryption
+- [x] OpenClaw: soul.md + openclaw.json rendering
+- [x] ZeroClaw: config.toml rendering
+- [x] K8s Secret injection for LLM keys and platform tokens
 
-### Container → DB (reverse sync / drift detection)
-- Detect changes made inside the container (manual edits to soul.md, runtime self-modification)
-- Compare container config files with DB version, update DB if changed
-- Frontend reflects changes on next query
-- Must watch **all** config files, not just soul.md (skills, platforms, etc.)
-- **Option A (interim):** Polling via K8s exec — API periodically reads config files from pod, compares hash with DB
-- **Option B (long-term):** File watcher webhook in base image — container watches `/data/` config files, POSTs to Jarble API on change
+### Runtime-Aware Architecture ✅
+- [x] RuntimeHandler interface with strategy pattern (`src/runtimes/types.ts`)
+- [x] Runtime registry with automatic handler discovery (`src/runtimes/index.ts`)
+- [x] OpenClaw handler: soul.md, openclaw.json, platform credentials mapping
+- [x] ZeroClaw handler: config.toml with env var injection
+- [x] Frontend wizard steps per runtime (`wizardStepConfig.ts`)
+- [x] Frontend config tabs per runtime (`getConfigTabs()`)
 
-### Platform credentials sync
-- WhatsApp/Discord/Slack/Telegram connections configured inside the container need to surface back to frontend
-- DB columns needed for platform tokens
-- Bidirectional: frontend can set tokens, container can report connected platforms
+### Stripe Subscription → Deployment Sync ✅
+- [x] Webhook handlers: checkout.session.completed, subscription.updated/deleted, invoice.payment_failed
+- [x] subscriptionEnforcement.ts: Periodic subscription validation (every 5 min)
+- [x] Free trial expiration enforcement (freeExpiresAt)
+- [x] Cancel-at-period-end enforcement
+- [x] Orphaned deployment cleanup (every 30 min)
+- [x] Webhook idempotency via processedWebhookEvents table
 
-## 2. Runtime-Aware Architecture
+### Stop/Start Bot Functionality ✅
+- [x] Scale K8s deployment replicas to 0 (stop) or 1 (start)
+- [x] DB status sync on stop/start/restart
+- [x] Frontend Pause/Activate buttons wired
 
-All config sync logic MUST be gated by runtime slug. Use a strategy/registry pattern:
+### WhatsApp QR Integration ✅
+- [x] SSE endpoint `/api/deployments/:id/whatsapp/qr`
+- [x] QR code streaming via K8s exec
+- [x] Session state stored on PVC (Baileys handles this)
+- [x] Connection status surfaced to frontend
 
-```
-runtimeConfigs = {
-  openclaw: { configFiles: ["soul.md", "skills/*", "platforms/*", ...TBD], renderer: openclawRenderer, tabs: ["general","model","platforms","skills","advanced"] },
-  zeroclaw: { configFile: "config.yaml", renderer: zeroclawRenderer, tabs: ["general","advanced"] },
-  // future non-bot runtimes define their own or skip config sync
-}
-```
+### Platform Credentials Storage ✅
+- [x] platformCredentials table with encrypted JSON blob
+- [x] 7 platforms supported: Discord, Telegram, Slack, WhatsApp, Web, Teams, Messenger
+- [x] CRUD operations with auto-sync to PVC
+- [x] Masked credentials for safe frontend display
 
-### Runtime-Agnostic (works for ALL deployments)
-- Storage monitoring (df /data) — DONE
-- Hardware specs (CPU, memory, storage) — DONE
-- Deployment CRUD (create, delete, status) — DONE
-- PVC + Secret + K8s Deployment creation — DONE
-- Stop/Start/Restart functionality
-- Deployment logs viewer
-- General settings (name, description)
-- Billing/pricing tier
+### Mock K8s Mode ✅
+- [x] MOCK_K8S=true environment variable
+- [x] In-memory PVC file storage simulation
+- [x] Debug endpoints: /debug/mock-pvc, /debug/db
+- [x] Full config sync testing without real cluster
 
-### OpenClaw-Specific (gated by runtime slug)
-- soul.md config sync (system prompt → file on PVC)
-- LLM provider/model/API key injection
-- System prompt
-- Platform credentials (WhatsApp, Discord, Slack, Telegram)
-- Skills marketplace
-- Model tab, Platforms tab, Skills tab in frontend config
+### Storage Enforcement ✅
+- [x] storageEnforcement.ts: Periodic storage limit checks (every 5 min)
+- [x] Stop deployments exceeding storage quota
+- [x] Clear errors when usage drops below limit
 
-## 3. Stripe Subscription → Deployment Sync
-- Link Stripe subscription status to deployment lifecycle
-- Handle payment failures, upgrades, downgrades
-- Enforce free trial expiration
+---
 
-## 4. Stop/Start Bot Functionality
-- Scale K8s deployment replicas to 0 (stop) or 1 (start)
-- Update DB status accordingly
-- Wire to frontend Pause/Activate buttons (already in sidebar)
+## Remaining Work
 
-## 5. WhatsApp QR Integration
-- QR code flow for WhatsApp connection
-- Store session state on PVC
-- Surface connection status to frontend
+### 1. Reverse Sync Enhancement (Nice to Have)
+- [ ] parseConfigs() for openclaw.json channels → Extract platform credentials back to DB
+- [ ] Currently only soul.md is reverse-synced; openclaw.json channels are write-only
 
-## 6. Platform Credentials Storage
-- Add DB columns for Discord token, Slack token, Telegram token, WhatsApp session
-- Wire to Platforms tab in frontend config
-- Encrypt at rest
+### 2. Skills Marketplace (Future Feature)
+- [ ] DB table for skills definitions
+- [ ] skills/* file sync in OpenClaw handler (currently commented out)
+- [ ] Skills tab UI in frontend
+- [ ] Skills marketplace / import from community
 
-## 7. Drizzle Migrations Regeneration
-- Regenerate migrations after all schema changes (systemPrompt, future platform columns)
-- Test against MySQL and PostgreSQL
+### 3. Platform Connection Testing (Enhancement)
+- [ ] testConnection() actually validates with platform APIs
+- [ ] Discord: GET /users/@me with bot token
+- [ ] Slack: auth.test with bot token
+- [ ] Telegram: getMe with bot token
+
+### 4. Drizzle Migrations
+- [ ] Regenerate migrations after all schema changes
+- [ ] Test against MySQL and PostgreSQL in staging
+- [ ] Add processedWebhookEvents table migration
+
+### 5. Production Deployment
+- [ ] Merge feature branch to main
+- [ ] Deploy to Hetzner K3s cluster
+- [ ] Verify Stripe webhooks in production
+- [ ] Monitor subscription enforcement logs
 
 ---
 
 ## Architecture Decisions (Locked In)
+
 - One base Docker image per runtime on **public GHCR** (`ghcr.io/jarble-ai/openclaw:latest`)
 - Hardware specs (CPU, memory, storage) enforced at **K8s level**, not Docker image level
-- All behavioral config via **PVC-mounted files** (multiple config files for OpenClaw: soul.md, skills, platforms, + others TBD)
+- All behavioral config via **PVC-mounted files** (soul.md, openclaw.json for OpenClaw)
 - **DB is source of truth**, PVC files are rendered outputs
 - OpenRouter handles token limits via **credit system** (no maxTokens needed)
 - `storageMb` column is actually **GB** (historical naming — documented throughout)
 - Frontend config tabs are **dynamic per runtime** via `getConfigTabs(runtimeSlug)`
+- **Strategy pattern** for runtime handlers — add new runtimes in 2-3 files only
