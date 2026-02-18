@@ -650,7 +650,13 @@ export const deploymentRouter = router({
       }
 
       try {
+        // Set transitional status first
+        await (ctx.db as any).update(deployments)
+          .set({ status: "stopping" })
+          .where(eq(deployments.id, input.id));
+
         await stopDeployment(input.id);
+
         await (ctx.db as any).update(deployments)
           .set({ status: "stopped" })
           .where(eq(deployments.id, input.id));
@@ -695,6 +701,9 @@ export const deploymentRouter = router({
         // Poll for pod readiness (fire-and-forget)
         void (async () => {
           try {
+            // Brief delay to let transitional status be visible in UI
+            await new Promise((r) => setTimeout(r, 1500));
+
             let ready = false;
             for (let i = 0; i < 30; i++) {
               const podStatus = await getDeploymentPodStatus(input.id);
@@ -750,13 +759,16 @@ export const deploymentRouter = router({
 
       try {
         await (ctx.db as any).update(deployments)
-          .set({ status: "creating" })
+          .set({ status: "restarting" })
           .where(eq(deployments.id, input.id));
 
         // Fire-and-forget restart + status polling
         void (async () => {
           try {
             await restartDeployment(input.id);
+
+            // Brief delay to let transitional status be visible in UI
+            await new Promise((r) => setTimeout(r, 1500));
 
             let ready = false;
             for (let i = 0; i < 30; i++) {

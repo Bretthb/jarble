@@ -127,6 +127,26 @@ export default function DeploymentConfiguration() {
     },
   });
 
+  const stopMutation = trpc.deployment.stop.useMutation({
+    onSuccess: () => {
+      toast.success("Deployment paused");
+      deploymentQuery.refetch();
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Failed to pause deployment");
+    },
+  });
+
+  const startMutation = trpc.deployment.start.useMutation({
+    onSuccess: () => {
+      toast.success("Deployment activated");
+      deploymentQuery.refetch();
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Failed to activate deployment");
+    },
+  });
+
   const deployment = deploymentQuery.data;
   const dep = deployment as any;
   const isCancelled = !!dep?.cancelledAt;
@@ -183,9 +203,19 @@ export default function DeploymentConfiguration() {
   };
 
   const handleToggleStatus = () => {
-    // TODO: Implement when API supports status toggle
-    toast.info("Status toggle not yet implemented");
+    // Don't allow toggling during transitional states
+    if (["creating", "restarting", "stopping"].includes(displayStatus || "")) {
+      return;
+    }
+    if (displayStatus === "running") {
+      stopMutation.mutate({ id });
+    } else if (displayStatus === "stopped" || displayStatus === "failed") {
+      startMutation.mutate({ id });
+    }
   };
+
+  const isToggling = stopMutation.isPending || startMutation.isPending;
+  const isTransitioning = ["creating", "restarting", "stopping"].includes(displayStatus || "");
 
   const handleCancel = () => {
     if (confirm("Cancel your subscription? Your deployment will remain active until the end of the current billing period.")) {
@@ -323,9 +353,18 @@ export default function DeploymentConfiguration() {
                 <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">Actions</p>
                 <button
                   onClick={handleToggleStatus}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+                  disabled={isToggling || isTransitioning}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50"
                 >
-                  {displayStatus === "running" ? (
+                  {isToggling || isTransitioning ? (
+                    <>
+                      <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                      {displayStatus === "stopping" ? "Stopping..." :
+                       displayStatus === "restarting" ? "Restarting..." :
+                       displayStatus === "creating" ? "Starting..." :
+                       displayStatus === "running" ? "Pausing..." : "Activating..."}
+                    </>
+                  ) : displayStatus === "running" ? (
                     <>
                       <PowerOff className="w-4 h-4 shrink-0" />
                       Pause

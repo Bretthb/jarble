@@ -4,19 +4,32 @@ import archiver from "archiver";
 import { logger } from "../utils/logger.js";
 import type { ConfigFile, ConfigFileSpec } from "../runtimes/types.js";
 
-// Initialize K8s client
-const kc = new k8s.KubeConfig();
+// Mock mode for local development without K8s cluster
+const MOCK_K8S = process.env.MOCK_K8S === "true";
 
-// Load config - in-cluster when deployed, local kubeconfig for dev
-if (process.env.KUBERNETES_SERVICE_HOST) {
-  kc.loadFromCluster();
-} else {
-  kc.loadFromDefault();
+if (MOCK_K8S) {
+  logger.info("🎭 K8s mock mode enabled - no real cluster operations will be performed");
 }
 
-const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-const appsApi = kc.makeApiClient(k8s.AppsV1Api);
-const exec = new k8s.Exec(kc);
+// Initialize K8s client (only if not in mock mode)
+let coreApi: k8s.CoreV1Api | null = null;
+let appsApi: k8s.AppsV1Api | null = null;
+let exec: k8s.Exec | null = null;
+
+if (!MOCK_K8S) {
+  const kc = new k8s.KubeConfig();
+
+  // Load config - in-cluster when deployed, local kubeconfig for dev
+  if (process.env.KUBERNETES_SERVICE_HOST) {
+    kc.loadFromCluster();
+  } else {
+    kc.loadFromDefault();
+  }
+
+  coreApi = kc.makeApiClient(k8s.CoreV1Api);
+  appsApi = kc.makeApiClient(k8s.AppsV1Api);
+  exec = new k8s.Exec(kc);
+}
 
 const NAMESPACE = "jarble";
 const DEFAULT_IMAGE = "ghcr.io/jarble-ai/openclaw:latest";
@@ -48,6 +61,12 @@ export async function createDeployment(
 ): Promise<void> {
   logger.info({ deploymentId, userId }, "Creating deployment");
 
+  // Mock mode: simulate successful deployment creation
+  if (MOCK_K8S) {
+    logger.info({ deploymentId }, "🎭 Mock: Deployment created successfully");
+    return;
+  }
+
   const containerImage = config.image || DEFAULT_IMAGE;
 
   // Derive resource values from config (with sensible defaults)
@@ -64,7 +83,7 @@ export async function createDeployment(
   const storageGi = `${Math.max(1, storageGbVal)}Gi`;
 
   // 1. Create PVC for deployment storage
-  await coreApi.createNamespacedPersistentVolumeClaim(NAMESPACE, {
+  await coreApi!.createNamespacedPersistentVolumeClaim(NAMESPACE, {
     metadata: { name: `pvc-${deploymentId}` },
     spec: {
       accessModes: ["ReadWriteOnce"],
@@ -90,13 +109,13 @@ export async function createDeployment(
 
   const secretData = { ...baseSecretData, ...(config.extraSecretEntries ?? {}) };
 
-  await coreApi.createNamespacedSecret(NAMESPACE, {
+  await coreApi!.createNamespacedSecret(NAMESPACE, {
     metadata: { name: `secret-${deploymentId}` },
     stringData: secretData,
   });
 
   // 3. Create Deployment
-  await appsApi.createNamespacedDeployment(NAMESPACE, {
+  await appsApi!.createNamespacedDeployment(NAMESPACE, {
     metadata: {
       name: `dep-${deploymentId}`,
       labels: { app: `dep-${deploymentId}`, "jarble.ai/deployment-id": deploymentId },
@@ -168,7 +187,12 @@ export async function createDeployment(
 export async function stopDeployment(deploymentId: string): Promise<void> {
   logger.info({ deploymentId }, "Stopping deployment (scaling to 0)");
 
-  await appsApi.patchNamespacedDeployment(
+  if (MOCK_K8S) {
+    logger.info({ deploymentId }, "🎭 Mock: Deployment stopped");
+    return;
+  }
+
+  await appsApi!.patchNamespacedDeployment(
     `dep-${deploymentId}`,
     NAMESPACE,
     { spec: { replicas: 0 } },
@@ -190,7 +214,12 @@ export async function stopDeployment(deploymentId: string): Promise<void> {
 export async function startDeployment(deploymentId: string): Promise<void> {
   logger.info({ deploymentId }, "Starting deployment (scaling to 1)");
 
-  await appsApi.patchNamespacedDeployment(
+  if (MOCK_K8S) {
+    logger.info({ deploymentId }, "🎭 Mock: Deployment started");
+    return;
+  }
+
+  await appsApi!.patchNamespacedDeployment(
     `dep-${deploymentId}`,
     NAMESPACE,
     { spec: { replicas: 1 } },
@@ -225,21 +254,26 @@ export async function restartDeployment(deploymentId: string): Promise<void> {
 export async function deleteDeployment(deploymentId: string): Promise<void> {
   logger.info({ deploymentId }, "Deleting deployment");
 
+  if (MOCK_K8S) {
+    logger.info({ deploymentId }, "🎭 Mock: Deployment deleted");
+    return;
+  }
+
   try {
     // Delete in order: Deployment, Secret, PVC
-    await appsApi.deleteNamespacedDeployment(`dep-${deploymentId}`, NAMESPACE);
+    await appsApi!.deleteNamespacedDeployment(`dep-${deploymentId}`, NAMESPACE);
   } catch (err: unknown) {
     if (err instanceof Object && "statusCode" in err && err.statusCode !== 404) throw err;
   }
 
   try {
-    await coreApi.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
+    await coreApi!.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
   } catch (err: unknown) {
     if (err instanceof Object && "statusCode" in err && err.statusCode !== 404) throw err;
   }
 
   try {
-    await coreApi.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
+    await coreApi!.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
   } catch (err: unknown) {
     if (err instanceof Object && "statusCode" in err && err.statusCode !== 404) throw err;
   }
@@ -255,8 +289,13 @@ export interface DeploymentPodStatus {
 }
 
 export async function getDeploymentPodStatus(deploymentId: string): Promise<DeploymentPodStatus> {
+  // Mock mode: always return "running"
+  if (MOCK_K8S) {
+    return { status: "running", phase: "Running", restarts: 0 };
+  }
+
   try {
-    const pods = await coreApi.listNamespacedPod(
+    const pods = await coreApi!.listNamespacedPod(
       NAMESPACE,
       undefined,
       undefined,
@@ -331,9 +370,20 @@ export interface StorageUsage {
  * Returns null if the pod isn't running or the command fails.
  */
 export async function getDeploymentStorageUsage(deploymentId: string): Promise<StorageUsage | null> {
+  // Mock mode: return simulated storage usage
+  if (MOCK_K8S) {
+    return {
+      usedBytes: 524288000,  // ~500MB
+      totalBytes: 21474836480,  // 20GB
+      usedGb: 0.5,
+      totalGb: 20,
+      percentUsed: 2.5,
+    };
+  }
+
   try {
     // Find the running pod for this deployment
-    const pods = await coreApi.listNamespacedPod(
+    const pods = await coreApi!.listNamespacedPod(
       NAMESPACE,
       undefined,
       undefined,
@@ -365,7 +415,7 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
     stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
 
     await new Promise<void>((resolve, reject) => {
-      exec.exec(
+      exec!.exec(
         NAMESPACE,
         podName,
         "runtime",
@@ -431,8 +481,14 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
  * Reads `/data/config/` from the pod, builds a ZIP in memory, returns as base64.
  */
 export async function exportDeploymentConfigs(deploymentId: string): Promise<{ filename: string; data: string }> {
+  // Mock mode: return empty zip
+  if (MOCK_K8S) {
+    logger.info({ deploymentId }, "🎭 Mock: Returning mock config export");
+    return { filename: `config-${deploymentId}.zip`, data: "" };
+  }
+
   // Find the running pod
-  const pods = await coreApi.listNamespacedPod(
+  const pods = await coreApi!.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
@@ -518,8 +574,14 @@ export async function writeConfigsToPvc(
 ): Promise<void> {
   if (files.length === 0) return;
 
+  // Mock mode: log and return
+  if (MOCK_K8S) {
+    logger.info({ deploymentId, fileCount: files.length }, "🎭 Mock: Config files written to PVC");
+    return;
+  }
+
   // Find the running pod
-  const pods = await coreApi.listNamespacedPod(
+  const pods = await coreApi!.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
@@ -557,6 +619,11 @@ export async function writeConfigsToPvc(
  * Execute a command in a pod (no stdin, capture stdout/stderr).
  */
 export async function execInPod(podName: string, command: string[]): Promise<string> {
+  // Mock mode: return empty output
+  if (MOCK_K8S) {
+    return "";
+  }
+
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
 
@@ -566,7 +633,7 @@ export async function execInPod(podName: string, command: string[]): Promise<str
   stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
 
   await new Promise<void>((resolve, reject) => {
-    exec.exec(
+    exec!.exec(
       NAMESPACE,
       podName,
       "runtime",
@@ -593,7 +660,12 @@ export async function execInPod(podName: string, command: string[]): Promise<str
  * Returns the pod name or null if no running pod exists.
  */
 export async function findPodForDeployment(deploymentId: string): Promise<string | null> {
-  const pods = await coreApi.listNamespacedPod(
+  // Mock mode: return mock pod name
+  if (MOCK_K8S) {
+    return `mock-pod-${deploymentId}`;
+  }
+
+  const pods = await coreApi!.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
@@ -623,6 +695,13 @@ export async function streamExecInPod(
   onLine: (line: string) => void,
   onExit: (success: boolean, message?: string) => void
 ): Promise<{ abort: () => void }> {
+  // Mock mode: send a few mock lines and exit successfully
+  if (MOCK_K8S) {
+    onLine("🎭 Mock exec started");
+    setTimeout(() => onExit(true), 100);
+    return { abort: () => {} };
+  }
+
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
   let buffer = "";
@@ -644,7 +723,7 @@ export async function streamExecInPod(
 
   let execWs: any;
   try {
-    execWs = await exec.exec(
+    execWs = await exec!.exec(
       NAMESPACE,
       podName,
       "runtime",
@@ -690,7 +769,7 @@ async function execInPodWithStdin(
   stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
 
   await new Promise<void>((resolve, reject) => {
-    exec.exec(
+    exec!.exec(
       NAMESPACE,
       podName,
       "runtime",
@@ -730,6 +809,12 @@ export async function updateDeploymentSecret(
   runtime: string,
   secretEntries: Record<string, string>
 ): Promise<void> {
+  // Mock mode: log and return
+  if (MOCK_K8S) {
+    logger.info({ deploymentId, entryCount: Object.keys(secretEntries).length }, "🎭 Mock: K8s Secret updated");
+    return;
+  }
+
   const baseData: Record<string, string> = {
     DEPLOYMENT_ID: deploymentId,
     USER_ID: userId,
@@ -745,7 +830,7 @@ export async function updateDeploymentSecret(
 
   const fullData = { ...baseData, ...secretEntries };
 
-  await coreApi.replaceNamespacedSecret(
+  await coreApi!.replaceNamespacedSecret(
     `secret-${deploymentId}`,
     NAMESPACE,
     {
@@ -771,8 +856,14 @@ export async function readConfigsFromPvc(
   deploymentId: string,
   configFileSpecs: ConfigFileSpec[]
 ): Promise<ConfigFile[]> {
+  // Mock mode: return empty array
+  if (MOCK_K8S) {
+    logger.info({ deploymentId }, "🎭 Mock: Reading configs from PVC (returning empty)");
+    return [];
+  }
+
   // Find the running pod
-  const pods = await coreApi.listNamespacedPod(
+  const pods = await coreApi!.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
@@ -849,7 +940,18 @@ export async function getDeploymentLogs(
   deploymentId: string,
   tailLines: number = 200
 ): Promise<DeploymentLogsResult> {
-  const pods = await coreApi.listNamespacedPod(
+  // Mock mode: return simulated logs
+  if (MOCK_K8S) {
+    const mockLogs = [
+      `[${new Date().toISOString()}] 🎭 Mock mode active - no real K8s cluster`,
+      `[${new Date().toISOString()}] Deployment ${deploymentId} is running in mock mode`,
+      `[${new Date().toISOString()}] Bot started successfully (simulated)`,
+      `[${new Date().toISOString()}] Listening for messages...`,
+    ].join("\n");
+    return { logs: mockLogs, podName: `mock-pod-${deploymentId}` };
+  }
+
+  const pods = await coreApi!.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
@@ -896,7 +998,22 @@ export async function streamDeploymentLogs(
   writable: stream.Writable,
   options: { tailLines?: number } = {}
 ): Promise<{ podName: string; abort: () => void }> {
-  const pods = await coreApi.listNamespacedPod(
+  // Mock mode: write simulated logs periodically
+  if (MOCK_K8S) {
+    const podName = `mock-pod-${deploymentId}`;
+    writable.write(`[${new Date().toISOString()}] 🎭 Mock log stream started\n`);
+
+    const interval = setInterval(() => {
+      writable.write(`[${new Date().toISOString()}] Mock heartbeat - deployment ${deploymentId} running\n`);
+    }, 5000);
+
+    return {
+      podName,
+      abort: () => clearInterval(interval),
+    };
+  }
+
+  const pods = await coreApi!.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,

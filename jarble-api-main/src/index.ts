@@ -24,6 +24,9 @@ import { eq, and } from "drizzle-orm";
 import stream from "stream";
 import { globalLimiter, authLimiter, stripeActionLimiter } from "./middleware/rateLimit.js";
 
+// Mock K8s mode for local development
+const MOCK_K8S = process.env.MOCK_K8S === "true";
+
 const app = express();
 
 // Trust first proxy (Traefik) so req.ip returns the real client IP
@@ -467,7 +470,8 @@ app.get("/api/deployments/:id/logs/stream", async (req, res) => {
       return;
     }
 
-    if ((deployment as any).status !== "running") {
+    // In mock mode, skip the running check - allow logs for any owned deployment
+    if (!MOCK_K8S && (deployment as any).status !== "running") {
       res.status(400).json({ error: "Deployment is not running" });
       return;
     }
@@ -594,6 +598,26 @@ app.get("/api/deployments/:id/whatsapp/qr", async (req, res) => {
 
     if (!deployment) {
       res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+
+    // In mock mode, send mock QR events
+    if (MOCK_K8S) {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      res.write(": connected\n\n");
+      res.write(`event: log\ndata: ${JSON.stringify({ message: "🎭 Mock mode: WhatsApp pairing simulated" })}\n\n`);
+      res.write(`event: qr\ndata: ${JSON.stringify({ qr: "MOCK_QR_CODE_DATA_FOR_TESTING_" + deploymentId })}\n\n`);
+
+      // After 5 seconds, simulate successful connection
+      setTimeout(() => {
+        res.write(`event: connected\ndata: ${JSON.stringify({ message: "Mock WhatsApp connected!" })}\n\n`);
+        res.end();
+      }, 5000);
       return;
     }
 
@@ -798,7 +822,9 @@ app.get("/api/deployments/status/stream", async (req, res) => {
         const dbStatus = d.status as string;
 
         // For deployments with K8s pods, check live status
-        if (dbStatus === "creating" || dbStatus === "running" || dbStatus === "failed") {
+        // Skip for transitional states to let them display in the UI
+        const isTransitional = ["creating", "restarting", "stopping"].includes(dbStatus);
+        if (!isTransitional && (dbStatus === "running" || dbStatus === "failed")) {
           try {
             const podStatus = await getDeploymentPodStatus(d.id);
             results.push({

@@ -34,7 +34,7 @@ export function GeneralTab({ formData, updateFormData }: TabProps) {
         </div>
 
         <div>
-          <Label htmlFor="systemPrompt" className="mb-2 block">System Prompt</Label>
+          <Label htmlFor="systemPrompt" className="mb-2 block font-mono">soul.md</Label>
           <textarea
             id="systemPrompt"
             value={formData.systemPrompt}
@@ -43,7 +43,7 @@ export function GeneralTab({ formData, updateFormData }: TabProps) {
             placeholder="You are a helpful assistant..."
           />
           <p className="text-xs text-muted-foreground mt-2">
-            This prompt defines your deployment's personality and behavior. Be specific about how it should respond.
+            The soul file defines your bot's personality and behavior. This syncs to <code className="bg-secondary px-1 rounded">/data/config/soul.md</code> on the pod.
           </p>
         </div>
       </div>
