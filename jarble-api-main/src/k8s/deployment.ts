@@ -4,20 +4,67 @@ import archiver from "archiver";
 import { logger } from "../utils/logger.js";
 import type { ConfigFile, ConfigFileSpec } from "../runtimes/types.js";
 
-// Mock mode for local development without K8s cluster
+// ── Mock Mode for Local Development ────────────────────────────────────
+// When MOCK_K8S=true, all K8s operations are simulated with in-memory storage.
+// This allows testing config sync without a real cluster.
+
 const MOCK_K8S = process.env.MOCK_K8S === "true";
+
+// In-memory mock storage: deploymentId -> { files, secrets, status, logs }
+interface MockDeployment {
+  files: Map<string, string>;           // path -> content (PVC simulation)
+  secrets: Record<string, string>;      // K8s Secret env vars
+  status: "pending" | "creating" | "running" | "stopped" | "failed";
+  replicas: number;
+  logs: string[];
+  config: {
+    image: string;
+    cpuLimit: string;
+    memoryMb: number;
+    storageMb: number;
+  };
+}
+
+const mockStore = new Map<string, MockDeployment>();
+
+// Export for debug endpoint
+export function getMockStore(): Map<string, MockDeployment> {
+  return mockStore;
+}
+
+// Export mock file contents for a deployment (for debug endpoint)
+export function getMockPvcFiles(deploymentId: string): Record<string, string> | null {
+  const deployment = mockStore.get(deploymentId);
+  if (!deployment) return null;
+  return Object.fromEntries(deployment.files);
+}
+
+// Export all mock deployments info (for debug endpoint)
+export function getMockDeployments(): Record<string, { status: string; replicas: number; fileCount: number; secrets: string[] }> {
+  const result: Record<string, { status: string; replicas: number; fileCount: number; secrets: string[] }> = {};
+  for (const [id, dep] of mockStore) {
+    result[id] = {
+      status: dep.status,
+      replicas: dep.replicas,
+      fileCount: dep.files.size,
+      secrets: Object.keys(dep.secrets),
+    };
+  }
+  return result;
+}
 
 if (MOCK_K8S) {
   logger.info("🎭 K8s mock mode enabled - no real cluster operations will be performed");
 }
 
 // Initialize K8s client (only if not in mock mode)
+let kc: k8s.KubeConfig | null = null;
 let coreApi: k8s.CoreV1Api | null = null;
 let appsApi: k8s.AppsV1Api | null = null;
 let exec: k8s.Exec | null = null;
 
 if (!MOCK_K8S) {
-  const kc = new k8s.KubeConfig();
+  kc = new k8s.KubeConfig();
 
   // Load config - in-cluster when deployed, local kubeconfig for dev
   if (process.env.KUBERNETES_SERVICE_HOST) {
@@ -61,8 +108,39 @@ export async function createDeployment(
 ): Promise<void> {
   logger.info({ deploymentId, userId }, "Creating deployment");
 
-  // Mock mode: simulate successful deployment creation
+  // Mock mode: simulate deployment creation
   if (MOCK_K8S) {
+    const mockDep: MockDeployment = {
+      files: new Map(),
+      secrets: {
+        DEPLOYMENT_ID: deploymentId,
+        USER_ID: userId,
+        DEPLOYMENT_NAME: config.name,
+        TEMPLATE: config.template || "personal",
+        RUNTIME: config.runtime || "openclaw",
+        ...(config.extraSecretEntries ?? {}),
+      },
+      status: "running",
+      replicas: 1,
+      logs: [`[${new Date().toISOString()}] 🎭 Mock deployment created`],
+      config: {
+        image: config.image || DEFAULT_IMAGE,
+        cpuLimit: config.cpuLimit || "2.0",
+        memoryMb: config.memoryMb || 2048,
+        storageMb: config.storageMb || 30,
+      },
+    };
+    mockStore.set(deploymentId, mockDep);
+
+    // Write initial config files to mock PVC
+    if (config.initialConfigs && config.initialConfigs.length > 0) {
+      for (const file of config.initialConfigs) {
+        mockDep.files.set(file.path, file.content);
+        mockDep.logs.push(`[${new Date().toISOString()}] Wrote config: ${file.path}`);
+        logger.info({ deploymentId, path: file.path }, "🎭 Mock: Wrote config file to PVC");
+      }
+    }
+
     logger.info({ deploymentId }, "🎭 Mock: Deployment created successfully");
     return;
   }
@@ -188,6 +266,12 @@ export async function stopDeployment(deploymentId: string): Promise<void> {
   logger.info({ deploymentId }, "Stopping deployment (scaling to 0)");
 
   if (MOCK_K8S) {
+    const mockDep = mockStore.get(deploymentId);
+    if (mockDep) {
+      mockDep.status = "stopped";
+      mockDep.replicas = 0;
+      mockDep.logs.push(`[${new Date().toISOString()}] Deployment stopped`);
+    }
     logger.info({ deploymentId }, "🎭 Mock: Deployment stopped");
     return;
   }
@@ -215,6 +299,12 @@ export async function startDeployment(deploymentId: string): Promise<void> {
   logger.info({ deploymentId }, "Starting deployment (scaling to 1)");
 
   if (MOCK_K8S) {
+    const mockDep = mockStore.get(deploymentId);
+    if (mockDep) {
+      mockDep.status = "running";
+      mockDep.replicas = 1;
+      mockDep.logs.push(`[${new Date().toISOString()}] Deployment started`);
+    }
     logger.info({ deploymentId }, "🎭 Mock: Deployment started");
     return;
   }
@@ -255,6 +345,7 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
   logger.info({ deploymentId }, "Deleting deployment");
 
   if (MOCK_K8S) {
+    mockStore.delete(deploymentId);
     logger.info({ deploymentId }, "🎭 Mock: Deployment deleted");
     return;
   }
@@ -289,9 +380,21 @@ export interface DeploymentPodStatus {
 }
 
 export async function getDeploymentPodStatus(deploymentId: string): Promise<DeploymentPodStatus> {
-  // Mock mode: always return "running"
   if (MOCK_K8S) {
-    return { status: "running", phase: "Running", restarts: 0 };
+    const mockDep = mockStore.get(deploymentId);
+    if (!mockDep) {
+      return { status: "not_found" };
+    }
+    if (mockDep.status === "running") {
+      return { status: "running", phase: "Running", restarts: 0 };
+    }
+    if (mockDep.status === "stopped") {
+      return { status: "not_found" }; // No pod when stopped
+    }
+    if (mockDep.status === "failed") {
+      return { status: "failed", error: "Mock failure" };
+    }
+    return { status: "creating", phase: "Pending" };
   }
 
   try {
@@ -370,14 +473,24 @@ export interface StorageUsage {
  * Returns null if the pod isn't running or the command fails.
  */
 export async function getDeploymentStorageUsage(deploymentId: string): Promise<StorageUsage | null> {
-  // Mock mode: return simulated storage usage
   if (MOCK_K8S) {
+    const mockDep = mockStore.get(deploymentId);
+    if (!mockDep || mockDep.status !== "running") {
+      return null;
+    }
+    // Calculate mock storage usage based on file contents
+    let usedBytes = 0;
+    for (const content of mockDep.files.values()) {
+      usedBytes += Buffer.byteLength(content, "utf8");
+    }
+    const GB = 1024 * 1024 * 1024;
+    const totalBytes = mockDep.config.storageMb * GB; // storageMb is actually GB
     return {
-      usedBytes: 524288000,  // ~500MB
-      totalBytes: 21474836480,  // 20GB
-      usedGb: 0.5,
-      totalGb: 20,
-      percentUsed: 2.5,
+      usedBytes,
+      totalBytes,
+      usedGb: Math.round((usedBytes / GB) * 100) / 100,
+      totalGb: mockDep.config.storageMb,
+      percentUsed: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 1000) / 10 : 0,
     };
   }
 
@@ -481,10 +594,33 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
  * Reads `/data/config/` from the pod, builds a ZIP in memory, returns as base64.
  */
 export async function exportDeploymentConfigs(deploymentId: string): Promise<{ filename: string; data: string }> {
-  // Mock mode: return empty zip
   if (MOCK_K8S) {
-    logger.info({ deploymentId }, "🎭 Mock: Returning mock config export");
-    return { filename: `config-${deploymentId}.zip`, data: "" };
+    const mockDep = mockStore.get(deploymentId);
+    if (!mockDep) {
+      throw new Error(`Mock deployment ${deploymentId} not found`);
+    }
+    if (mockDep.files.size === 0) {
+      throw new Error("No config files found in mock PVC");
+    }
+
+    // Build ZIP archive from mock files
+    const zipBuffer = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      const archive = archiver("zip", { zlib: { level: 9 } });
+      archive.on("data", (chunk: Buffer) => chunks.push(chunk));
+      archive.on("end", () => resolve(Buffer.concat(chunks)));
+      archive.on("error", reject);
+
+      for (const [path, content] of mockDep.files) {
+        archive.append(content, { name: path });
+      }
+      archive.finalize();
+    });
+
+    const filename = `config-${deploymentId}.zip`;
+    logger.info({ deploymentId, fileCount: mockDep.files.size, sizeBytes: zipBuffer.length }, "🎭 Mock: Exported deployment configs");
+
+    return { filename, data: zipBuffer.toString("base64") };
   }
 
   // Find the running pod
@@ -574,9 +710,16 @@ export async function writeConfigsToPvc(
 ): Promise<void> {
   if (files.length === 0) return;
 
-  // Mock mode: log and return
   if (MOCK_K8S) {
-    logger.info({ deploymentId, fileCount: files.length }, "🎭 Mock: Config files written to PVC");
+    const mockDep = mockStore.get(deploymentId);
+    if (!mockDep) {
+      throw new Error(`Mock deployment ${deploymentId} not found`);
+    }
+    for (const file of files) {
+      mockDep.files.set(file.path, file.content);
+      mockDep.logs.push(`[${new Date().toISOString()}] Config updated: ${file.path}`);
+      logger.info({ deploymentId, path: file.path }, "🎭 Mock: Wrote config file to PVC");
+    }
     return;
   }
 
@@ -619,8 +762,16 @@ export async function writeConfigsToPvc(
  * Execute a command in a pod (no stdin, capture stdout/stderr).
  */
 export async function execInPod(podName: string, command: string[]): Promise<string> {
-  // Mock mode: return empty output
   if (MOCK_K8S) {
+    // Mock exec - just return empty string for most commands
+    const cmd = command.join(" ");
+    logger.debug({ podName, cmd }, "🎭 Mock: execInPod");
+    if (cmd.includes("find")) {
+      return ""; // No files found
+    }
+    if (cmd.includes("cat")) {
+      return ""; // Empty file content
+    }
     return "";
   }
 
@@ -660,8 +811,11 @@ export async function execInPod(podName: string, command: string[]): Promise<str
  * Returns the pod name or null if no running pod exists.
  */
 export async function findPodForDeployment(deploymentId: string): Promise<string | null> {
-  // Mock mode: return mock pod name
   if (MOCK_K8S) {
+    const mockDep = mockStore.get(deploymentId);
+    if (!mockDep || mockDep.status !== "running") {
+      return null;
+    }
     return `mock-pod-${deploymentId}`;
   }
 
@@ -695,10 +849,15 @@ export async function streamExecInPod(
   onLine: (line: string) => void,
   onExit: (success: boolean, message?: string) => void
 ): Promise<{ abort: () => void }> {
-  // Mock mode: send a few mock lines and exit successfully
   if (MOCK_K8S) {
-    onLine("🎭 Mock exec started");
-    setTimeout(() => onExit(true), 100);
+    // Mock streaming - emit a few lines then exit
+    setTimeout(() => {
+      onLine(`[Mock] Executing: ${command.join(" ")}`);
+      onLine(`[Mock] Stream started for ${podName}`);
+    }, 100);
+    setTimeout(() => {
+      onExit(true, "Mock stream ended");
+    }, 500);
     return { abort: () => {} };
   }
 
@@ -809,12 +968,6 @@ export async function updateDeploymentSecret(
   runtime: string,
   secretEntries: Record<string, string>
 ): Promise<void> {
-  // Mock mode: log and return
-  if (MOCK_K8S) {
-    logger.info({ deploymentId, entryCount: Object.keys(secretEntries).length }, "🎭 Mock: K8s Secret updated");
-    return;
-  }
-
   const baseData: Record<string, string> = {
     DEPLOYMENT_ID: deploymentId,
     USER_ID: userId,
@@ -829,6 +982,16 @@ export async function updateDeploymentSecret(
   }
 
   const fullData = { ...baseData, ...secretEntries };
+
+  if (MOCK_K8S) {
+    const mockDep = mockStore.get(deploymentId);
+    if (mockDep) {
+      mockDep.secrets = fullData;
+      mockDep.logs.push(`[${new Date().toISOString()}] Secret updated`);
+    }
+    logger.info({ deploymentId, entryCount: Object.keys(fullData).length }, "🎭 Mock: K8s Secret updated");
+    return;
+  }
 
   await coreApi!.replaceNamespacedSecret(
     `secret-${deploymentId}`,
@@ -856,10 +1019,34 @@ export async function readConfigsFromPvc(
   deploymentId: string,
   configFileSpecs: ConfigFileSpec[]
 ): Promise<ConfigFile[]> {
-  // Mock mode: return empty array
   if (MOCK_K8S) {
-    logger.info({ deploymentId }, "🎭 Mock: Reading configs from PVC (returning empty)");
-    return [];
+    const mockDep = mockStore.get(deploymentId);
+    if (!mockDep) {
+      throw new Error(`Mock deployment ${deploymentId} not found`);
+    }
+    if (mockDep.status !== "running") {
+      throw new Error(`Mock deployment ${deploymentId} is not running`);
+    }
+
+    const files: ConfigFile[] = [];
+    for (const spec of configFileSpecs) {
+      if (spec.isGlob) {
+        // Glob pattern - find matching files
+        const prefix = spec.path.replace("/*", "");
+        for (const [path, content] of mockDep.files) {
+          if (path.startsWith(prefix)) {
+            files.push({ path, content });
+          }
+        }
+      } else {
+        // Exact path
+        const content = mockDep.files.get(spec.path);
+        if (content !== undefined) {
+          files.push({ path: spec.path, content });
+        }
+      }
+    }
+    return files;
   }
 
   // Find the running pod
@@ -940,15 +1127,13 @@ export async function getDeploymentLogs(
   deploymentId: string,
   tailLines: number = 200
 ): Promise<DeploymentLogsResult> {
-  // Mock mode: return simulated logs
   if (MOCK_K8S) {
-    const mockLogs = [
-      `[${new Date().toISOString()}] 🎭 Mock mode active - no real K8s cluster`,
-      `[${new Date().toISOString()}] Deployment ${deploymentId} is running in mock mode`,
-      `[${new Date().toISOString()}] Bot started successfully (simulated)`,
-      `[${new Date().toISOString()}] Listening for messages...`,
-    ].join("\n");
-    return { logs: mockLogs, podName: `mock-pod-${deploymentId}` };
+    const mockDep = mockStore.get(deploymentId);
+    if (!mockDep) {
+      throw new Error("No pods found for this deployment");
+    }
+    const logs = mockDep.logs.slice(-tailLines).join("\n");
+    return { logs, podName: `mock-pod-${deploymentId}` };
   }
 
   const pods = await coreApi!.listNamespacedPod(
@@ -968,7 +1153,7 @@ export async function getDeploymentLogs(
   const podName = pod.metadata?.name;
   if (!podName) throw new Error("Pod has no name");
 
-  const response = await coreApi.readNamespacedPodLog(
+  const response = await coreApi!.readNamespacedPodLog(
     podName,
     NAMESPACE,
     "runtime",     // container
@@ -998,17 +1183,29 @@ export async function streamDeploymentLogs(
   writable: stream.Writable,
   options: { tailLines?: number } = {}
 ): Promise<{ podName: string; abort: () => void }> {
-  // Mock mode: write simulated logs periodically
   if (MOCK_K8S) {
-    const podName = `mock-pod-${deploymentId}`;
-    writable.write(`[${new Date().toISOString()}] 🎭 Mock log stream started\n`);
+    const mockDep = mockStore.get(deploymentId);
+    if (!mockDep) {
+      throw new Error("No pods found for this deployment");
+    }
+    if (mockDep.status !== "running") {
+      throw new Error("Pod is not running");
+    }
 
+    // Write existing logs
+    const logs = mockDep.logs.slice(-(options.tailLines ?? 100)).join("\n") + "\n";
+    writable.write(logs);
+
+    // Set up interval to write new mock logs
     const interval = setInterval(() => {
-      writable.write(`[${new Date().toISOString()}] Mock heartbeat - deployment ${deploymentId} running\n`);
+      const ts = new Date().toISOString();
+      const line = `${ts} [Mock] Heartbeat from ${deploymentId}\n`;
+      mockDep.logs.push(line.trim());
+      writable.write(line);
     }, 5000);
 
     return {
-      podName,
+      podName: `mock-pod-${deploymentId}`,
       abort: () => clearInterval(interval),
     };
   }
@@ -1036,7 +1233,7 @@ export async function streamDeploymentLogs(
     throw new Error("Pod is not running");
   }
 
-  const log = new k8s.Log(kc);
+  const log = new k8s.Log(kc!);
   const request = await log.log(NAMESPACE, podName, "runtime", writable, {
     follow: true,
     tailLines: options.tailLines ?? 100,

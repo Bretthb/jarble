@@ -950,6 +950,54 @@ if (env.NODE_ENV === "development") {
   });
 
   logger.info("📊 Debug endpoint enabled: /debug/db");
+
+  // Mock K8s PVC debug endpoint - shows simulated file storage
+  app.get("/debug/mock-pvc", async (_req, res) => {
+    try {
+      // Dynamic import to avoid issues when MOCK_K8S is false
+      const { getMockDeployments, getMockPvcFiles } = await import("./k8s/deployment.js");
+      const deployments = getMockDeployments();
+
+      // Get files for each deployment
+      const detailed: Record<string, any> = {};
+      for (const deploymentId of Object.keys(deployments)) {
+        detailed[deploymentId] = {
+          ...deployments[deploymentId],
+          files: getMockPvcFiles(deploymentId),
+        };
+      }
+
+      res.json({
+        _info: "Mock K8s PVC storage - shows simulated config files",
+        mockMode: process.env.MOCK_K8S === "true",
+        deployments: detailed,
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to get mock PVC data", details: String(err) });
+    }
+  });
+
+  // Write a test file to mock PVC
+  app.post("/debug/mock-pvc/:deploymentId/write", express.json(), async (req, res) => {
+    try {
+      const { deploymentId } = req.params;
+      const { path, content } = req.body;
+
+      if (!path || content === undefined) {
+        res.status(400).json({ error: "Missing 'path' or 'content' in body" });
+        return;
+      }
+
+      const { writeConfigsToPvc } = await import("./k8s/deployment.js");
+      await writeConfigsToPvc(deploymentId, [{ path, content }]);
+
+      res.json({ success: true, deploymentId, path });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to write to mock PVC", details: String(err) });
+    }
+  });
+
+  logger.info("📊 Debug endpoint enabled: /debug/mock-pvc");
 }
 
 // tRPC handler
