@@ -4,4 +4,3 @@ dist/
 *.log
 .DS_Store
 k8s/secrets.yaml
-drizzle/
