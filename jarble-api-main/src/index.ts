@@ -19,6 +19,7 @@ import { stopDeployment, streamDeploymentLogs, getDeploymentPodStatus, findPodFo
 import { encryptApiKey } from "./utils/encryption.js";
 import { syncConfigsFromPvc, syncConfigsToPvc } from "./services/configSync.js";
 import { startStorageEnforcement } from "./services/storageEnforcement.js";
+import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement.js";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import stream from "stream";
@@ -79,6 +80,33 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
   try {
     const event = constructWebhookEvent(req.body, sig);
     logger.info({ type: event.type, id: event.id }, "Stripe webhook received");
+
+    // ── Idempotency check: skip if already processed ──
+    const existing = await db.query.processedWebhookEvents?.findFirst({
+      where: eq(tables.processedWebhookEvents.eventId, event.id),
+    });
+
+    if (existing) {
+      logger.info({ eventId: event.id }, "Webhook event already processed, skipping");
+      res.json({ received: true, skipped: true });
+      return;
+    }
+
+    // Mark event as processed before handling (prevents duplicate processing)
+    try {
+      await (db as any).insert(tables.processedWebhookEvents).values({
+        eventId: event.id,
+        eventType: event.type,
+      });
+    } catch (insertErr: any) {
+      // Unique constraint violation = another worker already processing this event
+      if (insertErr?.code === "SQLITE_CONSTRAINT" || insertErr?.code === "ER_DUP_ENTRY" || insertErr?.code === "23505") {
+        logger.info({ eventId: event.id }, "Webhook event already being processed by another worker");
+        res.json({ received: true, skipped: true });
+        return;
+      }
+      throw insertErr;
+    }
 
     switch (event.type) {
       case "checkout.session.completed": {
@@ -1014,8 +1042,9 @@ async function start() {
   // Initialize database (creates tables for in-memory SQLite, optionally seeds)
   await initDatabase();
 
-  // Start periodic storage enforcement (K8s only, skips in SQLite dev mode)
+  // Start periodic enforcement services (K8s only, skips in SQLite dev mode)
   startStorageEnforcement();
+  startSubscriptionEnforcement();
 
   const PORT = env.PORT;
   app.listen(PORT, () => {

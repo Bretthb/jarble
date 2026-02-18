@@ -74,6 +74,13 @@ export const platformCredentials = sqliteTable("platform_credentials", {
   deploymentPlatformIdx: uniqueIndex("uq_deployment_platform").on(table.deploymentId, table.platformId),
 }));
 
+// Webhook idempotency tracking — stores processed webhook event IDs to prevent duplicate processing
+export const processedWebhookEvents = sqliteTable("processed_webhook_events", {
+  eventId: text("event_id").primaryKey(), // Stripe event ID (e.g., evt_xxx)
+  eventType: text("event_type").notNull(), // e.g., "checkout.session.completed"
+  processedAt: text("processed_at").notNull().$defaultFn(now),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   deployments: many(deployments),

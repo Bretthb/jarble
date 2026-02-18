@@ -1,0 +1,315 @@
+import { db, tables, USE_SQLITE } from "../db/index.js";
+import { eq, and, isNotNull, lt, or, ne } from "drizzle-orm";
+import { stopDeployment } from "../k8s/deployment.js";
+import { isStripeConfigured, getSubscriptionDetails } from "./stripe.js";
+import { logger } from "../utils/logger.js";
+
+const { deployments, users } = tables;
+
+const FREE_TRIAL_ERROR_PREFIX = "Free trial expired";
+const SUBSCRIPTION_ERROR_PREFIX = "Subscription";
+
+/**
+ * Check subscription status for all active deployments and enforce limits.
+ *
+ * Handles:
+ * 1. Free trial expiration → stop deployment
+ * 2. Subscription status validation with Stripe API
+ * 3. Cancel-at-period-end enforcement when billing period ends
+ * 4. Past due / unpaid subscriptions → flag with error
+ */
+export async function enforceSubscriptionStatus(): Promise<void> {
+  if (USE_SQLITE) return; // Skip in local dev mode
+
+  try {
+    // Find all deployments that need enforcement checks:
+    // - Running deployments with subscriptions
+    // - Free deployments that may have expired
+    const running = await db.query.deployments.findMany({
+      where: eq(deployments.status, "running"),
+    });
+
+    if (running.length === 0) return;
+
+    logger.debug({ count: running.length }, "subscriptionEnforcement: checking running deployments");
+
+    for (const dep of running) {
+      try {
+        await checkDeploymentSubscription(dep as any);
+      } catch (err) {
+        logger.warn({ deploymentId: dep.id, err }, "subscriptionEnforcement: failed to check deployment");
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "subscriptionEnforcement: sweep failed");
+  }
+}
+
+async function checkDeploymentSubscription(dep: {
+  id: string;
+  userId: string;
+  isFree: boolean;
+  freeExpiresAt: Date | null;
+  stripeSubscriptionId: string | null;
+  cancelAtPeriodEnd: Date | null;
+  error: string | null;
+}): Promise<void> {
+  // Check 1: Free trial expiration
+  if (dep.isFree && dep.freeExpiresAt) {
+    const now = new Date();
+    if (dep.freeExpiresAt <= now) {
+      logger.warn(
+        { deploymentId: dep.id, freeExpiresAt: dep.freeExpiresAt.toISOString() },
+        "subscriptionEnforcement: free trial expired, stopping deployment"
+      );
+
+      await stopDeployment(dep.id);
+
+      const errorMsg = `${FREE_TRIAL_ERROR_PREFIX}: your free trial ended on ${dep.freeExpiresAt.toLocaleDateString()}. Subscribe to keep your bot running.`;
+
+      await (db as any).update(deployments)
+        .set({ status: "stopped", error: errorMsg })
+        .where(eq(deployments.id, dep.id));
+
+      return;
+    }
+  }
+
+  // Check 2: Non-free deployments need valid subscription
+  if (!dep.isFree) {
+    if (!dep.stripeSubscriptionId) {
+      // Deployment is not free and has no subscription — should not be running
+      logger.warn(
+        { deploymentId: dep.id },
+        "subscriptionEnforcement: paid deployment without subscription, stopping"
+      );
+
+      await stopDeployment(dep.id);
+
+      await (db as any).update(deployments)
+        .set({
+          status: "stopped",
+          error: `${SUBSCRIPTION_ERROR_PREFIX} required: no active subscription found`
+        })
+        .where(eq(deployments.id, dep.id));
+
+      return;
+    }
+
+    // Check 3: Cancel-at-period-end enforcement
+    if (dep.cancelAtPeriodEnd) {
+      const now = new Date();
+      if (dep.cancelAtPeriodEnd <= now) {
+        logger.info(
+          { deploymentId: dep.id, cancelAtPeriodEnd: dep.cancelAtPeriodEnd.toISOString() },
+          "subscriptionEnforcement: subscription period ended, stopping deployment"
+        );
+
+        await stopDeployment(dep.id);
+
+        await (db as any).update(deployments)
+          .set({
+            status: "stopped",
+            error: null, // Not an error, just normal cancellation
+            stripeSubscriptionId: null // Clear subscription link
+          })
+          .where(eq(deployments.id, dep.id));
+
+        return;
+      }
+    }
+
+    // Check 4: Validate subscription status with Stripe API
+    if (isStripeConfigured()) {
+      await validateSubscriptionWithStripe(dep);
+    }
+  }
+}
+
+/**
+ * Validate subscription status with Stripe API and enforce accordingly.
+ * Called for paid deployments with a subscription ID.
+ */
+async function validateSubscriptionWithStripe(dep: {
+  id: string;
+  stripeSubscriptionId: string | null;
+  error: string | null;
+}): Promise<void> {
+  if (!dep.stripeSubscriptionId) return;
+
+  try {
+    const subscription = await getSubscriptionDetails(dep.stripeSubscriptionId);
+    const status = subscription.status;
+    const cancelAtPeriodEnd = subscription.cancel_at_period_end;
+    const currentPeriodEnd = (subscription as any).current_period_end
+      ? new Date((subscription as any).current_period_end * 1000)
+      : null;
+
+    // Subscription is deleted/canceled — stop deployment
+    if (status === "canceled" || status === "incomplete_expired") {
+      logger.info(
+        { deploymentId: dep.id, status, subscriptionId: dep.stripeSubscriptionId },
+        "subscriptionEnforcement: subscription no longer active, stopping"
+      );
+
+      await stopDeployment(dep.id);
+
+      await (db as any).update(deployments)
+        .set({
+          status: "stopped",
+          error: `${SUBSCRIPTION_ERROR_PREFIX} canceled. Subscribe again to restart your bot.`,
+          stripeSubscriptionId: null
+        })
+        .where(eq(deployments.id, dep.id));
+
+      return;
+    }
+
+    // Payment issues — flag error but don't stop immediately (Stripe retries)
+    if (status === "past_due" || status === "unpaid") {
+      const existingPaymentError = dep.error?.startsWith(`${SUBSCRIPTION_ERROR_PREFIX} ${status}`);
+      if (!existingPaymentError) {
+        await (db as any).update(deployments)
+          .set({
+            error: `${SUBSCRIPTION_ERROR_PREFIX} ${status}: please update your payment method to avoid service interruption.`
+          })
+          .where(eq(deployments.id, dep.id));
+
+        logger.warn(
+          { deploymentId: dep.id, status },
+          "subscriptionEnforcement: subscription has payment issues"
+        );
+      }
+      return;
+    }
+
+    // Subscription is active — sync cancellation state if needed
+    if (status === "active") {
+      const updates: Record<string, any> = {};
+
+      // Sync cancel_at_period_end from Stripe
+      if (cancelAtPeriodEnd && currentPeriodEnd) {
+        const currentCancelAt = currentPeriodEnd.toISOString();
+        updates.cancelAtPeriodEnd = currentCancelAt;
+        if (!updates.cancelledAt) {
+          updates.cancelledAt = new Date().toISOString();
+        }
+      } else if (!cancelAtPeriodEnd) {
+        // Subscription was reactivated in Stripe — clear cancellation
+        updates.cancelAtPeriodEnd = null;
+        updates.cancelledAt = null;
+      }
+
+      // Clear payment errors if subscription is now active
+      if (dep.error?.startsWith(SUBSCRIPTION_ERROR_PREFIX)) {
+        updates.error = null;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await (db as any).update(deployments)
+          .set(updates)
+          .where(eq(deployments.id, dep.id));
+      }
+    }
+  } catch (err: any) {
+    // Stripe API error — could be invalid subscription ID (e.g., subscription deleted externally)
+    if (err?.code === "resource_missing" || err?.statusCode === 404) {
+      logger.warn(
+        { deploymentId: dep.id, subscriptionId: dep.stripeSubscriptionId, err: err.message },
+        "subscriptionEnforcement: subscription not found in Stripe, stopping deployment"
+      );
+
+      await stopDeployment(dep.id);
+
+      await (db as any).update(deployments)
+        .set({
+          status: "stopped",
+          error: `${SUBSCRIPTION_ERROR_PREFIX} not found. Please contact support or subscribe again.`,
+          stripeSubscriptionId: null
+        })
+        .where(eq(deployments.id, dep.id));
+
+      return;
+    }
+
+    // Other API errors — log but don't stop (could be transient)
+    logger.error(
+      { deploymentId: dep.id, subscriptionId: dep.stripeSubscriptionId, err },
+      "subscriptionEnforcement: failed to validate subscription with Stripe"
+    );
+  }
+}
+
+/**
+ * Check for orphaned deployments: deployments marked as "running" but with
+ * expired or missing subscriptions. Run less frequently (e.g., every 30 min).
+ */
+export async function cleanupOrphanedDeployments(): Promise<void> {
+  if (USE_SQLITE) return;
+
+  try {
+    // Find running deployments that are not free and have no subscription
+    const orphaned = await db.query.deployments.findMany({
+      where: and(
+        eq(deployments.status, "running"),
+        eq(deployments.isFree, false),
+        // No subscription ID
+        or(
+          eq(deployments.stripeSubscriptionId as any, null),
+          eq(deployments.stripeSubscriptionId as any, "")
+        )
+      ),
+    });
+
+    if (orphaned.length === 0) return;
+
+    logger.warn(
+      { count: orphaned.length },
+      "subscriptionEnforcement: found orphaned paid deployments without subscriptions"
+    );
+
+    for (const dep of orphaned) {
+      try {
+        logger.info({ deploymentId: dep.id }, "subscriptionEnforcement: stopping orphaned deployment");
+
+        await stopDeployment(dep.id);
+
+        await (db as any).update(deployments)
+          .set({
+            status: "stopped",
+            error: `${SUBSCRIPTION_ERROR_PREFIX} required: no active subscription found for this deployment.`
+          })
+          .where(eq(deployments.id, dep.id));
+      } catch (err) {
+        logger.error({ deploymentId: dep.id, err }, "subscriptionEnforcement: failed to stop orphaned deployment");
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "subscriptionEnforcement: orphan cleanup failed");
+  }
+}
+
+/**
+ * Start the periodic subscription enforcement check.
+ * - Primary check: every 5 minutes (same as storage enforcement)
+ * - Orphan cleanup: every 30 minutes
+ */
+export function startSubscriptionEnforcement(
+  intervalMs: number = 5 * 60 * 1000,
+  orphanIntervalMs: number = 30 * 60 * 1000
+): { primaryTimer: NodeJS.Timeout; orphanTimer: NodeJS.Timeout } {
+  logger.info(
+    { intervalMs, orphanIntervalMs },
+    "subscriptionEnforcement: starting periodic subscription checks"
+  );
+
+  // Run immediately on startup
+  void enforceSubscriptionStatus();
+  void cleanupOrphanedDeployments();
+
+  // Schedule periodic checks
+  const primaryTimer = setInterval(() => void enforceSubscriptionStatus(), intervalMs);
+  const orphanTimer = setInterval(() => void cleanupOrphanedDeployments(), orphanIntervalMs);
+
+  return { primaryTimer, orphanTimer };
+}

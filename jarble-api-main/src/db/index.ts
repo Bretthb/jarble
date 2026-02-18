@@ -65,12 +65,12 @@ export const sqliteDb = DB_PROVIDER === "sqlite"
 // Each provider uses its own table definitions to ensure correct SQL generation.
 function getActiveTables() {
   if (DB_PROVIDER === "sqlite") {
-    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, runtimeCatalog: sqliteSchema.runtimeCatalog, platformCredentials: sqliteSchema.platformCredentials };
+    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, runtimeCatalog: sqliteSchema.runtimeCatalog, platformCredentials: sqliteSchema.platformCredentials, processedWebhookEvents: sqliteSchema.processedWebhookEvents };
   }
   if (DB_PROVIDER === "postgres") {
-    return { users: pgSchema.users, deployments: pgSchema.deployments, runtimeCatalog: pgSchema.runtimeCatalog, platformCredentials: pgSchema.platformCredentials };
+    return { users: pgSchema.users, deployments: pgSchema.deployments, runtimeCatalog: pgSchema.runtimeCatalog, platformCredentials: pgSchema.platformCredentials, processedWebhookEvents: pgSchema.processedWebhookEvents };
   }
-  return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, runtimeCatalog: mysqlSchema.runtimeCatalog, platformCredentials: mysqlSchema.platformCredentials };
+  return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, runtimeCatalog: mysqlSchema.runtimeCatalog, platformCredentials: mysqlSchema.platformCredentials, processedWebhookEvents: mysqlSchema.processedWebhookEvents };
 }
 
 export const tables = getActiveTables();

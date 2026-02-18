@@ -72,6 +72,13 @@ export const platformCredentials = mysqlTable("platform_credentials", {
   deploymentPlatformIdx: uniqueIndex("uq_deployment_platform").on(table.deploymentId, table.platformId),
 }));
 
+// Webhook idempotency tracking — stores processed webhook event IDs to prevent duplicate processing
+export const processedWebhookEvents = mysqlTable("processed_webhook_events", {
+  eventId: varchar("event_id", { length: 255 }).primaryKey(), // Stripe event ID (e.g., evt_xxx)
+  eventType: varchar("event_type", { length: 100 }).notNull(), // e.g., "checkout.session.completed"
+  processedAt: timestamp("processed_at").defaultNow().notNull(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   deployments: many(deployments),
