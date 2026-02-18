@@ -171,13 +171,16 @@ export default function DeploymentConfiguration() {
 
   useEffect(() => {
     if (deployment) {
+      const dep = deployment as any;
+      // If llmMode is "included", show "jarble" as the selected provider in the UI
+      const uiProvider = dep.llmMode === "included" ? "jarble" : (dep.llmProvider || "");
       setFormData({
         name: deployment.name || "",
         description: deployment.description || "",
-        modelProvider: (deployment as any).llmProvider || "",
-        modelName: (deployment as any).llmModel || "",
+        modelProvider: uiProvider,
+        modelName: dep.llmModel || "",
         apiKey: "",
-        systemPrompt: (deployment as any).systemPrompt || "",
+        systemPrompt: dep.systemPrompt || "",
         platforms: [],
         skills: [],
       });
@@ -191,12 +194,14 @@ export default function DeploymentConfiguration() {
 
   const handleSave = () => {
     setIsSaving(true);
+    const isJarbleManaged = formData.modelProvider === "jarble";
     updateMutation.mutate({
       id,
       name: formData.name,
       description: formData.description,
       systemPrompt: formData.systemPrompt || undefined,
-      llmProvider: formData.modelProvider ? formData.modelProvider as any : undefined,
+      llmMode: isJarbleManaged ? "included" : "byok",
+      llmProvider: isJarbleManaged ? "openrouter" : (formData.modelProvider as any) || undefined,
       llmModel: formData.modelName || undefined,
       llmApiKey: formData.apiKey || undefined,
     });
