@@ -51,7 +51,7 @@ cd Jarble-mvp && npm run dev
 ## Architecture
 
 ### Tech Stack
-- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind v4, shadcn/ui, Framer Motion
+- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind v4, shadcn/ui, Framer Motion, @xyflow/react (node graph)
 - **API**: Express, tRPC, SuperJSON, Drizzle ORM
 - **Database**: MySQL (prod), PostgreSQL (alt), SQLite (dev with USE_SQLITE=true)
 - **Auth**: Auth0 (JWT + JWKS verification)
@@ -105,6 +105,9 @@ const { isAuthenticated, isLoading } = useAuth0();
 if (isLoading) return <Spinner />;
 if (!isAuthenticated) return <Redirect to="/login" />;
 ```
+
+### Linked Deployments Graph
+`/deployments` uses React Flow (@xyflow/react) + dagre for an interactive node graph showing credit pool relationships. Nodes are circle icons (owner/linked/standalone), edges show credit pool links, and clicking a node opens a detail panel overlay on the left. Filter bar toggles credit pool edges and filters by runtime.
 
 ### Real-Time Updates
 Dashboard uses SSE streams instead of polling:
