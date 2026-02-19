@@ -4,7 +4,10 @@ import { tables } from "../../db/index.js";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs } from "../../k8s/deployment.js";
 import { cancelSubscriptionAtPeriodEnd, cancelSubscriptionImmediately, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
-import { nanoid } from "nanoid";
+import { customAlphabet } from "nanoid";
+
+// K8s-safe alphabet: lowercase alphanumeric only (RFC 1123)
+const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
 import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
 import { env } from "../../utils/env.js";
@@ -158,7 +161,8 @@ export const deploymentRouter = router({
       const freeStatus = await checkFreeDeployment(ctx.db, ctx.user.id);
       const isFree = !freeStatus.freeUsed;
 
-      const deploymentId = nanoid(12);
+      // K8s requires lowercase RFC 1123 names for resources
+      const deploymentId = nanoid();
       const now = new Date();
       const freeExpiresAt = isFree
         ? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
@@ -420,11 +424,12 @@ export const deploymentRouter = router({
             initialConfigs,
             extraSecretEntries,
           });
+          logger.info({ deploymentId }, "K8s createDeployment returned, updating status...");
           // Only update if still in transitional state (don't overwrite enforcement actions)
           await (ctx.db as any).update(deployments)
             .set({ status: "running" })
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
-          logger.info({ deploymentId }, "Deployment succeeded");
+          logger.info({ deploymentId }, "Deployment succeeded - status set to running");
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Unknown deployment error";
           await (ctx.db as any).update(deployments)

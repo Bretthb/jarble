@@ -700,11 +700,16 @@ app.get("/api/deployments/:id/whatsapp/qr", async (req, res) => {
     let connected = false;
     let abortFn: (() => void) | null = null;
 
-    // Heuristic: detect Baileys QR string (long comma/@ containing string)
-    // Baileys QR format: sequences separated by commas, contains @, length > 50
+    // Heuristic: detect QR output from OpenClaw
+    // OpenClaw outputs ASCII QR codes using unicode block characters (▄█▀)
+    // OR raw Baileys QR data (long strings with commas/@)
     const isQrLine = (line: string): boolean => {
       const trimmed = line.trim();
-      // Match Baileys QR data: long strings with commas and/or @ signs
+      // Detect ASCII QR art: lines with unicode block characters
+      if (trimmed.includes("▄") || trimmed.includes("█") || trimmed.includes("▀")) {
+        return true;
+      }
+      // Match Baileys raw QR data: long strings with commas and/or @ signs
       if (trimmed.length > 50 && (trimmed.includes(",") || trimmed.includes("@"))) {
         // Exclude obvious log lines
         if (trimmed.startsWith("[") || trimmed.startsWith("ERROR") || trimmed.startsWith("WARN")) {
@@ -1016,6 +1021,26 @@ if (env.NODE_ENV === "development") {
   });
 
   logger.info("📊 Debug endpoint enabled: /debug/db");
+
+  // Debug endpoint to update deployment status (dev only)
+  app.post("/debug/deployment/:id/status", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      if (!status || !["creating", "running", "stopped", "failed", "restarting"].includes(status)) {
+        res.status(400).json({ error: "Invalid status" });
+        return;
+      }
+      const { deployments: deploymentsTable } = tables;
+      await (db as any).update(deploymentsTable)
+        .set({ status })
+        .where(eq(deploymentsTable.id, id));
+      res.json({ success: true, id, status });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+  logger.info("📊 Debug endpoint enabled: /debug/deployment/:id/status");
 
   // Mock K8s PVC debug endpoint - shows simulated file storage
   app.get("/debug/mock-pvc", async (_req, res) => {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import QRCode from "react-qr-code";
 import { useQrStream } from "@/hooks/useQrStream";
 import {
   Dialog,
@@ -72,11 +71,24 @@ export function WhatsAppQrModal({
             </div>
           )}
 
-          {/* QR Code display */}
+          {/* QR Code display - terminal style ASCII art */}
           {qrData && !connected && (
             <div className="flex flex-col items-center gap-5">
-              <div className="bg-white p-4 rounded-xl shadow-sm border">
-                <QRCode value={qrData} size={220} level="M" />
+              <div
+                className="bg-black p-2 rounded-lg shadow-lg overflow-hidden"
+                style={{ maxWidth: "100%", overflowX: "auto" }}
+              >
+                <pre
+                  className="text-white whitespace-pre select-none leading-none"
+                  style={{
+                    fontFamily: "'Courier New', Consolas, monospace",
+                    fontSize: "6px",
+                    lineHeight: "6px",
+                    letterSpacing: "0px",
+                  }}
+                >
+                  {qrData}
+                </pre>
               </div>
               <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
                 <li>Open <strong>WhatsApp</strong> on your phone</li>

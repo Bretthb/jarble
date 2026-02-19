@@ -55,6 +55,10 @@ if [ ! -f "$INIT_MARKER" ]; then
   echo "[entrypoint] Installing openclaw@latest..."
   npm install openclaw@latest 2>&1 | tee "$LOG_DIR/install.log"
 
+  # Enable bundled plugins (WhatsApp, Telegram, etc.)
+  echo "[entrypoint] Enabling WhatsApp plugin..."
+  npx openclaw plugins enable whatsapp 2>&1 || echo "[entrypoint] Warning: could not enable whatsapp plugin"
+
   # Write default soul.md if Jarble API hasn't written one yet
   if [ ! -f "$CONFIG_DIR/soul.md" ]; then
     echo "You are a helpful AI assistant." > "$CONFIG_DIR/soul.md"
@@ -63,6 +67,7 @@ if [ ! -f "$INIT_MARKER" ]; then
 
   # Generate initial OpenClaw config
   # This maps Jarble's env vars to OpenClaw's config format
+  # Includes WhatsApp channel with dmPolicy: pairing for QR flow
   cat > "$OPENCLAW_HOME/openclaw.json" << OCEOF
 {
   "agent": {
@@ -72,6 +77,19 @@ if [ ! -f "$INIT_MARKER" ]; then
   "gateway": {
     "port": 18789,
     "host": "0.0.0.0"
+  },
+  "plugins": {
+    "entries": {
+      "whatsapp": { "enabled": true },
+      "telegram": { "enabled": true },
+      "discord": { "enabled": true }
+    }
+  },
+  "channels": {
+    "whatsapp": {
+      "enabled": true,
+      "dmPolicy": "pairing"
+    }
   }
 }
 OCEOF

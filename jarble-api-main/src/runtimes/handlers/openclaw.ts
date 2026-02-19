@@ -75,9 +75,12 @@ export const openclawHandler: RuntimeHandler = {
     }
 
     // Channels section — build from platformCredentials
-    if (deployment.platformCredentials && Object.keys(deployment.platformCredentials).length > 0) {
-      const channels: Record<string, any> = {};
+    // Always include WhatsApp with dmPolicy: "pairing" for QR flow to work
+    const channels: Record<string, any> = {
+      whatsapp: { enabled: true, dmPolicy: "pairing" },
+    };
 
+    if (deployment.platformCredentials && Object.keys(deployment.platformCredentials).length > 0) {
       for (const [platformId, creds] of Object.entries(deployment.platformCredentials)) {
         const keyMap = PLATFORM_CREDENTIAL_KEYS[platformId];
         if (!keyMap) continue;
@@ -103,11 +106,9 @@ export const openclawHandler: RuntimeHandler = {
 
         channels[platformId] = channelConfig;
       }
-
-      if (Object.keys(channels).length > 0) {
-        openclawConfig.channels = channels;
-      }
     }
+
+    openclawConfig.channels = channels;
 
     // Always write openclaw.json if we have any config
     if (Object.keys(openclawConfig).length > 0) {

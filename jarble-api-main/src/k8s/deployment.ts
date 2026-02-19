@@ -1,4 +1,5 @@
 import * as k8s from "@kubernetes/client-node";
+import crypto from "crypto";
 import stream from "stream";
 import archiver from "archiver";
 import { logger } from "../utils/logger.js";
@@ -178,12 +179,15 @@ export async function createDeployment(
 
   // 2. Create Secret for deployment env vars
   // Base entries are always included; runtime handler provides extras (e.g. LLM keys)
+  // Generate a gateway token for OpenClaw auth
+  const gatewayToken = crypto.randomBytes(32).toString("hex");
   const baseSecretData: Record<string, string> = {
     DEPLOYMENT_ID: deploymentId,
     USER_ID: userId,
     DEPLOYMENT_NAME: config.name,
     TEMPLATE: config.template || "personal",
     RUNTIME: config.runtime || "openclaw",
+    OPENCLAW_GATEWAY_TOKEN: gatewayToken,
   };
 
   // Include JARBLE_API_URL for file watcher callback (PVC → DB sync)
@@ -234,6 +238,7 @@ export async function createDeployment(
             name: "data",
             persistentVolumeClaim: { claimName: `pvc-${deploymentId}` },
           }],
+          imagePullSecrets: [{ name: "ghcr-pull-secret" }],
         },
       },
     },

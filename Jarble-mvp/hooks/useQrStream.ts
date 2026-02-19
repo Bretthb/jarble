@@ -63,7 +63,8 @@ export function useQrStream({
       es.addEventListener("qr", (e) => {
         try {
           const data = JSON.parse(e.data);
-          setQrData(data.qr);
+          // Accumulate QR lines (ASCII art comes in multiple lines)
+          setQrData((prev) => prev ? prev + "\n" + data.qr : data.qr);
           setIsConnecting(false);
         } catch {}
       });
