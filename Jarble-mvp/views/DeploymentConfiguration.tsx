@@ -16,6 +16,7 @@ import {
   Loader2,
   XCircle,
   Download,
+  QrCode,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createElement } from "react";
@@ -30,6 +31,7 @@ import { SkillsTab } from "./deployment-config/SkillsTab";
 import { AdvancedTab } from "./deployment-config/AdvancedTab";
 import { LogsTab } from "./deployment-config/LogsTab";
 import { useStatusStream } from "@/hooks/useStatusStream";
+import { WhatsAppQrModal } from "@/components/WhatsAppQrModal";
 
 /** Decode a base64 string to a Blob and trigger a browser download. */
 function base64ToBlob(b64: string, mime = "application/zip"): Blob {
@@ -56,6 +58,7 @@ export default function DeploymentConfiguration() {
   const [activeTab, setActiveTab] = useState<Tab>("general");
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [showTestQr, setShowTestQr] = useState(false);
 
   const [formData, setFormData] = useState<DeploymentFormData>({
     name: "",
@@ -417,6 +420,29 @@ export default function DeploymentConfiguration() {
                   Delete
                 </button>
               </div>
+
+              {/* Dev testing — QR code */}
+              {process.env.NODE_ENV === "development" && (
+                <div className="pt-4 mt-4 border-t border-dashed border-border/40 space-y-0.5">
+                  <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">Dev Testing</p>
+                  <button
+                    onClick={() => setShowTestQr(true)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+                  >
+                    <QrCode className="w-4 h-4 shrink-0" />
+                    Test QR Code
+                  </button>
+                </div>
+              )}
+              <WhatsAppQrModal
+                deploymentId={id}
+                isOpen={showTestQr}
+                onClose={() => setShowTestQr(false)}
+                onConnected={() => {
+                  setShowTestQr(false);
+                  toast.success("WhatsApp connected!");
+                }}
+              />
             </nav>
           </aside>
 

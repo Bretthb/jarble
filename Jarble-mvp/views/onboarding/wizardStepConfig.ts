@@ -13,7 +13,7 @@
  * HOW TO ADD A NEW RUNTIME'S STEPS:
  *   1. Add an entry to RUNTIME_EXTRA_STEPS with the runtime's slug as key
  *   2. List the step objects in order — each needs { id, title, icon }
- *   3. If any step ID is new (not "llm", "deploy", or "whatsapp"),
+ *   3. If any step ID is new (not "llm", "deploy", or "telegram"),
  *      go to OnboardingWizard.tsx and add a render block:
  *        {currentStepId === "yourid" && <YourStepComponent />}
  *   4. Optionally add a canProceed case in OnboardingWizard.tsx if the
@@ -66,7 +66,7 @@ import {
   FileCode,
   Sparkles,
   Rocket,
-  MessageCircle,
+  Send,
   Settings,
   Link2,
   Shield,
@@ -117,11 +117,11 @@ export const UNIVERSAL_STEPS: WizardStepDef[] = [
 // in OnboardingWizard.tsx (see HOW TO at top of file).
 
 const RUNTIME_EXTRA_STEPS: Record<string, WizardStepDef[]> = {
-  // OpenClaw — AI WhatsApp bot, needs LLM config + WhatsApp connection
+  // OpenClaw — AI multi-platform bot, needs LLM config + Telegram connection
   openclaw: [
     { id: "llm", title: "LLM Setup", icon: Sparkles },
     { id: "deploy", title: "Deploy", icon: Rocket },
-    { id: "whatsapp", title: "Connect WhatsApp", icon: MessageCircle },
+    { id: "telegram", title: "Connect Telegram", icon: Send },
   ],
 
   // ZeroClaw — lightweight chatbot with LLM config
@@ -409,7 +409,7 @@ export function detectProviderFromKey(apiKey: string): LLMProviderDef["id"] | nu
  *
  * Example:
  *   getWizardSteps(null)        → [Name, Runtime]           (2 steps)
- *   getWizardSteps("openclaw")  → [Name, Runtime, LLM, Deploy, WhatsApp]  (5 steps)
+ *   getWizardSteps("openclaw")  → [Name, Runtime, LLM, Deploy, Telegram]  (5 steps)
  *   getWizardSteps("zeroclaw")  → [Name, Runtime, Deploy]   (3 steps)
  */
 export function getWizardSteps(runtimeSlug: string | null): WizardStepDef[] {

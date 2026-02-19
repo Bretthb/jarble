@@ -7,6 +7,7 @@ import pg from "pg";
 import * as mysqlSchema from "./schema.js";
 import * as sqliteSchema from "./schema.sqlite.js";
 import * as pgSchema from "./schema.pg.js";
+import path from "path";
 import { env } from "../utils/env.js";
 import { logger } from "../utils/logger.js";
 
@@ -28,11 +29,12 @@ let db: DbClient;
 let sqliteRaw: Database.Database | null = null;
 
 if (DB_PROVIDER === "sqlite") {
-  // In-memory SQLite for local testing
-  sqliteRaw = new Database(":memory:");
+  // File-based SQLite for local testing (persists across server restarts)
+  const dbPath = path.resolve("local.db");
+  sqliteRaw = new Database(dbPath);
   const sqliteDb = drizzleSqlite(sqliteRaw, { schema: sqliteSchema });
   db = sqliteDb as unknown as DbClient;
-  logger.info("Using in-memory SQLite database");
+  logger.info({ path: dbPath }, "Using file-based SQLite database");
 } else if (DB_PROVIDER === "postgres") {
   if (!env.DATABASE_URL) {
     throw new Error("DATABASE_URL is required for Postgres");

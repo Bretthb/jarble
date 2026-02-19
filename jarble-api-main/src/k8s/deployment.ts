@@ -971,6 +971,11 @@ async function execInPodWithStdin(
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
 
+  // Create a Readable stream from the content for stdin
+  const stdinStream = new stream.Readable();
+  stdinStream.push(stdinContent);
+  stdinStream.push(null); // signal EOF
+
   let stderrData = "";
   stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
 
@@ -982,7 +987,7 @@ async function execInPodWithStdin(
       command,
       stdout,
       stderr,
-      null,
+      stdinStream,
       false,
       (status) => {
         if (status.status === "Success") {
@@ -991,13 +996,7 @@ async function execInPodWithStdin(
           reject(new Error(`exec failed: ${status.message || stderrData || "unknown"}`));
         }
       }
-    ).then((ws) => {
-      // Pipe stdin content and close
-      if (ws) {
-        ws.send(Buffer.from(stdinContent));
-        ws.close();
-      }
-    }).catch(reject);
+    ).catch(reject);
   });
 }
 

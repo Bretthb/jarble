@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQrStream } from "@/hooks/useQrStream";
+import { parseAsciiQr, renderQrToCanvas } from "@/lib/asciiQrToCanvas";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,17 @@ export function WhatsAppQrModal({
 }: WhatsAppQrModalProps) {
   const { qrData, connected, timedOut, isConnecting, error, start, reset } =
     useQrStream({ deploymentId, enabled: isOpen });
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Render QR code to canvas whenever qrData changes
+  useEffect(() => {
+    if (qrData && canvasRef.current) {
+      const matrix = parseAsciiQr(qrData);
+      if (matrix.length > 0) {
+        renderQrToCanvas(matrix, canvasRef.current, 5, 4);
+      }
+    }
+  }, [qrData]);
 
   // Start streaming when modal opens
   useEffect(() => {
@@ -71,25 +83,14 @@ export function WhatsAppQrModal({
             </div>
           )}
 
-          {/* QR Code display - terminal style ASCII art */}
+          {/* QR Code display - canvas rendered */}
           {qrData && !connected && (
             <div className="flex flex-col items-center gap-5">
-              <div
-                className="bg-black p-2 rounded-lg shadow-lg overflow-hidden"
-                style={{ maxWidth: "100%", overflowX: "auto" }}
-              >
-                <pre
-                  className="text-white whitespace-pre select-none leading-none"
-                  style={{
-                    fontFamily: "'Courier New', Consolas, monospace",
-                    fontSize: "6px",
-                    lineHeight: "6px",
-                    letterSpacing: "0px",
-                  }}
-                >
-                  {qrData}
-                </pre>
-              </div>
+              <canvas
+                ref={canvasRef}
+                className="rounded-lg shadow-lg"
+                style={{ imageRendering: "pixelated", maxWidth: "100%", height: "auto" }}
+              />
               <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
                 <li>Open <strong>WhatsApp</strong> on your phone</li>
                 <li>

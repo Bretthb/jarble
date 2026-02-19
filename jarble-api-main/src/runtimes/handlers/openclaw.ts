@@ -75,10 +75,8 @@ export const openclawHandler: RuntimeHandler = {
     }
 
     // Channels section — build from platformCredentials
-    // Always include WhatsApp with dmPolicy: "pairing" for QR flow to work
-    const channels: Record<string, any> = {
-      whatsapp: { enabled: true, dmPolicy: "pairing" },
-    };
+    // Only include channels the user has explicitly configured
+    const channels: Record<string, any> = {};
 
     if (deployment.platformCredentials && Object.keys(deployment.platformCredentials).length > 0) {
       for (const [platformId, creds] of Object.entries(deployment.platformCredentials)) {
@@ -99,9 +97,9 @@ export const openclawHandler: RuntimeHandler = {
           channelConfig.dmPolicy = "pairing";
         }
 
-        // Discord/Telegram: default dmPolicy
+        // Discord/Telegram: always use "pairing" — auto-approve handles onboarding
         if (platformId === "discord" || platformId === "telegram") {
-          channelConfig.dmPolicy = channelConfig.dmPolicy || "pairing";
+          channelConfig.dmPolicy = "pairing";
         }
 
         channels[platformId] = channelConfig;
@@ -186,9 +184,16 @@ export const openclawHandler: RuntimeHandler = {
   getSecretEntries(deployment: DeploymentFields): Record<string, string> {
     const entries: Record<string, string> = {};
 
-    // LLM config
+    // LLM config — set the correct env var based on provider
     if (deployment.llmApiKey) {
-      entries["OPENROUTER_API_KEY"] = deployment.llmApiKey;
+      const providerEnvMap: Record<string, string> = {
+        openrouter: "OPENROUTER_API_KEY",
+        anthropic: "ANTHROPIC_API_KEY",
+        openai: "OPENAI_API_KEY",
+        google: "GOOGLE_API_KEY",
+      };
+      const envVar = providerEnvMap[deployment.llmProvider ?? "openrouter"] ?? "OPENROUTER_API_KEY";
+      entries[envVar] = deployment.llmApiKey;
     }
     if (deployment.llmProvider) {
       entries["LLM_PROVIDER"] = deployment.llmProvider;

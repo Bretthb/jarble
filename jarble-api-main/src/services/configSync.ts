@@ -101,7 +101,7 @@ async function buildDeploymentFields(
 export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
   try {
     // 1. Load deployment from DB
-    const deployment = await (db as any).query.deployments.findFirst({
+    let deployment = await (db as any).query.deployments.findFirst({
       where: eq(deployments.id, deploymentId),
     });
 
@@ -110,8 +110,30 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
       return;
     }
 
-    // 2. Only sync if deployment is running
-    if (deployment.status !== "running") {
+    // 2. If deployment is still creating, wait for it to become running
+    if (deployment.status === "creating") {
+      logger.info({ deploymentId }, "configSync→PVC: deployment creating, waiting for running...");
+      let became_running = false;
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const updated = await (db as any).query.deployments.findFirst({
+          where: eq(deployments.id, deploymentId),
+        });
+        if (!updated || updated.status === "failed" || updated.status === "stopped") {
+          logger.info({ deploymentId, status: updated?.status }, "configSync→PVC: deployment left creating state without running, skipping");
+          return;
+        }
+        if (updated.status === "running") {
+          deployment = updated;
+          became_running = true;
+          break;
+        }
+      }
+      if (!became_running) {
+        logger.warn({ deploymentId }, "configSync→PVC: timed out waiting for deployment to become running");
+        return;
+      }
+    } else if (deployment.status !== "running") {
       logger.info(
         { deploymentId, status: deployment.status },
         "configSync→PVC: deployment not running, skipping (config will apply on next deploy/start)"

@@ -66,6 +66,12 @@ export const openrouterRouter = router({
         return { valid: true };
       }
 
+      // Claude Max OAuth tokens (sk-ant-oat*) can't be validated via the
+      // standard API — accept them based on prefix format
+      if (input.provider === "anthropic" && input.apiKey.startsWith("sk-ant-oat")) {
+        return { valid: true };
+      }
+
       try {
         let url: string;
         let fetchOptions: RequestInit;
@@ -89,12 +95,19 @@ export const openrouterRouter = router({
 
           case "anthropic":
             url = "https://api.anthropic.com/v1/models";
+            // Claude Max OAuth tokens (sk-ant-oat*) use Bearer auth;
+            // standard API keys (sk-ant-api*) use x-api-key header
             fetchOptions = {
               method: "GET",
-              headers: {
-                "x-api-key": input.apiKey,
-                "anthropic-version": "2023-06-01",
-              },
+              headers: input.apiKey.startsWith("sk-ant-oat")
+                ? {
+                    Authorization: `Bearer ${input.apiKey}`,
+                    "anthropic-version": "2023-06-01",
+                  }
+                : {
+                    "x-api-key": input.apiKey,
+                    "anthropic-version": "2023-06-01",
+                  },
             };
             break;
 

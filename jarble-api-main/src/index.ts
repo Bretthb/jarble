@@ -702,19 +702,10 @@ app.get("/api/deployments/:id/whatsapp/qr", async (req, res) => {
 
     // Heuristic: detect QR output from OpenClaw
     // OpenClaw outputs ASCII QR codes using unicode block characters (▄█▀)
-    // OR raw Baileys QR data (long strings with commas/@)
     const isQrLine = (line: string): boolean => {
       const trimmed = line.trim();
       // Detect ASCII QR art: lines with unicode block characters
       if (trimmed.includes("▄") || trimmed.includes("█") || trimmed.includes("▀")) {
-        return true;
-      }
-      // Match Baileys raw QR data: long strings with commas and/or @ signs
-      if (trimmed.length > 50 && (trimmed.includes(",") || trimmed.includes("@"))) {
-        // Exclude obvious log lines
-        if (trimmed.startsWith("[") || trimmed.startsWith("ERROR") || trimmed.startsWith("WARN")) {
-          return false;
-        }
         return true;
       }
       return false;
@@ -727,6 +718,19 @@ app.get("/api/deployments/:id/whatsapp/qr", async (req, res) => {
              lower.includes("connection open") ||
              lower.includes("session saved") ||
              (lower.includes("logged in") && lower.includes("whatsapp"));
+    };
+
+    // Buffer QR lines so we send a complete QR code as one event
+    let qrBuffer: string[] = [];
+    let inQrBlock = false;
+
+    const flushQrBuffer = () => {
+      if (qrBuffer.length > 0 && !res.writableEnded) {
+        const qrAscii = qrBuffer.join("\n");
+        res.write(`event: qr\ndata: ${JSON.stringify({ qr: qrAscii })}\n\n`);
+        qrBuffer = [];
+      }
+      inQrBlock = false;
     };
 
     // Mark WhatsApp connected in DB
@@ -763,16 +767,25 @@ app.get("/api/deployments/:id/whatsapp/qr", async (req, res) => {
         if (res.writableEnded) return;
 
         if (isQrLine(line)) {
-          res.write(`event: qr\ndata: ${JSON.stringify({ qr: line.trim() })}\n\n`);
-        } else if (isConnectedLine(line)) {
-          void markConnected();
-          res.write(`event: connected\ndata: {}\n\n`);
+          qrBuffer.push(line.trim());
+          inQrBlock = true;
         } else {
-          // Forward as debug log line
-          res.write(`event: log\ndata: ${JSON.stringify({ line: line.trim() })}\n\n`);
+          // Non-QR line: flush any buffered QR block first
+          if (inQrBlock) flushQrBuffer();
+
+          if (isConnectedLine(line)) {
+            void markConnected();
+            res.write(`event: connected\ndata: {}\n\n`);
+          } else if (line.trim()) {
+            // Forward as debug log line
+            res.write(`event: log\ndata: ${JSON.stringify({ line: line.trim() })}\n\n`);
+          }
         }
       },
       (success, message) => {
+        // Flush any remaining QR buffer on exit
+        if (inQrBlock) flushQrBuffer();
+
         if (res.writableEnded) return;
         if (success && !connected) {
           void markConnected();
@@ -1004,6 +1017,7 @@ if (env.NODE_ENV === "development") {
       const runtimeCatalog = await db.query.runtimeCatalog.findMany();
       const skillsCatalog = await db.query.skillsCatalog.findMany();
       const deploymentSkills = await db.query.deploymentSkills.findMany();
+      const platCreds = await db.query.platformCredentials.findMany();
 
       res.json({
         _info: "Development only - shows all database tables",
@@ -1013,6 +1027,7 @@ if (env.NODE_ENV === "development") {
           runtimeCatalog: { count: runtimeCatalog.length, data: runtimeCatalog },
           skillsCatalog: { count: skillsCatalog.length, data: skillsCatalog },
           deploymentSkills: { count: deploymentSkills.length, data: deploymentSkills },
+          platformCredentials: { count: platCreds.length, data: platCreds },
         }
       });
     } catch (err) {

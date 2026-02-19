@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../middleware.js";
-import { tables } from "../../db/index.js";
+import { db, tables } from "../../db/index.js";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
 import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { syncConfigsToPvc } from "../../services/configSync.js";
+import { findPodForDeployment, execInPod } from "../../k8s/deployment.js";
 
 const { deployments, platformCredentials } = tables;
 
@@ -147,10 +148,10 @@ export const platformCredentialsRouter = router({
         }, "Platform credentials saved");
       }
 
-      // Config sync: push updated configs to PVC if deployment is running
-      if ((deployment as any).status === "running") {
-        void syncConfigsToPvc(input.deploymentId);
-      }
+      // Config sync: push updated configs to PVC
+      // Always fire — syncConfigsToPvc handles status checks internally
+      // and will wait for "creating" deployments to become "running"
+      void syncConfigsToPvc(input.deploymentId);
 
       return { success: true };
     }),
@@ -250,6 +251,71 @@ export const platformCredentialsRouter = router({
       }
 
       return { success: true };
+    }),
+
+  // Poll for pending Telegram pairing requests and auto-approve the first one
+  pollTelegramPairing: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify deployment ownership
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Find running pod for this deployment
+      const podName = await findPodForDeployment(input.deploymentId);
+      if (!podName) {
+        return { status: "pod_not_ready" as const };
+      }
+
+      try {
+        // List pending Telegram pairing requests
+        const listOutput = await execInPod(podName, [
+          "npx", "openclaw", "pairing", "list", "telegram", "--json",
+        ]);
+
+        let requests: Array<{ code: string; status?: string }>;
+        try {
+          requests = JSON.parse(listOutput);
+        } catch {
+          // No valid JSON — likely no requests yet or command not available
+          return { status: "waiting" as const };
+        }
+
+        if (!Array.isArray(requests) || requests.length === 0) {
+          return { status: "waiting" as const };
+        }
+
+        // Find the first pending request
+        const pending = requests.find((r) => !r.status || r.status === "pending");
+        if (!pending) {
+          // Check if any were already approved
+          const approved = requests.find((r) => r.status === "approved");
+          if (approved) {
+            return { status: "paired" as const };
+          }
+          return { status: "waiting" as const };
+        }
+
+        // Auto-approve the first pending request
+        await execInPod(podName, [
+          "npx", "openclaw", "pairing", "approve", "telegram", pending.code, "--notify",
+        ]);
+
+        logger.info({
+          deploymentId: input.deploymentId,
+          code: pending.code,
+        }, "Auto-approved Telegram pairing request during onboarding");
+
+        return { status: "paired" as const };
+      } catch (err) {
+        logger.error({ deploymentId: input.deploymentId, err }, "Failed to poll Telegram pairing");
+        return { status: "error" as const, message: String(err) };
+      }
     }),
 
   // Test connection (placeholder — validates required fields are present)

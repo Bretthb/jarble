@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
@@ -15,12 +15,10 @@ import {
   CheckCircle2,
   Loader2,
   Bot,
-  MessageCircle,
+  Send,
   Rocket,
   PartyPopper,
   HelpCircle,
-  Smartphone,
-  RefreshCw,
   Cpu,
   HardDrive,
   MemoryStick,
@@ -38,7 +36,6 @@ import {
   Plus,
 } from "lucide-react";
 import QRCode from "react-qr-code";
-import { useQrStream } from "@/hooks/useQrStream";
 import { DeploymentLoader } from "@/components/WizardLoader";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { motion, AnimatePresence } from "framer-motion";
@@ -101,7 +98,7 @@ export default function OnboardingWizard() {
   const [creditLimitDollars, setCreditLimitDollars] = useState<number>(DEFAULT_CREDIT_PLAN);
   const [linkToDeploymentId, setLinkToDeploymentId] = useState<string | null>(null);
   const [keyValidation, setKeyValidation] = useState<KeyValidationStatus>("idle");
-  const [whatsappConnected, setWhatsappConnected] = useState(false);
+  const [telegramConnected, setTelegramConnected] = useState(false);
   const [createdDeploymentId, setCreatedDeploymentId] = useState<string | null>(null);
 
   // Hardware config (optional overrides — null means "use runtime catalog defaults")
@@ -226,8 +223,8 @@ export default function OnboardingWizard() {
         return keyValidation === "valid";
       case "deploy":
         return true;
-      case "whatsapp":
-        return whatsappConnected;
+      case "telegram":
+        return telegramConnected;
       default:
         return true;
     }
@@ -273,7 +270,7 @@ export default function OnboardingWizard() {
           storageMb: storageMb || undefined,
         });
       }
-    } else if (currentStepId === "whatsapp") {
+    } else if (currentStepId === "telegram") {
       toast.success("Setup complete! Your deployment is ready.");
       router.replace("/dashboard");
     } else if (currentStepIndex < steps.length - 1) {
@@ -452,10 +449,10 @@ export default function OnboardingWizard() {
                   emailVerified={!!user?.email_verified}
                 />
               )}
-              {currentStepId === "whatsapp" && (
-                <StepConnectWhatsApp
-                  connected={whatsappConnected}
-                  setConnected={setWhatsappConnected}
+              {currentStepId === "telegram" && (
+                <StepConnectTelegram
+                  connected={telegramConnected}
+                  setConnected={setTelegramConnected}
                   deploymentId={createdDeploymentId}
                 />
               )}
@@ -491,7 +488,7 @@ export default function OnboardingWizard() {
                   <Rocket className="w-4 h-4 ml-2" />
                 </>
               )
-            ) : currentStepId === "whatsapp" ? (
+            ) : currentStepId === "telegram" ? (
               <>
                 Finish Setup
                 <PartyPopper className="w-4 h-4 ml-2" />
@@ -1479,7 +1476,7 @@ function StepDeploy({
             <Rocket className="w-4 h-4 text-primary" />
             <p className="text-sm">
               Click &quot;Deploy&quot; to launch
-              {runtime?.slug === "openclaw" ? ", then connect WhatsApp!" : "!"}
+              {runtime?.slug === "openclaw" ? ", then connect Telegram!" : "!"}
             </p>
           </div>
         </>
@@ -1488,9 +1485,11 @@ function StepDeploy({
   );
 }
 
-// ─── Step: Connect WhatsApp ──────────────────────────────────────────
+// ─── Step: Connect Telegram ──────────────────────────────────────────
 
-function StepConnectWhatsApp({
+type TelegramPairingPhase = "input" | "scan_qr" | "polling" | "paired" | "error";
+
+function StepConnectTelegram({
   connected,
   setConnected,
   deploymentId,
@@ -1499,143 +1498,320 @@ function StepConnectWhatsApp({
   setConnected: (connected: boolean) => void;
   deploymentId: string | null;
 }) {
-  const {
-    qrData,
-    connected: qrConnected,
-    timedOut,
-    isConnecting,
-    error,
-    start,
-  } = useQrStream({
-    deploymentId: deploymentId || "",
-    enabled: !!deploymentId,
-  });
+  const [botToken, setBotToken] = useState("");
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [botUsername, setBotUsername] = useState<string | null>(null);
+  const [phase, setPhase] = useState<TelegramPairingPhase>("input");
+  const [pairingError, setPairingError] = useState<string | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-start QR stream when deploymentId becomes available
-  useEffect(() => {
-    if (deploymentId && !connected) {
-      start();
-    }
-  }, [deploymentId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveMutation = trpc.platformCredentials.save.useMutation();
+  const pollMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
 
-  // When QR stream reports connected, update parent state
+  // Cleanup polling on unmount
   useEffect(() => {
-    if (qrConnected) {
-      setConnected(true);
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
     }
-  }, [qrConnected, setConnected]);
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback(() => {
+    if (!deploymentId) return;
+
+    setPhase("polling");
+    setPairingError(null);
+
+    // Poll every 3 seconds
+    pollingRef.current = setInterval(async () => {
+      try {
+        const result = await pollMutation.mutateAsync({ deploymentId });
+
+        if (result.status === "paired") {
+          stopPolling();
+          setPhase("paired");
+          setConnected(true);
+          toast.success("Telegram paired successfully!");
+        }
+        // pod_not_ready and waiting: keep polling
+      } catch {
+        // Network errors — keep polling, don't fail hard
+      }
+    }, 3000);
+
+    // 2-minute timeout
+    timeoutRef.current = setTimeout(() => {
+      stopPolling();
+      setPhase("error");
+      setPairingError("Pairing timed out. The bot may still be starting up.");
+    }, 2 * 60 * 1000);
+  }, [deploymentId, pollMutation, stopPolling, setConnected]);
+
+  const handleValidate = async () => {
+    const token = botToken.trim();
+    if (!token) return;
+
+    setIsValidating(true);
+    setValidationError(null);
+
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+      const data = await res.json();
+
+      if (!data.ok) {
+        setValidationError("Invalid bot token. Please check and try again.");
+        setIsValidating(false);
+        return;
+      }
+
+      const username = data.result.username as string;
+      setBotUsername(username);
+
+      // Save token with dmPolicy "pairing" — auto-approve handles onboarding
+      if (deploymentId) {
+        await saveMutation.mutateAsync({
+          deploymentId,
+          platformId: "telegram",
+          credentials: { botToken: token, dmPolicy: "pairing" },
+        });
+      }
+
+      setPhase("scan_qr");
+      toast.success(`Bot @${username} validated! Now scan the QR code and send a message.`);
+    } catch {
+      setValidationError("Failed to validate token. Check your connection and try again.");
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  const handleRetry = () => {
+    stopPolling();
+    setPairingError(null);
+    startPolling();
+  };
+
+  const handleSkip = () => {
+    stopPolling();
+    setConnected(true);
+    toast("Skipped pairing — you can pair manually later from the dashboard.");
+  };
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold mb-2">Connect WhatsApp</h2>
+        <h2 className="text-2xl font-bold mb-2">Connect Telegram</h2>
         <p className="text-muted-foreground">
-          Link your WhatsApp to chat with your deployment
+          Create a Telegram bot and link it to your deployment
         </p>
       </div>
-      {connected ? (
-        <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center">
-          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+
+      {/* Paired state */}
+      {phase === "paired" && botUsername ? (
+        <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
+          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
             <CheckCircle2 className="w-10 h-10 text-primary" />
           </div>
-          <h3 className="text-xl font-semibold text-primary mb-2">
-            WhatsApp Connected!
-          </h3>
-          <p className="text-muted-foreground text-sm">
-            Your WhatsApp account is linked and ready to go
-          </p>
+          <div>
+            <h3 className="text-xl font-semibold text-primary mb-1">
+              Paired!
+            </h3>
+            <p className="text-muted-foreground text-sm">
+              Your bot <strong>@{botUsername}</strong> is paired and ready to chat
+            </p>
+          </div>
+          <div className="flex flex-col items-center gap-3">
+            <div className="bg-white p-4 rounded-xl shadow-sm inline-block">
+              <QRCode value={`https://t.me/${botUsername}`} size={160} level="M" />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Scan to open <strong>@{botUsername}</strong> in Telegram
+            </p>
+          </div>
         </div>
-      ) : (
-        <>
-          <div className="bg-secondary/50 rounded-lg p-6">
-            <div className="flex flex-col md:flex-row gap-6 items-center">
-              <div className="relative">
-                {/* QR Code display */}
-                {qrData && (
-                  <div className="bg-white p-4 rounded-xl shadow-sm">
-                    <QRCode value={qrData} size={192} level="M" />
-                  </div>
-                )}
+      ) : (phase === "scan_qr" || phase === "polling" || phase === "error") && botUsername ? (
+        /* QR scan + polling state */
+        <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
+          <div className="flex flex-col items-center gap-3">
+            <div className="bg-white p-4 rounded-xl shadow-sm inline-block">
+              <QRCode value={`https://t.me/${botUsername}`} size={180} level="M" />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Scan to open <strong>@{botUsername}</strong> in Telegram
+            </p>
+          </div>
 
-                {/* Loading state */}
-                {isConnecting && !qrData && (
-                  <div className="w-48 h-48 bg-secondary/80 rounded-lg flex flex-col items-center justify-center gap-3">
-                    <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground">Generating QR...</p>
-                  </div>
-                )}
+          {phase === "scan_qr" && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium">
+                Open the bot and send any message
+              </p>
+              <p className="text-xs text-muted-foreground">
+                The bot will reply with a pairing code — we&apos;ll auto-approve it for you.
+              </p>
+              <Button
+                onClick={startPolling}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                <Send className="w-4 h-4 mr-2" />
+                I Sent a Message
+              </Button>
+            </div>
+          )}
 
-                {/* No deployment yet */}
-                {!deploymentId && !isConnecting && (
-                  <div className="w-48 h-48 bg-secondary/80 rounded-lg flex items-center justify-center">
-                    <p className="text-xs text-muted-foreground text-center px-4">
-                      Waiting for deployment...
-                    </p>
-                  </div>
-                )}
-
-                {/* Timeout */}
-                {timedOut && (
-                  <div className="w-48 h-48 bg-secondary/80 rounded-lg flex flex-col items-center justify-center gap-3">
-                    <AlertCircle className="w-8 h-8 text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground">QR expired</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => start()}
-                      className="bg-white text-black hover:bg-gray-100"
-                    >
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Refresh QR
-                    </Button>
-                  </div>
-                )}
-
-                {/* Error */}
-                {error && !timedOut && (
-                  <div className="w-48 h-48 bg-secondary/80 rounded-lg flex flex-col items-center justify-center gap-3 px-4">
-                    <AlertCircle className="w-8 h-8 text-destructive" />
-                    <p className="text-xs text-destructive text-center">{error}</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => start()}
-                    >
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Retry
-                    </Button>
-                  </div>
-                )}
+          {phase === "polling" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-center gap-2">
+                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                <p className="text-sm font-medium">Waiting for pairing request...</p>
               </div>
-              <div className="flex-1 space-y-4">
-                <h3 className="font-semibold flex items-center gap-2">
-                  <Smartphone className="w-5 h-5 text-primary" />
-                  Scan with WhatsApp
-                </h3>
-                <ol className="text-sm text-muted-foreground space-y-3 list-decimal list-inside">
-                  <li>Open WhatsApp on your phone</li>
-                  <li>
-                    Tap <strong>Menu</strong> or <strong>Settings</strong> and
-                    select <strong>Linked Devices</strong>
-                  </li>
-                  <li>
-                    Tap <strong>Link a Device</strong>
-                  </li>
-                  <li>Point your phone at this QR code to scan</li>
-                </ol>
+              <p className="text-xs text-muted-foreground">
+                Send any message to <strong>@{botUsername}</strong> on Telegram.
+                We&apos;ll auto-approve once the bot receives it.
+              </p>
+            </div>
+          )}
+
+          {phase === "error" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-center gap-2 text-red-400">
+                <AlertCircle className="w-5 h-5" />
+                <p className="text-sm font-medium">{pairingError}</p>
+              </div>
+              <div className="flex items-center justify-center gap-3">
+                <Button variant="outline" onClick={handleRetry} className="border-border hover:bg-secondary/80">
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  Retry
+                </Button>
+                <button
+                  onClick={handleSkip}
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  Skip for now
+                </button>
               </div>
             </div>
+          )}
+        </div>
+      ) : (
+        /* Input state — create bot + enter token */
+        <>
+          {/* Step 1: Create bot with BotFather */}
+          <div className="bg-secondary/50 rounded-lg p-6 space-y-4">
+            <h3 className="font-semibold flex items-center gap-2">
+              <Send className="w-5 h-5 text-primary" />
+              Create Your Telegram Bot
+            </h3>
+            <ol className="text-sm text-muted-foreground space-y-3 list-decimal list-inside">
+              <li>
+                Open{" "}
+                <a
+                  href="https://t.me/BotFather"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline inline-flex items-center gap-1"
+                >
+                  @BotFather
+                  <ExternalLink className="w-3 h-3" />
+                </a>{" "}
+                in Telegram
+              </li>
+              <li>
+                Send <strong>/newbot</strong> and follow the prompts to pick a name
+              </li>
+              <li>
+                Copy the <strong>API token</strong> BotFather gives you
+              </li>
+            </ol>
+            <a
+              href="https://t.me/BotFather"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block"
+            >
+              <Button type="button" variant="outline" className="border-border hover:bg-secondary/80">
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Open BotFather
+              </Button>
+            </a>
           </div>
+
+          {/* Step 2: Paste token + validate */}
+          <div className="space-y-3">
+            <Label htmlFor="telegramToken" className="block text-sm font-medium">
+              Bot Token
+            </Label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Input
+                  id="telegramToken"
+                  type="password"
+                  value={botToken}
+                  onChange={(e) => {
+                    setBotToken(e.target.value);
+                    setValidationError(null);
+                  }}
+                  className={`bg-secondary/50 border-border text-foreground pr-10 ${
+                    validationError ? "border-red-500 focus:ring-red-500" : ""
+                  }`}
+                  placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                />
+                {validationError && (
+                  <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-400" />
+                )}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleValidate}
+                disabled={!botToken.trim() || isValidating}
+                className="border-border hover:bg-secondary/80 shrink-0"
+              >
+                {isValidating ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  "Validate"
+                )}
+              </Button>
+            </div>
+
+            {validationError && (
+              <p className="text-xs text-red-400 flex items-center gap-1.5">
+                <AlertCircle className="w-3 h-3" />
+                {validationError}
+              </p>
+            )}
+            {!validationError && botToken.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Click &quot;Validate&quot; to verify your bot token.
+              </p>
+            )}
+          </div>
+
           <div className="grid md:grid-cols-2 gap-4">
             <div className="flex items-start gap-3 p-4 rounded-lg bg-secondary/50 border border-border">
               <HelpCircle className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm text-foreground font-medium">
-                  Why WhatsApp?
+                  Why Telegram?
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  WhatsApp lets you chat with your deployment from your phone
-                  instantly. No app downloads needed!
+                  Telegram bots are instant to set up — just create one with
+                  BotFather, paste the token, and you&apos;re chatting. No phone
+                  number or QR scan required.
                 </p>
               </div>
             </div>
@@ -1643,11 +1819,11 @@ function StepConnectWhatsApp({
               <ShieldCheck className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm text-foreground font-medium">
-                  Your privacy is protected
+                  Your token is encrypted
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Messages are end-to-end encrypted. We never store your
-                  personal chats.
+                  Your bot token is AES-256 encrypted at rest and never exposed
+                  in the dashboard.
                 </p>
               </div>
             </div>
