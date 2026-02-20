@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,11 +24,16 @@ import {
   Save,
   X,
   Smartphone,
+  Link2,
+  AlertCircle,
+  RotateCcw,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { PLATFORM_CONFIGS } from "./types";
 import type { PlatformConfig, PlatformsTabProps } from "./types";
 import { WhatsAppQrModal } from "@/components/WhatsAppQrModal";
+
+type TelegramPairingPhase = "connecting" | "paired" | "error";
 
 export function PlatformsTab({ formData, updateFormData, deploymentId }: PlatformsTabProps) {
   const [configModalOpen, setConfigModalOpen] = useState(false);
@@ -36,6 +41,76 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
   const [platformCredentials, setPlatformCredentials] = useState<Record<string, string>>({});
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   const [showQrPairing, setShowQrPairing] = useState(false);
+
+  // ── Telegram pairing state ──────────────────────────────────────────
+  const [telegramPairingOpen, setTelegramPairingOpen] = useState(false);
+  const [telegramPhase, setTelegramPhase] = useState<TelegramPairingPhase>("connecting");
+  const [telegramPodReady, setTelegramPodReady] = useState(false);
+  const [telegramError, setTelegramError] = useState<string | null>(null);
+  const telegramPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const telegramTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const telegramPollInFlightRef = useRef(false);
+  const pollTelegramMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
+
+  const stopTelegramPolling = useCallback(() => {
+    if (telegramPollingRef.current) { clearInterval(telegramPollingRef.current); telegramPollingRef.current = null; }
+    if (telegramTimeoutRef.current) { clearTimeout(telegramTimeoutRef.current); telegramTimeoutRef.current = null; }
+  }, []);
+
+  const startTelegramPolling = useCallback(() => {
+    setTelegramPhase("connecting");
+    setTelegramPodReady(false);
+    setTelegramError(null);
+
+    telegramPollInFlightRef.current = false;
+    telegramPollingRef.current = setInterval(async () => {
+      // Skip this tick if a previous poll is still in flight (prevents concurrent execs)
+      if (telegramPollInFlightRef.current) return;
+      telegramPollInFlightRef.current = true;
+      try {
+        const result = await pollTelegramMutation.mutateAsync({ deploymentId });
+        if (result.status === "paired") {
+          stopTelegramPolling();
+          setTelegramPhase("paired");
+          toast.success("Telegram paired successfully!");
+        } else if (result.status === "waiting") {
+          setTelegramPodReady(true);
+        } else if (result.status === "pod_not_ready") {
+          setTelegramPodReady(false);
+        } else if (result.status === "error") {
+          stopTelegramPolling();
+          setTelegramPhase("error");
+          setTelegramError((result as any).message || "An error occurred while pairing. Check the API logs.");
+        }
+      } catch {
+        // keep polling on network errors
+      } finally {
+        telegramPollInFlightRef.current = false;
+      }
+    }, 3000);
+
+    // 8-minute timeout — first-boot npm install (2-3 min) + configSync restart (1-2 min)
+    telegramTimeoutRef.current = setTimeout(() => {
+      stopTelegramPolling();
+      setTelegramPhase("error");
+      setTelegramError("Timed out waiting for a pairing request. Make sure the bot is running and send it a message.");
+    }, 8 * 60 * 1000);
+  }, [deploymentId, pollTelegramMutation, stopTelegramPolling]);
+
+  const openTelegramPairing = useCallback(() => {
+    setTelegramPairingOpen(true);
+    startTelegramPolling();
+  }, [startTelegramPolling]);
+
+  const closeTelegramPairing = useCallback(() => {
+    stopTelegramPolling();
+    setTelegramPairingOpen(false);
+  }, [stopTelegramPolling]);
+
+  // Stop polling when modal closes
+  useEffect(() => {
+    if (!telegramPairingOpen) stopTelegramPolling();
+  }, [telegramPairingOpen, stopTelegramPolling]);
 
   // ── API queries & mutations ─────────────────────────────────────────
   const credentialsQuery = trpc.platformCredentials.getByDeployment.useQuery(
@@ -197,6 +272,17 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {platform.id === "telegram" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={openTelegramPairing}
+                        className="border-border hover:bg-secondary/80"
+                      >
+                        <Link2 className="w-4 h-4 mr-1" />
+                        Pair
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -270,6 +356,93 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
           ))}
         </div>
       </div>
+
+      {/* Telegram Pairing Modal */}
+      <Dialog open={telegramPairingOpen} onOpenChange={(open) => { if (!open) closeTelegramPairing(); }}>
+        <DialogContent className="bg-card border-border text-foreground max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <span className="text-2xl">✈️</span>
+              Pair with Telegram
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Link your Telegram account to start chatting with your bot
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-4">
+            {telegramPhase === "connecting" && !telegramPodReady && (
+              <div className="flex flex-col items-center gap-4 py-6">
+                <Loader2 className="w-10 h-10 animate-spin text-primary" />
+                <div className="text-center">
+                  <p className="font-medium text-sm">Starting your bot...</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This may take a minute on first boot
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {telegramPhase === "connecting" && telegramPodReady && (
+              <div className="flex flex-col items-center gap-4 py-4">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-3xl">
+                  ✈️
+                </div>
+                <div className="text-center">
+                  <p className="font-medium">Open Telegram and message your bot</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Send any message to your bot — it will auto-approve the pairing request
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Waiting for pairing request...
+                </div>
+              </div>
+            )}
+
+            {telegramPhase === "paired" && (
+              <div className="flex flex-col items-center gap-4 py-6">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                  <CheckCircle2 className="w-10 h-10 text-primary" />
+                </div>
+                <div className="text-center">
+                  <p className="font-medium text-lg">Paired successfully!</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Your Telegram account is now linked to this bot
+                  </p>
+                </div>
+                <Button onClick={closeTelegramPairing} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                  Done
+                </Button>
+              </div>
+            )}
+
+            {telegramPhase === "error" && (
+              <div className="flex flex-col items-center gap-4 py-6">
+                <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <AlertCircle className="w-10 h-10 text-destructive" />
+                </div>
+                <div className="text-center">
+                  <p className="font-medium">Pairing failed</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {telegramError}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={closeTelegramPairing} className="border-border">
+                    Cancel
+                  </Button>
+                  <Button onClick={startTelegramPolling} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Retry
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Configuration Modal */}
       <Dialog open={configModalOpen} onOpenChange={setConfigModalOpen}>

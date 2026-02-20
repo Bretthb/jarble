@@ -127,7 +127,7 @@ export async function createDeployment(
       config: {
         image: config.image || DEFAULT_IMAGE,
         cpuLimit: config.cpuLimit || "2.0",
-        memoryMb: config.memoryMb || 2048,
+        memoryMb: config.memoryMb || 3072,
         storageMb: config.storageMb || 30,
       },
     };
@@ -150,7 +150,7 @@ export async function createDeployment(
 
   // Derive resource values from config (with sensible defaults)
   const cpuLimit = config.cpuLimit || "2.0";
-  const memoryMb = config.memoryMb || 2048;
+  const memoryMb = config.memoryMb || 3072;
   const storageGbVal = config.storageMb || 30; // "storageMb" is actually GB (historical naming)
 
   // Convert to K8s resource units
@@ -231,7 +231,7 @@ export async function createDeployment(
           initContainers: [{
             name: "fix-permissions",
             image: "busybox:1.36",
-            command: ["sh", "-c", "chown -R 1000:1000 /data && chmod -R 755 /data"],
+            command: ["sh", "-c", "mkdir -p /data/runtime /data/config /data/logs /data/.openclaw /data/.npm && chown -R 1000:1000 /data && chmod -R 755 /data"],
             securityContext: {
               runAsUser: 0,  // Run as root to fix permissions
             },
@@ -268,7 +268,7 @@ export async function createDeployment(
               tcpSocket: {
                 port: config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789,
               },
-              initialDelaySeconds: 120, // Wait 2 min for first boot (npm install)
+              initialDelaySeconds: 180, // Wait 3 min for first boot (npm install)
               periodSeconds: 30,
               timeoutSeconds: 5,
               failureThreshold: 3,
@@ -278,7 +278,7 @@ export async function createDeployment(
               tcpSocket: {
                 port: config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789,
               },
-              initialDelaySeconds: 60, // Wait 1 min before expecting readiness
+              initialDelaySeconds: 20, // First check after 20s — cached restarts are fast
               periodSeconds: 10,
               timeoutSeconds: 5,
               failureThreshold: 3,
@@ -315,30 +315,31 @@ export async function createDeployment(
     throw err;
   }
 
-  // 4. Write initial config files to PVC (if any provided by the runtime handler)
+  // 4. Write initial config files to PVC (fire-and-forget — don't block deployment return)
+  // On first boot, npm install takes ~3 min so the pod won't be ready for a while.
+  // We write configs in the background when the pod becomes ready.
   if (config.initialConfigs && config.initialConfigs.length > 0) {
-    try {
-      // Wait for pod to be ready (poll every 2s, max 60s)
-      let ready = false;
-      for (let i = 0; i < 30; i++) {
-        const status = await getDeploymentPodStatus(deploymentId);
-        if (status.status === "running") { ready = true; break; }
-        if (status.status === "failed") {
-          logger.warn({ deploymentId }, "Pod failed to start, skipping initial config write");
-          break;
+    const configs = config.initialConfigs;
+    void (async () => {
+      try {
+        for (let i = 0; i < 150; i++) { // 150 × 2s = 5 min max
+          const status = await getDeploymentPodStatus(deploymentId);
+          if (status.status === "running") {
+            await writeConfigsToPvc(deploymentId, configs);
+            logger.info({ deploymentId }, "Initial config files written to PVC (background)");
+            return;
+          }
+          if (status.status === "failed" || status.status === "not_found") {
+            logger.warn({ deploymentId }, "Pod failed/gone, skipping initial config write");
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 2000));
         }
-        await new Promise((r) => setTimeout(r, 2000));
+        logger.warn({ deploymentId }, "Pod not ready after 5 min, skipping initial config write");
+      } catch (err) {
+        logger.error({ deploymentId, err }, "Failed to write initial config files (background)");
       }
-
-      if (ready) {
-        await writeConfigsToPvc(deploymentId, config.initialConfigs);
-      } else {
-        logger.warn({ deploymentId }, "Pod not ready after 60s, skipping initial config write");
-      }
-    } catch (err) {
-      // Don't fail the entire deployment if config write fails — deployment still exists
-      logger.error({ deploymentId, err }, "Failed to write initial config files");
-    }
+    })();
   }
 
   logger.info({ deploymentId }, "Deployment created successfully");
@@ -440,7 +441,7 @@ export async function restartDeployment(deploymentId: string): Promise<void> {
 // ── Delete ──────────────────────────────────────────────────────────────
 
 export async function deleteDeployment(deploymentId: string): Promise<void> {
-  logger.info({ deploymentId }, "Deleting deployment");
+  logger.info({ deploymentId }, "deleteDeployment: starting");
 
   if (MOCK_K8S) {
     mockStore.delete(deploymentId);
@@ -448,26 +449,86 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
     return;
   }
 
+  // Step 1: Scale to 0 so the pod releases the RWO PVC before we delete it.
+  logger.debug({ deploymentId }, "deleteDeployment: scaling to 0 replicas");
   try {
-    // Delete in order: Deployment, Secret, PVC
-    await appsApi!.deleteNamespacedDeployment(`dep-${deploymentId}`, NAMESPACE);
+    await appsApi!.patchNamespacedDeployment(
+      `dep-${deploymentId}`,
+      NAMESPACE,
+      { spec: { replicas: 0 } },
+      undefined, undefined, undefined, undefined, undefined,
+      { headers: { "Content-Type": "application/strategic-merge-patch+json" } }
+    );
+    logger.debug({ deploymentId }, "deleteDeployment: scaled to 0, waiting for pod termination");
+
+    // Step 2: Wait for pod to terminate (max 30s) before deleting PVC
+    const maxWaitMs = 30_000;
+    const pollMs = 2_000;
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+      const status = await getDeploymentPodStatus(deploymentId);
+      logger.debug({ deploymentId, podStatus: status.status }, "deleteDeployment: polling pod status");
+      if (status.status === "not_found") {
+        logger.debug({ deploymentId }, "deleteDeployment: pod terminated");
+        break;
+      }
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
   } catch (err: unknown) {
-    if (err instanceof Object && "statusCode" in err && err.statusCode !== 404) throw err;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    if (statusCode === 404) {
+      logger.debug({ deploymentId }, "deleteDeployment: K8s deployment not found (already stopped/never created), skipping scale-down");
+    } else {
+      logger.warn({ deploymentId, err }, "deleteDeployment: failed to scale down before delete — proceeding anyway");
+    }
   }
 
+  // Step 3: Delete K8s Deployment
+  logger.debug({ deploymentId }, "deleteDeployment: deleting K8s Deployment");
+  try {
+    await appsApi!.deleteNamespacedDeployment(`dep-${deploymentId}`, NAMESPACE);
+    logger.debug({ deploymentId }, "deleteDeployment: K8s Deployment deleted");
+  } catch (err: unknown) {
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    if (statusCode === 404) {
+      logger.debug({ deploymentId }, "deleteDeployment: K8s Deployment already gone (404)");
+    } else {
+      logger.error({ deploymentId, err }, "deleteDeployment: failed to delete K8s Deployment");
+      throw err;
+    }
+  }
+
+  // Step 4: Delete K8s Secret
+  logger.debug({ deploymentId }, "deleteDeployment: deleting K8s Secret");
   try {
     await coreApi!.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
+    logger.debug({ deploymentId }, "deleteDeployment: K8s Secret deleted");
   } catch (err: unknown) {
-    if (err instanceof Object && "statusCode" in err && err.statusCode !== 404) throw err;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    if (statusCode === 404) {
+      logger.debug({ deploymentId }, "deleteDeployment: K8s Secret already gone (404)");
+    } else {
+      logger.error({ deploymentId, err }, "deleteDeployment: failed to delete K8s Secret");
+      throw err;
+    }
   }
 
+  // Step 5: Delete PVC (data is gone — intentional)
+  logger.debug({ deploymentId }, "deleteDeployment: deleting K8s PVC");
   try {
     await coreApi!.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
+    logger.debug({ deploymentId }, "deleteDeployment: K8s PVC deleted");
   } catch (err: unknown) {
-    if (err instanceof Object && "statusCode" in err && err.statusCode !== 404) throw err;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    if (statusCode === 404) {
+      logger.debug({ deploymentId }, "deleteDeployment: K8s PVC already gone (404)");
+    } else {
+      logger.error({ deploymentId, err }, "deleteDeployment: failed to delete K8s PVC");
+      throw err;
+    }
   }
 
-  logger.info({ deploymentId }, "Deployment deleted");
+  logger.info({ deploymentId }, "deleteDeployment: all K8s resources deleted");
 }
 
 export interface DeploymentPodStatus {
@@ -906,9 +967,19 @@ export async function execInPod(podName: string, command: string[]): Promise<str
 
 /**
  * Find the running pod for a deployment.
- * Returns the pod name or null if no running pod exists.
+ * Returns the pod name or null if no pod exists.
+ *
+ * @param requireReady - if true (default), pod must pass readiness probe.
+ *   For exec operations (e.g. pairing commands), set false — the pod just needs
+ *   to be in Running phase so we can exec into it. The readiness probe (TCP 18789)
+ *   may still be failing even after OpenClaw has started and is responding to messages.
  */
-export async function findPodForDeployment(deploymentId: string): Promise<string | null> {
+export async function findPodForDeployment(
+  deploymentId: string,
+  opts?: { requireReady?: boolean }
+): Promise<string | null> {
+  const requireReady = opts?.requireReady ?? true;
+
   if (MOCK_K8S) {
     const mockDep = mockStore.get(deploymentId);
     if (!mockDep || mockDep.status !== "running") {
@@ -930,7 +1001,8 @@ export async function findPodForDeployment(deploymentId: string): Promise<string
 
   const pod = pods.body.items[0];
   const podName = pod.metadata?.name;
-  const isRunning = pod.status?.phase === "Running" && pod.status?.containerStatuses?.[0]?.ready;
+  const isRunning = pod.status?.phase === "Running" &&
+    (requireReady ? pod.status?.containerStatuses?.[0]?.ready : true);
 
   if (!podName || !isRunning) return null;
   return podName;

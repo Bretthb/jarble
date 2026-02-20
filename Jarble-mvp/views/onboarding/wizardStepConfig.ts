@@ -117,11 +117,11 @@ export const UNIVERSAL_STEPS: WizardStepDef[] = [
 // in OnboardingWizard.tsx (see HOW TO at top of file).
 
 const RUNTIME_EXTRA_STEPS: Record<string, WizardStepDef[]> = {
-  // OpenClaw — AI multi-platform bot, needs LLM config + Telegram connection
+  // OpenClaw — AI multi-platform bot, needs LLM config then connect platforms then deploy
   openclaw: [
     { id: "llm", title: "LLM Setup", icon: Sparkles },
-    { id: "deploy", title: "Deploy", icon: Rocket },
     { id: "telegram", title: "Connect Telegram", icon: Send },
+    { id: "deploy", title: "Deploy", icon: Rocket },
   ],
 
   // ZeroClaw — lightweight chatbot with LLM config

@@ -8,7 +8,7 @@
 # - Pod metrics (per-bot resource usage)
 # - Alerts overview
 #
-# Access: kubectl port-forward -n monitoring svc/grafana 3000:3000
+# Access: kubectl port-forward -n monitoring svc/grafana 3030:3030
 # Default login: admin / admin (change on first login!)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -226,6 +226,6 @@ spec:
   selector:
     app: grafana
   ports:
-    - port: 3000
+    - port: 3030
       targetPort: 3000
   type: ClusterIP

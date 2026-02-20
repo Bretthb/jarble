@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
@@ -17,7 +17,6 @@ import {
   Bot,
   Send,
   Rocket,
-  PartyPopper,
   HelpCircle,
   Cpu,
   HardDrive,
@@ -98,8 +97,55 @@ export default function OnboardingWizard() {
   const [creditLimitDollars, setCreditLimitDollars] = useState<number>(DEFAULT_CREDIT_PLAN);
   const [linkToDeploymentId, setLinkToDeploymentId] = useState<string | null>(null);
   const [keyValidation, setKeyValidation] = useState<KeyValidationStatus>("idle");
-  const [telegramConnected, setTelegramConnected] = useState(false);
+  const [telegramBotToken, setTelegramBotToken] = useState<string | null>(null);
+  const [telegramBotUsername, setTelegramBotUsername] = useState<string | null>(null);
   const [createdDeploymentId, setCreatedDeploymentId] = useState<string | null>(null);
+  const [deployPhase, setDeployPhase] = useState<"idle" | "deploying" | "pairing" | "paired">("idle");
+
+  // Telegram pairing poll mutation (used in deploy step after deploy succeeds)
+  const pollTelegramMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
+
+  // Poll for Telegram pairing after deploy succeeds with a telegram token
+  useEffect(() => {
+    if (deployPhase !== "pairing" || !createdDeploymentId) return;
+
+    let active = true;
+    let inFlight = false;
+
+    const interval = setInterval(async () => {
+      if (inFlight || !active) return;
+      inFlight = true;
+      try {
+        const result = await pollTelegramMutation.mutateAsync({ deploymentId: createdDeploymentId });
+        if (!active) return;
+        if (result.status === "paired") {
+          setDeployPhase("paired");
+          toast.success("Telegram paired successfully!");
+          setTimeout(() => router.replace("/dashboard"), 2500);
+        }
+      } catch {
+        // Keep polling on transient errors
+      } finally {
+        inFlight = false;
+      }
+    }, 3000);
+
+    // 8 minute timeout
+    const timeout = setTimeout(() => {
+      if (active) {
+        active = false;
+        clearInterval(interval);
+        toast.error("Pairing timed out — you can pair from the dashboard later.");
+        setTimeout(() => router.replace("/dashboard"), 2000);
+      }
+    }, 8 * 60 * 1000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [deployPhase, createdDeploymentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hardware config (optional overrides — null means "use runtime catalog defaults")
   const [cpuLimit, setCpuLimit] = useState<string | null>(null);
@@ -174,12 +220,10 @@ export default function OnboardingWizard() {
     onSuccess: () => {
       toast.success("Deployed successfully!");
       setIsDeploying(false);
-      // Move to next step after deploy (WhatsApp or finish)
-      const deployStepIdx = steps.findIndex((s) => s.id === "deploy");
-      if (deployStepIdx < steps.length - 1) {
-        setCurrentStepIndex(deployStepIdx + 1);
+      if (telegramBotToken) {
+        // Telegram token was included — stay on deploy step and poll for pairing
+        setDeployPhase("pairing");
       } else {
-        toast.success("Setup complete! Your deployment is ready.");
         router.replace("/dashboard");
       }
     },
@@ -224,26 +268,16 @@ export default function OnboardingWizard() {
       case "deploy":
         return true;
       case "telegram":
-        return telegramConnected;
+        return !!telegramBotUsername;
       default:
         return true;
     }
   };
 
-  const hasDeployed = !!createdDeploymentId && !isDeploying && deployMutation.isSuccess;
+  const hasDeployed = !!createdDeploymentId && !isDeploying && deployPhase !== "idle";
 
   const handleNext = async () => {
-    if (currentStepId === "deploy" && !isDeploying) {
-      // Prevent duplicate deploys — if already deployed, just advance
-      if (hasDeployed) {
-        const deployStepIdx = steps.findIndex((s) => s.id === "deploy");
-        if (deployStepIdx < steps.length - 1) {
-          setCurrentStepIndex(deployStepIdx + 1);
-        } else {
-          router.replace("/dashboard");
-        }
-        return;
-      }
+    if (currentStepId === "deploy" && !isDeploying && deployPhase === "idle") {
       if (!user?.email_verified) {
         toast.error("Please verify your email before deploying.");
         return;
@@ -268,11 +302,9 @@ export default function OnboardingWizard() {
           cpuLimit: cpuLimit || undefined,
           memoryMb: memoryMb || undefined,
           storageMb: storageMb || undefined,
+          telegramBotToken: telegramBotToken || undefined,
         });
       }
-    } else if (currentStepId === "telegram") {
-      toast.success("Setup complete! Your deployment is ready.");
-      router.replace("/dashboard");
     } else if (currentStepIndex < steps.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
     }
@@ -447,20 +479,22 @@ export default function OnboardingWizard() {
                   storageMb={storageMb}
                   setStorageMb={setStorageMb}
                   emailVerified={!!user?.email_verified}
+                  deployPhase={deployPhase}
+                  telegramBotUsername={telegramBotUsername}
                 />
               )}
               {currentStepId === "telegram" && (
                 <StepConnectTelegram
-                  connected={telegramConnected}
-                  setConnected={setTelegramConnected}
-                  deploymentId={createdDeploymentId}
+                  telegramBotToken={telegramBotToken}
+                  setTelegramBotToken={setTelegramBotToken}
+                  telegramBotUsername={telegramBotUsername}
+                  setTelegramBotUsername={setTelegramBotUsername}
                 />
               )}
             </motion.div>
           </AnimatePresence>
         </div>
 
-        {/* Navigation — sticky bottom on mobile */}
         <div className="flex justify-between items-center gap-4 py-4 border-t border-border/50">
           <Button
             variant="ghost"
@@ -473,7 +507,7 @@ export default function OnboardingWizard() {
           </Button>
           <Button
             onClick={handleNext}
-            disabled={!canProceed() || isDeploying}
+            disabled={!canProceed() || isDeploying || hasDeployed}
             className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold min-w-[120px]"
           >
             {currentStepId === "deploy" ? (
@@ -482,22 +516,22 @@ export default function OnboardingWizard() {
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Deploying...
                 </>
+              ) : deployPhase === "pairing" ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Pairing...
+                </>
+              ) : deployPhase === "paired" ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Paired!
+                </>
               ) : (
                 <>
                   Deploy
                   <Rocket className="w-4 h-4 ml-2" />
                 </>
               )
-            ) : currentStepId === "telegram" ? (
-              <>
-                Finish Setup
-                <PartyPopper className="w-4 h-4 ml-2" />
-              </>
-            ) : currentStepIndex === steps.length - 1 ? (
-              <>
-                Finish
-                <PartyPopper className="w-4 h-4 ml-2" />
-              </>
             ) : (
               <>
                 Continue
@@ -1143,6 +1177,8 @@ function StepDeploy({
   storageMb,
   setStorageMb,
   emailVerified,
+  deployPhase,
+  telegramBotUsername,
 }: {
   isDeploying: boolean;
   deployProgress: number;
@@ -1159,6 +1195,8 @@ function StepDeploy({
   storageMb: number | null;
   setStorageMb: (v: number | null) => void;
   emailVerified: boolean;
+  deployPhase: "idle" | "deploying" | "pairing" | "paired";
+  telegramBotUsername: string | null;
 }) {
   const providerDef = getProviderById(llmProvider);
   const modelDef = LLM_MODELS.find((m) => m.id === llmModel);
@@ -1197,6 +1235,58 @@ function StepDeploy({
               Setting up LLM access...
             </p>
           )}
+        </div>
+      ) : deployPhase === "paired" && telegramBotUsername ? (
+        /* Pairing complete — brief success before auto-redirect */
+        <div className="py-8">
+          <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
+            <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-10 h-10 text-primary" />
+            </div>
+            <div>
+              <h3 className="text-xl font-semibold text-primary mb-1">Paired!</h3>
+              <p className="text-muted-foreground text-sm">
+                Your bot <strong>@{telegramBotUsername}</strong> is paired and ready to chat
+              </p>
+            </div>
+            <div className="flex flex-col items-center gap-3">
+              <div className="bg-white p-4 rounded-xl shadow-sm inline-block">
+                <QRCode value={`https://t.me/${telegramBotUsername}`} size={160} level="M" />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Scan to open <strong>@{telegramBotUsername}</strong> in Telegram
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+              Redirecting to dashboard...
+            </div>
+          </div>
+        </div>
+      ) : deployPhase === "pairing" && telegramBotUsername ? (
+        /* Waiting for Telegram pairing — pod is booting with token */
+        <div className="py-8">
+          <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
+            <div className="flex flex-col items-center gap-3">
+              <div className="bg-white p-4 rounded-xl shadow-sm inline-block">
+                <QRCode value={`https://t.me/${telegramBotUsername}`} size={180} level="M" />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Scan to open <strong>@{telegramBotUsername}</strong> in Telegram
+              </p>
+            </div>
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Send your bot any message to pair</p>
+              <p className="text-xs text-muted-foreground">
+                Your bot is starting up with Telegram enabled. Once ready, send it any
+                message and we&apos;ll auto-approve the pairing.
+              </p>
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                Waiting for pairing request...
+              </div>
+            </div>
+          </div>
         </div>
       ) : (
         <>
@@ -1475,8 +1565,7 @@ function StepDeploy({
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
             <Rocket className="w-4 h-4 text-primary" />
             <p className="text-sm">
-              Click &quot;Deploy&quot; to launch
-              {runtime?.slug === "openclaw" ? ", then connect Telegram!" : "!"}
+              Click &quot;Deploy&quot; to launch your bot!
             </p>
           </div>
         </>
@@ -1485,125 +1574,25 @@ function StepDeploy({
   );
 }
 
-// ─── Step: Connect Telegram ──────────────────────────────────────────
-
-type TelegramPairingPhase = "input" | "starting" | "scan_qr" | "polling" | "paired" | "error";
+// ─── Step: Connect Telegram (Pre-Deploy — Token Validation Only) ─────
 
 function StepConnectTelegram({
-  connected,
-  setConnected,
-  deploymentId,
+  telegramBotToken,
+  setTelegramBotToken,
+  telegramBotUsername,
+  setTelegramBotUsername,
 }: {
-  connected: boolean;
-  setConnected: (connected: boolean) => void;
-  deploymentId: string | null;
+  telegramBotToken: string | null;
+  setTelegramBotToken: (token: string | null) => void;
+  telegramBotUsername: string | null;
+  setTelegramBotUsername: (username: string | null) => void;
 }) {
-  const [botToken, setBotToken] = useState("");
+  const [tokenInput, setTokenInput] = useState(telegramBotToken ?? "");
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [botUsername, setBotUsername] = useState<string | null>(null);
-  const [phase, setPhase] = useState<TelegramPairingPhase>("input");
-  const [pairingError, setPairingError] = useState<string | null>(null);
-  const [isPodReady, setIsPodReady] = useState(false);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const saveMutation = trpc.platformCredentials.save.useMutation();
-  const pollMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, []);
-
-  const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  }, []);
-
-  // Poll for pod readiness during "starting" phase
-  const startPodReadinessPolling = useCallback(() => {
-    if (!deploymentId) return;
-
-    setPhase("starting");
-
-    // Poll every 3 seconds for pod readiness
-    pollingRef.current = setInterval(async () => {
-      try {
-        const result = await pollMutation.mutateAsync({ deploymentId });
-
-        if (result.status === "waiting" || result.status === "paired") {
-          // Pod is ready - move to scan_qr phase
-          stopPolling();
-          if (result.status === "paired") {
-            setPhase("paired");
-            setConnected(true);
-            toast.success("Telegram paired successfully!");
-          } else {
-            setPhase("scan_qr");
-            toast.success("Bot is ready! Now send a message to pair.");
-          }
-        }
-        // pod_not_ready: keep polling
-      } catch {
-        // Network errors — keep polling
-      }
-    }, 3000);
-
-    // 3-minute timeout for pod startup
-    timeoutRef.current = setTimeout(() => {
-      stopPolling();
-      setPhase("error");
-      setPairingError("Bot startup timed out. Please try again or check the deployment status.");
-    }, 3 * 60 * 1000);
-  }, [deploymentId, pollMutation, stopPolling, setConnected]);
-
-  const startPolling = useCallback(() => {
-    if (!deploymentId) return;
-
-    setPhase("polling");
-    setPairingError(null);
-    setIsPodReady(false);
-
-    // Poll every 3 seconds
-    pollingRef.current = setInterval(async () => {
-      try {
-        const result = await pollMutation.mutateAsync({ deploymentId });
-
-        if (result.status === "paired") {
-          stopPolling();
-          setPhase("paired");
-          setConnected(true);
-          toast.success("Telegram paired successfully!");
-        } else if (result.status === "waiting") {
-          // Pod is ready, waiting for user to message bot
-          setIsPodReady(true);
-        }
-        // pod_not_ready: keep polling, isPodReady stays false
-      } catch {
-        // Network errors — keep polling, don't fail hard
-      }
-    }, 3000);
-
-    // 2-minute timeout
-    timeoutRef.current = setTimeout(() => {
-      stopPolling();
-      setPhase("error");
-      setPairingError("Pairing timed out. The bot may still be starting up.");
-    }, 2 * 60 * 1000);
-  }, [deploymentId, pollMutation, stopPolling, setConnected]);
 
   const handleValidate = async () => {
-    const token = botToken.trim();
+    const token = tokenInput.trim();
     if (!token) return;
 
     setIsValidating(true);
@@ -1620,20 +1609,9 @@ function StepConnectTelegram({
       }
 
       const username = data.result.username as string;
-      setBotUsername(username);
-
-      // Save token with dmPolicy "pairing" — auto-approve handles onboarding
-      if (deploymentId) {
-        await saveMutation.mutateAsync({
-          deploymentId,
-          platformId: "telegram",
-          credentials: { botToken: token, dmPolicy: "pairing" },
-        });
-      }
-
-      // Start polling for pod readiness
-      startPodReadinessPolling();
-      toast.success(`Bot @${username} validated! Starting up your bot...`);
+      setTelegramBotToken(token);
+      setTelegramBotUsername(username);
+      toast.success(`Bot @${username} validated!`);
     } catch {
       setValidationError("Failed to validate token. Check your connection and try again.");
     } finally {
@@ -1641,16 +1619,11 @@ function StepConnectTelegram({
     }
   };
 
-  const handleRetry = () => {
-    stopPolling();
-    setPairingError(null);
-    startPolling();
-  };
-
-  const handleSkip = () => {
-    stopPolling();
-    setConnected(true);
-    toast("Skipped pairing — you can pair manually later from the dashboard.");
+  const handleClear = () => {
+    setTokenInput("");
+    setTelegramBotToken(null);
+    setTelegramBotUsername(null);
+    setValidationError(null);
   };
 
   return (
@@ -1658,141 +1631,28 @@ function StepConnectTelegram({
       <div>
         <h2 className="text-2xl font-bold mb-2">Connect Telegram</h2>
         <p className="text-muted-foreground">
-          Create a Telegram bot and link it to your deployment
+          Create a Telegram bot and enter its token. We&apos;ll include it when deploying so your bot starts with Telegram enabled.
         </p>
       </div>
 
-      {/* Paired state */}
-      {phase === "paired" && botUsername ? (
-        <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
-          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-            <CheckCircle2 className="w-10 h-10 text-primary" />
+      {telegramBotUsername ? (
+        /* Token validated — show success */
+        <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-4">
+          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-8 h-8 text-primary" />
           </div>
           <div>
-            <h3 className="text-xl font-semibold text-primary mb-1">
-              Paired!
-            </h3>
-            <p className="text-muted-foreground text-sm">
-              Your bot <strong>@{botUsername}</strong> is paired and ready to chat
-            </p>
-          </div>
-          <div className="flex flex-col items-center gap-3">
-            <div className="bg-white p-4 rounded-xl shadow-sm inline-block">
-              <QRCode value={`https://t.me/${botUsername}`} size={160} level="M" />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Scan to open <strong>@{botUsername}</strong> in Telegram
-            </p>
-          </div>
-        </div>
-      ) : phase === "starting" && botUsername ? (
-        /* Bot starting up state */
-        <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
-          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-            <Loader2 className="w-10 h-10 text-primary animate-spin" />
-          </div>
-          <div>
-            <h3 className="text-xl font-semibold mb-2">Starting Your Bot</h3>
-            <p className="text-muted-foreground text-sm">
-              <strong>@{botUsername}</strong> is being deployed...
-            </p>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-              <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-              Initializing runtime environment
-            </div>
-            <p className="text-xs text-muted-foreground">
-              This usually takes 1-2 minutes on first deploy
-            </p>
+            <h3 className="text-lg font-semibold text-primary">@{telegramBotUsername}</h3>
+            <p className="text-muted-foreground text-sm mt-1">Bot token validated. It will be included when you deploy.</p>
           </div>
           <button
-            onClick={() => {
-              stopPolling();
-              setConnected(true);
-              toast("Skipped — you can pair manually later from the dashboard.");
-            }}
+            onClick={handleClear}
             className="text-xs text-muted-foreground hover:text-foreground underline"
           >
-            Skip for now
+            Use a different token
           </button>
         </div>
-      ) : (phase === "scan_qr" || phase === "polling" || phase === "error") && botUsername ? (
-        /* QR scan + polling state */
-        <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
-          <div className="flex flex-col items-center gap-3">
-            <div className="bg-white p-4 rounded-xl shadow-sm inline-block">
-              <QRCode value={`https://t.me/${botUsername}`} size={180} level="M" />
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Scan to open <strong>@{botUsername}</strong> in Telegram
-            </p>
-          </div>
-
-          {phase === "scan_qr" && (
-            <div className="space-y-3">
-              <p className="text-sm font-medium">
-                Open the bot and send any message
-              </p>
-              <p className="text-xs text-muted-foreground">
-                The bot will reply with a pairing code — we&apos;ll auto-approve it for you.
-              </p>
-              <Button
-                onClick={startPolling}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground"
-              >
-                <Send className="w-4 h-4 mr-2" />
-                I Sent a Message
-              </Button>
-            </div>
-          )}
-
-          {phase === "polling" && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                <p className="text-sm font-medium">
-                  {isPodReady ? "Waiting for pairing request..." : "Bot starting up..."}
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {isPodReady ? (
-                  <>
-                    Send any message to <strong>@{botUsername}</strong> on Telegram.
-                    We&apos;ll auto-approve once the bot receives it.
-                  </>
-                ) : (
-                  <>
-                    Your bot is initializing. This usually takes 1-2 minutes on first deploy.
-                  </>
-                )}
-              </p>
-            </div>
-          )}
-
-          {phase === "error" && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-center gap-2 text-red-400">
-                <AlertCircle className="w-5 h-5" />
-                <p className="text-sm font-medium">{pairingError}</p>
-              </div>
-              <div className="flex items-center justify-center gap-3">
-                <Button variant="outline" onClick={handleRetry} className="border-border hover:bg-secondary/80">
-                  <RotateCcw className="w-4 h-4 mr-2" />
-                  Retry
-                </Button>
-                <button
-                  onClick={handleSkip}
-                  className="text-xs text-muted-foreground hover:text-foreground underline"
-                >
-                  Skip for now
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
       ) : (
-        /* Input state — create bot + enter token */
         <>
           {/* Step 1: Create bot with BotFather */}
           <div className="bg-secondary/50 rounded-lg p-6 space-y-4">
@@ -1844,9 +1704,9 @@ function StepConnectTelegram({
                 <Input
                   id="telegramToken"
                   type="password"
-                  value={botToken}
+                  value={tokenInput}
                   onChange={(e) => {
-                    setBotToken(e.target.value);
+                    setTokenInput(e.target.value);
                     setValidationError(null);
                   }}
                   className={`bg-secondary/50 border-border text-foreground pr-10 ${
@@ -1862,7 +1722,7 @@ function StepConnectTelegram({
                 type="button"
                 variant="outline"
                 onClick={handleValidate}
-                disabled={!botToken.trim() || isValidating}
+                disabled={!tokenInput.trim() || isValidating}
                 className="border-border hover:bg-secondary/80 shrink-0"
               >
                 {isValidating ? (
@@ -1879,9 +1739,9 @@ function StepConnectTelegram({
                 {validationError}
               </p>
             )}
-            {!validationError && botToken.length > 0 && (
+            {!validationError && tokenInput.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                Click &quot;Validate&quot; to verify your bot token.
+                Click &quot;Validate&quot; to verify your bot token before deploying.
               </p>
             )}
           </div>

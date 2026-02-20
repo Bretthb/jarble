@@ -19,7 +19,7 @@
 // store when scaling beyond 2-3 replicas.
 // ═══════════════════════════════════════════════════════════════════════
 
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import type { Request } from "express";
 
 // ─── Key generators ───────────────────────────────────────────────────
@@ -50,7 +50,7 @@ function extractSubFromToken(req: Request): string | null {
 
 /** Rate limit key: user ID from JWT, or fall back to IP address */
 function userKeyGenerator(req: Request): string {
-  return extractSubFromToken(req) ?? (req.ip ?? "unknown");
+  return extractSubFromToken(req) ?? ipKeyGenerator(req);
 }
 
 // ─── Limiters ─────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ export const globalLimiter = rateLimit({
   limit: 300,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip ?? "unknown",
+  keyGenerator: (req) => ipKeyGenerator(req),
   skip: (req) => {
     return (
       req.path === "/health" ||

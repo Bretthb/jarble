@@ -110,8 +110,10 @@ async function checkDeploymentStatus(dep: {
       break;
 
     case "creating":
-      // Pod is still starting up - no drift, leave as-is
-      // But if it's been "creating" for too long, the liveness probe will handle it
+      // Pod is still starting up (Pending, or Running but readiness probe not yet passing).
+      // Never downgrade "running" → "creating" — a pod can temporarily lose readiness
+      // during initialDelaySeconds, configSync restarts, or brief probe failures.
+      if (dep.status === "running") return null;
       expectedDbStatus = dep.status === "restarting" ? "restarting" : "creating";
       break;
 

@@ -20,8 +20,8 @@ kubectl get pods -n monitoring -w
 
 **Grafana** (main dashboards):
 ```bash
-kubectl port-forward -n monitoring svc/grafana 3000:3000
-# Open http://localhost:3000
+kubectl port-forward -n monitoring svc/grafana 3030:3030
+# Open http://localhost:3030
 # Login: admin / admin (change on first login!)
 ```
 

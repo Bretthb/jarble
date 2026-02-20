@@ -129,11 +129,13 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
 
     previousStatus = deployment.status;
 
-    // 2. If deployment is still creating, wait for it to become running
+    // 2. If deployment is still creating, wait for it to become running.
+    //    Use 150 iterations (5 min) — first-boot npm install takes 3+ min and the
+    //    DB status only flips to "running" after the readiness probe passes.
     if (deployment.status === "creating") {
-      logger.info({ deploymentId }, "configSync→PVC: deployment creating, waiting for running...");
+      logger.info({ deploymentId }, "configSync→PVC: deployment creating, waiting up to 5 min for running...");
       let became_running = false;
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 150; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         const updated = await (db as any).query.deployments.findFirst({
           where: eq(deployments.id, deploymentId),
@@ -150,7 +152,7 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
         }
       }
       if (!became_running) {
-        logger.warn({ deploymentId }, "configSync→PVC: timed out waiting for deployment to become running");
+        logger.warn({ deploymentId }, "configSync→PVC: timed out waiting for deployment to become running (5 min)");
         return;
       }
     } else if (deployment.status !== "running") {
@@ -161,12 +163,29 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
       return;
     }
 
-    // 3. Verify pod is actually running in K8s
-    const podStatus = await getDeploymentPodStatus(deploymentId);
+    // 3. Verify pod is actually running in K8s.
+    // If it's still creating (npm install in progress), wait up to 3 minutes.
+    // This handles the case where credentials are saved while the pod is still booting.
+    let podStatus = await getDeploymentPodStatus(deploymentId);
+    if (podStatus.status === "creating") {
+      logger.info({ deploymentId }, "configSync→PVC: pod still starting in K8s, waiting for readiness...");
+      for (let i = 0; i < 90; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        podStatus = await getDeploymentPodStatus(deploymentId);
+        if (podStatus.status === "running") {
+          logger.info({ deploymentId }, "configSync→PVC: pod is now ready");
+          break;
+        }
+        if (podStatus.status === "failed") {
+          logger.warn({ deploymentId }, "configSync→PVC: pod failed while waiting for readiness, skipping");
+          return;
+        }
+      }
+    }
     if (podStatus.status !== "running") {
       logger.info(
         { deploymentId, podStatus: podStatus.status },
-        "configSync→PVC: pod not ready, skipping"
+        "configSync→PVC: pod not ready after waiting, skipping"
       );
       return;
     }
@@ -235,10 +254,11 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
     await restartDeployment(deploymentId);
     completedSteps.push("pod_restart");
 
-    // Step E: Poll for readiness (30 attempts × 2s = 60s max)
+    // Step E: Poll for readiness (90 attempts × 2s = 3 min max)
+    // Needs to cover the readiness probe initialDelaySeconds (60s) + startup time.
     let ready = false;
     let failureReason = "";
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 90; i++) {
       const status = await getDeploymentPodStatus(deploymentId);
       if (status.status === "running") {
         ready = true;
@@ -254,18 +274,26 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
     // Step F: Update DB status (only if still in our transitional "restarting" state)
     // This prevents overwriting status if an enforcement service stopped the deployment
     if (ready) {
-      await (db as any).update(deployments)
+      const result = await (db as any).update(deployments)
         .set({ status: "running", error: null })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
-      logger.info({ deploymentId }, "configSync→PVC: sync completed successfully");
+      if ((result?.changes ?? result?.rowsAffected ?? 1) === 0) {
+        logger.warn({ deploymentId }, "configSync→PVC: status update skipped — deployment no longer in 'restarting' state (possibly stopped or concurrent sync)");
+      } else {
+        logger.info({ deploymentId }, "configSync→PVC: sync completed successfully");
+      }
     } else {
-      await (db as any).update(deployments)
+      const result = await (db as any).update(deployments)
         .set({
           status: "failed",
           error: failureReason || "Pod did not become ready after config sync",
         })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
-      logger.warn({ deploymentId, failureReason }, "configSync→PVC: pod failed to become ready");
+      if ((result?.changes ?? result?.rowsAffected ?? 1) === 0) {
+        logger.warn({ deploymentId, failureReason }, "configSync→PVC: failure status update skipped — deployment no longer in 'restarting' state");
+      } else {
+        logger.warn({ deploymentId, failureReason }, "configSync→PVC: pod failed to become ready");
+      }
     }
 
   } catch (err) {

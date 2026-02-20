@@ -18,7 +18,7 @@ import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrou
 import { syncConfigsToPvc } from "../../services/configSync.js";
 import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
 
-const { deployments, users, runtimeCatalog, platformCredentials } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills } = tables;
 
 /**
  * Helper: Check free deployment status for a user.
@@ -128,6 +128,7 @@ export const deploymentRouter = router({
       cpuLimit: z.string().optional(),    // e.g. "2.0" — overrides runtime catalog default
       memoryMb: z.number().int().positive().optional(),   // e.g. 2048 — RAM in MB
       storageMb: z.number().int().positive().optional(),  // e.g. 30 — storage in GB (historical naming)
+      telegramBotToken: z.string().optional(), // Pre-validated Telegram bot token (included in initial K8s Secret)
     }))
     .mutation(async ({ ctx, input }) => {
       // Look up the runtime catalog entry
@@ -341,6 +342,20 @@ export const deploymentRouter = router({
           // Log but don't fail - deployment already created
           logger.warn({ userId: ctx.user.id, err }, "Failed to mark free deployment used on user");
         }
+      }
+
+      // Save Telegram bot token to platformCredentials (if provided during wizard)
+      // This ensures the token is in the DB before deploy, so it gets included in
+      // the initial K8s Secret — avoiding a post-deploy configSync restart cycle.
+      if (input.telegramBotToken) {
+        const encrypted = encryptApiKey(JSON.stringify({ botToken: input.telegramBotToken }));
+        await (ctx.db as any).insert(platformCredentials).values({
+          id: nanoid(12),
+          deploymentId,
+          platformId: "telegram",
+          credentials: encrypted,
+        });
+        logger.info({ deploymentId }, "Telegram credentials saved during create (pre-deploy)");
       }
 
       const deployment = await ctx.db.query.deployments.findFirst({
@@ -1073,19 +1088,23 @@ export const deploymentRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      logger.info({ deploymentId: input.id, userId: ctx.user.id }, "delete: request received");
+
       // Fetch deployment first to get the OpenRouter key hash (for revocation)
       const deployment = await ctx.db.query.deployments.findFirst({
         where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
 
       if (!deployment) {
+        logger.warn({ deploymentId: input.id, userId: ctx.user.id }, "delete: deployment not found");
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      // Check if this is a credit pool owner with linked deployments
       const dep = deployment as any;
+      logger.debug({ deploymentId: input.id, status: dep.status, llmMode: dep.llmMode, isFree: dep.isFree }, "delete: deployment found");
+
+      // Check if this is a credit pool owner with linked deployments
       if (dep.llmMode === "included" && !dep.llmApiKeySourceDeploymentId) {
-        // This is an owner — check for linked children
         const linkedChildren = await ctx.db.query.deployments.findMany({
           where: and(
             eq((deployments as any).llmApiKeySourceDeploymentId, input.id),
@@ -1095,6 +1114,7 @@ export const deploymentRouter = router({
 
         if (linkedChildren.length > 0) {
           const names = linkedChildren.map((c: any) => c.name).join(", ");
+          logger.warn({ deploymentId: input.id, linkedCount: linkedChildren.length }, "delete: blocked — credit pool has linked children");
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: `Cannot delete: ${linkedChildren.length} deployment(s) are linked to this credit pool (${names}). Unlink or delete them first.`,
@@ -1107,32 +1127,48 @@ export const deploymentRouter = router({
       const keyId = dep.llmApiKeyId;
       const isLinked = !!dep.llmApiKeySourceDeploymentId;
       if (llmMode === "included" && keyId && !isLinked) {
-        // Only revoke if this deployment owns the key (not linked)
+        logger.debug({ deploymentId: input.id, keyId }, "delete: revoking OpenRouter key");
         try {
           await revokeOpenRouterKey(keyId);
+          logger.debug({ deploymentId: input.id, keyId }, "delete: OpenRouter key revoked");
         } catch (err) {
-          // Don't block deletion if revocation fails — log and continue
-          logger.warn({ err, deploymentId: input.id, keyId }, "Failed to revoke OpenRouter key during delete");
+          logger.warn({ err, deploymentId: input.id, keyId }, "delete: failed to revoke OpenRouter key — continuing");
         }
       }
 
       // Cancel Stripe subscription if one exists (prevent orphaned billing)
       if (dep.stripeSubscriptionId && isStripeConfigured()) {
+        logger.debug({ deploymentId: input.id, subscriptionId: dep.stripeSubscriptionId }, "delete: cancelling Stripe subscription");
         try {
           await cancelSubscriptionImmediately(dep.stripeSubscriptionId);
+          logger.debug({ deploymentId: input.id }, "delete: Stripe subscription cancelled");
         } catch (err) {
-          logger.warn({ err, deploymentId: input.id, subscriptionId: dep.stripeSubscriptionId }, "Failed to cancel subscription during delete");
+          logger.warn({ err, deploymentId: input.id, subscriptionId: dep.stripeSubscriptionId }, "delete: failed to cancel Stripe subscription — continuing");
         }
       }
 
-      // Delete K8s resources
+      // Delete K8s resources first — if this throws, we abort and leave the DB record intact
+      // so the user can retry. Step-by-step logs are inside deleteDeployment.
+      logger.info({ deploymentId: input.id }, "delete: starting K8s resource cleanup");
       await deleteDeployment(input.id);
+      logger.info({ deploymentId: input.id }, "delete: K8s cleanup complete, removing DB records");
 
-      // Then delete from DB
+      // Explicitly clean up child rows — SQLite doesn't enforce FK cascades by default
+      const credResult = await (ctx.db as any).delete(platformCredentials)
+        .where(eq(platformCredentials.deploymentId, input.id));
+      logger.debug({ deploymentId: input.id, rows: credResult?.changes ?? credResult?.rowsAffected ?? "?" }, "delete: platform_credentials removed");
+
+      const skillsResult = await (ctx.db as any).delete(deploymentSkills)
+        .where(eq(deploymentSkills.deploymentId, input.id));
+      logger.debug({ deploymentId: input.id, rows: skillsResult?.changes ?? skillsResult?.rowsAffected ?? "?" }, "delete: deployment_skills removed");
+
       await (ctx.db as any).delete(deployments)
         .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
+      logger.debug({ deploymentId: input.id }, "delete: deployments row removed");
 
       // Note: We do NOT reset freeDeploymentUsed — the free trial is one-time only
+
+      logger.info({ deploymentId: input.id, userId: ctx.user.id }, "delete: deployment fully deleted");
 
       return { success: true };
     }),

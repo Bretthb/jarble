@@ -266,23 +266,46 @@ export const platformCredentialsRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      // Find running pod for this deployment
-      const podName = await findPodForDeployment(input.deploymentId);
+      // For stopped/failed deployments, don't bother looking for a pod.
+      // But for "creating" and "restarting", the pod may already be Running in K8s
+      // even though the DB hasn't flipped to "running" yet (createDeployment blocks
+      // waiting for readiness to write config files). The bot can connect to Telegram
+      // before the readiness probe passes, so we should try to exec anyway.
+      const depStatus = (deployment as any).status;
+      if (depStatus === "stopped" || depStatus === "failed" || depStatus === "pending") {
+        return { status: "pod_not_ready" as const };
+      }
+
+      // For exec operations we only need the pod to be Running, not necessarily ready.
+      // The readiness probe (TCP 18789) may still be failing even after OpenClaw has
+      // started and is responding to Telegram messages.
+      const podName = await findPodForDeployment(input.deploymentId, { requireReady: false });
       if (!podName) {
         return { status: "pod_not_ready" as const };
       }
 
       try {
-        // List pending Telegram pairing requests
+        // Wrap in bash so that a non-zero exit code from openclaw doesn't cause execInPod
+        // to throw. openclaw may exit non-zero even when it outputs valid JSON.
+        // Redirect stderr to /dev/null so log lines don't contaminate the JSON stdout.
         const listOutput = await execInPod(podName, [
-          "npx", "openclaw", "pairing", "list", "telegram", "--json",
+          "bash", "-c",
+          "npx openclaw pairing list telegram --json 2>/dev/null; exit 0",
         ]);
 
+        logger.debug({ deploymentId: input.deploymentId, listOutput }, "pollTelegramPairing: raw list output");
+
+        // Robustly extract the JSON array — some openclaw versions may prefix log lines
         let requests: Array<{ code: string; status?: string }>;
         try {
-          requests = JSON.parse(listOutput);
+          let jsonStr = listOutput.trim();
+          if (!jsonStr.startsWith("[")) {
+            const match = jsonStr.match(/\[[\s\S]*\]/);
+            jsonStr = match ? match[0] : "[]";
+          }
+          requests = JSON.parse(jsonStr);
         } catch {
-          // No valid JSON — likely no requests yet or command not available
+          logger.warn({ deploymentId: input.deploymentId, listOutput }, "pollTelegramPairing: failed to parse list output");
           return { status: "waiting" as const };
         }
 
@@ -293,7 +316,6 @@ export const platformCredentialsRouter = router({
         // Find the first pending request
         const pending = requests.find((r) => !r.status || r.status === "pending");
         if (!pending) {
-          // Check if any were already approved
           const approved = requests.find((r) => r.status === "approved");
           if (approved) {
             return { status: "paired" as const };
@@ -301,15 +323,22 @@ export const platformCredentialsRouter = router({
           return { status: "waiting" as const };
         }
 
-        // Auto-approve the first pending request
-        await execInPod(podName, [
-          "npx", "openclaw", "pairing", "approve", "telegram", pending.code, "--notify",
-        ]);
+        logger.info({ deploymentId: input.deploymentId, code: pending.code }, "pollTelegramPairing: found pending request, approving");
 
-        logger.info({
-          deploymentId: input.deploymentId,
-          code: pending.code,
-        }, "Auto-approved Telegram pairing request during onboarding");
+        // Sanitize code (expected format: uppercase alphanumeric only)
+        const safeCode = pending.code.replace(/[^A-Z0-9]/gi, "");
+        try {
+          await execInPod(podName, [
+            "bash", "-c",
+            `npx openclaw pairing approve telegram ${safeCode} --notify 2>/dev/null; exit 0`,
+          ]);
+          logger.info({ deploymentId: input.deploymentId, code: pending.code }, "Auto-approved Telegram pairing request");
+        } catch (approveErr) {
+          // Pod may have restarted immediately after approval (e.g. liveness probe or configSync).
+          // The approve command was fired — treat as paired regardless.
+          logger.warn({ deploymentId: input.deploymentId, code: pending.code, approveErr },
+            "Approve exec errored (pod likely restarted) — treating as paired");
+        }
 
         return { status: "paired" as const };
       } catch (err) {
