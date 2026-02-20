@@ -1206,6 +1206,34 @@ if (env.NODE_ENV === "development") {
   });
 
   logger.info("📊 Debug endpoint enabled: /debug/seed-deployment");
+
+  // Debug endpoint to trigger configSync for a deployment (dev only)
+  app.post("/debug/deployment/:id/sync-config", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Verify deployment exists
+      const deployment = await db.query.deployments.findFirst({
+        where: (d, { eq }) => eq(d.id, id),
+      });
+
+      if (!deployment) {
+        res.status(404).json({ error: "Deployment not found" });
+        return;
+      }
+
+      logger.info({ deploymentId: id }, "Debug: triggering configSync (fire and forget)");
+
+      // Trigger config sync (fire and forget - don't block the request)
+      void syncConfigsToPvc(id);
+
+      res.json({ success: true, deploymentId: id, message: "Config sync triggered (running in background)" });
+    } catch (err) {
+      logger.error({ err }, "Debug: configSync failed");
+      res.status(500).json({ error: "Config sync failed", details: String(err) });
+    }
+  });
+  logger.info("📊 Debug endpoint enabled: /debug/deployment/:id/sync-config");
 }
 
 // tRPC handler

@@ -201,17 +201,8 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
       .where(eq(deployments.id, deploymentId));
     completedSteps.push("db_status");
 
-    // Step B: Write config files to PVC
-    if (configFiles.length > 0) {
-      await writeConfigsToPvc(deploymentId, configFiles);
-      completedSteps.push("pvc_write");
-      logger.info(
-        { deploymentId, files: configFiles.map((f) => f.path) },
-        "configSync→PVC: wrote config files"
-      );
-    }
-
-    // Step C: Update K8s Secret
+    // Step B: Update K8s Secret FIRST (critical for platform tokens)
+    // This ensures platform tokens are available even if PVC writes fail
     await updateDeploymentSecret(
       deploymentId,
       deployment.userId,
@@ -220,6 +211,25 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
       secretEntries
     );
     completedSteps.push("secret_update");
+    logger.info({ deploymentId, secretKeys: Object.keys(secretEntries).length }, "configSync→PVC: K8s secret updated");
+
+    // Step C: Write config files to PVC (may timeout if pod exec hangs)
+    if (configFiles.length > 0) {
+      try {
+        await writeConfigsToPvc(deploymentId, configFiles);
+        completedSteps.push("pvc_write");
+        logger.info(
+          { deploymentId, files: configFiles.map((f) => f.path) },
+          "configSync→PVC: wrote config files"
+        );
+      } catch (writeErr) {
+        // Log but don't fail - secret was already updated
+        logger.warn(
+          { deploymentId, err: writeErr },
+          "configSync→PVC: failed to write config files (non-fatal, secret already updated)"
+        );
+      }
+    }
 
     // Step D: Restart pod (scale 0 → 1)
     await restartDeployment(deploymentId);

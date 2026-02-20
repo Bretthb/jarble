@@ -224,11 +224,19 @@ export async function createDeployment(
           automountServiceAccountToken: false,
           // Pod-level security: run as non-root user, set group for PVC access
           securityContext: {
-            runAsNonRoot: true,
-            runAsUser: 1000,      // node user (standard in Node.js images)
-            runAsGroup: 1000,
+            runAsNonRoot: false,  // Allow init container to run as root
             fsGroup: 1000,        // PVC files accessible to this group
           },
+          // Init container: fix PVC permissions before main container starts
+          initContainers: [{
+            name: "fix-permissions",
+            image: "busybox:1.36",
+            command: ["sh", "-c", "chown -R 1000:1000 /data && chmod -R 755 /data"],
+            securityContext: {
+              runAsUser: 0,  // Run as root to fix permissions
+            },
+            volumeMounts: [{ name: "data", mountPath: "/data" }],
+          }],
           containers: [{
             name: "runtime",
             image: containerImage,
@@ -240,8 +248,11 @@ export async function createDeployment(
               requests: { cpu: cpuMillicores, memory: memoryMi, "ephemeral-storage": "100Mi" },
               limits: { cpu: cpuMillicores, memory: memoryMi, "ephemeral-storage": "1Gi" },
             },
-            // Container-level security: drop all capabilities, read-only root filesystem
+            // Container-level security: run as non-root, drop all capabilities, read-only root filesystem
             securityContext: {
+              runAsNonRoot: true,
+              runAsUser: 1000,
+              runAsGroup: 1000,
               allowPrivilegeEscalation: false,
               readOnlyRootFilesystem: true,
               capabilities: { drop: ["ALL"] },
@@ -1006,7 +1017,8 @@ export async function streamExecInPod(
 async function execInPodWithStdin(
   podName: string,
   command: string[],
-  stdinContent: string
+  stdinContent: string,
+  timeoutMs: number = 30000
 ): Promise<void> {
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
@@ -1020,6 +1032,11 @@ async function execInPodWithStdin(
   stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
 
   await new Promise<void>((resolve, reject) => {
+    // Add timeout to prevent hanging forever
+    const timeout = setTimeout(() => {
+      reject(new Error(`execInPodWithStdin timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
     exec!.exec(
       NAMESPACE,
       podName,
@@ -1030,13 +1047,17 @@ async function execInPodWithStdin(
       stdinStream,
       false,
       (status) => {
+        clearTimeout(timeout);
         if (status.status === "Success") {
           resolve();
         } else {
           reject(new Error(`exec failed: ${status.message || stderrData || "unknown"}`));
         }
       }
-    ).catch(reject);
+    ).catch((err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
   });
 }
 

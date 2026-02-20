@@ -1487,7 +1487,7 @@ function StepDeploy({
 
 // ─── Step: Connect Telegram ──────────────────────────────────────────
 
-type TelegramPairingPhase = "input" | "scan_qr" | "polling" | "paired" | "error";
+type TelegramPairingPhase = "input" | "starting" | "scan_qr" | "polling" | "paired" | "error";
 
 function StepConnectTelegram({
   connected,
@@ -1504,6 +1504,7 @@ function StepConnectTelegram({
   const [botUsername, setBotUsername] = useState<string | null>(null);
   const [phase, setPhase] = useState<TelegramPairingPhase>("input");
   const [pairingError, setPairingError] = useState<string | null>(null);
+  const [isPodReady, setIsPodReady] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1529,11 +1530,49 @@ function StepConnectTelegram({
     }
   }, []);
 
+  // Poll for pod readiness during "starting" phase
+  const startPodReadinessPolling = useCallback(() => {
+    if (!deploymentId) return;
+
+    setPhase("starting");
+
+    // Poll every 3 seconds for pod readiness
+    pollingRef.current = setInterval(async () => {
+      try {
+        const result = await pollMutation.mutateAsync({ deploymentId });
+
+        if (result.status === "waiting" || result.status === "paired") {
+          // Pod is ready - move to scan_qr phase
+          stopPolling();
+          if (result.status === "paired") {
+            setPhase("paired");
+            setConnected(true);
+            toast.success("Telegram paired successfully!");
+          } else {
+            setPhase("scan_qr");
+            toast.success("Bot is ready! Now send a message to pair.");
+          }
+        }
+        // pod_not_ready: keep polling
+      } catch {
+        // Network errors — keep polling
+      }
+    }, 3000);
+
+    // 3-minute timeout for pod startup
+    timeoutRef.current = setTimeout(() => {
+      stopPolling();
+      setPhase("error");
+      setPairingError("Bot startup timed out. Please try again or check the deployment status.");
+    }, 3 * 60 * 1000);
+  }, [deploymentId, pollMutation, stopPolling, setConnected]);
+
   const startPolling = useCallback(() => {
     if (!deploymentId) return;
 
     setPhase("polling");
     setPairingError(null);
+    setIsPodReady(false);
 
     // Poll every 3 seconds
     pollingRef.current = setInterval(async () => {
@@ -1545,8 +1584,11 @@ function StepConnectTelegram({
           setPhase("paired");
           setConnected(true);
           toast.success("Telegram paired successfully!");
+        } else if (result.status === "waiting") {
+          // Pod is ready, waiting for user to message bot
+          setIsPodReady(true);
         }
-        // pod_not_ready and waiting: keep polling
+        // pod_not_ready: keep polling, isPodReady stays false
       } catch {
         // Network errors — keep polling, don't fail hard
       }
@@ -1589,8 +1631,9 @@ function StepConnectTelegram({
         });
       }
 
-      setPhase("scan_qr");
-      toast.success(`Bot @${username} validated! Now scan the QR code and send a message.`);
+      // Start polling for pod readiness
+      startPodReadinessPolling();
+      toast.success(`Bot @${username} validated! Starting up your bot...`);
     } catch {
       setValidationError("Failed to validate token. Check your connection and try again.");
     } finally {
@@ -1642,6 +1685,38 @@ function StepConnectTelegram({
             </p>
           </div>
         </div>
+      ) : phase === "starting" && botUsername ? (
+        /* Bot starting up state */
+        <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
+          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+            <Loader2 className="w-10 h-10 text-primary animate-spin" />
+          </div>
+          <div>
+            <h3 className="text-xl font-semibold mb-2">Starting Your Bot</h3>
+            <p className="text-muted-foreground text-sm">
+              <strong>@{botUsername}</strong> is being deployed...
+            </p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+              Initializing runtime environment
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This usually takes 1-2 minutes on first deploy
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              stopPolling();
+              setConnected(true);
+              toast("Skipped — you can pair manually later from the dashboard.");
+            }}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
+            Skip for now
+          </button>
+        </div>
       ) : (phase === "scan_qr" || phase === "polling" || phase === "error") && botUsername ? (
         /* QR scan + polling state */
         <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
@@ -1676,11 +1751,21 @@ function StepConnectTelegram({
             <div className="space-y-3">
               <div className="flex items-center justify-center gap-2">
                 <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                <p className="text-sm font-medium">Waiting for pairing request...</p>
+                <p className="text-sm font-medium">
+                  {isPodReady ? "Waiting for pairing request..." : "Bot starting up..."}
+                </p>
               </div>
               <p className="text-xs text-muted-foreground">
-                Send any message to <strong>@{botUsername}</strong> on Telegram.
-                We&apos;ll auto-approve once the bot receives it.
+                {isPodReady ? (
+                  <>
+                    Send any message to <strong>@{botUsername}</strong> on Telegram.
+                    We&apos;ll auto-approve once the bot receives it.
+                  </>
+                ) : (
+                  <>
+                    Your bot is initializing. This usually takes 1-2 minutes on first deploy.
+                  </>
+                )}
               </p>
             </div>
           )}
