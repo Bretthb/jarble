@@ -325,13 +325,22 @@ export const deploymentRouter = router({
       });
 
       // If this is the free deployment, mark it on the user
+      // NOTE: Ideally this would be in a transaction with the deployment insert above,
+      // but since this only affects free tier (one-time), failure here just means
+      // user might be able to create another free deployment (minor issue).
+      // The atomic check in checkFreeDeployment also queries deployments table as backup.
       if (isFree) {
-        await (ctx.db as any).update(users)
-          .set({
-            freeDeploymentUsed: true,
-            freeTrialExpiresAt: freeExpiresAt,
-          })
-          .where(eq(users.id, ctx.user.id));
+        try {
+          await (ctx.db as any).update(users)
+            .set({
+              freeDeploymentUsed: true,
+              freeTrialExpiresAt: freeExpiresAt,
+            })
+            .where(eq(users.id, ctx.user.id));
+        } catch (err) {
+          // Log but don't fail - deployment already created
+          logger.warn({ userId: ctx.user.id, err }, "Failed to mark free deployment used on user");
+        }
       }
 
       const deployment = await ctx.db.query.deployments.findFirst({
@@ -360,19 +369,58 @@ export const deploymentRouter = router({
   deploy: protectedProcedure
     .input(z.string()) // deploymentId
     .mutation(async ({ ctx, input: deploymentId }) => {
-      // Verify ownership
+      // Require email verification before deploying to prevent abuse
+      if (!ctx.user.emailVerified) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Please verify your email before deploying. Check your inbox for a verification link.",
+        });
+      }
+
+      // Atomic conditional update: only transition from "pending" or "stopped" or "failed"
+      // This prevents race conditions from rapid button clicks causing double-deploys
+      const validStartStates = ["pending", "stopped", "failed"];
+
+      const result = await (ctx.db as any).update(deployments)
+        .set({ status: "creating", error: null })
+        .where(and(
+          eq(deployments.id, deploymentId),
+          eq(deployments.userId, ctx.user.id),
+          or(
+            eq(deployments.status, "pending"),
+            eq(deployments.status, "stopped"),
+            eq(deployments.status, "failed")
+          )
+        ));
+
+      // Check if update affected any rows (Drizzle returns different shapes per DB)
+      const rowsAffected = result?.rowsAffected ?? result?.changes ?? result?.[0]?.affectedRows ?? 0;
+
+      if (rowsAffected === 0) {
+        // Either deployment doesn't exist, user doesn't own it, or it's already deploying
+        const deployment = await ctx.db.query.deployments.findFirst({
+          where: and(eq(deployments.id, deploymentId), eq(deployments.userId, ctx.user.id)),
+        });
+
+        if (!deployment) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+        }
+
+        // Deployment exists but is in wrong state
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Cannot deploy: deployment is already ${deployment.status}`,
+        });
+      }
+
+      // Fetch the deployment for the rest of the logic
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, deploymentId), eq(deployments.userId, ctx.user.id)),
+        where: eq(deployments.id, deploymentId),
       });
 
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
-
-      // Update status to creating
-      await (ctx.db as any).update(deployments)
-        .set({ status: "creating" })
-        .where(eq(deployments.id, deploymentId));
 
       // Decrypt the API key for injection into K8s Secrets
       const rawApiKey = (deployment as any).llmApiKey

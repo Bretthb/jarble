@@ -1,15 +1,18 @@
 # ═══════════════════════════════════════════════════════════════════════
-# OpenClaw Base Image — Jarble AI Platform
+# OpenClaw Pre-built Image — Jarble AI Platform
 # ═══════════════════════════════════════════════════════════════════════
 #
-# Stateless container that bootstraps the OpenClaw runtime on first boot.
-# Config + node_modules live on persistent storage (PVC mounted at /data/).
+# Pre-built image with OpenClaw already installed for instant startup.
+# No npm install on first boot — ready to serve in seconds.
 #
 # OpenClaw: TypeScript/Node.js AI assistant with WhatsApp, Telegram,
 # Discord, Slack, and other channel integrations.
 #
-# Build:  docker build -t ghcr.io/jarble-ai/openclaw:latest .
-# Run:    docker run -v mydata:/data -p 18789:18789 ghcr.io/jarble-ai/openclaw:latest
+# Build:  docker build -t ghcr.io/jarble-ai/openclaw:prebuilt .
+# Run:    docker run -v mydata:/data -p 18789:18789 ghcr.io/jarble-ai/openclaw:prebuilt
+#
+# Note: This is a test image. Production images will include pre-installed
+# skills and additional plugins.
 # ═══════════════════════════════════════════════════════════════════════
 
 FROM node:22-bookworm-slim
@@ -25,11 +28,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# ── Pre-install OpenClaw ──────────────────────────────────────────────
+# Install to /opt/openclaw/ so it's baked into the image.
+# On first boot, this is copied to the PVC for persistence.
+WORKDIR /opt/openclaw
+RUN npm init -y && \
+    npm install openclaw@latest && \
+    npx openclaw plugins enable whatsapp && \
+    chown -R node:node /opt/openclaw
+
 # ── Create PVC directory structure ────────────────────────────────────
 # These directories are created in the image as fallbacks.
 # In production, /data/ is a Longhorn PVC mount — these ensure the
 # entrypoint works even without a volume (for local testing).
-RUN mkdir -p /data/config /data/runtime /data/logs /data/.openclaw/workspace
+# Owned by node user (uid 1000) for non-root execution.
+RUN mkdir -p /data/config /data/runtime /data/logs /data/.openclaw/workspace \
+    && chown -R node:node /data
 
 # ── Copy entrypoint + file watcher ─────────────────────────────────
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
@@ -41,9 +55,14 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/file-watcher.sh
 ENV NODE_ENV=production
 ENV HOME=/data
 ENV OPENCLAW_HOME=/data/.openclaw
+ENV NPM_CONFIG_CACHE=/.npm
 
 # ── Working directory ────────────────────────────────────────────────
 WORKDIR /data/runtime
+
+# ── Run as non-root user ──────────────────────────────────────────────
+# node:22-bookworm-slim includes a 'node' user with uid 1000
+USER node
 
 # ── Ports ────────────────────────────────────────────────────────────
 # 18789: Gateway API (main)

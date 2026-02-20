@@ -11,8 +11,9 @@
 # still works. Reverse sync (PVC → frontend) just stops until restart.
 #
 # Environment variables:
-#   DEPLOYMENT_ID    — Unique deployment ID (from K8s Secret)
-#   JARBLE_API_URL   — API base URL (default: K8s internal service)
+#   DEPLOYMENT_ID           — Unique deployment ID (from K8s Secret)
+#   JARBLE_API_URL          — API base URL (default: K8s internal service)
+#   CONFIG_WEBHOOK_SECRET   — Shared secret for authenticating webhook calls
 # ═══════════════════════════════════════════════════════════════════════
 
 WATCH_DIR="/data/config"
@@ -36,8 +37,15 @@ inotifywait -m -r -e modify,create,delete,moved_to "$WATCH_DIR" 2>/dev/null | wh
 
   echo "[file-watcher] Change detected: $event $dir$file — notifying API..."
 
+  # Include Authorization header if CONFIG_WEBHOOK_SECRET is set
+  AUTH_HEADER=""
+  if [ -n "$CONFIG_WEBHOOK_SECRET" ]; then
+    AUTH_HEADER="-H \"Authorization: Bearer $CONFIG_WEBHOOK_SECRET\""
+  fi
+
   curl -s -X POST "$API_URL" \
     -H "Content-Type: application/json" \
+    $AUTH_HEADER \
     -d "{\"deploymentId\":\"$DEPLOYMENT_ID\"}" \
     --connect-timeout 5 \
     --max-time 10 \

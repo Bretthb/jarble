@@ -168,12 +168,13 @@ Each runtime implements `RuntimeHandler`:
 8. Bot confirms pairing, user can chat
 ```
 
-### Pod Security Findings
-- Runs as root (uid=0) — should use non-root user
-- Secrets in env vars — should mount as files
-- K8s service account token mounted — should disable auto-mount
-- Full outbound internet — needs NetworkPolicy for egress restriction
-- RBAC denies API requests (good), DNS works, Longhorn storage works
+### Pod Security (Implemented)
+- ✅ Runs as non-root user (uid=1000, gid=1000) with `runAsNonRoot: true`
+- ⚠️ Secrets in env vars — should mount as files (requires upstream OpenClaw changes)
+- ✅ K8s service account token disabled (`automountServiceAccountToken: false`)
+- ✅ NetworkPolicy restricts egress (blocks cloud metadata, localhost; allows LLM APIs + messaging platforms)
+- ✅ All capabilities dropped (`drop: ["ALL"]`)
+- ✅ RBAC denies API requests, DNS works, Longhorn storage works
 
 ### Known K8s Issues
 - **npm cache corruption**: `ENOTEMPTY` errors on PVC. Fix: clear `/data/.npm` and delete pod
@@ -289,17 +290,17 @@ Available when running locally:
 ## Infrastructure Roadmap
 
 ### Security (Priority: High)
-- **Pod Security Standards**: Enforce `restricted` profile at namespace level — prevents privilege escalation
-- **Non-root containers**: `runAsNonRoot: true`, `runAsUser: 1000` in pod securityContext
-- **Disable service account mount**: `automountServiceAccountToken: false` on all deployment pods
-- **Drop all capabilities**: `securityContext.capabilities.drop: ["ALL"]`
+- ✅ **Pod Security Standards**: Enforced via `securityContext` in deployment template — prevents privilege escalation
+- ✅ **Non-root containers**: `runAsNonRoot: true`, `runAsUser: 1000`, `runAsGroup: 1000` in pod securityContext
+- ✅ **Disable service account mount**: `automountServiceAccountToken: false` on all deployment pods
+- ✅ **Drop all capabilities**: `securityContext.capabilities.drop: ["ALL"]`
 - **Secrets as files**: Mount K8s Secrets as volumes at `/run/secrets/` instead of env vars. Requires OpenClaw wrapper or upstream support
 - **Secrets rotation**: Mechanism to rotate a user's LLM API key without redeploying (update Secret + restart pod)
-- **NetworkPolicy**: Restrict egress to only LLM APIs, messaging platforms, DNS, and jarble-api service
+- ✅ **NetworkPolicy**: Restricts egress to cloud metadata and localhost; allows LLM APIs, messaging platforms, DNS
 - **Audit logging**: Enable K3s audit policies to track who exec'd into which pod
 
 ### Ops (Priority: High)
-- **Liveness/readiness probes**: Health check on port 18789 — if OpenClaw hangs, K8s should restart the pod
+- ✅ **Liveness/readiness probes**: Health check on port 18789 — if OpenClaw hangs, K8s restarts the pod
   ```yaml
   livenessProbe:
     httpGet:
@@ -316,8 +317,8 @@ Available when running locally:
   ```
 - **Pod Disruption Budgets**: For rolling node upgrades without dropping active bot sessions
 - **PVC backups**: Longhorn snapshots or Velero. If a user's volume dies, they lose conversation history
-- **Monitoring**: Prometheus + node exporter at minimum. Alert on CPU/disk/memory pressure before it's a problem
-- **Background status reconciler**: Periodic job to sync K8s pod status → DB (fixes "creating" stuck issue)
+- ✅ **Monitoring**: Prometheus + Grafana stack deployed in `jarble-api-main/k8s/monitoring/`
+- ✅ **Background status reconciler**: Runs in `statusReconciler.ts` with pagination (100 deployments per cycle)
 
 ### Cost & Scale (Priority: Medium)
 - **Idle pod shutdown**: If no messages in 24h, scale pod to 0. Spin back up on next inbound message (webhook-triggered cold start)

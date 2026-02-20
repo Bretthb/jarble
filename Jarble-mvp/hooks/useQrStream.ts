@@ -33,6 +33,7 @@ export function useQrStream({
   const [debugLines, setDebugLines] = useState<string[]>([]);
 
   const esRef = useRef<EventSource | null>(null);
+  const mountedRef = useRef(true);
 
   const closeStream = useCallback(() => {
     if (esRef.current) {
@@ -117,8 +118,11 @@ export function useQrStream({
         closeStream();
       };
     } catch {
-      setError("Failed to authenticate");
-      setIsConnecting(false);
+      // Only update state if still mounted (prevents React warnings)
+      if (mountedRef.current) {
+        setError("Failed to authenticate");
+        setIsConnecting(false);
+      }
     }
   }, [deploymentId, isAuthenticated, getAccessTokenSilently, closeStream]);
 
@@ -134,7 +138,11 @@ export function useQrStream({
 
   // Clean up on unmount
   useEffect(() => {
-    return () => { closeStream(); };
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      closeStream();
+    };
   }, [closeStream]);
 
   return {

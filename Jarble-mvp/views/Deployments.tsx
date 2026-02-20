@@ -22,6 +22,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useMemo, useCallback } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { StatusBadge } from "@/components/StatusBadge";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { runtimeNeedsLlm } from "./onboarding/wizardStepConfig";
 import {
   ReactFlow,
@@ -632,15 +633,17 @@ export default function Deployments() {
               className="rounded-xl border border-border/60 overflow-hidden"
               style={{ height: "calc(100vh - 240px)" }}
             >
-              <ReactFlowProvider>
-                <DeploymentGraph
-                  deployments={deployments}
-                  showCreditPools={showCreditPools}
-                  activeRuntime={activeRuntime}
-                  selectedId={selectedDeploymentId}
-                  onSelectDeployment={setSelectedDeploymentId}
-                />
-              </ReactFlowProvider>
+              <ErrorBoundary>
+                <ReactFlowProvider>
+                  <DeploymentGraph
+                    deployments={deployments}
+                    showCreditPools={showCreditPools}
+                    activeRuntime={activeRuntime}
+                    selectedId={selectedDeploymentId}
+                    onSelectDeployment={setSelectedDeploymentId}
+                  />
+                </ReactFlowProvider>
+              </ErrorBoundary>
             </div>
 
             {/* Detail panel (fixed overlay on left) */}

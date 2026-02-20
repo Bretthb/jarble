@@ -101,21 +101,43 @@ export async function getUserFromToken(payload: TokenPayload) {
   // Before creating a new user, check if someone with this email already exists
   // This handles the case where a user signs up with Google first, then tries
   // email/password with the same email (or vice versa)
+  //
+  // SECURITY: Only link accounts if BOTH are email-verified to prevent account takeover.
+  // Attack scenario without this check:
+  //   1. Victim signs up with Google (alice@example.com)
+  //   2. Attacker creates Auth0 email/password account with alice@example.com
+  //   3. Attacker logs in, code would overwrite auth0Id, hijacking the account
   if (payload.email) {
     const existingByEmail = await db.query.users.findFirst({
       where: eq(tables.users.email, payload.email),
     });
 
     if (existingByEmail) {
-      // Link this auth0Id to the existing user instead of creating a duplicate
+      // Only allow account linking if BOTH accounts have verified emails
+      // This prevents attackers from claiming unverified emails
+      if (!emailVerified || !existingByEmail.emailVerified) {
+        logger.warn({
+          email: payload.email,
+          newAuth0Id: payload.sub,
+          existingAuth0Id: existingByEmail.auth0Id,
+          newEmailVerified: emailVerified,
+          existingEmailVerified: existingByEmail.emailVerified,
+        }, "Blocked account linking: both accounts must be email-verified");
+
+        // Don't link - create a separate account (will fail on unique constraint if email is unique)
+        // Or throw an error to inform the user
+        throw new Error(
+          "An account with this email already exists. Please sign in with your original method, " +
+          "or verify your email on both accounts to link them."
+        );
+      }
+
+      // Both accounts are verified - safe to link
       const updates: Record<string, unknown> = {
         auth0Id: payload.sub, // Update to the new auth method's ID
       };
       if (payload.name && !existingByEmail.name) {
         updates.name = payload.name;
-      }
-      if (emailVerified && !existingByEmail.emailVerified) {
-        updates.emailVerified = true;
       }
 
       await (db as any).update(tables.users)
@@ -127,7 +149,7 @@ export async function getUserFromToken(payload: TokenPayload) {
         email: payload.email,
         newAuth0Id: payload.sub,
         previousAuth0Id: existingByEmail.auth0Id,
-      }, "Linked new auth method to existing user (same email)");
+      }, "Linked new auth method to existing user (both email-verified)");
 
       user = await db.query.users.findFirst({
         where: eq(tables.users.id, existingByEmail.id),

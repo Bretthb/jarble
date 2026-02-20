@@ -220,6 +220,15 @@ export async function createDeployment(
       template: {
         metadata: { labels: { app: `dep-${deploymentId}` } },
         spec: {
+          // Disable K8s API access - pods shouldn't query the cluster
+          automountServiceAccountToken: false,
+          // Pod-level security: run as non-root user, set group for PVC access
+          securityContext: {
+            runAsNonRoot: true,
+            runAsUser: 1000,      // node user (standard in Node.js images)
+            runAsGroup: 1000,
+            fsGroup: 1000,        // PVC files accessible to this group
+          },
           containers: [{
             name: "runtime",
             image: containerImage,
@@ -228,16 +237,47 @@ export async function createDeployment(
               name: "gateway",
             }],
             resources: {
-              requests: { cpu: cpuMillicores, memory: memoryMi },
-              limits: { cpu: cpuMillicores, memory: memoryMi },
+              requests: { cpu: cpuMillicores, memory: memoryMi, "ephemeral-storage": "100Mi" },
+              limits: { cpu: cpuMillicores, memory: memoryMi, "ephemeral-storage": "1Gi" },
+            },
+            // Container-level security: drop all capabilities, read-only root filesystem
+            securityContext: {
+              allowPrivilegeEscalation: false,
+              readOnlyRootFilesystem: true,
+              capabilities: { drop: ["ALL"] },
             },
             envFrom: [{ secretRef: { name: `secret-${deploymentId}` } }],
-            volumeMounts: [{ name: "data", mountPath: "/data" }],
+            volumeMounts: [
+              { name: "data", mountPath: "/data" },
+              { name: "tmp", mountPath: "/tmp" },        // Writable tmp (root fs is read-only)
+              { name: "npm-cache", mountPath: "/.npm" }, // npm cache dir for non-root user
+            ],
+            // Liveness probe: restart pod if OpenClaw gateway stops responding
+            livenessProbe: {
+              tcpSocket: {
+                port: config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789,
+              },
+              initialDelaySeconds: 120, // Wait 2 min for first boot (npm install)
+              periodSeconds: 30,
+              timeoutSeconds: 5,
+              failureThreshold: 3,
+            },
+            // Readiness probe: don't route traffic until gateway port is open
+            readinessProbe: {
+              tcpSocket: {
+                port: config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789,
+              },
+              initialDelaySeconds: 60, // Wait 1 min before expecting readiness
+              periodSeconds: 10,
+              timeoutSeconds: 5,
+              failureThreshold: 3,
+            },
           }],
-          volumes: [{
-            name: "data",
-            persistentVolumeClaim: { claimName: `pvc-${deploymentId}` },
-          }],
+          volumes: [
+            { name: "data", persistentVolumeClaim: { claimName: `pvc-${deploymentId}` } },
+            { name: "tmp", emptyDir: {} },        // Ephemeral tmp directory
+            { name: "npm-cache", emptyDir: {} }, // Ephemeral npm cache
+          ],
           imagePullSecrets: [{ name: "ghcr-pull-secret" }],
         },
       },

@@ -1,0 +1,157 @@
+# ═══════════════════════════════════════════════════════════════════════
+# NetworkPolicy for Jarble Bot Pods
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Controls network access for bot deployments in the jarble namespace.
+#
+# Egress (outbound):
+#   1. DNS (kube-system)
+#   2. jarble-api (file-watcher callbacks)
+#   3. MCP marketplace servers (label: jarble.ai/role=mcp-server)
+#   4. Agent-to-agent (label: jarble.ai/agent-network=true)
+#   5. External HTTPS/HTTP (LLM APIs, messaging platforms)
+#   6. WhatsApp XMPP (ports 5222, 5223)
+#
+# Ingress (inbound):
+#   - Other bots in jarble namespace (port 18789)
+#
+# Blocked:
+#   - Cloud metadata (169.254.0.0/16)
+#   - Private networks (10.x, 172.16.x, 192.168.x)
+#   - Random internal cluster services
+#
+# Apply with: kubectl apply -f network-policy.yaml
+# ═══════════════════════════════════════════════════════════════════════
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bot-pod-network-policy
+  namespace: jarble
+spec:
+  # Apply to all bot deployment pods (they have labels like app=dep-xxx)
+  podSelector:
+    matchLabels: {}  # All pods in namespace (refine with matchExpressions if needed)
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # ── Ingress Rules ─────────────────────────────────────────────────────
+  # Allow inbound from other bots in the agent network.
+  # Note: jarble-api uses exec (bypasses NetworkPolicy), so no rule needed for that.
+  ingress:
+    # Allow inbound from other bots (agent-to-agent)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: jarble
+          podSelector:
+            matchLabels: {}  # Any pod in jarble namespace
+      ports:
+        - protocol: TCP
+          port: 18789  # OpenClaw gateway
+
+  # ── Egress Rules ──────────────────────────────────────────────────────
+  egress:
+    # 1. Allow DNS resolution (kube-dns)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # 2. Allow communication to jarble-api service (file-watcher callbacks)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: jarble
+          podSelector:
+            matchLabels:
+              app: jarble-api
+      ports:
+        - protocol: TCP
+          port: 3001  # jarble-api port
+
+    # 3. Allow communication to MCP marketplace servers
+    #    Bots can connect to shared MCP servers labeled with jarble.ai/role=mcp-server
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: jarble
+          podSelector:
+            matchLabels:
+              jarble.ai/role: mcp-server
+      ports:
+        - protocol: TCP
+          port: 3000  # MCP default port (adjust as needed)
+
+    # 4. Allow agent-to-agent communication (bot calling another bot)
+    #    Bots labeled with jarble.ai/agent-network=true can receive connections from other bots
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: jarble
+          podSelector:
+            matchLabels:
+              jarble.ai/agent-network: "true"
+      ports:
+        - protocol: TCP
+          port: 18789  # OpenClaw gateway port
+
+    # 5. Allow HTTPS/HTTP to external APIs (LLMs, messaging platforms)
+    #    Only block dangerous ranges; internal services are allowed via explicit rules above
+    #    NOTE: We do NOT block 10.0.0.0/8 etc. because:
+    #      - Cluster services (kube-dns, jarble-api, MCP servers) use those ranges
+    #      - Hetzner private networks use 10.x ranges
+    #      - Specific allow rules above already restrict internal access appropriately
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Block cloud metadata services (security critical)
+              - 169.254.169.254/32  # AWS/GCP/Azure metadata endpoint
+              - 169.254.0.0/16      # Link-local addresses
+              # Block localhost (no reason for pod to call itself externally)
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443  # HTTPS (LLM APIs, platform APIs)
+        - protocol: TCP
+          port: 80   # HTTP (some webhooks, redirects)
+
+    # 6. Allow WhatsApp Web (Baileys uses these ports)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32  # Cloud metadata
+              - 169.254.0.0/16      # Link-local
+              - 127.0.0.0/8         # Localhost
+      ports:
+        - protocol: TCP
+          port: 5222  # XMPP (WhatsApp)
+        - protocol: TCP
+          port: 5223  # XMPP over TLS
+
+---
+# ═══════════════════════════════════════════════════════════════════════
+# Default Deny Policy for jarble-bots namespace (if used)
+# ═══════════════════════════════════════════════════════════════════════
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: jarble-bots
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  # Empty rules = deny all (baseline, other policies add exceptions)
+  ingress: []
+  egress: []

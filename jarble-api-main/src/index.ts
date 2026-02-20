@@ -1,11 +1,18 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import { timingSafeEqual } from "crypto";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "./trpc/index.js";
 import { createContext } from "./trpc/context.js";
 import { logger } from "./utils/logger.js";
 import { env } from "./utils/env.js";
+
+// Constant-time string comparison to prevent timing attacks on secrets
+function secureCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 import { initDatabase } from "./db/init.js";
 import { db, tables } from "./db/index.js";
 import { verifyToken, getUserFromToken } from "./services/auth.js";
@@ -20,6 +27,7 @@ import { encryptApiKey } from "./utils/encryption.js";
 import { syncConfigsFromPvc, syncConfigsToPvc } from "./services/configSync.js";
 import { startStorageEnforcement } from "./services/storageEnforcement.js";
 import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement.js";
+import { startStatusReconciler } from "./services/statusReconciler.js";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import stream from "stream";
@@ -117,6 +125,9 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
 
         if (userId) {
           // Update user with Stripe customer ID + store pending subscription for deployment linking
+          // NOTE: Race condition possible if user creates deployment BEFORE this webhook completes.
+          // The frontend should call deployment.linkSubscription as a fallback if deployment
+          // was created without a subscription. See deployment.linkSubscription procedure.
           await (db as any).update(tables.users)
             .set({
               stripeCustomerId: customerId,
@@ -389,7 +400,7 @@ app.post("/api/auth0/email-verified", async (req, res) => {
     return;
   }
 
-  if (!token || token !== m2mSecret) {
+  if (!token || !secureCompare(token, m2mSecret)) {
     logger.warn("Auth0 email-verified webhook: invalid or missing token");
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -408,7 +419,12 @@ app.post("/api/auth0/email-verified", async (req, res) => {
     });
 
     if (!user) {
-      logger.info({ auth0Id, email }, "Email verified webhook: user not found in DB (not yet provisioned)");
+      // User not yet provisioned (first login race condition).
+      // This is OK because:
+      // 1. The Auth0 Post Login Action adds email_verified to the access token
+      // 2. getUserFromToken() reads this claim and sets emailVerified on user creation
+      // 3. So the user will be created with correct emailVerified status on their next API call
+      logger.info({ auth0Id, email }, "Email verified webhook: user not found in DB (not yet provisioned - will sync via JWT claim)");
       res.json({ received: true, updated: false, reason: "user_not_found" });
       return;
     }
@@ -437,11 +453,19 @@ app.post("/api/auth0/email-verified", async (req, res) => {
 // Auth: Shared secret in Authorization header (CONFIG_WEBHOOK_SECRET).
 app.post("/api/config-changed", async (req, res) => {
   try {
-    // Validate shared secret if configured
+    // Validate shared secret - REQUIRED in production
+    // In development without the secret, skip auth (convenience)
+    const isDev = process.env.NODE_ENV === "development";
+    if (!env.CONFIG_WEBHOOK_SECRET && !isDev) {
+      logger.warn("Config webhook called but CONFIG_WEBHOOK_SECRET is not configured");
+      res.status(503).json({ error: "Webhook not configured" });
+      return;
+    }
+
     if (env.CONFIG_WEBHOOK_SECRET) {
       const authHeader = req.headers.authorization;
       const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-      if (!token || token !== env.CONFIG_WEBHOOK_SECRET) {
+      if (!token || !secureCompare(token, env.CONFIG_WEBHOOK_SECRET)) {
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
@@ -989,11 +1013,22 @@ app.get("/api/deployments/status/stream", async (req, res) => {
       }
     }, 30_000);
 
+    // Maximum connection lifetime: 1 hour (prevents slowloris-style resource exhaustion)
+    const maxConnectionMs = 60 * 60 * 1000;
+    const connectionTimeout = setTimeout(() => {
+      logger.debug({ userId: user!.id }, "Status stream max lifetime reached, closing");
+      clearInterval(pollInterval);
+      clearInterval(keepAlive);
+      res.write(`event: reconnect\ndata: {"reason":"max_lifetime"}\n\n`);
+      res.end();
+    }, maxConnectionMs);
+
     // Clean up when client disconnects
     req.on("close", () => {
       logger.debug({ userId: user!.id }, "Status stream client disconnected");
       clearInterval(pollInterval);
       clearInterval(keepAlive);
+      clearTimeout(connectionTimeout);
     });
   } catch (err) {
     logger.error({ err }, "SSE status stream error");
@@ -1187,9 +1222,10 @@ async function start() {
   // Initialize database (creates tables for in-memory SQLite, optionally seeds)
   await initDatabase();
 
-  // Start periodic enforcement services (K8s only, skips in SQLite dev mode)
+  // Start periodic enforcement services (K8s only, skips in mock/SQLite dev mode)
   startStorageEnforcement();
   startSubscriptionEnforcement();
+  startStatusReconciler();  // Syncs DB status with K8s reality (fixes "stuck at creating")
 
   const PORT = env.PORT;
   app.listen(PORT, () => {
