@@ -20,7 +20,7 @@ const MOCK_K8S = process.env.MOCK_K8S === "true";
  * - DB says "running" but pod was manually deleted
  */
 
-type DbStatus = "creating" | "running" | "stopped" | "failed" | "restarting";
+type DbStatus = "creating" | "running" | "stopped" | "failed" | "restarting" | "reloading";
 
 interface StatusMismatch {
   deploymentId: string;
@@ -44,7 +44,7 @@ export async function reconcileStatuses(): Promise<void> {
     // Find deployments that might have drifted
     // Limit to 100 per cycle to prevent overwhelming K8s API at scale
     const driftCandidates = await db.query.deployments.findMany({
-      where: inArray(deployments.status, ["creating", "running", "restarting"]),
+      where: inArray(deployments.status, ["creating", "running", "restarting", "reloading"]),
       columns: { id: true, status: true, name: true, updatedAt: true },
       limit: 100,
       orderBy: (d, { desc }) => [desc(d.updatedAt)], // Prioritize recently changed
@@ -114,12 +114,14 @@ async function checkDeploymentStatus(dep: {
       // Never downgrade "running" → "creating" — a pod can temporarily lose readiness
       // during initialDelaySeconds, configSync restarts, or brief probe failures.
       if (dep.status === "running") return null;
-      expectedDbStatus = dep.status === "restarting" ? "restarting" : "creating";
+      // Preserve transitional statuses — restarting and reloading resolve on their own
+      if (dep.status === "restarting" || dep.status === "reloading") return null;
+      expectedDbStatus = "creating";
       break;
 
     case "not_found":
       // No pod exists
-      if (dep.status === "creating" || dep.status === "restarting") {
+      if (dep.status === "creating" || dep.status === "restarting" || dep.status === "reloading") {
         // Deployment is in progress but pod doesn't exist yet - could be normal
         // Only flag as issue if we've been waiting too long (handled elsewhere)
         return null;

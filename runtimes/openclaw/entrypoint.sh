@@ -121,7 +121,15 @@ if [ ! -f "$INIT_MARKER" ]; then
   },
   "gateway": {
     "port": 18789,
-    "host": "0.0.0.0"
+    "host": "0.0.0.0",
+    "auth": {
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": { "enabled": true }
+      }
+    }
   },
   "plugins": {
     "entries": {
@@ -172,20 +180,49 @@ fi
 CLEANUP_PID=$!
 echo "[entrypoint] Periodic cleanup started (PID $CLEANUP_PID)"
 
-# ── Start OpenClaw Gateway ───────────────────────────────────────────
+# ── Start OpenClaw Gateway (restart loop for hot reload) ─────────────
+# Set HOME=/data so OpenClaw's config path ($HOME/.openclaw/openclaw.json)
+# matches our entrypoint write path (/data/.openclaw/openclaw.json).
+# Without this, OpenClaw creates a nested config at $HOME/.openclaw/.openclaw/
+export HOME=/data
+
 cd /opt/openclaw
-echo "[entrypoint] Starting OpenClaw gateway on port 18789..."
-echo "[entrypoint] Provider: ${LLM_PROVIDER:-openrouter}, Model: ${LLM_MODEL:-openrouter/auto}"
 
-# Run openclaw gateway in foreground (not exec, so trap can catch signals)
-# The --allow-unconfigured flag lets it start even without full platform setup
-npx openclaw gateway --port 18789 --bind lan --allow-unconfigured &
-OPENCLAW_PID=$!
-echo "[entrypoint] OpenClaw gateway started (PID $OPENCLAW_PID)"
+while true; do
+  # Source env overrides written by configSync (hot reload support)
+  # This file contains `export KEY='value'` entries for updated secrets
+  if [ -f /data/config/.env ]; then
+    echo "[entrypoint] Sourcing /data/config/.env"
+    . /data/config/.env
+  fi
 
-# Wait for OpenClaw to exit (or signal to arrive)
-wait $OPENCLAW_PID
-EXIT_CODE=$?
+  echo "[entrypoint] Starting OpenClaw gateway on port 18789..."
+  echo "[entrypoint] Provider: ${LLM_PROVIDER:-openrouter}, Model: ${LLM_MODEL:-openrouter/auto}"
 
-echo "[entrypoint] OpenClaw exited with code $EXIT_CODE"
-exit $EXIT_CODE
+  # Run openclaw gateway in background (not exec, so trap can catch signals)
+  # The --allow-unconfigured flag lets it start even without full platform setup
+  npx openclaw gateway --port 18789 --bind lan --allow-unconfigured &
+  OPENCLAW_PID=$!
+  echo "[entrypoint] OpenClaw gateway started (PID $OPENCLAW_PID)"
+
+  # Write PID file so the Jarble API can signal process restarts
+  echo "$OPENCLAW_PID" > /data/.openclaw.pid
+
+  # Wait for OpenClaw to exit (or signal to arrive)
+  # Use || true to prevent set -e from exiting on non-zero wait status
+  EXIT_CODE=0
+  wait $OPENCLAW_PID || EXIT_CODE=$?
+
+  # Check for reload marker (written by configSync before killing the process)
+  if [ -f /data/.reload ]; then
+    echo "[entrypoint] Reload requested — restarting gateway with updated config..."
+    rm -f /data/.reload
+    sleep 1
+    continue
+  fi
+
+  # No reload marker — normal exit or crash, break out of the loop
+  echo "[entrypoint] OpenClaw exited with code $EXIT_CODE"
+  rm -f /data/.openclaw.pid
+  exit $EXIT_CODE
+done

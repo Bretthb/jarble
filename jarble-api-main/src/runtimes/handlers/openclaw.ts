@@ -108,6 +108,12 @@ export const openclawHandler: RuntimeHandler = {
 
     openclawConfig.channels = channels;
 
+    // Enable HTTP chat completions endpoint on the gateway
+    // This allows the Jarble API to proxy dashboard chat through the pod
+    openclawConfig.gateway = {
+      http: { endpoints: { chatCompletions: { enabled: true } } },
+    };
+
     // Always write openclaw.json if we have any config
     if (Object.keys(openclawConfig).length > 0) {
       files.push({

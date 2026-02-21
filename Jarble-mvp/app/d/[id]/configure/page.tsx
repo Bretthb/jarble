@@ -1,7 +1,8 @@
 "use client";
 
-import DeploymentConfiguration from "@/views/DeploymentConfiguration";
+import { useParams, redirect } from "next/navigation";
 
 export default function DeploymentConfigurePage() {
-  return <DeploymentConfiguration />;
+  const { id } = useParams() as { id: string };
+  redirect(`/d/${id}`);
 }

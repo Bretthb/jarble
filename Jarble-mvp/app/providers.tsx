@@ -1,9 +1,10 @@
 "use client";
 
 import { trpc, API_URL } from "@/lib/trpc";
+import { setTokenGetter } from "@/lib/trpc-vanilla";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import superjson from "superjson";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -24,6 +25,11 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
   // has access to the latest auth state without re-creating the client.
   const authRef = useRef({ getAccessTokenSilently, isAuthenticated, isLoading });
   authRef.current = { getAccessTokenSilently, isAuthenticated, isLoading };
+
+  // Wire Auth0 token getter for the vanilla tRPC client (used by Tambo tools)
+  useEffect(() => {
+    setTokenGetter(getAccessTokenSilently);
+  }, [getAccessTokenSilently]);
 
   const [queryClient] = useState(() => {
     const client = new QueryClient({

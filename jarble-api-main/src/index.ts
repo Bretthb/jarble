@@ -28,6 +28,8 @@ import { syncConfigsFromPvc, syncConfigsToPvc } from "./services/configSync.js";
 import { startStorageEnforcement } from "./services/storageEnforcement.js";
 import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement.js";
 import { startStatusReconciler } from "./services/statusReconciler.js";
+import { tamboAgentRouter } from "./routes/tamboAgent.js";
+import { toolInvokeRouter } from "./routes/toolInvoke.js";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import stream from "stream";
@@ -1235,6 +1237,12 @@ if (env.NODE_ENV === "development") {
   });
   logger.info("📊 Debug endpoint enabled: /debug/deployment/:id/sync-config");
 }
+
+// ─── Tambo AG-UI agent endpoint ──────────────────────────────────────────────
+app.use("/api/tambo-agent", tamboAgentRouter);
+
+// ─── Direct tool invocation (no LLM) ────────────────────────────────────────
+app.use("/api/tools", toolInvokeRouter);
 
 // tRPC handler
 app.use("/trpc", authLimiter, createExpressMiddleware({

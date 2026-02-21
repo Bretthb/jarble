@@ -853,6 +853,76 @@ export async function exportDeploymentConfigs(deploymentId: string): Promise<{ f
   };
 }
 
+// ── Pod Address Lookup (for chat proxy) ──────────────────────────────
+
+/**
+ * Get the pod's cluster IP, gateway port, and auth token for proxying
+ * dashboard chat requests through the running OpenClaw pod.
+ *
+ * Returns null if mock mode, no pod is running, or the secret is missing.
+ *
+ * For local dev: set POD_PROXY_URL=http://localhost:18790 (kubectl port-forward)
+ * to bypass unreachable pod cluster IPs.
+ */
+export async function getPodAddress(deploymentId: string): Promise<{
+  ip: string;
+  port: number;
+  gatewayToken: string;
+} | null> {
+  if (MOCK_K8S) return null;
+
+  try {
+    // Find running, ready pod
+    const pods = await coreApi!.listNamespacedPod(
+      NAMESPACE,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      `app=dep-${deploymentId}`
+    );
+
+    if (pods.body.items.length === 0) return null;
+
+    const pod = pods.body.items[0];
+    const podIp = pod.status?.podIP;
+    const isRunning = pod.status?.phase === "Running" && pod.status?.containerStatuses?.[0]?.ready;
+
+    if (!podIp || !isRunning) return null;
+
+    // Read gateway token from K8s Secret
+    const secret = await coreApi!.readNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
+    const data = secret.body.data ?? {};
+    const tokenB64 = data["OPENCLAW_GATEWAY_TOKEN"];
+    const gatewayToken = tokenB64 ? Buffer.from(tokenB64, "base64").toString("utf-8") : "";
+
+    // Local dev override: POD_PROXY_URL=http://localhost:18790
+    // Use with `kubectl port-forward <pod> 18790:18789` to reach pods from Windows
+    const proxyUrl = process.env.POD_PROXY_URL;
+    if (proxyUrl) {
+      try {
+        const u = new URL(proxyUrl);
+        return {
+          ip: u.hostname,
+          port: parseInt(u.port, 10) || 18789,
+          gatewayToken,
+        };
+      } catch {
+        logger.warn({ proxyUrl }, "getPodAddress: invalid POD_PROXY_URL, using pod IP");
+      }
+    }
+
+    // Determine port from the pod's container spec, fallback to RUNTIME_PORTS
+    const containerPort = pod.spec?.containers?.[0]?.ports?.[0]?.containerPort
+      ?? RUNTIME_PORTS["openclaw"];
+
+    return { ip: podIp, port: containerPort, gatewayToken };
+  } catch (err) {
+    logger.error({ deploymentId, err }, "getPodAddress failed");
+    return null;
+  }
+}
+
 // ── Config File Writing ───────────────────────────────────────────────
 
 /**
@@ -1085,7 +1155,7 @@ export async function streamExecInPod(
  * Execute a command in a pod with stdin content piped in.
  * Used for writing file contents via `cat > /path`.
  */
-async function execInPodWithStdin(
+export async function execInPodWithStdin(
   podName: string,
   command: string[],
   stdinContent: string,
@@ -1162,6 +1232,21 @@ export async function updateDeploymentSecret(
   // Include CONFIG_WEBHOOK_SECRET for authenticated config-changed callbacks
   if (process.env.CONFIG_WEBHOOK_SECRET) {
     baseData.CONFIG_WEBHOOK_SECRET = process.env.CONFIG_WEBHOOK_SECRET;
+  }
+
+  // Preserve OPENCLAW_GATEWAY_TOKEN — it's generated once at creation time
+  // and not included in runtime handler's getSecretEntries(). Without this,
+  // every configSync replaceNamespacedSecret call would delete the token.
+  if (!secretEntries.OPENCLAW_GATEWAY_TOKEN) {
+    try {
+      const currentData = await readCurrentSecretData(deploymentId);
+      if (currentData?.OPENCLAW_GATEWAY_TOKEN) {
+        secretEntries.OPENCLAW_GATEWAY_TOKEN = currentData.OPENCLAW_GATEWAY_TOKEN;
+      }
+    } catch {
+      // If we can't read the existing secret, proceed without the token
+      logger.warn({ deploymentId }, "updateDeploymentSecret: could not read existing gateway token");
+    }
   }
 
   const fullData = { ...baseData, ...secretEntries };
@@ -1293,6 +1378,110 @@ export async function readConfigsFromPvc(
   }
 
   return files;
+}
+
+// ── Process Restart (Zero-Downtime Config Reload) ────────────────────
+
+/**
+ * Escape a value for use in single-quoted shell assignment.
+ * Handles embedded single quotes: ' → '\''
+ */
+function escapeShellValue(value: string): string {
+  return value.replace(/'/g, "'\\''");
+}
+
+/**
+ * Signal a running deployment to reload its config without a full pod restart.
+ *
+ * Flow:
+ *   1. Find running pod
+ *   2. Check PID file exists (old images without restart loop return false)
+ *   3. Write /data/config/.env with env var overrides
+ *   4. Touch /data/.reload marker
+ *   5. Kill OpenClaw process — entrypoint loop detects .reload, re-sources .env, restarts
+ *
+ * Returns true if the signal was sent, false if the pod doesn't support it
+ * (caller should fall back to full pod restart).
+ */
+export async function signalProcessRestart(
+  deploymentId: string,
+  envOverrides: Record<string, string>
+): Promise<boolean> {
+  if (MOCK_K8S) {
+    const mockDep = mockStore.get(deploymentId);
+    if (!mockDep || mockDep.status !== "running") return false;
+    Object.assign(mockDep.secrets, envOverrides);
+    mockDep.logs.push(`[${new Date().toISOString()}] Process restart signaled (mock)`);
+    logger.info({ deploymentId }, "🎭 Mock: signalProcessRestart");
+    return true;
+  }
+
+  // 1. Find running pod (don't require readiness — it may be briefly unready during reload)
+  const podName = await findPodForDeployment(deploymentId, { requireReady: false });
+  if (!podName) {
+    logger.debug({ deploymentId }, "signalProcessRestart: no running pod found");
+    return false;
+  }
+
+  // 2. Check PID file exists (indicates image supports restart loop)
+  let pid: string;
+  try {
+    pid = (await execInPod(podName, ["cat", "/data/.openclaw.pid"])).trim();
+    if (!pid || isNaN(parseInt(pid, 10))) {
+      logger.debug({ deploymentId, pid }, "signalProcessRestart: invalid PID file content");
+      return false;
+    }
+  } catch {
+    // PID file doesn't exist — old image without restart loop support
+    logger.debug({ deploymentId }, "signalProcessRestart: no PID file (old image), falling back");
+    return false;
+  }
+
+  // 3. Write .env file with env overrides
+  const envContent = Object.entries(envOverrides)
+    .map(([key, value]) => `export ${key}='${escapeShellValue(value)}'`)
+    .join("\n") + "\n";
+  await execInPodWithStdin(podName, ["tee", "/data/config/.env"], envContent);
+
+  // 4. Touch .reload marker (entrypoint checks this after process exits)
+  await execInPod(podName, ["touch", "/data/.reload"]);
+
+  // 5. Kill OpenClaw process — entrypoint loop will detect .reload and restart
+  try {
+    await execInPod(podName, ["kill", pid]);
+  } catch {
+    // Process may have already exited — that's fine, entrypoint will still see .reload
+    logger.debug({ deploymentId, pid }, "signalProcessRestart: kill failed (process may have exited)");
+  }
+
+  logger.info({ deploymentId, pid, envKeys: Object.keys(envOverrides) }, "signalProcessRestart: reload signaled");
+  return true;
+}
+
+/**
+ * Read the current K8s Secret data for a deployment.
+ * Used by configSync to compare current vs desired secret entries.
+ * Returns null if the secret doesn't exist.
+ */
+export async function readCurrentSecretData(
+  deploymentId: string
+): Promise<Record<string, string> | null> {
+  if (MOCK_K8S) {
+    const mockDep = mockStore.get(deploymentId);
+    return mockDep?.secrets ?? null;
+  }
+
+  try {
+    const secret = await coreApi!.readNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
+    const data = secret.body.data ?? {};
+    const decoded: Record<string, string> = {};
+    for (const [key, value] of Object.entries(data)) {
+      decoded[key] = Buffer.from(value as string, "base64").toString("utf-8");
+    }
+    return decoded;
+  } catch {
+    return null;
+  }
 }
 
 // ── Deployment Logs ──────────────────────────────────────────────────

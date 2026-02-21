@@ -103,6 +103,7 @@ export default function OnboardingWizard() {
   const [deployPhase, setDeployPhase] = useState<"idle" | "deploying" | "pairing" | "paired">("idle");
 
   // Telegram pairing poll mutation (used in deploy step after deploy succeeds)
+  // @ts-expect-error — tRPC type inference truncates at ~6 procedures; pollTelegramPairing exists on the backend
   const pollTelegramMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
 
   // Poll for Telegram pairing after deploy succeeds with a telegram token
@@ -220,9 +221,10 @@ export default function OnboardingWizard() {
     onSuccess: () => {
       toast.success("Deployed successfully!");
       setIsDeploying(false);
-      if (telegramBotToken) {
-        // Telegram token was included — stay on deploy step and poll for pairing
-        setDeployPhase("pairing");
+      // Redirect to Tambo chat page for the newly deployed bot
+      const targetId = createdDeploymentId || id;
+      if (targetId && targetId !== "new") {
+        router.replace(`/d/${targetId}`);
       } else {
         router.replace("/dashboard");
       }
@@ -267,8 +269,6 @@ export default function OnboardingWizard() {
         return keyValidation === "valid";
       case "deploy":
         return true;
-      case "telegram":
-        return !!telegramBotUsername;
       default:
         return true;
     }
@@ -302,7 +302,6 @@ export default function OnboardingWizard() {
           cpuLimit: cpuLimit || undefined,
           memoryMb: memoryMb || undefined,
           storageMb: storageMb || undefined,
-          telegramBotToken: telegramBotToken || undefined,
         });
       }
     } else if (currentStepIndex < steps.length - 1) {
@@ -483,14 +482,7 @@ export default function OnboardingWizard() {
                   telegramBotUsername={telegramBotUsername}
                 />
               )}
-              {currentStepId === "telegram" && (
-                <StepConnectTelegram
-                  telegramBotToken={telegramBotToken}
-                  setTelegramBotToken={setTelegramBotToken}
-                  telegramBotUsername={telegramBotUsername}
-                  setTelegramBotUsername={setTelegramBotUsername}
-                />
-              )}
+              {/* Telegram step removed — platform connections happen via Tambo chat after deploy */}
             </motion.div>
           </AnimatePresence>
         </div>

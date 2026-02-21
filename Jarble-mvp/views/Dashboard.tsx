@@ -337,7 +337,7 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
     if (isPending) {
       router.push(`/onboarding/${deployment.id}`);
     } else {
-      router.push(`/d/${deployment.id}/configure`);
+      router.push(`/d/${deployment.id}`);
     }
   };
 

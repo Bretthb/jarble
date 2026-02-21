@@ -35,6 +35,15 @@ const envSchema = z.object({
   // Config webhook — shared secret for pod-to-API config-changed callbacks
   CONFIG_WEBHOOK_SECRET: z.string().optional(),
 
+  // Tambo Agent — shared secret for Tambo Cloud → Jarble API auth
+  TAMBO_AGENT_SECRET: z.string().optional(),
+
+  // Management agent LLM — the chat agent uses its own key, not the deployment's
+  // Falls back to OPENROUTER_API_KEY if not set
+  AGENT_LLM_API_KEY: z.string().optional(),
+  AGENT_LLM_PROVIDER: z.enum(["anthropic", "openai", "openrouter", "google"]).optional(),
+  AGENT_LLM_MODEL: z.string().optional(),
+
   // Stripe — all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),

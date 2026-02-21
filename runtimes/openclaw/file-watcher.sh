@@ -28,7 +28,7 @@ echo "[file-watcher] Callback: $API_URL"
 echo "[file-watcher] Deployment: ${DEPLOYMENT_ID:-unknown}"
 
 # Watch for file modifications, creations, and deletions recursively
-inotifywait -m -r -e modify,create,delete,moved_to "$WATCH_DIR" 2>/dev/null | while read dir event file; do
+inotifywait -m -r --exclude '\.env$' -e modify,create,delete,moved_to "$WATCH_DIR" 2>/dev/null | while read dir event file; do
   # Debounce: wait for batch changes to settle (e.g., multiple files written at once)
   sleep "$DEBOUNCE_SECONDS"
 

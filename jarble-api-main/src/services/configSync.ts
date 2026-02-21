@@ -5,8 +5,14 @@
  *
  * Direction 1: Frontend → PVC (syncConfigsToPvc)
  *   User saves config on frontend → DB updates → this service renders
- *   config files from the runtime handler, writes them to the PVC,
- *   updates the K8s Secret, and restarts the pod.
+ *   config files from the runtime handler and applies them with minimal
+ *   disruption using a tiered strategy:
+ *
+ *   Tier 1 (file-only): System prompt, skills → write files to PVC, no restart
+ *   Tier 2 (process restart): LLM keys, platform tokens → signal entrypoint
+ *     to restart the gateway process with new env vars (~5-10s downtime)
+ *   Tier 3 (pod restart): Fallback when process restart isn't supported
+ *     (old image) → full scale 0→1 restart (~30-60s downtime)
  *
  * Direction 2: PVC → Frontend (syncConfigsFromPvc)
  *   File watcher in the container detects changes → webhook calls API →
@@ -19,13 +25,15 @@
  */
 
 import { db, tables } from "../db/index.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import {
   writeConfigsToPvc,
   readConfigsFromPvc,
   updateDeploymentSecret,
   restartDeployment,
   getDeploymentPodStatus,
+  signalProcessRestart,
+  readCurrentSecretData,
 } from "../k8s/deployment.js";
 import { getHandlerOrNull } from "../runtimes/index.js";
 import type { DeploymentFields } from "../runtimes/types.js";
@@ -34,6 +42,11 @@ import { logger } from "../utils/logger.js";
 import { nanoid } from "nanoid";
 
 const { deployments, platformCredentials } = tables;
+
+// ── Per-deployment sync mutex ────────────────────────────────────────────
+// Prevents concurrent syncs for the same deployment from racing.
+// Each deployment chains its syncs sequentially; different deployments run in parallel.
+const syncMutexes = new Map<string, Promise<void>>();
 
 // ── Helper: Build DeploymentFields from DB row ──────────────────────────
 
@@ -81,6 +94,53 @@ async function buildDeploymentFields(
   };
 }
 
+// ── Helper: Compare secret entries ──────────────────────────────────────
+
+// Base keys that are always present and managed by createDeployment/updateDeploymentSecret,
+// not by the runtime handler's getSecretEntries(). These never change during configSync.
+const BASE_SECRET_KEYS = new Set([
+  "DEPLOYMENT_ID", "USER_ID", "DEPLOYMENT_NAME", "TEMPLATE", "RUNTIME",
+  "OPENCLAW_GATEWAY_TOKEN", "JARBLE_API_URL", "CONFIG_WEBHOOK_SECRET",
+]);
+
+interface SecretComparison {
+  changed: boolean;  // true if any runtime entries differ
+  removed: boolean;  // true if a runtime key was removed (can't unset via .env sourcing)
+}
+
+/**
+ * Compare current K8s secret with the desired runtime entries.
+ * Returns whether entries changed and whether any were removed.
+ */
+function compareSecrets(
+  current: Record<string, string> | null,
+  newEntries: Record<string, string>
+): SecretComparison {
+  if (!current) return { changed: true, removed: false };
+
+  let changed = false;
+  let removed = false;
+
+  // Check if any new entry is different from what's currently deployed
+  for (const [key, value] of Object.entries(newEntries)) {
+    if (current[key] !== value) {
+      changed = true;
+      break;
+    }
+  }
+
+  // Check if any runtime-specific key was removed
+  for (const key of Object.keys(current)) {
+    if (!BASE_SECRET_KEYS.has(key) && !(key in newEntries)) {
+      changed = true;
+      removed = true;
+      break;
+    }
+  }
+
+  return { changed, removed };
+}
+
 // ── Direction 1: Frontend → PVC ─────────────────────────────────────────
 
 /**
@@ -89,27 +149,36 @@ async function buildDeploymentFields(
  * Call this fire-and-forget after any DB update that affects config:
  *   void syncConfigsToPvc(deploymentId);
  *
- * Flow (atomic with rollback):
+ * Uses a per-deployment mutex to serialize concurrent syncs and a tiered
+ * strategy to minimize downtime:
+ *
  *   Phase 1 - Preparation (no side effects):
  *     1. Load deployment + platform creds from DB
  *     2. Guard: skip if not running
  *     3. Build DeploymentFields, render config files + secret entries
+ *     4. Compare secret entries with current K8s secret
  *
- *   Phase 2 - Execution (with rollback on failure):
- *     4. Set DB status to "restarting"
- *     5. Write config files to PVC
- *     6. Update K8s Secret
- *     7. Restart pod (scale 0 → 1)
- *     8. Poll for readiness, update DB status
- *
- *   On failure at any step, rollback is attempted:
- *     - Restore DB status to previous state
- *     - Set error message describing what failed
+ *   Phase 2 - Execution (tiered by change type):
+ *     File-only: Write configs to PVC — zero downtime
+ *     Secret changed: Process restart via .reload marker — ~5-10s
+ *     Secret removed or old image: Full pod restart — ~30-60s (fallback)
  */
-export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
-  // Track completed steps for rollback
-  type SyncStep = "db_status" | "pvc_write" | "secret_update" | "pod_restart";
-  const completedSteps: SyncStep[] = [];
+export function syncConfigsToPvc(deploymentId: string): Promise<void> {
+  // Chain onto any existing sync for this deployment (mutex)
+  const prev = syncMutexes.get(deploymentId) ?? Promise.resolve();
+  const next = prev
+    .catch(() => {}) // Don't let previous failure block next sync
+    .then(() => syncConfigsToPvcInner(deploymentId));
+  syncMutexes.set(deploymentId, next);
+  void next.finally(() => {
+    if (syncMutexes.get(deploymentId) === next) {
+      syncMutexes.delete(deploymentId);
+    }
+  });
+  return next;
+}
+
+async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
   let previousStatus: string | null = null;
 
   try {
@@ -130,7 +199,7 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
     previousStatus = deployment.status;
 
     // 2. If deployment is still creating, wait for it to become running.
-    //    Use 150 iterations (5 min) — first-boot npm install takes 3+ min and the
+    //    Use 150 iterations (5 min) — first-boot takes 3+ min and the
     //    DB status only flips to "running" after the readiness probe passes.
     if (deployment.status === "creating") {
       logger.info({ deploymentId }, "configSync→PVC: deployment creating, waiting up to 5 min for running...");
@@ -200,62 +269,163 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
       return;
     }
 
-    // 5. Build DeploymentFields and render configs (validation happens here)
+    // 5. Build DeploymentFields and render configs
     const fields = await buildDeploymentFields(deployment);
     const configFiles = runtimeHandler.renderConfigs(fields);
     const secretEntries = runtimeHandler.getSecretEntries(fields);
 
+    // 6. Compare secret entries with current K8s secret to determine sync tier
+    const currentSecret = await readCurrentSecretData(deploymentId);
+    const comparison = compareSecrets(currentSecret, secretEntries);
+
     logger.info(
-      { deploymentId, configCount: configFiles.length, secretKeys: Object.keys(secretEntries).length },
-      "configSync→PVC: preparation complete, starting execution"
+      {
+        deploymentId,
+        configCount: configFiles.length,
+        secretKeys: Object.keys(secretEntries).length,
+        secretsChanged: comparison.changed,
+        secretsRemoved: comparison.removed,
+      },
+      "configSync→PVC: preparation complete"
     );
 
     // ══════════════════════════════════════════════════════════════════════
-    // PHASE 2: Execution (with rollback tracking)
+    // PHASE 2: Tiered execution
     // ══════════════════════════════════════════════════════════════════════
 
-    // Step A: Set DB status to "restarting" (frontend shows spinner)
-    await (db as any).update(deployments)
-      .set({ status: "restarting", error: null })
-      .where(eq(deployments.id, deploymentId));
-    completedSteps.push("db_status");
-
-    // Step B: Update K8s Secret FIRST (critical for platform tokens)
-    // This ensures platform tokens are available even if PVC writes fail
-    await updateDeploymentSecret(
-      deploymentId,
-      deployment.userId,
-      deployment.name,
-      deployment.runtime,
-      secretEntries
-    );
-    completedSteps.push("secret_update");
-    logger.info({ deploymentId, secretKeys: Object.keys(secretEntries).length }, "configSync→PVC: K8s secret updated");
-
-    // Step C: Write config files to PVC (may timeout if pod exec hangs)
-    if (configFiles.length > 0) {
-      try {
+    if (!comparison.changed) {
+      // ── Tier 1: File-only change (zero downtime) ──────────────────────
+      // Secrets are unchanged — just write config files to PVC.
+      // The running process picks up file changes without restart
+      // (e.g., system prompt is read from disk by OpenClaw).
+      if (configFiles.length > 0) {
         await writeConfigsToPvc(deploymentId, configFiles);
-        completedSteps.push("pvc_write");
         logger.info(
           { deploymentId, files: configFiles.map((f) => f.path) },
-          "configSync→PVC: wrote config files"
-        );
-      } catch (writeErr) {
-        // Log but don't fail - secret was already updated
-        logger.warn(
-          { deploymentId, err: writeErr },
-          "configSync→PVC: failed to write config files (non-fatal, secret already updated)"
+          "configSync→PVC: file-only update complete (zero downtime)"
         );
       }
+      return;
     }
 
-    // Step D: Restart pod (scale 0 → 1)
-    await restartDeployment(deploymentId);
-    completedSteps.push("pod_restart");
+    if (!comparison.removed) {
+      // ── Tier 2: Process restart (env vars added/changed, ~5-10s) ──────
+      // Secrets changed but none removed. Try in-container process restart:
+      // write .env + .reload marker, kill OpenClaw process, entrypoint loop
+      // re-sources .env and restarts the gateway.
 
-    // Step E: Poll for readiness (90 attempts × 2s = 3 min max)
-    // Needs to cover the readiness probe initialDelaySeconds (60s) + startup time.
+      // Set transitional status
+      await (db as any).update(deployments)
+        .set({ status: "reloading", error: null })
+        .where(eq(deployments.id, deploymentId));
+
+      // Write config files to PVC
+      if (configFiles.length > 0) {
+        try {
+          await writeConfigsToPvc(deploymentId, configFiles);
+        } catch (writeErr) {
+          logger.warn(
+            { deploymentId, err: writeErr },
+            "configSync→PVC: failed to write config files (non-fatal)"
+          );
+        }
+      }
+
+      // Update K8s Secret for persistence (if pod truly restarts later, it gets the new values)
+      await updateDeploymentSecret(
+        deploymentId,
+        deployment.userId,
+        deployment.name,
+        deployment.runtime,
+        secretEntries
+      );
+
+      // Build full env overrides for the .env file (base + runtime entries)
+      const envOverrides: Record<string, string> = {
+        ...secretEntries,
+      };
+
+      // Attempt process restart
+      const restarted = await signalProcessRestart(deploymentId, envOverrides);
+
+      if (restarted) {
+        // Process restart signaled — poll for readiness (shorter timeout since no pod recreation)
+        let ready = false;
+        let failureReason = "";
+        for (let i = 0; i < 30; i++) { // 30 × 2s = 60s max
+          const status = await getDeploymentPodStatus(deploymentId);
+          if (status.status === "running") {
+            ready = true;
+            break;
+          }
+          if (status.status === "failed") {
+            failureReason = status.error || "Pod failed after reload";
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+
+        if (ready) {
+          await (db as any).update(deployments)
+            .set({ status: "running", error: null })
+            .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
+          logger.info({ deploymentId }, "configSync→PVC: process restart completed successfully");
+        } else {
+          await (db as any).update(deployments)
+            .set({
+              status: "failed",
+              error: failureReason || "Process did not become ready after reload",
+            })
+            .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
+          logger.warn({ deploymentId, failureReason }, "configSync→PVC: process restart failed");
+        }
+        return;
+      }
+
+      // Process restart not supported (old image without PID file) — fall through to Tier 3
+      logger.info({ deploymentId }, "configSync→PVC: process restart not available, falling back to pod restart");
+      await (db as any).update(deployments)
+        .set({ status: "restarting", error: null })
+        .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
+    } else {
+      // ── Tier 3 entry: Secrets removed (need full pod restart) ─────────
+      // Env vars can't be unset via .env sourcing — must recreate the pod
+      // so the K8s Secret envFrom produces a clean environment.
+
+      // Set transitional status
+      await (db as any).update(deployments)
+        .set({ status: "restarting", error: null })
+        .where(eq(deployments.id, deploymentId));
+
+      // Write config files to PVC
+      if (configFiles.length > 0) {
+        try {
+          await writeConfigsToPvc(deploymentId, configFiles);
+        } catch (writeErr) {
+          logger.warn(
+            { deploymentId, err: writeErr },
+            "configSync→PVC: failed to write config files (non-fatal)"
+          );
+        }
+      }
+
+      // Update K8s Secret (critical for platform tokens)
+      await updateDeploymentSecret(
+        deploymentId,
+        deployment.userId,
+        deployment.name,
+        deployment.runtime,
+        secretEntries
+      );
+    }
+
+    // ── Tier 3: Full pod restart (~30-60s) ──────────────────────────────
+    // Either secrets were removed, or process restart wasn't supported.
+    // Status is already "restarting" at this point.
+
+    await restartDeployment(deploymentId);
+
+    // Poll for readiness (90 × 2s = 3 min max)
     let ready = false;
     let failureReason = "";
     for (let i = 0; i < 90; i++) {
@@ -271,16 +441,14 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
       await new Promise((r) => setTimeout(r, 2000));
     }
 
-    // Step F: Update DB status (only if still in our transitional "restarting" state)
-    // This prevents overwriting status if an enforcement service stopped the deployment
     if (ready) {
       const result = await (db as any).update(deployments)
         .set({ status: "running", error: null })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
       if ((result?.changes ?? result?.rowsAffected ?? 1) === 0) {
-        logger.warn({ deploymentId }, "configSync→PVC: status update skipped — deployment no longer in 'restarting' state (possibly stopped or concurrent sync)");
+        logger.warn({ deploymentId }, "configSync→PVC: status update skipped — deployment no longer in 'restarting' state");
       } else {
-        logger.info({ deploymentId }, "configSync→PVC: sync completed successfully");
+        logger.info({ deploymentId }, "configSync→PVC: pod restart completed successfully");
       }
     } else {
       const result = await (db as any).update(deployments)
@@ -299,37 +467,21 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     logger.error(
-      { deploymentId, err, completedSteps },
+      { deploymentId, err },
       "configSync→PVC: failed during execution"
     );
-
-    // ══════════════════════════════════════════════════════════════════════
-    // ROLLBACK: Attempt to restore consistent state
-    // ══════════════════════════════════════════════════════════════════════
-
-    // Determine which step failed and set appropriate error
-    let failedStep = "unknown";
-    if (!completedSteps.includes("db_status")) {
-      failedStep = "setting status";
-    } else if (!completedSteps.includes("pvc_write")) {
-      failedStep = "writing config files";
-    } else if (!completedSteps.includes("secret_update")) {
-      failedStep = "updating secrets";
-    } else if (!completedSteps.includes("pod_restart")) {
-      failedStep = "restarting pod";
-    }
 
     // Restore DB status with error message
     try {
       await (db as any).update(deployments)
         .set({
           status: previousStatus || "running",
-          error: `Config sync failed while ${failedStep}: ${errorMessage}. Pod may have inconsistent config.`,
+          error: `Config sync failed: ${errorMessage}. Pod may have inconsistent config.`,
         })
         .where(eq(deployments.id, deploymentId));
 
       logger.info(
-        { deploymentId, previousStatus, failedStep },
+        { deploymentId, previousStatus },
         "configSync→PVC: rolled back DB status"
       );
     } catch (rollbackErr) {
@@ -337,17 +489,6 @@ export async function syncConfigsToPvc(deploymentId: string): Promise<void> {
         { deploymentId, rollbackErr },
         "configSync→PVC: failed to rollback DB status"
       );
-    }
-
-    // If we updated the secret but failed to restart, try to restart anyway
-    // (better to have new config than be stuck)
-    if (completedSteps.includes("secret_update") && !completedSteps.includes("pod_restart")) {
-      try {
-        logger.info({ deploymentId }, "configSync→PVC: attempting recovery restart");
-        await restartDeployment(deploymentId);
-      } catch {
-        // Already logged the main error, don't spam logs
-      }
     }
   }
 }
