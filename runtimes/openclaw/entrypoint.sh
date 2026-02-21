@@ -12,8 +12,11 @@ set -e
 #   4. Exit cleanly
 #
 #
-# First boot:  Installs openclaw from npm, writes default config
-# Next boots:  Starts the gateway directly from persistent storage
+# OpenClaw runs directly from /opt/openclaw (baked into the image).
+# The PVC (/data/) only holds state — no npm install or copy needed.
+#
+# First boot:  Writes default config (soul.md, openclaw.json)
+# Next boots:  Starts the gateway directly
 #
 # PVC layout (/data/):
 #   .initialized          — Marker file (first boot complete)
@@ -24,9 +27,6 @@ set -e
 #     soul.md             — System prompt / personality
 #     skills/             — Skill definitions (future)
 #     platforms/          — Platform credentials (future)
-#   runtime/              — npm installation directory
-#     node_modules/       — OpenClaw + dependencies
-#     package.json        — npm package manifest
 #   logs/                 — Application logs
 #
 # Environment variables (injected by K8s Secret):
@@ -38,7 +38,6 @@ set -e
 # ═══════════════════════════════════════════════════════════════════════
 
 INIT_MARKER="/data/.initialized"
-RUNTIME_DIR="/data/runtime"
 CONFIG_DIR="/data/config"
 OPENCLAW_HOME="/data/.openclaw"
 LOG_DIR="/data/logs"
@@ -91,37 +90,19 @@ cleanup() {
 trap cleanup 15 2 3
 
 # Ensure directories exist (PVC may be fresh)
-mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR" "$OPENCLAW_HOME/workspace" "$LOG_DIR"
+mkdir -p "$CONFIG_DIR" "$OPENCLAW_HOME/workspace" "$LOG_DIR"
 
 # ── Cleanup ephemeral storage ─────────────────────────────────────────
 # Clear temp files to prevent ephemeral storage exhaustion
 # (K8s evicts pods that exceed ephemeral-storage limits)
 echo "[entrypoint] Cleaning ephemeral storage..."
 rm -rf /tmp/* 2>/dev/null || true
-rm -rf /.npm/_cacache 2>/dev/null || true
 rm -rf /var/tmp/* 2>/dev/null || true
 
-# ── First Boot: Initialize from pre-built image ─────────────────────
+# ── First Boot: Write default configs ─────────────────────────────────
 if [ ! -f "$INIT_MARKER" ]; then
-  echo "[entrypoint] First boot — initializing OpenClaw runtime..."
+  echo "[entrypoint] First boot — writing default configs..."
   echo "[entrypoint] Deployment: ${DEPLOYMENT_NAME:-unknown} (${DEPLOYMENT_ID:-unknown})"
-
-  cd "$RUNTIME_DIR"
-
-  # Check if pre-built OpenClaw exists in image
-  if [ -d "/opt/openclaw/node_modules/openclaw" ]; then
-    echo "[entrypoint] Copying pre-built OpenClaw from image (instant startup)..."
-    cp -r /opt/openclaw/package.json /opt/openclaw/package-lock.json /opt/openclaw/node_modules "$RUNTIME_DIR/" 2>/dev/null || true
-    echo "[entrypoint] Pre-built OpenClaw copied successfully"
-  else
-    # Fallback: install from npm (slower, for non-prebuilt images)
-    echo "[entrypoint] No pre-built OpenClaw found, installing from npm..."
-    if [ ! -f "package.json" ]; then
-      npm init -y 2>/dev/null || true
-    fi
-    npm install openclaw@latest 2>&1 | tee "$LOG_DIR/install.log"
-    npx openclaw plugins enable whatsapp 2>&1 || echo "[entrypoint] Warning: could not enable whatsapp plugin"
-  fi
 
   # Write default soul.md if Jarble API hasn't written one yet
   if [ ! -f "$CONFIG_DIR/soul.md" ]; then
@@ -184,7 +165,6 @@ fi
   while true; do
     sleep 3600  # 1 hour
     rm -rf /tmp/* 2>/dev/null || true
-    rm -rf /.npm/_cacache 2>/dev/null || true
     rm -rf /var/tmp/* 2>/dev/null || true
     echo "[cleanup] Cleared ephemeral storage at $(date -Iseconds)"
   done
@@ -193,7 +173,7 @@ CLEANUP_PID=$!
 echo "[entrypoint] Periodic cleanup started (PID $CLEANUP_PID)"
 
 # ── Start OpenClaw Gateway ───────────────────────────────────────────
-cd "$RUNTIME_DIR"
+cd /opt/openclaw
 echo "[entrypoint] Starting OpenClaw gateway on port 18789..."
 echo "[entrypoint] Provider: ${LLM_PROVIDER:-openrouter}, Model: ${LLM_MODEL:-openrouter/auto}"
 

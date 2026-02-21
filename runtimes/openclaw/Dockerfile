@@ -30,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ── Pre-install OpenClaw ──────────────────────────────────────────────
 # Install to /opt/openclaw/ so it's baked into the image.
-# On first boot, this is copied to the PVC for persistence.
+# OpenClaw runs directly from here — no copy to PVC needed.
 WORKDIR /opt/openclaw
 RUN npm init -y && \
     npm install openclaw@latest && \
@@ -42,7 +42,7 @@ RUN npm init -y && \
 # In production, /data/ is a Longhorn PVC mount — these ensure the
 # entrypoint works even without a volume (for local testing).
 # Owned by node user (uid 1000) for non-root execution.
-RUN mkdir -p /data/config /data/runtime /data/logs /data/.openclaw/workspace \
+RUN mkdir -p /data/config /data/logs /data/.openclaw/workspace \
     && chown -R node:node /data
 
 # ── Copy entrypoint + file watcher ─────────────────────────────────
@@ -55,10 +55,9 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/file-watcher.sh
 ENV NODE_ENV=production
 ENV HOME=/data
 ENV OPENCLAW_HOME=/data/.openclaw
-ENV NPM_CONFIG_CACHE=/.npm
-
 # ── Working directory ────────────────────────────────────────────────
-WORKDIR /data/runtime
+# OpenClaw runs from /opt/openclaw (node_modules baked into image)
+WORKDIR /opt/openclaw
 
 # ── Run as non-root user ──────────────────────────────────────────────
 # node:22-bookworm-slim includes a 'node' user with uid 1000

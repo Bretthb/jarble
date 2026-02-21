@@ -228,10 +228,12 @@ export async function createDeployment(
             fsGroup: 1000,        // PVC files accessible to this group
           },
           // Init container: fix PVC permissions before main container starts
+          // On first boot (.initialized missing): full recursive chown
+          // On subsequent boots: just ensure dirs exist (fast)
           initContainers: [{
             name: "fix-permissions",
             image: "busybox:1.36",
-            command: ["sh", "-c", "mkdir -p /data/runtime /data/config /data/logs /data/.openclaw /data/.npm && chown -R 1000:1000 /data && chmod -R 755 /data"],
+            command: ["sh", "-c", "mkdir -p /data/config /data/logs /data/.openclaw && if [ ! -f /data/.initialized ]; then chown -R 1000:1000 /data && chmod -R 755 /data; else chown 1000:1000 /data/config /data/logs /data/.openclaw; fi"],
             securityContext: {
               runAsUser: 0,  // Run as root to fix permissions
             },
@@ -261,14 +263,13 @@ export async function createDeployment(
             volumeMounts: [
               { name: "data", mountPath: "/data" },
               { name: "tmp", mountPath: "/tmp" },        // Writable tmp (root fs is read-only)
-              { name: "npm-cache", mountPath: "/.npm" }, // npm cache dir for non-root user
             ],
             // Liveness probe: restart pod if OpenClaw gateway stops responding
             livenessProbe: {
               tcpSocket: {
                 port: config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789,
               },
-              initialDelaySeconds: 180, // Wait 3 min for first boot (npm install)
+              initialDelaySeconds: 60, // Gateway starts in ~20-30s (no npm install)
               periodSeconds: 30,
               timeoutSeconds: 5,
               failureThreshold: 3,
@@ -287,7 +288,6 @@ export async function createDeployment(
           volumes: [
             { name: "data", persistentVolumeClaim: { claimName: `pvc-${deploymentId}` } },
             { name: "tmp", emptyDir: {} },        // Ephemeral tmp directory
-            { name: "npm-cache", emptyDir: {} }, // Ephemeral npm cache
           ],
           imagePullSecrets: [{ name: "ghcr-pull-secret" }],
         },
@@ -316,7 +316,6 @@ export async function createDeployment(
   }
 
   // 4. Write initial config files to PVC (fire-and-forget — don't block deployment return)
-  // On first boot, npm install takes ~3 min so the pod won't be ready for a while.
   // We write configs in the background when the pod becomes ready.
   if (config.initialConfigs && config.initialConfigs.length > 0) {
     const configs = config.initialConfigs;
