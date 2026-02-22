@@ -13,6 +13,7 @@ export { default as FallbackJsonEditor } from "./FallbackJsonEditor";
 export interface EditorProps {
   props: Record<string, unknown>;
   onChange: (props: Record<string, unknown>) => void;
+  disabled?: boolean;
 }
 
 export const EDITOR_COMPONENTS: Record<string, ComponentType<EditorProps>> = {

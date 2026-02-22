@@ -5,11 +5,17 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useStatusStream } from "@/hooks/useStatusStream";
-import { useAgentChat } from "@/hooks/useAgentChat";
-import type { ChatMessage, ToolCall, UIBlock } from "@/hooks/useAgentChat";
-import { TOOL_COMPONENTS } from "@/components/tambo/loaders";
-import CanvasRenderer from "@/components/canvas/CanvasRenderer";
+import DeploymentTamboProvider from "@/components/DeploymentTamboProvider";
+import TamboToggle from "@/components/DirectChatToggle";
+import { useDirectChat, type DirectChatMessage } from "@/hooks/useDirectChat";
 import EditableCanvas from "@/components/canvas/EditableCanvas";
+import {
+  useTambo,
+  useTamboThreadInput,
+  ComponentRenderer,
+  type TamboThreadMessage,
+  type Content,
+} from "@tambo-ai/react";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
@@ -17,14 +23,7 @@ import {
   SendHorizontal,
   Bot,
   User,
-  Activity,
-  Plug,
-  FileText,
-  Brain,
-  Cpu,
-  Puzzle,
-  RotateCw,
-  LayoutGrid,
+  Wrench,
 } from "lucide-react";
 import { useRef, useEffect, useState } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
@@ -80,7 +79,6 @@ export default function DeploymentChatPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
-      {/* Header */}
       <header className="border-b border-border/60 bg-background/95 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -101,48 +99,164 @@ export default function DeploymentChatPage() {
         </div>
       </header>
 
-      {/* Chat area */}
-      <ChatInterface deploymentId={id} deployment={deployment} liveStatus={liveStatus} />
+      <DeploymentTamboProvider
+        deploymentId={id}
+        deploymentName={deployment.name}
+      >
+        <ChatInterface deploymentId={id} deployment={deployment} />
+      </DeploymentTamboProvider>
     </div>
   );
 }
 
-// ─── Action Button Config ─────────────────────────────────────────────────────
-
-const ACTION_BUTTONS = [
-  { icon: Activity, label: "Status", tool: "get_deployment_info" },
-  { icon: Plug, label: "Platforms", tool: "get_platforms" },
-  { icon: FileText, label: "Logs", tool: "get_logs" },
-  { icon: Brain, label: "Prompt", tool: "update_system_prompt" },
-  { icon: Cpu, label: "LLM", tool: "update_llm_config" },
-  { icon: Puzzle, label: "Skills", tool: "list_skills" },
-  { icon: RotateCw, label: "Restart", tool: "restart_bot" },
-  { icon: LayoutGrid, label: "Components", tool: "list_components" },
-] as const;
+// ─── Chat Interface — Tambo ON by default, toggle OFF for direct bot ──────────
 
 function ChatInterface({
   deploymentId,
   deployment,
-  liveStatus,
 }: {
   deploymentId: string;
   deployment: any;
-  liveStatus: string;
 }) {
-  const { messages, isStreaming, isConnecting, sendMessage, invokeTool } = useAgentChat(deploymentId);
+  const [tamboEnabled, setTamboEnabled] = useState(true);
+
+  return tamboEnabled ? (
+    <TamboChat
+      deploymentId={deploymentId}
+      tamboEnabled={tamboEnabled}
+      onTamboToggle={setTamboEnabled}
+    />
+  ) : (
+    <DirectChat
+      deploymentId={deploymentId}
+      deploymentName={deployment.name}
+      tamboEnabled={tamboEnabled}
+      onTamboToggle={setTamboEnabled}
+    />
+  );
+}
+
+// ─── Tambo ON: User ←→ Tambo ←→ Bot ──────────────────────────────────────────
+
+function TamboChat({
+  deploymentId,
+  tamboEnabled,
+  onTamboToggle,
+}: {
+  deploymentId: string;
+  tamboEnabled: boolean;
+  onTamboToggle: (v: boolean) => void;
+}) {
+  const { messages, isStreaming, isWaiting, currentThreadId } = useTambo();
+  const { value, setValue, submit, isPending } = useTamboThreadInput();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const isBusy = isStreaming || isWaiting || isPending;
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages.length, messages]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!value.trim() || isBusy) return;
+    setSubmitError(null);
+    try {
+      await submit();
+    } catch (err: any) {
+      setSubmitError(err.message || "Failed to send message");
+    }
+  };
+
+  return (
+    <>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+          {messages.map((msg) => (
+            <TamboMessageBubble
+              key={msg.id}
+              message={msg}
+              threadId={currentThreadId}
+              deploymentId={deploymentId}
+            />
+          ))}
+          {(isStreaming || isWaiting) && messages.length > 0 && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">{isWaiting ? "Thinking..." : "Streaming..."}</span>
+            </div>
+          )}
+          {submitError && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
+              {submitError}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="border-t border-border bg-background/95 backdrop-blur-sm sticky bottom-0">
+        <form
+          onSubmit={handleSubmit}
+          className="max-w-3xl mx-auto px-4 py-3 flex gap-2 items-center"
+        >
+          <TamboToggle
+            enabled={tamboEnabled}
+            onChange={onTamboToggle}
+            disabled={isBusy}
+          />
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="Type a message..."
+            className="flex-1 rounded-lg border border-border bg-secondary/50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+            disabled={isBusy}
+          />
+          <Button
+            type="submit"
+            size="sm"
+            disabled={!value.trim() || isBusy}
+            className="h-10 w-10 p-0"
+          >
+            {isBusy ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <SendHorizontal className="w-4 h-4" />
+            )}
+          </Button>
+        </form>
+      </div>
+    </>
+  );
+}
+
+// ─── Tambo OFF: User ←→ Bot (direct streaming) ───────────────────────────────
+
+function DirectChat({
+  deploymentId,
+  deploymentName,
+  tamboEnabled,
+  onTamboToggle,
+}: {
+  deploymentId: string;
+  deploymentName: string;
+  tamboEnabled: boolean;
+  onTamboToggle: (v: boolean) => void;
+}) {
+  const { messages, isStreaming, sendMessage } = useDirectChat(deploymentId);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Greeting message shown before any API interaction
-  const greeting: ChatMessage = {
+  const greeting: DirectChatMessage = {
     id: "greeting",
     role: "assistant",
-    content: `Hi! I'm ${deployment.name}. Type a message to chat, or use the buttons below to manage your bot.`,
+    content: `Hi! I'm ${deploymentName}. Tambo is off — you're talking directly to me.`,
   };
-
   const allMessages = [greeting, ...messages];
 
-  // Auto-scroll on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -159,47 +273,29 @@ function ChatInterface({
 
   return (
     <>
-      {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-          {allMessages
-            .filter((msg) => msg.role !== "system")
-            .map((msg) => (
-              <MessageBubble key={msg.id} message={msg} deploymentId={deploymentId} sendMessage={sendMessage} />
-            ))}
-          {isStreaming && isConnecting && (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm">Connecting to bot...</span>
-            </div>
-          )}
+          {allMessages.map((msg) => (
+            <DirectMessageBubble
+              key={msg.id}
+              message={msg}
+              deploymentId={deploymentId}
+              sendMessage={sendMessage}
+            />
+          ))}
         </div>
       </div>
 
-      {/* Action buttons + Input */}
       <div className="border-t border-border bg-background/95 backdrop-blur-sm sticky bottom-0">
-        {/* Action buttons row */}
-        <div className="max-w-3xl mx-auto px-4 pt-3 pb-1">
-          <div className="flex gap-2 overflow-x-auto scrollbar-none">
-            {ACTION_BUTTONS.map(({ icon: Icon, label, tool }) => (
-              <button
-                key={tool}
-                onClick={() => invokeTool(tool)}
-                disabled={isStreaming}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-border/60 bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Chat input */}
         <form
           onSubmit={handleSubmit}
-          className="max-w-3xl mx-auto px-4 py-2 flex gap-2"
+          className="max-w-3xl mx-auto px-4 py-3 flex gap-2 items-center"
         >
+          <TamboToggle
+            enabled={tamboEnabled}
+            onChange={onTamboToggle}
+            disabled={isStreaming}
+          />
           <input
             type="text"
             value={input}
@@ -226,22 +322,21 @@ function ChatInterface({
   );
 }
 
-function MessageBubble({
+// ─── Message Bubbles ──────────────────────────────────────────────────────────
+
+function TamboMessageBubble({
   message,
+  threadId,
   deploymentId,
-  sendMessage,
 }: {
-  message: ChatMessage;
+  message: TamboThreadMessage;
+  threadId: string;
   deploymentId: string;
-  sendMessage?: (text: string) => Promise<void>;
 }) {
   const isUser = message.role === "user";
-  const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
-  const hasUIBlocks = message.uiBlocks && message.uiBlocks.length > 0;
 
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
-      {/* Avatar */}
       <div
         className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
           isUser ? "bg-primary/10" : "bg-secondary"
@@ -254,9 +349,109 @@ function MessageBubble({
         )}
       </div>
 
-      {/* Content */}
       <div className={`flex-1 ${isUser ? "text-right" : ""} space-y-3`}>
-        {/* Text content */}
+        {message.content.map((block, i) => (
+          <ContentBlock
+            key={`${message.id}-${i}`}
+            block={block}
+            isUser={isUser}
+            threadId={threadId}
+            messageId={message.id}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ContentBlock({
+  block,
+  isUser,
+  threadId,
+  messageId,
+}: {
+  block: Content;
+  isUser: boolean;
+  threadId: string;
+  messageId: string;
+}) {
+  if (block.type === "text" && block.text) {
+    return (
+      <div
+        className={`inline-block rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
+          isUser
+            ? "bg-primary text-primary-foreground"
+            : "bg-secondary/50 text-foreground"
+        }`}
+      >
+        <span className="whitespace-pre-wrap">{block.text}</span>
+      </div>
+    );
+  }
+
+  if (block.type === "component") {
+    return (
+      <div className="max-w-md">
+        <ComponentRenderer
+          content={block}
+          threadId={threadId}
+          messageId={messageId}
+          fallback={
+            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-300">
+              Unknown component: {block.name}
+            </div>
+          }
+        />
+      </div>
+    );
+  }
+
+  if (block.type === "tool_use") {
+    const toolBlock = block as Content & { type: "tool_use" };
+    const hasCompleted = (toolBlock as any).hasCompleted;
+    const statusMessage = (toolBlock as any).statusMessage;
+    return (
+      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/40 text-xs text-muted-foreground">
+        {hasCompleted ? (
+          <Wrench className="w-3.5 h-3.5" />
+        ) : (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        )}
+        <span>{statusMessage || (toolBlock as any).name || "Running tool..."}</span>
+      </div>
+    );
+  }
+
+  // tool_result, resource — skip rendering
+  return null;
+}
+
+function DirectMessageBubble({
+  message,
+  deploymentId,
+  sendMessage,
+}: {
+  message: DirectChatMessage;
+  deploymentId: string;
+  sendMessage: (text: string) => Promise<void>;
+}) {
+  const isUser = message.role === "user";
+
+  return (
+    <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
+      <div
+        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+          isUser ? "bg-primary/10" : "bg-secondary"
+        }`}
+      >
+        {isUser ? (
+          <User className="w-4 h-4 text-primary" />
+        ) : (
+          <Bot className="w-4 h-4 text-muted-foreground" />
+        )}
+      </div>
+
+      <div className={`flex-1 ${isUser ? "text-right" : ""} space-y-3`}>
         {message.content && (
           <div
             className={`inline-block rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
@@ -269,35 +464,15 @@ function MessageBubble({
           </div>
         )}
 
-        {/* Bot-rendered UI blocks */}
-        {hasUIBlocks &&
-          message.uiBlocks!.map((block) => (
-            <div key={block.id} className="max-w-md">
-              <EditableCanvas
-                block={block}
-                deploymentId={deploymentId}
-                sendMessage={sendMessage}
-              />
-            </div>
-          ))}
-
-        {/* Rendered components from tool calls */}
-        {hasToolCalls &&
-          message.toolCalls!.map((tc) => {
-            const Component = TOOL_COMPONENTS[tc.name];
-            if (!Component) return null;
-            let args: any = {};
-            try {
-              args = JSON.parse(tc.args);
-            } catch {
-              // use empty args
-            }
-            return (
-              <div key={tc.id} className="max-w-md">
-                <Component deploymentId={deploymentId} args={args} />
-              </div>
-            );
-          })}
+        {message.uiBlocks?.map((block) => (
+          <div key={block.id} className="max-w-md">
+            <EditableCanvas
+              block={block}
+              deploymentId={deploymentId}
+              sendMessage={sendMessage}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );

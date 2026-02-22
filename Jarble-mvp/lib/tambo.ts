@@ -7,6 +7,9 @@
  */
 import { z } from "zod";
 import type { TamboComponent } from "@tambo-ai/react";
+
+// ── Management Components ───────────────────────────────────────────────────
+
 import StatusCard from "@/components/tambo/StatusCard";
 import SystemPromptEditor from "@/components/tambo/SystemPromptEditor";
 import LLMConfigCard from "@/components/tambo/LLMConfigCard";
@@ -15,9 +18,35 @@ import SkillsPanel from "@/components/tambo/SkillsPanel";
 import LogViewer from "@/components/tambo/LogViewer";
 import ConfirmAction from "@/components/tambo/ConfirmAction";
 
+// ── Canvas Components (bot-rendered UI blocks) ──────────────────────────────
+
+import CanvasCard from "@/components/canvas/components/CanvasCard";
+import CanvasDataTable from "@/components/canvas/components/CanvasDataTable";
+import CanvasStatGrid from "@/components/canvas/components/CanvasStatGrid";
+import CanvasKeyValue from "@/components/canvas/components/CanvasKeyValue";
+import CanvasCodeBlock from "@/components/canvas/components/CanvasCodeBlock";
+import CanvasAlert from "@/components/canvas/components/CanvasAlert";
+import CanvasProgress from "@/components/canvas/components/CanvasProgress";
+import CanvasImage from "@/components/canvas/components/CanvasImage";
+import CanvasLayout from "@/components/canvas/components/CanvasLayout";
+
+import {
+  cardSchema,
+  dataTableSchema,
+  statGridSchema,
+  keyValueSchema,
+  codeBlockSchema,
+  alertSchema,
+  progressSchema,
+  imageSchema,
+  layoutSchema,
+} from "@/components/canvas/registry";
+
 export { createTamboTools } from "./tambo-tools";
 
 export const tamboComponents: TamboComponent[] = [
+  // ── Management Components (7) ──────────────────────────────────────────
+
   {
     name: "StatusCard",
     description:
@@ -129,5 +158,71 @@ export const tamboComponents: TamboComponent[] = [
       deploymentName: z.string().describe("Name of the deployment"),
       deploymentId: z.string().describe("The deployment ID"),
     }),
+  },
+
+  // ── Canvas Components (9) — rendered from bot UI blocks ────────────────
+
+  {
+    name: "CanvasCard",
+    description:
+      "Simple card with optional title, subtitle, and body text. Render when the bot returns a card UI block or when displaying a simple text card.",
+    component: CanvasCard,
+    propsSchema: cardSchema,
+  },
+  {
+    name: "CanvasDataTable",
+    description:
+      "Data table with columns and rows. Render when the bot returns tabular data or a data_table UI block.",
+    component: CanvasDataTable,
+    propsSchema: dataTableSchema,
+  },
+  {
+    name: "CanvasStatGrid",
+    description:
+      "Grid of stat cards showing label, value, and optional change/icon. Render when the bot returns statistics or a stat_grid UI block.",
+    component: CanvasStatGrid,
+    propsSchema: statGridSchema,
+  },
+  {
+    name: "CanvasKeyValue",
+    description:
+      "Key-value list with optional title. Render when the bot returns key-value pairs or a key_value UI block.",
+    component: CanvasKeyValue,
+    propsSchema: keyValueSchema,
+  },
+  {
+    name: "CanvasCodeBlock",
+    description:
+      "Syntax-highlighted code block with optional language and title. Render when the bot returns code or a code_block UI block.",
+    component: CanvasCodeBlock,
+    propsSchema: codeBlockSchema,
+  },
+  {
+    name: "CanvasAlert",
+    description:
+      "Alert/notification banner with title, message, and variant (info/success/warning/error). Render when the bot returns an alert UI block.",
+    component: CanvasAlert,
+    propsSchema: alertSchema,
+  },
+  {
+    name: "CanvasProgress",
+    description:
+      "Progress bar with label, value (0-100), and optional variant. Render when the bot returns a progress UI block.",
+    component: CanvasProgress,
+    propsSchema: progressSchema,
+  },
+  {
+    name: "CanvasImage",
+    description:
+      "Image with src URL, alt text, and optional caption. Render when the bot returns an image UI block.",
+    component: CanvasImage,
+    propsSchema: imageSchema,
+  },
+  {
+    name: "CanvasLayout",
+    description:
+      "Layout container with a title and an array of child components. Each child has a component name and propsJson (JSON string of the child's props). Render when the bot returns a layout UI block containing nested components.",
+    component: CanvasLayout,
+    propsSchema: layoutSchema,
   },
 ];

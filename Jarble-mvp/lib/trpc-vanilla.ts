@@ -16,6 +16,16 @@ export function setTokenGetter(fn: () => Promise<string>) {
   tokenGetter = fn;
 }
 
+/** Get the current Auth0 token (for raw fetch calls outside tRPC). */
+export async function getToken(): Promise<string | null> {
+  if (!tokenGetter) return null;
+  try {
+    return await tokenGetter();
+  } catch {
+    return null;
+  }
+}
+
 export const vanillaClient = createTRPCClient<AppRouter>({
   links: [
     httpBatchLink({

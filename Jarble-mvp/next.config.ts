@@ -2,6 +2,17 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   transpilePackages: [],
+
+  // Suppress optional peer dep warnings from @tambo-ai/react → @standard-community/standard-json
+  webpack: (config) => {
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      effect: false,
+      sury: false,
+      "@valibot/to-json-schema": false,
+    };
+    return config;
+  },
   // Disable strict mode double-render in dev if desired
   reactStrictMode: true,
 

@@ -4,7 +4,9 @@ import CanvasRenderer from "../CanvasRenderer";
 
 export interface LayoutChild {
   component: string;
-  props: Record<string, unknown>;
+  /** Props as JSON string (for Tambo schema compat) or raw object (from bot) */
+  propsJson?: string;
+  props?: Record<string, unknown>;
 }
 
 export interface CanvasLayoutProps {
@@ -22,16 +24,25 @@ export default function CanvasLayout({ title, children }: CanvasLayoutProps) {
       {title && (
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       )}
-      {children.map((child, i) => (
-        <CanvasRenderer
-          key={`child-${i}`}
-          block={{
-            id: `child-${i}`,
-            component: child.component,
-            props: child.props,
-          }}
-        />
-      ))}
+      {children.map((child, i) => {
+        // Support both propsJson (from Tambo) and props (from bot direct)
+        let resolvedProps: Record<string, unknown> = {};
+        if (child.props) {
+          resolvedProps = child.props;
+        } else if (child.propsJson) {
+          try { resolvedProps = JSON.parse(child.propsJson); } catch { /* empty */ }
+        }
+        return (
+          <CanvasRenderer
+            key={`child-${i}`}
+            block={{
+              id: `child-${i}`,
+              component: child.component,
+              props: resolvedProps,
+            }}
+          />
+        );
+      })}
     </div>
   );
 }

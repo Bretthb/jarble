@@ -20,7 +20,7 @@ export default function StatusCard({
   runtime,
   llmProvider,
   llmModel,
-  platforms,
+  platforms = [],
   storageUsedGb,
   storageAllocatedGb,
 }: StatusCardProps) {

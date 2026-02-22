@@ -10,7 +10,7 @@ export interface CanvasKeyValueProps {
   items: KeyValueItem[];
 }
 
-export default function CanvasKeyValue({ title, items }: CanvasKeyValueProps) {
+export default function CanvasKeyValue({ title, items = [] }: CanvasKeyValueProps) {
   return (
     <div className="rounded-xl border border-border bg-card p-4 space-y-2">
       {title && <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>}

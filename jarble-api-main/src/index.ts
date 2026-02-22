@@ -29,7 +29,6 @@ import { startStorageEnforcement } from "./services/storageEnforcement.js";
 import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement.js";
 import { startStatusReconciler } from "./services/statusReconciler.js";
 import { tamboAgentRouter } from "./routes/tamboAgent.js";
-import { toolInvokeRouter } from "./routes/toolInvoke.js";
 import { canvasFilesRouter } from "./routes/canvasFiles.js";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
@@ -1169,9 +1168,6 @@ if (env.NODE_ENV === "development") {
 
 // ─── Tambo AG-UI agent endpoint ──────────────────────────────────────────────
 app.use("/api/tambo-agent", tamboAgentRouter);
-
-// ─── Direct tool invocation (no LLM) ────────────────────────────────────────
-app.use("/api/tools", toolInvokeRouter);
 
 // ─── Canvas file MCP proxy ──────────────────────────────────────────────────
 app.use("/api/deployments", canvasFilesRouter);

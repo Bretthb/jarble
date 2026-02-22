@@ -11,7 +11,7 @@ export interface CanvasStatGridProps {
   stats: StatItem[];
 }
 
-export default function CanvasStatGrid({ stats }: CanvasStatGridProps) {
+export default function CanvasStatGrid({ stats = [] }: CanvasStatGridProps) {
   return (
     <div className="grid grid-cols-2 gap-3">
       {stats.map((stat, i) => (
