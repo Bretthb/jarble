@@ -102,14 +102,23 @@ toolInvokeRouter.post("/invoke", async (req, res) => {
 
     // Emit tool component render event if tool has one
     if (tool.rendersComponent) {
-      const renderArgs: Record<string, unknown> = {
-        deploymentId,
-        ...params,
-      };
+      let renderArgs: Record<string, unknown>;
 
-      // For lifecycle tools, include the action from tool result data
-      if (toolResult.data && typeof toolResult.data === "object" && "action" in (toolResult.data as any)) {
-        renderArgs.action = (toolResult.data as any).action;
+      // Canvas tools (render_ui, list_components) return resolved component data
+      // that should be passed directly as render args.
+      if (
+        toolResult.data &&
+        typeof toolResult.data === "object" &&
+        "component" in (toolResult.data as any) &&
+        "props" in (toolResult.data as any)
+      ) {
+        renderArgs = toolResult.data as Record<string, unknown>;
+      } else {
+        renderArgs = { deploymentId, ...params };
+        // For lifecycle tools, include the action from tool result data
+        if (toolResult.data && typeof toolResult.data === "object" && "action" in (toolResult.data as any)) {
+          renderArgs.action = (toolResult.data as any).action;
+        }
       }
 
       const tcId = `render-${nanoid(8)}`;

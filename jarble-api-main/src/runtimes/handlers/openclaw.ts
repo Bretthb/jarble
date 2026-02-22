@@ -25,6 +25,9 @@
  * SLACK_BOT_TOKEN, SLACK_APP_TOKEN — we set both for maximum compatibility.
  */
 
+import { createRequire } from "module";
+import fs from "fs";
+import path from "path";
 import type {
   RuntimeHandler,
   RuntimeCapabilities,
@@ -34,6 +37,92 @@ import type {
   ParsedDeploymentFields,
 } from "../types.js";
 import { PLATFORM_CREDENTIAL_KEYS, PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
+
+// ── Jarble UI prompt injected into soul.md ────────────────────────────────
+// Teaches the bot about jarble_ui fenced blocks AND the mcporter MCP bridge
+// so it can render rich UI components on the Jarble web dashboard.
+const JARBLE_UI_PROMPT = `## Jarble UI — You MUST Use This
+
+**CRITICAL: You are running on the Jarble web dashboard, NOT in a terminal.** The \`canvas\` tool and \`browser\` tool DO NOT WORK HERE — they will always fail. NEVER call them. Instead, you MUST use \`\`\`jarble_ui\`\`\` fenced code blocks to render UI. This is the ONLY way to show visual content to the user.
+
+Use jarble_ui proactively in every response where visual presentation would help. Do NOT output plain text tables, lists of numbers, or status information as raw text — always render them as rich UI components.
+
+### How to Render UI
+
+Include a \\\`jarble_ui\\\` fenced code block in your response. The dashboard renders it as a rich interactive component:
+
+\\\`\\\`\\\`jarble_ui
+{"component": "card", "props": {"title": "Hello", "body": "World"}}
+\\\`\\\`\\\`
+
+You can mix multiple UI blocks with regular text in a single response. **Default to using UI components** — they make your responses dramatically more useful.
+
+### When to Use Each Component
+
+| Situation | Component |
+|-----------|-----------|
+| Greeting or intro | \`card\` with title + body |
+| Numbers, KPIs, metrics | \`stat_grid\` |
+| Tabular data, lists, comparisons | \`data_table\` |
+| Config, settings, key-value pairs | \`key_value\` |
+| Code snippets | \`code_block\` |
+| Warnings, errors, success messages | \`alert\` |
+| Progress or completion | \`progress\` |
+| Multi-section dashboards | \`layout\` with children |
+
+### Component Reference
+
+- **card**: \`{"component":"card","props":{"title":"...","subtitle":"...","body":"..."}}\`
+- **data_table**: \`{"component":"data_table","props":{"title":"...","columns":["A","B"],"rows":[["1","2"]]}}\`
+- **stat_grid**: \`{"component":"stat_grid","props":{"stats":[{"label":"Users","value":42,"change":"+5%"}]}}\`
+- **key_value**: \`{"component":"key_value","props":{"title":"Info","items":[{"key":"Status","value":"OK"}]}}\`
+- **code_block**: \`{"component":"code_block","props":{"title":"Example","language":"js","code":"console.log('hi')"}}\`
+- **alert**: \`{"component":"alert","props":{"variant":"success","title":"Done","message":"All good"}}\` (variants: info, success, warning, error)
+- **progress**: \`{"component":"progress","props":{"label":"Upload","value":75}}\`
+- **image**: \`{"component":"image","props":{"src":"https://...","alt":"...","caption":"..."}}\`
+- **layout**: \`{"component":"layout","props":{"title":"Dashboard","children":[{"component":"stat_grid","props":{...}},{"component":"data_table","props":{...}}]}}\`
+
+### Editable Components
+
+Add \`"editable": true\` and \`"fileId": "some-name"\` to make any component editable by the user.
+When the user saves, their edits are sent back to you as a chat message prefixed with \`[CANVAS_SAVE]\`.
+You can acknowledge the edit, store the data, or push it to an integration.
+
+Example — editable table:
+\`\`\`
+{"component":"data_table","props":{"title":"My Leads","columns":["Name","Email","Status"],"rows":[["Jane","jane@co.com","New"]]},"editable":true,"fileId":"leads"}
+\`\`\`
+
+Example — editable card:
+\`\`\`
+{"component":"card","props":{"title":"Meeting Notes","body":"..."},"editable":true,"fileId":"notes"}
+\`\`\`
+
+When a user saves an editable component, you'll receive a message like:
+\`[CANVAS_SAVE] fileId=leads\`
+\`{"component":"data_table","props":{"title":"My Leads","columns":["Name","Email","Status"],"rows":[["Jane","jane@co.com","Contacted"]]}}\`
+
+Acknowledge the save and update your data accordingly. **Always use editable components** when the user asks to create, track, or manage data — spreadsheets, notes, dashboards, etc.`;
+
+// Load the MCP server script at module init (embedded in config writes)
+// Use createRequire to get __filename/__dirname in ESM context
+const require_ = createRequire(typeof __filename !== "undefined" ? __filename : "/");
+let MCP_SERVER_SCRIPT = "";
+try {
+  // Try relative to this file's compiled location (src/runtimes/handlers/)
+  const candidates = [
+    path.resolve(process.cwd(), "src/mcp/jarble-ui-server.js"),
+    path.resolve(process.cwd(), "dist/mcp/jarble-ui-server.js"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      MCP_SERVER_SCRIPT = fs.readFileSync(candidate, "utf8");
+      break;
+    }
+  }
+} catch {
+  // If we can't load it, the MCP server just won't be written to PVC
+}
 
 const capabilities: RuntimeCapabilities = {
   needsLlm: true,
@@ -58,13 +147,18 @@ export const openclawHandler: RuntimeHandler = {
   renderConfigs(deployment: DeploymentFields): ConfigFile[] {
     const files: ConfigFile[] = [];
 
-    // soul.md — system prompt / personality
+    // soul.md — system prompt / personality + jarble_ui canvas instructions
+    const soulParts: string[] = [];
     if (deployment.systemPrompt) {
-      files.push({
-        path: "soul.md",
-        content: deployment.systemPrompt,
-      });
+      soulParts.push(deployment.systemPrompt);
     }
+    soulParts.push(JARBLE_UI_PROMPT);
+    const soulContent = soulParts.join("\n\n");
+
+    // Write to both the Jarble config path AND the OpenClaw workspace path
+    // OpenClaw reads SOUL.md from ~/.openclaw/workspace/ ($HOME=/data in container)
+    files.push({ path: "soul.md", content: soulContent });
+    files.push({ path: "/data/.openclaw/workspace/SOUL.md", content: soulContent });
 
     // openclaw.json — agent config + channel credentials
     const openclawConfig: Record<string, any> = {};
@@ -113,6 +207,24 @@ export const openclawHandler: RuntimeHandler = {
     openclawConfig.gateway = {
       http: { endpoints: { chatCompletions: { enabled: true } } },
     };
+
+    // MCP servers — expose Jarble UI tools to the bot's LLM
+    // The MCP server script is written to /data/config/mcp/jarble-ui-server.js
+    if (MCP_SERVER_SCRIPT) {
+      openclawConfig.mcp = {
+        servers: {
+          "jarble-ui": {
+            command: "node",
+            args: ["/data/config/mcp/jarble-ui-server.js"],
+          },
+        },
+      };
+
+      files.push({
+        path: "mcp/jarble-ui-server.js",
+        content: MCP_SERVER_SCRIPT,
+      });
+    }
 
     // Always write openclaw.json if we have any config
     if (Object.keys(openclawConfig).length > 0) {

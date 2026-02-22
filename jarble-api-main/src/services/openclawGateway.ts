@@ -2,19 +2,63 @@
  * OpenClaw Gateway WebSocket Client
  *
  * Connects to the OpenClaw gateway running inside a pod and sends
- * chat messages via the WS JSON-RPC protocol.
+ * chat messages via the WS JSON-RPC protocol with Ed25519 device auth.
  *
  * Protocol:
  *   1. WS connect → server sends { type: "event", event: "connect.challenge", payload: { nonce } }
- *   2. Client sends { type: "req", id, method: "connect", params: { minProtocol: 3, ... auth: { token } } }
- *   3. Server sends { type: "res", id, result: { auth: ... } } (hello)
- *   4. Client sends { type: "req", id, method: "chat.send", params: { sessionKey, message, deliver: false } }
+ *   2. Client generates Ed25519 key pair, signs payload with nonce, sends connect with device identity
+ *   3. Server grants scopes (including operator.write) and returns hello-ok with deviceToken
+ *   4. Client sends { type: "req", id, method: "chat.send", params: { sessionKey, message } }
  *   5. Server sends events with state: "delta" (streaming text) and state: "final" (done)
  */
 
+import crypto from "crypto";
 import WebSocket from "ws";
 import { nanoid } from "nanoid";
 import { logger } from "../utils/logger.js";
+import { extractUIBlocks, type JarbleUIBlock } from "../utils/uiBlockParser.js";
+
+// ── Device Identity ─────────────────────────────────────────────────────────
+
+/** Singleton device identity — generated once per API process */
+let deviceIdentity: {
+  deviceId: string;
+  publicKeyB64: string;
+  publicKeyPem: string;
+  privateKeyPem: string;
+} | null = null;
+
+function getDeviceIdentity() {
+  if (deviceIdentity) return deviceIdentity;
+
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+  const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
+  const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+
+  // Extract raw 32-byte public key from SPKI DER
+  const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+  const spki = publicKey.export({ type: "spki", format: "der" });
+  const raw = spki.subarray(ED25519_SPKI_PREFIX.length);
+
+  // Device ID = SHA-256 fingerprint of raw public key
+  const deviceId = crypto.createHash("sha256").update(raw).digest("hex");
+  // Base64url-encoded raw public key
+  const publicKeyB64 = raw.toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+
+  deviceIdentity = { deviceId, publicKeyB64, publicKeyPem, privateKeyPem };
+  logger.info({ deviceId: deviceId.slice(0, 16) }, "Generated gateway device identity");
+  return deviceIdentity;
+}
+
+function signPayload(privateKeyPem: string, payload: string): string {
+  const sig = crypto.sign(null, Buffer.from(payload, "utf8"), crypto.createPrivateKey(privateKeyPem));
+  return sig.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+// ── Gateway Client ──────────────────────────────────────────────────────────
 
 interface GatewayOptions {
   ip: string;
@@ -32,35 +76,45 @@ interface PendingRequest {
 /**
  * Send a single chat message to the OpenClaw gateway and collect the streamed response.
  *
- * Opens a WS connection, authenticates, sends the message, collects delta events
- * until the final event, then closes. Returns the full bot response text.
+ * Opens a WS connection, authenticates with Ed25519 device identity,
+ * sends the message, collects delta events until the final event, then closes.
+ * Returns the full bot response text and any extracted UI blocks.
  */
+export interface GatewayResponse {
+  /** Raw text including jarble_ui markers (for delta comparison) */
+  rawText: string;
+  /** Clean text with jarble_ui blocks stripped */
+  text: string;
+  uiBlocks: JarbleUIBlock[];
+}
+
 export async function chatViaGateway(
   opts: GatewayOptions,
   message: string,
   onDelta?: (text: string) => void,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<GatewayResponse> {
   const { ip, port, gatewayToken, sessionKey } = opts;
   const wsUrl = `ws://${ip}:${port}`;
 
-  return new Promise<string>((resolve, reject) => {
-    const timeoutMs = 45_000;
+  return new Promise<GatewayResponse>((resolve, reject) => {
+    const timeoutMs = 120_000;
     let fullText = "";
     let connected = false;
     let finished = false;
     const pending = new Map<string, PendingRequest>();
 
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl, { origin: "http://localhost" });
 
     const timeout = setTimeout(() => {
       if (!finished) {
         finished = true;
         ws.close();
         if (fullText) {
-          resolve(fullText);
+          const { cleanText, uiBlocks } = extractUIBlocks(fullText);
+          resolve({ rawText: fullText, text: cleanText, uiBlocks });
         } else {
-          reject(new Error("Gateway chat timed out after 45s"));
+          reject(new Error("Gateway chat timed out after 120s"));
         }
       }
     }, timeoutMs);
@@ -105,29 +159,62 @@ export async function chatViaGateway(
 
       // ── Event messages ──
       if (msg.type === "event") {
-        // Connect challenge — send auth
+        // Connect challenge — send auth with device identity
         if (msg.event === "connect.challenge") {
           const nonce = msg.payload?.nonce;
           try {
+            const device = getDeviceIdentity();
+            const signedAtMs = Date.now();
+            const clientId = "gateway-client";
+            const mode = "webchat";
+            const role = "operator";
+            const scopes = [
+              "operator.admin",
+              "operator.write",
+              "operator.read",
+              "operator.approvals",
+              "operator.pairing",
+            ];
+
+            // Build signed payload: v2|deviceId|clientId|mode|role|scopes|signedAt|token|nonce
+            const payload = [
+              "v2",
+              device.deviceId,
+              clientId,
+              mode,
+              role,
+              scopes.join(","),
+              String(signedAtMs),
+              gatewayToken || "",
+              nonce || "",
+            ].join("|");
+            const signature = signPayload(device.privateKeyPem, payload);
+
             await sendRequest("connect", {
               minProtocol: 3,
               maxProtocol: 3,
               client: {
-                id: "jarble-api",
+                id: clientId,
                 version: "1.0",
                 platform: "server",
-                mode: "webchat",
-                instanceId: nanoid(8),
+                mode,
+                instanceId: "jarble-api",
               },
-              role: "operator",
-              scopes: ["operator.admin"],
-              ...(gatewayToken ? { auth: { token: gatewayToken } } : {}),
+              role,
+              scopes,
               caps: [],
-              ...(nonce ? { nonce } : {}),
+              auth: { token: gatewayToken },
+              device: {
+                id: device.deviceId,
+                publicKey: device.publicKeyB64,
+                signature,
+                signedAt: signedAtMs,
+                nonce,
+              },
             });
 
             connected = true;
-            logger.debug({ wsUrl }, "Gateway authenticated, sending chat message");
+            logger.debug({ wsUrl }, "Gateway authenticated with device identity, sending chat");
 
             // Send the chat message
             const idempotencyKey = nanoid(12);
@@ -152,12 +239,11 @@ export async function chatViaGateway(
         }
 
         // Chat stream events
-        if (msg.event === "chat.stream" || msg.payload?.state) {
+        if (msg.event === "chat" || msg.event === "chat.stream" || msg.payload?.state) {
           const payload = msg.payload || msg;
           const state = payload.state;
 
           if (state === "delta") {
-            // Extract text from the message payload
             const text = extractText(payload.message);
             if (text) {
               fullText = text; // Delta sends the full accumulated text each time
@@ -170,11 +256,14 @@ export async function chatViaGateway(
             }
             finished = true;
             cleanup();
-            resolve(fullText);
+            const { cleanText, uiBlocks } = extractUIBlocks(fullText);
+            resolve({ rawText: fullText, text: cleanText, uiBlocks });
           } else if (state === "aborted") {
             finished = true;
             cleanup();
-            resolve(fullText || "The bot's response was interrupted.");
+            const abortText = fullText || "The bot's response was interrupted.";
+            const { cleanText, uiBlocks } = extractUIBlocks(abortText);
+            resolve({ rawText: abortText, text: cleanText, uiBlocks });
           }
         }
 
@@ -186,10 +275,11 @@ export async function chatViaGateway(
         const p = pending.get(msg.id);
         if (p) {
           pending.delete(msg.id);
-          if (msg.error) {
-            p.reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+          if (msg.error || msg.ok === false) {
+            const errMsg = msg.error?.message || JSON.stringify(msg.error);
+            p.reject(new Error(errMsg));
           } else {
-            p.resolve(msg.result);
+            p.resolve(msg.payload ?? msg.result);
           }
         }
         return;
@@ -209,14 +299,14 @@ export async function chatViaGateway(
         finished = true;
         clearTimeout(timeout);
         if (fullText) {
-          resolve(fullText);
+          const { cleanText, uiBlocks } = extractUIBlocks(fullText);
+          resolve({ rawText: fullText, text: cleanText, uiBlocks });
         } else if (!connected) {
           reject(new Error("Gateway WS closed before auth completed"));
         } else {
           reject(new Error("Gateway WS closed before response completed"));
         }
       }
-      // Reject any pending requests
       for (const [, p] of pending) {
         p.reject(new Error("WS closed"));
       }
@@ -239,7 +329,6 @@ function extractText(message: unknown): string {
   }
   if (message && typeof message === "object") {
     const m = message as any;
-    // Could be { content: [...] } or { text: "..." }
     if (m.content) return extractText(m.content);
     if (m.text) return String(m.text);
   }

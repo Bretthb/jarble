@@ -40,6 +40,9 @@ set -e
 INIT_MARKER="/data/.initialized"
 CONFIG_DIR="/data/config"
 OPENCLAW_HOME="/data/.openclaw"
+# OpenClaw's ACTUAL runtime state dir is $HOME/.openclaw/.openclaw/ (double-nested
+# because HOME=/data and OpenClaw resolves state dir as $HOME/.openclaw/)
+OPENCLAW_STATE="/data/.openclaw/.openclaw"
 LOG_DIR="/data/logs"
 
 # Track background process PIDs for cleanup
@@ -90,7 +93,7 @@ cleanup() {
 trap cleanup 15 2 3
 
 # Ensure directories exist (PVC may be fresh)
-mkdir -p "$CONFIG_DIR" "$OPENCLAW_HOME/workspace" "$LOG_DIR"
+mkdir -p "$CONFIG_DIR" "$OPENCLAW_HOME/workspace" "$OPENCLAW_STATE" "$LOG_DIR"
 
 # ── Cleanup ephemeral storage ─────────────────────────────────────────
 # Clear temp files to prevent ephemeral storage exhaustion
@@ -113,11 +116,28 @@ if [ ! -f "$INIT_MARKER" ]; then
   # Generate initial OpenClaw config
   # This maps Jarble's env vars to OpenClaw's config format
   # Includes WhatsApp channel with dmPolicy: pairing for QR flow
-  cat > "$OPENCLAW_HOME/openclaw.json" << OCEOF
+  #
+  # IMPORTANT: OpenClaw reads config from $HOME/.openclaw/.openclaw/openclaw.json
+  # (double-nested because HOME=/data). The legacy $HOME/.openclaw/openclaw.json
+  # is only used for initial migration and NOT read at runtime.
+  #
+  # Model format: agents.defaults.model.primary (new format, not agent.model)
+
+  # Resolve the model ref — prefix with provider if not already qualified
+  MODEL_REF="${LLM_MODEL:-openrouter/auto}"
+  case "$MODEL_REF" in
+    */*) ;; # already has provider prefix
+    *) MODEL_REF="${LLM_PROVIDER:-openrouter}/$MODEL_REF" ;;
+  esac
+
+  cat > "$OPENCLAW_STATE/openclaw.json" << OCEOF
 {
-  "agent": {
-    "model": "${LLM_MODEL:-openrouter/auto}",
-    "provider": "${LLM_PROVIDER:-openrouter}"
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "${MODEL_REF}"
+      }
+    }
   },
   "gateway": {
     "port": 18789,
@@ -146,7 +166,7 @@ if [ ! -f "$INIT_MARKER" ]; then
   }
 }
 OCEOF
-  echo "[entrypoint] Generated openclaw.json config"
+  echo "[entrypoint] Generated openclaw.json config (model: $MODEL_REF)"
 
   # Mark initialization complete
   touch "$INIT_MARKER"
@@ -154,6 +174,26 @@ OCEOF
 else
   echo "[entrypoint] Already initialized, skipping setup."
   echo "[entrypoint] Deployment: ${DEPLOYMENT_NAME:-unknown} (${DEPLOYMENT_ID:-unknown})"
+fi
+
+# ── Install mcporter (MCP bridge for Jarble UI tools) ───────────────
+# mcporter bridges our jarble-ui MCP server to OpenClaw's skill system,
+# enabling the bot to call render_ui, define_component, list_components.
+if [ ! -f /data/node_modules/.bin/mcporter ]; then
+  echo "[entrypoint] Installing mcporter for MCP bridge..."
+  cd /data && npm install --no-save mcporter 2>&1 | tail -1
+  cd /opt/openclaw
+  echo "[entrypoint] mcporter installed"
+fi
+
+# Configure jarble-ui MCP server in mcporter (idempotent)
+if [ -f /data/config/mcp/jarble-ui-server.js ] && [ -f /data/node_modules/.bin/mcporter ]; then
+  export PATH="/data/node_modules/.bin:$PATH"
+  if ! mcporter list jarble-ui >/dev/null 2>&1; then
+    echo "[entrypoint] Configuring jarble-ui MCP server in mcporter..."
+    mcporter config add jarble-ui --command node --arg /data/config/mcp/jarble-ui-server.js --description "Jarble UI canvas components" --scope home 2>&1 || true
+    echo "[entrypoint] jarble-ui MCP server configured"
+  fi
 fi
 
 # ── Start file watcher (background) ──────────────────────────────────
@@ -185,6 +225,9 @@ echo "[entrypoint] Periodic cleanup started (PID $CLEANUP_PID)"
 # matches our entrypoint write path (/data/.openclaw/openclaw.json).
 # Without this, OpenClaw creates a nested config at $HOME/.openclaw/.openclaw/
 export HOME=/data
+
+# Ensure mcporter is on PATH so OpenClaw's mcporter skill can find it
+export PATH="/data/node_modules/.bin:$PATH"
 
 cd /opt/openclaw
 

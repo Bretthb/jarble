@@ -30,13 +30,11 @@ import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement
 import { startStatusReconciler } from "./services/statusReconciler.js";
 import { tamboAgentRouter } from "./routes/tamboAgent.js";
 import { toolInvokeRouter } from "./routes/toolInvoke.js";
+import { canvasFilesRouter } from "./routes/canvasFiles.js";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import stream from "stream";
 import { globalLimiter, authLimiter, stripeActionLimiter } from "./middleware/rateLimit.js";
-
-// Mock K8s mode for local development
-const MOCK_K8S = process.env.MOCK_K8S === "true";
 
 const app = express();
 
@@ -548,8 +546,7 @@ app.get("/api/deployments/:id/logs/stream", async (req, res) => {
       return;
     }
 
-    // In mock mode, skip the running check - allow logs for any owned deployment
-    if (!MOCK_K8S && (deployment as any).status !== "running") {
+    if ((deployment as any).status !== "running") {
       res.status(400).json({ error: "Deployment is not running" });
       return;
     }
@@ -677,26 +674,6 @@ app.get("/api/deployments/:id/whatsapp/qr", async (req, res) => {
 
     if (!deployment) {
       res.status(404).json({ error: "Deployment not found" });
-      return;
-    }
-
-    // In mock mode, send mock QR events
-    if (MOCK_K8S) {
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "X-Accel-Buffering": "no",
-      });
-      res.write(": connected\n\n");
-      res.write(`event: log\ndata: ${JSON.stringify({ message: "🎭 Mock mode: WhatsApp pairing simulated" })}\n\n`);
-      res.write(`event: qr\ndata: ${JSON.stringify({ qr: "MOCK_QR_CODE_DATA_FOR_TESTING_" + deploymentId })}\n\n`);
-
-      // After 5 seconds, simulate successful connection
-      setTimeout(() => {
-        res.write(`event: connected\ndata: ${JSON.stringify({ message: "Mock WhatsApp connected!" })}\n\n`);
-        res.end();
-      }, 5000);
       return;
     }
 
@@ -1094,54 +1071,6 @@ if (env.NODE_ENV === "development") {
   });
   logger.info("📊 Debug endpoint enabled: /debug/deployment/:id/status");
 
-  // Mock K8s PVC debug endpoint - shows simulated file storage
-  app.get("/debug/mock-pvc", async (_req, res) => {
-    try {
-      // Dynamic import to avoid issues when MOCK_K8S is false
-      const { getMockDeployments, getMockPvcFiles } = await import("./k8s/deployment.js");
-      const deployments = getMockDeployments();
-
-      // Get files for each deployment
-      const detailed: Record<string, any> = {};
-      for (const deploymentId of Object.keys(deployments)) {
-        detailed[deploymentId] = {
-          ...deployments[deploymentId],
-          files: getMockPvcFiles(deploymentId),
-        };
-      }
-
-      res.json({
-        _info: "Mock K8s PVC storage - shows simulated config files",
-        mockMode: process.env.MOCK_K8S === "true",
-        deployments: detailed,
-      });
-    } catch (err) {
-      res.status(500).json({ error: "Failed to get mock PVC data", details: String(err) });
-    }
-  });
-
-  // Write a test file to mock PVC
-  app.post("/debug/mock-pvc/:deploymentId/write", express.json(), async (req, res) => {
-    try {
-      const { deploymentId } = req.params;
-      const { path, content } = req.body;
-
-      if (!path || content === undefined) {
-        res.status(400).json({ error: "Missing 'path' or 'content' in body" });
-        return;
-      }
-
-      const { writeConfigsToPvc } = await import("./k8s/deployment.js");
-      await writeConfigsToPvc(deploymentId, [{ path, content }]);
-
-      res.json({ success: true, deploymentId, path });
-    } catch (err) {
-      res.status(500).json({ error: "Failed to write to mock PVC", details: String(err) });
-    }
-  });
-
-  logger.info("📊 Debug endpoint enabled: /debug/mock-pvc");
-
   // Seed a test deployment for the currently authenticated user (dev testing helper)
   app.post("/debug/seed-deployment", async (req, res) => {
     try {
@@ -1243,6 +1172,9 @@ app.use("/api/tambo-agent", tamboAgentRouter);
 
 // ─── Direct tool invocation (no LLM) ────────────────────────────────────────
 app.use("/api/tools", toolInvokeRouter);
+
+// ─── Canvas file MCP proxy ──────────────────────────────────────────────────
+app.use("/api/deployments", canvasFilesRouter);
 
 // tRPC handler
 app.use("/trpc", authLimiter, createExpressMiddleware({

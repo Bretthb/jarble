@@ -5,8 +5,7 @@
  *   1. Verify Auth0 JWT
  *   2. Extract deployment ID from body
  *   3. Verify user owns the deployment
- *   4. If MOCK_K8S → streamMockAgent()
- *   5. Else → connect to pod's OpenClaw gateway via WebSocket → stream response as SSE
+ *   4. Connect to pod's OpenClaw gateway via WebSocket → stream response as SSE
  *
  * SSE events:
  *   RUN_STARTED, TEXT_MESSAGE_START, TEXT_MESSAGE_CONTENT,
@@ -20,12 +19,16 @@ import { eq } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { env } from "../utils/env.js";
 import { logger } from "../utils/logger.js";
-import { streamMockAgent } from "../services/agentMock.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { getPodAddress } from "../k8s/deployment.js";
-import { chatViaGateway } from "../services/openclawGateway.js";
-
-const MOCK_K8S = process.env.MOCK_K8S === "true";
+import { chatViaGateway, type GatewayResponse } from "../services/openclawGateway.js";
+import { extractUIBlocks, type JarbleUIBlock } from "../utils/uiBlockParser.js";
+import { readComponentFromPvc } from "../k8s/deployment.js";
+import {
+  isBuiltinComponent,
+  resolveCustomComponent,
+  type ComponentDefinition,
+} from "../utils/componentResolver.js";
 
 export const tamboAgentRouter = Router();
 
@@ -70,6 +73,47 @@ function extractDeploymentId(body: any): string | null {
   return null;
 }
 
+/**
+ * Resolve custom component references in UI blocks.
+ * If a block references a custom component (not built-in), reads its definition
+ * from the PVC, substitutes props, and expands into a layout block.
+ */
+async function resolveUIBlocks(
+  blocks: JarbleUIBlock[],
+  deploymentId: string
+): Promise<JarbleUIBlock[]> {
+  const resolved: JarbleUIBlock[] = [];
+  for (const block of blocks) {
+    if (isBuiltinComponent(block.component)) {
+      resolved.push(block);
+      continue;
+    }
+    // Custom component — try to resolve from PVC
+    try {
+      const definition = await readComponentFromPvc(deploymentId, block.component);
+      if (!definition) {
+        resolved.push(block); // Let frontend show "unknown component"
+        continue;
+      }
+      const children = resolveCustomComponent(
+        definition as unknown as ComponentDefinition,
+        block.props
+      );
+      resolved.push({
+        id: block.id,
+        component: "layout",
+        props: {
+          title: (definition as any).description || undefined,
+          children,
+        },
+      });
+    } catch {
+      resolved.push(block); // On error, pass through as-is
+    }
+  }
+  return resolved;
+}
+
 // ─── Main Chat Endpoint ─────────────────────────────────────────────────────
 
 tamboAgentRouter.post("/", async (req, res) => {
@@ -101,7 +145,12 @@ tamboAgentRouter.post("/", async (req, res) => {
         res.status(401).json({ error: "Invalid agent secret" });
         return;
       }
-    } else if (env.NODE_ENV !== "development") {
+      // Secret auth is service-to-service — require userId in body for ownership check
+      if (req.body.userId) {
+        authenticatedUserId = req.body.userId;
+      }
+    } else {
+      // No secret configured and no JWT — always reject (even in dev mode)
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
@@ -150,8 +199,8 @@ tamboAgentRouter.post("/", async (req, res) => {
     return;
   }
 
-  // 5. Verify ownership
-  if (authenticatedUserId && (deployment as any).userId !== authenticatedUserId) {
+  // 5. Verify ownership (always enforced regardless of auth method)
+  if ((deployment as any).userId !== authenticatedUserId) {
     sendEvent(res, { type: "RUN_STARTED", runId, threadId });
     const errMsgId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: errMsgId, role: "assistant" });
@@ -185,28 +234,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     abortController.abort();
   });
 
-  // ── Mock mode ──────────────────────────────────────────────────────────────
-
-  if (MOCK_K8S) {
-    const messageId = nanoid();
-    sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
-
-    await streamMockAgent({
-      userMessage: lastUserText,
-      deploymentName: dep.name || "Bot",
-      deploymentId,
-      onChunk: (delta) => sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta }),
-      onToolCall: () => {},
-      onDone: () => {
-        sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-        sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-        res.end();
-      },
-    });
-    return;
-  }
-
-  // ── Pod Proxy — WebSocket to OpenClaw gateway ──────────────────────────────
+  // ── Pod Proxy — WebSocket to OpenClaw gateway (streaming) ───────────────────
 
   if (dep.status !== "running") {
     const messageId = nanoid();
@@ -238,7 +266,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     let lastDeltaText = "";
 
     const sessionKey = `jarble-web-${authenticatedUserId || "anon"}`;
-    const botText = await chatViaGateway(
+    const gatewayResult = await chatViaGateway(
       {
         ip: podAddr.ip,
         port: podAddr.port,
@@ -257,13 +285,32 @@ tamboAgentRouter.post("/", async (req, res) => {
       abortController.signal,
     );
 
-    // If there's text we haven't streamed yet (e.g. final came without prior deltas), send it
-    if (botText.length > lastDeltaText.length) {
-      const remaining = botText.slice(lastDeltaText.length);
+    // If there's raw text we haven't streamed yet (e.g. final came without prior deltas), send it
+    if (gatewayResult.rawText.length > lastDeltaText.length) {
+      const remaining = gatewayResult.rawText.slice(lastDeltaText.length);
       sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: remaining });
     }
 
     sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+
+    // Resolve custom component references before emitting
+    const resolvedBlocks = await resolveUIBlocks(gatewayResult.uiBlocks, deploymentId);
+
+    // Emit UI block events — frontend strips raw jarble_ui markers from display
+    for (const block of resolvedBlocks) {
+      sendEvent(res, {
+        type: "UI_BLOCK_START",
+        blockId: block.id,
+        component: block.component,
+        messageId,
+        ...(block.editable ? { editable: true } : {}),
+        ...(block.fileId ? { fileId: block.fileId } : {}),
+        ...(block.saveMethod ? { saveMethod: block.saveMethod } : {}),
+      });
+      sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: block.id, props: block.props });
+      sendEvent(res, { type: "UI_BLOCK_END", blockId: block.id });
+    }
+
     sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
     res.end();
 

@@ -5,79 +5,19 @@ import archiver from "archiver";
 import { logger } from "../utils/logger.js";
 import type { ConfigFile, ConfigFileSpec } from "../runtimes/types.js";
 
-// ── Mock Mode for Local Development ────────────────────────────────────
-// When MOCK_K8S=true, all K8s operations are simulated with in-memory storage.
-// This allows testing config sync without a real cluster.
+// Initialize K8s client
+const kc = new k8s.KubeConfig();
 
-const MOCK_K8S = process.env.MOCK_K8S === "true";
-
-// In-memory mock storage: deploymentId -> { files, secrets, status, logs }
-interface MockDeployment {
-  files: Map<string, string>;           // path -> content (PVC simulation)
-  secrets: Record<string, string>;      // K8s Secret env vars
-  status: "pending" | "creating" | "running" | "stopped" | "failed";
-  replicas: number;
-  logs: string[];
-  config: {
-    image: string;
-    cpuLimit: string;
-    memoryMb: number;
-    storageMb: number;
-  };
+// Load config - in-cluster when deployed, local kubeconfig for dev
+if (process.env.KUBERNETES_SERVICE_HOST) {
+  kc.loadFromCluster();
+} else {
+  kc.loadFromDefault();
 }
 
-const mockStore = new Map<string, MockDeployment>();
-
-// Export for debug endpoint
-export function getMockStore(): Map<string, MockDeployment> {
-  return mockStore;
-}
-
-// Export mock file contents for a deployment (for debug endpoint)
-export function getMockPvcFiles(deploymentId: string): Record<string, string> | null {
-  const deployment = mockStore.get(deploymentId);
-  if (!deployment) return null;
-  return Object.fromEntries(deployment.files);
-}
-
-// Export all mock deployments info (for debug endpoint)
-export function getMockDeployments(): Record<string, { status: string; replicas: number; fileCount: number; secrets: string[] }> {
-  const result: Record<string, { status: string; replicas: number; fileCount: number; secrets: string[] }> = {};
-  for (const [id, dep] of mockStore) {
-    result[id] = {
-      status: dep.status,
-      replicas: dep.replicas,
-      fileCount: dep.files.size,
-      secrets: Object.keys(dep.secrets),
-    };
-  }
-  return result;
-}
-
-if (MOCK_K8S) {
-  logger.info("🎭 K8s mock mode enabled - no real cluster operations will be performed");
-}
-
-// Initialize K8s client (only if not in mock mode)
-let kc: k8s.KubeConfig | null = null;
-let coreApi: k8s.CoreV1Api | null = null;
-let appsApi: k8s.AppsV1Api | null = null;
-let exec: k8s.Exec | null = null;
-
-if (!MOCK_K8S) {
-  kc = new k8s.KubeConfig();
-
-  // Load config - in-cluster when deployed, local kubeconfig for dev
-  if (process.env.KUBERNETES_SERVICE_HOST) {
-    kc.loadFromCluster();
-  } else {
-    kc.loadFromDefault();
-  }
-
-  coreApi = kc.makeApiClient(k8s.CoreV1Api);
-  appsApi = kc.makeApiClient(k8s.AppsV1Api);
-  exec = new k8s.Exec(kc);
-}
+const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+const appsApi = kc.makeApiClient(k8s.AppsV1Api);
+const exec = new k8s.Exec(kc);
 
 const NAMESPACE = "jarble";
 const DEFAULT_IMAGE = "ghcr.io/jarble-ai/openclaw:latest";
@@ -109,43 +49,6 @@ export async function createDeployment(
 ): Promise<void> {
   logger.info({ deploymentId, userId }, "Creating deployment");
 
-  // Mock mode: simulate deployment creation
-  if (MOCK_K8S) {
-    const mockDep: MockDeployment = {
-      files: new Map(),
-      secrets: {
-        DEPLOYMENT_ID: deploymentId,
-        USER_ID: userId,
-        DEPLOYMENT_NAME: config.name,
-        TEMPLATE: config.template || "personal",
-        RUNTIME: config.runtime || "openclaw",
-        ...(config.extraSecretEntries ?? {}),
-      },
-      status: "running",
-      replicas: 1,
-      logs: [`[${new Date().toISOString()}] 🎭 Mock deployment created`],
-      config: {
-        image: config.image || DEFAULT_IMAGE,
-        cpuLimit: config.cpuLimit || "2.0",
-        memoryMb: config.memoryMb || 3072,
-        storageMb: config.storageMb || 30,
-      },
-    };
-    mockStore.set(deploymentId, mockDep);
-
-    // Write initial config files to mock PVC
-    if (config.initialConfigs && config.initialConfigs.length > 0) {
-      for (const file of config.initialConfigs) {
-        mockDep.files.set(file.path, file.content);
-        mockDep.logs.push(`[${new Date().toISOString()}] Wrote config: ${file.path}`);
-        logger.info({ deploymentId, path: file.path }, "🎭 Mock: Wrote config file to PVC");
-      }
-    }
-
-    logger.info({ deploymentId }, "🎭 Mock: Deployment created successfully");
-    return;
-  }
-
   const containerImage = config.image || DEFAULT_IMAGE;
 
   // Derive resource values from config (with sensible defaults)
@@ -167,7 +70,7 @@ export async function createDeployment(
   let secretCreated = false;
 
   try {
-  await coreApi!.createNamespacedPersistentVolumeClaim(NAMESPACE, {
+  await coreApi.createNamespacedPersistentVolumeClaim(NAMESPACE, {
     metadata: { name: `pvc-${deploymentId}` },
     spec: {
       accessModes: ["ReadWriteOnce"],
@@ -201,14 +104,14 @@ export async function createDeployment(
 
   const secretData = { ...baseSecretData, ...(config.extraSecretEntries ?? {}) };
 
-  await coreApi!.createNamespacedSecret(NAMESPACE, {
+  await coreApi.createNamespacedSecret(NAMESPACE, {
     metadata: { name: `secret-${deploymentId}` },
     stringData: secretData,
   });
   secretCreated = true;
 
   // 3. Create Deployment
-  await appsApi!.createNamespacedDeployment(NAMESPACE, {
+  await appsApi.createNamespacedDeployment(NAMESPACE, {
     metadata: {
       name: `dep-${deploymentId}`,
       labels: { app: `dep-${deploymentId}`, "jarble.ai/deployment-id": deploymentId },
@@ -300,14 +203,14 @@ export async function createDeployment(
     logger.error({ deploymentId, err, pvcCreated, secretCreated }, "createDeployment failed, rolling back");
     try {
       if (secretCreated) {
-        await coreApi!.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
+        await coreApi.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
       }
     } catch (cleanupErr) {
       logger.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete secret");
     }
     try {
       if (pvcCreated) {
-        await coreApi!.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
+        await coreApi.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
       }
     } catch (cleanupErr) {
       logger.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete PVC");
@@ -353,18 +256,7 @@ export async function createDeployment(
 export async function stopDeployment(deploymentId: string): Promise<void> {
   logger.info({ deploymentId }, "Stopping deployment (scaling to 0)");
 
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (mockDep) {
-      mockDep.status = "stopped";
-      mockDep.replicas = 0;
-      mockDep.logs.push(`[${new Date().toISOString()}] Deployment stopped`);
-    }
-    logger.info({ deploymentId }, "🎭 Mock: Deployment stopped");
-    return;
-  }
-
-  await appsApi!.patchNamespacedDeployment(
+  await appsApi.patchNamespacedDeployment(
     `dep-${deploymentId}`,
     NAMESPACE,
     { spec: { replicas: 0 } },
@@ -386,18 +278,7 @@ export async function stopDeployment(deploymentId: string): Promise<void> {
 export async function startDeployment(deploymentId: string): Promise<void> {
   logger.info({ deploymentId }, "Starting deployment (scaling to 1)");
 
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (mockDep) {
-      mockDep.status = "running";
-      mockDep.replicas = 1;
-      mockDep.logs.push(`[${new Date().toISOString()}] Deployment started`);
-    }
-    logger.info({ deploymentId }, "🎭 Mock: Deployment started");
-    return;
-  }
-
-  await appsApi!.patchNamespacedDeployment(
+  await appsApi.patchNamespacedDeployment(
     `dep-${deploymentId}`,
     NAMESPACE,
     { spec: { replicas: 1 } },
@@ -442,16 +323,10 @@ export async function restartDeployment(deploymentId: string): Promise<void> {
 export async function deleteDeployment(deploymentId: string): Promise<void> {
   logger.info({ deploymentId }, "deleteDeployment: starting");
 
-  if (MOCK_K8S) {
-    mockStore.delete(deploymentId);
-    logger.info({ deploymentId }, "🎭 Mock: Deployment deleted");
-    return;
-  }
-
   // Step 1: Scale to 0 so the pod releases the RWO PVC before we delete it.
   logger.debug({ deploymentId }, "deleteDeployment: scaling to 0 replicas");
   try {
-    await appsApi!.patchNamespacedDeployment(
+    await appsApi.patchNamespacedDeployment(
       `dep-${deploymentId}`,
       NAMESPACE,
       { spec: { replicas: 0 } },
@@ -485,7 +360,7 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
   // Step 3: Delete K8s Deployment
   logger.debug({ deploymentId }, "deleteDeployment: deleting K8s Deployment");
   try {
-    await appsApi!.deleteNamespacedDeployment(`dep-${deploymentId}`, NAMESPACE);
+    await appsApi.deleteNamespacedDeployment(`dep-${deploymentId}`, NAMESPACE);
     logger.debug({ deploymentId }, "deleteDeployment: K8s Deployment deleted");
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
@@ -500,7 +375,7 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
   // Step 4: Delete K8s Secret
   logger.debug({ deploymentId }, "deleteDeployment: deleting K8s Secret");
   try {
-    await coreApi!.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
+    await coreApi.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
     logger.debug({ deploymentId }, "deleteDeployment: K8s Secret deleted");
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
@@ -515,7 +390,7 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
   // Step 5: Delete PVC (data is gone — intentional)
   logger.debug({ deploymentId }, "deleteDeployment: deleting K8s PVC");
   try {
-    await coreApi!.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
+    await coreApi.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
     logger.debug({ deploymentId }, "deleteDeployment: K8s PVC deleted");
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
@@ -538,25 +413,8 @@ export interface DeploymentPodStatus {
 }
 
 export async function getDeploymentPodStatus(deploymentId: string): Promise<DeploymentPodStatus> {
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (!mockDep) {
-      return { status: "not_found" };
-    }
-    if (mockDep.status === "running") {
-      return { status: "running", phase: "Running", restarts: 0 };
-    }
-    if (mockDep.status === "stopped") {
-      return { status: "not_found" }; // No pod when stopped
-    }
-    if (mockDep.status === "failed") {
-      return { status: "failed", error: "Mock failure" };
-    }
-    return { status: "creating", phase: "Pending" };
-  }
-
   try {
-    const pods = await coreApi!.listNamespacedPod(
+    const pods = await coreApi.listNamespacedPod(
       NAMESPACE,
       undefined,
       undefined,
@@ -631,30 +489,9 @@ export interface StorageUsage {
  * Returns null if the pod isn't running or the command fails.
  */
 export async function getDeploymentStorageUsage(deploymentId: string): Promise<StorageUsage | null> {
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (!mockDep || mockDep.status !== "running") {
-      return null;
-    }
-    // Calculate mock storage usage based on file contents
-    let usedBytes = 0;
-    for (const content of mockDep.files.values()) {
-      usedBytes += Buffer.byteLength(content, "utf8");
-    }
-    const GB = 1024 * 1024 * 1024;
-    const totalBytes = mockDep.config.storageMb * GB; // storageMb is actually GB
-    return {
-      usedBytes,
-      totalBytes,
-      usedGb: Math.round((usedBytes / GB) * 100) / 100,
-      totalGb: mockDep.config.storageMb,
-      percentUsed: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 1000) / 10 : 0,
-    };
-  }
-
   try {
     // Find the running pod for this deployment
-    const pods = await coreApi!.listNamespacedPod(
+    const pods = await coreApi.listNamespacedPod(
       NAMESPACE,
       undefined,
       undefined,
@@ -686,7 +523,7 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
     stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
 
     await new Promise<void>((resolve, reject) => {
-      exec!.exec(
+      exec.exec(
         NAMESPACE,
         podName,
         "runtime",
@@ -752,37 +589,8 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
  * Reads `/data/config/` from the pod, builds a ZIP in memory, returns as base64.
  */
 export async function exportDeploymentConfigs(deploymentId: string): Promise<{ filename: string; data: string }> {
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (!mockDep) {
-      throw new Error(`Mock deployment ${deploymentId} not found`);
-    }
-    if (mockDep.files.size === 0) {
-      throw new Error("No config files found in mock PVC");
-    }
-
-    // Build ZIP archive from mock files
-    const zipBuffer = await new Promise<Buffer>((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      const archive = archiver("zip", { zlib: { level: 9 } });
-      archive.on("data", (chunk: Buffer) => chunks.push(chunk));
-      archive.on("end", () => resolve(Buffer.concat(chunks)));
-      archive.on("error", reject);
-
-      for (const [path, content] of mockDep.files) {
-        archive.append(content, { name: path });
-      }
-      archive.finalize();
-    });
-
-    const filename = `config-${deploymentId}.zip`;
-    logger.info({ deploymentId, fileCount: mockDep.files.size, sizeBytes: zipBuffer.length }, "🎭 Mock: Exported deployment configs");
-
-    return { filename, data: zipBuffer.toString("base64") };
-  }
-
   // Find the running pod
-  const pods = await coreApi!.listNamespacedPod(
+  const pods = await coreApi.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
@@ -869,11 +677,9 @@ export async function getPodAddress(deploymentId: string): Promise<{
   port: number;
   gatewayToken: string;
 } | null> {
-  if (MOCK_K8S) return null;
-
   try {
     // Find running, ready pod
-    const pods = await coreApi!.listNamespacedPod(
+    const pods = await coreApi.listNamespacedPod(
       NAMESPACE,
       undefined,
       undefined,
@@ -891,7 +697,7 @@ export async function getPodAddress(deploymentId: string): Promise<{
     if (!podIp || !isRunning) return null;
 
     // Read gateway token from K8s Secret
-    const secret = await coreApi!.readNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
+    const secret = await coreApi.readNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
     const data = secret.body.data ?? {};
     const tokenB64 = data["OPENCLAW_GATEWAY_TOKEN"];
     const gatewayToken = tokenB64 ? Buffer.from(tokenB64, "base64").toString("utf-8") : "";
@@ -938,21 +744,8 @@ export async function writeConfigsToPvc(
 ): Promise<void> {
   if (files.length === 0) return;
 
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (!mockDep) {
-      throw new Error(`Mock deployment ${deploymentId} not found`);
-    }
-    for (const file of files) {
-      mockDep.files.set(file.path, file.content);
-      mockDep.logs.push(`[${new Date().toISOString()}] Config updated: ${file.path}`);
-      logger.info({ deploymentId, path: file.path }, "🎭 Mock: Wrote config file to PVC");
-    }
-    return;
-  }
-
   // Find the running pod
-  const pods = await coreApi!.listNamespacedPod(
+  const pods = await coreApi.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
@@ -970,8 +763,8 @@ export async function writeConfigsToPvc(
   if (!podName) throw new Error("Pod has no name");
 
   for (const file of files) {
-    // Config files go under /data/config/ — handler paths are relative (e.g. "soul.md")
-    const filePath = `/data/config/${file.path}`;
+    // Paths starting with "/" are absolute; otherwise relative to /data/config/
+    const filePath = file.path.startsWith("/") ? file.path : `/data/config/${file.path}`;
 
     // Ensure parent directory exists (e.g. /data/config/skills/)
     const dir = filePath.substring(0, filePath.lastIndexOf("/"));
@@ -990,19 +783,6 @@ export async function writeConfigsToPvc(
  * Execute a command in a pod (no stdin, capture stdout/stderr).
  */
 export async function execInPod(podName: string, command: string[]): Promise<string> {
-  if (MOCK_K8S) {
-    // Mock exec - just return empty string for most commands
-    const cmd = command.join(" ");
-    logger.debug({ podName, cmd }, "🎭 Mock: execInPod");
-    if (cmd.includes("find")) {
-      return ""; // No files found
-    }
-    if (cmd.includes("cat")) {
-      return ""; // Empty file content
-    }
-    return "";
-  }
-
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
 
@@ -1012,7 +792,7 @@ export async function execInPod(podName: string, command: string[]): Promise<str
   stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
 
   await new Promise<void>((resolve, reject) => {
-    exec!.exec(
+    exec.exec(
       NAMESPACE,
       podName,
       "runtime",
@@ -1049,15 +829,7 @@ export async function findPodForDeployment(
 ): Promise<string | null> {
   const requireReady = opts?.requireReady ?? true;
 
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (!mockDep || mockDep.status !== "running") {
-      return null;
-    }
-    return `mock-pod-${deploymentId}`;
-  }
-
-  const pods = await coreApi!.listNamespacedPod(
+  const pods = await coreApi.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
@@ -1088,18 +860,6 @@ export async function streamExecInPod(
   onLine: (line: string) => void,
   onExit: (success: boolean, message?: string) => void
 ): Promise<{ abort: () => void }> {
-  if (MOCK_K8S) {
-    // Mock streaming - emit a few lines then exit
-    setTimeout(() => {
-      onLine(`[Mock] Executing: ${command.join(" ")}`);
-      onLine(`[Mock] Stream started for ${podName}`);
-    }, 100);
-    setTimeout(() => {
-      onExit(true, "Mock stream ended");
-    }, 500);
-    return { abort: () => {} };
-  }
-
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
   let buffer = "";
@@ -1121,7 +881,7 @@ export async function streamExecInPod(
 
   let execWs: any;
   try {
-    execWs = await exec!.exec(
+    execWs = await exec.exec(
       NAMESPACE,
       podName,
       "runtime",
@@ -1178,7 +938,7 @@ export async function execInPodWithStdin(
       reject(new Error(`execInPodWithStdin timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
-    exec!.exec(
+    exec.exec(
       NAMESPACE,
       podName,
       "runtime",
@@ -1251,17 +1011,7 @@ export async function updateDeploymentSecret(
 
   const fullData = { ...baseData, ...secretEntries };
 
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (mockDep) {
-      mockDep.secrets = fullData;
-      mockDep.logs.push(`[${new Date().toISOString()}] Secret updated`);
-    }
-    logger.info({ deploymentId, entryCount: Object.keys(fullData).length }, "🎭 Mock: K8s Secret updated");
-    return;
-  }
-
-  await coreApi!.replaceNamespacedSecret(
+  await coreApi.replaceNamespacedSecret(
     `secret-${deploymentId}`,
     NAMESPACE,
     {
@@ -1287,38 +1037,8 @@ export async function readConfigsFromPvc(
   deploymentId: string,
   configFileSpecs: ConfigFileSpec[]
 ): Promise<ConfigFile[]> {
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (!mockDep) {
-      throw new Error(`Mock deployment ${deploymentId} not found`);
-    }
-    if (mockDep.status !== "running") {
-      throw new Error(`Mock deployment ${deploymentId} is not running`);
-    }
-
-    const files: ConfigFile[] = [];
-    for (const spec of configFileSpecs) {
-      if (spec.isGlob) {
-        // Glob pattern - find matching files
-        const prefix = spec.path.replace("/*", "");
-        for (const [path, content] of mockDep.files) {
-          if (path.startsWith(prefix)) {
-            files.push({ path, content });
-          }
-        }
-      } else {
-        // Exact path
-        const content = mockDep.files.get(spec.path);
-        if (content !== undefined) {
-          files.push({ path: spec.path, content });
-        }
-      }
-    }
-    return files;
-  }
-
   // Find the running pod
-  const pods = await coreApi!.listNamespacedPod(
+  const pods = await coreApi.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
@@ -1407,15 +1127,6 @@ export async function signalProcessRestart(
   deploymentId: string,
   envOverrides: Record<string, string>
 ): Promise<boolean> {
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (!mockDep || mockDep.status !== "running") return false;
-    Object.assign(mockDep.secrets, envOverrides);
-    mockDep.logs.push(`[${new Date().toISOString()}] Process restart signaled (mock)`);
-    logger.info({ deploymentId }, "🎭 Mock: signalProcessRestart");
-    return true;
-  }
-
   // 1. Find running pod (don't require readiness — it may be briefly unready during reload)
   const podName = await findPodForDeployment(deploymentId, { requireReady: false });
   if (!podName) {
@@ -1437,8 +1148,16 @@ export async function signalProcessRestart(
     return false;
   }
 
-  // 3. Write .env file with env overrides
+  // 3. Write .env file with env overrides (validate key names to prevent shell injection)
+  const SAFE_ENV_KEY = /^[A-Z_][A-Z0-9_]*$/i;
   const envContent = Object.entries(envOverrides)
+    .filter(([key]) => {
+      if (!SAFE_ENV_KEY.test(key)) {
+        logger.warn({ deploymentId, key }, "signalProcessRestart: skipping invalid env key name");
+        return false;
+      }
+      return true;
+    })
     .map(([key, value]) => `export ${key}='${escapeShellValue(value)}'`)
     .join("\n") + "\n";
   await execInPodWithStdin(podName, ["tee", "/data/config/.env"], envContent);
@@ -1466,13 +1185,8 @@ export async function signalProcessRestart(
 export async function readCurrentSecretData(
   deploymentId: string
 ): Promise<Record<string, string> | null> {
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    return mockDep?.secrets ?? null;
-  }
-
   try {
-    const secret = await coreApi!.readNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
+    const secret = await coreApi.readNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
     const data = secret.body.data ?? {};
     const decoded: Record<string, string> = {};
     for (const [key, value] of Object.entries(data)) {
@@ -1481,6 +1195,85 @@ export async function readCurrentSecretData(
     return decoded;
   } catch {
     return null;
+  }
+}
+
+// ── Component PVC Helpers ────────────────────────────────────────────
+
+/**
+ * Write a custom component definition to the PVC at /data/components/{name}.json.
+ * In mock mode, stores in the mock deployment's file map.
+ */
+export async function writeComponentToPvc(
+  deploymentId: string,
+  name: string,
+  definition: Record<string, unknown>
+): Promise<void> {
+  const filePath = `/data/components/${name}.json`;
+  const content = JSON.stringify(definition, null, 2);
+
+  const podName = await findPodForDeployment(deploymentId);
+  if (!podName) {
+    throw new Error(`No running pod found for deployment ${deploymentId}`);
+  }
+
+  // Ensure /data/components/ directory exists
+  await execInPod(podName, ["mkdir", "-p", "/data/components"]);
+  await execInPodWithStdin(podName, ["tee", filePath], content);
+  logger.info({ deploymentId, name }, "Wrote component to PVC");
+}
+
+/**
+ * Read a custom component definition from the PVC.
+ * Returns null if the component doesn't exist.
+ */
+export async function readComponentFromPvc(
+  deploymentId: string,
+  name: string
+): Promise<Record<string, unknown> | null> {
+  const filePath = `/data/components/${name}.json`;
+
+  const podName = await findPodForDeployment(deploymentId);
+  if (!podName) return null;
+
+  try {
+    const content = await execInPod(podName, ["cat", filePath]);
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * List all custom component definitions on the PVC.
+ * Returns an array of { name, description } objects.
+ */
+export async function listComponentsOnPvc(
+  deploymentId: string
+): Promise<Array<{ name: string; description?: string }>> {
+  const podName = await findPodForDeployment(deploymentId);
+  if (!podName) return [];
+
+  try {
+    const output = await execInPod(podName, ["find", "/data/components", "-name", "*.json", "-type", "f"]);
+    const filePaths = output.trim().split("\n").filter(Boolean);
+    const components: Array<{ name: string; description?: string }> = [];
+
+    for (const fp of filePaths) {
+      try {
+        const content = await execInPod(podName, ["cat", fp]);
+        const parsed = JSON.parse(content);
+        components.push({
+          name: parsed.name || fp.replace("/data/components/", "").replace(".json", ""),
+          description: parsed.description,
+        });
+      } catch {
+        // Skip unreadable files
+      }
+    }
+    return components;
+  } catch {
+    return []; // Directory doesn't exist yet
   }
 }
 
@@ -1499,16 +1292,7 @@ export async function getDeploymentLogs(
   deploymentId: string,
   tailLines: number = 200
 ): Promise<DeploymentLogsResult> {
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (!mockDep) {
-      throw new Error("No pods found for this deployment");
-    }
-    const logs = mockDep.logs.slice(-tailLines).join("\n");
-    return { logs, podName: `mock-pod-${deploymentId}` };
-  }
-
-  const pods = await coreApi!.listNamespacedPod(
+  const pods = await coreApi.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
@@ -1525,7 +1309,7 @@ export async function getDeploymentLogs(
   const podName = pod.metadata?.name;
   if (!podName) throw new Error("Pod has no name");
 
-  const response = await coreApi!.readNamespacedPodLog(
+  const response = await coreApi.readNamespacedPodLog(
     podName,
     NAMESPACE,
     "runtime",     // container
@@ -1555,34 +1339,7 @@ export async function streamDeploymentLogs(
   writable: stream.Writable,
   options: { tailLines?: number } = {}
 ): Promise<{ podName: string; abort: () => void }> {
-  if (MOCK_K8S) {
-    const mockDep = mockStore.get(deploymentId);
-    if (!mockDep) {
-      throw new Error("No pods found for this deployment");
-    }
-    if (mockDep.status !== "running") {
-      throw new Error("Pod is not running");
-    }
-
-    // Write existing logs
-    const logs = mockDep.logs.slice(-(options.tailLines ?? 100)).join("\n") + "\n";
-    writable.write(logs);
-
-    // Set up interval to write new mock logs
-    const interval = setInterval(() => {
-      const ts = new Date().toISOString();
-      const line = `${ts} [Mock] Heartbeat from ${deploymentId}\n`;
-      mockDep.logs.push(line.trim());
-      writable.write(line);
-    }, 5000);
-
-    return {
-      podName: `mock-pod-${deploymentId}`,
-      abort: () => clearInterval(interval),
-    };
-  }
-
-  const pods = await coreApi!.listNamespacedPod(
+  const pods = await coreApi.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
@@ -1605,7 +1362,7 @@ export async function streamDeploymentLogs(
     throw new Error("Pod is not running");
   }
 
-  const log = new k8s.Log(kc!);
+  const log = new k8s.Log(kc);
   const request = await log.log(NAMESPACE, podName, "runtime", writable, {
     follow: true,
     tailLines: options.tailLines ?? 100,

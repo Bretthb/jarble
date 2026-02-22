@@ -17,6 +17,9 @@ import { restartBotTool, stopBotTool, startBotTool } from "./lifecycle.js";
 import { getLogsTool } from "./getLogs.js";
 import { getWhatsappQrTool } from "./getWhatsappQr.js";
 import { chatWithBotTool } from "./chatWithBot.js";
+import { renderUiTool } from "./renderUi.js";
+import { defineComponentTool } from "./defineComponent.js";
+import { listComponentsTool } from "./listComponents.js";
 
 export const mcpRegistry = new ToolRegistry();
 
@@ -50,3 +53,8 @@ mcpRegistry.register(getWhatsappQrTool);
 
 // Bot conversation proxy
 mcpRegistry.register(chatWithBotTool);
+
+// Canvas UI rendering
+mcpRegistry.register(renderUiTool);
+mcpRegistry.register(defineComponentTool);
+mcpRegistry.register(listComponentsTool);

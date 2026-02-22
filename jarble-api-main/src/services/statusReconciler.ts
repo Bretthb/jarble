@@ -5,9 +5,6 @@ import { logger } from "../utils/logger.js";
 
 const { deployments } = tables;
 
-// Mock K8s mode - skip reconciliation since there's no real cluster
-const MOCK_K8S = process.env.MOCK_K8S === "true";
-
 /**
  * Status Reconciler - Background job that syncs DB status with K8s reality.
  *
@@ -35,11 +32,6 @@ interface StatusMismatch {
  * Checks deployments with status: creating, running, restarting
  */
 export async function reconcileStatuses(): Promise<void> {
-  if (MOCK_K8S) {
-    logger.debug("statusReconciler: skipping in mock mode");
-    return;
-  }
-
   try {
     // Find deployments that might have drifted
     // Limit to 100 per cycle to prevent overwhelming K8s API at scale

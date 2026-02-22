@@ -6,8 +6,10 @@ import { trpc } from "@/lib/trpc";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useStatusStream } from "@/hooks/useStatusStream";
 import { useAgentChat } from "@/hooks/useAgentChat";
-import type { ChatMessage, ToolCall } from "@/hooks/useAgentChat";
+import type { ChatMessage, ToolCall, UIBlock } from "@/hooks/useAgentChat";
 import { TOOL_COMPONENTS } from "@/components/tambo/loaders";
+import CanvasRenderer from "@/components/canvas/CanvasRenderer";
+import EditableCanvas from "@/components/canvas/EditableCanvas";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
@@ -22,6 +24,7 @@ import {
   Cpu,
   Puzzle,
   RotateCw,
+  LayoutGrid,
 } from "lucide-react";
 import { useRef, useEffect, useState } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
@@ -114,6 +117,7 @@ const ACTION_BUTTONS = [
   { icon: Cpu, label: "LLM", tool: "update_llm_config" },
   { icon: Puzzle, label: "Skills", tool: "list_skills" },
   { icon: RotateCw, label: "Restart", tool: "restart_bot" },
+  { icon: LayoutGrid, label: "Components", tool: "list_components" },
 ] as const;
 
 function ChatInterface({
@@ -161,7 +165,7 @@ function ChatInterface({
           {allMessages
             .filter((msg) => msg.role !== "system")
             .map((msg) => (
-              <MessageBubble key={msg.id} message={msg} deploymentId={deploymentId} />
+              <MessageBubble key={msg.id} message={msg} deploymentId={deploymentId} sendMessage={sendMessage} />
             ))}
           {isStreaming && isConnecting && (
             <div className="flex items-center gap-2 text-muted-foreground">
@@ -225,12 +229,15 @@ function ChatInterface({
 function MessageBubble({
   message,
   deploymentId,
+  sendMessage,
 }: {
   message: ChatMessage;
   deploymentId: string;
+  sendMessage?: (text: string) => Promise<void>;
 }) {
   const isUser = message.role === "user";
   const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
+  const hasUIBlocks = message.uiBlocks && message.uiBlocks.length > 0;
 
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
@@ -261,6 +268,18 @@ function MessageBubble({
             <span className="whitespace-pre-wrap">{message.content}</span>
           </div>
         )}
+
+        {/* Bot-rendered UI blocks */}
+        {hasUIBlocks &&
+          message.uiBlocks!.map((block) => (
+            <div key={block.id} className="max-w-md">
+              <EditableCanvas
+                block={block}
+                deploymentId={deploymentId}
+                sendMessage={sendMessage}
+              />
+            </div>
+          ))}
 
         {/* Rendered components from tool calls */}
         {hasToolCalls &&

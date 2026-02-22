@@ -12,11 +12,21 @@ export interface ToolCall {
   args: string; // JSON string
 }
 
+export interface UIBlock {
+  id: string;
+  component: string;
+  props: Record<string, unknown>;
+  editable?: boolean;
+  fileId?: string;
+  saveMethod?: "mcp" | "chat";
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   toolCalls?: ToolCall[];
+  uiBlocks?: UIBlock[];
 }
 
 export interface UseAgentChatReturn {
@@ -33,6 +43,14 @@ export interface UseAgentChatReturn {
  * Shared SSE parsing logic used by both sendMessage and invokeTool.
  * Reads an SSE response body and updates assistant message state.
  */
+/** Regex to strip ```jarble_ui ... ``` fenced blocks from displayed text */
+const JARBLE_UI_FENCE = /```jarble_ui\s*\n[\s\S]*?```/g;
+
+/** Strip jarble_ui fenced blocks and clean up extra blank lines */
+function stripUIMarkers(text: string): string {
+  return text.replace(JARBLE_UI_FENCE, "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 async function parseSSEStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   assistantMsgId: string,
@@ -42,6 +60,8 @@ async function parseSSEStream(
   const decoder = new TextDecoder();
   let buffer = "";
   const pendingTools = new Map<string, ToolCall>();
+  const pendingUIBlocks = new Map<string, UIBlock>();
+  let hasUIBlocks = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -94,6 +114,42 @@ async function parseSSEStream(
               )
             );
             pendingTools.delete(event.toolCallId);
+          }
+        }
+
+        // UI block events
+        if (event.type === "UI_BLOCK_START") {
+          pendingUIBlocks.set(event.blockId, {
+            id: event.blockId,
+            component: event.component,
+            props: {},
+            ...(event.editable ? { editable: true } : {}),
+            ...(event.fileId ? { fileId: event.fileId } : {}),
+            ...(event.saveMethod ? { saveMethod: event.saveMethod } : {}),
+          });
+        }
+        if (event.type === "UI_BLOCK_PROPS") {
+          const block = pendingUIBlocks.get(event.blockId);
+          if (block) block.props = event.props;
+        }
+        if (event.type === "UI_BLOCK_END") {
+          const block = pendingUIBlocks.get(event.blockId);
+          if (block) {
+            hasUIBlocks = true;
+            const completedBlock = { ...block };
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantMsgId) return m;
+                // Strip jarble_ui markers from text now that we have real blocks
+                const cleanContent = stripUIMarkers(m.content);
+                return {
+                  ...m,
+                  content: cleanContent,
+                  uiBlocks: [...(m.uiBlocks || []), completedBlock],
+                };
+              })
+            );
+            pendingUIBlocks.delete(event.blockId);
           }
         }
 

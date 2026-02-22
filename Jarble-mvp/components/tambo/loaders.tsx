@@ -9,6 +9,7 @@ import LLMConfigCard from "./LLMConfigCard";
 import SkillsPanel from "./SkillsPanel";
 import LogViewer from "./LogViewer";
 import ConfirmAction from "./ConfirmAction";
+import CanvasRenderer from "@/components/canvas/CanvasRenderer";
 
 function LoadingSkeleton() {
   return (
@@ -182,4 +183,14 @@ export const TOOL_COMPONENTS: Record<
   confirm_action: ({ deploymentId, args }) => (
     <ConfirmActionLoader deploymentId={deploymentId} args={args} />
   ),
+  canvas_block: ({ args }) => {
+    const component = args?.component as string;
+    const props = (args?.props as Record<string, unknown>) || {};
+    if (!component) return <ErrorCard message="Missing component in canvas_block" />;
+    return (
+      <CanvasRenderer
+        block={{ id: `cb-${Date.now()}`, component, props }}
+      />
+    );
+  },
 };
