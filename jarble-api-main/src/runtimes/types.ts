@@ -54,6 +54,8 @@ export interface DeploymentFields {
   llmApiKey: string | null;
   /** Platform credentials: { platformId: { fieldKey: value } } e.g. { discord: { botToken: "..." } } */
   platformCredentials?: Record<string, Record<string, string>>;
+  /** Gateway auth token for OpenClaw WS auth — generated at deploy time, stored in K8s Secret */
+  gatewayToken?: string;
 }
 
 /**

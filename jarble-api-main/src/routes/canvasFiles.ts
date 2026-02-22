@@ -27,6 +27,7 @@ const ALLOWED_TOOLS = new Set([
   "render_ui",
   "define_component",
   "list_components",
+  "delete_component",
 ]);
 
 canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {

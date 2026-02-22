@@ -228,7 +228,6 @@ const liveStatus = getStatus(deployment.id);
 ```
 DATABASE_URL=mysql://...        # Required for prod
 USE_SQLITE=true                 # Use file-based SQLite for local dev (local.db)
-MOCK_K8S=true                   # Mock K8s operations (no real cluster needed)
 AUTH0_DOMAIN=xxx.auth0.com
 AUTH0_AUDIENCE=https://api.jarble.ai
 STRIPE_SECRET_KEY=sk_...
@@ -247,9 +246,8 @@ NEXT_PUBLIC_AUTH0_AUDIENCE=https://api.jarble.ai
 ```
 
 ### Local Dev with Real K8s
-When testing against a real K3s cluster (not mock):
+When testing against a real K3s cluster:
 ```bash
-# Don't set MOCK_K8S — uses real kubeconfig
 export USE_SQLITE=true
 npx tsx watch src/index.ts
 ```

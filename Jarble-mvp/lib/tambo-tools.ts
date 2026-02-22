@@ -21,6 +21,19 @@ interface UIBlockResult {
   props: Record<string, unknown>;
 }
 
+/** Map bot snake_case component names to Tambo PascalCase registered names */
+const BOT_TO_TAMBO_NAME: Record<string, string> = {
+  card: "Card",
+  data_table: "DataTable",
+  stat_grid: "StatGrid",
+  key_value: "KeyValue",
+  code_block: "CodeBlock",
+  alert: "Alert",
+  progress: "Progress",
+  image: "Image",
+  layout: "Card", // layout not registered — fallback to Card
+};
+
 /**
  * Call the pod proxy and collect the full response (text + UI blocks).
  * Used by the chatWithBot tool — no streaming needed since tool results
@@ -83,11 +96,16 @@ async function callPodProxy(
             id: event.blockId,
             component: event.component,
             props: {},
+            ...(event.editable ? { editable: true } : {}),
+            ...(event.fileId ? { fileId: event.fileId } : {}),
+            ...(event.saveMethod ? { saveMethod: event.saveMethod } : {}),
           });
         }
         if (event.type === "UI_BLOCK_PROPS") {
           const block = pendingBlocks.get(event.blockId);
-          if (block) block.props = event.props;
+          if (block) {
+            block.props = event.props;
+          }
         }
         if (event.type === "UI_BLOCK_END") {
           const block = pendingBlocks.get(event.blockId);
@@ -114,180 +132,7 @@ async function callPodProxy(
 
 export function createTamboTools(deploymentId: string) {
   return [
-    defineTool({
-      name: "getDeploymentInfo",
-      description:
-        "Fetch the current deployment state including name, status, runtime, LLM config, connected platforms, and system prompt.",
-      tool: async () => {
-        return await vanillaClient.deployment.getById.query({ id: deploymentId });
-      },
-      inputSchema: z.object({}),
-      outputSchema: z.object({
-        id: z.string(),
-        name: z.string(),
-        status: z.string(),
-        runtime: z.string(),
-        llmProvider: z.string().nullable(),
-        llmModel: z.string().nullable(),
-        llmMode: z.string(),
-        systemPrompt: z.string().nullable(),
-        description: z.string().nullable(),
-      }),
-      annotations: { tamboStreamableHint: true },
-    }),
-
-    defineTool({
-      name: "updateDeployment",
-      description:
-        "Update deployment settings: name, description, system prompt, LLM provider, LLM model, or LLM API key. Only include fields you want to change.",
-      tool: async (params) => {
-        return await vanillaClient.deployment.update.mutate({
-          id: deploymentId,
-          ...params,
-        });
-      },
-      inputSchema: z.object({
-        name: z.string().optional().describe("New deployment name"),
-        description: z.string().optional().describe("New description"),
-        systemPrompt: z.string().optional().describe("New system prompt"),
-        llmProvider: z
-          .enum(["openrouter", "openai", "anthropic", "google"])
-          .optional()
-          .describe("LLM provider"),
-        llmModel: z.string().optional().describe("LLM model ID"),
-        llmApiKey: z.string().optional().describe("New LLM API key (encrypted at rest)"),
-      }),
-      outputSchema: z.object({ success: z.boolean() }),
-    }),
-
-    defineTool({
-      name: "savePlatformCredentials",
-      description:
-        "Save platform credentials to connect a messaging platform (Telegram, Discord, Slack). This triggers configSync to update the pod.",
-      tool: async (params) => {
-        return await vanillaClient.platformCredentials.save.mutate({
-          deploymentId,
-          platformId: params.platformId,
-          credentials: params.credentials,
-        });
-      },
-      inputSchema: z.object({
-        platformId: z
-          .enum(["telegram", "discord", "slack", "whatsapp"])
-          .describe("The messaging platform to connect"),
-        credentials: z
-          .object({
-            botToken: z.string().optional().describe("Bot token (Telegram, Discord, Slack)"),
-            appToken: z.string().optional().describe("App token (Slack only)"),
-          })
-          .describe(
-            "Platform-specific credentials. Telegram: { botToken }. Discord: { botToken }. Slack: { botToken, appToken }."
-          ),
-      }),
-      outputSchema: z.object({ success: z.boolean() }),
-    }),
-
-    defineTool({
-      name: "deletePlatformCredentials",
-      description: "Remove platform credentials and disconnect a messaging platform.",
-      tool: async (params) => {
-        return await vanillaClient.platformCredentials.delete.mutate({
-          deploymentId,
-          platformId: params.platformId,
-        });
-      },
-      inputSchema: z.object({
-        platformId: z
-          .enum(["telegram", "discord", "slack", "whatsapp"])
-          .describe("The platform to disconnect"),
-      }),
-      outputSchema: z.object({ success: z.boolean() }),
-    }),
-
-    defineTool({
-      name: "getPlatformCredentials",
-      description: "Get which platforms are connected and their masked credentials.",
-      tool: async () => {
-        return await vanillaClient.platformCredentials.getByDeployment.query({
-          deploymentId,
-        });
-      },
-      inputSchema: z.object({}),
-      outputSchema: z.array(
-        z.object({
-          platformId: z.string(),
-          maskedCredentials: z.object({
-            botToken: z.string().optional(),
-            appToken: z.string().optional(),
-          }).optional(),
-        })
-      ),
-      annotations: { tamboStreamableHint: true },
-    }),
-
-    defineTool({
-      name: "listSkills",
-      description: "List all available skills from the catalog and which ones are installed on this deployment.",
-      tool: async () => {
-        const [catalog, installed] = await Promise.all([
-          vanillaClient.skills.listCatalog.query({}),
-          vanillaClient.skills.listForDeployment.query({ deploymentId }),
-        ]);
-        const installedSkillIds = new Set(
-          (installed as Array<{ skill: { id: string } | null }>)
-            .filter((entry) => entry.skill !== null)
-            .map((entry) => entry.skill!.id)
-        );
-        return (catalog as Array<{ id: string; name: string; description: string | null }>).map(
-          (skill) => ({
-            id: skill.id,
-            name: skill.name,
-            description: skill.description,
-            installed: installedSkillIds.has(skill.id),
-          })
-        );
-      },
-      inputSchema: z.object({}),
-      outputSchema: z.array(
-        z.object({
-          id: z.string(),
-          name: z.string(),
-          description: z.string().nullable(),
-          installed: z.boolean(),
-        })
-      ),
-      annotations: { tamboStreamableHint: true },
-    }),
-
-    defineTool({
-      name: "installSkill",
-      description: "Install a skill on this deployment by skill ID.",
-      tool: async (params) => {
-        return await vanillaClient.skills.install.mutate({
-          deploymentId,
-          skillId: params.skillId,
-        });
-      },
-      inputSchema: z.object({
-        skillId: z.string().describe("The skill catalog ID to install"),
-      }),
-      outputSchema: z.object({ success: z.boolean() }),
-    }),
-
-    defineTool({
-      name: "uninstallSkill",
-      description: "Uninstall a skill from this deployment by skill ID.",
-      tool: async (params) => {
-        return await vanillaClient.skills.uninstall.mutate({
-          deploymentId,
-          skillId: params.skillId,
-        });
-      },
-      inputSchema: z.object({
-        skillId: z.string().describe("The skill catalog ID to uninstall"),
-      }),
-      outputSchema: z.object({ success: z.boolean() }),
-    }),
+    // ── Infrastructure Tools — things the bot can't do for itself ────────
 
     defineTool({
       name: "startDeployment",
@@ -331,8 +176,30 @@ export function createTamboTools(deploymentId: string) {
     }),
 
     defineTool({
+      name: "changeLlmApiKey",
+      description:
+        "Change the LLM API key for this deployment. Use when the bot is down because it ran out of tokens or the key expired. This is an infrastructure-level change.",
+      tool: async (params) => {
+        return await vanillaClient.deployment.update.mutate({
+          id: deploymentId,
+          llmApiKey: params.apiKey,
+          ...(params.provider ? { llmProvider: params.provider } : {}),
+        });
+      },
+      inputSchema: z.object({
+        apiKey: z.string().describe("The new LLM API key"),
+        provider: z
+          .enum(["openrouter", "openai", "anthropic", "google"])
+          .optional()
+          .describe("LLM provider (only if switching providers)"),
+      }),
+      outputSchema: z.object({ success: z.boolean() }),
+    }),
+
+    defineTool({
       name: "getDeploymentLogs",
-      description: "Fetch recent logs from the deployment pod.",
+      description:
+        "Fetch recent pod logs. Use when the bot is unresponsive and you need to debug why.",
       tool: async () => {
         return await vanillaClient.deployment.getLogs.query({ id: deploymentId });
       },
@@ -345,7 +212,8 @@ export function createTamboTools(deploymentId: string) {
 
     defineTool({
       name: "getDeploymentStatus",
-      description: "Get the current K8s pod status for this deployment.",
+      description:
+        "Check if the pod is running. Use when the bot is unresponsive to see if it's a pod-level issue.",
       tool: async () => {
         return await vanillaClient.deployment.getStatus.query({ id: deploymentId });
       },
@@ -357,56 +225,29 @@ export function createTamboTools(deploymentId: string) {
       annotations: { tamboStreamableHint: true },
     }),
 
-    defineTool({
-      name: "validateProviderKey",
-      description: "Validate an LLM API key for a given provider.",
-      tool: async (params) => {
-        return await vanillaClient.openrouter.validateProviderKey.mutate(params);
-      },
-      inputSchema: z.object({
-        provider: z
-          .enum(["openrouter", "openai", "anthropic", "google"])
-          .describe("The LLM provider"),
-        apiKey: z.string().describe("The API key to validate"),
-      }),
-      outputSchema: z.object({
-        valid: z.boolean(),
-        message: z.string().optional(),
-      }),
-    }),
-
-    defineTool({
-      name: "pollTelegramPairing",
-      description:
-        "Check if a Telegram bot has been paired. Call this after saving Telegram credentials and the pod has restarted.",
-      tool: async () => {
-        return await (vanillaClient.platformCredentials as any).pollTelegramPairing.mutate({
-          deploymentId,
-        });
-      },
-      inputSchema: z.object({}),
-      outputSchema: z.object({
-        status: z.enum(["pending", "paired", "not_found"]),
-      }),
-    }),
-
-    // ── Bot Chat Tool ─────────────────────────────────────────────────────
+    // ── Bot Chat Tool — primary interface ────────────────────────────────
 
     defineTool({
       name: "chatWithBot",
       description:
-        "Send a message to the bot running on this deployment and get its response. " +
-        "Use this when the user wants to chat with their bot, test it, or ask it questions. " +
-        "The bot may return text and/or UI blocks (cards, tables, charts, etc.). " +
-        "If the result includes uiBlocks, render each one as the corresponding Canvas component.",
+        "Send a message to the bot and get its response. The bot may return text and structured data. " +
+        "If it returns structured data (dataBlocks), use the appropriate canvas component " +
+        "(DataTable, StatGrid, Card, KeyValue, CodeBlock, Alert, Progress, Image) to render it.",
       tool: async (params) => {
         try {
-          return await callPodProxy(deploymentId, params.message);
+          const result = await callPodProxy(deploymentId, params.message);
+
+          return {
+            text: result.text,
+            dataBlocks: result.uiBlocks.map((b) => ({
+              suggestedComponent: BOT_TO_TAMBO_NAME[b.component] || b.component,
+              data: b.props,
+            })),
+          };
         } catch (err: any) {
-          // Return error as text instead of throwing so Tambo can relay it
           return {
             text: `Could not reach the bot: ${err.message || "unknown error"}. The bot may be starting up or unreachable. Try checking its status.`,
-            uiBlocks: [],
+            dataBlocks: [],
           };
         }
       },
@@ -415,16 +256,19 @@ export function createTamboTools(deploymentId: string) {
       }),
       outputSchema: z.object({
         text: z.string().describe("The bot's text response"),
-        uiBlocks: z
-          .array(
-            z.object({
-              id: z.string(),
-              component: z.string().describe("Canvas component name: card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout"),
-              props: z.record(z.string(), z.unknown()).describe("Props for the canvas component"),
-            })
-          )
-          .describe("UI blocks returned by the bot — render each as the corresponding CanvasXxx component"),
+        dataBlocks: z.array(z.object({
+          suggestedComponent: z.string().describe("The bot's suggested component type (a hint, not a requirement)"),
+          data: z.record(z.string(), z.unknown()).describe("Structured data to render"),
+        })).describe("Structured data blocks the bot provided — render using canvas components"),
       }),
+      transformToContent: (result: { text: string; dataBlocks: Array<{ suggestedComponent: string; data: Record<string, unknown> }> }) => {
+        let content = result.text || "(no response)";
+        if (result.dataBlocks.length > 0) {
+          content += "\n\n[Bot provided structured data — render using appropriate canvas components]\n";
+          content += JSON.stringify(result.dataBlocks, null, 2);
+        }
+        return [{ type: "text" as const, text: content }];
+      },
     }),
   ];
 }

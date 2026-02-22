@@ -102,7 +102,15 @@ When a user saves an editable component, you'll receive a message like:
 \`[CANVAS_SAVE] fileId=leads\`
 \`{"component":"data_table","props":{"title":"My Leads","columns":["Name","Email","Status"],"rows":[["Jane","jane@co.com","Contacted"]]}}\`
 
-Acknowledge the save and update your data accordingly. **Always use editable components** when the user asks to create, track, or manage data — spreadsheets, notes, dashboards, etc.`;
+Acknowledge the save and update your data accordingly. **Always use editable components** when the user asks to create, track, or manage data — spreadsheets, notes, dashboards, etc.
+
+### Component Library
+
+You have a pre-built library of composite components on disk. **Always call \`list_components\` first** to see what's available before building UI from scratch. Library components combine primitives into reusable templates (dashboard, invoice, sprint_board, etc.).
+
+- Render any library component with \`render_ui\` — pass the template variables as props
+- Modify or create new composites with \`define_component\`
+- All library components use {{variable}} placeholders — list_components shows the full definition`;
 
 // Load the MCP server script at module init (embedded in config writes)
 // Use createRequire to get __filename/__dirname in ESM context
@@ -202,11 +210,17 @@ export const openclawHandler: RuntimeHandler = {
 
     openclawConfig.channels = channels;
 
-    // Enable HTTP chat completions endpoint on the gateway
-    // This allows the Jarble API to proxy dashboard chat through the pod
-    openclawConfig.gateway = {
+    // Gateway config: auth token + HTTP chat completions endpoint
+    // The auth token allows the Jarble API to proxy dashboard chat through the pod's WS gateway
+    const gatewayConfig: Record<string, any> = {
+      port: 18789,
+      host: "0.0.0.0",
       http: { endpoints: { chatCompletions: { enabled: true } } },
     };
+    if (deployment.gatewayToken) {
+      gatewayConfig.auth = { token: deployment.gatewayToken };
+    }
+    openclawConfig.gateway = gatewayConfig;
 
     // MCP servers — expose Jarble UI tools to the bot's LLM
     // The MCP server script is written to /data/config/mcp/jarble-ui-server.js
@@ -228,10 +242,12 @@ export const openclawHandler: RuntimeHandler = {
 
     // Always write openclaw.json if we have any config
     if (Object.keys(openclawConfig).length > 0) {
-      files.push({
-        path: "openclaw.json",
-        content: JSON.stringify(openclawConfig, null, 2) + "\n",
-      });
+      const configContent = JSON.stringify(openclawConfig, null, 2) + "\n";
+      // Write to Jarble config path (for reference / reverse sync)
+      files.push({ path: "openclaw.json", content: configContent });
+      // Write to OpenClaw's actual config path — this is where the gateway reads config from
+      // Path: $HOME/.openclaw/openclaw.json (HOME=/data in container)
+      files.push({ path: "/data/.openclaw/openclaw.json", content: configContent });
     }
 
     // Future: render skills/*.json from DB skills data

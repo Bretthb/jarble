@@ -20,17 +20,16 @@ import { extractUIBlocks, type JarbleUIBlock } from "../utils/uiBlockParser.js";
 
 // ── Device Identity ─────────────────────────────────────────────────────────
 
-/** Singleton device identity — generated once per API process */
-let deviceIdentity: {
-  deviceId: string;
-  publicKeyB64: string;
-  publicKeyPem: string;
-  privateKeyPem: string;
-} | null = null;
-
-function getDeviceIdentity() {
-  if (deviceIdentity) return deviceIdentity;
-
+/**
+ * Generate a fresh device identity per connection.
+ *
+ * OpenClaw issues a deviceToken on first connect for a given deviceId.
+ * On reconnection with the same deviceId, it expects that token back.
+ * Since we don't persist deviceTokens across WS connections, we generate
+ * a new Ed25519 keypair each time so OpenClaw treats every connection
+ * as a brand-new device.
+ */
+function createDeviceIdentity() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
   const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
   const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
@@ -48,9 +47,7 @@ function getDeviceIdentity() {
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
 
-  deviceIdentity = { deviceId, publicKeyB64, publicKeyPem, privateKeyPem };
-  logger.info({ deviceId: deviceId.slice(0, 16) }, "Generated gateway device identity");
-  return deviceIdentity;
+  return { deviceId, publicKeyB64, publicKeyPem, privateKeyPem };
 }
 
 function signPayload(privateKeyPem: string, payload: string): string {
@@ -163,9 +160,9 @@ export async function chatViaGateway(
         if (msg.event === "connect.challenge") {
           const nonce = msg.payload?.nonce;
           try {
-            const device = getDeviceIdentity();
+            const device = createDeviceIdentity();
             const signedAtMs = Date.now();
-            const clientId = "gateway-client";
+            const clientId = "webchat";
             const mode = "webchat";
             const role = "operator";
             const scopes = [
@@ -214,7 +211,7 @@ export async function chatViaGateway(
             });
 
             connected = true;
-            logger.debug({ wsUrl }, "Gateway authenticated with device identity, sending chat");
+            logger.debug({ wsUrl, deviceId: device.deviceId.slice(0, 16) }, "Gateway authenticated with device identity, sending chat");
 
             // Send the chat message
             const idempotencyKey = nanoid(12);
@@ -277,8 +274,10 @@ export async function chatViaGateway(
           pending.delete(msg.id);
           if (msg.error || msg.ok === false) {
             const errMsg = msg.error?.message || JSON.stringify(msg.error);
+            logger.debug({ wsUrl, msgId: msg.id, error: msg.error, ok: msg.ok, payload: msg.payload }, "Gateway response error");
             p.reject(new Error(errMsg));
           } else {
+            logger.debug({ wsUrl, msgId: msg.id, payloadKeys: msg.payload ? Object.keys(msg.payload) : null }, "Gateway response OK");
             p.resolve(msg.payload ?? msg.result);
           }
         }

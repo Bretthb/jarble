@@ -34,6 +34,7 @@ interface DeploymentConfig {
   containerPort?: number;  // Runtime-specific gateway port (openclaw: 18789, zeroclaw: 3000)
   initialConfigs?: ConfigFile[];              // Config files to write to PVC after pod starts
   extraSecretEntries?: Record<string, string>; // Additional K8s Secret env vars from runtime handler
+  gatewayToken?: string;                       // Pre-generated gateway token (generated if omitted)
 }
 
 // Default gateway ports per runtime
@@ -82,8 +83,8 @@ export async function createDeployment(
 
   // 2. Create Secret for deployment env vars
   // Base entries are always included; runtime handler provides extras (e.g. LLM keys)
-  // Generate a gateway token for OpenClaw auth
-  const gatewayToken = crypto.randomBytes(32).toString("hex");
+  // Use pre-generated gateway token or create one
+  const gatewayToken = config.gatewayToken || crypto.randomBytes(32).toString("hex");
   const baseSecretData: Record<string, string> = {
     DEPLOYMENT_ID: deploymentId,
     USER_ID: userId,
@@ -136,7 +137,7 @@ export async function createDeployment(
           initContainers: [{
             name: "fix-permissions",
             image: "busybox:1.36",
-            command: ["sh", "-c", "mkdir -p /data/config /data/logs /data/.openclaw && if [ ! -f /data/.initialized ]; then chown -R 1000:1000 /data && chmod -R 755 /data; else chown 1000:1000 /data/config /data/logs /data/.openclaw; fi"],
+            command: ["sh", "-c", "mkdir -p /data/config /data/logs /data/.openclaw /data/components && if [ ! -f /data/.initialized ]; then chown -R 1000:1000 /data && chmod -R 755 /data; else chown 1000:1000 /data/config /data/logs /data/.openclaw /data/components; fi"],
             securityContext: {
               runAsUser: 0,  // Run as root to fix permissions
             },
@@ -229,6 +230,19 @@ export async function createDeployment(
           if (status.status === "running") {
             await writeConfigsToPvc(deploymentId, configs);
             logger.info({ deploymentId }, "Initial config files written to PVC (background)");
+
+            // Signal the gateway to reload so it picks up the new config
+            // (e.g., gateway.auth.token written to the OpenClaw state dir).
+            // The entrypoint's restart loop re-reads the config on reload.
+            try {
+              const reloaded = await signalProcessRestart(deploymentId, {});
+              if (reloaded) {
+                logger.info({ deploymentId }, "Gateway reload signaled after initial config write");
+              }
+            } catch (reloadErr) {
+              logger.debug({ deploymentId, err: reloadErr }, "Gateway reload after initial config write failed (non-fatal)");
+            }
+
             return;
           }
           if (status.status === "failed" || status.status === "not_found") {
@@ -1217,9 +1231,12 @@ export async function writeComponentToPvc(
     throw new Error(`No running pod found for deployment ${deploymentId}`);
   }
 
-  // Ensure /data/components/ directory exists
-  await execInPod(podName, ["mkdir", "-p", "/data/components"]);
-  await execInPodWithStdin(podName, ["tee", filePath], content);
+  // Use base64 to avoid stdin/tee hanging and shell escaping issues
+  const b64 = Buffer.from(content).toString("base64");
+  await execInPod(podName, [
+    "sh", "-c",
+    `mkdir -p /data/components && echo '${b64}' | base64 -d > '${filePath}'`,
+  ]);
   logger.info({ deploymentId, name }, "Wrote component to PVC");
 }
 
@@ -1274,6 +1291,65 @@ export async function listComponentsOnPvc(
     return components;
   } catch {
     return []; // Directory doesn't exist yet
+  }
+}
+
+/**
+ * List all custom component definitions on the PVC with full definitions (including layout).
+ * Used by the frontend catalog endpoint so it can resolve templates client-side.
+ */
+export async function getCustomComponentsWithDefinitions(
+  deploymentId: string
+): Promise<Array<{ name: string; description?: string; layout: Array<{ component: string; props: Record<string, unknown> }> }>> {
+  const podName = await findPodForDeployment(deploymentId);
+  if (!podName) return [];
+
+  try {
+    const output = await execInPod(podName, ["find", "/data/components", "-name", "*.json", "-type", "f"]);
+    const filePaths = output.trim().split("\n").filter(Boolean);
+    const components: Array<{ name: string; description?: string; layout: Array<{ component: string; props: Record<string, unknown> }> }> = [];
+
+    for (const fp of filePaths) {
+      try {
+        const content = await execInPod(podName, ["cat", fp]);
+        const parsed = JSON.parse(content);
+        if (parsed.name && Array.isArray(parsed.layout)) {
+          components.push({
+            name: parsed.name,
+            description: parsed.description,
+            layout: parsed.layout,
+          });
+        }
+      } catch {
+        // Skip unreadable files
+      }
+    }
+    return components;
+  } catch {
+    return []; // Directory doesn't exist yet
+  }
+}
+
+/**
+ * Delete a custom component definition from the PVC.
+ * Returns true if deleted, false if not found.
+ */
+export async function deleteComponentFromPvc(
+  deploymentId: string,
+  name: string
+): Promise<boolean> {
+  const podName = await findPodForDeployment(deploymentId);
+  if (!podName) {
+    throw new Error(`No running pod found for deployment ${deploymentId}`);
+  }
+
+  const filePath = `/data/components/${name}.json`;
+  try {
+    await execInPod(podName, ["rm", filePath]);
+    logger.info({ deploymentId, name }, "Deleted component from PVC");
+    return true;
+  } catch {
+    return false;
   }
 }
 

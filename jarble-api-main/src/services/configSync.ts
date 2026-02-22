@@ -55,7 +55,8 @@ const syncMutexes = new Map<string, Promise<void>>();
  * DeploymentFields object suitable for runtime handler methods.
  */
 async function buildDeploymentFields(
-  deployment: any
+  deployment: any,
+  gatewayToken?: string,
 ): Promise<DeploymentFields> {
   // Decrypt LLM API key
   const rawApiKey = deployment.llmApiKey
@@ -91,6 +92,7 @@ async function buildDeploymentFields(
     llmModel: deployment.llmModel ?? null,
     llmApiKey: rawApiKey,
     platformCredentials: Object.keys(platformCredsMap).length > 0 ? platformCredsMap : undefined,
+    gatewayToken,
   };
 }
 
@@ -269,13 +271,18 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       return;
     }
 
-    // 5. Build DeploymentFields and render configs
-    const fields = await buildDeploymentFields(deployment);
+    // 5. Read current K8s secret (needed for gateway token + comparison)
+    const currentSecret = await readCurrentSecretData(deploymentId);
+
+    // Extract gateway token from existing K8s Secret so renderConfigs includes auth config
+    const gatewayToken = currentSecret?.OPENCLAW_GATEWAY_TOKEN ?? undefined;
+
+    // 6. Build DeploymentFields and render configs
+    const fields = await buildDeploymentFields(deployment, gatewayToken);
     const configFiles = runtimeHandler.renderConfigs(fields);
     const secretEntries = runtimeHandler.getSecretEntries(fields);
 
-    // 6. Compare secret entries with current K8s secret to determine sync tier
-    const currentSecret = await readCurrentSecretData(deploymentId);
+    // 7. Compare secret entries with current K8s secret to determine sync tier
     const comparison = compareSecrets(currentSecret, secretEntries);
 
     logger.info(

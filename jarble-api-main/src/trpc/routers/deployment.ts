@@ -1,8 +1,10 @@
 import { z } from "zod";
+import crypto from "crypto";
 import { router, protectedProcedure } from "../middleware.js";
 import { tables } from "../../db/index.js";
 import { eq, and, or, isNull } from "drizzle-orm";
-import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs } from "../../k8s/deployment.js";
+import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc } from "../../k8s/deployment.js";
+import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
 import { cancelSubscriptionAtPeriodEnd, cancelSubscriptionImmediately, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
 import { customAlphabet } from "nanoid";
 
@@ -17,6 +19,7 @@ import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrouter.js";
 import { syncConfigsToPvc } from "../../services/configSync.js";
 import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
+import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
 
 const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills } = tables;
 
@@ -109,6 +112,108 @@ export const deploymentRouter = router({
         ),
         with: { runtimeCatalogEntry: true },
       });
+    }),
+
+  // Get component catalog (built-in + default library + PVC custom) for a deployment
+  getComponentCatalog: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Verify ownership
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Built-in component metadata (9 primitives)
+      const builtins = [
+        { name: "card", description: "Simple card with title, subtitle, and body text" },
+        { name: "data_table", description: "Table with column headers and data rows" },
+        { name: "stat_grid", description: "Grid of metric cards with labels, values, and change indicators" },
+        { name: "key_value", description: "List of key-value pairs" },
+        { name: "code_block", description: "Syntax-highlighted code snippet" },
+        { name: "alert", description: "Notification banner (info, success, warning, error)" },
+        { name: "progress", description: "Progress bar with label and percentage" },
+        { name: "image", description: "Image with optional alt text and caption" },
+        { name: "layout", description: "Container that renders an array of child components" },
+      ];
+
+      // Custom/library components from PVC (only if pod is running)
+      let customs: Array<{ name: string; description?: string; layout: Array<{ component: string; props: Record<string, unknown> }> }> = [];
+      if (deployment.status === "running") {
+        try {
+          customs = await getCustomComponentsWithDefinitions(input.id);
+        } catch (err) {
+          logger.warn({ deploymentId: input.id, err }, "Failed to fetch custom components from PVC");
+        }
+      }
+
+      return { builtins, customs };
+    }),
+
+  defineComponent: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string().optional(),
+      layout: z.array(z.object({
+        component: z.string(),
+        props: z.record(z.string(), z.unknown()),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+      if (deployment.status !== "running") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Deployment is not running" });
+      }
+
+      const nameErr = validateComponentName(input.name);
+      if (nameErr) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: nameErr });
+      }
+
+      const definition = {
+        name: input.name,
+        ...(input.description ? { description: input.description } : {}),
+        layout: input.layout,
+      };
+
+      const defErr = validateComponentDefinition(definition);
+      if (defErr) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: defErr });
+      }
+
+      await writeComponentToPvc(input.id, input.name, definition);
+      return { success: true, message: `Component "${input.name}" saved successfully.` };
+    }),
+
+  deleteComponent: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      name: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+      if (deployment.status !== "running") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Deployment is not running" });
+      }
+
+      const deleted = await deleteComponentFromPvc(input.id, input.name);
+      if (!deleted) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Component "${input.name}" not found.` });
+      }
+      return { success: true, message: `Component "${input.name}" deleted.` };
     }),
 
   // Create deployment (DB record only, doesn't deploy)
@@ -457,6 +562,9 @@ export const deploymentRouter = router({
         }
       }
 
+      // Generate gateway token before renderConfigs so it can be included in the OpenClaw config
+      const gatewayToken = crypto.randomBytes(32).toString("hex");
+
       // Build runtime handler data for K8s (config files + secret entries)
       const runtimeHandler = getHandlerOrNull(deployment.runtime);
       const deploymentFields: DeploymentFields = {
@@ -470,9 +578,19 @@ export const deploymentRouter = router({
         llmModel: (deployment as any).llmModel ?? null,
         llmApiKey: rawApiKey,
         platformCredentials: Object.keys(platformCredsMap).length > 0 ? platformCredsMap : undefined,
+        gatewayToken,
       };
       const initialConfigs = runtimeHandler?.renderConfigs(deploymentFields) ?? [];
       const extraSecretEntries = runtimeHandler?.getSecretEntries(deploymentFields) ?? {};
+
+      // Seed component library — write ~25 composite templates to PVC
+      // Only runs on first deploy; user modifications are never overwritten by configSync.
+      for (const comp of COMPONENT_LIBRARY) {
+        initialConfigs.push({
+          path: `/data/components/${comp.name}.json`,
+          content: JSON.stringify(comp, null, 2),
+        });
+      }
 
       // Start K8s deployment (fire-and-forget — don't block the response)
       void (async () => {
@@ -486,6 +604,7 @@ export const deploymentRouter = router({
             storageMb: deployment.storageMb || undefined,
             initialConfigs,
             extraSecretEntries,
+            gatewayToken,
           });
           logger.info({ deploymentId }, "K8s createDeployment returned, updating status...");
           // Only update if still in transitional state (don't overwrite enforcement actions)

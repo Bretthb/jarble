@@ -64,6 +64,13 @@ export default function PlatformSetup({
   maskedCredentials,
 }: PlatformSetupProps) {
   const config = PLATFORM_CONFIG[platform];
+  if (!config) {
+    return (
+      <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
+        Unknown platform: {platform}
+      </div>
+    );
+  }
   const Icon = config.icon;
 
   const [fields, setFields] = useState<Record<string, string>>({});

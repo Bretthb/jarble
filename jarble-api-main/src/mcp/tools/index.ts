@@ -20,6 +20,7 @@ import { chatWithBotTool } from "./chatWithBot.js";
 import { renderUiTool } from "./renderUi.js";
 import { defineComponentTool } from "./defineComponent.js";
 import { listComponentsTool } from "./listComponents.js";
+import { deleteComponentTool } from "./deleteComponent.js";
 
 export const mcpRegistry = new ToolRegistry();
 
@@ -58,3 +59,4 @@ mcpRegistry.register(chatWithBotTool);
 mcpRegistry.register(renderUiTool);
 mcpRegistry.register(defineComponentTool);
 mcpRegistry.register(listComponentsTool);
+mcpRegistry.register(deleteComponentTool);

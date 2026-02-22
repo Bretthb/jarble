@@ -8,17 +8,21 @@
 import { z } from "zod";
 import type { TamboComponent } from "@tambo-ai/react";
 
-// ── Management Components ───────────────────────────────────────────────────
+/** Preprocess helper: if a value is a JSON string, try to parse it into an array */
+function coerceArray(val: unknown): unknown {
+  if (Array.isArray(val)) return val;
+  if (typeof val === "string") {
+    try { return JSON.parse(val); } catch { /* not JSON */ }
+  }
+  return val;
+}
 
-import StatusCard from "@/components/tambo/StatusCard";
-import SystemPromptEditor from "@/components/tambo/SystemPromptEditor";
-import LLMConfigCard from "@/components/tambo/LLMConfigCard";
-import PlatformSetup from "@/components/tambo/PlatformSetup";
-import SkillsPanel from "@/components/tambo/SkillsPanel";
+// ── Infrastructure Components ────────────────────────────────────────────────
+
 import LogViewer from "@/components/tambo/LogViewer";
 import ConfirmAction from "@/components/tambo/ConfirmAction";
 
-// ── Canvas Components (bot-rendered UI blocks) ──────────────────────────────
+// ── Canvas Primitives (bot data rendering) ──────────────────────────────────
 
 import CanvasCard from "@/components/canvas/components/CanvasCard";
 import CanvasDataTable from "@/components/canvas/components/CanvasDataTable";
@@ -28,115 +32,16 @@ import CanvasCodeBlock from "@/components/canvas/components/CanvasCodeBlock";
 import CanvasAlert from "@/components/canvas/components/CanvasAlert";
 import CanvasProgress from "@/components/canvas/components/CanvasProgress";
 import CanvasImage from "@/components/canvas/components/CanvasImage";
-import CanvasLayout from "@/components/canvas/components/CanvasLayout";
-
-import {
-  cardSchema,
-  dataTableSchema,
-  statGridSchema,
-  keyValueSchema,
-  codeBlockSchema,
-  alertSchema,
-  progressSchema,
-  imageSchema,
-  layoutSchema,
-} from "@/components/canvas/registry";
 
 export { createTamboTools } from "./tambo-tools";
 
 export const tamboComponents: TamboComponent[] = [
-  // ── Management Components (7) ──────────────────────────────────────────
+  // ── Infrastructure Components (2) — for when the bot can't help itself ─
 
-  {
-    name: "StatusCard",
-    description:
-      "Shows deployment overview: name, status, runtime, LLM config, connected platforms, and storage. Render when user asks about status, info, or overview of their bot.",
-    component: StatusCard,
-    propsSchema: z.object({
-      name: z.string().describe("Deployment name"),
-      status: z.string().describe("Current status: running, stopped, creating, failed, pending"),
-      runtime: z.string().describe("Runtime slug, e.g. openclaw"),
-      llmProvider: z.string().describe("LLM provider name"),
-      llmModel: z.string().describe("LLM model name"),
-      platforms: z.array(z.string()).describe("List of connected platform names"),
-      storageUsedGb: z.number().optional().describe("Storage used in GB"),
-      storageAllocatedGb: z.number().optional().describe("Storage allocated in GB"),
-    }),
-  },
-  {
-    name: "SystemPromptEditor",
-    description:
-      "Textarea editor for the bot's system prompt. Render when user wants to edit, change, or set the system prompt. Pre-fill suggestedPrompt if user described what they want.",
-    component: SystemPromptEditor,
-    propsSchema: z.object({
-      deploymentId: z.string().describe("The deployment ID"),
-      currentPrompt: z.string().describe("The current system prompt from the deployment"),
-      suggestedPrompt: z
-        .string()
-        .optional()
-        .describe("AI-suggested prompt based on user's description"),
-    }),
-  },
-  {
-    name: "LLMConfigCard",
-    description:
-      "LLM configuration panel: provider selector, model dropdown, API key input. Render when user wants to change LLM provider, model, or API key.",
-    component: LLMConfigCard,
-    propsSchema: z.object({
-      deploymentId: z.string().describe("The deployment ID"),
-      currentProvider: z.string().describe("Current LLM provider"),
-      currentModel: z.string().describe("Current LLM model"),
-      suggestedProvider: z
-        .string()
-        .optional()
-        .describe("Suggested provider if user asked to switch"),
-      suggestedModel: z
-        .string()
-        .optional()
-        .describe("Suggested model if user asked to switch"),
-    }),
-  },
-  {
-    name: "PlatformSetup",
-    description:
-      "Connect or disconnect a messaging platform (Telegram, Discord, Slack, WhatsApp). Render when user wants to connect or manage a platform.",
-    component: PlatformSetup,
-    propsSchema: z.object({
-      deploymentId: z.string().describe("The deployment ID"),
-      platform: z
-        .enum(["telegram", "discord", "slack", "whatsapp"])
-        .describe("Which platform to set up"),
-      isConnected: z.boolean().describe("Whether this platform is already connected"),
-      maskedCredentials: z
-        .object({
-          botToken: z.string().optional(),
-          appToken: z.string().optional(),
-        })
-        .optional()
-        .describe("Masked credential values for display"),
-    }),
-  },
-  {
-    name: "SkillsPanel",
-    description:
-      "Grid of available skills with toggle switches. Render when user asks about skills, wants to add or remove capabilities.",
-    component: SkillsPanel,
-    propsSchema: z.object({
-      deploymentId: z.string().describe("The deployment ID"),
-      availableSkills: z.array(
-        z.object({
-          id: z.string(),
-          name: z.string(),
-          description: z.string().nullable(),
-          installed: z.boolean(),
-        })
-      ).describe("List of skills with install status"),
-    }),
-  },
   {
     name: "LogViewer",
     description:
-      "Terminal-style log viewer with live streaming. Render when user asks to see logs or debug output.",
+      "Terminal-style log viewer with live streaming. Render when user asks to see pod logs or debug why the bot is down.",
     component: LogViewer,
     propsSchema: z.object({
       deploymentId: z.string().describe("The deployment ID"),
@@ -160,69 +65,99 @@ export const tamboComponents: TamboComponent[] = [
     }),
   },
 
-  // ── Canvas Components (9) — rendered from bot UI blocks ────────────────
+  // ── Canvas Primitives (8) — bot data rendered by Tambo's LLM ──────────
 
   {
-    name: "CanvasCard",
+    name: "DataTable",
     description:
-      "Simple card with optional title, subtitle, and body text. Render when the bot returns a card UI block or when displaying a simple text card.",
-    component: CanvasCard,
-    propsSchema: cardSchema,
-  },
-  {
-    name: "CanvasDataTable",
-    description:
-      "Data table with columns and rows. Render when the bot returns tabular data or a data_table UI block.",
+      "Renders tabular data with columns and rows. Use when bot returns data with column headers and row values, database query results, lists of items with multiple fields, or any grid-like data.",
     component: CanvasDataTable,
-    propsSchema: dataTableSchema,
+    propsSchema: z.object({
+      title: z.string().optional().describe("Table title or heading"),
+      columns: z.preprocess(coerceArray, z.array(z.string())).describe("Column header names"),
+      rows: z.preprocess(coerceArray, z.array(z.array(z.union([z.string(), z.number()])))).describe("Row data — each row is an array of cell values matching column order"),
+    }),
   },
   {
-    name: "CanvasStatGrid",
+    name: "StatGrid",
     description:
-      "Grid of stat cards showing label, value, and optional change/icon. Render when the bot returns statistics or a stat_grid UI block.",
+      "Grid of metric cards with labels, values, and optional change indicators. Use for KPIs, dashboard summaries, numeric overviews, or any set of labeled statistics.",
     component: CanvasStatGrid,
-    propsSchema: statGridSchema,
+    propsSchema: z.object({
+      stats: z.preprocess(coerceArray, z.array(z.object({
+        label: z.string().describe("Metric name, e.g. 'Revenue', 'Users'"),
+        value: z.union([z.string(), z.number()]).describe("Metric value, e.g. '$12,500' or 156"),
+        change: z.string().optional().describe("Change indicator, e.g. '+12%', '-3%'"),
+        icon: z.string().optional().describe("Emoji or icon hint"),
+      }))).describe("Array of stat metrics to display in a grid"),
+    }),
   },
   {
-    name: "CanvasKeyValue",
+    name: "Card",
     description:
-      "Key-value list with optional title. Render when the bot returns key-value pairs or a key_value UI block.",
+      "Simple content card with optional title, subtitle, and body text. Use for summaries, explanations, single-topic info blocks, or any content that fits a card format.",
+    component: CanvasCard,
+    propsSchema: z.object({
+      title: z.string().optional().describe("Card heading"),
+      subtitle: z.string().optional().describe("Secondary heading or tagline"),
+      body: z.string().optional().describe("Main text content of the card"),
+    }),
+  },
+  {
+    name: "KeyValue",
+    description:
+      "Key-value pair list with optional title. Use for settings, configuration details, properties, metadata, or any labeled data pairs.",
     component: CanvasKeyValue,
-    propsSchema: keyValueSchema,
+    propsSchema: z.object({
+      title: z.string().optional().describe("Section title"),
+      items: z.preprocess(coerceArray, z.array(z.object({
+        key: z.string().describe("Property name or label"),
+        value: z.union([z.string(), z.number()]).describe("Property value"),
+      }))).describe("Array of key-value pairs"),
+    }),
   },
   {
-    name: "CanvasCodeBlock",
+    name: "CodeBlock",
     description:
-      "Syntax-highlighted code block with optional language and title. Render when the bot returns code or a code_block UI block.",
+      "Syntax-highlighted code block with optional language tag and title. Use for code snippets, configuration files, JSON data, or any preformatted text.",
     component: CanvasCodeBlock,
-    propsSchema: codeBlockSchema,
+    propsSchema: z.object({
+      code: z.string().describe("The code or preformatted text content"),
+      language: z.string().optional().describe("Programming language for syntax highlighting, e.g. 'json', 'python', 'javascript'"),
+      title: z.string().optional().describe("Title or filename label above the code block"),
+    }),
   },
   {
-    name: "CanvasAlert",
+    name: "Alert",
     description:
-      "Alert/notification banner with title, message, and variant (info/success/warning/error). Render when the bot returns an alert UI block.",
+      "Styled alert banner for messages with a severity level. Use for warnings, errors, success confirmations, or informational notices.",
     component: CanvasAlert,
-    propsSchema: alertSchema,
+    propsSchema: z.object({
+      title: z.string().optional().describe("Alert heading"),
+      message: z.string().describe("Alert body text"),
+      variant: z.enum(["info", "success", "warning", "error"]).describe("Severity: info (blue), success (green), warning (yellow), error (red)"),
+    }),
   },
   {
-    name: "CanvasProgress",
+    name: "Progress",
     description:
-      "Progress bar with label, value (0-100), and optional variant. Render when the bot returns a progress UI block.",
+      "Progress bar showing completion percentage (0-100). Use for task progress, loading indicators, usage meters, or any percentage-based metric.",
     component: CanvasProgress,
-    propsSchema: progressSchema,
+    propsSchema: z.object({
+      label: z.string().optional().describe("Label above the progress bar"),
+      value: z.number().min(0).max(100).describe("Completion percentage (0-100)"),
+      variant: z.enum(["default", "success", "warning", "error"]).optional().describe("Color variant based on status"),
+    }),
   },
   {
-    name: "CanvasImage",
+    name: "Image",
     description:
-      "Image with src URL, alt text, and optional caption. Render when the bot returns an image UI block.",
+      "Displays an image with optional alt text and caption. Use when bot returns an image URL, chart, screenshot, or any visual content.",
     component: CanvasImage,
-    propsSchema: imageSchema,
-  },
-  {
-    name: "CanvasLayout",
-    description:
-      "Layout container with a title and an array of child components. Each child has a component name and propsJson (JSON string of the child's props). Render when the bot returns a layout UI block containing nested components.",
-    component: CanvasLayout,
-    propsSchema: layoutSchema,
+    propsSchema: z.object({
+      src: z.string().url().describe("Image URL"),
+      alt: z.string().optional().describe("Alt text for accessibility"),
+      caption: z.string().optional().describe("Caption displayed below the image"),
+    }),
   },
 ];

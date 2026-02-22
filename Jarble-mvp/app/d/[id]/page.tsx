@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useStatusStream } from "@/hooks/useStatusStream";
 import DeploymentTamboProvider from "@/components/DeploymentTamboProvider";
+import { ComponentCatalogProvider } from "@/components/ComponentCatalogProvider";
 import TamboToggle from "@/components/DirectChatToggle";
 import { useDirectChat, type DirectChatMessage } from "@/hooks/useDirectChat";
 import EditableCanvas from "@/components/canvas/EditableCanvas";
@@ -99,12 +100,14 @@ export default function DeploymentChatPage() {
         </div>
       </header>
 
-      <DeploymentTamboProvider
-        deploymentId={id}
-        deploymentName={deployment.name}
-      >
-        <ChatInterface deploymentId={id} deployment={deployment} />
-      </DeploymentTamboProvider>
+      <ComponentCatalogProvider deploymentId={id}>
+        <DeploymentTamboProvider
+          deploymentId={id}
+          deploymentName={deployment.name}
+        >
+          <ChatInterface deploymentId={id} deployment={deployment} />
+        </DeploymentTamboProvider>
+      </ComponentCatalogProvider>
     </div>
   );
 }
@@ -357,6 +360,7 @@ function TamboMessageBubble({
             isUser={isUser}
             threadId={threadId}
             messageId={message.id}
+            deploymentId={deploymentId}
           />
         ))}
       </div>
@@ -369,11 +373,13 @@ function ContentBlock({
   isUser,
   threadId,
   messageId,
+  deploymentId,
 }: {
   block: Content;
   isUser: boolean;
   threadId: string;
   messageId: string;
+  deploymentId: string;
 }) {
   if (block.type === "text" && block.text) {
     return (
@@ -410,6 +416,14 @@ function ContentBlock({
     const toolBlock = block as Content & { type: "tool_use" };
     const hasCompleted = (toolBlock as any).hasCompleted;
     const statusMessage = (toolBlock as any).statusMessage;
+    const toolName = (toolBlock as any).name;
+
+    // chatWithBot completed — Tambo renders components via ComponentRenderer,
+    // so hide the tool indicator entirely
+    if (toolName === "chatWithBot" && hasCompleted) {
+      return null;
+    }
+
     return (
       <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/40 text-xs text-muted-foreground">
         {hasCompleted ? (
@@ -417,7 +431,7 @@ function ContentBlock({
         ) : (
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
         )}
-        <span>{statusMessage || (toolBlock as any).name || "Running tool..."}</span>
+        <span>{statusMessage || toolName || "Running tool..."}</span>
       </div>
     );
   }

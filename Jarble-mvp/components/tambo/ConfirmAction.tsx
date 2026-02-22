@@ -47,7 +47,14 @@ export default function ConfirmAction({
   const [isExecuting, setIsExecuting] = useState(false);
   const [isDone, setIsDone] = useState(false);
 
-  const config = ACTION_CONFIG[action];
+  const config = ACTION_CONFIG[action as keyof typeof ACTION_CONFIG];
+  if (!config) {
+    return (
+      <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-300">
+        Unknown action: {action}
+      </div>
+    );
+  }
   const Icon = config.icon;
 
   const handleConfirm = async () => {

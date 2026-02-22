@@ -82,7 +82,8 @@ export const layoutSchema = z.object({
   children: z.array(
     z.object({
       component: z.string().describe("Canvas component name (card, data_table, stat_grid, etc.)"),
-      propsJson: z.string().describe("JSON-stringified props for the child component"),
+      propsJson: z.string().optional().describe("JSON-stringified props for the child component"),
+      props: z.record(z.string(), z.unknown()).optional().describe("Props object (alternative to propsJson)"),
     })
   ),
 });
