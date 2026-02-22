@@ -1,6 +1,6 @@
 import { db, tables, USE_SQLITE } from "../db/index.js";
 import { eq } from "drizzle-orm";
-import { getDeploymentStorageUsage, stopDeployment } from "../k8s/deployment.js";
+import { getDeploymentStorageUsage, stopDeployment } from "../k8s/index.js";
 import { logger } from "../utils/logger.js";
 
 const { deployments } = tables;

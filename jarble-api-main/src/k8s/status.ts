@@ -1,0 +1,249 @@
+import stream from "stream";
+import { logger } from "../utils/logger.js";
+import { coreApi, execClient } from "./client.js";
+import { NAMESPACE, RUNTIME_PORTS } from "./constants.js";
+
+export interface DeploymentPodStatus {
+  status: "creating" | "running" | "failed" | "not_found";
+  phase?: string;
+  restarts?: number;
+  error?: string;
+}
+
+export async function getDeploymentPodStatus(deploymentId: string): Promise<DeploymentPodStatus> {
+  try {
+    const pods = await coreApi.listNamespacedPod(
+      NAMESPACE,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      `app=dep-${deploymentId}`
+    );
+
+    if (pods.body.items.length === 0) {
+      return { status: "not_found" };
+    }
+
+    const pod = pods.body.items[0];
+    const phase = pod.status?.phase;
+    const containerStatus = pod.status?.containerStatuses?.[0];
+
+    // Check for errors
+    if (containerStatus?.state?.waiting?.reason) {
+      const reason = containerStatus.state.waiting.reason;
+      if (["CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull"].includes(reason)) {
+        return {
+          status: "failed",
+          phase,
+          error: `${reason}: ${containerStatus.state.waiting.message || ""}`,
+          restarts: containerStatus.restartCount,
+        };
+      }
+    }
+
+    // Too many restarts = failed
+    if ((containerStatus?.restartCount || 0) >= 5) {
+      return {
+        status: "failed",
+        phase,
+        error: "Too many restarts",
+        restarts: containerStatus?.restartCount,
+      };
+    }
+
+    // Running and ready
+    if (phase === "Running" && containerStatus?.ready) {
+      return {
+        status: "running",
+        phase: "Running",
+        restarts: containerStatus.restartCount,
+      };
+    }
+
+    // Still creating
+    return {
+      status: "creating",
+      phase,
+    };
+  } catch (err) {
+    logger.error({ deploymentId, err }, "Failed to get pod status");
+    return { status: "not_found" };
+  }
+}
+
+// ── Storage Usage ──────────────────────────────────────────────────
+
+export interface StorageUsage {
+  usedBytes: number;
+  totalBytes: number;
+  usedGb: number;
+  totalGb: number;
+  percentUsed: number;
+}
+
+/**
+ * Get storage usage for a deployment by exec-ing `df` inside the running pod.
+ * Returns null if the pod isn't running or the command fails.
+ */
+export async function getDeploymentStorageUsage(deploymentId: string): Promise<StorageUsage | null> {
+  try {
+    // Find the running pod for this deployment
+    const pods = await coreApi.listNamespacedPod(
+      NAMESPACE,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      `app=dep-${deploymentId}`
+    );
+
+    if (pods.body.items.length === 0) {
+      return null;
+    }
+
+    const pod = pods.body.items[0];
+    const podName = pod.metadata?.name;
+    const isRunning = pod.status?.phase === "Running" && pod.status?.containerStatuses?.[0]?.ready;
+
+    if (!podName || !isRunning) {
+      return null;
+    }
+
+    // Exec `df /data` inside the container to get filesystem usage
+    // Output format: "Filesystem 1K-blocks Used Available Use% Mounted on"
+    const stdout = new stream.PassThrough();
+    const stderr = new stream.PassThrough();
+
+    let stdoutData = "";
+    let stderrData = "";
+    stdout.on("data", (chunk) => { stdoutData += chunk.toString(); });
+    stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
+
+    await new Promise<void>((resolve, reject) => {
+      execClient.exec(
+        NAMESPACE,
+        podName,
+        "runtime",
+        ["df", "-B1", "/data"],  // -B1 = output in bytes
+        stdout,
+        stderr,
+        null,
+        false,
+        (status) => {
+          if (status.status === "Success") {
+            resolve();
+          } else {
+            reject(new Error(`df command failed: ${status.message || "unknown"}`));
+          }
+        }
+      ).catch(reject);
+    });
+
+    if (stderrData) {
+      logger.warn({ deploymentId, stderr: stderrData }, "df command stderr");
+    }
+
+    // Parse df output (second line contains the data)
+    // Example: "/dev/longhorn/pvc-xxx 21474836480 1048576 21473787904 1% /data"
+    const lines = stdoutData.trim().split("\n");
+    if (lines.length < 2) {
+      logger.warn({ deploymentId, output: stdoutData }, "Unexpected df output");
+      return null;
+    }
+
+    const parts = lines[1].trim().split(/\s+/);
+    // parts: [filesystem, total, used, available, use%, mountpoint]
+    if (parts.length < 6) {
+      logger.warn({ deploymentId, output: stdoutData }, "Could not parse df output");
+      return null;
+    }
+
+    const totalBytes = parseInt(parts[1], 10);
+    const usedBytes = parseInt(parts[2], 10);
+
+    if (isNaN(totalBytes) || isNaN(usedBytes)) {
+      return null;
+    }
+
+    const GB = 1024 * 1024 * 1024;
+    return {
+      usedBytes,
+      totalBytes,
+      usedGb: Math.round((usedBytes / GB) * 100) / 100,
+      totalGb: Math.round((totalBytes / GB) * 100) / 100,
+      percentUsed: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 1000) / 10 : 0,
+    };
+  } catch (err) {
+    logger.error({ deploymentId, err }, "Failed to get storage usage");
+    return null;
+  }
+}
+
+// ── Pod Address Lookup (for chat proxy) ──────────────────────────────
+
+/**
+ * Get the pod's cluster IP, gateway port, and auth token for proxying
+ * dashboard chat requests through the running OpenClaw pod.
+ *
+ * Returns null if mock mode, no pod is running, or the secret is missing.
+ *
+ * For local dev: set POD_PROXY_URL=http://localhost:18790 (kubectl port-forward)
+ * to bypass unreachable pod cluster IPs.
+ */
+export async function getPodAddress(deploymentId: string): Promise<{
+  ip: string;
+  port: number;
+  gatewayToken: string;
+} | null> {
+  try {
+    // Find running, ready pod
+    const pods = await coreApi.listNamespacedPod(
+      NAMESPACE,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      `app=dep-${deploymentId}`
+    );
+
+    if (pods.body.items.length === 0) return null;
+
+    const pod = pods.body.items[0];
+    const podIp = pod.status?.podIP;
+    const isRunning = pod.status?.phase === "Running" && pod.status?.containerStatuses?.[0]?.ready;
+
+    if (!podIp || !isRunning) return null;
+
+    // Read gateway token from K8s Secret
+    const secret = await coreApi.readNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
+    const data = secret.body.data ?? {};
+    const tokenB64 = data["OPENCLAW_GATEWAY_TOKEN"];
+    const gatewayToken = tokenB64 ? Buffer.from(tokenB64, "base64").toString("utf-8") : "";
+
+    // Local dev override: POD_PROXY_URL=http://localhost:18790
+    // Use with `kubectl port-forward <pod> 18790:18789` to reach pods from Windows
+    const proxyUrl = process.env.POD_PROXY_URL;
+    if (proxyUrl) {
+      try {
+        const u = new URL(proxyUrl);
+        return {
+          ip: u.hostname,
+          port: parseInt(u.port, 10) || 18789,
+          gatewayToken,
+        };
+      } catch {
+        logger.warn({ proxyUrl }, "getPodAddress: invalid POD_PROXY_URL, using pod IP");
+      }
+    }
+
+    // Determine port from the pod's container spec, fallback to RUNTIME_PORTS
+    const containerPort = pod.spec?.containers?.[0]?.ports?.[0]?.containerPort
+      ?? RUNTIME_PORTS["openclaw"];
+
+    return { ip: podIp, port: containerPort, gatewayToken };
+  } catch (err) {
+    logger.error({ deploymentId, err }, "getPodAddress failed");
+    return null;
+  }
+}

@@ -34,7 +34,7 @@ import {
   getDeploymentPodStatus,
   signalProcessRestart,
   readCurrentSecretData,
-} from "../k8s/deployment.js";
+} from "../k8s/index.js";
 import { getHandlerOrNull } from "../runtimes/index.js";
 import type { DeploymentFields } from "../runtimes/types.js";
 import { decryptApiKey, encryptApiKey } from "../utils/encryption.js";

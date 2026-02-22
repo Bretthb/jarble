@@ -3,7 +3,7 @@
  *
  * Returns a data_table showing all components the bot can use with render_ui.
  */
-import { listComponentsOnPvc } from "../../k8s/deployment.js";
+import { listComponentsOnPvc } from "../../k8s/index.js";
 import { BUILTIN_COMPONENTS } from "../../utils/componentResolver.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 

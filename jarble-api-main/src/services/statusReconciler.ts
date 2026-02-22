@@ -1,6 +1,6 @@
 import { db, tables } from "../db/index.js";
 import { eq, inArray, desc } from "drizzle-orm";
-import { getDeploymentPodStatus, type DeploymentPodStatus } from "../k8s/deployment.js";
+import { getDeploymentPodStatus, type DeploymentPodStatus } from "../k8s/index.js";
 import { logger } from "../utils/logger.js";
 
 const { deployments } = tables;

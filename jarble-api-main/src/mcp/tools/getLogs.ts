@@ -1,4 +1,4 @@
-import { getDeploymentLogs } from "../../k8s/deployment.js";
+import { getDeploymentLogs } from "../../k8s/index.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 

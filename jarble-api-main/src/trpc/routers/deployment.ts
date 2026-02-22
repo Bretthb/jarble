@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { router, protectedProcedure } from "../middleware.js";
 import { tables } from "../../db/index.js";
 import { eq, and, or, isNull } from "drizzle-orm";
-import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc } from "../../k8s/deployment.js";
+import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc } from "../../k8s/index.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
 import { cancelSubscriptionAtPeriodEnd, cancelSubscriptionImmediately, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
 import { customAlphabet } from "nanoid";

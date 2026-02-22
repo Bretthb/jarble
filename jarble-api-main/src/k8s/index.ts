@@ -1,0 +1,23 @@
+// Barrel re-export — all K8s operations
+// Consumers should import from "../k8s/index.js" (or just "../k8s")
+
+export { coreApi, appsApi, execClient, kc } from "./client.js";
+
+export { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS } from "./constants.js";
+export type { DeploymentConfig } from "./constants.js";
+
+export { execInPod, execInPodWithStdin, streamExecInPod, findPodForDeployment, escapeShellValue } from "./exec.js";
+
+export { createDeployment, stopDeployment, startDeployment, restartDeployment, deleteDeployment } from "./lifecycle.js";
+
+export { getDeploymentPodStatus, getDeploymentStorageUsage, getPodAddress } from "./status.js";
+export type { DeploymentPodStatus, StorageUsage } from "./status.js";
+
+export { writeConfigsToPvc, readConfigsFromPvc, exportDeploymentConfigs, signalProcessRestart } from "./config.js";
+
+export { updateDeploymentSecret, readCurrentSecretData } from "./secrets.js";
+
+export { writeComponentToPvc, readComponentFromPvc, listComponentsOnPvc, getCustomComponentsWithDefinitions, deleteComponentFromPvc } from "./components.js";
+
+export { getDeploymentLogs, streamDeploymentLogs } from "./logs.js";
+export type { DeploymentLogsResult } from "./logs.js";

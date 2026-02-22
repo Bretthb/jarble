@@ -14,7 +14,7 @@ import { Router } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
-import { findPodForDeployment, execInPod } from "../k8s/deployment.js";
+import { findPodForDeployment, execInPod } from "../k8s/index.js";
 import { logger } from "../utils/logger.js";
 
 export const canvasFilesRouter = Router();

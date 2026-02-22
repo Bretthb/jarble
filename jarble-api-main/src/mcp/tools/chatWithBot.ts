@@ -1,4 +1,4 @@
-import { findPodForDeployment, execInPod } from "../../k8s/deployment.js";
+import { findPodForDeployment, execInPod } from "../../k8s/index.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 

@@ -4,7 +4,7 @@
  * Supports both built-in components (card, data_table, etc.) and custom
  * bot-defined components stored on the PVC.
  */
-import { readComponentFromPvc } from "../../k8s/deployment.js";
+import { readComponentFromPvc } from "../../k8s/index.js";
 import {
   isBuiltinComponent,
   resolveCustomComponent,

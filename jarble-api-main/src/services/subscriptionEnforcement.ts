@@ -1,6 +1,6 @@
 import { db, tables, USE_SQLITE } from "../db/index.js";
 import { eq, and, isNotNull, lt, or, ne } from "drizzle-orm";
-import { stopDeployment } from "../k8s/deployment.js";
+import { stopDeployment } from "../k8s/index.js";
 import { isStripeConfigured, getSubscriptionDetails } from "./stripe.js";
 import { logger } from "../utils/logger.js";
 

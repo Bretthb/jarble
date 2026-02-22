@@ -4,7 +4,7 @@
  * Bots call this to create custom components composed of built-in primitives
  * with {{variable}} placeholders for dynamic data.
  */
-import { writeComponentToPvc } from "../../k8s/deployment.js";
+import { writeComponentToPvc } from "../../k8s/index.js";
 import {
   validateComponentName,
   validateComponentDefinition,

@@ -20,10 +20,10 @@ import { db, tables } from "../db/index.js";
 import { env } from "../utils/env.js";
 import { logger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
-import { getPodAddress } from "../k8s/deployment.js";
+import { getPodAddress } from "../k8s/index.js";
 import { chatViaGateway, type GatewayResponse } from "../services/openclawGateway.js";
 import { extractUIBlocks, type JarbleUIBlock } from "../utils/uiBlockParser.js";
-import { readComponentFromPvc } from "../k8s/deployment.js";
+import { readComponentFromPvc } from "../k8s/index.js";
 import {
   isBuiltinComponent,
   resolveCustomComponent,

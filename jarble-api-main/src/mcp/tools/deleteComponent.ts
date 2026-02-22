@@ -1,7 +1,7 @@
 /**
  * delete_component MCP Tool — Remove a custom component definition from the bot's PVC.
  */
-import { deleteComponentFromPvc } from "../../k8s/deployment.js";
+import { deleteComponentFromPvc } from "../../k8s/index.js";
 import {
   validateComponentName,
   BUILTIN_COMPONENTS,

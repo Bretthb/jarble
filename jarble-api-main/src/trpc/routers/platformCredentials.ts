@@ -7,7 +7,7 @@ import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
 import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { syncConfigsToPvc } from "../../services/configSync.js";
-import { findPodForDeployment, execInPod } from "../../k8s/deployment.js";
+import { findPodForDeployment, execInPod } from "../../k8s/index.js";
 
 const { deployments, platformCredentials } = tables;
 
