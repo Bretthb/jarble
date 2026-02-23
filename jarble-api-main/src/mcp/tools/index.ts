@@ -24,6 +24,7 @@ import { deleteComponentTool } from "./deleteComponent.js";
 import { listFilesTool } from "./listFiles.js";
 import { readFileTool } from "./readFile.js";
 import { writeFileTool } from "./writeFile.js";
+import { pairingListTool, pairingApproveTool } from "./pairing.js";
 
 export const mcpRegistry = new ToolRegistry();
 
@@ -68,3 +69,7 @@ mcpRegistry.register(deleteComponentTool);
 mcpRegistry.register(listFilesTool);
 mcpRegistry.register(readFileTool);
 mcpRegistry.register(writeFileTool);
+
+// Pairing management
+mcpRegistry.register(pairingListTool);
+mcpRegistry.register(pairingApproveTool);
