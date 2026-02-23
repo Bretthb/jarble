@@ -26,8 +26,9 @@ import {
   User,
   Wrench,
 } from "lucide-react";
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
+import MarkdownMessage from "@/components/MarkdownMessage";
 
 export default function DeploymentChatPage() {
   const { id } = useParams() as { id: string };
@@ -382,15 +383,16 @@ function ContentBlock({
   deploymentId: string;
 }) {
   if (block.type === "text" && block.text) {
+    if (isUser) {
+      return (
+        <div className="inline-block rounded-xl px-4 py-2.5 text-sm leading-relaxed bg-primary text-primary-foreground">
+          <span className="whitespace-pre-wrap">{block.text}</span>
+        </div>
+      );
+    }
     return (
-      <div
-        className={`inline-block rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
-          isUser
-            ? "bg-primary text-primary-foreground"
-            : "bg-secondary/50 text-foreground"
-        }`}
-      >
-        <span className="whitespace-pre-wrap">{block.text}</span>
+      <div className="inline-block rounded-xl px-4 py-2.5 text-sm leading-relaxed bg-secondary/50 text-foreground">
+        <MarkdownMessage content={block.text} />
       </div>
     );
   }
@@ -417,12 +419,6 @@ function ContentBlock({
     const hasCompleted = (toolBlock as any).hasCompleted;
     const statusMessage = (toolBlock as any).statusMessage;
     const toolName = (toolBlock as any).name;
-
-    // chatWithBot completed — Tambo renders components via ComponentRenderer,
-    // so hide the tool indicator entirely
-    if (toolName === "chatWithBot" && hasCompleted) {
-      return null;
-    }
 
     return (
       <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/40 text-xs text-muted-foreground">
@@ -467,15 +463,15 @@ function DirectMessageBubble({
 
       <div className={`flex-1 ${isUser ? "text-right" : ""} space-y-3`}>
         {message.content && (
-          <div
-            className={`inline-block rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
-              isUser
-                ? "bg-primary text-primary-foreground"
-                : "bg-secondary/50 text-foreground"
-            }`}
-          >
-            <span className="whitespace-pre-wrap">{message.content}</span>
-          </div>
+          isUser ? (
+            <div className="inline-block rounded-xl px-4 py-2.5 text-sm leading-relaxed bg-primary text-primary-foreground">
+              <span className="whitespace-pre-wrap">{message.content}</span>
+            </div>
+          ) : (
+            <div className="inline-block rounded-xl px-4 py-2.5 text-sm leading-relaxed bg-secondary/50 text-foreground">
+              <MarkdownMessage content={message.content} />
+            </div>
+          )
         )}
 
         {message.uiBlocks?.map((block) => (

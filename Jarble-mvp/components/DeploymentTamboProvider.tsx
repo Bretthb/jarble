@@ -2,49 +2,44 @@
 
 /**
  * DeploymentTamboProvider — wraps TamboProvider with deployment-scoped tools,
- * registered components, Auth0 token, and agent context.
+ * registered components, Auth0 token, MCP server config, and agent context.
  *
  * Place this around the chat interface for a specific deployment.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { TamboProvider, type ContextHelpers } from "@tambo-ai/react";
+import { MCPTransport, TamboMcpProvider } from "@tambo-ai/react/mcp";
 import { tamboComponents, createTamboTools } from "@/lib/tambo";
+import { API_URL } from "@/lib/trpc";
 
 const TAMBO_API_KEY = process.env.NEXT_PUBLIC_TAMBO_API_KEY!;
 
 /** Agent instructions injected via contextHelpers so the hosted agent knows
  *  how to behave and when to use which tools. */
-const AGENT_INSTRUCTIONS = `You are Jarble, the thin orchestration layer between the user and their deployed bot.
+const AGENT_INSTRUCTIONS = `You are Jarble, connected to the user's OpenClaw bot via MCP.
 
-THE BOT IS THE BRAIN. You are just the messenger and renderer.
-Forward ALL user messages to the bot via chatWithBot. The bot is its own control plane —
-it manages its own config, state, skills, platforms, and data.
+The bot exposes its full capabilities through MCP tools:
+- chat_with_bot: Talk to the bot directly
+- get_deployment_info, get_platforms, list_skills: View bot status and configuration
+- update_system_prompt, update_llm_config: Modify bot settings
+- connect_platform, disconnect_platform: Manage messaging integrations
+- install_skill, uninstall_skill: Manage bot skills
+- render_ui, define_component, list_components: Create visual dashboards
+- list_files, read_file, write_file: Browse the bot's filesystem
+- get_logs: View pod logs for debugging
+- pairing_list, pairing_approve: Manage platform pairings
 
 ROUTING:
-- EVERYTHING goes to chatWithBot — questions, commands, conversation, config, settings, ALL of it.
-- The ONLY exceptions are infrastructure actions the bot CANNOT do for itself:
-  • "restart/stop/start my bot" → render ConfirmAction, then use lifecycle tools
-  • "delete my deployment" → render ConfirmAction, then deleteDeployment
-  • "change/update my API key" or bot is down with token errors → changeLlmApiKey
-  • "show pod logs" or bot is unresponsive → getDeploymentLogs → LogViewer
-  • "is my pod running?" or bot is unresponsive → getDeploymentStatus
+- ALL user messages and questions → use chat_with_bot (let the bot handle it)
+- The ONLY exceptions are infrastructure actions the bot CANNOT do:
+  • restart/stop/start/delete → use infrastructure tools (these control the pod)
+  • change API key → use changeLlmApiKey
+  • show pod logs or check if pod is running → use getDeploymentLogs / getDeploymentStatus
 
-RENDERING:
-When chatWithBot returns structured data (dataBlocks), render using canvas components:
-- Tables → DataTable
-- Metrics/KPIs → StatGrid
-- Key-value pairs → KeyValue
-- Code → CodeBlock
-- Info cards → Card
-- Notices → Alert
-- Progress → Progress
-- Images → Image
-
-If only text, present it naturally. Don't prefix with "Your bot said:".
-The bot's suggestedComponent is a hint — choose a different component if the data fits better.
-For destructive actions (restart, stop, delete), ALWAYS render ConfirmAction first.`;
+For destructive actions (restart, stop, delete), ALWAYS render ConfirmAction first.
+Present the bot's text response naturally — the frontend handles markdown rendering.`;
 
 interface DeploymentTamboProviderProps {
   deploymentId: string;
@@ -57,12 +52,27 @@ export default function DeploymentTamboProvider({
   deploymentName,
   children,
 }: DeploymentTamboProviderProps) {
-  const { user } = useAuth0();
+  const { user, getAccessTokenSilently } = useAuth0();
+  const [authToken, setAuthToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAccessTokenSilently().then(setAuthToken).catch(() => {});
+  }, [getAccessTokenSilently]);
 
   const tools = useMemo(
     () => createTamboTools(deploymentId),
     [deploymentId]
   );
+
+  const mcpServers = useMemo(() => {
+    if (!authToken) return [];
+    return [{
+      url: `${API_URL}/api/mcp/${deploymentId}`,
+      serverKey: "openclaw",
+      customHeaders: { Authorization: `Bearer ${authToken}` },
+      transport: MCPTransport.HTTP,
+    }];
+  }, [deploymentId, authToken]);
 
   const contextHelpers: ContextHelpers = useMemo(
     () => ({
@@ -81,6 +91,7 @@ export default function DeploymentTamboProvider({
       userKey={user?.sub || "anonymous"}
       components={tamboComponents}
       tools={tools}
+      mcpServers={mcpServers}
       contextHelpers={contextHelpers}
       autoGenerateThreadName={false}
       initialMessages={[
@@ -89,13 +100,15 @@ export default function DeploymentTamboProvider({
           content: [
             {
               type: "text",
-              text: `Hey! I'm connected to **${deploymentName}**. Talk to your bot through me — I'll render its responses. I can also restart, stop, or change your API key if needed.`,
+              text: `Hey! I'm connected to **${deploymentName}** via MCP. Talk to your bot through me — I'll render its responses. I can also manage config, platforms, skills, and restart/stop the pod if needed.`,
             },
           ],
         },
       ]}
     >
-      {children}
+      <TamboMcpProvider>
+        {children}
+      </TamboMcpProvider>
     </TamboProvider>
   );
 }
