@@ -8,6 +8,25 @@ import CanvasRenderer from "./CanvasRenderer";
 import type { UIBlock } from "./CanvasRenderer";
 import { EDITOR_COMPONENTS, FallbackJsonEditor } from "./editors/registry";
 
+/**
+ * Extract raw file content from component props based on the component type.
+ * Used when saving edits back to the original file on the pod.
+ */
+function extractFileContent(component: string, props: Record<string, unknown>): string {
+  switch (component) {
+    case "code_block":
+      return typeof props.code === "string" ? props.code : JSON.stringify(props, null, 2);
+    case "card":
+      return typeof props.body === "string" ? props.body : JSON.stringify(props, null, 2);
+    case "key_value":
+      return JSON.stringify(props.items ?? props, null, 2);
+    case "data_table":
+      return JSON.stringify({ columns: props.columns, rows: props.rows }, null, 2);
+    default:
+      return JSON.stringify(props, null, 2);
+  }
+}
+
 interface EditableCanvasProps {
   block: UIBlock;
   deploymentId: string;
@@ -53,7 +72,37 @@ export default function EditableCanvas({
     setError(null);
 
     try {
-      if (saveMethod === "chat" && sendMessage) {
+      const isFilePath = block.fileId?.startsWith("/data/");
+
+      if (isFilePath) {
+        // Write back to the original file on the pod via write_file MCP tool
+        const content = extractFileContent(block.component, editedProps);
+        const token = await getAccessTokenSilently();
+        const res = await fetch(
+          `${API_URL}/api/deployments/${deploymentId}/mcp/invoke`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              tool: "write_file",
+              args: { path: block.fileId, content },
+            }),
+          }
+        );
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Save failed" }));
+          throw new Error(err.error || "Save failed");
+        }
+
+        const data = await res.json();
+        if (data.result && !data.result.success) {
+          throw new Error(data.result.message || "Write failed");
+        }
+      } else if (saveMethod === "chat" && sendMessage) {
         const payload = JSON.stringify({
           component: block.component,
           props: editedProps,
@@ -62,6 +111,7 @@ export default function EditableCanvas({
           `[CANVAS_SAVE] fileId=${block.fileId || "untitled"}\n${payload}`
         );
       } else {
+        // Fallback: save as canvas component data
         const token = await getAccessTokenSilently();
         const res = await fetch(
           `${API_URL}/api/deployments/${deploymentId}/mcp/invoke`,

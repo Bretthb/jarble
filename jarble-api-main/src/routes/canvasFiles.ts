@@ -16,6 +16,7 @@ import { db, tables } from "../db/index.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { findPodForDeployment, execInPod } from "../k8s/index.js";
 import { logger } from "../utils/logger.js";
+import { writeFileTool } from "../mcp/tools/writeFile.js";
 
 export const canvasFilesRouter = Router();
 
@@ -28,6 +29,7 @@ const ALLOWED_TOOLS = new Set([
   "define_component",
   "list_components",
   "delete_component",
+  "write_file",
 ]);
 
 canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
@@ -85,14 +87,22 @@ canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
       return;
     }
 
-    // 4. Find pod
+    // 4. Handle write_file directly via MCP tool (writes to pod PVC)
+    if (tool === "write_file") {
+      const ctx = { userId: user.id, deploymentId, deployment };
+      const result = await writeFileTool.execute(args || {}, ctx);
+      res.json({ result });
+      return;
+    }
+
+    // 5. Find pod for jarble-ui proxy tools
     const podName = await findPodForDeployment(deploymentId);
     if (!podName) {
       res.status(400).json({ error: "No running pod found" });
       return;
     }
 
-    // 5. Exec mcporter call in pod
+    // 6. Exec mcporter call in pod
     const argsJson = JSON.stringify(args || {});
     const command = [
       "mcporter", "call", `jarble-ui.${tool}`,

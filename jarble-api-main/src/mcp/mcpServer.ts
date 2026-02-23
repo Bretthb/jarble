@@ -2,7 +2,7 @@
  * MCP Server Adapter — Bridges the existing ToolRegistry to a real MCP server.
  *
  * Creates an @modelcontextprotocol/sdk McpServer instance and registers all
- * 18 tools from the in-process ToolRegistry so they can be called over the
+ * tools from the in-process ToolRegistry so they can be called over the
  * standard MCP protocol (JSON-RPC over SSE/Streamable HTTP).
  *
  * Each tool's execute() is delegated to the existing McpTool implementation;
@@ -10,12 +10,78 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
+import { z, type ZodTypeAny } from "zod";
 import { mcpRegistry } from "./tools/index.js";
-import type { ToolContext } from "./toolRegistry.js";
+import type { McpTool, ToolContext } from "./toolRegistry.js";
 import { db, tables } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import { logger } from "../utils/logger.js";
+
+// ─── JSON Schema → Zod Converter ────────────────────────────────────────────
+
+/**
+ * Converts a tool's JSON Schema `parameters` into a Zod object schema so the
+ * MCP SDK advertises proper parameter names/types to clients.
+ *
+ * Handles the common types used by our tools: string, number, boolean, object,
+ * array, and enum. Falls back to z.unknown() for unrecognized types.
+ */
+function jsonSchemaPropertyToZod(prop: Record<string, any>): ZodTypeAny {
+  if (prop.enum) {
+    return z.enum(prop.enum as [string, ...string[]]);
+  }
+  switch (prop.type) {
+    case "string":
+      return prop.description ? z.string().describe(prop.description) : z.string();
+    case "number":
+    case "integer":
+      return prop.description ? z.number().describe(prop.description) : z.number();
+    case "boolean":
+      return prop.description ? z.boolean().describe(prop.description) : z.boolean();
+    case "object": {
+      // If the object has explicit properties, build a nested z.object()
+      // (Tambo rejects z.record — dynamic-key objects aren't supported)
+      if (prop.properties) {
+        const nested: Record<string, ZodTypeAny> = {};
+        const nestedReq = new Set<string>(prop.required || []);
+        for (const [k, v] of Object.entries(prop.properties as Record<string, any>)) {
+          let field = jsonSchemaPropertyToZod(v);
+          if (!nestedReq.has(k)) field = field.optional() as any;
+          nested[k] = field;
+        }
+        const obj = z.object(nested);
+        return prop.description ? obj.describe(prop.description) : obj;
+      }
+      // No explicit properties — use passthrough object (Tambo rejects z.record)
+      const obj = z.object({}).passthrough();
+      return prop.description ? obj.describe(prop.description) : obj;
+    }
+    case "array":
+      return prop.description ? z.array(z.unknown()).describe(prop.description) : z.array(z.unknown());
+    default:
+      return z.unknown();
+  }
+}
+
+function buildInputSchema(tool: McpTool): z.ZodObject<Record<string, ZodTypeAny>> {
+  const params = tool.parameters;
+  if (!params?.properties) {
+    return z.object({});
+  }
+
+  const shape: Record<string, ZodTypeAny> = {};
+  const required = new Set<string>(params.required || []);
+
+  for (const [key, prop] of Object.entries(params.properties as Record<string, any>)) {
+    let zodProp = jsonSchemaPropertyToZod(prop);
+    if (!required.has(key)) {
+      zodProp = zodProp.optional() as any;
+    }
+    shape[key] = zodProp;
+  }
+
+  return z.object(shape);
+}
 
 // ─── MCP Server Factory ─────────────────────────────────────────────────────
 
@@ -23,9 +89,8 @@ import { logger } from "../utils/logger.js";
  * Creates a new MCP server instance with all tools from the registry
  * bound to the given ToolContext (userId + deploymentId + deployment row).
  *
- * Each tool is registered using `server.registerTool()` with a passthrough
- * input schema — the existing tool implementations handle their own
- * parameter validation internally.
+ * Each tool is registered with a Zod schema derived from its JSON Schema
+ * parameters, so MCP clients can discover parameter names and types.
  */
 export function createMcpServer(ctx: ToolContext): McpServer {
   const server = new McpServer(
@@ -43,11 +108,13 @@ export function createMcpServer(ctx: ToolContext): McpServer {
   const tools = mcpRegistry.getAll();
 
   for (const tool of tools) {
+    const inputSchema = buildInputSchema(tool);
+
     server.registerTool(
       tool.name,
       {
         description: tool.description,
-        inputSchema: z.object({}).passthrough(),
+        inputSchema,
       },
       async (args) => {
         try {

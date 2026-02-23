@@ -38,6 +38,14 @@ ROUTING:
   • change API key → use changeLlmApiKey
   • show pod logs or check if pod is running → use getDeploymentLogs / getDeploymentStatus
 
+FILE RENDERING:
+When showing file contents (read_file results), render a BotCanvas component with:
+- component: "code_block" (for code/config/markdown files)
+- propsJson: JSON with { code: <file content>, language: <file extension>, title: <filename> }
+- fileId: the FULL file path (e.g. "/data/config/soul.md") — this lets the Save button write edits back to the original file
+- editable: true (so the user can edit and save)
+- deploymentId: from context
+
 For destructive actions (restart, stop, delete), ALWAYS render ConfirmAction first.
 Present the bot's text response naturally — the frontend handles markdown rendering.`;
 
