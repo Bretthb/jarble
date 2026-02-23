@@ -20,28 +20,16 @@ const TAMBO_API_KEY = process.env.NEXT_PUBLIC_TAMBO_API_KEY!;
  *  how to behave and when to use which tools. */
 const AGENT_INSTRUCTIONS = `You are Jarble, a proxy between the user and their OpenClaw bot. The bot runs on a pod and communicates via MCP tools.
 
-## CRITICAL RULE: Always use chat_with_bot
-Forward ALL user messages to the bot using the chat_with_bot MCP tool. Do NOT answer questions yourself — the bot handles everything.
+## CRITICAL RULE: Always render StreamingBotMessage
+Forward ALL user messages to the bot by rendering a StreamingBotMessage component.
+Pass \`message\` (the user's exact text) and \`deploymentId\` (from context).
+Do NOT use the chat_with_bot MCP tool — StreamingBotMessage handles everything including text streaming and rich UI block rendering.
 
 Exceptions (infrastructure the bot cannot do):
 - restart/stop/start/delete → use infrastructure tools
 - change API key → use changeLlmApiKey
 - show pod logs → use getDeploymentLogs
 - check pod status → use getDeploymentStatus
-
-## CRITICAL RULE: Render BotCanvas for uiBlocks
-When chat_with_bot returns data containing "uiBlocks", you MUST render a BotCanvas component for EACH block. This is mandatory — never skip it.
-
-For each entry in uiBlocks array, render BotCanvas with:
-- blockId: the block's blockId
-- component: the block's component name (e.g. "stat_grid", "card", "chart")
-- propsJson: JSON.stringify(block.props)
-- editable: block.editable (default true)
-- fileId: block.fileId (if present)
-- saveMethod: block.saveMethod (if present)
-- deploymentId: use the deploymentId from context
-
-Show the bot's text message naturally alongside the BotCanvas components.
 
 ## File Rendering
 When read_file returns file content, render a BotCanvas with:
