@@ -20,6 +20,7 @@ import { sseRouter } from "./routes/sse.js";
 import { debugRouter } from "./routes/debug.js";
 import { tamboAgentRouter } from "./routes/tamboAgent.js";
 import { canvasFilesRouter } from "./routes/canvasFiles.js";
+import { mcpRouter } from "./routes/mcp.js";
 
 const app = express();
 
@@ -51,7 +52,9 @@ app.use(cors({
       callback(new Error("Not allowed by CORS"));
     }
   },
-  credentials: true
+  credentials: true,
+  allowedHeaders: ["Content-Type", "Authorization", "mcp-session-id", "mcp-protocol-version"],
+  exposedHeaders: ["mcp-session-id"],
 }));
 
 // Global rate limiter — 300 req/min per IP (skips /health, webhooks)
@@ -69,6 +72,7 @@ app.use("/api", webhooksRouter);
 app.use("/api/deployments", sseRouter);
 app.use("/api/tambo-agent", tamboAgentRouter);
 app.use("/api/deployments", canvasFilesRouter);
+app.use("/api/mcp", mcpRouter);
 
 // Debug endpoints — dev only
 if (env.NODE_ENV === "development") {

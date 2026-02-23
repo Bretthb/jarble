@@ -294,6 +294,10 @@ tamboAgentRouter.post("/", async (req, res) => {
     sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
 
     // Resolve custom component references before emitting
+    logger.info(
+      { deploymentId, rawText: gatewayResult.rawText.slice(0, 500), blockCount: gatewayResult.uiBlocks.length },
+      "chatWithBot: gateway response summary"
+    );
     const resolvedBlocks = await resolveUIBlocks(gatewayResult.uiBlocks, deploymentId);
 
     // Emit UI block events — frontend strips raw jarble_ui markers from display

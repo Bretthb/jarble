@@ -16,7 +16,8 @@ import type { UIBlock } from "@/components/canvas/CanvasRenderer";
 interface BotCanvasProps {
   blockId: string;
   component: string;
-  props: Record<string, unknown>;
+  /** JSON-serialized component props (avoids Tambo's record-type restriction) */
+  propsJson: string;
   editable?: boolean;
   fileId?: string;
   saveMethod?: "mcp" | "chat";
@@ -26,16 +27,26 @@ interface BotCanvasProps {
 export default function BotCanvas({
   blockId,
   component,
-  props,
+  propsJson,
   editable,
   fileId,
   saveMethod,
   deploymentId,
 }: BotCanvasProps) {
+  let parsedProps: Record<string, unknown> = {};
+  try {
+    parsedProps = typeof propsJson === "string" ? JSON.parse(propsJson) : (propsJson as any) ?? {};
+  } catch {
+    // fallback to empty props if parsing fails
+  }
+
+  // Debug: log what BotCanvas receives from Tambo
+  console.log("[BotCanvas] received:", { blockId, component, propsJson, parsedProps, editable, fileId, saveMethod, deploymentId });
+
   const block: UIBlock = {
     id: blockId,
     component,
-    props,
+    props: parsedProps,
     editable,
     fileId,
     saveMethod,

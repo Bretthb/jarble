@@ -27,7 +27,8 @@ export const renderUiTool: McpTool = {
       },
       props: {
         type: "object",
-        description: "Component props — structure depends on the component type",
+        description: "Component props — structure depends on the component type. See component reference for required fields.",
+        additionalProperties: true,
       },
     },
     required: ["component", "props"],

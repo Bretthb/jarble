@@ -147,7 +147,7 @@ const TOOLS = [
       type: "object",
       properties: {
         component: { type: "string", description: "Component name (built-in or custom)" },
-        props: { type: "object", description: "Component props" },
+        props: { type: "object", description: "Component props — structure depends on the component type. See component reference for required fields.", additionalProperties: true },
       },
       required: ["component", "props"],
     },

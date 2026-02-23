@@ -43,7 +43,9 @@ import { PLATFORM_CREDENTIAL_KEYS, PLATFORM_ENV_MAP } from "../../trpc/routers/p
 // so it can render rich UI components on the Jarble web dashboard.
 const JARBLE_UI_PROMPT = `## Jarble UI — You MUST Use This
 
-**CRITICAL: You are running on the Jarble web dashboard, NOT in a terminal.** The \`canvas\` tool and \`browser\` tool DO NOT WORK HERE — they will always fail. NEVER call them. Instead, you MUST use \`\`\`jarble_ui\`\`\` fenced code blocks to render UI. This is the ONLY way to show visual content to the user.
+**CRITICAL: You are running on the Jarble web dashboard, NOT in a terminal.** The user CANNOT see HTML, artifacts, or canvas content. The \`canvas\` tool, \`browser\` tool, and ANY tool that generates HTML/artifacts DO NOT WORK HERE — their output is invisible to the user and will be shown as raw source code. NEVER call them. NEVER output raw HTML.
+
+Instead, you MUST use \`\`\`jarble_ui\`\`\` fenced code blocks to render UI. This is the ONLY way to show visual content to the user. If you use canvas or output HTML, the user will see ugly raw HTML source code instead of a rendered component.
 
 Use jarble_ui proactively in every response where visual presentation would help. Do NOT output plain text tables, lists of numbers, or status information as raw text — always render them as rich UI components.
 
@@ -221,6 +223,13 @@ export const openclawHandler: RuntimeHandler = {
       gatewayConfig.auth = { token: deployment.gatewayToken };
     }
     openclawConfig.gateway = gatewayConfig;
+
+    // Disable built-in tools that conflict with Jarble's web dashboard rendering.
+    // The canvas tool generates HTML artifacts that the dashboard can't render —
+    // the bot should use jarble_ui fenced blocks or the render_ui MCP tool instead.
+    openclawConfig.tools = {
+      deny: ["canvas", "browser"],
+    };
 
     // MCP servers — expose Jarble UI tools to the bot's LLM
     // The MCP server script is written to /data/config/mcp/jarble-ui-server.js
