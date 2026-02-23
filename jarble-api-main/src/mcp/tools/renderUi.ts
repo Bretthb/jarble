@@ -16,14 +16,14 @@ import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 export const renderUiTool: McpTool = {
   name: "render_ui",
   description:
-    "Render a UI component on the Jarble canvas. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout) and custom bot-defined components.",
+    "Render a UI component on the Jarble canvas. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, avatar, blockquote, metric_card, header, button_group, form) and custom bot-defined components.",
   parameters: {
     type: "object",
     properties: {
       component: {
         type: "string",
         description:
-          "Component name — a built-in (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout) or a custom component name",
+          "Component name — a built-in (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, avatar, blockquote, metric_card, header, button_group, form) or a custom component name",
       },
       props: {
         type: "object",

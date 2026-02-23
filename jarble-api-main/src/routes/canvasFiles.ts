@@ -102,18 +102,25 @@ canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
       return;
     }
 
-    // 6. Exec mcporter call in pod
+    // 6. Call the jarble-ui MCP server directly via node
+    // The server script exports an executeTool function and also handles JSON-RPC.
+    // We invoke it with a one-liner that requires the script and calls executeTool.
     const argsJson = JSON.stringify(args || {});
-    const command = [
-      "mcporter", "call", `jarble-ui.${tool}`,
-      "--args", argsJson,
-    ];
+    const nodeScript = `
+      const s = require('/data/config/mcp/jarble-ui-server.js');
+      const r = typeof s.executeTool === 'function'
+        ? s.executeTool(${JSON.stringify(tool)}, ${argsJson})
+        : null;
+      if (r) { console.log(JSON.stringify(r)); }
+      else { console.log(JSON.stringify({isError:true,text:'Tool not found'})); }
+    `.replace(/\n/g, " ");
+    const command = ["node", "-e", nodeScript];
 
     logger.debug({ deploymentId, tool, podName }, "MCP proxy: invoking tool in pod");
 
     const output = await execInPod(podName, command);
 
-    // 6. Try to parse as JSON, otherwise return as text
+    // 7. Try to parse as JSON, otherwise return as text
     try {
       const parsed = JSON.parse(output);
       res.json({ result: parsed });

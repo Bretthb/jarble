@@ -18,36 +18,41 @@ const TAMBO_API_KEY = process.env.NEXT_PUBLIC_TAMBO_API_KEY!;
 
 /** Agent instructions injected via contextHelpers so the hosted agent knows
  *  how to behave and when to use which tools. */
-const AGENT_INSTRUCTIONS = `You are Jarble, connected to the user's OpenClaw bot via MCP.
+const AGENT_INSTRUCTIONS = `You are Jarble, a proxy between the user and their OpenClaw bot. The bot runs on a pod and communicates via MCP tools.
 
-The bot exposes its full capabilities through MCP tools:
-- chat_with_bot: Talk to the bot directly
-- get_deployment_info, get_platforms, list_skills: View bot status and configuration
-- update_system_prompt, update_llm_config: Modify bot settings
-- connect_platform, disconnect_platform: Manage messaging integrations
-- install_skill, uninstall_skill: Manage bot skills
-- render_ui, define_component, list_components: Create visual dashboards
-- list_files, read_file, write_file: Browse the bot's filesystem
-- get_logs: View pod logs for debugging
-- pairing_list, pairing_approve: Manage platform pairings
+## CRITICAL RULE: Always use chat_with_bot
+Forward ALL user messages to the bot using the chat_with_bot MCP tool. Do NOT answer questions yourself — the bot handles everything.
 
-ROUTING:
-- ALL user messages and questions → use chat_with_bot (let the bot handle it)
-- The ONLY exceptions are infrastructure actions the bot CANNOT do:
-  • restart/stop/start/delete → use infrastructure tools (these control the pod)
-  • change API key → use changeLlmApiKey
-  • show pod logs or check if pod is running → use getDeploymentLogs / getDeploymentStatus
+Exceptions (infrastructure the bot cannot do):
+- restart/stop/start/delete → use infrastructure tools
+- change API key → use changeLlmApiKey
+- show pod logs → use getDeploymentLogs
+- check pod status → use getDeploymentStatus
 
-FILE RENDERING:
-When showing file contents (read_file results), render a BotCanvas component with:
-- component: "code_block" (for code/config/markdown files)
-- propsJson: JSON with { code: <file content>, language: <file extension>, title: <filename> }
-- fileId: the FULL file path (e.g. "/data/config/soul.md") — this lets the Save button write edits back to the original file
-- editable: true (so the user can edit and save)
+## CRITICAL RULE: Render BotCanvas for uiBlocks
+When chat_with_bot returns data containing "uiBlocks", you MUST render a BotCanvas component for EACH block. This is mandatory — never skip it.
+
+For each entry in uiBlocks array, render BotCanvas with:
+- blockId: the block's blockId
+- component: the block's component name (e.g. "stat_grid", "card", "chart")
+- propsJson: JSON.stringify(block.props)
+- editable: block.editable (default true)
+- fileId: block.fileId (if present)
+- saveMethod: block.saveMethod (if present)
+- deploymentId: use the deploymentId from context
+
+Show the bot's text message naturally alongside the BotCanvas components.
+
+## File Rendering
+When read_file returns file content, render a BotCanvas with:
+- component: "code_block"
+- propsJson: JSON.stringify({ code: <content>, language: <ext>, title: <filename> })
+- fileId: the full file path
+- editable: true
 - deploymentId: from context
 
-For destructive actions (restart, stop, delete), ALWAYS render ConfirmAction first.
-Present the bot's text response naturally — the frontend handles markdown rendering.`;
+## Destructive Actions
+For restart, stop, delete: ALWAYS render ConfirmAction first.`;
 
 interface DeploymentTamboProviderProps {
   deploymentId: string;
@@ -93,6 +98,21 @@ export default function DeploymentTamboProvider({
     [deploymentId, deploymentName]
   );
 
+  const initialMessages = useMemo(
+    () => [
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "text" as const,
+            text: `Hey! I'm connected to **${deploymentName}** via MCP. Talk to your bot through me — I'll render its responses. I can also manage config, platforms, skills, and restart/stop the pod if needed.`,
+          },
+        ],
+      },
+    ],
+    [deploymentName]
+  );
+
   return (
     <TamboProvider
       apiKey={TAMBO_API_KEY}
@@ -102,17 +122,7 @@ export default function DeploymentTamboProvider({
       mcpServers={mcpServers}
       contextHelpers={contextHelpers}
       autoGenerateThreadName={false}
-      initialMessages={[
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "text",
-              text: `Hey! I'm connected to **${deploymentName}** via MCP. Talk to your bot through me — I'll render its responses. I can also manage config, platforms, skills, and restart/stop the pod if needed.`,
-            },
-          ],
-        },
-      ]}
+      initialMessages={initialMessages}
     >
       <TamboMcpProvider>
         {children}

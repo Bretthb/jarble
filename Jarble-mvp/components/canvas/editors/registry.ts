@@ -7,6 +7,10 @@ import AlertEditor from "./AlertEditor";
 import CodeBlockEditor from "./CodeBlockEditor";
 import ProgressEditor from "./ProgressEditor";
 import LayoutEditor from "./LayoutEditor";
+import ChartEditor from "./ChartEditor";
+import ListEditor from "./ListEditor";
+import ButtonGroupEditor from "./ButtonGroupEditor";
+import FallbackJsonEditor from "./FallbackJsonEditor";
 
 export { default as FallbackJsonEditor } from "./FallbackJsonEditor";
 
@@ -25,4 +29,19 @@ export const EDITOR_COMPONENTS: Record<string, ComponentType<EditorProps>> = {
   code_block: CodeBlockEditor,
   progress: ProgressEditor,
   layout: LayoutEditor,
+  chart: ChartEditor,
+  list: ListEditor,
+  button_group: ButtonGroupEditor,
+  // Remaining components use FallbackJsonEditor
+  image: FallbackJsonEditor,
+  tabs: FallbackJsonEditor,
+  accordion: FallbackJsonEditor,
+  badge: FallbackJsonEditor,
+  timeline: FallbackJsonEditor,
+  divider: FallbackJsonEditor,
+  avatar: FallbackJsonEditor,
+  blockquote: FallbackJsonEditor,
+  metric_card: FallbackJsonEditor,
+  header: FallbackJsonEditor,
+  form: FallbackJsonEditor,
 };

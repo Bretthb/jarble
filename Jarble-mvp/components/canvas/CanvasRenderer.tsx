@@ -4,6 +4,7 @@ import { createContext, useContext } from "react";
 import { CANVAS_COMPONENTS } from "./registry";
 import { useComponentCatalog } from "@/components/ComponentCatalogProvider";
 import CustomComponentRenderer from "./CustomComponentRenderer";
+import { CanvasActionProvider, type CanvasAction } from "./CanvasActionContext";
 
 export interface UIBlock {
   id: string;
@@ -23,7 +24,13 @@ const CanvasDepthContext = createContext(0);
  * validating props with Zod, and rendering. Falls back to custom component
  * resolution from the catalog, then to an error card.
  */
-export default function CanvasRenderer({ block }: { block: UIBlock }) {
+export default function CanvasRenderer({
+  block,
+  onAction,
+}: {
+  block: UIBlock;
+  onAction?: (action: CanvasAction) => void;
+}) {
   const depth = useContext(CanvasDepthContext);
   const { getCustomComponent } = useComponentCatalog();
 
@@ -55,7 +62,13 @@ export default function CanvasRenderer({ block }: { block: UIBlock }) {
 
     return (
       <CanvasDepthContext.Provider value={depth + 1}>
-        <Component {...validatedProps} />
+        <CanvasActionProvider
+          blockId={block.id}
+          component={block.component}
+          onAction={onAction}
+        >
+          <Component {...validatedProps} />
+        </CanvasActionProvider>
       </CanvasDepthContext.Provider>
     );
   }

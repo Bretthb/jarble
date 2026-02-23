@@ -6,6 +6,7 @@ import { Pencil, Save, X, Loader2, Check, AlertCircle } from "lucide-react";
 import { API_URL } from "@/lib/trpc";
 import CanvasRenderer from "./CanvasRenderer";
 import type { UIBlock } from "./CanvasRenderer";
+import type { CanvasAction } from "./CanvasActionContext";
 import { EDITOR_COMPONENTS, FallbackJsonEditor } from "./editors/registry";
 
 /**
@@ -31,12 +32,14 @@ interface EditableCanvasProps {
   block: UIBlock;
   deploymentId: string;
   sendMessage?: (text: string) => Promise<void>;
+  onAction?: (action: CanvasAction) => void;
 }
 
 export default function EditableCanvas({
   block,
   deploymentId,
   sendMessage,
+  onAction,
 }: EditableCanvasProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [isEditing, setIsEditing] = useState(false);
@@ -45,15 +48,17 @@ export default function EditableCanvas({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSaved, setShowSaved] = useState(false);
+  const [hasSavedLocally, setHasSavedLocally] = useState(false);
 
   const saveMethod = block.saveMethod || "chat";
 
-  // Sync displayProps when block.props changes externally
+  // Sync displayProps when block.props changes externally,
+  // but not if the user just saved local edits (those take precedence)
   useEffect(() => {
-    if (!isEditing) {
+    if (!isEditing && !hasSavedLocally) {
       setDisplayProps(block.props);
     }
-  }, [block.props, isEditing]);
+  }, [block.props, isEditing, hasSavedLocally]);
 
   const handleEdit = useCallback(() => {
     setEditedProps({ ...displayProps });
@@ -140,6 +145,7 @@ export default function EditableCanvas({
 
       // Update local display state on confirmed success (no direct mutation)
       setDisplayProps(editedProps);
+      setHasSavedLocally(true);
       setIsEditing(false);
       setShowSaved(true);
       setTimeout(() => setShowSaved(false), 2000);
@@ -165,7 +171,7 @@ export default function EditableCanvas({
   if (!isEditing) {
     return (
       <div className="relative group">
-        <CanvasRenderer block={displayBlock} />
+        <CanvasRenderer block={displayBlock} onAction={onAction} />
 
         {/* Saved indicator */}
         <div

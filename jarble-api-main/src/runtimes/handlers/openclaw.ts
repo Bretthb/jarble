@@ -39,80 +39,75 @@ import type {
 import { PLATFORM_CREDENTIAL_KEYS, PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
 
 // ── Jarble UI prompt injected into soul.md ────────────────────────────────
-// Teaches the bot about jarble_ui fenced blocks AND the mcporter MCP bridge
-// so it can render rich UI components on the Jarble web dashboard.
-const JARBLE_UI_PROMPT = `## Jarble UI — You MUST Use This
+// Teaches the bot about jarble_ui fenced blocks and MCP tools (render_ui,
+// list_components, define_component) for rendering rich UI on the dashboard.
+const JARBLE_UI_PROMPT = `## Jarble UI
 
-**CRITICAL: You are running on the Jarble web dashboard, NOT in a terminal.** The user CANNOT see HTML, artifacts, or canvas content. The \`canvas\` tool, \`browser\` tool, and ANY tool that generates HTML/artifacts DO NOT WORK HERE — their output is invisible to the user and will be shown as raw source code. NEVER call them. NEVER output raw HTML.
+**You are running on the Jarble web dashboard.** The \`canvas\` tool, \`browser\` tool, and any HTML/artifact tools DO NOT WORK — their output is invisible. NEVER call them.
 
-Instead, you MUST use \`\`\`jarble_ui\`\`\` fenced code blocks to render UI. This is the ONLY way to show visual content to the user. If you use canvas or output HTML, the user will see ugly raw HTML source code instead of a rendered component.
+### Rendering UI
 
-Use jarble_ui proactively in every response where visual presentation would help. Do NOT output plain text tables, lists of numbers, or status information as raw text — always render them as rich UI components.
-
-### How to Render UI
-
-Include a \\\`jarble_ui\\\` fenced code block in your response. The dashboard renders it as a rich interactive component:
+To show rich UI, output a \\\`jarble_ui\\\` fenced block inline in your response:
 
 \\\`\\\`\\\`jarble_ui
 {"component": "card", "props": {"title": "Hello", "body": "World"}}
 \\\`\\\`\\\`
 
-You can mix multiple UI blocks with regular text in a single response. **Default to using UI components** — they make your responses dramatically more useful.
+Each block is one JSON object with \`component\` (name) and \`props\` (component-specific). The dashboard renders it as a rich visual component. **Always prefer UI components** over plain text tables or raw data.
 
-### When to Use Each Component
+### Available Components
 
-| Situation | Component |
-|-----------|-----------|
-| Greeting or intro | \`card\` with title + body |
-| Numbers, KPIs, metrics | \`stat_grid\` |
-| Tabular data, lists, comparisons | \`data_table\` |
-| Config, settings, key-value pairs | \`key_value\` |
-| Code snippets | \`code_block\` |
-| Warnings, errors, success messages | \`alert\` |
-| Progress or completion | \`progress\` |
-| Multi-section dashboards | \`layout\` with children |
+**Display:**
+- \`card\` — \`{title?, subtitle?, body?}\`
+- \`data_table\` — \`{title?, columns: string[], rows: (string|number)[][]}\`
+- \`stat_grid\` — \`{stats: [{label, value, change?, icon?}]}\`
+- \`key_value\` — \`{title?, items: [{key, value}]}\`
+- \`code_block\` — \`{code, language?, title?}\`
+- \`alert\` — \`{title?, message, variant: info|success|warning|error}\`
+- \`progress\` — \`{label?, value: 0-100, variant?}\`
+- \`image\` — \`{src, alt?, caption?}\`
+- \`chart\` — \`{type: bar|line|pie|area, data: [{...}], dataKeys: string[], xAxisKey?, title?, colors?, stacked?, showLegend?, showGrid?}\`
+- \`tabs\` — \`{tabs: [{label, content?, children?: [{component, props}]}], defaultTab?}\`
+- \`accordion\` — \`{items: [{title, content?, children?, defaultOpen?}], type?: single|multiple}\`
+- \`badge\` — \`{text, variant?: default|secondary|destructive|outline|success|warning|info, icon?}\`
+- \`list\` — \`{title?, items: [{text, description?, icon?, badge?, badgeVariant?}], ordered?}\`
+- \`timeline\` — \`{title?, events: [{label, description?, timestamp?, icon?, status?: completed|active|pending}]}\`
+- \`divider\` — \`{label?, variant?: solid|dashed|dotted, spacing?: sm|md|lg}\`
+- \`avatar\` — \`{name, src?, subtitle?, size?: sm|md|lg}\`
+- \`blockquote\` — \`{text, attribution?, variant?: default|info|warning}\`
+- \`metric_card\` — \`{label, value, change?, changeLabel?, icon?, sparkline?: number[]}\`
+- \`header\` — \`{title, subtitle?, level?: 1|2|3, divider?}\`
+- \`layout\` — \`{title?, children: [{component, props}]}\` — container for nesting
 
-### Component Reference
+**Interactive:**
+- \`button_group\` — \`{buttons: [{id, label, variant?, icon?, disabled?}]}\`
+- \`form\` — \`{title?, fields: [{name, label, type: text|email|textarea|select|checkbox|number, placeholder?, required?, options?, defaultValue?}], submitLabel?}\`
 
-- **card**: \`{"component":"card","props":{"title":"...","subtitle":"...","body":"..."}}\`
-- **data_table**: \`{"component":"data_table","props":{"title":"...","columns":["A","B"],"rows":[["1","2"]]}}\`
-- **stat_grid**: \`{"component":"stat_grid","props":{"stats":[{"label":"Users","value":42,"change":"+5%"}]}}\`
-- **key_value**: \`{"component":"key_value","props":{"title":"Info","items":[{"key":"Status","value":"OK"}]}}\`
-- **code_block**: \`{"component":"code_block","props":{"title":"Example","language":"js","code":"console.log('hi')"}}\`
-- **alert**: \`{"component":"alert","props":{"variant":"success","title":"Done","message":"All good"}}\` (variants: info, success, warning, error)
-- **progress**: \`{"component":"progress","props":{"label":"Upload","value":75}}\`
-- **image**: \`{"component":"image","props":{"src":"https://...","alt":"...","caption":"..."}}\`
-- **layout**: \`{"component":"layout","props":{"title":"Dashboard","children":[{"component":"stat_grid","props":{...}},{"component":"data_table","props":{...}}]}}\`
+### Discovering Custom Components
+
+Call the \`list_components\` MCP tool to see all available components and custom templates. Use \`define_component\` to create reusable composite templates.
+
+### Interactive Callbacks
+
+When users interact with \`button_group\` or \`form\`, you receive a callback message:
+
+\`[UI_ACTION] blockId={id} component={name} action={type}\`
+\`{JSON payload}\`
+
+- **button_group**: action=\`click\`, payload \`{"buttonId":"X"}\`
+- **form**: action=\`submit\`, payload \`{"fields":{"name":"value",...}}\`
+
+Respond to these actions naturally — process the data, confirm the action, or render updated UI.
 
 ### Editable Components
 
-Add \`"editable": true\` and \`"fileId": "some-name"\` to make any component editable by the user.
-When the user saves, their edits are sent back to you as a chat message prefixed with \`[CANVAS_SAVE]\`.
-You can acknowledge the edit, store the data, or push it to an integration.
+Add \`"editable": true\` and \`"fileId": "some-name"\` to make any component user-editable:
 
-Example — editable table:
-\`\`\`
-{"component":"data_table","props":{"title":"My Leads","columns":["Name","Email","Status"],"rows":[["Jane","jane@co.com","New"]]},"editable":true,"fileId":"leads"}
-\`\`\`
+\\\`\\\`\\\`jarble_ui
+{"component":"data_table","props":{"title":"Leads","columns":["Name","Email"],"rows":[["Jane","jane@co.com"]]},"editable":true,"fileId":"leads"}
+\\\`\\\`\\\`
 
-Example — editable card:
-\`\`\`
-{"component":"card","props":{"title":"Meeting Notes","body":"..."},"editable":true,"fileId":"notes"}
-\`\`\`
-
-When a user saves an editable component, you'll receive a message like:
-\`[CANVAS_SAVE] fileId=leads\`
-\`{"component":"data_table","props":{"title":"My Leads","columns":["Name","Email","Status"],"rows":[["Jane","jane@co.com","Contacted"]]}}\`
-
-Acknowledge the save and update your data accordingly. **Always use editable components** when the user asks to create, track, or manage data — spreadsheets, notes, dashboards, etc.
-
-### Component Library
-
-You have a pre-built library of composite components on disk. **Always call \`list_components\` first** to see what's available before building UI from scratch. Library components combine primitives into reusable templates (dashboard, invoice, sprint_board, etc.).
-
-- Render any library component with \`render_ui\` — pass the template variables as props
-- Modify or create new composites with \`define_component\`
-- All library components use {{variable}} placeholders — list_components shows the full definition`;
+When the user saves, you receive a \`[CANVAS_SAVE] fileId=leads\` message with updated JSON. The \`write_file\` MCP tool can persist edits to disk. **Use editable components** whenever the user wants to create, track, or manage data.`;
 
 // Load the MCP server script at module init (embedded in config writes)
 // Use createRequire to get __filename/__dirname in ESM context
@@ -168,7 +163,8 @@ export const openclawHandler: RuntimeHandler = {
     // Write to both the Jarble config path AND the OpenClaw workspace path
     // OpenClaw reads SOUL.md from ~/.openclaw/workspace/ ($HOME=/data in container)
     files.push({ path: "soul.md", content: soulContent });
-    files.push({ path: "/data/.openclaw/workspace/SOUL.md", content: soulContent });
+    // OpenClaw's HOME=/data, and its workspace path is $HOME/.openclaw/.openclaw/workspace/
+    files.push({ path: "/data/.openclaw/.openclaw/workspace/SOUL.md", content: soulContent });
 
     // openclaw.json — agent config + channel credentials
     const openclawConfig: Record<string, any> = {};

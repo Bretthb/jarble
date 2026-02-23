@@ -28,6 +28,9 @@ const MAX_FILE_SIZE = 1_000_000; // 1MB
 const BUILTIN_COMPONENTS = [
   "card", "data_table", "stat_grid", "key_value",
   "code_block", "alert", "progress", "image", "layout",
+  "chart", "tabs", "accordion", "badge", "list",
+  "timeline", "divider", "avatar", "blockquote",
+  "metric_card", "header", "button_group", "form",
 ];
 
 const BUILTIN_DESCRIPTIONS = {
@@ -40,6 +43,19 @@ const BUILTIN_DESCRIPTIONS = {
   progress: "Progress bar with label and percentage",
   image: "Image with optional alt text and caption",
   layout: "Container that renders an array of child components",
+  chart: "Bar, line, pie, or area chart with data series (recharts)",
+  tabs: "Tabbed content panels with optional nested child components",
+  accordion: "Collapsible sections with titles and content",
+  badge: "Small label/tag with variant styling",
+  list: "Structured list with optional icons, descriptions, and badges",
+  timeline: "Chronological event timeline with status indicators",
+  divider: "Visual separator with optional label",
+  avatar: "User avatar with name and optional subtitle",
+  blockquote: "Styled quotation with optional attribution",
+  metric_card: "Single metric display with optional sparkline chart",
+  header: "Section heading with optional subtitle and divider",
+  button_group: "Row of action buttons that dispatch UI_ACTION callbacks on click",
+  form: "Input form with text, email, textarea, select, checkbox, number fields — dispatches UI_ACTION on submit",
 };
 
 // ── Component resolver ─────────────────────────────────────────────────
@@ -142,7 +158,7 @@ function listCustomComponents() {
 const TOOLS = [
   {
     name: "render_ui",
-    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout) and custom bot-defined components. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
+    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, avatar, blockquote, metric_card, header, button_group, form) and custom bot-defined components. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -458,3 +474,8 @@ process.stdin.on("end", () => {
 process.on("uncaughtException", (err) => {
   process.stderr.write(`[jarble-ui-server] Uncaught: ${err.message}\n`);
 });
+
+// Export for direct invocation (used by canvasFiles proxy)
+if (typeof module !== "undefined") {
+  module.exports = { executeTool };
+}

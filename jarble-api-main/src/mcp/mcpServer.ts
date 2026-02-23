@@ -70,7 +70,7 @@ function buildInputSchema(tool: McpTool): z.ZodObject<Record<string, ZodTypeAny>
   }
 
   const shape: Record<string, ZodTypeAny> = {};
-  const required = new Set<string>(params.required || []);
+  const required = new Set<string>(Array.isArray(params.required) ? params.required : []);
 
   for (const [key, prop] of Object.entries(params.properties as Record<string, any>)) {
     let zodProp = jsonSchemaPropertyToZod(prop);

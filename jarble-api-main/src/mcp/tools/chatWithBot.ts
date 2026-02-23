@@ -1,11 +1,12 @@
 import { findPodForDeployment, execInPod } from "../../k8s/index.js";
+import { extractUIBlocks } from "../../utils/uiBlockParser.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 
 export const chatWithBotTool: McpTool = {
   name: "chat_with_bot",
   description:
-    "Forward a conversational message to the OpenClaw bot running in the pod. Use this when the user wants to chat with their bot (not manage it). For example: greetings, jokes, questions directed at the bot's persona.",
+    "Forward a conversational message to the OpenClaw bot running in the pod. Use this when the user wants to chat with their bot. The bot may return rich UI blocks — if so, render each as a BotCanvas component.",
   parameters: {
     type: "object",
     properties: {
@@ -69,6 +70,27 @@ export const chatWithBotTool: McpTool = {
 
       if (!text) {
         return { success: false, message: "Bot returned an empty response." };
+      }
+
+      // Extract UI blocks from the bot's response
+      const { cleanText, uiBlocks } = extractUIBlocks(text);
+
+      if (uiBlocks.length > 0) {
+        // Return structured data so Tambo can render BotCanvas components
+        return {
+          success: true,
+          message: cleanText || "The bot rendered UI components.",
+          data: {
+            uiBlocks: uiBlocks.map((b) => ({
+              blockId: b.id,
+              component: b.component,
+              props: b.props,
+              editable: b.editable,
+              fileId: b.fileId,
+              saveMethod: b.saveMethod,
+            })),
+          },
+        };
       }
 
       return {

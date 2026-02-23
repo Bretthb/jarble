@@ -17,6 +17,19 @@ export const BUILTIN_COMPONENTS = new Set([
   "progress",
   "image",
   "layout",
+  "chart",
+  "tabs",
+  "accordion",
+  "badge",
+  "list",
+  "timeline",
+  "divider",
+  "avatar",
+  "blockquote",
+  "metric_card",
+  "header",
+  "button_group",
+  "form",
 ]);
 
 // ── Types ──────────────────────────────────────────────────────────────────

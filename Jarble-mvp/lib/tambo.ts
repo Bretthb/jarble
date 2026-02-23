@@ -54,16 +54,16 @@ export const tamboComponents: TamboComponent[] = [
   {
     name: "BotCanvas",
     description:
-      "Wrapper for bot-rendered UI blocks with editing support. Used by MCP render_ui tool.",
+      "ALWAYS render this component when the chat_with_bot tool returns uiBlocks in its data. Render ONE BotCanvas per uiBlock. This renders rich visual components (charts, tables, cards, stat grids, timelines, etc.) that the bot created. Extract blockId, component, and props from each uiBlock entry and pass them as shown in the schema.",
     component: BotCanvas,
     propsSchema: z.object({
-      blockId: z.string(),
-      component: z.string(),
-      propsJson: z.string().describe("JSON-serialized component props"),
-      editable: z.boolean().optional(),
-      fileId: z.string().optional(),
-      saveMethod: z.enum(["mcp", "chat"]).optional(),
-      deploymentId: z.string(),
+      blockId: z.string().describe("The block ID from uiBlocks[].blockId"),
+      component: z.string().describe("The component name from uiBlocks[].component (e.g. 'card', 'stat_grid', 'chart')"),
+      propsJson: z.string().describe("JSON.stringify(uiBlocks[].props) — the component props as a JSON string"),
+      editable: z.boolean().optional().describe("uiBlocks[].editable — defaults to true"),
+      fileId: z.string().optional().describe("uiBlocks[].fileId — for file-backed editable components"),
+      saveMethod: z.enum(["mcp", "chat"]).optional().describe("uiBlocks[].saveMethod — how edits are saved"),
+      deploymentId: z.string().describe("The deployment ID from context"),
     }),
   },
 
