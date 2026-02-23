@@ -20,8 +20,8 @@ import { db, tables } from "../db/index.js";
 import { env } from "../utils/env.js";
 import { logger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
-import { getPodAddress } from "../k8s/index.js";
-import { chatViaGateway, type GatewayResponse } from "../services/openclawGateway.js";
+import { getPodAddress, findPodForDeployment } from "../k8s/index.js";
+import { chatViaGateway, chatViaExec, type GatewayResponse } from "../services/openclawGateway.js";
 import { extractUIBlocks, type JarbleUIBlock } from "../utils/uiBlockParser.js";
 import { readComponentFromPvc } from "../k8s/index.js";
 import {
@@ -246,87 +246,148 @@ tamboAgentRouter.post("/", async (req, res) => {
     return;
   }
 
-  try {
-    const podAddr = await getPodAddress(deploymentId);
+  const messageId = nanoid();
+  sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
 
-    if (!podAddr) {
-      const messageId = nanoid();
-      sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
-      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "No running pod found for this deployment. Try restarting the bot." });
+  // Track the last delta text to compute incremental deltas for SSE
+  let lastDeltaText = "";
+  const sessionKey = `jarble-web-${authenticatedUserId || "anon"}`;
+
+  // Retry once on connection errors (handles stale pod IPs after restart)
+  const MAX_ATTEMPTS = 2;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const podAddr = await getPodAddress(deploymentId);
+
+      if (!podAddr) {
+        sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "No running pod found for this deployment. Try restarting the bot." });
+        sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+        sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+        res.end();
+        return;
+      }
+
+      const gatewayResult = await chatViaGateway(
+        {
+          ip: podAddr.ip,
+          port: podAddr.port,
+          gatewayToken: podAddr.gatewayToken,
+          sessionKey,
+        },
+        lastUserText,
+        (fullTextSoFar) => {
+          // Gateway sends full accumulated text on each delta — compute the new portion
+          if (fullTextSoFar.length > lastDeltaText.length) {
+            const newPart = fullTextSoFar.slice(lastDeltaText.length);
+            sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: newPart });
+            lastDeltaText = fullTextSoFar;
+          }
+        },
+        abortController.signal,
+      );
+
+      // If there's raw text we haven't streamed yet (e.g. final came without prior deltas), send it
+      if (gatewayResult.rawText.length > lastDeltaText.length) {
+        const remaining = gatewayResult.rawText.slice(lastDeltaText.length);
+        sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: remaining });
+      }
+
       sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+
+      // Resolve custom component references before emitting
+      logger.info(
+        { deploymentId, rawText: gatewayResult.rawText.slice(0, 500), blockCount: gatewayResult.uiBlocks.length },
+        "chatWithBot: gateway response summary"
+      );
+      const resolvedBlocks = await resolveUIBlocks(gatewayResult.uiBlocks, deploymentId);
+
+      // Emit UI block events — frontend strips raw jarble_ui markers from display
+      for (const block of resolvedBlocks) {
+        sendEvent(res, {
+          type: "UI_BLOCK_START",
+          blockId: block.id,
+          component: block.component,
+          messageId,
+          ...(block.editable ? { editable: true } : {}),
+          ...(block.fileId ? { fileId: block.fileId } : {}),
+          ...(block.saveMethod ? { saveMethod: block.saveMethod } : {}),
+        });
+        sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: block.id, props: block.props });
+        sendEvent(res, { type: "UI_BLOCK_END", blockId: block.id });
+      }
+
       sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
       res.end();
-      return;
-    }
+      return; // success — exit
 
-    const messageId = nanoid();
-    sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
+    } catch (err: any) {
+      if (err.name === "AbortError" || abortController.signal.aborted) return;
+      lastError = err;
 
-    // Track the last delta text to compute incremental deltas for SSE
-    let lastDeltaText = "";
+      // On connection-level errors, fall back to exec+curl through K8s API
+      const isConnectionError = /ETIMEDOUT|ECONNREFUSED|ECONNRESET|handshake|closed before auth/i.test(err.message);
+      if (isConnectionError && attempt < MAX_ATTEMPTS - 1) {
+        logger.warn({ deploymentId, attempt, error: err.message }, "Gateway WS failed, falling back to exec (npx openclaw agent)");
+        lastDeltaText = ""; // reset delta tracking for retry
 
-    const sessionKey = `jarble-web-${authenticatedUserId || "anon"}`;
-    const gatewayResult = await chatViaGateway(
-      {
-        ip: podAddr.ip,
-        port: podAddr.port,
-        gatewayToken: podAddr.gatewayToken,
-        sessionKey,
-      },
-      lastUserText,
-      (fullTextSoFar) => {
-        // Gateway sends full accumulated text on each delta — compute the new portion
-        if (fullTextSoFar.length > lastDeltaText.length) {
-          const newPart = fullTextSoFar.slice(lastDeltaText.length);
-          sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: newPart });
-          lastDeltaText = fullTextSoFar;
+        try {
+          const podName = await findPodForDeployment(deploymentId, { requireReady: false });
+          if (podName) {
+            const gatewayResult = await chatViaExec(
+              podName,
+              sessionKey,
+              lastUserText,
+              (fullTextSoFar) => {
+                if (fullTextSoFar.length > lastDeltaText.length) {
+                  const newPart = fullTextSoFar.slice(lastDeltaText.length);
+                  sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: newPart });
+                  lastDeltaText = fullTextSoFar;
+                }
+              },
+            );
+
+            if (gatewayResult.rawText.length > lastDeltaText.length) {
+              const remaining = gatewayResult.rawText.slice(lastDeltaText.length);
+              sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: remaining });
+            }
+
+            sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+
+            const resolvedBlocks = await resolveUIBlocks(gatewayResult.uiBlocks, deploymentId);
+            for (const block of resolvedBlocks) {
+              sendEvent(res, {
+                type: "UI_BLOCK_START",
+                blockId: block.id,
+                component: block.component,
+                messageId,
+                ...(block.editable ? { editable: true } : {}),
+                ...(block.fileId ? { fileId: block.fileId } : {}),
+                ...(block.saveMethod ? { saveMethod: block.saveMethod } : {}),
+              });
+              sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: block.id, props: block.props });
+              sendEvent(res, { type: "UI_BLOCK_END", blockId: block.id });
+            }
+
+            sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+            res.end();
+            return; // exec fallback succeeded
+          }
+        } catch (execErr: any) {
+          logger.warn({ deploymentId, error: execErr.message }, "Exec fallback also failed");
+          lastError = execErr;
         }
-      },
-      abortController.signal,
-    );
-
-    // If there's raw text we haven't streamed yet (e.g. final came without prior deltas), send it
-    if (gatewayResult.rawText.length > lastDeltaText.length) {
-      const remaining = gatewayResult.rawText.slice(lastDeltaText.length);
-      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: remaining });
+        continue;
+      }
+      break; // non-retryable error or last attempt
     }
-
-    sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-
-    // Resolve custom component references before emitting
-    logger.info(
-      { deploymentId, rawText: gatewayResult.rawText.slice(0, 500), blockCount: gatewayResult.uiBlocks.length },
-      "chatWithBot: gateway response summary"
-    );
-    const resolvedBlocks = await resolveUIBlocks(gatewayResult.uiBlocks, deploymentId);
-
-    // Emit UI block events — frontend strips raw jarble_ui markers from display
-    for (const block of resolvedBlocks) {
-      sendEvent(res, {
-        type: "UI_BLOCK_START",
-        blockId: block.id,
-        component: block.component,
-        messageId,
-        ...(block.editable ? { editable: true } : {}),
-        ...(block.fileId ? { fileId: block.fileId } : {}),
-        ...(block.saveMethod ? { saveMethod: block.saveMethod } : {}),
-      });
-      sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: block.id, props: block.props });
-      sendEvent(res, { type: "UI_BLOCK_END", blockId: block.id });
-    }
-
-    sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-    res.end();
-
-  } catch (err: any) {
-    if (err.name === "AbortError" || abortController.signal.aborted) return;
-
-    logger.error({ deploymentId, error: err.message }, "Gateway proxy error");
-    const messageId = nanoid();
-    sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
-    sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${err.message}` });
-    sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-    sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-    res.end();
   }
+
+  // All attempts failed
+  logger.error({ deploymentId, error: lastError?.message }, "Gateway proxy error (all attempts failed)");
+  sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${lastError?.message}` });
+  sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+  sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+  res.end();
 });

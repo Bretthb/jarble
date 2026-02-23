@@ -30,6 +30,20 @@ import CanvasMetricCard from "./components/CanvasMetricCard";
 import CanvasHeader from "./components/CanvasHeader";
 import CanvasButtonGroup from "./components/CanvasButtonGroup";
 import CanvasForm from "./components/CanvasForm";
+import CanvasGauge from "./components/CanvasGauge";
+import CanvasRadar from "./components/CanvasRadar";
+import CanvasTreemap from "./components/CanvasTreemap";
+import CanvasFunnel from "./components/CanvasFunnel";
+import CanvasWaterfall from "./components/CanvasWaterfall";
+import CanvasScatter from "./components/CanvasScatter";
+import CanvasSteps from "./components/CanvasSteps";
+import CanvasResult from "./components/CanvasResult";
+import CanvasTree from "./components/CanvasTree";
+import CanvasCalendarHeatmap from "./components/CanvasCalendarHeatmap";
+import CanvasDescriptions from "./components/CanvasDescriptions";
+import CanvasCodeEditor from "./components/CanvasCodeEditor";
+import CanvasMap from "./components/CanvasMap";
+import CanvasCarousel from "./components/CanvasCarousel";
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -227,6 +241,137 @@ export const formSchema = z.object({
   submitLabel: z.string().optional(),
 });
 
+export const gaugeSchema = z.object({
+  value: z.number().min(0).max(100),
+  title: z.string().optional(),
+  suffix: z.string().optional(),
+  color: z.string().optional(),
+});
+
+export const radarSchema = z.object({
+  data: z.array(z.object({
+    axis: z.string(),
+    value: z.number(),
+    group: z.string().optional(),
+  })),
+  title: z.string().optional(),
+});
+
+export const treemapSchema = z.object({
+  data: z.object({
+    name: z.string(),
+    children: z.array(z.object({
+      name: z.string(),
+      value: z.number(),
+    })),
+  }),
+  title: z.string().optional(),
+});
+
+export const funnelSchema = z.object({
+  data: z.array(z.object({
+    stage: z.string(),
+    value: z.number(),
+  })),
+  title: z.string().optional(),
+});
+
+export const waterfallSchema = z.object({
+  data: z.array(z.object({
+    label: z.string(),
+    value: z.number(),
+  })),
+  title: z.string().optional(),
+});
+
+export const scatterSchema = z.object({
+  data: z.array(z.object({
+    x: z.number(),
+    y: z.number(),
+    label: z.string().optional(),
+    group: z.string().optional(),
+  })),
+  title: z.string().optional(),
+  xLabel: z.string().optional(),
+  yLabel: z.string().optional(),
+});
+
+export const stepsSchema = z.object({
+  current: z.number(),
+  items: z.array(z.object({
+    title: z.string(),
+    description: z.string().optional(),
+    icon: z.string().optional(),
+  })),
+  direction: z.enum(["vertical", "horizontal"]).optional(),
+});
+
+export const resultSchema = z.object({
+  status: z.enum(["success", "error", "info", "warning"]),
+  title: z.string(),
+  subtitle: z.string().optional(),
+  extra: z.string().optional(),
+});
+
+const treeNodeSchema: z.ZodType<{ title: string; key: string; children?: unknown[] }> = z.object({
+  title: z.string(),
+  key: z.string(),
+  children: z.lazy(() => z.array(treeNodeSchema)).optional(),
+});
+
+export const treeSchema = z.object({
+  data: z.array(treeNodeSchema),
+  title: z.string().optional(),
+  defaultExpandAll: z.boolean().optional(),
+});
+
+export const calendarHeatmapSchema = z.object({
+  data: z.array(z.object({
+    date: z.string(),
+    value: z.number(),
+  })),
+  title: z.string().optional(),
+});
+
+export const descriptionsSchema = z.object({
+  title: z.string().optional(),
+  items: z.array(z.object({
+    label: z.string(),
+    value: z.union([z.string(), z.number()]),
+    span: z.number().optional(),
+  })),
+  columns: z.number().optional(),
+  bordered: z.boolean().optional(),
+});
+
+export const codeEditorSchema = z.object({
+  code: z.string(),
+  language: z.string().optional(),
+  title: z.string().optional(),
+  readOnly: z.boolean().optional(),
+  height: z.number().optional(),
+});
+
+export const mapSchema = z.object({
+  center: z.tuple([z.number(), z.number()]),
+  zoom: z.number().optional(),
+  markers: z.array(z.object({
+    lat: z.number(),
+    lng: z.number(),
+    label: z.string().optional(),
+  })).optional(),
+  title: z.string().optional(),
+});
+
+export const carouselSchema = z.object({
+  items: z.array(z.object({
+    title: z.string().optional(),
+    description: z.string().optional(),
+    image: z.string().optional(),
+  })),
+  autoplay: z.boolean().optional(),
+});
+
 // ── Registry ─────────────────────────────────────────────────────────────────
 
 export interface CanvasComponentEntry {
@@ -258,4 +403,18 @@ export const CANVAS_COMPONENTS: Record<string, CanvasComponentEntry> = {
   header: { component: CanvasHeader, propsSchema: headerSchema },
   button_group: { component: CanvasButtonGroup, propsSchema: buttonGroupSchema },
   form: { component: CanvasForm, propsSchema: formSchema },
+  gauge: { component: CanvasGauge, propsSchema: gaugeSchema },
+  radar: { component: CanvasRadar, propsSchema: radarSchema },
+  treemap: { component: CanvasTreemap, propsSchema: treemapSchema },
+  funnel: { component: CanvasFunnel, propsSchema: funnelSchema },
+  waterfall: { component: CanvasWaterfall, propsSchema: waterfallSchema },
+  scatter: { component: CanvasScatter, propsSchema: scatterSchema },
+  steps: { component: CanvasSteps, propsSchema: stepsSchema },
+  result: { component: CanvasResult, propsSchema: resultSchema },
+  tree: { component: CanvasTree, propsSchema: treeSchema },
+  calendar_heatmap: { component: CanvasCalendarHeatmap, propsSchema: calendarHeatmapSchema },
+  descriptions: { component: CanvasDescriptions, propsSchema: descriptionsSchema },
+  code_editor: { component: CanvasCodeEditor, propsSchema: codeEditorSchema },
+  map: { component: CanvasMap, propsSchema: mapSchema },
+  carousel: { component: CanvasCarousel, propsSchema: carouselSchema },
 };

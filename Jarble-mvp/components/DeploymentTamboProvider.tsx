@@ -7,12 +7,19 @@
  * Place this around the chat interface for a specific deployment.
  */
 
-import { useMemo, useState, useEffect } from "react";
+import { createContext, useContext, useMemo, useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { TamboProvider, type ContextHelpers } from "@tambo-ai/react";
 import { MCPTransport, TamboMcpProvider } from "@tambo-ai/react/mcp";
 import { tamboComponents, createTamboTools } from "@/lib/tambo";
 import { API_URL } from "@/lib/trpc";
+
+/** React context so child components (StreamingBotMessage) can read the real
+ *  deploymentId without relying on Tambo LLM to pass it correctly. */
+const DeploymentIdContext = createContext<string>("");
+export function useDeploymentId() {
+  return useContext(DeploymentIdContext);
+}
 
 const TAMBO_API_KEY = process.env.NEXT_PUBLIC_TAMBO_API_KEY!;
 
@@ -22,7 +29,7 @@ const AGENT_INSTRUCTIONS = `You are Jarble, a proxy between the user and their O
 
 ## CRITICAL RULE: Always render StreamingBotMessage
 Forward ALL user messages to the bot by rendering a StreamingBotMessage component.
-Pass \`message\` (the user's exact text) and \`deploymentId\` (from context).
+Pass \`message\` (the user's exact text). The deploymentId is resolved automatically — do NOT pass it.
 Do NOT use the chat_with_bot MCP tool — StreamingBotMessage handles everything including text streaming and rich UI block rendering.
 
 Exceptions (infrastructure the bot cannot do):
@@ -102,19 +109,21 @@ export default function DeploymentTamboProvider({
   );
 
   return (
-    <TamboProvider
-      apiKey={TAMBO_API_KEY}
-      userKey={user?.sub || "anonymous"}
-      components={tamboComponents}
-      tools={tools}
-      mcpServers={mcpServers}
-      contextHelpers={contextHelpers}
-      autoGenerateThreadName={false}
-      initialMessages={initialMessages}
-    >
-      <TamboMcpProvider>
-        {children}
-      </TamboMcpProvider>
-    </TamboProvider>
+    <DeploymentIdContext.Provider value={deploymentId}>
+      <TamboProvider
+        apiKey={TAMBO_API_KEY}
+        userKey={user?.sub || "anonymous"}
+        components={tamboComponents}
+        tools={tools}
+        mcpServers={mcpServers}
+        contextHelpers={contextHelpers}
+        autoGenerateThreadName={false}
+        initialMessages={initialMessages}
+      >
+        <TamboMcpProvider>
+          {children}
+        </TamboMcpProvider>
+      </TamboProvider>
+    </DeploymentIdContext.Provider>
   );
 }

@@ -31,6 +31,9 @@ const BUILTIN_COMPONENTS = [
   "chart", "tabs", "accordion", "badge", "list",
   "timeline", "divider", "avatar", "blockquote",
   "metric_card", "header", "button_group", "form",
+  "gauge", "radar", "treemap", "funnel", "waterfall", "scatter",
+  "steps", "result", "tree", "calendar_heatmap", "descriptions",
+  "code_editor", "map", "carousel",
 ];
 
 const BUILTIN_DESCRIPTIONS = {
@@ -56,6 +59,20 @@ const BUILTIN_DESCRIPTIONS = {
   header: "Section heading with optional subtitle and divider",
   button_group: "Row of action buttons that dispatch UI_ACTION callbacks on click",
   form: "Input form with text, email, textarea, select, checkbox, number fields — dispatches UI_ACTION on submit",
+  gauge: "Gauge/speedometer chart showing a value 0-100",
+  radar: "Radar/spider chart with multiple axes",
+  treemap: "Treemap visualization showing hierarchical data by area",
+  funnel: "Conversion funnel chart with stages and values",
+  waterfall: "Waterfall chart showing cumulative gains/losses",
+  scatter: "Scatter plot with x/y coordinates and optional grouping",
+  steps: "Process/wizard steps indicator with current step highlight",
+  result: "Outcome display (success, error, info, warning) with title and subtitle",
+  tree: "Hierarchical tree view with expandable nodes",
+  calendar_heatmap: "Calendar heatmap showing date-value data as colored cells",
+  descriptions: "Labeled description list (key-value pairs in bordered table)",
+  code_editor: "Monaco code editor with syntax highlighting",
+  map: "Interactive Leaflet map with markers and popups",
+  carousel: "Image/content carousel with optional autoplay",
 };
 
 // ── Component resolver ─────────────────────────────────────────────────
@@ -158,7 +175,7 @@ function listCustomComponents() {
 const TOOLS = [
   {
     name: "render_ui",
-    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, avatar, blockquote, metric_card, header, button_group, form) and custom bot-defined components. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
+    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, avatar, blockquote, metric_card, header, button_group, form, gauge, radar, treemap, funnel, waterfall, scatter, steps, result, tree, calendar_heatmap, descriptions, code_editor, map, carousel) and custom bot-defined components. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
     inputSchema: {
       type: "object",
       properties: {

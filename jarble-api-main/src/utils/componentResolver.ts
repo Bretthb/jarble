@@ -30,6 +30,20 @@ export const BUILTIN_COMPONENTS = new Set([
   "header",
   "button_group",
   "form",
+  "gauge",
+  "radar",
+  "treemap",
+  "funnel",
+  "waterfall",
+  "scatter",
+  "steps",
+  "result",
+  "tree",
+  "calendar_heatmap",
+  "descriptions",
+  "code_editor",
+  "map",
+  "carousel",
 ]);
 
 // ── Types ──────────────────────────────────────────────────────────────────

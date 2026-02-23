@@ -79,6 +79,26 @@ Each block is one JSON object with \`component\` (name) and \`props\` (component
 - \`header\` — \`{title, subtitle?, level?: 1|2|3, divider?}\`
 - \`layout\` — \`{title?, children: [{component, props}]}\` — container for nesting
 
+**Advanced Charts:**
+- \`gauge\` — \`{value: 0-100, title?, suffix?, color?}\` — gauge/speedometer
+- \`radar\` — \`{data: [{axis, value, group?}], title?}\` — radar/spider chart
+- \`treemap\` — \`{data: {name, children: [{name, value}]}, title?}\` — treemap
+- \`funnel\` — \`{data: [{stage, value}], title?}\` — conversion funnel
+- \`waterfall\` — \`{data: [{label, value}], title?}\` — waterfall chart
+- \`scatter\` — \`{data: [{x, y, label?, group?}], title?, xLabel?, yLabel?}\` — scatter plot
+
+**Advanced UI:**
+- \`steps\` — \`{current: number, items: [{title, description?, icon?}], direction?: vertical|horizontal}\` — process steps
+- \`result\` — \`{status: success|error|info|warning, title, subtitle?}\` — outcome display
+- \`tree\` — \`{data: [{title, key, children?}], title?, defaultExpandAll?}\` — tree view
+- \`calendar_heatmap\` — \`{data: [{date, value}], title?}\` — calendar heatmap
+- \`descriptions\` — \`{title?, items: [{label, value, span?}], columns?, bordered?}\` — description list
+- \`carousel\` — \`{items: [{title?, description?, image?}], autoplay?}\` — content carousel
+
+**Specialized:**
+- \`code_editor\` — \`{code, language?, title?, readOnly?, height?}\` — Monaco code editor
+- \`map\` — \`{center: [lat, lng], zoom?, markers?: [{lat, lng, label?}], title?}\` — interactive map
+
 **Interactive:**
 - \`button_group\` — \`{buttons: [{id, label, variant?, icon?, disabled?}]}\`
 - \`form\` — \`{title?, fields: [{name, label, type: text|email|textarea|select|checkbox|number, placeholder?, required?, options?, defaultValue?}], submitLabel?}\`
