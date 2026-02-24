@@ -44,6 +44,28 @@ export const BUILTIN_COMPONENTS = new Set([
   "code_editor",
   "map",
   "carousel",
+  "stock",
+  "sankey",
+  "sunburst",
+  "heatmap",
+  "wordcloud",
+  "histogram",
+  "box",
+  "liquid",
+  "rose",
+  "dual_axes",
+  "bullet",
+  "radial_bar",
+  "venn",
+  "circle_packing",
+  "statistic",
+  "tag_cloud",
+  "video",
+  "image_gallery",
+  "audio",
+  "spreadsheet",
+  "sandbox",
+  "canvas", // alias for sandbox
 ]);
 
 // ── Types ──────────────────────────────────────────────────────────────────

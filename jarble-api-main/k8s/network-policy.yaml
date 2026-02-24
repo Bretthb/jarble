@@ -17,8 +17,8 @@
 #
 # Blocked:
 #   - Cloud metadata (169.254.0.0/16)
-#   - Private networks (10.x, 172.16.x, 192.168.x)
-#   - Random internal cluster services
+#   - K8s API server (10.43.0.1/32 — default K3s ClusterIP)
+#   - Localhost (127.0.0.0/8)
 #
 # Apply with: kubectl apply -f network-policy.yaml
 # ═══════════════════════════════════════════════════════════════════════
@@ -29,24 +29,26 @@ metadata:
   name: bot-pod-network-policy
   namespace: jarble
 spec:
-  # Apply to all bot deployment pods (they have labels like app=dep-xxx)
+  # Apply only to bot deployment pods (jarble-api is excluded)
   podSelector:
-    matchLabels: {}  # All pods in namespace (refine with matchExpressions if needed)
+    matchLabels:
+      jarble.ai/type: bot
   policyTypes:
     - Ingress
     - Egress
 
   # ── Ingress Rules ─────────────────────────────────────────────────────
-  # Allow inbound from other bots in the agent network.
+  # Allow inbound only from bots that are part of the agent network.
   # Note: jarble-api uses exec (bypasses NetworkPolicy), so no rule needed for that.
   ingress:
-    # Allow inbound from other bots (agent-to-agent)
+    # Allow inbound from agent-network bots only (not all bots)
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: jarble
           podSelector:
-            matchLabels: {}  # Any pod in jarble namespace
+            matchLabels:
+              jarble.ai/agent-network: "true"
       ports:
         - protocol: TCP
           port: 18789  # OpenClaw gateway
@@ -103,11 +105,9 @@ spec:
           port: 18789  # OpenClaw gateway port
 
     # 5. Allow HTTPS/HTTP to external APIs (LLMs, messaging platforms)
-    #    Only block dangerous ranges; internal services are allowed via explicit rules above
-    #    NOTE: We do NOT block 10.0.0.0/8 etc. because:
-    #      - Cluster services (kube-dns, jarble-api, MCP servers) use those ranges
-    #      - Hetzner private networks use 10.x ranges
-    #      - Specific allow rules above already restrict internal access appropriately
+    #    Internal services (kube-dns, jarble-api, MCP) are allowed via explicit rules above.
+    #    We block the K8s API server to prevent unauthenticated probing.
+    #    NOTE: We do NOT block all of 10.0.0.0/8 because Hetzner private networks use 10.x.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -115,8 +115,10 @@ spec:
               # Block cloud metadata services (security critical)
               - 169.254.169.254/32  # AWS/GCP/Azure metadata endpoint
               - 169.254.0.0/16      # Link-local addresses
-              # Block localhost (no reason for pod to call itself externally)
+              # Block localhost
               - 127.0.0.0/8
+              # Block K8s API server (default K3s ClusterIP for kubernetes.default.svc)
+              - 10.43.0.1/32
       ports:
         - protocol: TCP
           port: 443  # HTTPS (LLM APIs, platform APIs)
@@ -131,6 +133,7 @@ spec:
               - 169.254.169.254/32  # Cloud metadata
               - 169.254.0.0/16      # Link-local
               - 127.0.0.0/8         # Localhost
+              - 10.43.0.1/32        # K8s API server
       ports:
         - protocol: TCP
           port: 5222  # XMPP (WhatsApp)

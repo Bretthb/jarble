@@ -11,8 +11,8 @@
  * the action is sent as a follow-up message to the bot and the response
  * is appended below.
  *
- * StrictMode safety: uses a `cancelled` flag so the first (doomed) effect
- * run silently drops its state updates; only the second run renders.
+ * StrictMode safety: uses an AbortController so the first (doomed) effect
+ * run's fetch is aborted on cleanup; only the second run streams.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -37,33 +37,52 @@ async function consumeSSE(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   onText: (fullText: string) => void,
   onBlock: (block: UIBlock) => void,
+  signal: AbortSignal,
 ) {
   const decoder = new TextDecoder();
   let buffer = "";
   let fullText = "";
+  let eventCount = 0;
+  let textChunks = 0;
   const pendingBlocks = new Map<string, UIBlock>();
 
-  while (true) {
+  console.log("[Jarble:SSE] consumeSSE started");
+
+  while (!signal.aborted) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      console.log("[Jarble:SSE] Stream reader done — total events:", eventCount, "text chunks:", textChunks);
+      break;
+    }
 
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
     buffer = lines.pop() || "";
 
+    let finished = false;
     for (const line of lines) {
+      if (signal.aborted) {
+        console.log("[Jarble:SSE] Aborted mid-parse");
+        break;
+      }
+
       const trimmed = line.trim();
       if (!trimmed.startsWith("data: ")) continue;
 
       try {
         const event = JSON.parse(trimmed.slice(6));
+        eventCount++;
 
         if (event.type === "TEXT_MESSAGE_CONTENT" && event.delta) {
+          textChunks++;
           fullText += event.delta;
           onText(stripUIMarkers(fullText));
-        }
-
-        if (event.type === "UI_BLOCK_START") {
+          // Log every 5th text chunk to avoid console spam
+          if (textChunks % 5 === 1) {
+            console.log("[Jarble:SSE] TEXT delta #" + textChunks + " — total length:", fullText.length, "chars");
+          }
+        } else if (event.type === "UI_BLOCK_START") {
+          console.log("[Jarble:SSE] UI_BLOCK_START:", event.blockId, "component:", event.component, "editable:", event.editable, "fileId:", event.fileId, "saveMethod:", event.saveMethod);
           pendingBlocks.set(event.blockId, {
             id: event.blockId,
             component: event.component,
@@ -72,27 +91,49 @@ async function consumeSSE(
             ...(event.fileId ? { fileId: event.fileId } : {}),
             ...(event.saveMethod ? { saveMethod: event.saveMethod } : {}),
           });
-        }
-
-        if (event.type === "UI_BLOCK_PROPS") {
-          const block = pendingBlocks.get(event.blockId);
-          if (block) block.props = event.props;
-        }
-
-        if (event.type === "UI_BLOCK_END") {
+        } else if (event.type === "UI_BLOCK_PROPS") {
           const block = pendingBlocks.get(event.blockId);
           if (block) {
+            const propsKeys = Object.keys(event.props || {});
+            const propsSize = JSON.stringify(event.props).length;
+            console.log("[Jarble:SSE] UI_BLOCK_PROPS:", event.blockId, "keys:", propsKeys, "size:", propsSize, "bytes");
+            // Log full props for sandbox (most complex), truncate for others
+            if (block.component === "sandbox") {
+              console.log("[Jarble:SSE] Sandbox props — html:", (event.props?.html || "").length, "chars, js:", (event.props?.js || "").length, "chars, css:", (event.props?.css || "").length, "chars, libraries:", event.props?.libraries);
+            } else {
+              console.log("[Jarble:SSE] UI_BLOCK_PROPS detail:", event.props);
+            }
+            block.props = event.props;
+          } else {
+            console.warn("[Jarble:SSE] UI_BLOCK_PROPS for unknown blockId:", event.blockId);
+          }
+        } else if (event.type === "UI_BLOCK_END") {
+          const block = pendingBlocks.get(event.blockId);
+          if (block) {
+            console.log("[Jarble:SSE] UI_BLOCK_END:", event.blockId, "component:", block.component, "props keys:", Object.keys(block.props));
             onBlock({ ...block });
             onText(stripUIMarkers(fullText));
             pendingBlocks.delete(event.blockId);
+          } else {
+            console.warn("[Jarble:SSE] UI_BLOCK_END for unknown blockId:", event.blockId);
           }
+        } else if (event.type === "RUN_FINISHED") {
+          console.log("[Jarble:SSE] RUN_FINISHED — stream complete. Total events:", eventCount, "text chunks:", textChunks, "pending blocks:", pendingBlocks.size);
+          finished = true;
+          break;
+        } else {
+          // Log any unrecognized event types
+          console.log("[Jarble:SSE] Event type:", event.type, "data:", JSON.stringify(event).slice(0, 200));
         }
-
-        if (event.type === "RUN_FINISHED") break;
-      } catch {
-        // Skip malformed JSON lines
+      } catch (e) {
+        console.warn("[Jarble:SSE] Malformed JSON line:", trimmed.slice(0, 100), "error:", e);
       }
     }
+    if (finished) break;
+  }
+
+  if (signal.aborted) {
+    console.log("[Jarble:SSE] consumeSSE ended (aborted) — events:", eventCount);
   }
 }
 
@@ -117,35 +158,54 @@ export default function StreamingBotMessage({
   // Ref to track follow-up text separately (appended after initial response)
   const followUpTextRef = useRef("");
 
+  // Stable ref for deploymentId so in-flight streams always use the current value
+  const deploymentIdRef = useRef(deploymentId);
+  deploymentIdRef.current = deploymentId;
+
+  // AbortController ref for cancelling the active stream (initial mount or follow-ups)
+  const abortRef = useRef<AbortController | null>(null);
+
   /** Send a message to the bot via SSE and accumulate results into state. */
   const sendToBot = useCallback(
-    async (msg: string, opts?: { append?: boolean }) => {
+    async (msg: string, opts?: { append?: boolean; signal?: AbortSignal }) => {
+      const msgPreview = msg.length > 80 ? msg.slice(0, 80) + "..." : msg;
+      console.log("[Jarble:SSE] sendToBot called —", opts?.append ? "FOLLOW-UP" : "INITIAL", "— deploymentId:", deploymentIdRef.current, "— message:", msgPreview);
+
       setIsStreaming(true);
       setError(null);
 
+      const signal = opts?.signal;
+
       try {
         const token = await getAccessTokenSilently();
+        const url = `${API_URL}/api/tambo-agent`;
+        console.log("[Jarble:SSE] Fetching:", url);
 
-        const res = await fetch(`${API_URL}/api/tambo-agent`, {
+        const res = await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            deploymentId,
+            deploymentId: deploymentIdRef.current,
             messages: [{ role: "user", content: msg }],
           }),
+          signal,
         });
+
+        console.log("[Jarble:SSE] Response:", res.status, res.statusText, "content-type:", res.headers.get("content-type"));
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "Request failed");
+          console.error("[Jarble:SSE] HTTP error:", res.status, errText.slice(0, 200));
           setError(errText);
           return;
         }
 
         const reader = res.body?.getReader();
         if (!reader) {
+          console.error("[Jarble:SSE] No response body reader");
           setError("No response stream");
           return;
         }
@@ -153,6 +213,7 @@ export default function StreamingBotMessage({
         if (opts?.append) {
           // For follow-ups, append a separator
           followUpTextRef.current += "\n\n---\n\n";
+          console.log("[Jarble:SSE] Appending follow-up separator");
         }
 
         await consumeSSE(
@@ -166,41 +227,62 @@ export default function StreamingBotMessage({
             }
           },
           (block) => {
+            console.log("[Jarble:SSE] Block received for rendering:", block.component, "id:", block.id, "editable:", block.editable);
             setUiBlocks((prev) => [...prev, block]);
           },
+          signal ?? new AbortController().signal,
         );
+        console.log("[Jarble:SSE] sendToBot complete");
       } catch (err: unknown) {
-        if (err instanceof Error && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") {
+          console.log("[Jarble:SSE] Fetch aborted (cleanup)");
+          return;
+        }
+        console.error("[Jarble:SSE] sendToBot error:", err);
         setError("Something went wrong. Please try again.");
       } finally {
         setIsStreaming(false);
       }
     },
-    [deploymentId, getAccessTokenSilently],
+    [getAccessTokenSilently],
   );
 
   /** Handle interactive UI block actions (button clicks, option selects). */
   const handleAction = useCallback(
     (action: CanvasAction) => {
-      if (isStreaming) return; // ignore clicks while streaming
+      console.log("[Jarble:Action] UI action received:", action.component, "→", action.action, "blockId:", action.blockId, "payload:", action.payload);
+      if (isStreaming) {
+        console.log("[Jarble:Action] Ignored — currently streaming");
+        return;
+      }
+
+      // Abort any previous follow-up stream before starting a new one
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       const actionMsg = `[UI_ACTION] blockId=${action.blockId} component=${action.component} action=${action.action}\n${JSON.stringify(action.payload)}`;
-      sendToBot(actionMsg, { append: true });
+      console.log("[Jarble:Action] Sending follow-up:", actionMsg.slice(0, 120));
+      sendToBot(actionMsg, { append: true, signal: controller.signal });
     },
     [sendToBot, isStreaming],
   );
 
-  // Initial message on mount
+  // Initial message on mount — abort on cleanup (StrictMode + unmount safety)
   useEffect(() => {
-    let cancelled = false;
+    console.log("[Jarble:SSE] useEffect mount — message:", message?.slice(0, 60), "deploymentId:", deploymentId);
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-    sendToBot(message).then(() => {
-      // noop — state already updated inside sendToBot
-    }).catch(() => {
-      if (!cancelled) setError("Something went wrong. Please try again.");
+    sendToBot(message, { signal: controller.signal }).catch(() => {
+      if (!controller.signal.aborted) {
+        setError("Something went wrong. Please try again.");
+      }
     });
 
     return () => {
-      cancelled = true;
+      console.log("[Jarble:SSE] useEffect cleanup — aborting stream");
+      controller.abort();
     };
   }, [message, sendToBot]);
 
@@ -242,6 +324,7 @@ export default function StreamingBotMessage({
       {/* Rendered UI blocks */}
       {uiBlocks.map((block) => {
         const isEditable = block.editable !== false;
+        console.log("[Jarble:Render] Block:", block.component, "id:", block.id, "editable:", isEditable, "→", isEditable ? "EditableCanvas" : "CanvasRenderer");
         return isEditable ? (
           <EditableCanvas
             key={block.id}

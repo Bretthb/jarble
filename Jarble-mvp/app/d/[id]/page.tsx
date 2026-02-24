@@ -354,16 +354,26 @@ function TamboMessageBubble({
       </div>
 
       <div className={`flex-1 ${isUser ? "text-right" : ""} space-y-3`}>
-        {message.content.map((block, i) => (
-          <ContentBlock
-            key={`${message.id}-${i}`}
-            block={block}
-            isUser={isUser}
-            threadId={threadId}
-            messageId={message.id}
-            deploymentId={deploymentId}
-          />
-        ))}
+        {(() => {
+          // If an assistant message contains a StreamingBotMessage component,
+          // suppress text blocks to avoid duplicate rendering — the component
+          // streams and displays the bot response on its own.
+          const hasStreamingComponent = !isUser && message.content.some(
+            (b) => b.type === "component" && (b as any).name === "StreamingBotMessage"
+          );
+          return message.content
+            .filter((block) => !(hasStreamingComponent && block.type === "text"))
+            .map((block, i) => (
+              <ContentBlock
+                key={`${message.id}-${i}`}
+                block={block}
+                isUser={isUser}
+                threadId={threadId}
+                messageId={message.id}
+                deploymentId={deploymentId}
+              />
+            ));
+        })()}
       </div>
     </div>
   );

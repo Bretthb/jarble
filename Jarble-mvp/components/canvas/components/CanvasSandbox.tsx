@@ -1,0 +1,295 @@
+"use client";
+
+import { useEffect, useRef, useCallback, useState } from "react";
+import { useCanvasAction } from "../CanvasActionContext";
+
+export interface CanvasSandboxProps {
+  html: string;
+  css?: string;
+  js?: string;
+  props?: Record<string, unknown>;
+  height?: number;
+  title?: string;
+  /** CDN libraries to load (e.g. ["https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"]) */
+  libraries?: string[];
+}
+
+/** Escape a string for safe use inside an HTML attribute (double-quoted). */
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Sanitize the html prop: extract inline <script> content into JS,
+ * extract <script src> URLs into libraries, strip structural tags.
+ * LLMs often dump full HTML documents into the html prop — this normalizes them.
+ */
+function sanitizeHtmlProp(
+  html: string,
+  existingJs: string | undefined,
+  existingLibs: string[] | undefined,
+): { html: string; js: string; libraries: string[] } {
+  let cleanHtml = html;
+  const extractedJs: string[] = [];
+  const extractedLibs: string[] = [...(existingLibs || [])];
+
+  // Extract <script src="..."> tags → libraries
+  cleanHtml = cleanHtml.replace(/<script\s+[^>]*src=["']([^"']+)["'][^>]*>\s*<\/script>/gi, (_match, url) => {
+    console.log("[Jarble:Sandbox] Extracted <script src> from html →", url);
+    if (!extractedLibs.includes(url)) extractedLibs.push(url);
+    return "";
+  });
+
+  // Extract inline <script>...</script> → js
+  cleanHtml = cleanHtml.replace(/<script[^>]*>([\s\S]*?)<\/script>/gi, (_match, code) => {
+    const trimmed = (code as string).trim();
+    if (trimmed) {
+      console.log("[Jarble:Sandbox] Extracted inline <script> from html →", trimmed.length, "chars");
+      extractedJs.push(trimmed);
+    }
+    return "";
+  });
+
+  // Extract <style>...</style> (handled by css prop but sometimes in html)
+  cleanHtml = cleanHtml.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, "");
+
+  // Strip structural tags
+  cleanHtml = cleanHtml
+    .replace(/<!DOCTYPE[^>]*>/gi, "")
+    .replace(/<\/?html[^>]*>/gi, "")
+    .replace(/<\/?head[^>]*>/gi, "")
+    .replace(/<\/?body[^>]*>/gi, "")
+    .replace(/<meta[^>]*>/gi, "")
+    .trim();
+
+  // Combine JS: existing js prop takes priority, extracted JS appended
+  const allJs = [existingJs, ...extractedJs].filter(Boolean).join("\n");
+
+  if (extractedJs.length > 0 || extractedLibs.length > (existingLibs?.length || 0)) {
+    console.log("[Jarble:Sandbox] Sanitized html prop — extracted", extractedJs.length, "script blocks,", extractedLibs.length - (existingLibs?.length || 0), "library URLs");
+  }
+
+  return { html: cleanHtml, js: allJs, libraries: extractedLibs };
+}
+
+/**
+ * Build the full HTML document for the sandbox iframe.
+ *
+ * Rendered via srcdoc — without allow-same-origin the iframe gets a unique
+ * opaque origin and CANNOT access the parent page's DOM, cookies, or storage.
+ */
+function buildDocument(
+  html: string,
+  css: string | undefined,
+  js: string | undefined,
+  libraries: string[] | undefined,
+): string {
+  // Sanitize and JSON-encode library URLs for dynamic loading
+  const safeLibs = (libraries || [])
+    .filter((url) => /^https?:\/\//.test(url));
+  const libsJson = JSON.stringify(safeLibs);
+
+  const csp = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-src 'none'";
+
+  const themeCSS = `
+    :root { color-scheme: light dark; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; padding: 8px; background: transparent; }
+  `;
+
+  // User JS is executed AFTER all libraries are dynamically loaded
+  const escapedJs = js || "";
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${escapeAttr(csp)}">
+<style>${themeCSS}\n${css || ""}</style>
+</head>
+<body>
+${html}
+<script>
+// Error overlay — show errors visually so they're not silent
+window.onerror = function(msg, src, line, col, err) {
+  console.error("[Jarble:Sandbox] Error:", msg, src, line, col);
+  var d = document.createElement("div");
+  d.style.cssText = "position:fixed;top:0;left:0;right:0;padding:8px 12px;background:#fee;color:#c00;font:12px monospace;z-index:99999;white-space:pre-wrap;border-bottom:2px solid #c00";
+  d.textContent = "Error: " + msg + "\\n" + (src||"") + ":" + line + ":" + col;
+  document.body.prepend(d);
+};
+console.log("[Jarble:Sandbox] iframe document loaded");
+// Bridge: receive props from parent
+window.__JARBLE_PROPS__ = {};
+window.addEventListener("message", function(e) {
+  if (e.data && e.data.type === "jarble:props") {
+    console.log("[Jarble:Sandbox] Received props:", Object.keys(e.data.props || {}));
+    window.__JARBLE_PROPS__ = e.data.props || {};
+    window.dispatchEvent(new CustomEvent("jarble:props", { detail: e.data.props }));
+  }
+});
+// Bridge: send callbacks to parent
+window.jarble = {
+  send: function(action, payload) {
+    console.log("[Jarble:Sandbox] Sending action:", action, payload);
+    parent.postMessage({ type: "jarble:action", action: action, payload: payload }, "*");
+  }
+};
+// Dynamic library loader — guarantees scripts are fully loaded before user JS runs
+(function() {
+  var libs = ${libsJson};
+  var loaded = 0;
+  console.log("[Jarble:Sandbox] Loading " + libs.length + " libraries:", libs);
+  function onReady() {
+    console.log("[Jarble:Sandbox] All libraries loaded, executing user JS (" + ${JSON.stringify(escapedJs.length)} + " chars)");
+    parent.postMessage({ type: "jarble:ready" }, "*");
+    try { ${escapedJs} } catch(e) { console.error("[Jarble:Sandbox] User JS error:", e); window.onerror(e.message, "", 0, 0, e); }
+  }
+  if (libs.length === 0) { console.log("[Jarble:Sandbox] No libraries, running immediately"); return onReady(); }
+  libs.forEach(function(url) {
+    var s = document.createElement("script");
+    s.src = url;
+    s.onload = function() { console.log("[Jarble:Sandbox] Loaded:", url); if (++loaded >= libs.length) onReady(); };
+    s.onerror = function() { console.error("[Jarble:Sandbox] FAILED to load:", url); if (++loaded >= libs.length) onReady(); };
+    document.head.appendChild(s);
+  });
+})();
+<\/script>
+</body>
+</html>`;
+}
+
+export default function CanvasSandbox({
+  html,
+  css,
+  js,
+  props,
+  height = 400,
+  title,
+  libraries,
+}: CanvasSandboxProps) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const readyRef = useRef(false);
+  const [stopped, setStopped] = useState(false);
+  const { dispatch } = useCanvasAction();
+
+  // Sanitize: extract any <script>/<style>/structural tags from html prop
+  const sanitized = sanitizeHtmlProp(html, js, libraries);
+
+  // Build srcdoc string — changes when content changes
+  const srcdoc = buildDocument(sanitized.html, css, sanitized.js, sanitized.libraries);
+
+  console.log("[Jarble:Sandbox] Render — html:", html?.length, "chars, css:", css?.length || 0, "chars, js:", js?.length || 0, "chars, libraries:", libraries);
+
+  // Reset ready state when content changes (iframe will reload)
+  useEffect(() => {
+    console.log("[Jarble:Sandbox] Content changed, resetting ready state");
+    readyRef.current = false;
+  }, [html, css, js, libraries]);
+
+  // Listen for ready signal and actions from iframe
+  const handleMessage = useCallback(
+    (e: MessageEvent) => {
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      if (e.data?.type === "jarble:ready") {
+        console.log("[Jarble:Sandbox] iframe ready, sending initial props");
+        readyRef.current = true;
+        if (props) {
+          iframeRef.current?.contentWindow?.postMessage(
+            { type: "jarble:props", props },
+            "*",
+          );
+        }
+      }
+      if (e.data?.type === "jarble:action") {
+        console.log("[Jarble:Sandbox] Action received:", e.data.action, e.data.payload);
+        dispatch({
+          action: String(e.data.action || "sandbox_action"),
+          payload: (e.data.payload && typeof e.data.payload === "object") ? e.data.payload : {},
+        });
+      }
+    },
+    [props, dispatch],
+  );
+
+  useEffect(() => {
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [handleMessage]);
+
+  // Send updated props when they change
+  useEffect(() => {
+    if (readyRef.current && iframeRef.current?.contentWindow && props) {
+      iframeRef.current.contentWindow.postMessage(
+        { type: "jarble:props", props },
+        "*",
+      );
+    }
+  }, [props]);
+
+  const handleStop = useCallback(() => {
+    if (stopped) {
+      // Restart — un-stop so the iframe re-renders with srcdoc
+      setStopped(false);
+      console.log("[Jarble:Sandbox] Restarted");
+    } else {
+      // Stop — remove the iframe srcdoc to kill all JS execution
+      setStopped(true);
+      readyRef.current = false;
+      console.log("[Jarble:Sandbox] Stopped — iframe destroyed");
+    }
+  }, [stopped]);
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        {title ? (
+          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        ) : (
+          <span />
+        )}
+        <button
+          onClick={handleStop}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors bg-card border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+        >
+          {stopped ? (
+            <>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M3 2L10 6L3 10V2Z" fill="currentColor"/>
+              </svg>
+              Restart
+            </>
+          ) : (
+            <>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="2" width="8" height="8" rx="1" fill="currentColor"/>
+              </svg>
+              Stop
+            </>
+          )}
+        </button>
+      </div>
+      {stopped ? (
+        <div
+          className="flex items-center justify-center rounded-lg bg-muted/50 text-muted-foreground text-sm"
+          style={{ width: "100%", height }}
+        >
+          Sandbox stopped — click Restart to resume
+        </div>
+      ) : (
+        <iframe
+          ref={iframeRef}
+          srcDoc={srcdoc}
+          sandbox="allow-scripts allow-popups"
+          style={{
+            width: "100%",
+            height,
+            border: "none",
+            borderRadius: 8,
+            background: "transparent",
+          }}
+        />
+      )}
+    </div>
+  );
+}

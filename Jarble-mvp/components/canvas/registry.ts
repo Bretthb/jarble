@@ -44,6 +44,27 @@ import CanvasDescriptions from "./components/CanvasDescriptions";
 import CanvasCodeEditor from "./components/CanvasCodeEditor";
 import CanvasMap from "./components/CanvasMap";
 import CanvasCarousel from "./components/CanvasCarousel";
+import CanvasStock from "./components/CanvasStock";
+import CanvasSankey from "./components/CanvasSankey";
+import CanvasSunburst from "./components/CanvasSunburst";
+import CanvasHeatmap from "./components/CanvasHeatmap";
+import CanvasWordCloud from "./components/CanvasWordCloud";
+import CanvasHistogram from "./components/CanvasHistogram";
+import CanvasBox from "./components/CanvasBox";
+import CanvasLiquid from "./components/CanvasLiquid";
+import CanvasRose from "./components/CanvasRose";
+import CanvasDualAxes from "./components/CanvasDualAxes";
+import CanvasBullet from "./components/CanvasBullet";
+import CanvasRadialBar from "./components/CanvasRadialBar";
+import CanvasVenn from "./components/CanvasVenn";
+import CanvasCirclePacking from "./components/CanvasCirclePacking";
+import CanvasStatistic from "./components/CanvasStatistic";
+import CanvasTagCloud from "./components/CanvasTagCloud";
+import CanvasVideo from "./components/CanvasVideo";
+import CanvasImageGallery from "./components/CanvasImageGallery";
+import CanvasAudio from "./components/CanvasAudio";
+import CanvasSpreadsheet from "./components/CanvasSpreadsheet";
+import CanvasSandbox from "./components/CanvasSandbox";
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -173,14 +194,41 @@ export const listSchema = z.object({
 
 export const timelineSchema = z.object({
   title: z.string().optional(),
+  // Accept "items" as alias for "events" (LLMs often use "items")
   events: z.array(z.object({
-    label: z.string(),
+    // Accept "title" as alias for "label" (LLMs often use "title")
+    label: z.string().optional(),
+    title: z.string().optional(),
     description: z.string().optional(),
     timestamp: z.string().optional(),
+    // Accept "date" as alias for "timestamp"
+    date: z.string().optional(),
     icon: z.string().optional(),
     status: z.enum(["completed", "active", "pending"]).optional(),
-  })),
-});
+    color: z.string().optional(),
+  }).transform((e) => ({
+    ...e,
+    label: e.label || e.title || "Untitled",
+    timestamp: e.timestamp || e.date,
+  }))).optional(),
+  items: z.array(z.object({
+    label: z.string().optional(),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    timestamp: z.string().optional(),
+    date: z.string().optional(),
+    icon: z.string().optional(),
+    status: z.enum(["completed", "active", "pending"]).optional(),
+    color: z.string().optional(),
+  }).transform((e) => ({
+    ...e,
+    label: e.label || e.title || "Untitled",
+    timestamp: e.timestamp || e.date,
+  }))).optional(),
+}).transform((data) => ({
+  ...data,
+  events: data.events || data.items || [],
+}));
 
 export const dividerSchema = z.object({
   label: z.string().optional(),
@@ -372,6 +420,190 @@ export const carouselSchema = z.object({
   autoplay: z.boolean().optional(),
 });
 
+export const stockSchema = z.object({
+  data: z.array(z.object({
+    date: z.string(),
+    open: z.number(),
+    close: z.number(),
+    high: z.number(),
+    low: z.number(),
+  })),
+  title: z.string().optional(),
+});
+
+export const sankeySchema = z.object({
+  data: z.array(z.object({
+    source: z.string(),
+    target: z.string(),
+    value: z.number(),
+  })),
+  title: z.string().optional(),
+});
+
+export const sunburstSchema = z.object({
+  data: z.object({
+    name: z.string(),
+    children: z.array(z.object({
+      name: z.string(),
+      value: z.number().optional(),
+      children: z.array(z.unknown()).optional(),
+    })),
+  }),
+  title: z.string().optional(),
+});
+
+export const heatmapSchema = z.object({
+  data: z.array(z.object({
+    x: z.string(),
+    y: z.string(),
+    value: z.number(),
+  })),
+  title: z.string().optional(),
+});
+
+export const wordcloudSchema = z.object({
+  data: z.array(z.object({
+    text: z.string(),
+    value: z.number(),
+  })),
+  title: z.string().optional(),
+});
+
+export const histogramSchema = z.object({
+  data: z.array(z.object({
+    value: z.number(),
+  })),
+  title: z.string().optional(),
+  binWidth: z.number().optional(),
+});
+
+export const boxSchema = z.object({
+  data: z.array(z.object({
+    group: z.string(),
+    value: z.number(),
+  })),
+  title: z.string().optional(),
+});
+
+export const liquidSchema = z.object({
+  value: z.number().min(0).max(1),
+  title: z.string().optional(),
+  color: z.string().optional(),
+});
+
+export const roseSchema = z.object({
+  data: z.array(z.object({
+    category: z.string(),
+    value: z.number(),
+  })),
+  title: z.string().optional(),
+});
+
+export const dualAxesSchema = z.object({
+  data: z.array(z.record(z.string(), z.unknown())),
+  title: z.string().optional(),
+  xField: z.string().optional(),
+  yFields: z.tuple([z.string(), z.string()]).optional(),
+});
+
+export const bulletSchema = z.object({
+  data: z.array(z.object({
+    title: z.string(),
+    ranges: z.array(z.number()),
+    measures: z.array(z.number()),
+    target: z.number(),
+  })),
+  title: z.string().optional(),
+});
+
+export const radialBarSchema = z.object({
+  data: z.array(z.object({
+    name: z.string(),
+    value: z.number(),
+  })),
+  title: z.string().optional(),
+});
+
+export const vennSchema = z.object({
+  data: z.array(z.object({
+    sets: z.array(z.string()),
+    size: z.number(),
+    label: z.string().optional(),
+  })),
+  title: z.string().optional(),
+});
+
+export const circlePackingSchema = z.object({
+  data: z.object({
+    name: z.string(),
+    children: z.array(z.object({
+      name: z.string(),
+      value: z.number().optional(),
+      children: z.array(z.unknown()).optional(),
+    })),
+  }),
+  title: z.string().optional(),
+});
+
+export const statisticSchema = z.object({
+  value: z.union([z.string(), z.number()]),
+  title: z.string().optional(),
+  prefix: z.string().optional(),
+  suffix: z.string().optional(),
+  precision: z.number().optional(),
+  isCountdown: z.boolean().optional(),
+  countdownTarget: z.string().optional(),
+});
+
+export const tagCloudSchema = z.object({
+  tags: z.array(z.object({
+    text: z.string(),
+    color: z.string().optional(),
+    size: z.enum(["small", "medium", "large"]).optional(),
+  })),
+  title: z.string().optional(),
+});
+
+export const videoSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  controls: z.boolean().optional(),
+  loop: z.boolean().optional(),
+  muted: z.boolean().optional(),
+});
+
+export const imageGallerySchema = z.object({
+  images: z.array(z.object({
+    src: z.string(),
+    alt: z.string().optional(),
+    caption: z.string().optional(),
+  })),
+  title: z.string().optional(),
+  columns: z.number().optional(),
+});
+
+export const audioSchema = z.object({
+  src: z.string(),
+  title: z.string().optional(),
+  autoplay: z.boolean().optional(),
+});
+
+export const spreadsheetSchema = z.object({
+  data: z.array(z.record(z.string(), z.unknown())).optional(),
+  title: z.string().optional(),
+  height: z.number().optional(),
+});
+
+export const sandboxSchema = z.object({
+  html: z.string(),
+  css: z.string().optional(),
+  js: z.string().optional(),
+  props: z.record(z.string(), z.unknown()).optional(),
+  height: z.number().optional(),
+  title: z.string().optional(),
+  libraries: z.array(z.string()).optional(),
+});
+
 // ── Registry ─────────────────────────────────────────────────────────────────
 
 export interface CanvasComponentEntry {
@@ -379,6 +611,16 @@ export interface CanvasComponentEntry {
   component: ComponentType<any>;
   propsSchema: ZodType;
 }
+
+// Log registered components at module load time
+const _logRegistry = () => {
+  if (typeof window !== "undefined") {
+    setTimeout(() => {
+      const keys = Object.keys(CANVAS_COMPONENTS);
+      console.log("[Jarble:Registry]", keys.length, "components registered:", keys.join(", "));
+    }, 0);
+  }
+};
 
 export const CANVAS_COMPONENTS: Record<string, CanvasComponentEntry> = {
   card: { component: CanvasCard, propsSchema: cardSchema },
@@ -417,4 +659,29 @@ export const CANVAS_COMPONENTS: Record<string, CanvasComponentEntry> = {
   code_editor: { component: CanvasCodeEditor, propsSchema: codeEditorSchema },
   map: { component: CanvasMap, propsSchema: mapSchema },
   carousel: { component: CanvasCarousel, propsSchema: carouselSchema },
+  stock: { component: CanvasStock, propsSchema: stockSchema },
+  sankey: { component: CanvasSankey, propsSchema: sankeySchema },
+  sunburst: { component: CanvasSunburst, propsSchema: sunburstSchema },
+  heatmap: { component: CanvasHeatmap, propsSchema: heatmapSchema },
+  wordcloud: { component: CanvasWordCloud, propsSchema: wordcloudSchema },
+  histogram: { component: CanvasHistogram, propsSchema: histogramSchema },
+  box: { component: CanvasBox, propsSchema: boxSchema },
+  liquid: { component: CanvasLiquid, propsSchema: liquidSchema },
+  rose: { component: CanvasRose, propsSchema: roseSchema },
+  dual_axes: { component: CanvasDualAxes, propsSchema: dualAxesSchema },
+  bullet: { component: CanvasBullet, propsSchema: bulletSchema },
+  radial_bar: { component: CanvasRadialBar, propsSchema: radialBarSchema },
+  venn: { component: CanvasVenn, propsSchema: vennSchema },
+  circle_packing: { component: CanvasCirclePacking, propsSchema: circlePackingSchema },
+  statistic: { component: CanvasStatistic, propsSchema: statisticSchema },
+  tag_cloud: { component: CanvasTagCloud, propsSchema: tagCloudSchema },
+  video: { component: CanvasVideo, propsSchema: videoSchema },
+  image_gallery: { component: CanvasImageGallery, propsSchema: imageGallerySchema },
+  audio: { component: CanvasAudio, propsSchema: audioSchema },
+  spreadsheet: { component: CanvasSpreadsheet, propsSchema: spreadsheetSchema },
+  sandbox: { component: CanvasSandbox, propsSchema: sandboxSchema },
+  // Alias: LLMs often say "canvas" when they mean "sandbox"
+  canvas: { component: CanvasSandbox, propsSchema: sandboxSchema },
 };
+
+_logRegistry();

@@ -86,7 +86,7 @@ export async function createDeployment(
       strategy: { type: "Recreate" }, // RWO PVCs can only mount to one pod at a time
       selector: { matchLabels: { app: `dep-${deploymentId}` } },
       template: {
-        metadata: { labels: { app: `dep-${deploymentId}` } },
+        metadata: { labels: { app: `dep-${deploymentId}`, "jarble.ai/type": "bot" } },
         spec: {
           // Disable K8s API access - pods shouldn't query the cluster
           automountServiceAccountToken: false,

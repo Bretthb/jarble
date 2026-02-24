@@ -34,6 +34,11 @@ const BUILTIN_COMPONENTS = [
   "gauge", "radar", "treemap", "funnel", "waterfall", "scatter",
   "steps", "result", "tree", "calendar_heatmap", "descriptions",
   "code_editor", "map", "carousel",
+  "stock", "sankey", "sunburst", "heatmap", "wordcloud",
+  "histogram", "box", "liquid", "rose", "dual_axes",
+  "bullet", "radial_bar", "venn", "circle_packing",
+  "statistic", "tag_cloud", "video", "image_gallery", "audio", "spreadsheet",
+  "sandbox",
 ];
 
 const BUILTIN_DESCRIPTIONS = {
@@ -73,6 +78,27 @@ const BUILTIN_DESCRIPTIONS = {
   code_editor: "Monaco code editor with syntax highlighting",
   map: "Interactive Leaflet map with markers and popups",
   carousel: "Image/content carousel with optional autoplay",
+  stock: "Candlestick/OHLC chart for financial data",
+  sankey: "Sankey flow/transfer diagram",
+  sunburst: "Sunburst hierarchical pie chart",
+  heatmap: "Heatmap grid visualization",
+  wordcloud: "Word cloud for text/keyword frequency",
+  histogram: "Histogram for distribution analysis",
+  box: "Box plot for statistical distribution",
+  liquid: "Liquid fill gauge",
+  rose: "Nightingale/polar area rose chart",
+  dual_axes: "Dual Y-axis chart for comparing two metrics",
+  bullet: "Bullet chart for KPI vs target comparison",
+  radial_bar: "Circular/radial bar chart",
+  venn: "Venn diagram for set overlap",
+  circle_packing: "Circle packing for nested hierarchy",
+  statistic: "Polished KPI statistic display with optional countdown",
+  tag_cloud: "Colored tag collection for categorization",
+  video: "Video player (YouTube, Vimeo, MP4, etc.)",
+  image_gallery: "Multi-image grid with lightbox preview",
+  audio: "HTML5 audio player",
+  spreadsheet: "Editable Excel-like spreadsheet grid",
+  sandbox: "Sandboxed iframe for custom HTML/CSS/JS mini-apps — render anything",
 };
 
 // ── Component resolver ─────────────────────────────────────────────────
@@ -175,7 +201,7 @@ function listCustomComponents() {
 const TOOLS = [
   {
     name: "render_ui",
-    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, avatar, blockquote, metric_card, header, button_group, form, gauge, radar, treemap, funnel, waterfall, scatter, steps, result, tree, calendar_heatmap, descriptions, code_editor, map, carousel) and custom bot-defined components. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
+    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, avatar, blockquote, metric_card, header, button_group, form, gauge, radar, treemap, funnel, waterfall, scatter, steps, result, tree, calendar_heatmap, descriptions, code_editor, map, carousel, stock, sankey, sunburst, heatmap, wordcloud, histogram, box, liquid, rose, dual_axes, bullet, radial_bar, venn, circle_packing, statistic, tag_cloud, video, image_gallery, audio, spreadsheet) and custom bot-defined components. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -247,6 +273,16 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
+    },
+  },
+  {
+    name: "component_reference",
+    description: "Get detailed prop schema and usage for UI components. Call with a specific component name to get its props, or without a name to get the full reference for all 56 built-in components. ALWAYS call this before rendering a component if you are unsure of its props.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        component: { type: "string", description: "Optional component name. Omit to get full reference." },
+      },
     },
   },
 ];
@@ -365,6 +401,110 @@ function executeListCanvasFiles() {
   return { isError: false, text: `${files.length} canvas file(s):\n${lines.join("\n")}` };
 }
 
+// ── Component reference (detailed prop schemas) ────────────────────────
+
+const COMPONENT_REFERENCE = {
+  card: "`{title?, subtitle?, body?}`",
+  data_table: "`{title?, columns: string[], rows: (string|number)[][]}`",
+  stat_grid: "`{stats: [{label, value, change?, icon?}]}`",
+  key_value: "`{title?, items: [{key, value}]}`",
+  code_block: "`{code, language?, title?}`",
+  alert: "`{title?, message, variant: info|success|warning|error}`",
+  progress: "`{label?, value: 0-100, variant?: default|success|warning|error}`",
+  image: "`{src, alt?, caption?}`",
+  layout: "`{title?, children: [{component, props}]}` — container for nesting",
+  chart: "`{type: bar|line|pie|area, data: [{...}], dataKeys: string[], xAxisKey?, title?, colors?, stacked?, showLegend?, showGrid?}`",
+  tabs: "`{tabs: [{label, content?, children?: [{component, props}]}], defaultTab?}`",
+  accordion: "`{items: [{title, content?, children?, defaultOpen?}], type?: single|multiple}`",
+  badge: "`{text, variant?: default|secondary|destructive|outline|success|warning|info, icon?}`",
+  list: "`{title?, items: [{text, description?, icon?, badge?, badgeVariant?}], ordered?}`",
+  timeline: "`{title?, events: [{label, description?, timestamp?, icon?, status?: completed|active|pending}]}`",
+  divider: "`{label?, variant?: solid|dashed|dotted, spacing?: sm|md|lg}`",
+  avatar: "`{name, src?, subtitle?, size?: sm|md|lg}`",
+  blockquote: "`{text, attribution?, variant?: default|info|warning}`",
+  metric_card: "`{label, value, change?, changeLabel?, icon?, sparkline?: number[]}`",
+  header: "`{title, subtitle?, level?: 1|2|3, divider?}`",
+  button_group: "`{buttons: [{id, label, variant?: default|secondary|destructive|outline, icon?, disabled?}]}`",
+  form: "`{title?, fields: [{name, label, type: text|email|textarea|select|checkbox|number, placeholder?, required?, options?, defaultValue?}], submitLabel?}`",
+  gauge: "`{value: 0-100, title?, suffix?, color?}` — gauge/speedometer",
+  radar: "`{data: [{axis, value, group?}], title?}` — radar/spider chart",
+  treemap: "`{data: {name, children: [{name, value}]}, title?}` — treemap",
+  funnel: "`{data: [{stage, value}], title?}` — conversion funnel",
+  waterfall: "`{data: [{label, value}], title?}` — waterfall chart",
+  scatter: "`{data: [{x, y, label?, group?}], title?, xLabel?, yLabel?}` — scatter plot",
+  stock: "`{data: [{date, open, close, high, low}], title?}` — candlestick/OHLC chart",
+  sankey: "`{data: [{source, target, value}], title?}` — flow/transfer diagram",
+  sunburst: "`{data: {name, children: [{name, value}]}, title?}` — hierarchical sunburst",
+  heatmap: "`{data: [{x, y, value}], title?}` — heatmap grid",
+  wordcloud: "`{data: [{text, value}], title?}` — word/keyword cloud",
+  histogram: "`{data: [{value}], title?, binWidth?}` — distribution histogram",
+  box: "`{data: [{group, value}], title?}` — box plot",
+  liquid: "`{value: 0-1, title?, color?}` — liquid fill gauge",
+  rose: "`{data: [{category, value}], title?}` — nightingale/polar area chart",
+  dual_axes: "`{data: [{...}], title?, xField?, yFields?: [string, string]}` — dual Y-axis chart",
+  bullet: "`{data: [{title, ranges: number[], measures: number[], target: number}], title?}` — KPI bullet chart",
+  radial_bar: "`{data: [{name, value}], title?}` — circular bar chart",
+  venn: "`{data: [{sets: string[], size, label?}], title?}` — set overlap diagram",
+  circle_packing: "`{data: {name, children: [{name, value}]}, title?}` — nested circle hierarchy",
+  steps: "`{current: number, items: [{title, description?, icon?}], direction?: vertical|horizontal}` — process steps",
+  result: "`{status: success|error|info|warning, title, subtitle?}` — outcome display",
+  tree: "`{data: [{title, key, children?}], title?, defaultExpandAll?}` — tree view",
+  calendar_heatmap: "`{data: [{date, value}], title?}` — calendar heatmap",
+  descriptions: "`{title?, items: [{label, value, span?}], columns?, bordered?}` — description list",
+  carousel: "`{items: [{title?, description?, image?}], autoplay?}` — content carousel",
+  code_editor: "`{code, language?, title?, readOnly?, height?}` — Monaco code editor",
+  map: "`{center: [lat, lng], zoom?, markers?: [{lat, lng, label?}], title?}` — interactive map",
+  statistic: "`{value, title?, prefix?, suffix?, precision?, isCountdown?, countdownTarget?}` — KPI statistic",
+  tag_cloud: "`{tags: [{text, color?, size?: small|medium|large}], title?}` — colored tags",
+  video: "`{url, title?, controls?, loop?, muted?}` — video player (YouTube, Vimeo, MP4)",
+  image_gallery: "`{images: [{src, alt?, caption?}], title?, columns?}` — image grid with lightbox",
+  audio: "`{src, title?, autoplay?}` — audio player",
+  spreadsheet: "`{data?: [{...}], title?, height?}` — editable Excel-like grid",
+  sandbox: "`{html, css?, js?, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML (divs etc), NEVER <script>/<style>/<html>/<head> tags. css=all styles. js=all JavaScript (runs AFTER libraries load). libraries=CDN URLs loaded dynamically. Use for: live charts, 3D, animations, interactive widgets. NEVER embed third-party widgets. NEVER use code_editor for running JS — use sandbox instead.",
+};
+
+function executeComponentReference(args) {
+  const name = args?.component;
+
+  if (name) {
+    if (!COMPONENT_REFERENCE[name]) {
+      return { isError: true, text: `Unknown component "${name}". Use list_components to see available components.` };
+    }
+    return { isError: false, text: `**${name}** — props: ${COMPONENT_REFERENCE[name]}` };
+  }
+
+  // Return full reference grouped by category
+  const lines = [
+    "# Jarble UI Component Reference",
+    "",
+    "Use these with \\`jarble_ui\\` fenced blocks: \\`{\"component\": \"name\", \"props\": {...}}\\`",
+    "",
+    "## Display",
+  ];
+  const categories = {
+    "Display": ["card", "data_table", "stat_grid", "key_value", "code_block", "alert", "progress", "image", "chart", "tabs", "accordion", "badge", "list", "timeline", "divider", "avatar", "blockquote", "metric_card", "header", "layout"],
+    "Charts": ["gauge", "radar", "treemap", "funnel", "waterfall", "scatter", "stock", "sankey", "sunburst", "heatmap", "wordcloud", "histogram", "box", "liquid", "rose", "dual_axes", "bullet", "radial_bar", "venn", "circle_packing"],
+    "Advanced UI": ["steps", "result", "tree", "calendar_heatmap", "descriptions", "carousel"],
+    "Specialized": ["code_editor", "map"],
+    "Data Display": ["statistic", "tag_cloud"],
+    "Media": ["video", "image_gallery", "audio"],
+    "Data": ["spreadsheet"],
+    "Interactive": ["button_group", "form"],
+  };
+
+  let first = true;
+  for (const [cat, comps] of Object.entries(categories)) {
+    if (!first) lines.push("");
+    lines.push(`## ${cat}`);
+    for (const c of comps) {
+      lines.push(`- \`${c}\` — ${COMPONENT_REFERENCE[c]}`);
+    }
+    first = false;
+  }
+
+  return { isError: false, text: lines.join("\n") };
+}
+
 function executeTool(name, args) {
   switch (name) {
     case "render_ui": return executeRenderUi(args || {});
@@ -373,6 +513,7 @@ function executeTool(name, args) {
     case "save_canvas_file": return executeSaveCanvasFile(args || {});
     case "load_canvas_file": return executeLoadCanvasFile(args || {});
     case "list_canvas_files": return executeListCanvasFiles();
+    case "component_reference": return executeComponentReference(args || {});
     default: return null;
   }
 }
