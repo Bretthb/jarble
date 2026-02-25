@@ -22,7 +22,7 @@ import { logger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { getPodAddress, findPodForDeployment } from "../k8s/index.js";
 import { chatViaGateway, chatViaExec, type GatewayResponse } from "../services/openclawGateway.js";
-import { extractUIBlocks, type JarbleUIBlock } from "../utils/uiBlockParser.js";
+import { extractUIBlocks, type JarbleUIBlock, type JarbleUIUpdate } from "../utils/uiBlockParser.js";
 import { readComponentFromPvc } from "../k8s/index.js";
 import {
   isBuiltinComponent,
@@ -279,7 +279,12 @@ tamboAgentRouter.post("/", async (req, res) => {
     sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
 
     logger.info(
-      { deploymentId, rawText: gatewayResult.rawText.slice(0, 500), blockCount: gatewayResult.uiBlocks.length },
+      {
+        deploymentId,
+        rawText: gatewayResult.rawText.slice(0, 500),
+        blockCount: gatewayResult.uiBlocks.length,
+        updateCount: gatewayResult.uiUpdates?.length ?? 0,
+      },
       "chatWithBot: gateway response summary"
     );
     const resolvedBlocks = await resolveUIBlocks(gatewayResult.uiBlocks, deploymentId);
@@ -296,6 +301,19 @@ tamboAgentRouter.post("/", async (req, res) => {
       });
       sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: block.id, props: block.props });
       sendEvent(res, { type: "UI_BLOCK_END", blockId: block.id });
+    }
+
+    // Emit UI_BLOCK_UPDATE events for in-place card updates
+    if (gatewayResult.uiUpdates) {
+      for (const update of gatewayResult.uiUpdates) {
+        sendEvent(res, {
+          type: "UI_BLOCK_UPDATE",
+          cardId: update.cardId,
+          props: update.props,
+          merge: update.merge,
+          ...(update.component ? { component: update.component } : {}),
+        });
+      }
     }
 
     sendEvent(res, { type: "RUN_FINISHED", runId, threadId });

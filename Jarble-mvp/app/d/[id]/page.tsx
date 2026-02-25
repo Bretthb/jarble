@@ -17,7 +17,7 @@ import CanvasRenderer from "@/components/canvas/CanvasRenderer";
 import EditableCanvas from "@/components/canvas/EditableCanvas";
 import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, SendHorizontal, Settings, MessageSquare, Layout } from "lucide-react";
+import { ArrowLeft, Loader2, SendHorizontal, Settings, MessageSquare, Layout, X } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, memo } from "react";
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
@@ -186,7 +186,19 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
     [deploymentId, sendMessage]
   );
 
+  const selectedCard = state.cards.find((c) => c.selected) || null;
   const hasCanvasCards = state.cards.length > 0;
+
+  // Escape key deselects the selected card
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectedCard) {
+        dispatch({ type: "DESELECT_CARD" });
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedCard, dispatch]);
 
   return (
     <div className="flex-1 flex overflow-hidden relative">
@@ -222,14 +234,38 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
 
         {/* Chat input */}
         <div className="border-t border-border bg-background/95 backdrop-blur-sm shrink-0 p-4">
+          {/* Selected card reference chip */}
+          {selectedCard && (
+            <div className="flex items-center gap-1 mb-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500 text-white text-xs font-medium">
+                @{selectedCard.title || selectedCard.component.replace(/_/g, " ")}
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: "DESELECT_CARD" })}
+                  className="inline-flex items-center justify-center w-4 h-4 rounded-full hover:bg-blue-600 transition-colors"
+                  title="Remove card reference"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Your message will reference this card
+              </span>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="flex gap-2 items-center">
             <input
               ref={inputRef}
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Type a message..."
-              className="flex-1 rounded-lg border border-border bg-secondary/50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+              placeholder={selectedCard ? `Message about ${selectedCard.title || selectedCard.component.replace(/_/g, " ")}...` : "Type a message..."}
+              className={cn(
+                "flex-1 rounded-lg border bg-secondary/50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:border-primary",
+                selectedCard
+                  ? "border-blue-500/50 focus:ring-blue-500/50"
+                  : "border-border focus:ring-primary/50"
+              )}
               disabled={isStreaming}
             />
             <Button
@@ -269,6 +305,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
             renderCard={renderCard}
             focusedCardId={state.focusedCardId}
             streamingCardIds={streamingCardIds}
+            deploymentId={deploymentId}
           />
         </div>
       )}
@@ -329,20 +366,26 @@ function CardContent({
   deploymentId: string;
   sendMessage: (text: string) => Promise<void>;
 }) {
-  // Handle actions from interactive components (including sandbox errors)
+  // Handle actions from interactive components — relay ALL actions to the bot as chat messages
   const handleAction = useCallback(
     (action: CanvasAction) => {
       console.log("[CardContent] Action received:", action);
 
-      // Forward sandbox errors to the bot for self-correction
+      // Special handling for sandbox errors — include detailed error info
       if (action.action === "sandbox_error") {
         const error = action.payload.error as { message: string; line: number; column: number; stack?: string } | undefined;
         if (error) {
           const errorMsg = `[SANDBOX_ERROR] The sandbox component threw an error:\nError: ${error.message}${error.line ? `\nAt line ${error.line}, column ${error.column}` : ""}${error.stack ? `\nStack: ${error.stack.slice(0, 500)}` : ""}\n\nPlease fix the JavaScript code and try again.`;
           console.log("[CardContent] Forwarding sandbox error to bot:", errorMsg);
           sendMessage(errorMsg);
+          return;
         }
       }
+
+      // Generic action relay — forward all user interactions to the bot
+      const actionMsg = `[UI_ACTION] cardId=${action.blockId} component=${action.component} action=${action.action}\n${JSON.stringify(action.payload)}`;
+      console.log("[CardContent] Relaying UI action to bot:", actionMsg);
+      sendMessage(actionMsg);
     },
     [sendMessage]
   );

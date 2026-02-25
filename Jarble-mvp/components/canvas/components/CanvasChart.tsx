@@ -5,6 +5,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer,
 } from "recharts";
+import { useCanvasAction } from "../CanvasActionContext";
 
 export interface CanvasChartProps {
   type: "bar" | "line" | "pie" | "area";
@@ -42,6 +43,14 @@ export default function CanvasChart({
   showGrid = true,
   height,
 }: CanvasChartProps) {
+  let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
+  try {
+    const ctx = useCanvasAction();
+    dispatch = ctx.dispatch;
+  } catch {
+    // Not inside CanvasActionProvider — interactivity disabled
+  }
+
   // Use explicit height if provided, otherwise fill container
   const useFlexHeight = height === undefined;
 
@@ -55,11 +64,40 @@ export default function CanvasChart({
 
   const xKey = xAxisKey || Object.keys(data[0]).find((k) => !dataKeys.includes(k)) || "name";
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleChartClick = (dataKey: string, entry: any) => {
+    if (!dispatch || !entry) return;
+    dispatch({
+      action: "point_click",
+      payload: {
+        dataKey,
+        value: entry[dataKey],
+        label: entry[xKey] ?? "",
+        entry,
+      },
+    });
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handlePieClick = (entry: any, index: number) => {
+    if (!dispatch || !entry) return;
+    dispatch({
+      action: "slice_click",
+      payload: {
+        dataKey: dataKeys[0],
+        value: entry[dataKeys[0]],
+        label: entry[xKey] ?? entry.name ?? "",
+        index,
+        entry,
+      },
+    });
+  };
+
   const renderChart = () => {
     switch (type) {
       case "bar":
         return (
-          <BarChart data={data}>
+          <BarChart data={data} className="cursor-pointer">
             {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />}
             <XAxis dataKey={xKey} tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} />
             <YAxis tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} />
@@ -79,6 +117,8 @@ export default function CanvasChart({
                 fill={colors[i % colors.length]}
                 stackId={stacked ? "stack" : undefined}
                 radius={[4, 4, 0, 0]}
+                className="cursor-pointer"
+                onClick={(entry) => handleChartClick(key, entry)}
               />
             ))}
           </BarChart>
@@ -86,7 +126,7 @@ export default function CanvasChart({
 
       case "line":
         return (
-          <LineChart data={data}>
+          <LineChart data={data} className="cursor-pointer">
             {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />}
             <XAxis dataKey={xKey} tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} />
             <YAxis tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} />
@@ -107,6 +147,7 @@ export default function CanvasChart({
                 stroke={colors[i % colors.length]}
                 strokeWidth={2}
                 dot={{ r: 3 }}
+                activeDot={{ r: 6, className: "cursor-pointer", onClick: (_: unknown, payload: unknown) => handleChartClick(key, (payload as { payload: unknown }).payload) }}
               />
             ))}
           </LineChart>
@@ -114,7 +155,7 @@ export default function CanvasChart({
 
       case "area":
         return (
-          <AreaChart data={data}>
+          <AreaChart data={data} className="cursor-pointer">
             {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />}
             <XAxis dataKey={xKey} tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} />
             <YAxis tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} />
@@ -136,6 +177,7 @@ export default function CanvasChart({
                 stroke={colors[i % colors.length]}
                 fillOpacity={0.2}
                 stackId={stacked ? "stack" : undefined}
+                activeDot={{ r: 6, className: "cursor-pointer", onClick: (_: unknown, payload: unknown) => handleChartClick(key, (payload as { payload: unknown }).payload) }}
               />
             ))}
           </AreaChart>
@@ -165,6 +207,8 @@ export default function CanvasChart({
               }
               labelLine={false}
               fontSize={11}
+              className="cursor-pointer"
+              onClick={handlePieClick}
             >
               {data.map((_, i) => (
                 <Cell key={`cell-${i}`} fill={colors[i % colors.length]} />

@@ -1,5 +1,7 @@
 "use client";
 
+import { useCanvasAction } from "../CanvasActionContext";
+
 interface ListItem {
   text: string;
   description?: string;
@@ -23,16 +25,36 @@ const BADGE_STYLES: Record<string, string> = {
 };
 
 export default function CanvasList({ title, items, ordered = false }: CanvasListProps) {
+  let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
+  try {
+    const ctx = useCanvasAction();
+    dispatch = ctx.dispatch;
+  } catch {
+    // Not inside CanvasActionProvider — interactivity disabled
+  }
+
   if (!Array.isArray(items) || items.length === 0) return null;
 
   const Tag = ordered ? "ol" : "ul";
+
+  const handleItemClick = (index: number, item: ListItem) => {
+    if (!dispatch) return;
+    dispatch({
+      action: "item_click",
+      payload: { index, text: item.text, description: item.description, badge: item.badge },
+    });
+  };
 
   return (
     <div className="p-3 h-full">
       {title && <h3 className="text-sm font-semibold text-foreground mb-2">{title}</h3>}
       <Tag className="space-y-1">
         {items.map((item, i) => (
-          <li key={i} className="flex items-start gap-2.5 py-1.5">
+          <li
+            key={i}
+            className="flex items-start gap-2.5 py-1.5 cursor-pointer rounded-md hover:bg-secondary/40 transition-colors px-1 -mx-1"
+            onClick={() => handleItemClick(i, item)}
+          >
             {item.icon ? (
               <span className="text-base shrink-0 mt-0.5">{item.icon}</span>
             ) : ordered ? (

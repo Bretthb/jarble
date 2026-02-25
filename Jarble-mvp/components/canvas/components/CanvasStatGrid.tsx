@@ -1,5 +1,7 @@
 "use client";
 
+import { useCanvasAction } from "../CanvasActionContext";
+
 export interface StatItem {
   label: string;
   value: string | number;
@@ -12,10 +14,30 @@ export interface CanvasStatGridProps {
 }
 
 export default function CanvasStatGrid({ stats = [] }: CanvasStatGridProps) {
+  let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
+  try {
+    const ctx = useCanvasAction();
+    dispatch = ctx.dispatch;
+  } catch {
+    // Not inside CanvasActionProvider — interactivity disabled
+  }
+
+  const handleStatClick = (stat: StatItem, index: number) => {
+    if (!dispatch) return;
+    dispatch({
+      action: "stat_click",
+      payload: { label: stat.label, value: stat.value, change: stat.change, index },
+    });
+  };
+
   return (
     <div className="grid grid-cols-2 gap-2 p-2 h-full">
       {stats.map((stat, i) => (
-        <div key={i} className="p-2">
+        <div
+          key={i}
+          className="p-2 cursor-pointer rounded-lg hover:bg-secondary/40 transition-colors"
+          onClick={() => handleStatClick(stat, i)}
+        >
           <div className="flex items-center gap-2 mb-1">
             {stat.icon && <span className="text-base">{stat.icon}</span>}
             <span className="text-xs text-muted-foreground">{stat.label}</span>

@@ -1,5 +1,7 @@
 "use client";
 
+import { useCanvasAction } from "../CanvasActionContext";
+
 export interface CanvasDataTableProps {
   title?: string;
   columns?: string[];
@@ -31,6 +33,14 @@ function normalizeRow(row: unknown, columns: string[]): string[] {
 }
 
 export default function CanvasDataTable({ title, columns = [], rows = [] }: CanvasDataTableProps) {
+  let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
+  try {
+    const ctx = useCanvasAction();
+    dispatch = ctx.dispatch;
+  } catch {
+    // Not inside CanvasActionProvider — interactivity disabled
+  }
+
   // Infer columns from first object row if not provided
   const resolvedColumns =
     columns.length > 0
@@ -40,6 +50,19 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
         : [];
 
   const normalizedRows = rows.map((row) => normalizeRow(row, resolvedColumns));
+
+  const handleRowClick = (rowIndex: number, rowCells: string[]) => {
+    if (!dispatch) return;
+    // Build row data as key-value pairs using column names
+    const rowData: Record<string, string> = {};
+    resolvedColumns.forEach((col, i) => {
+      rowData[col] = rowCells[i] ?? "";
+    });
+    dispatch({
+      action: "row_click",
+      payload: { rowIndex, rowData, columns: resolvedColumns },
+    });
+  };
 
   return (
     <div className="h-full overflow-hidden">
@@ -63,7 +86,11 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
           )}
           <tbody>
             {normalizedRows.map((row, ri) => (
-              <tr key={ri} className="border-b border-border/50 last:border-0">
+              <tr
+                key={ri}
+                className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-secondary/40 transition-colors"
+                onClick={() => handleRowClick(ri, row)}
+              >
                 {row.map((cell, ci) => (
                   <td key={ci} className="px-4 py-2 text-foreground/90 whitespace-nowrap">
                     {cell}

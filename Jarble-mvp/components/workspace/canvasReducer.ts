@@ -228,6 +228,47 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       };
     }
 
+    case "UPDATE_CARD_PROPS": {
+      return {
+        ...state,
+        cards: state.cards.map((c) => {
+          if (c.id !== action.id) return c;
+          const newProps = action.merge ? { ...c.props, ...action.props } : action.props;
+          return {
+            ...c,
+            props: newProps,
+            ...(action.component ? { component: action.component } : {}),
+          };
+        }),
+      };
+    }
+
+    case "SELECT_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) => ({
+          ...c,
+          selected: c.id === action.id,
+        })),
+      };
+
+    case "DESELECT_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) => ({
+          ...c,
+          selected: false,
+        })),
+      };
+
+    case "SAVE_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, savedName: action.savedName } : c
+        ),
+      };
+
     default:
       return state;
   }

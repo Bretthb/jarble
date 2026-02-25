@@ -35,6 +35,7 @@ import {
   signalProcessRestart,
   readCurrentSecretData,
 } from "../k8s/index.js";
+import { updateDeploymentConfigMap } from "../k8s/configmap.js";
 import { getHandlerOrNull } from "../runtimes/index.js";
 import type { DeploymentFields } from "../runtimes/types.js";
 import { decryptApiKey, encryptApiKey } from "../utils/encryption.js";
@@ -200,32 +201,21 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
     previousStatus = deployment.status;
 
-    // 2. If deployment is still creating, wait for it to become running.
-    //    Use 150 iterations (5 min) — first-boot takes 3+ min and the
-    //    DB status only flips to "running" after the readiness probe passes.
+    // 2. If deployment is still creating, just update the ConfigMap —
+    //    the init container will copy files on boot, no need to wait for the pod.
     if (deployment.status === "creating") {
-      logger.info({ deploymentId }, "configSync→PVC: deployment creating, waiting up to 5 min for running...");
-      let became_running = false;
-      for (let i = 0; i < 150; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const updated = await (db as any).query.deployments.findFirst({
-          where: eq(deployments.id, deploymentId),
-        });
-        if (!updated || updated.status === "failed" || updated.status === "stopped") {
-          logger.info({ deploymentId, status: updated?.status }, "configSync→PVC: deployment left creating state without running, skipping");
-          return;
-        }
-        if (updated.status === "running") {
-          deployment = updated;
-          previousStatus = "running";
-          became_running = true;
-          break;
+      const runtimeHandler = getHandlerOrNull(deployment.runtime);
+      if (runtimeHandler) {
+        const currentSecret = await readCurrentSecretData(deploymentId);
+        const gatewayToken = currentSecret?.OPENCLAW_GATEWAY_TOKEN ?? undefined;
+        const fields = await buildDeploymentFields(deployment, gatewayToken);
+        const configFiles = runtimeHandler.renderConfigs(fields);
+        if (configFiles.length > 0) {
+          await updateDeploymentConfigMap(deploymentId, configFiles);
+          logger.info({ deploymentId }, "configSync→PVC: updated ConfigMap for creating deployment (init container will apply)");
         }
       }
-      if (!became_running) {
-        logger.warn({ deploymentId }, "configSync→PVC: timed out waiting for deployment to become running (5 min)");
-        return;
-      }
+      return;
     } else if (deployment.status !== "running") {
       logger.info(
         { deploymentId, status: deployment.status },
@@ -302,11 +292,21 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
     if (!comparison.changed) {
       // ── Tier 1: File-only change (zero downtime) ──────────────────────
-      // Secrets are unchanged — just write config files to PVC.
-      // The running process picks up file changes without restart
-      // (e.g., system prompt is read from disk by OpenClaw).
+      // Secrets are unchanged — update the ConfigMap (source of truth for
+      // restarts) and write to the running pod's PVC for immediate effect.
       if (configFiles.length > 0) {
-        await writeConfigsToPvc(deploymentId, configFiles);
+        // Always update ConfigMap so the next pod restart gets fresh config
+        await updateDeploymentConfigMap(deploymentId, configFiles);
+
+        // Also write directly to the running pod for immediate effect
+        try {
+          await writeConfigsToPvc(deploymentId, configFiles);
+        } catch (writeErr) {
+          logger.warn(
+            { deploymentId, err: writeErr },
+            "configSync→PVC: direct PVC write failed (ConfigMap updated, will apply on restart)"
+          );
+        }
         logger.info(
           { deploymentId, files: configFiles.map((f) => f.path) },
           "configSync→PVC: file-only update complete (zero downtime)"
@@ -326,14 +326,15 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         .set({ status: "reloading", error: null })
         .where(eq(deployments.id, deploymentId));
 
-      // Write config files to PVC
+      // Update ConfigMap (source of truth for restarts) + write to running pod
       if (configFiles.length > 0) {
+        await updateDeploymentConfigMap(deploymentId, configFiles);
         try {
           await writeConfigsToPvc(deploymentId, configFiles);
         } catch (writeErr) {
           logger.warn(
             { deploymentId, err: writeErr },
-            "configSync→PVC: failed to write config files (non-fatal)"
+            "configSync→PVC: direct PVC write failed (ConfigMap updated, will apply on restart)"
           );
         }
       }
@@ -404,14 +405,15 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         .set({ status: "restarting", error: null })
         .where(eq(deployments.id, deploymentId));
 
-      // Write config files to PVC
+      // Update ConfigMap (init container will copy on restart) + write to running pod
       if (configFiles.length > 0) {
+        await updateDeploymentConfigMap(deploymentId, configFiles);
         try {
           await writeConfigsToPvc(deploymentId, configFiles);
         } catch (writeErr) {
           logger.warn(
             { deploymentId, err: writeErr },
-            "configSync→PVC: failed to write config files (non-fatal)"
+            "configSync→PVC: direct PVC write failed (ConfigMap updated, will apply on restart)"
           );
         }
       }

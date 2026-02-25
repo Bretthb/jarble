@@ -20,6 +20,10 @@ export interface CanvasCard {
   sourceMessageId?: string;
   /** Display title for the card header */
   title?: string;
+  /** Whether the card is currently selected (e.g. via user click) */
+  selected?: boolean;
+  /** Name given when the user saved this card to their library */
+  savedName?: string;
 }
 
 export interface CanvasState {
@@ -49,7 +53,11 @@ export type CanvasAction =
   | { type: "RESTORE_STATE"; state: CanvasState }
   | { type: "SPLIT_CARD"; id: string }
   | { type: "MERGE_CARDS"; sourceId: string; targetId: string }
-  | { type: "REORDER_CARDS"; sourceId: string; targetId: string };
+  | { type: "REORDER_CARDS"; sourceId: string; targetId: string }
+  | { type: "UPDATE_CARD_PROPS"; id: string; props: Record<string, unknown>; merge: boolean; component?: string }
+  | { type: "SELECT_CARD"; id: string }
+  | { type: "DESELECT_CARD" }
+  | { type: "SAVE_CARD"; id: string; savedName: string };
 
 // ── Splittable components config ────────────────────────────────────────────
 

@@ -234,17 +234,63 @@ height: 400
 
 ---
 
-### Interactive Callbacks
+### Interactive Callbacks — ALL Components Are Interactive
 
-When users interact with \`button_group\` or \`form\`, you receive a callback message:
+Every component dispatches actions when users interact with them. You receive:
 
-\`[UI_ACTION] blockId={id} component={name} action={type}\`
+\`[UI_ACTION] cardId={id} component={name} action={type}\`
 \`{JSON payload}\`
 
-- **button_group**: action=\`click\`, payload \`{"buttonId":"X"}\`
-- **form**: action=\`submit\`, payload \`{"fields":{"name":"value",...}}\`
+**Component actions:**
+- **button_group**: \`click\` → \`{"buttonId":"X"}\`
+- **form**: \`submit\` → \`{"fields":{"name":"value",...}}\`
+- **data_table**: \`row_click\` → \`{"rowIndex":0,"rowData":{"col":"val"},"columns":[...]}\`
+- **chart**: \`point_click\` / \`slice_click\` → \`{"dataKey":"revenue","value":100,"label":"Q4"}\`
+- **list**: \`item_click\` → \`{"index":0,"text":"Item text"}\`
+- **stat_grid**: \`stat_click\` → \`{"label":"Revenue","value":"$1.2M","index":0}\`
+- **tabs**: \`tab_change\` → \`{"tab":"Details","index":1}\`
+- **map**: \`marker_click\` → \`{"lat":40.7,"lng":-74.0,"label":"NYC"}\`
+- **tree**: \`node_click\` → \`{"key":"node1","title":"Node"}\`
+- **timeline**: \`event_click\` → \`{"label":"Event","index":0}\`
 
-Respond to these actions naturally — process the data, confirm the action, or render updated UI.
+Respond to actions by updating the relevant component, showing more detail, or performing the requested operation. **You are the backend** — components are the frontend, you process their events.
+
+### Updating Existing Components (In-Place Edits)
+
+When a user references an existing card (message starts with \`@[Card Title](card:card-id)\`), use \`update_ui\` instead of \`render_ui\` to modify it **in place** — do NOT create a new component.
+
+Output a \\\`jarble_ui_update\\\` block:
+
+\\\`\\\`\\\`jarble_ui_update
+{"card_id": "card-abc123", "props": {"title": "New Title", "data": [...]}, "merge": true}
+\\\`\\\`\\\`
+
+- \`card_id\`: The exact card ID from the \`@reference\` or from a \`[UI_ACTION]\` message
+- \`props\`: New or updated props
+- \`merge: true\` (default): Only the props you specify are updated, others stay unchanged
+- \`merge: false\`: Replaces ALL props entirely
+- \`component\`: Optional — change the component type (e.g., bar chart → line chart)
+
+**Use update_ui when:**
+- User says "change the chart to show monthly data" → update the existing chart
+- User clicks a table row → you want to highlight/filter that table
+- User says "make it blue" while referencing a card → update its colors
+- Any \`[UI_ACTION]\` where you want to modify the card that sent the action
+
+**Use render_ui (NOT update_ui) when:**
+- Creating something brand new with no existing card reference
+- User asks for a completely different visualization
+
+### Saving & Recalling Components
+
+When a user says "save this", "bookmark this", or you see \`[SAVE_COMPONENT]\`:
+- Use \`save_canvas_file\` with a descriptive \`fileId\`, \`name\`, \`description\`, and \`tags\`
+- Include the full \`component\` type and \`props\` snapshot
+
+When a user asks "show my saved charts" or "recall my dashboard":
+- Use \`list_canvas_files\` to see all saved components with metadata
+- Use \`load_canvas_file\` to retrieve a specific one
+- Use \`render_ui\` to display the loaded component on the canvas
 
 ### Editable Components
 
@@ -343,8 +389,8 @@ export const openclawHandler: RuntimeHandler = {
     // The auth token allows the Jarble API to proxy dashboard chat through the pod's WS gateway
     const gatewayConfig: Record<string, any> = {
       port: 18789,
-      host: "0.0.0.0",
       http: { endpoints: { chatCompletions: { enabled: true } } },
+      controlUi: { dangerouslyAllowHostHeaderOriginFallback: true },
     };
     if (deployment.gatewayToken) {
       gatewayConfig.auth = { token: deployment.gatewayToken };

@@ -66,8 +66,8 @@ interface UIBlockPending {
   saveMethod?: "mcp" | "chat";
 }
 
-/** Regex to strip ```jarble_ui ... ``` fenced blocks from displayed text */
-const JARBLE_UI_FENCE = /```jarble_ui\s*\n[\s\S]*?```/g;
+/** Regex to strip ```jarble_ui ... ``` and ```jarble_ui_update ... ``` fenced blocks from displayed text */
+const JARBLE_UI_FENCE = /```jarble_ui(?:_update)?\s*\n[\s\S]*?```/g;
 
 function stripUIMarkers(text: string): string {
   return text.replace(JARBLE_UI_FENCE, "").replace(/\n{3,}/g, "\n\n").trim();
@@ -115,6 +115,15 @@ export function useCanvasChat(
     async (text: string) => {
       if (!text.trim() || isStreaming) return;
 
+      // If a card is selected, prepend a reference so the bot knows which card to update
+      let messageToSend = text;
+      const selectedCard = state.cards.find((c) => c.selected);
+      if (selectedCard) {
+        const ref = `@[${selectedCard.title || selectedCard.component}](card:${selectedCard.id})`;
+        messageToSend = `${ref} ${text}`;
+        dispatch({ type: "DESELECT_CARD" });
+      }
+
       setIsStreaming(true);
       setStreamingText("");
       abortRef.current?.abort();
@@ -124,7 +133,7 @@ export function useCanvasChat(
       const messageId = `msg-${Date.now()}`;
       let accumulatedText = "";
 
-      // Add user message to chat immediately
+      // Add user message to chat immediately (show the original text to the user, not the reference-prepended one)
       const userMessage: ChatMessage = {
         id: `${messageId}-user`,
         role: "user",
@@ -144,7 +153,7 @@ export function useCanvasChat(
           },
           body: JSON.stringify({
             deploymentId,
-            messages: [{ role: "user", content: text }],
+            messages: [{ role: "user", content: messageToSend }],
           }),
           signal: controller.signal,
         });
@@ -230,6 +239,17 @@ export function useCanvasChat(
                     });
                   }, 600);
                 }
+              }
+
+              if (event.type === "UI_BLOCK_UPDATE") {
+                const { cardId, props, merge, component } = event;
+                dispatch({
+                  type: "UPDATE_CARD_PROPS",
+                  id: cardId,
+                  props: props ?? {},
+                  merge: merge ?? true,
+                  component,
+                });
               }
 
               if (event.type === "RUN_FINISHED") break;

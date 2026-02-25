@@ -28,8 +28,8 @@ export interface DirectChatMessage {
   uiBlocks?: UIBlock[];
 }
 
-/** Regex to strip ```jarble_ui ... ``` fenced blocks from displayed text */
-const JARBLE_UI_FENCE = /```jarble_ui\s*\n[\s\S]*?```/g;
+/** Regex to strip ```jarble_ui ... ``` and ```jarble_ui_update ... ``` fenced blocks from displayed text */
+const JARBLE_UI_FENCE = /```jarble_ui(?:_update)?\s*\n[\s\S]*?```/g;
 
 function stripUIMarkers(text: string): string {
   return text.replace(JARBLE_UI_FENCE, "").replace(/\n{3,}/g, "\n\n").trim();
@@ -151,6 +151,29 @@ export function useDirectChat(deploymentId: string) {
                   );
                   pendingBlocks.delete(event.blockId);
                 }
+              }
+
+              if (event.type === "UI_BLOCK_UPDATE") {
+                const { cardId, props, merge, component } = event;
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (!m.uiBlocks) return m;
+                    const hasTarget = m.uiBlocks.some((b) => b.id === cardId);
+                    if (!hasTarget) return m;
+                    return {
+                      ...m,
+                      uiBlocks: m.uiBlocks.map((b) => {
+                        if (b.id !== cardId) return b;
+                        const newProps = (merge ?? true) ? { ...b.props, ...props } : props;
+                        return {
+                          ...b,
+                          props: newProps,
+                          ...(component ? { component } : {}),
+                        };
+                      }),
+                    };
+                  })
+                );
               }
 
               if (event.type === "RUN_FINISHED") break;

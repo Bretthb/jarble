@@ -25,11 +25,19 @@ import type { UIBlock } from "@/components/canvas/CanvasRenderer";
 import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { useDeploymentId } from "@/components/DeploymentTamboProvider";
 
-/** Regex to strip ```jarble_ui ... ``` fenced blocks from displayed text */
-const JARBLE_UI_FENCE = /```jarble_ui\s*\n[\s\S]*?```/g;
+/** Regex to strip ```jarble_ui ... ``` and ```jarble_ui_update ... ``` fenced blocks from displayed text */
+const JARBLE_UI_FENCE = /```jarble_ui(?:_update)?\s*\n[\s\S]*?```/g;
 
 function stripUIMarkers(text: string): string {
   return text.replace(JARBLE_UI_FENCE, "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** UI block update descriptor received via UI_BLOCK_UPDATE SSE event */
+interface UIBlockUpdate {
+  cardId: string;
+  props: Record<string, unknown>;
+  merge: boolean;
+  component?: string;
 }
 
 /** Parse SSE events from a ReadableStream, updating state accumulators. */
@@ -38,6 +46,7 @@ async function consumeSSE(
   onText: (fullText: string) => void,
   onBlock: (block: UIBlock) => void,
   signal: AbortSignal,
+  onUpdate?: (update: UIBlockUpdate) => void,
 ) {
   const decoder = new TextDecoder();
   let buffer = "";
@@ -117,6 +126,14 @@ async function consumeSSE(
           } else {
             console.warn("[Jarble:SSE] UI_BLOCK_END for unknown blockId:", event.blockId);
           }
+        } else if (event.type === "UI_BLOCK_UPDATE") {
+          console.log("[Jarble:SSE] UI_BLOCK_UPDATE:", event.cardId, "merge:", event.merge, "component:", event.component, "props keys:", Object.keys(event.props || {}));
+          onUpdate?.({
+            cardId: event.cardId,
+            props: event.props ?? {},
+            merge: event.merge ?? true,
+            component: event.component,
+          });
         } else if (event.type === "RUN_FINISHED") {
           console.log("[Jarble:SSE] RUN_FINISHED — stream complete. Total events:", eventCount, "text chunks:", textChunks, "pending blocks:", pendingBlocks.size);
           finished = true;
@@ -231,6 +248,20 @@ export default function StreamingBotMessage({
             setUiBlocks((prev) => [...prev, block]);
           },
           signal ?? new AbortController().signal,
+          (update) => {
+            console.log("[Jarble:SSE] Block update received:", update.cardId, "merge:", update.merge, "component:", update.component);
+            setUiBlocks((prev) =>
+              prev.map((block) => {
+                if (block.id !== update.cardId) return block;
+                const newProps = update.merge ? { ...block.props, ...update.props } : update.props;
+                return {
+                  ...block,
+                  props: newProps,
+                  ...(update.component ? { component: update.component } : {}),
+                };
+              })
+            );
+          },
         );
         console.log("[Jarble:SSE] sendToBot complete");
       } catch (err: unknown) {
