@@ -9,11 +9,11 @@
  */
 
 import { useCallback, useState, useRef, useEffect, type ReactNode } from "react";
-import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Merge } from "lucide-react";
+import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Group } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
 import type { CanvasCard, CanvasAction } from "./types";
-import { canSplitCard, canMergeCards } from "./types";
+import { canSplitCard } from "./types";
 import ComponentGallery from "./ComponentGallery";
 
 const MIN_WIDTH = 200;
@@ -58,13 +58,6 @@ export default function SimpleCanvasGrid({
   previewPosRef.current = previewPos;
   const previewSizeRef = useRef(previewSize);
   previewSizeRef.current = previewSize;
-
-  // ── Merge detection state ────────────────────────────────────────
-  const [mergeTargetId, setMergeTargetId] = useState<string | null>(null);
-  const mergeTargetRef = useRef(mergeTargetId);
-  mergeTargetRef.current = mergeTargetId;
-  const cardsRef = useRef(cards);
-  cardsRef.current = cards;
 
   // ── Save-to-library state ──────────────────────────────────────────
   const [savingCardId, setSavingCardId] = useState<string | null>(null);
@@ -113,44 +106,15 @@ export default function SimpleCanvasGrid({
       const x = snap(Math.max(0, e.clientX - d.offsetX));
       const y = snap(Math.max(0, e.clientY - d.offsetY));
       setPreviewPos({ x, y });
-
-      // Merge detection: check if dragged card overlaps a compatible card
-      const allCards = cardsRef.current;
-      const dragCard = allCards.find(c => c.id === d.cardId);
-      if (!dragCard) return;
-      const dragW = dragCard.size.width;
-      const dragH = dragCard.size.height;
-      const dragCx = x + dragW / 2;
-      const dragCy = y + dragH / 2;
-
-      let bestTarget: string | null = null;
-      for (const other of allCards) {
-        if (other.id === d.cardId || other.minimized) continue;
-        // Check if center of dragged card is inside the other card's bounds
-        const ox = other.position.x, oy = other.position.y;
-        const ow = other.size.width, oh = other.size.height;
-        if (dragCx >= ox && dragCx <= ox + ow && dragCy >= oy && dragCy <= oy + oh) {
-          if (canMergeCards(dragCard, other)) {
-            bestTarget = other.id;
-            break;
-          }
-        }
-      }
-      setMergeTargetId(bestTarget);
     };
     const onUp = () => {
       const d = draggingRef.current;
       const pos = previewPosRef.current;
-      const mt = mergeTargetRef.current;
-      if (d && mt) {
-        // Merge into target card
-        dispatch({ type: "MERGE_CARDS", sourceId: d.cardId, targetId: mt });
-      } else if (d && pos) {
+      if (d && pos) {
         dispatch({ type: "MOVE_CARD", id: d.cardId, position: pos });
       }
       setDragging(null);
       setPreviewPos(null);
-      setMergeTargetId(null);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
@@ -214,11 +178,17 @@ export default function SimpleCanvasGrid({
   // ── Card action handlers ───────────────────────────────────────────
   const handleClose = useCallback((id: string) => dispatch({ type: "REMOVE_CARD", id }), [dispatch]);
   const handleSelect = useCallback((card: CanvasCard) => {
-    dispatch(card.selected ? { type: "DESELECT_CARD" } : { type: "SELECT_CARD", id: card.id });
+    dispatch({ type: "TOGGLE_SELECT_CARD", id: card.id });
   }, [dispatch]);
   const handleSplit = useCallback((card: CanvasCard) => {
     dispatch({ type: "SPLIT_CARD", id: card.id });
   }, [dispatch]);
+  const handleGroup = useCallback(() => {
+    const selectedIds = cards.filter((c) => c.selected).map((c) => c.id);
+    if (selectedIds.length >= 2) {
+      dispatch({ type: "GROUP_CARDS", cardIds: selectedIds });
+    }
+  }, [cards, dispatch]);
 
   const handleSaveClick = useCallback((card: CanvasCard) => {
     if (savingCardId === card.id) { setSavingCardId(null); setSaveNameInput(""); return; }
@@ -282,6 +252,8 @@ export default function SimpleCanvasGrid({
   }
 
   const isInteracting = !!dragging || !!resizing;
+  const selectedCards = cards.filter((c) => c.selected);
+  const selectedCount = selectedCards.length;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
@@ -304,6 +276,30 @@ export default function SimpleCanvasGrid({
           Snap
         </button>
         <ComponentGallery deploymentId={deploymentId} cards={cards} dispatch={dispatch} />
+
+        {/* Multi-select group action */}
+        {selectedCount >= 2 && (
+          <>
+            <div className="w-px h-4 bg-border/50" />
+            <span className="text-[11px] text-blue-400 font-medium">{selectedCount} selected</span>
+            <button
+              onClick={handleGroup}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30 transition-colors"
+              title="Group selected cards into a layout"
+            >
+              <Group className="w-3.5 h-3.5" />
+              Group
+            </button>
+            <button
+              onClick={() => dispatch({ type: "DESELECT_CARD" })}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+              title="Deselect all"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </>
+        )}
+
         <span className="text-[10px] text-muted-foreground/50 ml-auto">{cards.length} component{cards.length !== 1 ? "s" : ""}</span>
       </div>
 
@@ -348,17 +344,15 @@ export default function SimpleCanvasGrid({
               className={`group rounded-lg border bg-background/95 backdrop-blur-sm shadow-sm overflow-hidden flex flex-col ${
                 isInteracting && (isDragging || isResizingCard) ? "select-none" : "transition-shadow"
               } ${
-                mergeTargetId === card.id
-                  ? "ring-2 ring-green-500 shadow-lg shadow-green-500/30 border-green-500/50 scale-[1.02]"
-                  : card.selected
-                    ? "ring-2 ring-blue-500 shadow-md shadow-blue-500/20 border-blue-500/40"
-                    : isDragging
-                      ? "shadow-xl border-primary/40 cursor-grabbing"
-                      : streamingCardIds.has(card.id)
-                        ? "ring-1 ring-primary/40 animate-pulse border-primary/30"
-                        : card.id === focusedCardId
-                          ? "ring-1 ring-primary/30 border-primary/20"
-                          : "border-border/60 hover:shadow-md hover:border-border cursor-grab"
+                card.selected
+                  ? "ring-2 ring-blue-500 shadow-md shadow-blue-500/20 border-blue-500/40"
+                  : isDragging
+                    ? "shadow-xl border-primary/40 cursor-grabbing"
+                    : streamingCardIds.has(card.id)
+                      ? "ring-1 ring-primary/40 animate-pulse border-primary/30"
+                      : card.id === focusedCardId
+                        ? "ring-1 ring-primary/30 border-primary/20"
+                        : "border-border/60 hover:shadow-md hover:border-border cursor-grab"
               }`}
             >
               {/* Card header — drag handle + controls */}
@@ -395,7 +389,7 @@ export default function SimpleCanvasGrid({
                   <button onClick={(e) => { e.stopPropagation(); handleSelect(card); }}
                     className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${
                       card.selected ? "bg-blue-500 text-white" : "hover:bg-blue-500/60 text-muted-foreground hover:text-white"
-                    }`} title={card.selected ? "Deselect" : "Select to reference in chat"}>
+                    }`} title={card.selected ? "Deselect" : "Select (multi-select to group)"}>
                     <MousePointerClick className="w-3 h-3" />
                   </button>
                   {canSplitCard(card) && (
@@ -457,15 +451,6 @@ export default function SimpleCanvasGrid({
                 </svg>
               </div>
 
-              {/* Merge indicator overlay */}
-              {mergeTargetId === card.id && (
-                <div className="absolute inset-0 bg-green-500/10 flex items-center justify-center z-20 pointer-events-none rounded-lg">
-                  <div className="bg-green-500 text-white px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 shadow-lg">
-                    <Merge className="w-3.5 h-3.5" />
-                    Drop to merge
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}

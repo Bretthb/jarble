@@ -53,6 +53,8 @@ export type CanvasAction =
   | { type: "RESTORE_STATE"; state: CanvasState }
   | { type: "SPLIT_CARD"; id: string }
   | { type: "MERGE_CARDS"; sourceId: string; targetId: string }
+  | { type: "GROUP_CARDS"; cardIds: string[] }
+  | { type: "TOGGLE_SELECT_CARD"; id: string }
   | { type: "REORDER_CARDS"; sourceId: string; targetId: string }
   | { type: "UPDATE_CARD_PROPS"; id: string; props: Record<string, unknown>; merge: boolean; component?: string }
   | { type: "SELECT_CARD"; id: string }

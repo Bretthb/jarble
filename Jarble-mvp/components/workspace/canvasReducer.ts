@@ -266,6 +266,15 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
         })),
       };
 
+    case "TOGGLE_SELECT_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) => ({
+          ...c,
+          selected: c.id === action.id ? !c.selected : c.selected,
+        })),
+      };
+
     case "DESELECT_CARD":
       return {
         ...state,
@@ -274,6 +283,54 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
           selected: false,
         })),
       };
+
+    case "GROUP_CARDS": {
+      const { cardIds } = action;
+      if (cardIds.length < 2) return state;
+
+      // Collect the cards to group (in the order specified)
+      const groupedCards = cardIds
+        .map((id) => state.cards.find((c) => c.id === id))
+        .filter((c): c is CanvasCard => !!c);
+      if (groupedCards.length < 2) return state;
+
+      // Build children array for the layout component
+      const children = groupedCards.map((c) => ({
+        component: c.component,
+        props: c.props,
+      }));
+
+      // Position: bounding box of all grouped cards
+      const minX = Math.min(...groupedCards.map((c) => c.position.x));
+      const minY = Math.min(...groupedCards.map((c) => c.position.y));
+      const maxX = Math.max(...groupedCards.map((c) => c.position.x + c.size.width));
+      const maxY = Math.max(...groupedCards.map((c) => c.position.y + c.size.height));
+
+      const groupId = "group-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const groupCard: CanvasCard = {
+        id: groupId,
+        component: "layout",
+        props: {
+          title: `Group (${groupedCards.length} items)`,
+          children,
+        },
+        title: `Group (${groupedCards.length} items)`,
+        position: { x: minX, y: minY },
+        size: { width: Math.max(400, maxX - minX), height: Math.max(300, maxY - minY) },
+        zIndex: state.nextZIndex,
+        selected: false,
+        minimized: false,
+        createdAt: Date.now(),
+      };
+
+      // Remove grouped cards, add the new layout card
+      const remainingCards = state.cards.filter((c) => !cardIds.includes(c.id));
+      return {
+        ...state,
+        cards: [...remainingCards, groupCard],
+        nextZIndex: state.nextZIndex + 1,
+      };
+    }
 
     case "SAVE_CARD":
       return {
