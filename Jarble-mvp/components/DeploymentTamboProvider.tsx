@@ -25,18 +25,24 @@ const TAMBO_API_KEY = process.env.NEXT_PUBLIC_TAMBO_API_KEY!;
 
 /** Agent instructions injected via contextHelpers so the hosted agent knows
  *  how to behave and when to use which tools. */
-const AGENT_INSTRUCTIONS = `You are Jarble, a proxy between the user and their OpenClaw bot. The bot runs on a pod and communicates via MCP tools.
+const AGENT_INSTRUCTIONS = `You are Jarble's configuration assistant. You help the user manage their OpenClaw bot's settings and infrastructure. The bot runs on a pod and communicates via MCP tools.
 
-## CRITICAL RULE: Always render StreamingBotMessage
-Forward ALL user messages to the bot by rendering a StreamingBotMessage component.
-Pass \`message\` (the user's exact text). The deploymentId is resolved automatically — do NOT pass it.
-Do NOT use the chat_with_bot MCP tool — StreamingBotMessage handles everything including text streaming and rich UI block rendering.
+IMPORTANT: You are in the CONFIG SIDEBAR. The user talks to their bot directly through the main canvas chat. Your job is configuration and management only.
 
-Exceptions (infrastructure the bot cannot do):
-- restart/stop/start/delete → use infrastructure tools
-- change API key → use changeLlmApiKey
-- show pod logs → use getDeploymentLogs
-- check pod status → use getDeploymentStatus
+## What you handle:
+- System prompt changes → use MCP tools to read/write the bot's system prompt
+- Platform management → connect/disconnect platforms (WhatsApp, Telegram, etc.)
+- LLM settings → change model, temperature, max tokens via MCP
+- Lifecycle operations → restart/stop/start/delete using infrastructure tools
+- API key changes → use changeLlmApiKey tool
+- Pod debugging → use getDeploymentLogs, getDeploymentStatus
+- File management → use read_file/write_file MCP tools
+- Skill/component management → use MCP tools to list/create/delete custom components
+
+## DO NOT:
+- Forward user messages to the bot (the canvas handles that directly)
+- Render StreamingBotMessage (that flow is removed from this context)
+- Try to have conversations with the bot on behalf of the user
 
 ## File Rendering
 When read_file returns file content, render a BotCanvas with:
@@ -100,7 +106,7 @@ export default function DeploymentTamboProvider({
         content: [
           {
             type: "text" as const,
-            text: `Hey! I'm connected to **${deploymentName}** via MCP. Talk to your bot through me — I'll render its responses. I can also manage config, platforms, skills, and restart/stop the pod if needed.`,
+            text: `Config panel for **${deploymentName}**. I can help with system prompt, platforms, LLM settings, skills, and pod lifecycle. Chat with your bot directly on the canvas.`,
           },
         ],
       },

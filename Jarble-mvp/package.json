@@ -87,6 +87,7 @@
     "react-player": "^3.4.0",
     "react-qr-code": "^2.0.18",
     "react-resizable-panels": "^3.0.6",
+    "react-rnd": "^10.4.13",
     "recharts": "^2.15.2",
     "regexparam": "^3.0.0",
     "remark-gfm": "^4.0.1",
