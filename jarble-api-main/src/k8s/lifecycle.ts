@@ -11,7 +11,8 @@ export async function createDeployment(
   userId: string,
   config: DeploymentConfig
 ): Promise<void> {
-  logger.info({ deploymentId, userId }, "Creating deployment");
+  const createStartMs = Date.now();
+  logger.info({ deploymentId, userId }, "K8s: creating deployment");
 
   const containerImage = config.image || DEFAULT_IMAGE;
 
@@ -45,6 +46,7 @@ export async function createDeployment(
     },
   });
   pvcCreated = true;
+  logger.info({ deploymentId, storageGi }, "K8s: created PVC");
 
   // 2. Create Secret for deployment env vars
   const gatewayToken = config.gatewayToken || crypto.randomBytes(32).toString("hex");
@@ -71,6 +73,7 @@ export async function createDeployment(
     stringData: secretData,
   });
   secretCreated = true;
+  logger.info({ deploymentId, keyCount: Object.keys(secretData).length }, "K8s: created Secret");
 
   // 3. Create ConfigMap with initial config files
   // The init container copies these to the PVC before the main container starts,
@@ -78,6 +81,7 @@ export async function createDeployment(
   if (config.initialConfigs && config.initialConfigs.length > 0) {
     await createDeploymentConfigMap(deploymentId, config.initialConfigs);
     configMapCreated = true;
+    logger.info({ deploymentId, fileCount: config.initialConfigs.length }, "K8s: created ConfigMap");
   }
 
   // 4. Build the init container script that copies ConfigMap files to PVC.
@@ -198,7 +202,8 @@ export async function createDeployment(
   });
 
   } catch (err) {
-    logger.error({ deploymentId, err, pvcCreated, secretCreated, configMapCreated }, "createDeployment failed, rolling back");
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    logger.error({ deploymentId, pvcCreated, secretCreated, configMapCreated, error: errorMessage }, "K8s: createDeployment failed, rolling back");
     try {
       if (configMapCreated) {
         await deleteDeploymentConfigMap(deploymentId);
@@ -223,7 +228,8 @@ export async function createDeployment(
     throw err;
   }
 
-  logger.info({ deploymentId }, "Deployment created successfully");
+  const createDurationMs = Date.now() - createStartMs;
+  logger.info({ deploymentId, durationMs: createDurationMs }, "K8s: deployment created successfully");
 }
 
 // ── Stop / Start (replica scaling) ────────────────────────────────────
@@ -277,7 +283,8 @@ export async function startDeployment(deploymentId: string): Promise<void> {
  * Useful for picking up config changes.
  */
 export async function restartDeployment(deploymentId: string): Promise<void> {
-  logger.info({ deploymentId }, "Restarting deployment");
+  const restartStartMs = Date.now();
+  logger.info({ deploymentId }, "K8s: restarting deployment");
 
   await stopDeployment(deploymentId);
 
@@ -294,13 +301,15 @@ export async function restartDeployment(deploymentId: string): Promise<void> {
 
   await startDeployment(deploymentId);
 
-  logger.info({ deploymentId }, "Deployment restarted");
+  const restartDurationMs = Date.now() - restartStartMs;
+  logger.info({ deploymentId, durationMs: restartDurationMs }, "K8s: deployment restarted");
 }
 
 // ── Delete ──────────────────────────────────────────────────────────────
 
 export async function deleteDeployment(deploymentId: string): Promise<void> {
-  logger.info({ deploymentId }, "deleteDeployment: starting");
+  const deleteStartMs = Date.now();
+  logger.info({ deploymentId }, "K8s: deleteDeployment starting");
 
   // Step 1: Scale to 0 so the pod releases the RWO PVC before we delete it.
   logger.debug({ deploymentId }, "deleteDeployment: scaling to 0 replicas");
@@ -385,5 +394,6 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
     }
   }
 
-  logger.info({ deploymentId }, "deleteDeployment: all K8s resources deleted");
+  const deleteDurationMs = Date.now() - deleteStartMs;
+  logger.info({ deploymentId, durationMs: deleteDurationMs }, "K8s: deleteDeployment completed, all resources deleted");
 }

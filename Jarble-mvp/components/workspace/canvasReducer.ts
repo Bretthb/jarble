@@ -4,20 +4,28 @@ import { INITIAL_CANVAS_STATE, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE, SPLITTABLE
 export { INITIAL_CANVAS_STATE };
 
 export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
+  console.log(`[Jarble:Reducer] ${action.type}`);
+
   switch (action.type) {
-    case "ADD_CARD":
-      return {
+    case "ADD_CARD": {
+      const newState = {
         ...state,
         cards: [...state.cards, { ...action.card, zIndex: state.nextZIndex }],
         nextZIndex: state.nextZIndex + 1,
       };
+      console.log(`[Jarble:Reducer] ADD_CARD -> ${newState.cards.length} cards`);
+      return newState;
+    }
 
-    case "REMOVE_CARD":
-      return {
+    case "REMOVE_CARD": {
+      const newState = {
         ...state,
         cards: state.cards.filter((c) => c.id !== action.id),
         focusedCardId: state.focusedCardId === action.id ? null : state.focusedCardId,
       };
+      console.log(`[Jarble:Reducer] REMOVE_CARD -> ${newState.cards.length} cards`);
+      return newState;
+    }
 
     case "MOVE_CARD":
       return {
@@ -123,6 +131,7 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       return { ...state, zoom: Math.max(0.25, Math.min(2.0, action.zoom)) };
 
     case "RESTORE_STATE":
+      console.log(`[Jarble:Reducer] RESTORE_STATE -> ${action.state.cards.length} cards`);
       return action.state;
 
     case "SPLIT_CARD": {
@@ -155,13 +164,14 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
             title: (transformedProps as { title?: string }).title || `Item ${index + 1}`,
           });
         } catch (err) {
-          console.error(`Failed to split item ${index}:`, err);
+          console.error(`[Jarble:Reducer] Failed to split item ${index}:`, err);
           // Skip this item and continue
         }
       }
 
       if (newCards.length === 0) return state; // All transformations failed
 
+      console.log(`[Jarble:Reducer] SPLIT_CARD -> ${items.length} items split into ${newCards.length} cards`);
       return {
         ...state,
         // Remove original card, add split cards

@@ -130,10 +130,12 @@ tamboAgentRouter.post("/", async (req, res) => {
       if (user) {
         authenticatedUserId = user.id;
       } else {
+        logger.warn("Chat: bearer token valid but user not found in DB");
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
     } catch {
+      logger.warn("Chat: invalid or expired bearer token");
       res.status(401).json({ error: "Invalid token" });
       return;
     }
@@ -142,6 +144,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     if (secret) {
       const provided = req.headers["x-agent-secret"] as string | undefined;
       if (!provided || !secureCompare(provided, secret)) {
+        logger.warn("Chat: invalid or missing agent secret");
         res.status(401).json({ error: "Invalid agent secret" });
         return;
       }
@@ -151,6 +154,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       }
     } else {
       // No secret configured and no JWT — always reject (even in dev mode)
+      logger.warn("Chat: no auth token and no agent secret configured");
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
@@ -173,6 +177,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   // 3. Extract deployment ID
   const deploymentId = extractDeploymentId(body);
   if (!deploymentId) {
+    logger.warn("Chat: could not extract deploymentId from request body");
     sendEvent(res, { type: "RUN_STARTED", runId, threadId });
     const errMsgId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: errMsgId, role: "assistant" });
@@ -189,6 +194,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   });
 
   if (!deployment) {
+    logger.warn({ deploymentId }, "Chat: deployment not found");
     sendEvent(res, { type: "RUN_STARTED", runId, threadId });
     const errMsgId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: errMsgId, role: "assistant" });
@@ -201,6 +207,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   // 5. Verify ownership (always enforced regardless of auth method)
   if ((deployment as any).userId !== authenticatedUserId) {
+    logger.warn({ deploymentId, userId: authenticatedUserId }, "Chat: user does not own deployment");
     sendEvent(res, { type: "RUN_STARTED", runId, threadId });
     const errMsgId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: errMsgId, role: "assistant" });
@@ -211,6 +218,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     return;
   }
 
+  const requestStartMs = Date.now();
   const dep = deployment as any;
   const agMessages = body.messages || [];
 
@@ -223,6 +231,8 @@ tamboAgentRouter.post("/", async (req, res) => {
         ? lastUserMsg.content.map((c: any) => c.text || "").join("")
         : "")
     : "";
+
+  logger.info({ deploymentId, messageLength: lastUserText.length }, "Chat: request started");
 
   // Send RUN_STARTED
   sendEvent(res, { type: "RUN_STARTED", runId, threadId });
@@ -288,6 +298,10 @@ tamboAgentRouter.post("/", async (req, res) => {
       "chatWithBot: gateway response summary"
     );
     const resolvedBlocks = await resolveUIBlocks(gatewayResult.uiBlocks, deploymentId);
+    const customCount = resolvedBlocks.filter(b => b.component === "layout" && !gatewayResult.uiBlocks.find(orig => orig.id === b.id && orig.component === "layout")).length;
+    if (resolvedBlocks.length > 0) {
+      logger.debug({ deploymentId, blockCount: resolvedBlocks.length, customCount }, "Chat: resolved UI blocks");
+    }
 
     for (const block of resolvedBlocks) {
       sendEvent(res, {
@@ -315,6 +329,13 @@ tamboAgentRouter.post("/", async (req, res) => {
         });
       }
     }
+
+    const durationMs = Date.now() - requestStartMs;
+    const eventCount = resolvedBlocks.length + (gatewayResult.uiUpdates?.length ?? 0);
+    logger.info(
+      { deploymentId, durationMs, blockCount: resolvedBlocks.length, updateCount: gatewayResult.uiUpdates?.length ?? 0, rawTextLength: gatewayResult.rawText.length },
+      "Chat: request completed"
+    );
 
     sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
     res.end();

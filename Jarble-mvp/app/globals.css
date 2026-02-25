@@ -81,38 +81,110 @@
 }
 
 .dark {
-  --primary: #e4e4e7;
-  --primary-foreground: #09090b;
-  --sidebar-primary: #e4e4e7;
-  --sidebar-primary-foreground: #09090b;
-  --background: #09090b;
-  --foreground: #f4f4f5;
-  --card: #111113;
-  --card-foreground: #f4f4f5;
-  --popover: #111113;
-  --popover-foreground: #f4f4f5;
-  --secondary: #1c1c1f;
-  --secondary-foreground: #f4f4f5;
-  --muted: #1c1c1f;
-  --muted-foreground: #a1a1aa;
-  --accent: #1c1c1f;
-  --accent-foreground: #f4f4f5;
-  --destructive: #ef4444;
-  --destructive-foreground: #ffffff;
-  --border: #232326;
-  --input: #232326;
-  --ring: #a1a1aa;
-  --chart-1: #a1a1aa;
-  --chart-2: #71717a;
-  --chart-3: #52525b;
-  --chart-4: #3f3f46;
-  --chart-5: #27272a;
-  --sidebar: #111113;
-  --sidebar-foreground: #f4f4f5;
-  --sidebar-accent: #1c1c1f;
-  --sidebar-accent-foreground: #f4f4f5;
-  --sidebar-border: #232326;
-  --sidebar-ring: #a1a1aa;
+  /* Charcoal sketch aesthetic — warm tones, like pencil on dark artist paper */
+  --primary: #f0ece6;
+  --primary-foreground: #0f0e0d;
+  --sidebar-primary: #f0ece6;
+  --sidebar-primary-foreground: #0f0e0d;
+  --background: #0f0e0d;
+  --foreground: #e8e4df;
+  --card: #161514;
+  --card-foreground: #e8e4df;
+  --popover: #161514;
+  --popover-foreground: #e8e4df;
+  --secondary: #1e1d1b;
+  --secondary-foreground: #e8e4df;
+  --muted: #1e1d1b;
+  --muted-foreground: #9a958e;
+  --accent: #242220;
+  --accent-foreground: #e8e4df;
+  --destructive: #d4483b;
+  --destructive-foreground: #f0ece6;
+  --border: #2e2b28;
+  --input: #2e2b28;
+  --ring: #9a958e;
+  --chart-1: #b5b0a8;
+  --chart-2: #8a857e;
+  --chart-3: #6b6660;
+  --chart-4: #4a4742;
+  --chart-5: #33302c;
+  --sidebar: #131211;
+  --sidebar-foreground: #e8e4df;
+  --sidebar-accent: #1e1d1b;
+  --sidebar-accent-foreground: #e8e4df;
+  --sidebar-border: #2e2b28;
+  --sidebar-ring: #9a958e;
+}
+
+/*
+ * Charcoal sketch texture effects — dark mode only
+ * Uses CSS-only grain/noise via SVG filter for a hand-drawn paper feel
+ */
+
+/* Subtle paper grain texture overlay on body in dark mode */
+.dark body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+}
+
+/* Warm vignette on the page edges for depth */
+.dark body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 50%,
+    rgba(10, 9, 8, 0.4) 100%
+  );
+}
+
+/* Card surface warm shadow in dark mode */
+.dark .card-surface {
+  box-shadow:
+    0 1px 3px 0 rgba(15, 14, 13, 0.5),
+    0 1px 2px -1px rgba(15, 14, 13, 0.4);
+}
+
+/* Warm glow on focus for interactive elements in dark mode */
+.dark *:focus-visible {
+  outline-color: rgba(240, 236, 230, 0.3);
+  box-shadow: 0 0 0 3px rgba(240, 236, 230, 0.08);
+}
+
+/* Subtle warm glow on hover for buttons and links in dark mode */
+.dark button:not(:disabled):hover,
+.dark [role="button"]:not([aria-disabled="true"]):hover,
+.dark a[href]:hover {
+  filter: brightness(1.05);
+}
+
+/* Charcoal sketch border style — slightly softer edges */
+.dark .section-group {
+  background: color-mix(in srgb, var(--secondary) 40%, transparent);
+  border-color: color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+/* Sketch-feel utility classes (optional, for components to use) */
+.charcoal-glow {
+  box-shadow: 0 0 12px 2px rgba(240, 236, 230, 0.06);
+}
+
+.charcoal-glow-strong {
+  box-shadow: 0 0 20px 4px rgba(240, 236, 230, 0.1);
+}
+
+.charcoal-stroke {
+  border: 1px solid rgba(240, 236, 230, 0.08);
 }
 
 /* CSS keyframe animations (no Framer Motion for site) */

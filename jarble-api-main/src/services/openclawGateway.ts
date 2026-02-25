@@ -97,6 +97,8 @@ export async function chatViaGateway(
   const { ip, port, gatewayToken, sessionKey } = opts;
   const wsUrl = `ws://${ip}:${port}`;
 
+  const connectStartMs = Date.now();
+
   return new Promise<GatewayResponse>((resolve, reject) => {
     const timeoutMs = 120_000;
     let fullText = "";
@@ -112,6 +114,7 @@ export async function chatViaGateway(
     const timeout = setTimeout(() => {
       if (!finished) {
         finished = true;
+        logger.warn({ wsUrl, timeoutMs, textLength: fullText.length }, "Gateway: response timed out");
         ws.close();
         if (fullText) {
           const { cleanText, uiBlocks, uiUpdates } = extractAllUIBlocks(fullText);
@@ -147,7 +150,8 @@ export async function chatViaGateway(
     }
 
     ws.on("open", () => {
-      logger.debug({ wsUrl }, "Gateway WS connected, waiting for challenge");
+      const connectMs = Date.now() - connectStartMs;
+      logger.info({ wsUrl, connectMs }, "Gateway: WS connected");
     });
 
     ws.on("message", async (data) => {
@@ -157,6 +161,7 @@ export async function chatViaGateway(
       try {
         msg = JSON.parse(String(data));
       } catch {
+        logger.warn({ wsUrl, rawData: String(data).slice(0, 200) }, "Gateway: failed to parse WS message");
         return;
       }
 
@@ -260,6 +265,7 @@ export async function chatViaGateway(
             finished = true;
             cleanup();
             const { cleanText, uiBlocks, uiUpdates } = extractAllUIBlocks(fullText);
+            logger.debug({ wsUrl, rawTextLength: fullText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "Gateway: response summary");
             resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates });
           } else if (state === "aborted") {
             finished = true;
@@ -394,5 +400,6 @@ export async function chatViaExec(
   onDelta?.(rawText);
 
   const { cleanText, uiBlocks, uiUpdates } = extractAllUIBlocks(rawText);
+  logger.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "chatViaExec: response summary");
   return { rawText, text: cleanText, uiBlocks, uiUpdates };
 }

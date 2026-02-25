@@ -173,13 +173,19 @@ function ensureDir() {
 function readComponent(name) {
   const fp = path.join(COMPONENTS_DIR, `${name}.json`);
   if (!fs.existsSync(fp)) return null;
-  try { return JSON.parse(fs.readFileSync(fp, "utf8")); }
-  catch { return null; }
+  try {
+    console.log("[MCP] File read:", fp);
+    return JSON.parse(fs.readFileSync(fp, "utf8"));
+  } catch (err) {
+    console.error("[MCP] Failed to parse JSON from file:", fp, err.message);
+    return null;
+  }
 }
 
 function writeComponent(name, def) {
   ensureDir();
   const fp = path.join(COMPONENTS_DIR, `${name}.json`);
+  console.log("[MCP] File write:", fp);
   fs.writeFileSync(fp, JSON.stringify(def, null, 2), "utf8");
 }
 
@@ -188,10 +194,13 @@ function listCustomComponents() {
   const results = [];
   for (const file of fs.readdirSync(COMPONENTS_DIR)) {
     if (!file.endsWith(".json")) continue;
+    const filePath = path.join(COMPONENTS_DIR, file);
     try {
-      const parsed = JSON.parse(fs.readFileSync(path.join(COMPONENTS_DIR, file), "utf8"));
+      const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
       results.push({ name: parsed.name || file.replace(".json", ""), description: parsed.description || "" });
-    } catch { /* skip */ }
+    } catch (err) {
+      console.error("[MCP] Failed to parse JSON from file:", filePath, err.message);
+    }
   }
   return results;
 }
@@ -343,8 +352,10 @@ function executeDefineComponent(args) {
 
   try {
     writeComponent(name, def);
+    console.log("[MCP] Component defined:", name);
     return { isError: false, text: `Component "${name}" saved. Use render_ui with component="${name}" to display it.` };
   } catch (err) {
+    console.error("[MCP] Failed to define component:", name, err.message);
     return { isError: true, text: `Failed to save: ${err.message}` };
   }
 }
@@ -386,10 +397,13 @@ function executeSaveCanvasFile(args) {
     if (!fs.existsSync(FILES_DIR)) {
       fs.mkdirSync(FILES_DIR, { recursive: true });
     }
-    fs.writeFileSync(path.join(FILES_DIR, `${fileId}.json`), payload, "utf8");
+    const filePath = path.join(FILES_DIR, `${fileId}.json`);
+    console.log("[MCP] File write:", filePath);
+    fs.writeFileSync(filePath, payload, "utf8");
     const displayName = name || fileId;
     return { isError: false, text: `Saved "${displayName}" (${component}) to library as "${fileId}".` };
   } catch (err) {
+    console.error("[MCP] Failed to save canvas file:", fileId, err.message);
     return { isError: true, text: `Failed to save: ${err.message}` };
   }
 }
@@ -403,9 +417,11 @@ function executeLoadCanvasFile(args) {
   if (!fs.existsSync(fp)) return { isError: true, text: `File "${fileId}" not found.` };
 
   try {
+    console.log("[MCP] File read:", fp);
     const content = JSON.parse(fs.readFileSync(fp, "utf8"));
     return { isError: false, text: JSON.stringify(content) };
   } catch (err) {
+    console.error("[MCP] Failed to parse JSON from file:", fp, err.message);
     return { isError: true, text: `Failed to read: ${err.message}` };
   }
 }
@@ -417,8 +433,9 @@ function executeListCanvasFiles() {
   for (const file of fs.readdirSync(FILES_DIR)) {
     if (!file.endsWith(".json")) continue;
     const fileId = file.replace(".json", "");
+    const filePath = path.join(FILES_DIR, file);
     try {
-      const parsed = JSON.parse(fs.readFileSync(path.join(FILES_DIR, file), "utf8"));
+      const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
       files.push({
         fileId,
         component: parsed.component || "unknown",
@@ -427,7 +444,9 @@ function executeListCanvasFiles() {
         tags: Array.isArray(parsed.tags) ? parsed.tags : [],
         savedAt: parsed.savedAt || null,
       });
-    } catch { /* skip */ }
+    } catch (err) {
+      console.error("[MCP] Failed to parse JSON from file:", filePath, err.message);
+    }
   }
 
   if (files.length === 0) return { isError: false, text: "No saved components found. Users can save components from the canvas using the bookmark button." };
@@ -553,6 +572,8 @@ function executeUpdateUi(args) {
   if (!card_id) return { isError: true, text: "Missing 'card_id' parameter." };
   if (!props || typeof props !== "object") return { isError: true, text: "Missing or invalid 'props' parameter." };
 
+  console.log("[MCP] update_ui:", card_id, "merge:", merge !== false);
+
   const block = JSON.stringify({
     card_id,
     props,
@@ -617,14 +638,19 @@ function handleMessage(msg) {
     const toolName = params?.name;
     const toolArgs = params?.arguments || {};
 
+    console.log("[MCP] Tool called:", toolName, "args:", JSON.stringify(toolArgs).slice(0, 200));
+
     const result = executeTool(toolName, toolArgs);
     if (!result) {
+      console.error("[MCP] Unknown tool:", toolName);
       return {
         jsonrpc: "2.0",
         id,
         error: { code: -32602, message: `Unknown tool: ${toolName}` },
       };
     }
+
+    console.log("[MCP] Tool result:", toolName, result.isError ? "ERROR" : "OK");
 
     return {
       jsonrpc: "2.0",

@@ -183,6 +183,7 @@ export function syncConfigsToPvc(deploymentId: string): Promise<void> {
 
 async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
   let previousStatus: string | null = null;
+  const syncStartMs = Date.now();
 
   try {
     // ══════════════════════════════════════════════════════════════════════
@@ -294,6 +295,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       // ── Tier 1: File-only change (zero downtime) ──────────────────────
       // Secrets are unchanged — update the ConfigMap (source of truth for
       // restarts) and write to the running pod's PVC for immediate effect.
+      logger.info({ deploymentId, tier: 1 }, "ConfigSync: starting tier 1 (file-only, zero downtime)");
       if (configFiles.length > 0) {
         // Always update ConfigMap so the next pod restart gets fresh config
         await updateDeploymentConfigMap(deploymentId, configFiles);
@@ -307,9 +309,13 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
             "configSync→PVC: direct PVC write failed (ConfigMap updated, will apply on restart)"
           );
         }
+        for (const f of configFiles) {
+          logger.debug({ deploymentId, filePath: f.path, contentLength: f.content.length }, "ConfigSync: writing file to PVC");
+        }
+        const durationMs = Date.now() - syncStartMs;
         logger.info(
-          { deploymentId, files: configFiles.map((f) => f.path) },
-          "configSync→PVC: file-only update complete (zero downtime)"
+          { deploymentId, durationMs, tier: 1, files: configFiles.map((f) => f.path) },
+          "ConfigSync: completed (file-only, zero downtime)"
         );
       }
       return;
@@ -317,6 +323,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
     if (!comparison.removed) {
       // ── Tier 2: Process restart (env vars added/changed, ~5-10s) ──────
+      logger.info({ deploymentId, tier: 2 }, "ConfigSync: starting tier 2 (process restart)");
       // Secrets changed but none removed. Try in-container process restart:
       // write .env + .reload marker, kill OpenClaw process, entrypoint loop
       // re-sources .env and restarts the gateway.
@@ -340,6 +347,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       }
 
       // Update K8s Secret for persistence (if pod truly restarts later, it gets the new values)
+      logger.info({ deploymentId, keyCount: Object.keys(secretEntries).length }, "ConfigSync: updating K8s secret");
       await updateDeploymentSecret(
         deploymentId,
         deployment.userId,
@@ -377,7 +385,8 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
           await (db as any).update(deployments)
             .set({ status: "running", error: null })
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
-          logger.info({ deploymentId }, "configSync→PVC: process restart completed successfully");
+          const durationMs = Date.now() - syncStartMs;
+          logger.info({ deploymentId, durationMs, tier: 2 }, "ConfigSync: completed (process restart)");
         } else {
           await (db as any).update(deployments)
             .set({
@@ -397,6 +406,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
     } else {
       // ── Tier 3 entry: Secrets removed (need full pod restart) ─────────
+      logger.info({ deploymentId, tier: 3 }, "ConfigSync: starting tier 3 (secrets removed, full pod restart)");
       // Env vars can't be unset via .env sourcing — must recreate the pod
       // so the K8s Secret envFrom produces a clean environment.
 
@@ -419,6 +429,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       }
 
       // Update K8s Secret (critical for platform tokens)
+      logger.info({ deploymentId, keyCount: Object.keys(secretEntries).length }, "ConfigSync: updating K8s secret");
       await updateDeploymentSecret(
         deploymentId,
         deployment.userId,
@@ -432,6 +443,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     // Either secrets were removed, or process restart wasn't supported.
     // Status is already "restarting" at this point.
 
+    logger.info({ deploymentId }, "ConfigSync: restarting deployment (full pod restart)");
     await restartDeployment(deploymentId);
 
     // Poll for readiness (90 × 2s = 3 min max)
@@ -457,7 +469,8 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       if ((result?.changes ?? result?.rowsAffected ?? 1) === 0) {
         logger.warn({ deploymentId }, "configSync→PVC: status update skipped — deployment no longer in 'restarting' state");
       } else {
-        logger.info({ deploymentId }, "configSync→PVC: pod restart completed successfully");
+        const durationMs = Date.now() - syncStartMs;
+        logger.info({ deploymentId, durationMs, tier: 3 }, "ConfigSync: completed (full pod restart)");
       }
     } else {
       const result = await (db as any).update(deployments)
@@ -475,9 +488,10 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    const durationMs = Date.now() - syncStartMs;
     logger.error(
-      { deploymentId, err },
-      "configSync→PVC: failed during execution"
+      { deploymentId, durationMs, error: errorMessage },
+      "ConfigSync: failed"
     );
 
     // Restore DB status with error message

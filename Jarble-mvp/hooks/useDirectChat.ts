@@ -64,6 +64,10 @@ export function useDirectChat(deploymentId: string) {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      const streamStart = Date.now();
+      let eventCount = 0;
+      let textContentCount = 0;
+
       try {
         const token = await getAccessTokenSilently();
         const historyForApi = [...messages, userMsg].map((m) => ({
@@ -71,7 +75,10 @@ export function useDirectChat(deploymentId: string) {
           content: m.content,
         }));
 
-        const res = await fetch(`${API_URL}/api/tambo-agent`, {
+        const url = `${API_URL}/api/tambo-agent`;
+        console.log(`[Jarble:DirectChat] SSE connecting to ${url} for deployment ${deploymentId}`);
+
+        const res = await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -83,6 +90,7 @@ export function useDirectChat(deploymentId: string) {
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "Request failed");
+          console.error(`[Jarble:DirectChat] SSE error: HTTP ${res.status} — ${errText.slice(0, 200)}`);
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId ? { ...m, content: `Error: ${errText}` } : m
@@ -94,6 +102,7 @@ export function useDirectChat(deploymentId: string) {
         const reader = res.body?.getReader();
         if (!reader) return;
 
+        console.log("[Jarble:DirectChat] SSE connected, streaming...");
         const decoder = new TextDecoder();
         let buffer = "";
         const pendingBlocks = new Map<string, UIBlock>();
@@ -112,13 +121,21 @@ export function useDirectChat(deploymentId: string) {
 
             try {
               const event = JSON.parse(trimmed.slice(6));
+              eventCount++;
 
               if (event.type === "TEXT_MESSAGE_CONTENT" && event.delta) {
+                textContentCount++;
+                // Log every 5th TEXT_MESSAGE_CONTENT to avoid spam
+                if (textContentCount % 5 === 0) {
+                  console.log(`[Jarble:DirectChat] SSE event: TEXT_MESSAGE_CONTENT (x${textContentCount})`);
+                }
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === assistantId ? { ...m, content: m.content + event.delta } : m
                   )
                 );
+              } else if (event.type !== "TEXT_MESSAGE_CONTENT") {
+                console.log(`[Jarble:DirectChat] SSE event: ${event.type}`);
               }
 
               if (event.type === "UI_BLOCK_START") {
@@ -139,6 +156,7 @@ export function useDirectChat(deploymentId: string) {
                 const block = pendingBlocks.get(event.blockId);
                 if (block) {
                   const completed = { ...block };
+                  console.log(`[Jarble:DirectChat] UI block completed: ${block.id} (${block.component})`);
                   setMessages((prev) =>
                     prev.map((m) => {
                       if (m.id !== assistantId) return m;
@@ -155,6 +173,7 @@ export function useDirectChat(deploymentId: string) {
 
               if (event.type === "UI_BLOCK_UPDATE") {
                 const { cardId, props, merge, component } = event;
+                console.log(`[Jarble:DirectChat] Card updated: ${cardId} (merge=${merge ?? true})`);
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (!m.uiBlocks) return m;
@@ -178,12 +197,18 @@ export function useDirectChat(deploymentId: string) {
 
               if (event.type === "RUN_FINISHED") break;
             } catch {
-              // Skip malformed JSON lines
+              console.warn(`[Jarble:DirectChat] Failed to parse SSE event data: ${trimmed.slice(0, 200)}`);
             }
           }
         }
+
+        console.log(`[Jarble:DirectChat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
       } catch (err: any) {
-        if (err.name === "AbortError") return;
+        if (err.name === "AbortError") {
+          console.log(`[Jarble:DirectChat] SSE aborted after ${Date.now() - streamStart}ms`);
+          return;
+        }
+        console.error(`[Jarble:DirectChat] SSE error: ${err.message || String(err)}`);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId

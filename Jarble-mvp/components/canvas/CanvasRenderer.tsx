@@ -6,6 +6,9 @@ import { useComponentCatalog } from "@/components/ComponentCatalogProvider";
 import CustomComponentRenderer from "./CustomComponentRenderer";
 import { CanvasActionProvider, type CanvasAction } from "./CanvasActionContext";
 
+// Components that may be expensive to render — measure their render time
+const EXPENSIVE_COMPONENTS = new Set(["sandbox", "code_editor", "map", "stock", "heatmap", "treemap", "sankey"]);
+
 // ── Error Boundary ────────────────────────────────────────────────────────────
 
 interface ErrorBoundaryProps {
@@ -22,6 +25,10 @@ class CanvasErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { error };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error(`[Jarble:Render] Error boundary caught error in ${this.props.componentName}: ${error.message}`);
   }
 
   render() {
@@ -80,7 +87,7 @@ export default function CanvasRenderer({
     const result = entry.propsSchema.safeParse(block.props);
 
     if (!result.success) {
-      console.warn("[Jarble:Canvas] Zod validation FAILED for", block.component, ":", result.error.issues, "\n  Raw props:", block.props);
+      console.warn("[Jarble:Render] Zod validation FAILED for", block.component, ":", result.error.issues, "\n  Raw props:", block.props);
       return (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
           Invalid props for <code>{block.component}</code>:{" "}
@@ -91,8 +98,21 @@ export default function CanvasRenderer({
 
     const Component = entry.component;
     const validatedProps = result.data as Record<string, unknown>;
+    const isExpensive = EXPENSIVE_COMPONENTS.has(block.component);
 
-    console.log("[Jarble:Canvas] Rendering", block.component, "— props keys:", Object.keys(validatedProps), "block:", block.id);
+    console.log("[Jarble:Render] Rendering", block.component, "— props keys:", Object.keys(validatedProps), "block:", block.id);
+
+    // For expensive components, measure render time
+    const renderStart = isExpensive ? Date.now() : 0;
+    if (isExpensive) {
+      // Use a microtask to measure after React renders
+      requestAnimationFrame(() => {
+        const elapsed = Date.now() - renderStart;
+        if (elapsed > 100) {
+          console.warn(`[Jarble:Render] Slow render: ${block.component} took ${elapsed}ms`);
+        }
+      });
+    }
 
     return (
       <CanvasDepthContext.Provider value={depth + 1}>
@@ -112,7 +132,7 @@ export default function CanvasRenderer({
   // 2. Try custom component from catalog
   const customDef = getCustomComponent(block.component);
   if (customDef) {
-    console.log("[Jarble:Canvas] Rendering custom component:", block.component);
+    console.log("[Jarble:Render] Rendering custom component:", block.component);
     return (
       <CanvasDepthContext.Provider value={depth + 1}>
         <CanvasErrorBoundary componentName={block.component}>
@@ -123,7 +143,7 @@ export default function CanvasRenderer({
   }
 
   // 3. Unknown component fallback
-  console.warn("[Jarble:Canvas] Unknown component:", block.component, "— not in registry or catalog");
+  console.warn(`[Jarble:Render] Unknown component: ${block.component}, showing fallback`);
   return (
     <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-300">
       Unknown component: <code>{block.component}</code>
