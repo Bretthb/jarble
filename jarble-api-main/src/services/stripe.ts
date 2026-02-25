@@ -108,25 +108,32 @@ export async function createIncompleteSubscription(params: {
       userId: params.userId,
       runtimeSlug: params.runtimeSlug,
     },
-    expand: ["latest_invoice.payment_intent"],
+    expand: ["latest_invoice.confirmation_secret"],
   });
 
-  // Extract from expanded objects
+  // In Stripe API 2025+, payment_intent moved off Invoice.
+  // Use invoice.confirmation_secret (contains the PaymentIntent client_secret)
+  // or fall back to the legacy payment_intent field for older API versions.
   const invoice = subscription.latest_invoice as Stripe.Invoice;
-  const paymentIntent = invoice?.payment_intent as Stripe.PaymentIntent | null;
+  const clientSecret =
+    (invoice as any)?.confirmation_secret?.client_secret ??
+    ((invoice as any)?.payment_intent as Stripe.PaymentIntent | null)?.client_secret ??
+    null;
 
-  if (!paymentIntent?.client_secret) {
-    throw new Error(`No PaymentIntent client_secret: invoice=${invoice?.id} status=${invoice?.status} total=${invoice?.total} pi=${paymentIntent?.id ?? "null"}`);
+  if (!clientSecret) {
+    throw new Error(
+      `No client_secret on invoice: invoice=${invoice?.id} status=${invoice?.status} total=${invoice?.total}`
+    );
   }
 
   logger.info(
-    { userId: params.userId, runtimeSlug: params.runtimeSlug, subscriptionId: subscription.id, paymentIntentId: paymentIntent.id },
+    { userId: params.userId, runtimeSlug: params.runtimeSlug, subscriptionId: subscription.id, invoiceId: invoice?.id },
     "Stripe incomplete subscription created"
   );
 
   return {
     subscriptionId: subscription.id,
-    clientSecret: paymentIntent.client_secret,
+    clientSecret,
   };
 }
 
