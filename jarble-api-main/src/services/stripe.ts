@@ -70,6 +70,67 @@ export async function createCheckoutSession(params: {
 }
 
 /**
+ * Create an incomplete Stripe subscription for use with Stripe Elements.
+ * Returns the PaymentIntent client_secret so the frontend can confirm payment.
+ * The subscription stays incomplete until confirmPayment() succeeds.
+ */
+export async function createIncompleteSubscription(params: {
+  userId: string;
+  userEmail: string;
+  runtimeSlug: string;
+  monthlyPriceCents: number;
+  stripeCustomerId: string;
+}): Promise<{ subscriptionId: string; clientSecret: string }> {
+  const s = getStripe();
+
+  const product = await s.products.create({
+    name: `Jarble Deployment (${params.runtimeSlug})`,
+    metadata: { userId: params.userId, runtimeSlug: params.runtimeSlug },
+  });
+
+  // Create a Price object first (required for default_incomplete to generate a PaymentIntent)
+  const price = await s.prices.create({
+    currency: "usd",
+    unit_amount: params.monthlyPriceCents,
+    recurring: { interval: "month" },
+    product: product.id,
+  });
+
+  const subscription = await s.subscriptions.create({
+    customer: params.stripeCustomerId,
+    items: [{ price: price.id }],
+    payment_behavior: "default_incomplete",
+    payment_settings: {
+      payment_method_types: ["card"],
+      save_default_payment_method: "on_subscription",
+    },
+    metadata: {
+      userId: params.userId,
+      runtimeSlug: params.runtimeSlug,
+    },
+    expand: ["latest_invoice.payment_intent"],
+  });
+
+  // Extract from expanded objects
+  const invoice = subscription.latest_invoice as Stripe.Invoice;
+  const paymentIntent = invoice?.payment_intent as Stripe.PaymentIntent | null;
+
+  if (!paymentIntent?.client_secret) {
+    throw new Error(`No PaymentIntent client_secret: invoice=${invoice?.id} status=${invoice?.status} total=${invoice?.total} pi=${paymentIntent?.id ?? "null"}`);
+  }
+
+  logger.info(
+    { userId: params.userId, runtimeSlug: params.runtimeSlug, subscriptionId: subscription.id, paymentIntentId: paymentIntent.id },
+    "Stripe incomplete subscription created"
+  );
+
+  return {
+    subscriptionId: subscription.id,
+    clientSecret: paymentIntent.client_secret,
+  };
+}
+
+/**
  * Create a Stripe Customer Portal session for managing subscriptions
  */
 export async function createPortalSession(params: {

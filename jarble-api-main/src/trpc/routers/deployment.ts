@@ -282,17 +282,26 @@ export const deploymentRouter = router({
           where: eq(users.id, ctx.user.id),
         });
 
-        if ((currentUser as any)?.pendingStripeSubscriptionId) {
-          stripeSubscriptionId = (currentUser as any).pendingStripeSubscriptionId;
+        const pendingSub = (currentUser as any)?.pendingStripeSubscriptionId;
 
-          // Clear the pending fields (consumed)
-          await (ctx.db as any).update(users)
-            .set({
-              pendingStripeSubscriptionId: null,
-            })
-            .where(eq(users.id, ctx.user.id));
+        if (pendingSub) {
+          // Atomic claim: UPDATE WHERE pendingStripeSubscriptionId = pendingSub
+          // If a concurrent request already cleared it, 0 rows are affected and we skip
+          const claimed = await (ctx.db as any).update(users)
+            .set({ pendingStripeSubscriptionId: null })
+            .where(and(
+              eq(users.id, ctx.user.id),
+              eq((users as any).pendingStripeSubscriptionId, pendingSub),
+            ));
 
-          logger.info({ deploymentId, stripeSubscriptionId, userId: ctx.user.id }, "Linked pending Stripe subscription to deployment");
+          // MySQL returns .rowsAffected, SQLite (dev) returns .changes
+          const affectedRows = (claimed as any).rowsAffected ?? (claimed as any).changes ?? 0;
+          if (affectedRows > 0) {
+            stripeSubscriptionId = pendingSub;
+            logger.info({ deploymentId, stripeSubscriptionId, userId: ctx.user.id }, "Linked pending Stripe subscription to deployment");
+          } else {
+            logger.warn({ deploymentId, userId: ctx.user.id }, "Subscription claim race — already claimed by concurrent request");
+          }
         }
       }
 
