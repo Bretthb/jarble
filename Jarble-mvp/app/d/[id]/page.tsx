@@ -7,20 +7,20 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { useStatusStream } from "@/hooks/useStatusStream";
 import { ComponentCatalogProvider } from "@/components/ComponentCatalogProvider";
 import DeploymentTamboProvider from "@/components/DeploymentTamboProvider";
-import { useCanvasChat } from "@/hooks/useCanvasChat";
+import { useCanvasChat, type ChatMessage } from "@/hooks/useCanvasChat";
 import { useCanvasPersistence } from "@/hooks/useCanvasPersistence";
 import { canvasReducer, INITIAL_CANVAS_STATE } from "@/components/workspace/canvasReducer";
-import InfiniteCanvas, { isCardVisible } from "@/components/workspace/InfiniteCanvas";
-import CanvasCardWrapper from "@/components/workspace/CanvasCardWrapper";
+import DashboardGrid from "@/components/workspace/DashboardGrid";
 import EssentialControls from "@/components/workspace/EssentialControls";
 import ConfigPanel from "@/components/workspace/ConfigPanel";
-import MiniMap from "@/components/workspace/MiniMap";
 import CanvasRenderer from "@/components/canvas/CanvasRenderer";
 import EditableCanvas from "@/components/canvas/EditableCanvas";
-import CanvasTextMessage from "@/components/canvas/components/CanvasTextMessage";
+import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, SendHorizontal, Settings } from "lucide-react";
-import { useReducer, useRef, useState, useCallback, useMemo } from "react";
+import { ArrowLeft, Loader2, SendHorizontal, Settings, MessageSquare, Layout } from "lucide-react";
+import { useReducer, useRef, useState, useCallback, useEffect } from "react";
+import { cn } from "@/lib/utils";
+import MarkdownMessage from "@/components/MarkdownMessage";
 import ProfileDropdown from "@/components/ProfileDropdown";
 
 export default function DeploymentChatPage() {
@@ -154,10 +154,17 @@ function WorkspacePage({
 
 function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
   const [state, dispatch] = useReducer(canvasReducer, INITIAL_CANVAS_STATE);
-  const { sendMessage, isStreaming, streamingCardIds } = useCanvasChat(deploymentId, state, dispatch);
+  const { sendMessage, isStreaming, streamingCardIds, messages, streamingText } = useCanvasChat(deploymentId, state, dispatch);
   useCanvasPersistence(deploymentId, state, dispatch);
   const [input, setInput] = useState("");
+  const [showCanvas, setShowCanvas] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll chat to bottom on new messages
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, streamingText]);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -171,69 +178,147 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
     [input, isStreaming, sendMessage]
   );
 
-  // Viewport culling: only render cards within visible area + buffer
-  const visibleCards = useMemo(() => {
-    const w = typeof window !== "undefined" ? window.innerWidth : 1200;
-    const h = typeof window !== "undefined" ? window.innerHeight : 800;
-    return state.cards.filter((card) =>
-      isCardVisible(card, state.viewportOffset, state.zoom, w, h)
-    );
-  }, [state.cards, state.viewportOffset, state.zoom]);
+  // Render function for cards in the grid
+  const renderCard = useCallback(
+    (card: import("@/components/workspace/types").CanvasCard) => (
+      <CardContent card={card} deploymentId={deploymentId} sendMessage={sendMessage} />
+    ),
+    [deploymentId, sendMessage]
+  );
+
+  const hasCanvasCards = state.cards.length > 0;
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden relative">
-      {/* Infinite Canvas — fills remaining space */}
-      <InfiniteCanvas state={state} dispatch={dispatch}>
-        {visibleCards.map((card) => (
-          <CanvasCardWrapper
-            key={card.id}
-            card={card}
-            dispatch={dispatch}
-            focused={card.id === state.focusedCardId}
-            streaming={streamingCardIds.has(card.id)}
-          >
-            <CardContent card={card} deploymentId={deploymentId} sendMessage={sendMessage} />
-          </CanvasCardWrapper>
-        ))}
-      </InfiniteCanvas>
+    <div className="flex-1 flex overflow-hidden relative">
+      {/* Chat Panel — always visible */}
+      <div className={cn(
+        "flex flex-col border-r border-border bg-background transition-all",
+        showCanvas && hasCanvasCards ? "w-[400px]" : "flex-1 max-w-3xl mx-auto"
+      )}>
+        {/* Chat messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.length === 0 && !streamingText && (
+            <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+              Start a conversation with your bot
+            </div>
+          )}
+          {messages.map((msg) => (
+            <ChatBubble key={msg.id} message={msg} />
+          ))}
+          {/* Streaming text indicator */}
+          {streamingText && (
+            <div className="flex gap-3">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <span className="text-xs font-medium text-primary">AI</span>
+              </div>
+              <div className="flex-1 rounded-lg bg-secondary/50 px-4 py-3">
+                <MarkdownMessage content={streamingText} />
+                <span className="inline-block w-2 h-4 bg-primary/60 animate-pulse ml-1" />
+              </div>
+            </div>
+          )}
+          <div ref={chatEndRef} />
+        </div>
 
-      {/* MiniMap overlay */}
-      <MiniMap state={state} dispatch={dispatch} />
+        {/* Chat input */}
+        <div className="border-t border-border bg-background/95 backdrop-blur-sm shrink-0 p-4">
+          <form onSubmit={handleSubmit} className="flex gap-2 items-center">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Type a message..."
+              className="flex-1 rounded-lg border border-border bg-secondary/50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+              disabled={isStreaming}
+            />
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!input.trim() || isStreaming}
+              className="h-10 w-10 p-0"
+            >
+              {isStreaming ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <SendHorizontal className="w-4 h-4" />
+              )}
+            </Button>
+          </form>
+        </div>
+      </div>
 
-      {/* Fixed chat input bar */}
-      <div className="border-t border-border bg-background/95 backdrop-blur-sm shrink-0 z-10">
-        <form
-          onSubmit={handleSubmit}
-          className="max-w-3xl mx-auto px-4 py-3 flex gap-2 items-center"
-        >
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type a message..."
-            className="flex-1 rounded-lg border border-border bg-secondary/50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
-            disabled={isStreaming}
-          />
+      {/* Dashboard Grid Panel — for UI blocks only */}
+      {showCanvas && hasCanvasCards && (
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          {/* Toggle button */}
           <Button
-            type="submit"
+            variant="ghost"
             size="sm"
-            disabled={!input.trim() || isStreaming}
-            className="h-10 w-10 p-0"
+            onClick={() => setShowCanvas(false)}
+            className="absolute top-2 left-2 z-20 h-8 px-2 bg-background/80 backdrop-blur-sm"
           >
-            {isStreaming ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <SendHorizontal className="w-4 h-4" />
-            )}
+            <MessageSquare className="w-4 h-4 mr-1" />
+            Hide Dashboard
           </Button>
-        </form>
+
+          {/* Dashboard Grid (Grafana-style) */}
+          <DashboardGrid
+            cards={state.cards}
+            dispatch={dispatch}
+            renderCard={renderCard}
+            focusedCardId={state.focusedCardId}
+            streamingCardIds={streamingCardIds}
+          />
+        </div>
+      )}
+
+      {/* Show dashboard button when hidden but cards exist */}
+      {!showCanvas && hasCanvasCards && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowCanvas(true)}
+          className="absolute top-2 right-2 z-20"
+        >
+          <Layout className="w-4 h-4 mr-1" />
+          Show Dashboard ({state.cards.length})
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// ── Chat Bubble Component ────────────────────────────────────────────────────
+
+function ChatBubble({ message }: { message: ChatMessage }) {
+  const isUser = message.role === "user";
+
+  return (
+    <div className={cn("flex gap-3", isUser && "flex-row-reverse")}>
+      <div className={cn(
+        "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
+        isUser ? "bg-primary text-primary-foreground" : "bg-primary/10"
+      )}>
+        <span className="text-xs font-medium">
+          {isUser ? "You" : "AI"}
+        </span>
+      </div>
+      <div className={cn(
+        "flex-1 max-w-[80%] rounded-lg px-4 py-3",
+        isUser ? "bg-primary text-primary-foreground" : "bg-secondary/50"
+      )}>
+        {isUser ? (
+          <p className="text-sm">{message.content}</p>
+        ) : (
+          <MarkdownMessage content={message.content} />
+        )}
       </div>
     </div>
   );
 }
 
-// ── Card Content Renderer ─────────────────────────────────────────────────────
+// ── Card Content Renderer (UI blocks only — chat messages are separate) ───────
 
 function CardContent({
   card,
@@ -244,15 +329,23 @@ function CardContent({
   deploymentId: string;
   sendMessage: (text: string) => Promise<void>;
 }) {
-  // Text message card
-  if (card.component === "text_message") {
-    return (
-      <CanvasTextMessage
-        botText={card.props.botText as string}
-        userText={card.props.userText as string}
-      />
-    );
-  }
+  // Handle actions from interactive components (including sandbox errors)
+  const handleAction = useCallback(
+    (action: CanvasAction) => {
+      console.log("[CardContent] Action received:", action);
+
+      // Forward sandbox errors to the bot for self-correction
+      if (action.action === "sandbox_error") {
+        const error = action.payload.error as { message: string; line: number; column: number; stack?: string } | undefined;
+        if (error) {
+          const errorMsg = `[SANDBOX_ERROR] The sandbox component threw an error:\nError: ${error.message}${error.line ? `\nAt line ${error.line}, column ${error.column}` : ""}${error.stack ? `\nStack: ${error.stack.slice(0, 500)}` : ""}\n\nPlease fix the JavaScript code and try again.`;
+          console.log("[CardContent] Forwarding sandbox error to bot:", errorMsg);
+          sendMessage(errorMsg);
+        }
+      }
+    },
+    [sendMessage]
+  );
 
   // Editable UI block — use EditableCanvas for save support
   if (card.editable) {
@@ -268,6 +361,7 @@ function CardContent({
         }}
         deploymentId={deploymentId}
         sendMessage={sendMessage}
+        onAction={handleAction}
       />
     );
   }
@@ -280,6 +374,7 @@ function CardContent({
         component: card.component,
         props: card.props,
       }}
+      onAction={handleAction}
     />
   );
 }

@@ -100,7 +100,7 @@ export default function CanvasCardWrapper({ card, dispatch, focused, streaming, 
 
             {/* Card content */}
             {!card.minimized && (
-              <div className="flex-1 overflow-auto p-3">
+              <div className="flex-1 overflow-auto p-3 [&>*]:h-full">
                 {children}
               </div>
             )}

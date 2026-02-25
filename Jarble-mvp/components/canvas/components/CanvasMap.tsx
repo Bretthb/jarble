@@ -27,6 +27,7 @@ export interface CanvasMapProps {
   zoom?: number;
   markers?: { lat: number; lng: number; label?: string }[];
   title?: string;
+  height?: number;
 }
 
 export default function CanvasMap({
@@ -34,13 +35,20 @@ export default function CanvasMap({
   zoom = 13,
   markers = [],
   title,
+  height,
 }: CanvasMapProps) {
+  // Use explicit height if provided, otherwise fill container
+  const useFlexHeight = height === undefined;
+  const containerStyle = useFlexHeight
+    ? { display: "flex", flexDirection: "column" as const, height: "100%", minHeight: 200 }
+    : {};
+
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="rounded-xl border border-border bg-card p-4" style={containerStyle}>
       {title && (
-        <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-3 shrink-0">{title}</h3>
       )}
-      <div className="overflow-hidden rounded-lg" style={{ height: 350 }}>
+      <div className="overflow-hidden rounded-lg" style={useFlexHeight ? { flex: 1, minHeight: 0 } : { height: height || 350 }}>
         <MapContainer
           center={center}
           zoom={zoom}

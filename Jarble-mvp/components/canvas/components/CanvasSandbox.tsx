@@ -110,13 +110,43 @@ function buildDocument(
 <body>
 ${html}
 <script>
-// Error overlay — show errors visually so they're not silent
+// Error overlay — show errors visually AND report to parent
 window.onerror = function(msg, src, line, col, err) {
   console.error("[Jarble:Sandbox] Error:", msg, src, line, col);
   var d = document.createElement("div");
   d.style.cssText = "position:fixed;top:0;left:0;right:0;padding:8px 12px;background:#fee;color:#c00;font:12px monospace;z-index:99999;white-space:pre-wrap;border-bottom:2px solid #c00";
   d.textContent = "Error: " + msg + "\\n" + (src||"") + ":" + line + ":" + col;
   document.body.prepend(d);
+  // Report error to parent for bot feedback
+  parent.postMessage({
+    type: "jarble:error",
+    error: {
+      message: String(msg),
+      source: src || "",
+      line: line || 0,
+      column: col || 0,
+      stack: err && err.stack ? err.stack : ""
+    }
+  }, "*");
+};
+// Also catch unhandled promise rejections
+window.onunhandledrejection = function(e) {
+  var msg = e.reason ? (e.reason.message || String(e.reason)) : "Unhandled promise rejection";
+  console.error("[Jarble:Sandbox] Unhandled rejection:", msg);
+  var d = document.createElement("div");
+  d.style.cssText = "position:fixed;top:0;left:0;right:0;padding:8px 12px;background:#fee;color:#c00;font:12px monospace;z-index:99999;white-space:pre-wrap;border-bottom:2px solid #c00";
+  d.textContent = "Error: " + msg;
+  document.body.prepend(d);
+  parent.postMessage({
+    type: "jarble:error",
+    error: {
+      message: msg,
+      source: "",
+      line: 0,
+      column: 0,
+      stack: e.reason && e.reason.stack ? e.reason.stack : ""
+    }
+  }, "*");
 };
 console.log("[Jarble:Sandbox] iframe document loaded");
 // Bridge: receive props from parent
@@ -164,7 +194,7 @@ export default function CanvasSandbox({
   css,
   js,
   props,
-  height = 400,
+  height,
   title,
   libraries,
 }: CanvasSandboxProps) {
@@ -187,7 +217,7 @@ export default function CanvasSandbox({
     readyRef.current = false;
   }, [html, css, js, libraries]);
 
-  // Listen for ready signal and actions from iframe
+  // Listen for ready signal, actions, and errors from iframe
   const handleMessage = useCallback(
     (e: MessageEvent) => {
       if (e.source !== iframeRef.current?.contentWindow) return;
@@ -208,8 +238,20 @@ export default function CanvasSandbox({
           payload: (e.data.payload && typeof e.data.payload === "object") ? e.data.payload : {},
         });
       }
+      if (e.data?.type === "jarble:error") {
+        console.error("[Jarble:Sandbox] Error from iframe:", e.data.error);
+        // Dispatch error as a special action so it can be forwarded to the bot
+        dispatch({
+          action: "sandbox_error",
+          payload: {
+            error: e.data.error,
+            component: "sandbox",
+            title: title || "Sandbox",
+          },
+        });
+      }
     },
-    [props, dispatch],
+    [props, dispatch, title],
   );
 
   useEffect(() => {
@@ -240,9 +282,18 @@ export default function CanvasSandbox({
     }
   }, [stopped]);
 
+  // Use explicit height if provided, otherwise fill container
+  const useFlexHeight = height === undefined;
+  const containerStyle = useFlexHeight
+    ? { display: "flex", flexDirection: "column" as const, height: "100%", minHeight: 200 }
+    : {};
+  const contentStyle = useFlexHeight
+    ? { flex: 1, minHeight: 0 }
+    : { height };
+
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center justify-between mb-3">
+    <div className="rounded-xl border border-border bg-card p-4" style={containerStyle}>
+      <div className="flex items-center justify-between mb-3 shrink-0">
         {title ? (
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         ) : (
@@ -272,7 +323,7 @@ export default function CanvasSandbox({
       {stopped ? (
         <div
           className="flex items-center justify-center rounded-lg bg-muted/50 text-muted-foreground text-sm"
-          style={{ width: "100%", height }}
+          style={{ width: "100%", ...contentStyle }}
         >
           Sandbox stopped — click Restart to resume
         </div>
@@ -283,10 +334,10 @@ export default function CanvasSandbox({
           sandbox="allow-scripts allow-popups"
           style={{
             width: "100%",
-            height,
             border: "none",
             borderRadius: 8,
             background: "transparent",
+            ...contentStyle,
           }}
         />
       )}

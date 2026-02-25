@@ -1,16 +1,13 @@
 "use client";
 
 /**
- * useCanvasChat — Streaming hook that dispatches ADD_CARD to the canvas reducer.
+ * useCanvasChat — Streaming hook for chat + canvas.
  *
- * Evolution of useDirectChat: same SSE consumption, but instead of maintaining
- * a messages array it creates CanvasCards for each bot response.
+ * Separation of concerns:
+ * - Chat messages (user + bot text) → returned in `messages` array for chat panel
+ * - UI blocks (charts, tables, etc.) → dispatched as CanvasCards for canvas area
  *
- * Text-only responses → "text_message" card.
- * UI blocks → card with their declared component type.
- *
- * Does NOT maintain conversation history (Option C — bot handles it via
- * OpenClaw session storage on PVC).
+ * Only UI blocks become moveable canvas components. Chat stays in a traditional thread.
  */
 
 import { useCallback, useRef, useState } from "react";
@@ -18,6 +15,14 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
 import type { CanvasAction, CanvasCard, CanvasState } from "@/components/workspace/types";
 import { findOpenPosition, getDefaultSize, getContainerSize } from "@/components/workspace/autoLayout";
+
+/** Chat message for the thread (not a canvas card) */
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: number;
+}
 
 interface UIBlockPending {
   id: string;
@@ -43,6 +48,8 @@ export function useCanvasChat(
   const { getAccessTokenSilently } = useAuth0();
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingCardIds, setStreamingCardIds] = useState<Set<string>>(new Set());
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [streamingText, setStreamingText] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
@@ -50,18 +57,26 @@ export function useCanvasChat(
       if (!text.trim() || isStreaming) return;
 
       setIsStreaming(true);
+      setStreamingText("");
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
 
       const messageId = `msg-${Date.now()}`;
       let accumulatedText = "";
-      const emittedBlocks = new Set<string>();
+
+      // Add user message to chat immediately
+      const userMessage: ChatMessage = {
+        id: `${messageId}-user`,
+        role: "user",
+        content: text,
+        createdAt: Date.now(),
+      };
+      setMessages((prev) => [...prev, userMessage]);
 
       try {
         const token = await getAccessTokenSilently();
 
-        // Option C: don't send history — bot manages it via session
         const res = await fetch(`${API_URL}/api/tambo-agent`, {
           method: "POST",
           headers: {
@@ -77,13 +92,16 @@ export function useCanvasChat(
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "Request failed");
-          addTextCard(
-            `Error: ${errText}`,
-            text,
-            messageId,
-            state,
-            dispatch
-          );
+          // Add error as assistant message
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `${messageId}-error`,
+              role: "assistant",
+              content: `Error: ${errText}`,
+              createdAt: Date.now(),
+            },
+          ]);
           return;
         }
 
@@ -111,6 +129,8 @@ export function useCanvasChat(
 
               if (event.type === "TEXT_MESSAGE_CONTENT" && event.delta) {
                 accumulatedText += event.delta;
+                // Update streaming text for live display
+                setStreamingText(stripUIMarkers(accumulatedText));
               }
 
               if (event.type === "UI_BLOCK_START") {
@@ -122,7 +142,6 @@ export function useCanvasChat(
                   ...(event.fileId ? { fileId: event.fileId } : {}),
                   ...(event.saveMethod ? { saveMethod: event.saveMethod } : {}),
                 });
-                // Mark card as streaming
                 setStreamingCardIds((prev) => new Set(prev).add(`card-${event.blockId}`));
               }
 
@@ -134,10 +153,9 @@ export function useCanvasChat(
               if (event.type === "UI_BLOCK_END") {
                 const block = pendingBlocks.get(event.blockId);
                 if (block) {
-                  emittedBlocks.add(block.id);
+                  // Only UI blocks become canvas cards
                   addComponentCard(block, messageId, state, dispatch);
                   pendingBlocks.delete(event.blockId);
-                  // Unmark card streaming after a short delay (let render settle)
                   const cardId = `card-${block.id}`;
                   setTimeout(() => {
                     setStreamingCardIds((prev) => {
@@ -156,66 +174,43 @@ export function useCanvasChat(
           }
         }
 
-        // After streaming ends: if we got text (beyond UI markers), create a text card
+        // After streaming ends: add bot text to chat messages (NOT canvas)
         const cleanText = stripUIMarkers(accumulatedText);
         if (cleanText) {
-          addTextCard(cleanText, text, messageId, state, dispatch);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `${messageId}-assistant`,
+              role: "assistant",
+              content: cleanText,
+              createdAt: Date.now(),
+            },
+          ]);
         }
-      } catch (err: any) {
-        if (err.name === "AbortError") return;
-        addTextCard(
-          "Something went wrong. Please try again.",
-          text,
-          messageId,
-          state,
-          dispatch
-        );
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `${messageId}-error`,
+            role: "assistant",
+            content: "Something went wrong. Please try again.",
+            createdAt: Date.now(),
+          },
+        ]);
       } finally {
         setIsStreaming(false);
+        setStreamingText("");
         setStreamingCardIds(new Set());
       }
     },
     [deploymentId, getAccessTokenSilently, isStreaming, state, dispatch]
   );
 
-  return { sendMessage, isStreaming, streamingCardIds };
+  return { sendMessage, isStreaming, streamingCardIds, messages, streamingText };
 }
 
-// ── Helpers: create cards ─────────────────────────────────────────────────────
-
-function addTextCard(
-  botText: string,
-  userText: string,
-  messageId: string,
-  state: CanvasState,
-  dispatch: React.Dispatch<CanvasAction>
-) {
-  const size = getDefaultSize("text_message");
-  const container = getContainerSize();
-  const position = findOpenPosition(
-    state.cards,
-    state.viewportOffset,
-    state.zoom,
-    container.width,
-    container.height,
-    size
-  );
-
-  const card: CanvasCard = {
-    id: `card-text-${Date.now()}`,
-    component: "text_message",
-    props: { botText, userText },
-    position,
-    size,
-    zIndex: 0, // reducer will assign
-    minimized: false,
-    createdAt: Date.now(),
-    sourceMessageId: messageId,
-    title: userText.slice(0, 40) || "Message",
-  };
-
-  dispatch({ type: "ADD_CARD", card });
-}
+// ── Helper: create canvas card for UI blocks only ────────────────────────────
 
 function addComponentCard(
   block: UIBlockPending,
