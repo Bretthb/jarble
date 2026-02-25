@@ -40,11 +40,14 @@ export default function CanvasChart({
   stacked = false,
   showLegend = true,
   showGrid = true,
-  height = 300,
+  height,
 }: CanvasChartProps) {
+  // Use explicit height if provided, otherwise fill container
+  const useFlexHeight = height === undefined;
+
   if (!data || data.length === 0 || !dataKeys || dataKeys.length === 0) {
     return (
-      <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+      <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground" style={useFlexHeight ? { height: "100%" } : {}}>
         No chart data provided
       </div>
     );
@@ -175,14 +178,20 @@ export default function CanvasChart({
     }
   };
 
+  const containerStyle = useFlexHeight
+    ? { display: "flex", flexDirection: "column" as const, height: "100%", minHeight: 200 }
+    : {};
+
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="rounded-xl border border-border bg-card p-4" style={containerStyle}>
       {title && (
-        <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-3 shrink-0">{title}</h3>
       )}
-      <ResponsiveContainer width="100%" height={height}>
-        {renderChart()!}
-      </ResponsiveContainer>
+      <div style={useFlexHeight ? { flex: 1, minHeight: 0 } : { height: height || 300 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          {renderChart()!}
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }

@@ -82,7 +82,8 @@ export const tamboComponents: TamboComponent[] = [
       message: z.string().describe("The user's message to forward to the bot"),
       deploymentId: z
         .string()
-        .describe("The deployment ID from context"),
+        .optional()
+        .describe("Optional — automatically resolved from context"),
     }),
   },
 
