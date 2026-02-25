@@ -1,10 +1,41 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, Component, type ReactNode } from "react";
 import { CANVAS_COMPONENTS } from "./registry";
 import { useComponentCatalog } from "@/components/ComponentCatalogProvider";
 import CustomComponentRenderer from "./CustomComponentRenderer";
 import { CanvasActionProvider, type CanvasAction } from "./CanvasActionContext";
+
+// ── Error Boundary ────────────────────────────────────────────────────────────
+
+interface ErrorBoundaryProps {
+  componentName: string;
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  error: Error | null;
+}
+
+class CanvasErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
+          <code>{this.props.componentName}</code> failed to render:{" "}
+          {this.state.error.message}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export interface UIBlock {
   id: string;
@@ -49,6 +80,7 @@ export default function CanvasRenderer({
     const result = entry.propsSchema.safeParse(block.props);
 
     if (!result.success) {
+      console.warn("[Jarble:Canvas] Zod validation FAILED for", block.component, ":", result.error.issues, "\n  Raw props:", block.props);
       return (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
           Invalid props for <code>{block.component}</code>:{" "}
@@ -60,15 +92,19 @@ export default function CanvasRenderer({
     const Component = entry.component;
     const validatedProps = result.data as Record<string, unknown>;
 
+    console.log("[Jarble:Canvas] Rendering", block.component, "— props keys:", Object.keys(validatedProps), "block:", block.id);
+
     return (
       <CanvasDepthContext.Provider value={depth + 1}>
-        <CanvasActionProvider
-          blockId={block.id}
-          component={block.component}
-          onAction={onAction}
-        >
-          <Component {...validatedProps} />
-        </CanvasActionProvider>
+        <CanvasErrorBoundary componentName={block.component}>
+          <CanvasActionProvider
+            blockId={block.id}
+            component={block.component}
+            onAction={onAction}
+          >
+            <Component {...validatedProps} />
+          </CanvasActionProvider>
+        </CanvasErrorBoundary>
       </CanvasDepthContext.Provider>
     );
   }
@@ -76,14 +112,18 @@ export default function CanvasRenderer({
   // 2. Try custom component from catalog
   const customDef = getCustomComponent(block.component);
   if (customDef) {
+    console.log("[Jarble:Canvas] Rendering custom component:", block.component);
     return (
       <CanvasDepthContext.Provider value={depth + 1}>
-        <CustomComponentRenderer definition={customDef} props={block.props} />
+        <CanvasErrorBoundary componentName={block.component}>
+          <CustomComponentRenderer definition={customDef} props={block.props} />
+        </CanvasErrorBoundary>
       </CanvasDepthContext.Provider>
     );
   }
 
   // 3. Unknown component fallback
+  console.warn("[Jarble:Canvas] Unknown component:", block.component, "— not in registry or catalog");
   return (
     <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-300">
       Unknown component: <code>{block.component}</code>

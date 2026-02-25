@@ -50,7 +50,6 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
   const telegramPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const telegramTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const telegramPollInFlightRef = useRef(false);
-  // @ts-expect-error — tRPC type inference truncates at ~6 procedures; pollTelegramPairing exists on the backend
   const pollTelegramMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
 
   const stopTelegramPolling = useCallback(() => {

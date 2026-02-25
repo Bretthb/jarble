@@ -17,6 +17,7 @@ import WebSocket from "ws";
 import { nanoid } from "nanoid";
 import { logger } from "../utils/logger.js";
 import { extractUIBlocks, type JarbleUIBlock } from "../utils/uiBlockParser.js";
+import { execInPod } from "../k8s/exec.js";
 
 // ── Device Identity ─────────────────────────────────────────────────────────
 
@@ -101,7 +102,10 @@ export async function chatViaGateway(
     let finished = false;
     const pending = new Map<string, PendingRequest>();
 
-    const ws = new WebSocket(wsUrl, { origin: "http://localhost" });
+    const ws = new WebSocket(wsUrl, {
+      origin: "http://localhost",
+      handshakeTimeout: 10_000, // 10s connect timeout — fail fast on unreachable pods
+    });
 
     const timeout = setTimeout(() => {
       if (!finished) {
@@ -293,17 +297,20 @@ export async function chatViaGateway(
       }
     });
 
-    ws.on("close", () => {
+    ws.on("close", (code, reasonBuf) => {
       if (!finished) {
         finished = true;
         clearTimeout(timeout);
+        const reason = reasonBuf?.toString() || "";
         if (fullText) {
           const { cleanText, uiBlocks } = extractUIBlocks(fullText);
           resolve({ rawText: fullText, text: cleanText, uiBlocks });
         } else if (!connected) {
-          reject(new Error("Gateway WS closed before auth completed"));
+          const detail = reason ? ` (${code}: ${reason})` : code ? ` (code ${code})` : "";
+          reject(new Error(`Gateway WS closed before auth completed${detail}`));
         } else {
-          reject(new Error("Gateway WS closed before response completed"));
+          const detail = reason ? ` (${code}: ${reason})` : code ? ` (code ${code})` : "";
+          reject(new Error(`Gateway WS closed before response completed${detail}`));
         }
       }
       for (const [, p] of pending) {
@@ -332,4 +339,58 @@ function extractText(message: unknown): string {
     if (m.text) return String(m.text);
   }
   return "";
+}
+
+// ── Exec-based HTTP fallback ─────────────────────────────────────────────────
+
+/**
+ * Chat via `npx openclaw agent` exec'd inside the pod.
+ *
+ * Fallback for when the API can't reach pod IPs directly (local dev outside
+ * the cluster). Runs the OpenClaw CLI inside the pod via K8s exec API.
+ *
+ * Not streaming (response arrives all at once), but works from anywhere
+ * since exec goes through the K8s API server, not direct pod networking.
+ */
+export async function chatViaExec(
+  podName: string,
+  sessionKey: string,
+  message: string,
+  onDelta?: (fullText: string) => void,
+): Promise<GatewayResponse> {
+  logger.info({ podName, messageLen: message.length }, "chatViaExec: falling back to npx openclaw agent");
+
+  const output = await execInPod(podName, [
+    "npx", "openclaw", "agent",
+    "--message", message,
+    "--session-id", sessionKey,
+    "--json",
+    "--timeout", "60",
+  ]);
+
+  // Parse JSON response (same as chatWithBot MCP tool)
+  let parsed: any;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    const jsonStart = output.indexOf("{");
+    if (jsonStart >= 0) {
+      parsed = JSON.parse(output.slice(jsonStart));
+    } else {
+      throw new Error("Bot returned a non-JSON response");
+    }
+  }
+
+  const payloads = parsed.result?.payloads || parsed.payloads || [];
+  const rawText = payloads.map((p: any) => p.text || "").join("\n").trim();
+
+  if (!rawText) {
+    throw new Error("Bot returned an empty response");
+  }
+
+  // Deliver the full text as a single "delta" so the caller can emit it
+  onDelta?.(rawText);
+
+  const { cleanText, uiBlocks } = extractUIBlocks(rawText);
+  return { rawText, text: cleanText, uiBlocks };
 }
