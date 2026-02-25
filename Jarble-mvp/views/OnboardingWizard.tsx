@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { motion, AnimatePresence } from "framer-motion";
+import { calculateMonthlyPriceCents } from "@/lib/pricing";
 import {
   getWizardSteps,
   detectProviderFromKey,
@@ -25,18 +26,20 @@ import {
   DEFAULT_CREDIT_PLAN,
   type LLMProviderDef,
 } from "./onboarding/wizardStepConfig";
-import type { KeyValidationStatus } from "./onboarding/types";
+import type { KeyValidationStatus, RuntimeEntry } from "./onboarding/types";
 import StepName from "./onboarding/steps/StepName";
 import StepChooseRuntime from "./onboarding/steps/StepChooseRuntime";
 import StepLlmSetup from "./onboarding/steps/StepLlmSetup";
 import StepDeploy from "./onboarding/steps/StepDeploy";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 // ─── Main Component ──────────────────────────────────────────────────
 
 export default function OnboardingWizard() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
+  const { user, isAuthenticated, isLoading: authLoading, getAccessTokenSilently } = useAuth0();
 
   // Step navigation
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -58,6 +61,10 @@ export default function OnboardingWizard() {
   const [telegramBotUsername, setTelegramBotUsername] = useState<string | null>(null);
   const [createdDeploymentId, setCreatedDeploymentId] = useState<string | null>(null);
   const [deployPhase, setDeployPhase] = useState<"idle" | "deploying" | "pairing" | "paired">("idle");
+
+  // Stripe checkout (redirect)
+  const [checkoutComplete, setCheckoutComplete] = useState(false);
+  const [isRedirectingToCheckout, setIsRedirectingToCheckout] = useState(false);
 
   // Telegram pairing poll mutation (used in deploy step after deploy succeeds)
   const pollTelegramMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
@@ -120,6 +127,19 @@ export default function OnboardingWizard() {
       setCurrentStepIndex(Math.max(0, steps.length - 1));
     }
   }, [steps.length, currentStepIndex]);
+
+  // Detect ?checkout=success return from Stripe Checkout redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "success") {
+      setCheckoutComplete(true);
+      // Jump to deploy step
+      const deployIdx = steps.findIndex((s) => s.id === "deploy");
+      if (deployIdx >= 0) setCurrentStepIndex(deployIdx);
+      // Clean up URL
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-detect provider when key changes
   useEffect(() => {
@@ -212,6 +232,63 @@ export default function OnboardingWizard() {
     });
   }, [llmApiKey, llmProvider, validateKeyMutation]);
 
+  // Redirect to Stripe Checkout for paid deployments
+  const handleCheckout = useCallback(async () => {
+    setIsRedirectingToCheckout(true);
+    try {
+      const token = await getAccessTokenSilently();
+      const res = await fetch(`${API_URL}/api/stripe/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          runtimeSlug: selectedRuntimeSlug,
+          cpuLimit: cpuLimit || undefined,
+          memoryMb: memoryMb || undefined,
+          storageMb: storageMb || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error(data.error || "Failed to start checkout");
+        setIsRedirectingToCheckout(false);
+      }
+    } catch {
+      toast.error("Failed to reach payment service");
+      setIsRedirectingToCheckout(false);
+    }
+  }, [getAccessTokenSilently, selectedRuntimeSlug, cpuLimit, memoryMb, storageMb]);
+
+  // Extract deploy logic so both handleNext and payment form can call it
+  const triggerDeploy = useCallback(() => {
+    if (!user?.email_verified) {
+      toast.error("Please verify your email before deploying.");
+      return;
+    }
+    setIsDeploying(true);
+    if (id !== "new") {
+      setCreatedDeploymentId(id);
+      deployMutation.mutate(id);
+    } else if (createdDeploymentId) {
+      deployMutation.mutate(createdDeploymentId);
+    } else {
+      createMutation.mutate({
+        name: deploymentName,
+        runtimeCatalogId: selectedRuntimeId!,
+        llmMode,
+        llmProvider: llmMode === "byok" ? llmProvider : "openrouter",
+        llmModel,
+        llmApiKey: llmMode === "byok" ? llmApiKey : undefined,
+        creditLimitDollars: llmMode === "included" && !linkToDeploymentId ? creditLimitDollars : undefined,
+        linkToDeploymentId: llmMode === "included" && linkToDeploymentId ? linkToDeploymentId : undefined,
+        cpuLimit: cpuLimit || undefined,
+        memoryMb: memoryMb || undefined,
+        storageMb: storageMb || undefined,
+      });
+    }
+  }, [user, id, createdDeploymentId, deploymentName, selectedRuntimeId, llmMode, llmProvider, llmModel, llmApiKey, creditLimitDollars, linkToDeploymentId, cpuLimit, memoryMb, storageMb, deployMutation, createMutation]);
+
   const canProceed = (): boolean => {
     switch (currentStepId) {
       case "name":
@@ -220,10 +297,16 @@ export default function OnboardingWizard() {
         return selectedRuntimeId !== null;
       case "llm":
         if (llmMode === "included") return true;
-        // BYOK requires a validated key
         return keyValidation === "valid";
-      case "deploy":
-        return true;
+      case "deploy": {
+        const deployRuntime = runtimesQuery.data?.find((r: RuntimeEntry) => r.id === selectedRuntimeId);
+        const eCpu = cpuLimit ?? deployRuntime?.cpuLimit ?? "2.0";
+        const eMem = memoryMb ?? deployRuntime?.memoryMb ?? 2048;
+        const eSto = storageMb ?? deployRuntime?.storageMb ?? 30;
+        const dynamicPrice = calculateMonthlyPriceCents(eCpu, eMem, eSto);
+        const needsPayment = dynamicPrice > 0 && !checkoutComplete && !isFreeAvailable;
+        return !needsPayment;
+      }
       default:
         return true;
     }
@@ -233,32 +316,7 @@ export default function OnboardingWizard() {
 
   const handleNext = async () => {
     if (currentStepId === "deploy" && !isDeploying && deployPhase === "idle") {
-      if (!user?.email_verified) {
-        toast.error("Please verify your email before deploying.");
-        return;
-      }
-      setIsDeploying(true);
-      if (id !== "new") {
-        setCreatedDeploymentId(id);
-        deployMutation.mutate(id);
-      } else if (createdDeploymentId) {
-        // Deployment already created but deploy failed — retry deploy only
-        deployMutation.mutate(createdDeploymentId);
-      } else {
-        createMutation.mutate({
-          name: deploymentName,
-          runtimeCatalogId: selectedRuntimeId!,
-          llmMode,
-          llmProvider: llmMode === "byok" ? llmProvider : "openrouter",
-          llmModel,
-          llmApiKey: llmMode === "byok" ? llmApiKey : undefined,
-          creditLimitDollars: llmMode === "included" && !linkToDeploymentId ? creditLimitDollars : undefined,
-          linkToDeploymentId: llmMode === "included" && linkToDeploymentId ? linkToDeploymentId : undefined,
-          cpuLimit: cpuLimit || undefined,
-          memoryMb: memoryMb || undefined,
-          storageMb: storageMb || undefined,
-        });
-      }
+      triggerDeploy();
     } else if (currentStepIndex < steps.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
     }
@@ -435,6 +493,9 @@ export default function OnboardingWizard() {
                   emailVerified={!!user?.email_verified}
                   deployPhase={deployPhase}
                   telegramBotUsername={telegramBotUsername}
+                  checkoutConfirmed={checkoutComplete}
+                  isRedirectingToCheckout={isRedirectingToCheckout}
+                  onCheckout={handleCheckout}
                 />
               )}
               {/* Telegram step removed — platform connections happen via Tambo chat after deploy */}
