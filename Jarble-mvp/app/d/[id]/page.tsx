@@ -41,6 +41,65 @@ function formatTime(ts: number): string {
     d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+/** Generate a friendly, concise display message for a UI action relay */
+function formatActionDisplay(action: CanvasAction): string {
+  const { component, action: actionType, payload } = action;
+  const p = payload as Record<string, unknown>;
+
+  switch (actionType) {
+    case "click":
+      if (component === "button_group") {
+        const label = (p.label as string) || (p.buttonId as string) || "";
+        return label ? `Clicked '${label}'` : "Clicked a button";
+      }
+      return `Clicked ${component.replace(/_/g, " ")} element`;
+
+    case "row_click":
+      return "Selected a row in table";
+
+    case "submit":
+      return "Submitted form";
+
+    case "tab_change": {
+      const tab = (p.value as string) || (p.label as string) || "";
+      return tab ? `Switched to tab '${tab}'` : "Switched tab";
+    }
+
+    case "item_click": {
+      const text = (p.text as string) || (p.label as string) || "";
+      return text ? `Selected '${text}'` : "Selected an item";
+    }
+
+    case "stat_click": {
+      const label = (p.label as string) || "";
+      return label ? `Clicked '${label}'` : "Clicked a statistic";
+    }
+
+    case "point_click":
+    case "slice_click":
+    case "bar_click":
+    case "node_click":
+      return "Clicked chart element";
+
+    case "page_change":
+      return `Navigated to page ${p.page ?? ""}`.trim();
+
+    case "sort_change":
+      return "Changed sort order";
+
+    case "selection_change":
+      return "Updated selection";
+
+    case "sandbox_action": {
+      const act = (p.action as string) || "";
+      return act ? `Sandbox: ${act}` : "Interacted with sandbox";
+    }
+
+    default:
+      return `Interacted with ${component.replace(/_/g, " ")}`;
+  }
+}
+
 // ── Typing Indicator ─────────────────────────────────────────────────────────
 
 function ThinkingIndicator() {
@@ -81,6 +140,13 @@ export default function DeploymentChatPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useAuth0();
 
+  // Auth redirect — must be before any early returns (hooks can't be after conditionals)
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [authLoading, isAuthenticated, router]);
+
   const deploymentQuery = trpc.deployment.getById.useQuery(
     { id },
     { enabled: isAuthenticated && !authLoading }
@@ -99,8 +165,7 @@ export default function DeploymentChatPage() {
   }
 
   if (!isAuthenticated) {
-    router.replace("/login");
-    return null;
+    return null; // redirect is handled by the useEffect above
   }
 
   if (deploymentQuery.isLoading) {
@@ -308,25 +373,29 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
   // Render function for cards in the grid
   const renderCard = useCallback(
     (card: import("@/components/workspace/types").CanvasCard) => (
-      <CardContent card={card} deploymentId={deploymentId} sendMessage={sendMessage} />
+      <CardContent card={card} deploymentId={deploymentId} sendMessage={sendMessage} canvasDispatch={dispatch} />
     ),
-    [deploymentId, sendMessage]
+    [deploymentId, sendMessage, dispatch]
   );
 
   const selectedCard = state.cards.find((c) => c.selected) || null;
   const hasCanvasCards = state.cards.length > 0;
-  const canvasSidebarVisible = showCanvas && hasCanvasCards;
+  const canvasSidebarVisible = showCanvas;
+
+  // Keep a ref so the keydown handler doesn't need selectedCard in its deps
+  const selectedCardRef = useRef(selectedCard);
+  selectedCardRef.current = selectedCard;
 
   // Escape key deselects the selected card
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && selectedCard) {
+    const handleWindowKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectedCardRef.current) {
         dispatch({ type: "DESELECT_CARD" });
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedCard, dispatch]);
+    window.addEventListener("keydown", handleWindowKeyDown);
+    return () => window.removeEventListener("keydown", handleWindowKeyDown);
+  }, [dispatch]); // stable — selectedCard accessed via ref, dispatch is stable from useReducer
 
   // Handle example prompt click
   const handleExamplePrompt = useCallback(
@@ -483,18 +552,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
 
       {/* Dashboard Grid Panel -- for UI blocks only */}
       {canvasSidebarVisible && (
-        <div className="flex-1 flex flex-col overflow-hidden relative">
-          {/* Toggle button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowCanvas(false)}
-            className="absolute top-2 left-2 z-20 h-8 px-2 bg-background/80 backdrop-blur-sm"
-          >
-            <MessageSquare className="w-4 h-4 mr-1" />
-            Hide Dashboard
-          </Button>
-
+        <div className="flex-1 flex flex-col overflow-hidden relative min-w-[300px] bg-secondary/10 border-l border-border/40">
           {/* Simple Canvas Grid - components flow naturally */}
           <SimpleCanvasGrid
             cards={state.cards}
@@ -503,12 +561,13 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
             focusedCardId={state.focusedCardId}
             streamingCardIds={streamingCardIds}
             deploymentId={deploymentId}
+            onHide={() => setShowCanvas(false)}
           />
         </div>
       )}
 
-      {/* Show dashboard button when hidden but cards exist */}
-      {!showCanvas && hasCanvasCards && (
+      {/* Show dashboard button when hidden */}
+      {!showCanvas && (
         <Button
           variant="outline"
           size="sm"
@@ -516,7 +575,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
           className="absolute top-2 right-2 z-20"
         >
           <Layout className="w-4 h-4 mr-1" />
-          Show Dashboard ({state.cards.length})
+          {hasCanvasCards ? `Show Dashboard (${state.cards.length})` : "Show Dashboard"}
         </Button>
       )}
     </div>
@@ -527,6 +586,24 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
 
 const ChatBubble = memo(function ChatBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  const isAction = message.isActionRelay;
+  const displayContent = message.displayText || message.content;
+
+  // Action relay messages render as compact, muted inline notes (no avatar, no full bubble)
+  if (isUser && isAction) {
+    return (
+      <div className="flex justify-end">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50 border border-border/40 max-w-[70%]">
+          <span className="text-xs italic text-muted-foreground">{displayContent}</span>
+          {message.createdAt > 0 && (
+            <span className="text-[10px] text-muted-foreground/30 select-none shrink-0">
+              {formatTime(message.createdAt)}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("flex gap-3", isUser && "flex-row-reverse")}>
@@ -553,9 +630,9 @@ const ChatBubble = memo(function ChatBubble({ message }: { message: ChatMessage 
             : "bg-secondary/30"
         )}>
           {isUser ? (
-            <p className="text-sm">{message.content}</p>
+            <p className="text-sm">{displayContent}</p>
           ) : (
-            <MarkdownMessage content={message.content} />
+            <MarkdownMessage content={displayContent} />
           )}
         </div>
         {/* Timestamp */}
@@ -571,14 +648,16 @@ const ChatBubble = memo(function ChatBubble({ message }: { message: ChatMessage 
 
 // ── Card Content Renderer (UI blocks only -- chat messages are separate) ───────
 
-function CardContent({
+const CardContent = memo(function CardContent({
   card,
   deploymentId,
   sendMessage,
+  canvasDispatch,
 }: {
   card: import("@/components/workspace/types").CanvasCard;
   deploymentId: string;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, displayText?: string) => Promise<void>;
+  canvasDispatch: React.Dispatch<import("@/components/workspace/types").CanvasAction>;
 }) {
   // Handle actions from interactive components -- relay ALL actions to the bot as chat messages
   const handleAction = useCallback(
@@ -586,14 +665,36 @@ function CardContent({
       const actionStart = Date.now();
       console.log(`[Jarble:ActionRelay] Action received: ${action.component} → ${action.action} (blockId: ${action.blockId})`);
 
+      // Component render error — user clicked "Fix Component"
+      // Include card ID so the bot uses jarble_ui_update to fix in-place
+      if (action.action === "component_error") {
+        const { error, component } = action.payload as { error: string; component: string };
+        const errorMsg = `[COMPONENT_ERROR] cardId=${action.blockId} component=${component}\nThe component failed to render with this error:\n${error}\n\nPlease fix the component by outputting a \`\`\`jarble_ui_update\`\`\` block with card_id="${action.blockId}" and corrected props. Do NOT create a new component — update the existing one in place.`;
+        console.log("[Jarble:ActionRelay] Forwarding component error to bot for fix");
+        try {
+          sendMessage(errorMsg, "Fix this component");
+        } catch (err) {
+          console.error(`[Jarble:ActionRelay] Failed to send error to bot: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return;
+      }
+
+      // Component abandon — user clicked "Remove" on error card
+      if (action.action === "component_abandon") {
+        console.log("[Jarble:ActionRelay] Removing broken card:", action.blockId);
+        canvasDispatch({ type: "REMOVE_CARD", id: action.blockId });
+        return;
+      }
+
       // Special handling for sandbox errors -- include detailed error info
       if (action.action === "sandbox_error") {
         const error = action.payload.error as { message: string; line: number; column: number; stack?: string } | undefined;
         if (error) {
-          const errorMsg = `[SANDBOX_ERROR] The sandbox component threw an error:\nError: ${error.message}${error.line ? `\nAt line ${error.line}, column ${error.column}` : ""}${error.stack ? `\nStack: ${error.stack.slice(0, 500)}` : ""}\n\nPlease fix the JavaScript code and try again.`;
+          const errorMsg = `[SANDBOX_ERROR] cardId=${action.blockId}\nThe sandbox component threw an error:\nError: ${error.message}${error.line ? `\nAt line ${error.line}, column ${error.column}` : ""}${error.stack ? `\nStack: ${error.stack.slice(0, 500)}` : ""}\n\nPlease fix the JavaScript code by outputting a \`\`\`jarble_ui_update\`\`\` block with card_id="${action.blockId}" and corrected props (merge: false for sandbox). Do NOT create a new component.`;
+          const displayText = "Fix this component";
           console.log("[Jarble:ActionRelay] Forwarding sandbox error to bot");
           try {
-            sendMessage(errorMsg);
+            sendMessage(errorMsg, displayText);
           } catch (err) {
             console.error(`[Jarble:ActionRelay] Failed to send action to bot: ${err instanceof Error ? err.message : String(err)}`);
           }
@@ -601,16 +702,19 @@ function CardContent({
         }
       }
 
+      // Build a friendly display message based on action type and component
+      const displayText = formatActionDisplay(action);
+
       // Generic action relay -- forward all user interactions to the bot
       const actionMsg = `[UI_ACTION] cardId=${action.blockId} component=${action.component} action=${action.action}\n${JSON.stringify(action.payload)}`;
       console.log(`[Jarble:ActionRelay] Relaying UI action to bot (${Date.now() - actionStart}ms prep)`);
       try {
-        sendMessage(actionMsg);
+        sendMessage(actionMsg, displayText);
       } catch (err) {
         console.error(`[Jarble:ActionRelay] Failed to send action to bot: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
-    [sendMessage]
+    [sendMessage, canvasDispatch]
   );
 
   // Editable UI block -- use EditableCanvas for save support
@@ -643,4 +747,4 @@ function CardContent({
       onAction={handleAction}
     />
   );
-}
+});

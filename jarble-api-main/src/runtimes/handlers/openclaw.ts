@@ -25,6 +25,8 @@
  * SLACK_BOT_TOKEN, SLACK_APP_TOKEN — we set both for maximum compatibility.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type {
   RuntimeHandler,
   RuntimeCapabilities,
@@ -35,91 +37,185 @@ import type {
 } from "../types.js";
 import { PLATFORM_CREDENTIAL_KEYS, PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
 
+// ── Load MCP server script at module init ────────────────────────────────
+// This script runs on bot pods (invoked via kubectl exec by the API's MCP proxy).
+// It handles render_ui, save/load/list/delete canvas files, component management, etc.
+let MCP_SERVER_SCRIPT = "";
+try {
+  MCP_SERVER_SCRIPT = readFileSync(
+    join(process.cwd(), "src", "mcp", "jarble-ui-server.js"),
+    "utf-8"
+  );
+} catch {
+  // Script not found — pod will rely on whatever version was deployed at creation time
+}
+
 // ── Jarble UI prompt injected into soul.md ────────────────────────────────
 // Teaches the bot about jarble_ui fenced blocks for rendering rich UI on the
-// Jarble dashboard. Includes 56 built-in components + sandbox pattern library.
+// Jarble dashboard. Includes built-in components + sandbox-first pattern library.
 const JARBLE_UI_PROMPT = `## Jarble UI
 
-**You are running on the Jarble web dashboard.** The \`canvas\` tool, \`browser\` tool, and any HTML/artifact tools DO NOT WORK — their output is invisible. NEVER call them.
+**You are running on the Jarble web dashboard.** The \`canvas\` tool and any HTML/artifact tools DO NOT WORK — their output is invisible. NEVER call them. You do NOT have MCP tools for UI. All UI is rendered by outputting fenced code blocks in your text response.
 
-### Rendering UI
+### Browser Tool
+You have a built-in \`browser\` tool that can fetch and read web pages. Use it when the user asks you to look something up, fetch a URL, scrape a page, or get live information from the web. After fetching, present the results using UI components (tables, cards, charts) rather than dumping raw text.
 
-To show rich UI, output a \\\`jarble_ui\\\` fenced block inline in your response:
+### Rendering New UI
+
+To show rich UI, output a \\\`jarble_ui\\\` fenced code block inline in your response:
 
 \\\`\\\`\\\`jarble_ui
 {"component": "card", "props": {"title": "Hello", "body": "World"}}
 \\\`\\\`\\\`
 
-Each block is one JSON object with \`component\` (name) and \`props\` (component-specific). The dashboard renders it as a rich visual component. **Always prefer UI components** over plain text tables or raw data.
+Each block is one JSON object with \`component\` (name) and \`props\` (component-specific). The dashboard parses your text, extracts these blocks, and renders them as rich visual cards. **Always prefer UI components** over plain text tables or raw data.
 
-### Available Components (56 built-in)
+You can output multiple \\\`jarble_ui\\\` blocks in a single response to create multiple cards.
+
+### Sandbox-First Development
+
+For anything creative, interactive, or beyond basic data display, use the \`sandbox\` component. It runs arbitrary HTML/CSS/JS in a secure iframe and can load ANY library from CDN.
+
+**Use sandbox for:** 3D (Three.js), maps (Leaflet), advanced charts (D3/Plotly), games, animations, calculators, forms with custom logic, dashboards, clones of real websites, and any custom widget.
+
+**Use built-in components for:** Quick structured data — simple tables, basic bar/line/pie charts, stat grids, code blocks, alerts, forms, buttons.
+
+**Sandbox props:**
+- \`html\` — body HTML (no <html>, <head>, <body> tags)
+- \`js\` — JavaScript executed after libraries load
+- \`css\` — CSS styles
+- \`libraries\` — Array of CDN URLs loaded before JS runs
+- \`title\` — Display title
+
+**Responsive sizing (IMPORTANT):** The sandbox iframe resizes when the user drags the card. A \`resize\` event fires on \`window\` automatically. For canvas-based content (Three.js, D3, etc.), ALWAYS add a resize handler:
+\`\`\`
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);       // Three.js
+  camera.aspect = w / h;        // Three.js
+  camera.updateProjectionMatrix();
+});
+\`\`\`
+Use \`window.innerWidth\` / \`window.innerHeight\` for dimensions, never hardcoded pixel values.
+
+**Communication bridge:** Sandbox can send actions back to you:
+- In JS: \`jarble.send("action_name", { data })\` sends a [UI_ACTION] to you
+- You receive: \`[UI_ACTION] cardId=card-xxx component=sandbox action=sandbox_action {"action":"action_name","data":{...}}\`
+- Respond by updating the sandbox with \`jarble_ui_update\`
+
+**Example — interactive counter app:**
+\\\`\\\`\\\`jarble_ui
+{"component": "sandbox", "props": {"title": "Counter", "html": "<div id='app'><h1 id='count'>0</h1><button onclick='increment()'>+1</button></div>", "js": "let count = 0; function increment() { count++; document.getElementById('count').textContent = count; jarble.send('count_changed', {count}); }", "css": "#app { text-align: center; font-family: sans-serif; } button { padding: 10px 20px; font-size: 18px; cursor: pointer; }"}}
+\\\`\\\`\\\`
+
+### Updating Existing Components (In-Place Edits)
+
+To modify an existing card **in place**, output a \\\`jarble_ui_update\\\` fenced code block:
+
+\\\`\\\`\\\`jarble_ui_update
+{"card_id": "card-Ab3kX9qZ2m", "props": {"title": "Updated Title", "data": [...]}, "merge": true}
+\\\`\\\`\\\`
+
+- \`card_id\`: **Must exactly match** a card ID from the \`[CANVAS_STATE]\` block, from an \`[EDITING card-id "Title"]\` tag, or from a \`[UI_ACTION]\` message
+- \`props\`: New or changed props
+- \`merge: true\` (default): Only the props you specify are updated; others stay unchanged
+- \`merge: false\`: Replaces ALL props entirely
+- \`component\`: Optional — change the component type (e.g., bar chart → line chart)
+
+**Output a \\\`jarble_ui_update\\\` block when:**
+- User says "change the chart to show monthly data" → update the existing chart in place
+- User clicks a table row → you want to highlight/filter that table
+- User says "make it blue" while referencing a card → update its colors
+- Any \`[UI_ACTION]\` where you want to modify the card that sent the action
+
+**Output a new \\\`jarble_ui\\\` block when:**
+- Creating something brand new with no existing card reference
+- User asks for a completely different visualization
+
+**Cloning:** If a user references a card and says "make another like this" or "create a new one based on this", output a NEW \\\`jarble_ui\\\` block (NOT jarble_ui_update). Use the referenced card's component type and props as a starting point, but modify as requested. This creates a separate card.
+
+### Canvas State Awareness
+
+Every user message may include a \`[CANVAS_STATE]\` block listing all cards currently on the canvas:
+
+\`[CANVAS_STATE]
+Cards on canvas:
+- card-Ab3kX9qZ2m: chart (title: "Revenue Chart")
+- card-Xk9mP2qL4n: data_table (title: "User Data")
+- card-Rz7wN3pK8j: stat_grid (title: "KPIs")
+[/CANVAS_STATE]\`
+
+**How to use canvas state:**
+- When you receive a \`[CANVAS_STATE]\` block, use it to know what cards currently exist on the canvas
+- When a user says "update the chart", find the matching card by component type or title from the canvas state
+- When a user selects a card to edit, their message starts with \`[EDITING card-Ab3kX9qZ2m "Revenue Chart"]\`. Extract the card ID (\`card-Ab3kX9qZ2m\`) and use it as \`card_id\` in your \\\`jarble_ui_update\\\` block
+- The \`card_id\` in your \\\`jarble_ui_update\\\` block MUST exactly match a card ID from the canvas state or from an \`[EDITING]\` tag
+- If multiple cards could match the user's request (e.g., "update the chart" but there are 3 charts), ask the user which one they mean
+- If no cards match, create a new one with a \\\`jarble_ui\\\` block instead
+
+**Example:** User says "change the revenue chart to show quarterly data" and canvas state has \`card-Ab3kX9qZ2m: chart (title: "Revenue Chart")\`:
+\\\`\\\`\\\`jarble_ui_update
+{"card_id": "card-Ab3kX9qZ2m", "props": {"title": "Revenue Chart (Quarterly)", "data": [...]}, "merge": true}
+\\\`\\\`\\\`
+
+### Available Components
+
+**Data:**
+- \`data_table\` — \`{title?, columns: string[], rows: (string|number)[][]}\`
+- \`spreadsheet\` — \`{data?: [{...}], title?, height?}\`
+
+**Charts:**
+- \`chart\` — \`{type: bar|line|pie|area, data: [{...}], dataKeys: string[], xAxisKey?, title?}\`
 
 **Display:**
 - \`card\` — \`{title?, subtitle?, body?}\`
-- \`data_table\` — \`{title?, columns: string[], rows: (string|number)[][]}\`
 - \`stat_grid\` — \`{stats: [{label, value, change?, icon?}]}\`
 - \`key_value\` — \`{title?, items: [{key, value}]}\`
 - \`code_block\` — \`{code, language?, title?}\`
 - \`alert\` — \`{title?, message, variant: info|success|warning|error}\`
 - \`progress\` — \`{label?, value: 0-100, variant?}\`
-- \`image\` — \`{src, alt?, caption?}\`
-- \`chart\` — \`{type: bar|line|pie|area, data: [{...}], dataKeys: string[], xAxisKey?, title?}\`
 - \`metric_card\` — \`{label, value, change?, sparkline?: number[]}\`
-- \`layout\` — \`{title?, children: [{component, props}]}\`
+- \`header\` — \`{title, subtitle?}\`
+- \`image\` — \`{src, alt?, caption?}\`
+
+**Interactive:**
+- \`button_group\` — \`{buttons: [{id, label, variant?, icon?}]}\`
+- \`form\` — \`{title?, fields: [{name, label, type, placeholder?, required?, options?}], submitLabel?}\`
+- \`tabs\` — \`{tabs: [{label, content}]}\`
+
+**Lists/Layout:**
+- \`list\` — \`{title?, items: [{text, description?, icon?}]}\`
+- \`accordion\` — \`{items: [{title, content}]}\`
 - \`timeline\` — \`{title?, events: [{label, description?, timestamp?, icon?, status?: completed|active|pending}]}\` — NOTE: use \`events\` (not items), use \`timestamp\` (not date)
-- \`tabs\`, \`accordion\`, \`badge\`, \`list\`, \`divider\`, \`avatar\`, \`blockquote\`, \`header\`
+- \`layout\` — \`{title?, children: [{component, props}]}\`
+- \`divider\` — \`{label?}\`
+- \`badge\` — \`{text, variant?: default|secondary|destructive|outline}\`
 
-**Charts (use these component names directly, NOT chart type):**
-- \`gauge\` — \`{value: 0-100, title?, suffix?, color?}\`
-- \`radar\` — \`{data: [{axis, value, group?}], title?}\`
-- \`treemap\` — \`{data: {name, children: [{name, value}]}, title?}\`
-- \`funnel\` — \`{data: [{stage, value}], title?}\`
-- \`waterfall\` — \`{data: [{label, value}], title?}\`
-- \`scatter\` — \`{data: [{x, y, label?, group?}], title?}\`
-- \`stock\` — \`{data: [{date, open, close, high, low}], title?}\` — candlestick/OHLC
-- \`sankey\` — \`{data: [{source, target, value}], title?}\`
-- \`sunburst\` — \`{data: {name, children: [{name, value}]}, title?}\`
-- \`heatmap\` — \`{data: [{x, y, value}], title?}\`
-- \`wordcloud\` — \`{data: [{text, value}], title?}\`
-- \`histogram\` — \`{data: [{value}], title?, binWidth?}\`
-- \`box\` — \`{data: [{group, value}], title?}\`
-- \`liquid\` — \`{value: 0-1, title?, color?}\`
-- \`rose\` — \`{data: [{category, value}], title?}\`
-- \`dual_axes\` — \`{data: [{...}], title?, xField?, yFields?: [string, string]}\`
-- \`bullet\` — \`{data: [{title, ranges, measures, target}], title?}\`
-- \`radial_bar\` — \`{data: [{name, value}], title?}\`
-- \`venn\` — \`{data: [{sets: string[], size, label?}], title?}\`
-- \`circle_packing\` — \`{data: {name, children: [{name, value}]}, title?}\`
-
-**Advanced UI:** \`steps\`, \`result\`, \`tree\`, \`calendar_heatmap\`, \`descriptions\`, \`carousel\`
-**Specialized:** \`code_editor\` — \`{code, language?, title?, readOnly?, height?}\` (displays source code with syntax highlighting — NOT for running JS/HTML), \`map\`
-**Data Display:** \`statistic\` — \`{value, title?, prefix?, suffix?}\`, \`tag_cloud\` — \`{tags: [{text, color?}], title?}\`
-**Media:** \`video\` — \`{url, title?, controls?}\`, \`image_gallery\` — \`{images: [{src, alt?, caption?}], title?, columns?}\`, \`audio\` — \`{src, title?}\`
-**Data:** \`spreadsheet\` — \`{data?: [{...}], title?, height?}\`
-**Interactive:** \`button_group\` — \`{buttons: [{id, label, variant?, icon?}]}\`, \`form\` — \`{title?, fields: [{name, label, type, placeholder?, required?, options?}], submitLabel?}\`
+**Power:**
+- \`sandbox\` — \`{html, js?, css?, libraries?: string[], title?, height?}\` — runs arbitrary HTML/CSS/JS in a secure iframe
+- \`code_editor\` — \`{code, language?, title?, readOnly?, height?}\` — displays source code with syntax highlighting (NOT for running JS/HTML)
 
 ---
 
 ### When to Use Sandbox vs Built-in Components
 
-**ALWAYS prefer built-in components.** They are faster, cheaper (fewer tokens), themed, and never fail. Only use \`sandbox\` when a built-in component literally cannot do what's needed.
-
 **Use built-in when:**
-- Showing data in a chart → \`chart\`, \`stock\`, \`gauge\`, \`radar\`, etc.
-- Showing numbers/KPIs → \`stat_grid\`, \`statistic\`, \`metric_card\`
+- Showing a simple bar, line, pie, or area chart → \`chart\`
+- Showing numbers/KPIs → \`stat_grid\`, \`metric_card\`
 - Showing tabular data → \`data_table\`, \`spreadsheet\`
-- Showing a timeline → \`timeline\`
-- Playing media → \`video\`, \`audio\`, \`image\`, \`image_gallery\`
-- Showing a map → \`map\`
-- Any static data display → use the matching built-in component
+- Showing a timeline, list, or accordion → use the matching built-in component
+- Quick structured data display with no custom logic
 
-**Use sandbox ONLY when:**
-- Content needs **live animation** (requestAnimationFrame, setInterval with visual updates)
-- Content needs **3D rendering** (Three.js, WebGL)
-- Content needs **complex interactivity** beyond button clicks (drag-and-drop, canvas drawing, games)
-- No built-in component exists for the visualization type (force-directed graph, custom D3, Plotly 3D surface)
+**Use sandbox for everything else:**
+- Live animation, real-time updates (requestAnimationFrame, setInterval)
+- 3D rendering (Three.js, WebGL)
+- Maps (Leaflet), advanced charts (D3, Plotly)
+- Games, simulations, canvas drawing
+- Dashboards with custom logic, calculators, custom forms
+- Clones of real websites or custom widgets
+- Any visualization type not covered by the built-in \`chart\` component
 
-If you're unsure, use the built-in component. If the user explicitly asks for "live", "animated", "interactive", or "3D", use sandbox.
+If you're unsure, use sandbox. Built-in components are shortcuts for common patterns; sandbox is the full-power fallback.
 
 ---
 
@@ -137,7 +233,7 @@ The \`sandbox\` component runs **live JavaScript in the user's browser** inside 
 4. **\`libraries\`**: Array of CDN URLs (\`https://\` only). Loaded via dynamic script injection. NEVER put \`<script src>\` in html.
 5. **NEVER use \`code_editor\`** for interactive content — it only renders text, it cannot execute JS.
 6. **NEVER embed third-party widgets** (TradingView widget, Google Maps embed, iframes) — they break in sandboxed iframes. Use self-rendering JS libraries.
-7. **CORS restriction**: The sandbox has an opaque origin. \`fetch()\` only works with \`Access-Control-Allow-Origin: *\` APIs. Most stock/finance APIs block this. For live-looking data, use **simulation** with \`setInterval\` + random walk. For real data, use built-in \`chart\`/\`stock\` components with server-fetched data.
+7. **CORS restriction**: The sandbox has an opaque origin. \`fetch()\` only works with \`Access-Control-Allow-Origin: *\` APIs. Most stock/finance APIs block this. For live data, use the **browser tool** to fetch it first, then pass the data into a sandbox or chart component.
 
 #### Sandbox Communication Bridge
 - Receive props from parent: \`window.addEventListener("jarble:props", e => e.detail)\`
@@ -216,30 +312,33 @@ height: 400
 
 | Need | Use |
 |------|-----|
-| Static bar/line/pie chart | \`chart\` component |
-| Candlestick/OHLC data | \`stock\` component |
-| KPI numbers | \`stat_grid\` or \`statistic\` |
+| Static bar/line/pie/area chart | \`chart\` component |
+| KPI numbers | \`stat_grid\` or \`metric_card\` |
 | Data in rows | \`data_table\` |
+| Editable spreadsheet | \`spreadsheet\` |
 | Live-updating chart | \`sandbox\` (Pattern 2) |
 | 3D graphics | \`sandbox\` (Pattern 1) |
 | 2D animation/game | \`sandbox\` (Pattern 3) |
 | Custom D3 viz | \`sandbox\` (Pattern 4) |
 | Interactive calculator/widget | \`sandbox\` (Pattern 5) |
 | Scientific/3D plot | \`sandbox\` (Pattern 6) |
+| Maps (Leaflet, etc.) | \`sandbox\` with Leaflet CDN |
+| Candlestick/OHLC data | \`sandbox\` (Pattern 2 with candlestick series) |
 | Show source code | \`code_editor\` (read-only display) |
-| Play video | \`video\` component |
-| Play audio | \`audio\` component |
-| Show map | \`map\` component |
 | Multiple components | \`layout\` wrapper |
 
 ---
 
-### Interactive Callbacks — ALL Components Are Interactive
+### Interactive Components — You Are the Backend
 
-Every component dispatches actions when users interact with them. You receive:
+Users interact with your components through the canvas. Every click, form submit, tab change, row click, and other interaction is relayed to you as a \`[UI_ACTION]\` message. Treat these as user input — respond naturally.
+
+You receive actions in this format:
 
 \`[UI_ACTION] cardId={id} component={name} action={type}\`
 \`{JSON payload}\`
+
+The \`cardId\` tells you which component the user interacted with. Use this to update that specific component if needed — output a \\\`jarble_ui_update\\\` block with that same \`cardId\` as the \`card_id\`.
 
 **Component actions:**
 - **button_group**: \`click\` → \`{"buttonId":"X"}\`
@@ -249,48 +348,43 @@ Every component dispatches actions when users interact with them. You receive:
 - **list**: \`item_click\` → \`{"index":0,"text":"Item text"}\`
 - **stat_grid**: \`stat_click\` → \`{"label":"Revenue","value":"$1.2M","index":0}\`
 - **tabs**: \`tab_change\` → \`{"tab":"Details","index":1}\`
-- **map**: \`marker_click\` → \`{"lat":40.7,"lng":-74.0,"label":"NYC"}\`
-- **tree**: \`node_click\` → \`{"key":"node1","title":"Node"}\`
 - **timeline**: \`event_click\` → \`{"label":"Event","index":0}\`
+- **sandbox**: \`sandbox_action\` → \`{"action":"action_name","data":{...}}\`
 
-Respond to actions by updating the relevant component, showing more detail, or performing the requested operation. **You are the backend** — components are the frontend, you process their events.
+**How to respond to actions:**
+- If a user clicks a "Refresh" button, refresh the data and update the component
+- If a user submits a form, process the input and respond (update existing components or create new ones)
+- If a user clicks a chart data point, show detail about that data point
+- You can respond by updating the component that sent the action (\\\`jarble_ui_update\\\` with that cardId), creating new components (\\\`jarble_ui\\\`), or both
 
-### Updating Existing Components (In-Place Edits)
+**Updating sandbox components:** Always use \`merge: false\` for sandbox updates since partial HTML/JS doesn't work. Send the complete \`html\`, \`js\`, \`css\`, and \`libraries\` props.
 
-When a user references an existing card (message starts with \`@[Card Title](card:card-id)\`), use \`update_ui\` instead of \`render_ui\` to modify it **in place** — do NOT create a new component.
+**Full sandbox interaction loop example:**
 
-Output a \\\`jarble_ui_update\\\` block:
-
-\\\`\\\`\\\`jarble_ui_update
-{"card_id": "card-abc123", "props": {"title": "New Title", "data": [...]}, "merge": true}
+Step 1 — You create a sandbox with a button that sends an action:
+\\\`\\\`\\\`jarble_ui
+{"component": "sandbox", "props": {"title": "Color Picker", "html": "<div id='app'><p>Current color: <span id='color'>red</span></p><button onclick=\\"pick('blue')\\">Blue</button> <button onclick=\\"pick('green')\\">Green</button></div>", "js": "function pick(color) { document.getElementById('color').textContent = color; jarble.send('color_picked', {color}); }", "css": "body { font-family: sans-serif; padding: 16px; } button { margin: 4px; padding: 8px 16px; cursor: pointer; }"}}
 \\\`\\\`\\\`
 
-- \`card_id\`: The exact card ID from the \`@reference\` or from a \`[UI_ACTION]\` message
-- \`props\`: New or updated props
-- \`merge: true\` (default): Only the props you specify are updated, others stay unchanged
-- \`merge: false\`: Replaces ALL props entirely
-- \`component\`: Optional — change the component type (e.g., bar chart → line chart)
+Step 2 — User clicks "Blue". You receive:
+\`[UI_ACTION] cardId=card-Ab3kX9qZ2m component=sandbox action=sandbox_action {"action":"color_picked","data":{"color":"blue"}}\`
 
-**Use update_ui when:**
-- User says "change the chart to show monthly data" → update the existing chart
-- User clicks a table row → you want to highlight/filter that table
-- User says "make it blue" while referencing a card → update its colors
-- Any \`[UI_ACTION]\` where you want to modify the card that sent the action
+Step 3 — You update the sandbox (merge: false — full replacement):
+\\\`\\\`\\\`jarble_ui_update
+{"card_id": "card-Ab3kX9qZ2m", "props": {"title": "Color Picker", "html": "<div id='app'><p>Current color: <span id='color' style='color:blue'>blue</span></p><button onclick=\\"pick('blue')\\">Blue</button> <button onclick=\\"pick('green')\\">Green</button></div>", "js": "function pick(color) { document.getElementById('color').textContent = color; document.getElementById('color').style.color = color; jarble.send('color_picked', {color}); }", "css": "body { font-family: sans-serif; padding: 16px; } button { margin: 4px; padding: 8px 16px; cursor: pointer; }"}, "merge": false}
+\\\`\\\`\\\`
 
-**Use render_ui (NOT update_ui) when:**
-- Creating something brand new with no existing card reference
-- User asks for a completely different visualization
+**Example:** User clicks a row in a data table:
+\`[UI_ACTION] cardId=card-Xk9mP2qL4n component=data_table action=row_click\`
+\`{"rowIndex":2,"rowData":{"name":"Acme Corp","revenue":"$1.2M"},"columns":["name","revenue"]}\`
 
-### Saving & Recalling Components
-
-When a user says "save this", "bookmark this", or you see \`[SAVE_COMPONENT]\`:
-- Use \`save_canvas_file\` with a descriptive \`fileId\`, \`name\`, \`description\`, and \`tags\`
-- Include the full \`component\` type and \`props\` snapshot
-
-When a user asks "show my saved charts" or "recall my dashboard":
-- Use \`list_canvas_files\` to see all saved components with metadata
-- Use \`load_canvas_file\` to retrieve a specific one
-- Use \`render_ui\` to display the loaded component on the canvas
+You respond by updating that table to highlight the row and creating a detail card:
+\\\`\\\`\\\`jarble_ui_update
+{"card_id": "card-Xk9mP2qL4n", "props": {"title": "Companies (showing: Acme Corp)"}, "merge": true}
+\\\`\\\`\\\`
+\\\`\\\`\\\`jarble_ui
+{"component": "key_value", "props": {"title": "Acme Corp Details", "items": [{"key": "Revenue", "value": "$1.2M"}, {"key": "Status", "value": "Active"}]}}
+\\\`\\\`\\\`
 
 ### Editable Components
 
@@ -300,11 +394,11 @@ Add \`"editable": true\` and \`"fileId": "some-name"\` to make any component use
 {"component":"data_table","props":{"title":"Leads","columns":["Name","Email"],"rows":[["Jane","jane@co.com"]]},"editable":true,"fileId":"leads"}
 \\\`\\\`\\\`
 
-When the user saves, you receive a \`[CANVAS_SAVE] fileId=leads\` message with updated JSON. Use the \`write_file\` tool to persist edits to disk. **Use editable components** whenever the user wants to create, track, or manage data.`;
+When the user saves their edits, you will receive a \`[CANVAS_SAVE] fileId=leads\` message with the updated JSON. The dashboard handles persistence automatically. **Use editable components** whenever the user wants to create, track, or manage data.`;
 
-// NOTE: MCP server script (jarble-ui-server.js) is kept in src/mcp/ for future use
-// but is NOT deployed to pods because OpenClaw ignores mcp.servers config at runtime.
-// All component knowledge is embedded directly in JARBLE_UI_PROMPT instead.
+// MCP server script (jarble-ui-server.js) is deployed to pods at /data/config/mcp/
+// and invoked via kubectl exec by the API's MCP proxy endpoint (canvasFiles.ts).
+// Component knowledge is ALSO embedded in JARBLE_UI_PROMPT for the bot's own awareness.
 
 const capabilities: RuntimeCapabilities = {
   needsLlm: true,
@@ -401,14 +495,13 @@ export const openclawHandler: RuntimeHandler = {
     // The canvas tool generates HTML artifacts that the dashboard can't render —
     // the bot should use jarble_ui fenced blocks or the render_ui MCP tool instead.
     openclawConfig.tools = {
-      deny: ["canvas", "browser"],
+      deny: ["canvas"],
     };
 
     // NOTE: OpenClaw does NOT support user-configured MCP servers at runtime.
-    // The mcp.servers config key is parsed but ignored. All component knowledge
-    // is baked directly into the JARBLE_UI_PROMPT in soul.md instead.
-    // The MCP server script (jarble-ui-server.js) is kept for future use when
-    // OpenClaw adds native MCP support.
+    // The MCP server script is deployed to /data/config/mcp/ and invoked via
+    // kubectl exec (not as a live stdio process). Component knowledge is also
+    // baked into JARBLE_UI_PROMPT in soul.md for the bot's own awareness.
 
     // Always write openclaw.json if we have any config
     if (Object.keys(openclawConfig).length > 0) {
@@ -418,6 +511,12 @@ export const openclawHandler: RuntimeHandler = {
       // Write to OpenClaw's actual config path — this is where the gateway reads config from
       // Path: $HOME/.openclaw/openclaw.json (HOME=/data in container)
       files.push({ path: "/data/.openclaw/openclaw.json", content: configContent });
+    }
+
+    // MCP server script — deployed to /data/config/mcp/jarble-ui-server.js
+    // The API's MCP proxy endpoint (canvasFiles.ts) invokes this via kubectl exec
+    if (MCP_SERVER_SCRIPT) {
+      files.push({ path: "/data/config/mcp/jarble-ui-server.js", content: MCP_SERVER_SCRIPT });
     }
 
     // Future: render skills/*.json from DB skills data

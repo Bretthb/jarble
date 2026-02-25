@@ -89,9 +89,9 @@ export async function createDeployment(
   //   - Keys starting with "abs-" → absolute paths (e.g. "abs-data--.openclaw--openclaw.json" → "/data/.openclaw/openclaw.json")
   //   - Other keys → relative to /data/config/ (e.g. "soul.md" → "/data/config/soul.md")
   const configInitScript = [
-    // Phase 1: Fix permissions (existing logic)
-    "mkdir -p /data/config /data/logs /data/.openclaw /data/components",
-    "if [ ! -f /data/.initialized ]; then chown -R 1000:1000 /data && chmod -R 755 /data; else chown 1000:1000 /data/config /data/logs /data/.openclaw /data/components; fi",
+    // Phase 1: Ensure directories exist with correct permissions
+    "mkdir -p /data/config /data/logs /data/.openclaw /data/components /data/files",
+    "chmod -R 755 /data/config /data/logs /data/.openclaw /data/components /data/files",
     // Phase 2: Copy ConfigMap files to PVC
     "if [ -d /config-source ]; then " +
       "for f in /config-source/*; do " +
@@ -105,7 +105,6 @@ export async function createDeployment(
         "dir=$(dirname \"$target\"); " +
         "mkdir -p \"$dir\"; " +
         "cp \"$f\" \"$target\"; " +
-        "chown 1000:1000 \"$target\"; " +
       "done; " +
       "echo '[config-init] Copied config files from ConfigMap'; " +
     "fi",
@@ -155,12 +154,12 @@ export async function createDeployment(
               limits: { cpu: cpuMillicores, memory: memoryMi, "ephemeral-storage": "1Gi" },
             },
             securityContext: {
-              runAsNonRoot: true,
-              runAsUser: 1000,
-              runAsGroup: 1000,
+              // Relaxed to allow self-updates (npm), package installs (apt-get python3), etc.
+              // Runs as root so the runtime can apt-get install packages as needed.
+              // Network egress is still restricted by NetworkPolicy; K8s API access disabled.
+              runAsUser: 0,
+              runAsGroup: 0,
               allowPrivilegeEscalation: false,
-              readOnlyRootFilesystem: true,
-              capabilities: { drop: ["ALL"] },
             },
             envFrom: [{ secretRef: { name: `secret-${deploymentId}` } }],
             volumeMounts: [

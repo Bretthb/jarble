@@ -149,7 +149,11 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       const timestamp = Date.now();
       for (let index = 0; index < items.length; index++) {
         try {
-          const transformedProps = config.transformItem(items[index], index);
+          let transformedProps = config.transformItem(items[index], index);
+          // For data_table splits, propagate columns from parent
+          if (card.component === "data_table" && card.props.columns) {
+            transformedProps = { ...transformedProps, columns: card.props.columns, title: `Row ${index + 1}` };
+          }
           const offset = { x: (index % 3) * 220, y: Math.floor(index / 3) * 180 };
           newCards.push({
             id: `${card.id}-split-${index}-${timestamp}`,

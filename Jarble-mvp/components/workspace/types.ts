@@ -109,6 +109,53 @@ export const SPLITTABLE_COMPONENTS: Record<string, {
     },
     minItems: 2,
   },
+  data_table: {
+    itemsKey: "rows",
+    splitComponent: "data_table",
+    transformItem: (item: unknown, _index: number) => {
+      // Each split gets a single-row table (preserving columns from parent — set at dispatch time)
+      return { rows: [item] };
+    },
+    minItems: 2,
+  },
+  tabs: {
+    itemsKey: "tabs",
+    splitComponent: "card",
+    transformItem: (item: unknown) => {
+      const tab = item as { label: string; content?: string; children?: unknown[] };
+      return {
+        title: tab.label,
+        body: tab.content || "",
+        ...(tab.children ? { children: tab.children } : {}),
+      };
+    },
+    minItems: 2,
+  },
+  list: {
+    itemsKey: "items",
+    splitComponent: "card",
+    transformItem: (item: unknown) => {
+      const li = item as { text: string; description?: string };
+      return {
+        title: li.text,
+        body: li.description || "",
+      };
+    },
+    minItems: 2,
+  },
+  timeline: {
+    itemsKey: "events",
+    splitComponent: "card",
+    transformItem: (item: unknown) => {
+      const ev = item as { label: string; description?: string; timestamp?: string };
+      return {
+        title: ev.label,
+        subtitle: ev.timestamp || "",
+        body: ev.description || "",
+      };
+    },
+    minItems: 2,
+  },
 };
 
 /** Check if a card can be split */

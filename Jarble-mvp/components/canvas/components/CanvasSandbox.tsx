@@ -93,8 +93,9 @@ function buildDocument(
 
   const themeCSS = `
     :root { color-scheme: light dark; font-family: system-ui, -apple-system, sans-serif; }
+    * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
-    body > canvas, body > div { width: 100% !important; height: 100% !important; }
+    canvas { display: block; width: 100% !important; height: 100% !important; }
   `;
 
   // User JS is executed AFTER all libraries are dynamically loaded
@@ -166,6 +167,39 @@ window.jarble = {
     parent.postMessage({ type: "jarble:action", action: action, payload: payload }, "*");
   }
 };
+// Auto-resize: when the iframe resizes, update ALL canvas drawing buffers
+// and try common Three.js/WebGL globals so content scales with the card.
+window.__JARBLE_SIZE__ = { width: window.innerWidth, height: window.innerHeight };
+function __jarbleAutoResize() {
+  var w = window.innerWidth, h = window.innerHeight;
+  var dpr = window.devicePixelRatio || 1;
+  window.__JARBLE_SIZE__ = { width: w, height: h };
+  // Resize all canvas drawing buffers to match their display size
+  document.querySelectorAll("canvas").forEach(function(c) {
+    var cw = c.clientWidth, ch = c.clientHeight;
+    if (cw > 0 && ch > 0) {
+      c.width = Math.round(cw * dpr);
+      c.height = Math.round(ch * dpr);
+    }
+  });
+  // Try common Three.js global names
+  try {
+    if (typeof renderer !== "undefined" && renderer && renderer.setSize) {
+      renderer.setSize(w, h);
+    }
+    if (typeof camera !== "undefined" && camera && camera.aspect !== undefined) {
+      camera.aspect = w / h;
+      if (camera.updateProjectionMatrix) camera.updateProjectionMatrix();
+    }
+  } catch(e) {}
+}
+new ResizeObserver(function(entries) {
+  if (entries[0]) {
+    window.dispatchEvent(new Event("resize"));
+    // Small delay so layout settles before we resize canvases
+    requestAnimationFrame(__jarbleAutoResize);
+  }
+}).observe(document.documentElement);
 // Dynamic library loader — guarantees scripts are fully loaded before user JS runs
 (function() {
   var libs = ${libsJson};

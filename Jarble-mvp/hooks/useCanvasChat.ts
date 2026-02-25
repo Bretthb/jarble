@@ -22,6 +22,10 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: number;
+  /** Optional friendly text shown in chat instead of raw content (e.g. action relay messages) */
+  displayText?: string;
+  /** If true, this message is an action relay — styled more compactly in chat */
+  isActionRelay?: boolean;
 }
 
 const CHAT_STORAGE_PREFIX = "jarble-chat-";
@@ -90,6 +94,13 @@ export function useCanvasChat(
   const abortRef = useRef<AbortController | null>(null);
   const hasLoadedHistory = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keep a live ref to state so the SSE handler always reads the latest cards (avoids stale closure)
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  // Ref-based streaming guard — avoids stale closure when isStreaming is in useCallback deps
+  const isStreamingRef = useRef(false);
+  // Generation counter — detects when a new request supersedes an aborted one in finally
+  const generationRef = useRef(0);
 
   // Load chat history from localStorage on mount
   useEffect(() => {
@@ -111,23 +122,52 @@ export function useCanvasChat(
     }, 500);
 
     return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        // Flush synchronously on cleanup so messages aren't lost when
+        // the component unmounts or deploymentId changes
+        saveChatHistory(deploymentId, messages);
+      }
     };
   }, [deploymentId, messages]);
 
   const sendMessage = useCallback(
-    async (text: string) => {
-      if (!text.trim() || isStreaming) return;
+    async (text: string, displayText?: string) => {
+      // Use ref guard — keeps sendMessage stable without isStreaming in deps
+      if (!text.trim() || isStreamingRef.current) return;
 
-      // If a card is selected, prepend a reference so the bot knows which card to update
+      // Skip card reference prepend for action/error messages — these already contain card context
+      const isActionMessage = text.startsWith("[UI_ACTION]") || text.startsWith("[SANDBOX_ERROR]");
+
+      // Use stateRef.current for selectedCard and canvas state — keeps deps stable
+      const currentState = stateRef.current;
+
+      // If a card is selected, prepend a clear reference so the bot knows which card to update
       let messageToSend = text;
-      const selectedCard = state.cards.find((c) => c.selected);
-      if (selectedCard) {
-        const ref = `@[${selectedCard.title || selectedCard.component}](card:${selectedCard.id})`;
-        messageToSend = `${ref} ${text}`;
+      const selectedCard = currentState.cards.find((c) => c.selected);
+      if (selectedCard && !isActionMessage) {
+        const title = selectedCard.title || selectedCard.component.replace(/_/g, " ");
+        const ref = `[EDITING ${selectedCard.id} "${title}"]`;
+        messageToSend = `${ref}\n${text}`;
         dispatch({ type: "DESELECT_CARD" });
       }
 
+      // Build canvas state summary — skip for action/error messages since they already carry
+      // cardId context and the extra tokens are wasteful for every interaction relay
+      if (currentState.cards.length > 0 && !isActionMessage) {
+        const cardLines = currentState.cards.map((c) => {
+          const title = c.title || c.component.replace(/_/g, " ");
+          return `- ${c.id}: ${c.component} (title: "${title}")`;
+        });
+        const canvasBlock = `[CANVAS_STATE]\nCards on canvas:\n${cardLines.join("\n")}\n[/CANVAS_STATE]\n`;
+        messageToSend = `${canvasBlock}${messageToSend}`;
+        console.log(`[Jarble:Chat] Prepended canvas state with ${currentState.cards.length} card(s)`);
+      }
+
+      // Track this request's generation — used in finally to avoid the abort race where
+      // the old request's finally fires after the new request has already set isStreaming=true
+      const generation = ++generationRef.current;
+      isStreamingRef.current = true;
       setIsStreaming(true);
       setStreamingText("");
       abortRef.current?.abort();
@@ -145,6 +185,7 @@ export function useCanvasChat(
         role: "user",
         content: text,
         createdAt: Date.now(),
+        ...(displayText ? { displayText, isActionRelay: true } : {}),
       };
       setMessages((prev) => [...prev, userMessage]);
 
@@ -193,7 +234,8 @@ export function useCanvasChat(
         const STREAM_THROTTLE_MS = 50; // Throttle streaming updates to 20fps
         let textContentCount = 0;
 
-        while (true) {
+        // Labeled outer loop so RUN_FINISHED can break out of both loops cleanly
+        outer: while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
@@ -246,8 +288,9 @@ export function useCanvasChat(
               if (event.type === "UI_BLOCK_END") {
                 const block = pendingBlocks.get(event.blockId);
                 if (block) {
-                  // Only UI blocks become canvas cards
-                  addComponentCard(block, messageId, state, dispatch);
+                  // Use stateRef.current so each successive card is placed relative to
+                  // cards already added in this stream (not the stale closure snapshot)
+                  addComponentCard(block, messageId, stateRef.current, dispatch);
                   pendingBlocks.delete(event.blockId);
                   const cardId = `card-${block.id}`;
                   console.log(`[Jarble:Chat] Card created: ${cardId} (${block.component})`);
@@ -273,7 +316,8 @@ export function useCanvasChat(
                 });
               }
 
-              if (event.type === "RUN_FINISHED") break;
+              // Break both the for loop and the outer while loop cleanly
+              if (event.type === "RUN_FINISHED") break outer;
             } catch {
               console.warn(`[Jarble:Chat] Failed to parse SSE event data: ${trimmed.slice(0, 200)}`);
             }
@@ -311,12 +355,19 @@ export function useCanvasChat(
           },
         ]);
       } finally {
-        setIsStreaming(false);
-        setStreamingText("");
-        setStreamingCardIds(new Set());
+        // Only clear streaming state if this is still the active request.
+        // The generation check prevents the abort race: when request A is aborted
+        // and request B starts, A's finally must not clear B's streaming state.
+        if (generationRef.current === generation) {
+          isStreamingRef.current = false;
+          setIsStreaming(false);
+          setStreamingText("");
+          setStreamingCardIds(new Set());
+        }
       }
     },
-    [deploymentId, getAccessTokenSilently, isStreaming, state, dispatch]
+    // Stable deps — isStreaming replaced by isStreamingRef, state replaced by stateRef.current
+    [deploymentId, getAccessTokenSilently, dispatch]
   );
 
   return { sendMessage, isStreaming, streamingCardIds, messages, streamingText };

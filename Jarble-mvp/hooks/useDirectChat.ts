@@ -5,7 +5,6 @@
  *
  * Handles text deltas and UI blocks from the pod proxy.
  * No tool call handling (management goes through Tambo).
- * ~100 lines vs the 337 in useAgentChat.
  */
 
 import { useState, useCallback, useRef } from "react";
@@ -26,6 +25,10 @@ export interface DirectChatMessage {
   role: "user" | "assistant";
   content: string;
   uiBlocks?: UIBlock[];
+  /** Optional friendly text shown in chat instead of raw content (e.g. action relay messages) */
+  displayText?: string;
+  /** If true, this message is an action relay — styled more compactly in chat */
+  isActionRelay?: boolean;
 }
 
 /** Regex to strip ```jarble_ui ... ``` and ```jarble_ui_update ... ``` fenced blocks from displayed text */
@@ -35,22 +38,29 @@ function stripUIMarkers(text: string): string {
   return text.replace(JARBLE_UI_FENCE, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+const MAX_HISTORY = 50; // Cap sent history to prevent unbounded context growth
+
 export function useDirectChat(deploymentId: string) {
   const { getAccessTokenSilently } = useAuth0();
   const [messages, setMessages] = useState<DirectChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // Ref-based guards to keep sendMessage deps stable
+  const isStreamingRef = useRef(false);
+  const messagesRef = useRef<DirectChatMessage[]>([]);
+  messagesRef.current = messages;
 
   const sendMessage = useCallback(
-    async (text: string) => {
-      if (!text.trim() || isStreaming) return;
+    async (text: string, displayText?: string) => {
+      if (!text.trim() || isStreamingRef.current) return;
 
       const userMsg: DirectChatMessage = {
-        id: `user-${Date.now()}`,
+        id: crypto.randomUUID(),
         role: "user",
         content: text,
+        ...(displayText ? { displayText, isActionRelay: true } : {}),
       };
-      const assistantId = `assistant-${Date.now()}`;
+      const assistantId = crypto.randomUUID();
       const assistantMsg: DirectChatMessage = {
         id: assistantId,
         role: "assistant",
@@ -58,6 +68,7 @@ export function useDirectChat(deploymentId: string) {
       };
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      isStreamingRef.current = true;
       setIsStreaming(true);
 
       abortRef.current?.abort();
@@ -70,10 +81,11 @@ export function useDirectChat(deploymentId: string) {
 
       try {
         const token = await getAccessTokenSilently();
-        const historyForApi = [...messages, userMsg].map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
+        // Use messagesRef.current for the latest messages (avoids stale closure on rapid sends)
+        // Cap history to prevent unbounded context window growth
+        const historyForApi = [...messagesRef.current, userMsg]
+          .slice(-MAX_HISTORY)
+          .map((m) => ({ role: m.role, content: m.content }));
 
         const url = `${API_URL}/api/tambo-agent`;
         console.log(`[Jarble:DirectChat] SSE connecting to ${url} for deployment ${deploymentId}`);
@@ -107,7 +119,7 @@ export function useDirectChat(deploymentId: string) {
         let buffer = "";
         const pendingBlocks = new Map<string, UIBlock>();
 
-        while (true) {
+        outer: while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
@@ -125,7 +137,6 @@ export function useDirectChat(deploymentId: string) {
 
               if (event.type === "TEXT_MESSAGE_CONTENT" && event.delta) {
                 textContentCount++;
-                // Log every 5th TEXT_MESSAGE_CONTENT to avoid spam
                 if (textContentCount % 5 === 0) {
                   console.log(`[Jarble:DirectChat] SSE event: TEXT_MESSAGE_CONTENT (x${textContentCount})`);
                 }
@@ -140,7 +151,7 @@ export function useDirectChat(deploymentId: string) {
 
               if (event.type === "UI_BLOCK_START") {
                 pendingBlocks.set(event.blockId, {
-                  id: event.blockId,
+                  id: `card-${event.blockId}`,
                   component: event.component,
                   props: {},
                   ...(event.editable ? { editable: true } : {}),
@@ -195,7 +206,7 @@ export function useDirectChat(deploymentId: string) {
                 );
               }
 
-              if (event.type === "RUN_FINISHED") break;
+              if (event.type === "RUN_FINISHED") break outer;
             } catch {
               console.warn(`[Jarble:DirectChat] Failed to parse SSE event data: ${trimmed.slice(0, 200)}`);
             }
@@ -203,12 +214,12 @@ export function useDirectChat(deploymentId: string) {
         }
 
         console.log(`[Jarble:DirectChat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
-      } catch (err: any) {
-        if (err.name === "AbortError") {
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") {
           console.log(`[Jarble:DirectChat] SSE aborted after ${Date.now() - streamStart}ms`);
           return;
         }
-        console.error(`[Jarble:DirectChat] SSE error: ${err.message || String(err)}`);
+        console.error(`[Jarble:DirectChat] SSE error: ${err instanceof Error ? err.message : String(err)}`);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -217,10 +228,12 @@ export function useDirectChat(deploymentId: string) {
           )
         );
       } finally {
+        isStreamingRef.current = false;
         setIsStreaming(false);
       }
     },
-    [deploymentId, getAccessTokenSilently, isStreaming, messages]
+    // Stable deps — isStreaming replaced by isStreamingRef, messages replaced by messagesRef
+    [deploymentId, getAccessTokenSilently]
   );
 
   const clearMessages = useCallback(() => setMessages([]), []);

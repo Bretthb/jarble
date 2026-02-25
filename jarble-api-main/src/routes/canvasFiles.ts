@@ -25,6 +25,7 @@ const ALLOWED_TOOLS = new Set([
   "save_canvas_file",
   "load_canvas_file",
   "list_canvas_files",
+  "delete_canvas_file",
   "render_ui",
   "define_component",
   "list_components",

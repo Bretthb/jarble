@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Pencil, Save, X, Loader2, Check, AlertCircle } from "lucide-react";
 import { API_URL } from "@/lib/trpc";
@@ -31,7 +31,7 @@ function extractFileContent(component: string, props: Record<string, unknown>): 
 interface EditableCanvasProps {
   block: UIBlock;
   deploymentId: string;
-  sendMessage?: (text: string) => Promise<void>;
+  sendMessage?: (text: string, displayText?: string) => Promise<void>;
   onAction?: (action: CanvasAction) => void;
 }
 
@@ -51,8 +51,14 @@ export default function EditableCanvas({
   const [hasSavedLocally, setHasSavedLocally] = useState(false);
 
   const saveMethod = block.saveMethod || "chat";
+  const showSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  console.log("[Jarble:Editable] Render:", block.component, "id:", block.id, "saveMethod:", saveMethod, "fileId:", block.fileId, "isEditing:", isEditing);
+  // Clear showSaved timer on unmount
+  useEffect(() => {
+    return () => {
+      if (showSavedTimerRef.current) clearTimeout(showSavedTimerRef.current);
+    };
+  }, []);
 
   // Sync displayProps when block.props changes externally,
   // but not if the user just saved local edits (those take precedence)
@@ -161,10 +167,12 @@ export default function EditableCanvas({
       setHasSavedLocally(true);
       setIsEditing(false);
       setShowSaved(true);
-      setTimeout(() => setShowSaved(false), 2000);
-    } catch (err: any) {
-      console.error("[Jarble:Editable] Save FAILED:", err.message || err);
-      setError(err.message || "Failed to save");
+      if (showSavedTimerRef.current) clearTimeout(showSavedTimerRef.current);
+      showSavedTimerRef.current = setTimeout(() => setShowSaved(false), 2000);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to save";
+      console.error("[Jarble:Editable] Save FAILED:", err);
+      setError(message);
     } finally {
       setIsSaving(false);
     }

@@ -29,15 +29,8 @@ const BUILTIN_COMPONENTS = [
   "card", "data_table", "stat_grid", "key_value",
   "code_block", "alert", "progress", "image", "layout",
   "chart", "tabs", "accordion", "badge", "list",
-  "timeline", "divider", "avatar", "blockquote",
-  "metric_card", "header", "button_group", "form",
-  "gauge", "radar", "treemap", "funnel", "waterfall", "scatter",
-  "steps", "result", "tree", "calendar_heatmap", "descriptions",
-  "code_editor", "map", "carousel",
-  "stock", "sankey", "sunburst", "heatmap", "wordcloud",
-  "histogram", "box", "liquid", "rose", "dual_axes",
-  "bullet", "radial_bar", "venn", "circle_packing",
-  "statistic", "tag_cloud", "video", "image_gallery", "audio", "spreadsheet",
+  "timeline", "divider", "metric_card", "header",
+  "button_group", "form", "code_editor", "spreadsheet",
   "sandbox",
 ];
 
@@ -58,47 +51,13 @@ const BUILTIN_DESCRIPTIONS = {
   list: "Structured list with optional icons, descriptions, and badges",
   timeline: "Chronological event timeline with status indicators",
   divider: "Visual separator with optional label",
-  avatar: "User avatar with name and optional subtitle",
-  blockquote: "Styled quotation with optional attribution",
   metric_card: "Single metric display with optional sparkline chart",
   header: "Section heading with optional subtitle and divider",
   button_group: "Row of action buttons that dispatch UI_ACTION callbacks on click",
   form: "Input form with text, email, textarea, select, checkbox, number fields — dispatches UI_ACTION on submit",
-  gauge: "Gauge/speedometer chart showing a value 0-100",
-  radar: "Radar/spider chart with multiple axes",
-  treemap: "Treemap visualization showing hierarchical data by area",
-  funnel: "Conversion funnel chart with stages and values",
-  waterfall: "Waterfall chart showing cumulative gains/losses",
-  scatter: "Scatter plot with x/y coordinates and optional grouping",
-  steps: "Process/wizard steps indicator with current step highlight",
-  result: "Outcome display (success, error, info, warning) with title and subtitle",
-  tree: "Hierarchical tree view with expandable nodes",
-  calendar_heatmap: "Calendar heatmap showing date-value data as colored cells",
-  descriptions: "Labeled description list (key-value pairs in bordered table)",
   code_editor: "Monaco code editor with syntax highlighting",
-  map: "Interactive Leaflet map with markers and popups",
-  carousel: "Image/content carousel with optional autoplay",
-  stock: "Candlestick/OHLC chart for financial data",
-  sankey: "Sankey flow/transfer diagram",
-  sunburst: "Sunburst hierarchical pie chart",
-  heatmap: "Heatmap grid visualization",
-  wordcloud: "Word cloud for text/keyword frequency",
-  histogram: "Histogram for distribution analysis",
-  box: "Box plot for statistical distribution",
-  liquid: "Liquid fill gauge",
-  rose: "Nightingale/polar area rose chart",
-  dual_axes: "Dual Y-axis chart for comparing two metrics",
-  bullet: "Bullet chart for KPI vs target comparison",
-  radial_bar: "Circular/radial bar chart",
-  venn: "Venn diagram for set overlap",
-  circle_packing: "Circle packing for nested hierarchy",
-  statistic: "Polished KPI statistic display with optional countdown",
-  tag_cloud: "Colored tag collection for categorization",
-  video: "Video player (YouTube, Vimeo, MP4, etc.)",
-  image_gallery: "Multi-image grid with lightbox preview",
-  audio: "HTML5 audio player",
   spreadsheet: "Editable Excel-like spreadsheet grid",
-  sandbox: "Sandboxed iframe for custom HTML/CSS/JS mini-apps — render anything",
+  sandbox: "Sandboxed iframe for custom HTML/CSS/JS mini-apps — render anything. Use for charts, 3D, animations, gauges, maps, or any visualization not covered by built-in components.",
 };
 
 // ── Component resolver ─────────────────────────────────────────────────
@@ -174,7 +133,7 @@ function readComponent(name) {
   const fp = path.join(COMPONENTS_DIR, `${name}.json`);
   if (!fs.existsSync(fp)) return null;
   try {
-    console.log("[MCP] File read:", fp);
+    console.error("[MCP] File read:", fp);
     return JSON.parse(fs.readFileSync(fp, "utf8"));
   } catch (err) {
     console.error("[MCP] Failed to parse JSON from file:", fp, err.message);
@@ -185,7 +144,7 @@ function readComponent(name) {
 function writeComponent(name, def) {
   ensureDir();
   const fp = path.join(COMPONENTS_DIR, `${name}.json`);
-  console.log("[MCP] File write:", fp);
+  console.error("[MCP] File write:", fp);
   fs.writeFileSync(fp, JSON.stringify(def, null, 2), "utf8");
 }
 
@@ -210,7 +169,7 @@ function listCustomComponents() {
 const TOOLS = [
   {
     name: "render_ui",
-    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, avatar, blockquote, metric_card, header, button_group, form, gauge, radar, treemap, funnel, waterfall, scatter, steps, result, tree, calendar_heatmap, descriptions, code_editor, map, carousel, stock, sankey, sunburst, heatmap, wordcloud, histogram, box, liquid, rose, dual_axes, bullet, radial_bar, venn, circle_packing, statistic, tag_cloud, video, image_gallery, audio, spreadsheet) and custom bot-defined components. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
+    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, metric_card, header, button_group, form, code_editor, spreadsheet, sandbox) and custom bot-defined components. For anything beyond these — charts, gauges, maps, 3D, animations, custom visualizations — use the sandbox component with HTML/CSS/JS. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -289,7 +248,7 @@ const TOOLS = [
   },
   {
     name: "component_reference",
-    description: "Get detailed prop schema and usage for UI components. Call with a specific component name to get its props, or without a name to get the full reference for all 56 built-in components. ALWAYS call this before rendering a component if you are unsure of its props.",
+    description: "Get detailed prop schema and usage for UI components. Call with a specific component name to get its props, or without a name to get the full reference for all built-in components. ALWAYS call this before rendering a component if you are unsure of its props.",
     inputSchema: {
       type: "object",
       properties: {
@@ -352,7 +311,7 @@ function executeDefineComponent(args) {
 
   try {
     writeComponent(name, def);
-    console.log("[MCP] Component defined:", name);
+    console.error("[MCP] Component defined:", name);
     return { isError: false, text: `Component "${name}" saved. Use render_ui with component="${name}" to display it.` };
   } catch (err) {
     console.error("[MCP] Failed to define component:", name, err.message);
@@ -398,7 +357,7 @@ function executeSaveCanvasFile(args) {
       fs.mkdirSync(FILES_DIR, { recursive: true });
     }
     const filePath = path.join(FILES_DIR, `${fileId}.json`);
-    console.log("[MCP] File write:", filePath);
+    console.error("[MCP] File write:", filePath);
     fs.writeFileSync(filePath, payload, "utf8");
     const displayName = name || fileId;
     return { isError: false, text: `Saved "${displayName}" (${component}) to library as "${fileId}".` };
@@ -417,7 +376,6 @@ function executeLoadCanvasFile(args) {
   if (!fs.existsSync(fp)) return { isError: true, text: `File "${fileId}" not found.` };
 
   try {
-    console.log("[MCP] File read:", fp);
     const content = JSON.parse(fs.readFileSync(fp, "utf8"));
     return { isError: false, text: JSON.stringify(content) };
   } catch (err) {
@@ -426,8 +384,11 @@ function executeLoadCanvasFile(args) {
   }
 }
 
-function executeListCanvasFiles() {
-  if (!fs.existsSync(FILES_DIR)) return { isError: false, text: "No saved components found. Users can save components from the canvas using the bookmark button." };
+function executeListCanvasFiles(args) {
+  if (!fs.existsSync(FILES_DIR)) {
+    if (args && args.format === "json") return { isError: false, text: JSON.stringify([]) };
+    return { isError: false, text: "No saved components found. Users can save components from the canvas using the bookmark button." };
+  }
 
   const files = [];
   for (const file of fs.readdirSync(FILES_DIR)) {
@@ -449,6 +410,11 @@ function executeListCanvasFiles() {
     }
   }
 
+  // JSON format — used by frontend gallery
+  if (args && args.format === "json") {
+    return { isError: false, text: JSON.stringify(files) };
+  }
+
   if (files.length === 0) return { isError: false, text: "No saved components found. Users can save components from the canvas using the bookmark button." };
 
   const lines = [`**${files.length} saved component(s):**`, ""];
@@ -461,6 +427,23 @@ function executeListCanvasFiles() {
   }
   lines.push("", "Use `load_canvas_file` with a fileId to recall any of these, then `render_ui` to display it.");
   return { isError: false, text: lines.join("\n") };
+}
+
+function executeDeleteCanvasFile(args) {
+  const { fileId } = args;
+  if (!fileId || !FILE_ID_RE.test(fileId)) {
+    return { isError: true, text: "Invalid or missing fileId." };
+  }
+  const fp = path.join(FILES_DIR, `${fileId}.json`);
+  if (!fs.existsSync(fp)) {
+    return { isError: true, text: `File "${fileId}" not found.` };
+  }
+  try {
+    fs.unlinkSync(fp);
+    return { isError: false, text: `Deleted "${fileId}" from library.` };
+  } catch (err) {
+    return { isError: true, text: `Failed to delete: ${err.message}` };
+  }
 }
 
 // ── Component reference (detailed prop schemas) ────────────────────────
@@ -482,47 +465,13 @@ const COMPONENT_REFERENCE = {
   list: "`{title?, items: [{text, description?, icon?, badge?, badgeVariant?}], ordered?}`",
   timeline: "`{title?, events: [{label, description?, timestamp?, icon?, status?: completed|active|pending}]}`",
   divider: "`{label?, variant?: solid|dashed|dotted, spacing?: sm|md|lg}`",
-  avatar: "`{name, src?, subtitle?, size?: sm|md|lg}`",
-  blockquote: "`{text, attribution?, variant?: default|info|warning}`",
   metric_card: "`{label, value, change?, changeLabel?, icon?, sparkline?: number[]}`",
   header: "`{title, subtitle?, level?: 1|2|3, divider?}`",
   button_group: "`{buttons: [{id, label, variant?: default|secondary|destructive|outline, icon?, disabled?}]}`",
   form: "`{title?, fields: [{name, label, type: text|email|textarea|select|checkbox|number, placeholder?, required?, options?, defaultValue?}], submitLabel?}`",
-  gauge: "`{value: 0-100, title?, suffix?, color?}` — gauge/speedometer",
-  radar: "`{data: [{axis, value, group?}], title?}` — radar/spider chart",
-  treemap: "`{data: {name, children: [{name, value}]}, title?}` — treemap",
-  funnel: "`{data: [{stage, value}], title?}` — conversion funnel",
-  waterfall: "`{data: [{label, value}], title?}` — waterfall chart",
-  scatter: "`{data: [{x, y, label?, group?}], title?, xLabel?, yLabel?}` — scatter plot",
-  stock: "`{data: [{date, open, close, high, low}], title?}` — candlestick/OHLC chart",
-  sankey: "`{data: [{source, target, value}], title?}` — flow/transfer diagram",
-  sunburst: "`{data: {name, children: [{name, value}]}, title?}` — hierarchical sunburst",
-  heatmap: "`{data: [{x, y, value}], title?}` — heatmap grid",
-  wordcloud: "`{data: [{text, value}], title?}` — word/keyword cloud",
-  histogram: "`{data: [{value}], title?, binWidth?}` — distribution histogram",
-  box: "`{data: [{group, value}], title?}` — box plot",
-  liquid: "`{value: 0-1, title?, color?}` — liquid fill gauge",
-  rose: "`{data: [{category, value}], title?}` — nightingale/polar area chart",
-  dual_axes: "`{data: [{...}], title?, xField?, yFields?: [string, string]}` — dual Y-axis chart",
-  bullet: "`{data: [{title, ranges: number[], measures: number[], target: number}], title?}` — KPI bullet chart",
-  radial_bar: "`{data: [{name, value}], title?}` — circular bar chart",
-  venn: "`{data: [{sets: string[], size, label?}], title?}` — set overlap diagram",
-  circle_packing: "`{data: {name, children: [{name, value}]}, title?}` — nested circle hierarchy",
-  steps: "`{current: number, items: [{title, description?, icon?}], direction?: vertical|horizontal}` — process steps",
-  result: "`{status: success|error|info|warning, title, subtitle?}` — outcome display",
-  tree: "`{data: [{title, key, children?}], title?, defaultExpandAll?}` — tree view",
-  calendar_heatmap: "`{data: [{date, value}], title?}` — calendar heatmap",
-  descriptions: "`{title?, items: [{label, value, span?}], columns?, bordered?}` — description list",
-  carousel: "`{items: [{title?, description?, image?}], autoplay?}` — content carousel",
   code_editor: "`{code, language?, title?, readOnly?, height?}` — Monaco code editor",
-  map: "`{center: [lat, lng], zoom?, markers?: [{lat, lng, label?}], title?}` — interactive map",
-  statistic: "`{value, title?, prefix?, suffix?, precision?, isCountdown?, countdownTarget?}` — KPI statistic",
-  tag_cloud: "`{tags: [{text, color?, size?: small|medium|large}], title?}` — colored tags",
-  video: "`{url, title?, controls?, loop?, muted?}` — video player (YouTube, Vimeo, MP4)",
-  image_gallery: "`{images: [{src, alt?, caption?}], title?, columns?}` — image grid with lightbox",
-  audio: "`{src, title?, autoplay?}` — audio player",
   spreadsheet: "`{data?: [{...}], title?, height?}` — editable Excel-like grid",
-  sandbox: "`{html, css?, js?, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML (divs etc), NEVER <script>/<style>/<html>/<head> tags. css=all styles. js=all JavaScript (runs AFTER libraries load). libraries=CDN URLs loaded dynamically. Use for: live charts, 3D, animations, interactive widgets. NEVER embed third-party widgets. NEVER use code_editor for running JS — use sandbox instead.",
+  sandbox: "`{html, css?, js?, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML (divs etc), NEVER <script>/<style>/<html>/<head> tags. css=all styles. js=all JavaScript (runs AFTER libraries load). libraries=CDN URLs loaded dynamically. Use for: gauges, maps, scatter plots, heatmaps, 3D, animations, candlestick charts, word clouds, or ANY custom visualization. NEVER embed third-party widgets. NEVER use code_editor for running JS — use sandbox instead.",
 };
 
 function executeComponentReference(args) {
@@ -544,14 +493,11 @@ function executeComponentReference(args) {
     "## Display",
   ];
   const categories = {
-    "Display": ["card", "data_table", "stat_grid", "key_value", "code_block", "alert", "progress", "image", "chart", "tabs", "accordion", "badge", "list", "timeline", "divider", "avatar", "blockquote", "metric_card", "header", "layout"],
-    "Charts": ["gauge", "radar", "treemap", "funnel", "waterfall", "scatter", "stock", "sankey", "sunburst", "heatmap", "wordcloud", "histogram", "box", "liquid", "rose", "dual_axes", "bullet", "radial_bar", "venn", "circle_packing"],
-    "Advanced UI": ["steps", "result", "tree", "calendar_heatmap", "descriptions", "carousel"],
-    "Specialized": ["code_editor", "map"],
-    "Data Display": ["statistic", "tag_cloud"],
-    "Media": ["video", "image_gallery", "audio"],
-    "Data": ["spreadsheet"],
+    "Display": ["card", "data_table", "stat_grid", "key_value", "code_block", "alert", "progress", "image", "chart", "tabs", "accordion", "badge", "list", "timeline", "divider", "metric_card", "header", "layout"],
     "Interactive": ["button_group", "form"],
+    "Data": ["spreadsheet"],
+    "Specialized": ["code_editor"],
+    "Sandbox": ["sandbox"],
   };
 
   let first = true;
@@ -572,7 +518,7 @@ function executeUpdateUi(args) {
   if (!card_id) return { isError: true, text: "Missing 'card_id' parameter." };
   if (!props || typeof props !== "object") return { isError: true, text: "Missing or invalid 'props' parameter." };
 
-  console.log("[MCP] update_ui:", card_id, "merge:", merge !== false);
+  console.error("[MCP] update_ui:", card_id, "merge:", merge !== false);
 
   const block = JSON.stringify({
     card_id,
@@ -594,7 +540,8 @@ function executeTool(name, args) {
     case "list_components": return executeListComponents();
     case "save_canvas_file": return executeSaveCanvasFile(args || {});
     case "load_canvas_file": return executeLoadCanvasFile(args || {});
-    case "list_canvas_files": return executeListCanvasFiles();
+    case "list_canvas_files": return executeListCanvasFiles(args || {});
+    case "delete_canvas_file": return executeDeleteCanvasFile(args || {});
     case "component_reference": return executeComponentReference(args || {});
     case "update_ui": return executeUpdateUi(args || {});
     default: return null;
@@ -638,7 +585,7 @@ function handleMessage(msg) {
     const toolName = params?.name;
     const toolArgs = params?.arguments || {};
 
-    console.log("[MCP] Tool called:", toolName, "args:", JSON.stringify(toolArgs).slice(0, 200));
+    console.error("[MCP] Tool called:", toolName, "args:", JSON.stringify(toolArgs).slice(0, 200));
 
     const result = executeTool(toolName, toolArgs);
     if (!result) {
@@ -650,7 +597,7 @@ function handleMessage(msg) {
       };
     }
 
-    console.log("[MCP] Tool result:", toolName, result.isError ? "ERROR" : "OK");
+    console.error("[MCP] Tool result:", toolName, result.isError ? "ERROR" : "OK");
 
     return {
       jsonrpc: "2.0",

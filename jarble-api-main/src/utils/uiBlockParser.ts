@@ -34,9 +34,11 @@ const MAX_BLOCK_SIZE = 100_000;
 
 /**
  * Regex to match ```jarble_ui ... ``` fenced code blocks.
- * Handles optional whitespace and newlines inside the fence.
+ * The negative lookahead (?!_update) prevents matching jarble_ui_update blocks,
+ * which would otherwise partially collide since "jarble_ui_update" starts with "jarble_ui".
+ * extractUIUpdates must still be called before extractUIBlocks (see extractAllUIBlocks).
  */
-const JARBLE_UI_FENCE = /```jarble_ui\s*\n([\s\S]*?)```/g;
+const JARBLE_UI_FENCE = /```jarble_ui(?!_update)\s*\n([\s\S]*?)```/g;
 
 /**
  * Regex to match ```jarble_ui_update ... ``` fenced code blocks.
