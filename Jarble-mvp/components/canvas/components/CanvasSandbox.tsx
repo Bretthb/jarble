@@ -89,7 +89,7 @@ function buildDocument(
     .filter((url) => /^https?:\/\//.test(url));
   const libsJson = JSON.stringify(safeLibs);
 
-  const csp = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-src 'none'";
+  const csp = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-src *";
 
   const themeCSS = `
     :root { color-scheme: light dark; font-family: system-ui, -apple-system, sans-serif; }

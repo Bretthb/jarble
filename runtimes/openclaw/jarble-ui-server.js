@@ -31,7 +31,7 @@ const BUILTIN_COMPONENTS = [
   "chart", "tabs", "accordion", "badge", "list",
   "timeline", "divider", "metric_card", "header",
   "button_group", "form", "code_editor", "spreadsheet",
-  "sandbox",
+  "sandbox", "video",
 ];
 
 const BUILTIN_DESCRIPTIONS = {
@@ -58,6 +58,7 @@ const BUILTIN_DESCRIPTIONS = {
   code_editor: "Monaco code editor with syntax highlighting",
   spreadsheet: "Editable Excel-like spreadsheet grid",
   sandbox: "Sandboxed iframe for custom HTML/CSS/JS mini-apps — render anything. Use for charts, 3D, animations, gauges, maps, or any visualization not covered by built-in components.",
+  video: "Video/livestream player — supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct URLs. Use for livestreams (NASA ISS, Twitch channels, YouTube Live).",
 };
 
 // ── Component resolver ─────────────────────────────────────────────────
@@ -519,7 +520,8 @@ const COMPONENT_REFERENCE = {
   form: "`{title?, fields: [{name, label, type: text|email|textarea|select|checkbox|number, placeholder?, required?, options?, defaultValue?}], submitLabel?}`",
   code_editor: "`{code, language?, title?, readOnly?, height?}` — Monaco code editor",
   spreadsheet: "`{data?: [{...}], title?, height?}` — editable Excel-like grid",
-  sandbox: "`{html, css?, js?, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML (divs etc), NEVER <script>/<style>/<html>/<head> tags. css=all styles. js=all JavaScript (runs AFTER libraries load). libraries=CDN URLs loaded dynamically. Use for: gauges, maps, scatter plots, heatmaps, 3D, animations, candlestick charts, word clouds, or ANY custom visualization. NEVER embed third-party widgets. NEVER use code_editor for running JS — use sandbox instead.",
+  sandbox: "`{html, css?, js?, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML (divs etc), NEVER <script>/<style>/<html>/<head> tags. css=all styles. js=all JavaScript (runs AFTER libraries load). libraries=CDN URLs loaded dynamically. Use for: gauges, maps, scatter plots, heatmaps, 3D, animations, candlestick charts, word clouds, or ANY custom visualization. NEVER use code_editor for running JS — use sandbox instead.",
+  video: "`{url, title?, controls?: true, loop?: false, muted?: false}` — video/livestream player. Supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct MP4/HLS URLs. Use for livestreams (e.g. YouTube Live, Twitch channels). Just pass the URL.",
 };
 
 function executeComponentReference(args) {

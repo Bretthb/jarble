@@ -31,6 +31,7 @@ import CanvasForm from "./components/CanvasForm";
 import CanvasCodeEditor from "./components/CanvasCodeEditor";
 import CanvasSpreadsheet from "./components/CanvasSpreadsheet";
 import CanvasSandbox from "./components/CanvasSandbox";
+import CanvasVideo from "./components/CanvasVideo";
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -258,6 +259,14 @@ export const spreadsheetSchema = z.object({
   height: z.number().optional(),
 });
 
+export const videoSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  controls: z.boolean().optional(),
+  loop: z.boolean().optional(),
+  muted: z.boolean().optional(),
+});
+
 export const sandboxSchema = z.object({
   html: z.string(),
   css: z.string().optional(),
@@ -309,6 +318,7 @@ export const CANVAS_COMPONENTS: Record<string, CanvasComponentEntry> = {
   code_editor: { component: CanvasCodeEditor, propsSchema: codeEditorSchema },
   spreadsheet: { component: CanvasSpreadsheet, propsSchema: spreadsheetSchema },
   sandbox: { component: CanvasSandbox, propsSchema: sandboxSchema },
+  video: { component: CanvasVideo, propsSchema: videoSchema },
   // Alias: LLMs often say "canvas" when they mean "sandbox"
   canvas: { component: CanvasSandbox, propsSchema: sandboxSchema },
 };

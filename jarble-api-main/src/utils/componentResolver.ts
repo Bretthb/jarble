@@ -31,6 +31,7 @@ export const BUILTIN_COMPONENTS = new Set([
   "code_editor",
   "spreadsheet",
   "sandbox",
+  "video",
   "canvas", // alias for sandbox
 ]);
 

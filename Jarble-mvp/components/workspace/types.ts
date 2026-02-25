@@ -194,6 +194,7 @@ export const DEFAULT_CARD_SIZES: Record<string, { width: number; height: number 
   code_editor: { width: 550, height: 400 },
   map: { width: 500, height: 400 },
   text_message: { width: 400, height: 300 },
+  video: { width: 560, height: 400 },
 };
 
 export const DEFAULT_CARD_SIZE = { width: 400, height: 300 };
