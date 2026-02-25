@@ -119,34 +119,38 @@ window.onerror = function(msg, src, line, col, err) {
   d.style.cssText = "position:fixed;top:0;left:0;right:0;padding:8px 12px;background:#fee;color:#c00;font:12px monospace;z-index:99999;white-space:pre-wrap;border-bottom:2px solid #c00";
   d.textContent = "Error: " + msg + "\\n" + (src||"") + ":" + line + ":" + col;
   document.body.prepend(d);
-  // Report error to parent for bot feedback
+  // Report error to parent — use only plain strings (structured clone can't handle Error objects)
   parent.postMessage({
     type: "jarble:error",
     error: {
-      message: String(msg),
-      source: src || "",
-      line: line || 0,
-      column: col || 0,
-      stack: err && err.stack ? err.stack : ""
+      message: String(msg || "Unknown error"),
+      source: String(src || ""),
+      line: Number(line) || 0,
+      column: Number(col) || 0,
+      stack: (err && err.stack) ? String(err.stack) : ""
     }
   }, "*");
 };
 // Also catch unhandled promise rejections
 window.onunhandledrejection = function(e) {
-  var msg = e.reason ? (e.reason.message || String(e.reason)) : "Unhandled promise rejection";
+  var reason = e.reason;
+  var msg = "Unhandled promise rejection";
+  try { msg = reason ? (reason.message || reason.name || String(reason)) : msg; } catch(_) {}
   console.error("[Jarble:Sandbox] Unhandled rejection:", msg);
   var d = document.createElement("div");
   d.style.cssText = "position:fixed;top:0;left:0;right:0;padding:8px 12px;background:#fee;color:#c00;font:12px monospace;z-index:99999;white-space:pre-wrap;border-bottom:2px solid #c00";
   d.textContent = "Error: " + msg;
   document.body.prepend(d);
+  var stack = "";
+  try { stack = (reason && reason.stack) ? String(reason.stack) : ""; } catch(_) {}
   parent.postMessage({
     type: "jarble:error",
     error: {
-      message: msg,
+      message: String(msg),
       source: "",
       line: 0,
       column: 0,
-      stack: e.reason && e.reason.stack ? e.reason.stack : ""
+      stack: stack
     }
   }, "*");
 };
@@ -274,12 +278,17 @@ export default function CanvasSandbox({
         });
       }
       if (e.data?.type === "jarble:error") {
-        console.error("[Jarble:Sandbox] Error from iframe:", e.data.error);
+        const rawError = e.data.error;
+        // Normalize error — sometimes structured clone produces empty objects
+        const errorInfo = (rawError && typeof rawError === "object" && rawError.message)
+          ? rawError
+          : { message: rawError ? String(rawError) : "Unknown sandbox error", source: "", line: 0, column: 0, stack: "" };
+        console.error("[Jarble:Sandbox] Error from iframe:", errorInfo.message);
         // Dispatch error as a special action so it can be forwarded to the bot
         dispatch({
           action: "sandbox_error",
           payload: {
-            error: e.data.error,
+            error: errorInfo,
             component: "sandbox",
             title: title || "Sandbox",
           },

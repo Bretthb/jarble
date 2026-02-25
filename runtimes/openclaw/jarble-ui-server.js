@@ -270,6 +270,54 @@ const TOOLS = [
       required: ["card_id", "props"],
     },
   },
+  // ── Memory tools ──────────────────────────────────────────────────────
+  {
+    name: "store_memory",
+    description: "Store information in long-term memory. Extracts discrete facts from the text, checks for duplicates/contradictions, and either inserts new memories or updates existing ones (compaction). Use this when the user shares personal info, preferences, important context, or anything worth remembering across conversations and platforms. Memory persists across Jarble dashboard, Telegram, Discord, WhatsApp, etc.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "The text containing facts to remember. Can be conversational — facts will be automatically extracted." },
+        category: { type: "string", description: "Optional category: general, preference, personal, context, goal", default: "general" },
+        source_platform: { type: "string", description: "Optional: which platform this info came from (jarble, telegram, discord, whatsapp, slack)" },
+      },
+      required: ["text"],
+    },
+  },
+  {
+    name: "recall_memory",
+    description: "Search long-term memory for information relevant to a query. Returns the most relevant memories ranked by semantic similarity. Use this at the start of conversations or when the user asks about something you might have stored. Memory is cross-platform — recalling works regardless of which platform the info was stored from.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to search for in memory (natural language)" },
+        limit: { type: "number", description: "Max number of memories to return (default 10, max 50)", default: 10 },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "list_memories",
+    description: "List all stored memories, optionally filtered by category. Shows the full memory inventory sorted by most recently updated.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: { type: "string", description: "Optional: filter by category (general, preference, personal, context, goal)" },
+        limit: { type: "number", description: "Max memories to return (default 50, max 200)", default: 50 },
+      },
+    },
+  },
+  {
+    name: "forget_memory",
+    description: "Delete a specific memory by ID or by semantic search. Use when the user asks you to forget something.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Exact memory ID to delete (from list_memories)" },
+        query: { type: "string", description: "Natural language query to find the memory to delete (uses semantic search)" },
+      },
+    },
+  },
 ];
 
 // ── Tool execution ─────────────────────────────────────────────────────
@@ -533,7 +581,666 @@ function executeUpdateUi(args) {
   };
 }
 
-function executeTool(name, args) {
+// ── Memory System ─────────────────────────────────────────────────────
+// Cross-platform long-term memory with semantic search and compaction.
+// Stores memories as JSON on PVC with embeddings for similarity search.
+// Uses the bot's LLM provider for embeddings and fact extraction.
+
+const MEMORY_DIR = "/data/memory";
+const MEMORY_FILE = path.join(MEMORY_DIR, "store.json");
+const MEMORY_VERSION = 1;
+const EMBEDDING_DIMS = 512;
+const SIMILARITY_THRESHOLD = 0.82; // cosine sim threshold for dedup/compaction
+const MAX_MEMORIES = 10000;
+
+// ── Embedding provider detection ──────────────────────────────────────
+
+function getEmbeddingConfig() {
+  // OpenAI and OpenRouter both support /v1/embeddings with text-embedding-3-small
+  if (process.env.OPENAI_API_KEY) {
+    return {
+      url: "https://api.openai.com/v1/embeddings",
+      key: process.env.OPENAI_API_KEY,
+      model: "text-embedding-3-small",
+      authHeader: "Bearer",
+    };
+  }
+  if (process.env.OPENROUTER_API_KEY) {
+    return {
+      url: "https://openrouter.ai/api/v1/embeddings",
+      key: process.env.OPENROUTER_API_KEY,
+      model: "openai/text-embedding-3-small",
+      authHeader: "Bearer",
+    };
+  }
+  if (process.env.GOOGLE_API_KEY) {
+    return {
+      url: `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${process.env.GOOGLE_API_KEY}`,
+      key: process.env.GOOGLE_API_KEY,
+      model: "text-embedding-004",
+      authHeader: null, // key in URL
+      isGoogle: true,
+    };
+  }
+  // No dedicated embedding provider — will use local hashing fallback
+  return null;
+}
+
+// ── Local embedding fallback (no API needed) ──────────────────────────
+// Simple bag-of-words hash embedding using character trigrams.
+// Not as good as neural embeddings, but works offline with zero cost.
+// Produces a 512-dim vector from text via seeded hashing.
+
+function localEmbed(text) {
+  const normalized = text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const vec = new Float64Array(EMBEDDING_DIMS);
+
+  // Character trigram hashing for better semantic signal
+  for (const word of words) {
+    // Word-level hash
+    let h = 0;
+    for (let i = 0; i < word.length; i++) h = ((h << 5) - h + word.charCodeAt(i)) | 0;
+    vec[Math.abs(h) % EMBEDDING_DIMS] += 1;
+    // Trigram hashes for substring matching
+    for (let i = 0; i <= word.length - 3; i++) {
+      const tri = word.slice(i, i + 3);
+      let th = 0;
+      for (let j = 0; j < 3; j++) th = ((th << 5) - th + tri.charCodeAt(j)) | 0;
+      vec[Math.abs(th) % EMBEDDING_DIMS] += 0.5;
+    }
+  }
+
+  // L2 normalize
+  let norm = 0;
+  for (let i = 0; i < EMBEDDING_DIMS; i++) norm += vec[i] * vec[i];
+  norm = Math.sqrt(norm);
+  if (norm > 0) for (let i = 0; i < EMBEDDING_DIMS; i++) vec[i] /= norm;
+
+  return Array.from(vec);
+}
+
+// ── LLM provider detection (for fact extraction / compaction) ─────────
+
+function getLLMConfig() {
+  const provider = process.env.LLM_PROVIDER || "openrouter";
+
+  if (provider === "anthropic" && process.env.ANTHROPIC_API_KEY) {
+    const key = process.env.ANTHROPIC_API_KEY;
+    // Claude Max (sk-ant-oat*) tokens can't be used for direct API calls
+    // They only work through the Claude app. Skip for memory operations.
+    if (key.startsWith("sk-ant-oat")) {
+      console.error("[MCP:Memory] Claude Max token detected — using simple extraction (no API access for memory ops)");
+      // Fall through to try other providers
+    } else {
+      return {
+        url: "https://api.anthropic.com/v1/messages",
+        key,
+        model: "claude-haiku-4-5-20251001",
+        provider: "anthropic",
+        isClaudeMax: false,
+      };
+    }
+  }
+  if (provider === "openai" && process.env.OPENAI_API_KEY) {
+    return {
+      url: "https://api.openai.com/v1/chat/completions",
+      key: process.env.OPENAI_API_KEY,
+      model: "gpt-4o-mini",
+      provider: "openai",
+    };
+  }
+  if (provider === "google" && process.env.GOOGLE_API_KEY) {
+    return {
+      url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`,
+      key: process.env.GOOGLE_API_KEY,
+      model: "gemini-2.0-flash",
+      provider: "google",
+    };
+  }
+  // Default: OpenRouter (works with any key type)
+  const key = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
+  if (key) {
+    return {
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      key,
+      model: "openai/gpt-4o-mini",
+      provider: "openrouter",
+    };
+  }
+  return null;
+}
+
+// ── Embedding API call ────────────────────────────────────────────────
+
+async function embed(text) {
+  const config = getEmbeddingConfig();
+  if (!config) {
+    // Fallback to local embedding when no API is available (e.g. Anthropic-only)
+    console.error("[MCP:Memory] Using local embedding fallback (no embedding API available)");
+    return localEmbed(text);
+  }
+
+  if (config.isGoogle) {
+    // Google uses a different API shape
+    const res = await fetch(config.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: { parts: [{ text }] } }),
+    });
+    if (!res.ok) throw new Error(`Google embedding API error: ${res.status} ${await res.text()}`);
+    const data = await res.json();
+    const values = data.embedding?.values;
+    if (!values) throw new Error("No embedding returned from Google API");
+    // Truncate or pad to EMBEDDING_DIMS
+    return values.slice(0, EMBEDDING_DIMS);
+  }
+
+  // OpenAI / OpenRouter compatible endpoint
+  const res = await fetch(config.url, {
+    method: "POST",
+    headers: {
+      "Authorization": `${config.authHeader} ${config.key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      input: text,
+      dimensions: EMBEDDING_DIMS,
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Embedding API error (${res.status}): ${errBody.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  if (!data.data || !data.data[0] || !data.data[0].embedding) {
+    throw new Error("No embedding returned from API");
+  }
+  return data.data[0].embedding;
+}
+
+// ── Batch embed (up to 20 texts at once) ──────────────────────────────
+
+async function embedBatch(texts) {
+  const config = getEmbeddingConfig();
+  if (!config) {
+    // Local fallback — embed each text independently
+    return texts.map(t => localEmbed(t));
+  }
+
+  if (config.isGoogle) {
+    // Google doesn't support batch — fall back to sequential
+    const results = [];
+    for (const t of texts) results.push(await embed(t));
+    return results;
+  }
+
+  const res = await fetch(config.url, {
+    method: "POST",
+    headers: {
+      "Authorization": `${config.authHeader} ${config.key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      input: texts,
+      dimensions: EMBEDDING_DIMS,
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Embedding batch API error (${res.status}): ${errBody.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  if (!data.data) throw new Error("No embeddings returned from batch API");
+  // Sort by index in case API returns out of order
+  return data.data.sort((a, b) => a.index - b.index).map(d => d.embedding);
+}
+
+// ── LLM call (for fact extraction and compaction) ─────────────────────
+
+async function callLLM(systemPrompt, userMessage) {
+  const config = getLLMConfig();
+  if (!config) throw new Error("No LLM provider available for memory operations.");
+
+  if (config.provider === "anthropic") {
+    // Claude Max tokens (sk-ant-oat*) use Bearer auth; regular keys use x-api-key
+    const headers = {
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    };
+    if (config.isClaudeMax) {
+      headers["Authorization"] = `Bearer ${config.key}`;
+    } else {
+      headers["x-api-key"] = config.key;
+    }
+
+    const res = await fetch(config.url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userMessage }],
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.text();
+      throw new Error(`Anthropic API error (${res.status}): ${errBody.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    return data.content?.[0]?.text || "";
+  }
+
+  if (config.provider === "google") {
+    const res = await fetch(config.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ parts: [{ text: userMessage }] }],
+      }),
+    });
+    if (!res.ok) throw new Error(`Google API error: ${res.status}`);
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  }
+
+  // OpenAI / OpenRouter compatible
+  const res = await fetch(config.url, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      max_tokens: 1024,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`LLM API error: ${res.status}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+// ── Vector math ───────────────────────────────────────────────────────
+
+function cosineSim(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+// ── Memory store I/O ──────────────────────────────────────────────────
+
+function loadMemoryStore() {
+  try {
+    if (!fs.existsSync(MEMORY_FILE)) {
+      return { version: MEMORY_VERSION, embeddingModel: "text-embedding-3-small", dims: EMBEDDING_DIMS, memories: [] };
+    }
+    const raw = JSON.parse(fs.readFileSync(MEMORY_FILE, "utf8"));
+    if (raw.version !== MEMORY_VERSION) {
+      console.error("[MCP:Memory] Store version mismatch, starting fresh");
+      return { version: MEMORY_VERSION, embeddingModel: "text-embedding-3-small", dims: EMBEDDING_DIMS, memories: [] };
+    }
+    return raw;
+  } catch (err) {
+    console.error("[MCP:Memory] Failed to load store:", err.message);
+    return { version: MEMORY_VERSION, embeddingModel: "text-embedding-3-small", dims: EMBEDDING_DIMS, memories: [] };
+  }
+}
+
+function saveMemoryStore(store) {
+  if (!fs.existsSync(MEMORY_DIR)) {
+    fs.mkdirSync(MEMORY_DIR, { recursive: true });
+  }
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify(store), "utf8");
+}
+
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// ── Fact extraction via LLM ───────────────────────────────────────────
+
+async function extractFacts(text) {
+  // Try LLM-powered extraction first (higher quality)
+  const llmConfig = getLLMConfig();
+  if (llmConfig) {
+    try {
+      const systemPrompt = `You extract discrete factual memories from conversational text. Return a JSON array of short, self-contained fact strings. Each fact should be a complete statement that makes sense on its own.
+
+Rules:
+- Only extract things worth remembering long-term: personal info, preferences, opinions, important context, relationships, goals
+- Skip transient info: greetings, questions being asked, filler, technical commands
+- Be concise: "User's favorite color is red" not "The user mentioned that their favorite color is the color red"
+- Write in third person: "User likes pizza" not "I like pizza"
+- If there's nothing worth remembering, return an empty array: []
+
+Return ONLY the JSON array, no other text.`;
+
+      const response = await callLLM(systemPrompt, text);
+      const jsonMatch = response.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const facts = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(facts)) {
+          return facts.filter(f => typeof f === "string" && f.length > 0 && f.length < 500);
+        }
+      }
+    } catch (err) {
+      console.error("[MCP:Memory] LLM extraction failed, using simple extraction:", err.message);
+    }
+  }
+
+  // Fallback: simple sentence-based extraction (no LLM needed)
+  // Split into sentences and filter out questions/greetings
+  console.error("[MCP:Memory] Using simple fact extraction (no LLM available)");
+  const sentences = text
+    .replace(/\n+/g, ". ")
+    .split(/[.!]+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 10 && s.length < 500)
+    .filter(s => !s.match(/^(hi|hey|hello|thanks|ok|sure|yes|no|what|how|why|when|where|who|can you|could you|please|do you)/i))
+    .filter(s => !s.endsWith("?"));
+
+  if (sentences.length === 0 && text.length > 10 && text.length < 500) {
+    // If no sentences extracted, use the whole text as a single fact
+    return [text.trim()];
+  }
+
+  return sentences;
+}
+
+// ── Compaction decision via LLM ───────────────────────────────────────
+
+async function compactDecision(existingText, newFact) {
+  // Try LLM-powered compaction first
+  const llmConfig = getLLMConfig();
+  if (llmConfig) {
+    try {
+      const systemPrompt = `You decide how to handle a new piece of information relative to an existing memory.
+
+Respond with exactly ONE of these actions on the first line, followed by the resulting memory text on the second line:
+
+REPLACE — The new info contradicts or supersedes the old (e.g., preference change, updated fact). Output the new version.
+MERGE — The new info adds to or enriches the old without contradicting. Output a combined version.
+SKIP — The new info is redundant or already captured. Output nothing.
+
+Format:
+ACTION
+resulting memory text (or empty for SKIP)`;
+
+      const userMsg = `Existing memory: "${existingText}"\nNew information: "${newFact}"`;
+      const response = await callLLM(systemPrompt, userMsg);
+      const lines = response.trim().split("\n");
+      const action = (lines[0] || "").trim().toUpperCase();
+
+      if (action === "SKIP") return { action: "SKIP", result: "" };
+      if (action === "REPLACE" || action === "MERGE") {
+        const result = lines.slice(1).join("\n").trim();
+        return { action, result: result || newFact };
+      }
+    } catch (err) {
+      console.error("[MCP:Memory] Compaction LLM call failed, using simple compaction:", err.message);
+    }
+  }
+
+  // Fallback: simple heuristic compaction (no LLM)
+  // If texts are very similar (>90% word overlap), SKIP
+  // Otherwise, REPLACE (assume new info supersedes old for same topic)
+  const oldWords = new Set(existingText.toLowerCase().split(/\s+/));
+  const newWords = newFact.toLowerCase().split(/\s+/);
+  const overlap = newWords.filter(w => oldWords.has(w)).length / Math.max(newWords.length, 1);
+
+  if (overlap > 0.9) return { action: "SKIP", result: "" };
+  return { action: "REPLACE", result: newFact };
+}
+
+// ── Memory tool implementations ───────────────────────────────────────
+
+async function executeStoreMemory(args) {
+  const { text, category, source_platform } = args;
+  if (!text || typeof text !== "string") return { isError: true, text: "Missing 'text' parameter." };
+  if (text.length > 5000) return { isError: true, text: "Text too long (max 5000 chars). Summarize first." };
+
+  const store = loadMemoryStore();
+  const platform = source_platform || process.env.RUNTIME || "unknown";
+  const actions = [];
+
+  try {
+    // 1. Extract discrete facts from the text
+    console.error("[MCP:Memory] Extracting facts from text...");
+    const facts = await extractFacts(text);
+
+    if (facts.length === 0) {
+      return { isError: false, text: "No memorable facts found in the text. Nothing stored." };
+    }
+    console.error(`[MCP:Memory] Extracted ${facts.length} fact(s)`);
+
+    // 2. Embed all facts in one batch call
+    const embeddings = await embedBatch(facts);
+
+    // 3. For each fact, check for similar existing memories and compact
+    for (let i = 0; i < facts.length; i++) {
+      const fact = facts[i];
+      const factEmb = embeddings[i];
+
+      // Find most similar existing memory
+      // Use both vector similarity AND word overlap for robustness
+      // (local embeddings are less precise than neural ones)
+      let bestSim = 0;
+      let bestIdx = -1;
+      const hasEmbeddingAPI = !!getEmbeddingConfig();
+      const simThreshold = hasEmbeddingAPI ? SIMILARITY_THRESHOLD : 0.45; // Lower threshold for local embeddings
+
+      for (let j = 0; j < store.memories.length; j++) {
+        let sim = cosineSim(factEmb, store.memories[j].embedding);
+
+        // Boost similarity with word overlap for local embeddings
+        if (!hasEmbeddingAPI) {
+          const factWords = new Set(fact.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/));
+          const memWords = new Set(store.memories[j].text.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/));
+          const intersection = [...factWords].filter(w => memWords.has(w) && w.length > 2);
+          const union = new Set([...factWords, ...memWords]);
+          const jaccard = intersection.length / union.size;
+          // Blend: 50% vector sim + 50% word overlap (for local embeddings)
+          sim = sim * 0.5 + jaccard * 0.5;
+        }
+
+        if (sim > bestSim) {
+          bestSim = sim;
+          bestIdx = j;
+        }
+      }
+
+      if (bestSim >= simThreshold && bestIdx >= 0) {
+        // Similar memory found — ask LLM to decide
+        const existing = store.memories[bestIdx];
+        console.error(`[MCP:Memory] Similar memory found (sim=${bestSim.toFixed(3)}): "${existing.text.slice(0, 60)}"`);
+
+        const decision = await compactDecision(existing.text, fact);
+
+        if (decision.action === "SKIP") {
+          actions.push(`Skipped (redundant): "${fact.slice(0, 60)}"`);
+          continue;
+        }
+
+        if (decision.action === "REPLACE" || decision.action === "MERGE") {
+          // Re-embed the compacted result
+          const newEmb = await embed(decision.result);
+          store.memories[bestIdx] = {
+            ...existing,
+            text: decision.result,
+            embedding: newEmb,
+            updatedAt: new Date().toISOString(),
+            sourcePlatform: platform,
+          };
+          actions.push(`${decision.action === "REPLACE" ? "Updated" : "Merged"}: "${decision.result.slice(0, 60)}"`);
+          continue;
+        }
+      }
+
+      // No similar memory — insert new
+      if (store.memories.length >= MAX_MEMORIES) {
+        // Evict oldest memory
+        store.memories.sort((a, b) => new Date(a.updatedAt || a.createdAt).getTime() - new Date(b.updatedAt || b.createdAt).getTime());
+        store.memories.shift();
+      }
+
+      store.memories.push({
+        id: generateId(),
+        text: fact,
+        category: category || "general",
+        embedding: factEmb,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        sourcePlatform: platform,
+      });
+      actions.push(`Stored: "${fact.slice(0, 60)}"`);
+    }
+
+    // 4. Save
+    saveMemoryStore(store);
+
+    const summary = actions.length > 0 ? actions.join("\n") : "No changes made.";
+    return {
+      isError: false,
+      text: `Memory updated (${store.memories.length} total memories):\n${summary}`,
+    };
+  } catch (err) {
+    console.error("[MCP:Memory] store_memory failed:", err.message);
+    return { isError: true, text: `Memory store failed: ${err.message}` };
+  }
+}
+
+async function executeRecallMemory(args) {
+  const { query, limit } = args;
+  if (!query || typeof query !== "string") return { isError: true, text: "Missing 'query' parameter." };
+
+  const store = loadMemoryStore();
+  if (store.memories.length === 0) {
+    return { isError: false, text: "No memories stored yet." };
+  }
+
+  const maxResults = Math.min(limit || 10, 50);
+
+  try {
+    // Embed the query
+    const queryEmb = await embed(query);
+
+    // Compute similarities
+    const scored = store.memories.map((m, idx) => ({
+      ...m,
+      score: cosineSim(queryEmb, m.embedding),
+      idx,
+    }));
+
+    // Sort by relevance, filter low scores
+    scored.sort((a, b) => b.score - a.score);
+    const relevant = scored.filter(m => m.score > 0.3).slice(0, maxResults);
+
+    if (relevant.length === 0) {
+      return { isError: false, text: "No relevant memories found for this query." };
+    }
+
+    const lines = relevant.map((m, i) =>
+      `${i + 1}. [${(m.score * 100).toFixed(0)}%] ${m.text} (${m.category}, via ${m.sourcePlatform}, ${m.updatedAt?.split("T")[0] || "unknown"})`
+    );
+
+    return {
+      isError: false,
+      text: `Found ${relevant.length} relevant memory/memories:\n${lines.join("\n")}`,
+    };
+  } catch (err) {
+    console.error("[MCP:Memory] recall_memory failed:", err.message);
+    return { isError: true, text: `Memory recall failed: ${err.message}` };
+  }
+}
+
+async function executeListMemories(args) {
+  const store = loadMemoryStore();
+  const category = args?.category;
+  const limit = Math.min(args?.limit || 50, 200);
+
+  let memories = store.memories;
+  if (category) {
+    memories = memories.filter(m => m.category === category);
+  }
+
+  // Sort by most recently updated
+  memories.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+  memories = memories.slice(0, limit);
+
+  if (memories.length === 0) {
+    return { isError: false, text: category ? `No memories in category "${category}".` : "No memories stored yet." };
+  }
+
+  const lines = memories.map((m, i) =>
+    `${i + 1}. [${m.id}] ${m.text} (${m.category}, via ${m.sourcePlatform}, updated ${m.updatedAt?.split("T")[0] || "unknown"})`
+  );
+
+  return {
+    isError: false,
+    text: `${store.memories.length} total memories${category ? ` (showing ${memories.length} in "${category}")` : ""}:\n${lines.join("\n")}`,
+  };
+}
+
+async function executeForgetMemory(args) {
+  const { id, query } = args;
+  if (!id && !query) return { isError: true, text: "Provide either 'id' (exact) or 'query' (semantic search) to find the memory to delete." };
+
+  const store = loadMemoryStore();
+
+  if (id) {
+    const idx = store.memories.findIndex(m => m.id === id);
+    if (idx === -1) return { isError: true, text: `Memory "${id}" not found.` };
+    const removed = store.memories.splice(idx, 1)[0];
+    saveMemoryStore(store);
+    return { isError: false, text: `Deleted memory: "${removed.text.slice(0, 80)}"` };
+  }
+
+  // Semantic search to find the memory to delete
+  try {
+    const queryEmb = await embed(query);
+    let bestSim = 0, bestIdx = -1;
+    for (let i = 0; i < store.memories.length; i++) {
+      const sim = cosineSim(queryEmb, store.memories[i].embedding);
+      if (sim > bestSim) { bestSim = sim; bestIdx = i; }
+    }
+
+    if (bestIdx === -1 || bestSim < 0.5) {
+      return { isError: true, text: `No memory found matching "${query}".` };
+    }
+
+    const removed = store.memories.splice(bestIdx, 1)[0];
+    saveMemoryStore(store);
+    return {
+      isError: false,
+      text: `Deleted memory (${(bestSim * 100).toFixed(0)}% match): "${removed.text.slice(0, 80)}"`,
+    };
+  } catch (err) {
+    return { isError: true, text: `Forget failed: ${err.message}` };
+  }
+}
+
+// ── Tool dispatch (async-aware) ───────────────────────────────────────
+
+async function executeTool(name, args) {
   switch (name) {
     case "render_ui": return executeRenderUi(args || {});
     case "define_component": return executeDefineComponent(args || {});
@@ -544,13 +1251,17 @@ function executeTool(name, args) {
     case "delete_canvas_file": return executeDeleteCanvasFile(args || {});
     case "component_reference": return executeComponentReference(args || {});
     case "update_ui": return executeUpdateUi(args || {});
+    case "store_memory": return executeStoreMemory(args || {});
+    case "recall_memory": return executeRecallMemory(args || {});
+    case "list_memories": return executeListMemories(args || {});
+    case "forget_memory": return executeForgetMemory(args || {});
     default: return null;
   }
 }
 
 // ── JSON-RPC handler ───────────────────────────────────────────────────
 
-function handleMessage(msg) {
+async function handleMessage(msg) {
   const { id, method, params } = msg;
 
   // Initialize handshake
@@ -561,7 +1272,7 @@ function handleMessage(msg) {
       result: {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: "jarble-ui", version: "1.0.0" },
+        serverInfo: { name: "jarble-ui", version: "2.0.0" },
       },
     };
   }
@@ -587,7 +1298,7 @@ function handleMessage(msg) {
 
     console.error("[MCP] Tool called:", toolName, "args:", JSON.stringify(toolArgs).slice(0, 200));
 
-    const result = executeTool(toolName, toolArgs);
+    const result = await executeTool(toolName, toolArgs);
     if (!result) {
       console.error("[MCP] Unknown tool:", toolName);
       return {
@@ -644,10 +1355,20 @@ process.stdin.on("data", (chunk) => {
 
     try {
       const msg = JSON.parse(line);
-      const response = handleMessage(msg);
-      if (response) {
-        process.stdout.write(JSON.stringify(response) + "\n");
-      }
+      handleMessage(msg).then((response) => {
+        if (response) {
+          process.stdout.write(JSON.stringify(response) + "\n");
+        }
+      }).catch((err) => {
+        console.error("[MCP] Handler error:", err.message);
+        if (msg.id !== undefined) {
+          process.stdout.write(JSON.stringify({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: { code: -32603, message: err.message },
+          }) + "\n");
+        }
+      });
     } catch (err) {
       // Parse error
       process.stdout.write(JSON.stringify({
