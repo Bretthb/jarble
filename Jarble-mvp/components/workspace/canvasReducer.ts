@@ -1,5 +1,5 @@
-import type { CanvasState, CanvasAction } from "./types";
-import { INITIAL_CANVAS_STATE, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE } from "./types";
+import type { CanvasState, CanvasAction, CanvasCard } from "./types";
+import { INITIAL_CANVAS_STATE, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE, SPLITTABLE_COMPONENTS } from "./types";
 
 export { INITIAL_CANVAS_STATE };
 
@@ -53,14 +53,23 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
 
     case "BRING_TO_FRONT": {
       const nextZ = state.nextZIndex;
+      // Normalize when z-index gets high to avoid overflow
+      if (nextZ >= 1000) {
+        const { cards: normalizedCards, nextZIndex } = normalizeZIndices(state.cards, action.id);
+        return {
+          ...state,
+          cards: normalizedCards,
+          focusedCardId: action.id,
+          nextZIndex,
+        };
+      }
       return {
         ...state,
         cards: state.cards.map((c) =>
           c.id === action.id ? { ...c, zIndex: nextZ } : c
         ),
         focusedCardId: action.id,
-        // Normalize when z-index gets high to avoid overflow
-        nextZIndex: nextZ >= 1000 ? normalizeAndGetNext(state.cards, action.id) : nextZ + 1,
+        nextZIndex: nextZ + 1,
       };
     }
 
@@ -116,17 +125,121 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
     case "RESTORE_STATE":
       return action.state;
 
+    case "SPLIT_CARD": {
+      const card = state.cards.find((c) => c.id === action.id);
+      if (!card) return state;
+
+      const config = SPLITTABLE_COMPONENTS[card.component];
+      if (!config) return state;
+
+      const items = card.props[config.itemsKey];
+      if (!Array.isArray(items) || items.length < config.minItems) return state;
+
+      // Create new cards for each item with error handling
+      const newCards: CanvasCard[] = [];
+      const timestamp = Date.now();
+      for (let index = 0; index < items.length; index++) {
+        try {
+          const transformedProps = config.transformItem(items[index], index);
+          const offset = { x: (index % 3) * 220, y: Math.floor(index / 3) * 180 };
+          newCards.push({
+            id: `${card.id}-split-${index}-${timestamp}`,
+            component: config.splitComponent,
+            props: transformedProps,
+            position: { x: card.position.x + offset.x, y: card.position.y + offset.y },
+            size: DEFAULT_CARD_SIZES[config.splitComponent] || { width: 200, height: 150 },
+            zIndex: state.nextZIndex + index,
+            minimized: false,
+            createdAt: timestamp,
+            sourceMessageId: card.sourceMessageId,
+            title: (transformedProps as { title?: string }).title || `Item ${index + 1}`,
+          });
+        } catch (err) {
+          console.error(`Failed to split item ${index}:`, err);
+          // Skip this item and continue
+        }
+      }
+
+      if (newCards.length === 0) return state; // All transformations failed
+
+      return {
+        ...state,
+        // Remove original card, add split cards
+        cards: [...state.cards.filter((c) => c.id !== action.id), ...newCards],
+        nextZIndex: state.nextZIndex + newCards.length,
+      };
+    }
+
+    case "MERGE_CARDS": {
+      const source = state.cards.find((c) => c.id === action.sourceId);
+      const target = state.cards.find((c) => c.id === action.targetId);
+      if (!source || !target) return state;
+
+      // Only merge same component types
+      if (source.component !== target.component) return state;
+
+      const config = SPLITTABLE_COMPONENTS[source.component];
+      if (!config) return state;
+
+      const sourceItems = source.props[config.itemsKey];
+      const targetItems = target.props[config.itemsKey];
+      if (!Array.isArray(sourceItems) || !Array.isArray(targetItems)) return state;
+
+      // Merge items into target card, preserving all properties
+      const mergedCard: CanvasCard = {
+        ...target,
+        props: {
+          ...target.props,
+          [config.itemsKey]: [...targetItems, ...sourceItems],
+        },
+        title: target.title || source.title || target.component.replace(/_/g, " "),
+        // Preserve editable if either card was editable
+        editable: target.editable || source.editable,
+        // Keep target's fileId (since it's the surviving card)
+        fileId: target.fileId,
+        saveMethod: target.saveMethod,
+        // Keep earliest sourceMessageId
+        sourceMessageId: target.sourceMessageId || source.sourceMessageId,
+        // Keep earliest createdAt
+        createdAt: Math.min(target.createdAt, source.createdAt),
+      };
+
+      return {
+        ...state,
+        cards: state.cards
+          .filter((c) => c.id !== action.sourceId && c.id !== action.targetId)
+          .concat(mergedCard),
+      };
+    }
+
+    case "REORDER_CARDS": {
+      const sourceIndex = state.cards.findIndex((c) => c.id === action.sourceId);
+      const targetIndex = state.cards.findIndex((c) => c.id === action.targetId);
+      if (sourceIndex === -1 || targetIndex === -1) return state;
+
+      // Move source card to target's position
+      const newCards = [...state.cards];
+      const [movedCard] = newCards.splice(sourceIndex, 1);
+      newCards.splice(targetIndex, 0, movedCard);
+
+      return {
+        ...state,
+        cards: newCards,
+      };
+    }
+
     default:
       return state;
   }
 }
 
-/** Re-rank all cards starting from 1, preserving relative order. */
-function normalizeAndGetNext(cards: CanvasState["cards"], frontId: string): number {
+/** Re-rank all cards starting from 1, preserving relative order (immutable). */
+function normalizeZIndices(cards: CanvasState["cards"], frontId: string): { cards: CanvasCard[]; nextZIndex: number } {
   const sorted = [...cards].sort((a, b) => a.zIndex - b.zIndex);
   let z = 1;
-  for (const card of sorted) {
-    card.zIndex = card.id === frontId ? cards.length + 1 : z++;
-  }
-  return cards.length + 2;
+  const normalizedCards = sorted.map((card) => ({
+    ...card,
+    zIndex: card.id === frontId ? cards.length + 1 : z++,
+  }));
+  return { cards: normalizedCards, nextZIndex: cards.length + 2 };
 }

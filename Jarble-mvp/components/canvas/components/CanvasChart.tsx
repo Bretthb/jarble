@@ -47,7 +47,7 @@ export default function CanvasChart({
 
   if (!data || data.length === 0 || !dataKeys || dataKeys.length === 0) {
     return (
-      <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground" style={useFlexHeight ? { height: "100%" } : {}}>
+      <div className="p-3 h-full flex items-center justify-center text-sm text-muted-foreground">
         No chart data provided
       </div>
     );
@@ -183,7 +183,7 @@ export default function CanvasChart({
     : {};
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4" style={containerStyle}>
+    <div className="p-3 h-full" style={containerStyle}>
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3 shrink-0">{title}</h3>
       )}

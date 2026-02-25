@@ -42,9 +42,9 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
   const normalizedRows = rows.map((row) => normalizeRow(row, resolvedColumns));
 
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
+    <div className="h-full overflow-hidden">
       {title && (
-        <div className="px-4 py-2.5 border-b border-border">
+        <div className="px-3 py-2 bg-secondary/30">
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         </div>
       )}

@@ -93,7 +93,8 @@ function buildDocument(
 
   const themeCSS = `
     :root { color-scheme: light dark; font-family: system-ui, -apple-system, sans-serif; }
-    body { margin: 0; padding: 8px; background: transparent; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
+    body > canvas, body > div { width: 100% !important; height: 100% !important; }
   `;
 
   // User JS is executed AFTER all libraries are dynamically loaded
@@ -194,10 +195,10 @@ export default function CanvasSandbox({
   css,
   js,
   props,
-  height,
   title,
   libraries,
 }: CanvasSandboxProps) {
+  // Note: height prop is ignored - sandbox fills its parent container
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const readyRef = useRef(false);
   const [stopped, setStopped] = useState(false);
@@ -282,37 +283,25 @@ export default function CanvasSandbox({
     }
   }, [stopped]);
 
-  // Use explicit height if provided, otherwise fill container
-  const useFlexHeight = height === undefined;
-  const containerStyle = useFlexHeight
-    ? { display: "flex", flexDirection: "column" as const, height: "100%", minHeight: 200 }
-    : {};
-  const contentStyle = useFlexHeight
-    ? { flex: 1, minHeight: 0 }
-    : { height };
-
+  // Fill the parent container - card already provides border/padding
   return (
-    <div className="rounded-xl border border-border bg-card p-4" style={containerStyle}>
-      <div className="flex items-center justify-between mb-3 shrink-0">
-        {title ? (
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        ) : (
-          <span />
-        )}
+    <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", minHeight: 0 }}>
+      {/* Minimal control bar - just the stop/restart button */}
+      <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0, marginBottom: 4 }}>
         <button
           onClick={handleStop}
-          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors bg-card border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+          className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/50"
         >
           {stopped ? (
             <>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M3 2L10 6L3 10V2Z" fill="currentColor"/>
               </svg>
               Restart
             </>
           ) : (
             <>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <rect x="2" y="2" width="8" height="8" rx="1" fill="currentColor"/>
               </svg>
               Stop
@@ -321,10 +310,7 @@ export default function CanvasSandbox({
         </button>
       </div>
       {stopped ? (
-        <div
-          className="flex items-center justify-center rounded-lg bg-muted/50 text-muted-foreground text-sm"
-          style={{ width: "100%", ...contentStyle }}
-        >
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0 }} className="rounded-lg bg-muted/30 text-muted-foreground text-sm">
           Sandbox stopped — click Restart to resume
         </div>
       ) : (
@@ -332,13 +318,7 @@ export default function CanvasSandbox({
           ref={iframeRef}
           srcDoc={srcdoc}
           sandbox="allow-scripts allow-popups"
-          style={{
-            width: "100%",
-            border: "none",
-            borderRadius: 8,
-            background: "transparent",
-            ...contentStyle,
-          }}
+          style={{ flex: 1, width: "100%", minHeight: 0, border: "none", borderRadius: 8, background: "transparent" }}
         />
       )}
     </div>

@@ -23,7 +23,7 @@ export default function CanvasMetricCard({
   const isNegative = change?.startsWith("-") || change?.startsWith("↓");
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="p-3 h-full">
       <div className="flex items-start justify-between">
         <div className="space-y-1">
           <div className="flex items-center gap-2">

@@ -23,7 +23,7 @@ export default function CanvasTimeline({ title, events }: CanvasTimelineProps) {
   if (!Array.isArray(events) || events.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="p-3 h-full">
       {title && <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>}
       <div className="space-y-0">
         {events.map((event, i) => {

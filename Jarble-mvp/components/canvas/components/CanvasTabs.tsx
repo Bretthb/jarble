@@ -26,7 +26,7 @@ export default function CanvasTabs({ tabs, defaultTab = 0 }: CanvasTabsProps) {
   const defaultValue = `tab-${Math.min(defaultTab, tabs.length - 1)}`;
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="p-3 h-full">
       <Tabs defaultValue={defaultValue}>
         <TabsList>
           {tabs.map((tab, i) => (

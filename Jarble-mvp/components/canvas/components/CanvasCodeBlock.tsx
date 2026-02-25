@@ -8,9 +8,9 @@ export interface CanvasCodeBlockProps {
 
 export default function CanvasCodeBlock({ code, language, title }: CanvasCodeBlockProps) {
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
+    <div className="h-full overflow-hidden">
       {(title || language) && (
-        <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+        <div className="px-3 py-2 flex items-center justify-between bg-secondary/30">
           {title && <span className="text-xs font-medium text-foreground">{title}</span>}
           {language && <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{language}</span>}
         </div>

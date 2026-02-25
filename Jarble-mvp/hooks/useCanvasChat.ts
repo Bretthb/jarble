@@ -10,7 +10,7 @@
  * Only UI blocks become moveable canvas components. Chat stays in a traditional thread.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
 import type { CanvasAction, CanvasCard, CanvasState } from "@/components/workspace/types";
@@ -22,6 +22,39 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: number;
+}
+
+const CHAT_STORAGE_PREFIX = "jarble-chat-";
+const CHAT_MAX_MESSAGES = 100; // Keep last 100 messages
+const CHAT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function loadChatHistory(deploymentId: string): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(`${CHAT_STORAGE_PREFIX}${deploymentId}`);
+    if (!raw) return [];
+    const { messages, savedAt } = JSON.parse(raw);
+    // Check expiry
+    if (Date.now() - savedAt > CHAT_EXPIRY_MS) {
+      localStorage.removeItem(`${CHAT_STORAGE_PREFIX}${deploymentId}`);
+      return [];
+    }
+    return messages || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveChatHistory(deploymentId: string, messages: ChatMessage[]): void {
+  try {
+    // Keep only the last N messages
+    const trimmed = messages.slice(-CHAT_MAX_MESSAGES);
+    localStorage.setItem(
+      `${CHAT_STORAGE_PREFIX}${deploymentId}`,
+      JSON.stringify({ messages: trimmed, savedAt: Date.now() })
+    );
+  } catch {
+    // localStorage full or unavailable
+  }
 }
 
 interface UIBlockPending {
@@ -51,6 +84,32 @@ export function useCanvasChat(
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingText, setStreamingText] = useState("");
   const abortRef = useRef<AbortController | null>(null);
+  const hasLoadedHistory = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load chat history from localStorage on mount
+  useEffect(() => {
+    if (hasLoadedHistory.current) return;
+    hasLoadedHistory.current = true;
+    const saved = loadChatHistory(deploymentId);
+    if (saved.length > 0) {
+      setMessages(saved);
+    }
+  }, [deploymentId]);
+
+  // Debounced save chat history when messages change (500ms delay)
+  useEffect(() => {
+    if (!hasLoadedHistory.current || messages.length === 0) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveChatHistory(deploymentId, messages);
+    }, 500);
+
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [deploymentId, messages]);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -111,6 +170,8 @@ export function useCanvasChat(
         const decoder = new TextDecoder();
         let buffer = "";
         const pendingBlocks = new Map<string, UIBlockPending>();
+        let lastStreamUpdate = 0;
+        const STREAM_THROTTLE_MS = 50; // Throttle streaming updates to 20fps
 
         while (true) {
           const { done, value } = await reader.read();
@@ -129,8 +190,12 @@ export function useCanvasChat(
 
               if (event.type === "TEXT_MESSAGE_CONTENT" && event.delta) {
                 accumulatedText += event.delta;
-                // Update streaming text for live display
-                setStreamingText(stripUIMarkers(accumulatedText));
+                // Throttle streaming text updates to reduce re-renders
+                const now = Date.now();
+                if (now - lastStreamUpdate >= STREAM_THROTTLE_MS) {
+                  lastStreamUpdate = now;
+                  setStreamingText(stripUIMarkers(accumulatedText));
+                }
               }
 
               if (event.type === "UI_BLOCK_START") {

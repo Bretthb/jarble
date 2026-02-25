@@ -68,7 +68,7 @@ export default function CanvasAccordion({ items, type = "multiple" }: CanvasAcco
     .filter(Boolean) as string[];
 
   return (
-    <div className="rounded-xl border border-border bg-card px-4">
+    <div className="px-3 h-full">
       {type === "single" ? (
         <Accordion type="single" defaultValue={defaultOpen[0]} collapsible>
           <AccordionItems items={items} />

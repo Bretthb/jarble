@@ -13,9 +13,9 @@ export interface CanvasStatGridProps {
 
 export default function CanvasStatGrid({ stats = [] }: CanvasStatGridProps) {
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 gap-2 p-2 h-full">
       {stats.map((stat, i) => (
-        <div key={i} className="rounded-xl border border-border bg-card p-3.5">
+        <div key={i} className="p-2">
           <div className="flex items-center gap-2 mb-1">
             {stat.icon && <span className="text-base">{stat.icon}</span>}
             <span className="text-xs text-muted-foreground">{stat.label}</span>

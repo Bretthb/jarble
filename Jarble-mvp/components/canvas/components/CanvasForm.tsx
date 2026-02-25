@@ -60,7 +60,7 @@ export default function CanvasForm({
     "w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50";
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="p-3 h-full">
       {title && <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>}
       <form onSubmit={handleSubmit} className="space-y-3">
         {fields.map((field) => (

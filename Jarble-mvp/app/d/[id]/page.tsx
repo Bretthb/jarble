@@ -10,7 +10,7 @@ import DeploymentTamboProvider from "@/components/DeploymentTamboProvider";
 import { useCanvasChat, type ChatMessage } from "@/hooks/useCanvasChat";
 import { useCanvasPersistence } from "@/hooks/useCanvasPersistence";
 import { canvasReducer, INITIAL_CANVAS_STATE } from "@/components/workspace/canvasReducer";
-import DashboardGrid from "@/components/workspace/DashboardGrid";
+import SimpleCanvasGrid from "@/components/workspace/SimpleCanvasGrid";
 import EssentialControls from "@/components/workspace/EssentialControls";
 import ConfigPanel from "@/components/workspace/ConfigPanel";
 import CanvasRenderer from "@/components/canvas/CanvasRenderer";
@@ -18,7 +18,7 @@ import EditableCanvas from "@/components/canvas/EditableCanvas";
 import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, SendHorizontal, Settings, MessageSquare, Layout } from "lucide-react";
-import { useReducer, useRef, useState, useCallback, useEffect } from "react";
+import { useReducer, useRef, useState, useCallback, useEffect, memo } from "react";
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
 import ProfileDropdown from "@/components/ProfileDropdown";
@@ -161,10 +161,10 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll chat to bottom on new messages
+  // Auto-scroll chat to bottom on new messages (not on every streaming update)
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingText]);
+  }, [messages.length]);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -262,8 +262,8 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
             Hide Dashboard
           </Button>
 
-          {/* Dashboard Grid (Grafana-style) */}
-          <DashboardGrid
+          {/* Simple Canvas Grid - components flow naturally */}
+          <SimpleCanvasGrid
             cards={state.cards}
             dispatch={dispatch}
             renderCard={renderCard}
@@ -291,7 +291,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
 
 // ── Chat Bubble Component ────────────────────────────────────────────────────
 
-function ChatBubble({ message }: { message: ChatMessage }) {
+const ChatBubble = memo(function ChatBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
 
   return (
@@ -316,7 +316,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
       </div>
     </div>
   );
-}
+});
 
 // ── Card Content Renderer (UI blocks only — chat messages are separate) ───────
 

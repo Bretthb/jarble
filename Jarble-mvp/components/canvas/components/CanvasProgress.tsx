@@ -17,7 +17,7 @@ export default function CanvasProgress({ label, value, variant = "default" }: Ca
   const clamped = Math.max(0, Math.min(100, value));
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+    <div className="p-3 h-full flex flex-col justify-center space-y-2">
       <div className="flex items-center justify-between">
         {label && <span className="text-xs text-muted-foreground">{label}</span>}
         <span className="text-xs font-medium text-foreground">{clamped}%</span>

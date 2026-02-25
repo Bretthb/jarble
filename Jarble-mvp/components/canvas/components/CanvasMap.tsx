@@ -44,7 +44,7 @@ export default function CanvasMap({
     : {};
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4" style={containerStyle}>
+    <div className="p-3 h-full" style={containerStyle}>
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3 shrink-0">{title}</h3>
       )}
