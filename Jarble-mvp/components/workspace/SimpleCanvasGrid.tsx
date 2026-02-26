@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useState, useRef, useEffect, type ReactNode } from "react";
-import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Group } from "lucide-react";
+import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Group, LayoutGrid } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
@@ -299,6 +299,17 @@ export default function SimpleCanvasGrid({
           <Grid3X3 className="w-3.5 h-3.5" />
           Snap
         </button>
+        <button
+          onClick={() => {
+            const w = canvasRef.current?.clientWidth ?? window.innerWidth - 400;
+            dispatch({ type: "TIDY_LAYOUT", containerWidth: w });
+          }}
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+          title="Organize cards into a clean layout"
+        >
+          <LayoutGrid className="w-3.5 h-3.5" />
+          Organize
+        </button>
         <ComponentGallery deploymentId={deploymentId} cards={cards} dispatch={dispatch} />
 
         {/* Multi-select group action */}
@@ -376,25 +387,25 @@ export default function SimpleCanvasGrid({
                 height: h,
                 zIndex: card.zIndex,
               }}
-              className={`group rounded-lg border bg-background/95 backdrop-blur-sm shadow-sm overflow-hidden flex flex-col ${
+              className={`group rounded-lg overflow-hidden flex flex-col ${
                 isInteracting && (isDragging || isResizingCard) ? "select-none" : "transition-shadow"
               } ${
                 card.selected
-                  ? "ring-2 ring-blue-500 shadow-md shadow-blue-500/20 border-blue-500/40"
+                  ? "ring-2 ring-blue-500 shadow-md shadow-blue-500/20"
                   : isDragging
-                    ? "shadow-xl border-primary/40 cursor-grabbing"
+                    ? "shadow-xl ring-1 ring-primary/40 cursor-grabbing"
                     : isStreaming
-                      ? "border-primary/50 shadow-md canvas-card-streaming"
+                      ? "ring-1 ring-primary/50 shadow-md canvas-card-streaming"
                       : card.id === focusedCardId
-                        ? "ring-1 ring-primary/30 border-primary/20"
-                        : "border-border/60 hover:shadow-md hover:border-border cursor-grab"
+                        ? "ring-1 ring-primary/20"
+                        : "hover:ring-1 hover:ring-border/50 cursor-grab"
               }`}
             >
-              {/* Card header — drag handle + controls */}
-              <div className="shrink-0 flex items-center justify-between px-2 py-1 border-b border-border/30 bg-secondary/20">
+              {/* Card header — hidden until hover */}
+              <div className="shrink-0 flex items-center justify-between px-2 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity absolute top-0 left-0 right-0 z-20 bg-background/80 backdrop-blur-sm">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <GripVertical className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0 cursor-grab" />
-                  <span className="text-[11px] text-muted-foreground truncate">
+                  <GripVertical className="w-3 h-3 text-muted-foreground/40 shrink-0 cursor-grab" />
+                  <span className="text-[10px] text-muted-foreground/60 truncate">
                     {card.title || card.component.replace(/_/g, " ")}
                   </span>
                   {/* Saved badge */}
@@ -448,9 +459,9 @@ export default function SimpleCanvasGrid({
                 </div>
               </div>
 
-              {/* Save name input */}
+              {/* Save name input — overlay below header */}
               {savingCardId === card.id && (
-                <div className="shrink-0 flex items-center gap-1 px-2 py-1 bg-secondary/30 border-b border-border/30"
+                <div className="absolute top-6 left-0 right-0 z-20 flex items-center gap-1 px-2 py-1 bg-background/90 backdrop-blur-sm border-b border-border/20"
                   onPointerDown={(e) => e.stopPropagation()}>
                   <input ref={saveInputRef} type="text" value={saveNameInput}
                     onChange={(e) => setSaveNameInput(e.target.value)}
@@ -469,21 +480,21 @@ export default function SimpleCanvasGrid({
                 </div>
               )}
 
-              {/* Card content — fills remaining space */}
-              <div className="flex-1 min-h-0 overflow-hidden">
+              {/* Card content — fills entire card */}
+              <div className="flex-1 min-h-0 overflow-hidden rounded-lg">
                 {renderCard(card)}
               </div>
 
-              {/* Resize handle — bottom right */}
+              {/* Resize handle — bottom right, very subtle */}
               <div
                 onPointerDown={(e) => handleResizeStart(e, card)}
-                className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity z-10"
+                className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize opacity-0 group-hover:opacity-40 hover:!opacity-80 transition-opacity z-10"
                 title="Drag to resize"
               >
                 <svg viewBox="0 0 16 16" className="w-full h-full text-muted-foreground" fill="currentColor">
-                  <circle cx="12" cy="12" r="1.2" />
-                  <circle cx="8" cy="12" r="1.2" />
-                  <circle cx="12" cy="8" r="1.2" />
+                  <circle cx="12" cy="12" r="1" />
+                  <circle cx="8" cy="12" r="1" />
+                  <circle cx="12" cy="8" r="1" />
                 </svg>
               </div>
 

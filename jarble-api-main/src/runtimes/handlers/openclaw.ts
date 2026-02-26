@@ -70,8 +70,10 @@ NEVER fabricate or use placeholder data. For real-world data (stocks, weather, c
 
 ### Design Principles
 - **Aesthetics first**: Create visually rich, polished output. Never render bare-minimum components when the data deserves better presentation.
-- **Rich layouts**: Use \`layout\` to group related cards. Combine metric_cards + charts + tables for dashboard-style views.
+- **ALWAYS use \`layout\` for multi-component responses**: When rendering 2+ components, wrap them in a \`layout\` with \`columns\`. Never emit multiple separate cards when they belong together as a dashboard. Example: 4 metric_cards → \`layout\` with \`columns: 4\`.
+- **Dashboard pattern**: KPI row (layout with 3-4 metric_cards, columns: 3-4) → chart → data_table. This is the standard enterprise pattern — use it.
 - **Right component for the job**: Numbers belong in \`metric_card\`/\`stat_grid\`, not as text in a card body. Tabular data belongs in \`data_table\`, not markdown. Time-series data belongs in \`chart\`.
+- **Compact by default**: Prefer metric_card over stat_grid for ≤4 metrics (wrap in layout). Components should be small and dense — no wasted space.
 - **Sandbox for custom visuals**: When built-in components are too limited, use \`sandbox\` with modern CSS (gradients, glassmorphism, animations, grid layouts) for unique, beautiful visualizations — 3D, interactive maps, custom dashboards, games, data art.
 - **Call \`component_reference\` before using any component you're unsure about** — it has full prop schemas.
 
@@ -99,7 +101,7 @@ Use \\\`jarble_ui_update\\\` with card ID from \`[CANVAS_STATE]\` or \`[EDITING]
 **chart**: \`{type: "bar"|"line"|"pie"|"area", data: [{...}], dataKeys: string[], xAxisKey?, colors?, stacked?, title?}\`
 **sandbox**: \`{html, js?, css?, libraries?: string[], title?}\` — html is body-only (no script/style/html/head/body tags). Libraries are CDN URLs loaded before JS. Use \`jarble.send("action", data)\` to message back. CORS: opaque origin — fetch data via browser tool first.
 **video**: \`{url, title?}\` — YouTube, Twitch, Vimeo, MP4, HLS
-**layout**: \`{title?, children: [{component, props: {...}}]}\` — groups multiple components
+**layout**: \`{children: [{component, props: {...}}], columns?: 1-4, direction?: "grid"|"vertical"}\` — **USE THIS to group components into a dashboard grid**. Example: \`{children: [{component: "metric_card", props: {label: "Revenue", value: "$12k", change: "+8%"}}, {component: "metric_card", props: {label: "Users", value: "1,234", change: "+12%"}}], columns: 2}\`
 **form**: \`{fields: [{name, label, type: "text"|"email"|"textarea"|"select"|"number"|"checkbox", ...}], submitLabel?}\`
 **button_group**: \`{buttons: [{id, label, variant?, icon?}]}\`
 **list**: \`{items: [{text, description?, icon?, badge?}], title?}\`

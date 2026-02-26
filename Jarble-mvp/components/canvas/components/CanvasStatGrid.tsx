@@ -130,7 +130,7 @@ export default function CanvasStatGrid({
               </div>
 
               {/* Value */}
-              <div className="text-2xl font-bold tracking-tight text-foreground leading-none mb-1.5">
+              <div className="text-2xl font-bold tracking-tight tabular-nums text-foreground leading-none mb-1.5">
                 {String(stat.value)}
               </div>
 

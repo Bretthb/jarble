@@ -110,6 +110,9 @@ export const layoutSchema = z.object({
       props: z.record(z.string(), z.unknown()).optional().describe("Props object (alternative to propsJson)"),
     })
   ),
+  columns: z.number().min(1).max(4).optional().describe("Grid columns (1-4). Auto-detects if omitted."),
+  direction: z.enum(["grid", "vertical"]).optional().describe("Layout mode: grid (default) or vertical stack."),
+  gap: z.number().optional().describe("Gap between children in px. Default: 12."),
 });
 
 export const chartSchema = z.object({

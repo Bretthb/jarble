@@ -32,6 +32,20 @@ function normalizeRow(row: unknown, columns: string[]): string[] {
   return [String(row)];
 }
 
+/** Detect if a column contains primarily numeric values */
+function isNumericColumn(rows: string[][], colIdx: number): boolean {
+  if (rows.length === 0) return false;
+  let numericCount = 0;
+  for (const row of rows) {
+    const val = row[colIdx]?.trim();
+    if (!val) continue;
+    // Strip currency/percent symbols for detection
+    const cleaned = val.replace(/[$\u20AC\u00A3\u00A5%,]/g, "");
+    if (!isNaN(Number(cleaned))) numericCount++;
+  }
+  return numericCount > rows.length * 0.6;
+}
+
 export default function CanvasDataTable({ title, columns = [], rows = [] }: CanvasDataTableProps) {
   let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
   try {
@@ -51,6 +65,9 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
 
   const normalizedRows = rows.map((row) => normalizeRow(row, resolvedColumns));
 
+  // Detect numeric columns for right-alignment
+  const numericCols = resolvedColumns.map((_, i) => isNumericColumn(normalizedRows, i));
+
   const handleRowClick = (rowIndex: number, rowCells: string[]) => {
     if (!dispatch) return;
     // Build row data as key-value pairs using column names
@@ -65,19 +82,24 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
   };
 
   return (
-    <div className="h-full overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden">
       {title && (
-        <div className="px-3 py-2 bg-secondary/30">
+        <div className="px-4 py-2.5 border-b border-border shrink-0">
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         </div>
       )}
-      <div className="overflow-x-auto">
+      <div className="flex-1 overflow-auto min-h-0">
         <table className="w-full text-sm">
           {resolvedColumns.length > 0 && (
-            <thead>
-              <tr className="border-b border-border bg-secondary/30">
-                {resolvedColumns.map((col) => (
-                  <th key={col} className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-border bg-muted/60 backdrop-blur-sm">
+                {resolvedColumns.map((col, i) => (
+                  <th
+                    key={col}
+                    className={`px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap ${
+                      numericCols[i] ? "text-right" : "text-left"
+                    }`}
+                  >
                     {col}
                   </th>
                 ))}
@@ -88,11 +110,18 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
             {normalizedRows.map((row, ri) => (
               <tr
                 key={ri}
-                className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-secondary/40 transition-colors"
+                className="border-b border-border/40 last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
                 onClick={() => handleRowClick(ri, row)}
               >
                 {row.map((cell, ci) => (
-                  <td key={ci} className="px-4 py-2 text-foreground/90 whitespace-nowrap">
+                  <td
+                    key={ci}
+                    className={`px-4 py-2.5 whitespace-nowrap ${
+                      numericCols[ci]
+                        ? "text-right font-mono tabular-nums text-foreground"
+                        : "text-foreground/90"
+                    }`}
+                  >
                     {cell}
                   </td>
                 ))}
@@ -101,6 +130,13 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
           </tbody>
         </table>
       </div>
+      {normalizedRows.length > 5 && (
+        <div className="px-4 py-2 border-t border-border shrink-0">
+          <span className="text-xs text-muted-foreground">
+            {normalizedRows.length} rows
+          </span>
+        </div>
+      )}
     </div>
   );
 }

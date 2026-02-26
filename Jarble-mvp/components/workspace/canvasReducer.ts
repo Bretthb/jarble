@@ -1,5 +1,6 @@
 import type { CanvasState, CanvasAction, CanvasCard } from "./types";
 import { INITIAL_CANVAS_STATE, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE, SPLITTABLE_COMPONENTS } from "./types";
+import { tidyLayout } from "./autoLayout";
 
 export { INITIAL_CANVAS_STATE };
 
@@ -340,6 +341,15 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
           c.id === action.id ? { ...c, savedName: action.savedName } : c
         ),
       };
+
+    case "TIDY_LAYOUT": {
+      const tidied = tidyLayout(state.cards, action.containerWidth);
+      if (process.env.NODE_ENV === "development") console.log(`[Jarble:Reducer] TIDY_LAYOUT -> ${tidied.length} cards organized`);
+      return {
+        ...state,
+        cards: tidied,
+      };
+    }
 
     default:
       return state;

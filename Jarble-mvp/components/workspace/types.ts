@@ -59,7 +59,8 @@ export type CanvasAction =
   | { type: "UPDATE_CARD_PROPS"; id: string; props: Record<string, unknown>; merge: boolean; component?: string }
   | { type: "SELECT_CARD"; id: string }
   | { type: "DESELECT_CARD" }
-  | { type: "SAVE_CARD"; id: string; savedName: string };
+  | { type: "SAVE_CARD"; id: string; savedName: string }
+  | { type: "TIDY_LAYOUT"; containerWidth: number };
 
 // ── Splittable components config ────────────────────────────────────────────
 
@@ -186,17 +187,40 @@ export function canMergeCards(source: CanvasCard, target: CanvasCard): boolean {
 // ── Default sizes per component type ─────────────────────────────────────────
 
 export const DEFAULT_CARD_SIZES: Record<string, { width: number; height: number }> = {
-  sandbox: { width: 600, height: 500 },
-  chart: { width: 500, height: 400 },
-  data_table: { width: 500, height: 400 },
-  spreadsheet: { width: 600, height: 450 },
-  code_editor: { width: 550, height: 400 },
-  map: { width: 500, height: 400 },
-  text_message: { width: 400, height: 300 },
-  video: { width: 560, height: 400 },
+  // Large — data-heavy / immersive
+  sandbox: { width: 560, height: 440 },
+  spreadsheet: { width: 560, height: 400 },
+  code_editor: { width: 520, height: 380 },
+  video: { width: 500, height: 340 },
+  chart: { width: 460, height: 300 },
+  data_table: { width: 460, height: 300 },
+  map: { width: 460, height: 340 },
+  // Medium — content panels
+  text_message: { width: 360, height: 240 },
+  card: { width: 320, height: 200 },
+  tabs: { width: 400, height: 300 },
+  accordion: { width: 400, height: 300 },
+  form: { width: 360, height: 320 },
+  list: { width: 320, height: 260 },
+  key_value: { width: 320, height: 220 },
+  descriptions: { width: 320, height: 220 },
+  timeline: { width: 320, height: 280 },
+  code_block: { width: 400, height: 240 },
+  image: { width: 360, height: 280 },
+  // Compact — KPI tiles & indicators
+  metric_card: { width: 280, height: 160 },
+  stat_grid: { width: 400, height: 200 },
+  progress: { width: 300, height: 100 },
+  alert: { width: 360, height: 100 },
+  badge: { width: 200, height: 60 },
+  header: { width: 360, height: 80 },
+  divider: { width: 300, height: 40 },
+  button_group: { width: 320, height: 80 },
+  // Layout — adapts to children
+  layout: { width: 600, height: 360 },
 };
 
-export const DEFAULT_CARD_SIZE = { width: 400, height: 300 };
+export const DEFAULT_CARD_SIZE = { width: 320, height: 220 };
 
 export const INITIAL_CANVAS_STATE: CanvasState = {
   cards: [],

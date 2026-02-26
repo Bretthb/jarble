@@ -201,7 +201,7 @@ export default function CanvasMetricCard({
       <div className="flex items-end justify-between mt-1">
         <div className="space-y-1">
           {/* Animated number */}
-          <div className="text-3xl font-bold tracking-tight text-foreground leading-none">
+          <div className="text-3xl font-bold tracking-tight tabular-nums text-foreground leading-none">
             {animatedValue}
           </div>
 
