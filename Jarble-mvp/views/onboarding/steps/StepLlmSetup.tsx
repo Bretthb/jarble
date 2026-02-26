@@ -136,7 +136,7 @@ export default function StepLlmSetup({
           onClick={() => setLlmMode("included")}
           role="button"
           tabIndex={0}
-          onKeyDown={(e) => e.key === "Enter" && setLlmMode("included")}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setLlmMode("included"))}
           className={`w-full text-left p-6 rounded-xl border-2 transition-all cursor-pointer ${
             llmMode === "included"
               ? "border-primary bg-primary/10 shadow-sm"
@@ -295,7 +295,7 @@ export default function StepLlmSetup({
           onClick={() => setLlmMode("byok")}
           role="button"
           tabIndex={0}
-          onKeyDown={(e) => e.key === "Enter" && setLlmMode("byok")}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setLlmMode("byok"))}
           className={`w-full text-left p-6 rounded-xl border-2 transition-all cursor-pointer ${
             llmMode === "byok"
               ? "border-primary bg-primary/10 shadow-sm"

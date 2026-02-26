@@ -51,13 +51,13 @@ export default function CanvasTabs({ tabs, defaultTab = 0 }: CanvasTabsProps) {
       <Tabs defaultValue={defaultValue} onValueChange={handleTabChange}>
         <TabsList>
           {tabs.map((tab, i) => (
-            <TabsTrigger key={i} value={`tab-${i}`}>
+            <TabsTrigger key={`${tab.label}-${i}`} value={`tab-${i}`}>
               {tab.label}
             </TabsTrigger>
           ))}
         </TabsList>
         {tabs.map((tab, i) => (
-          <TabsContent key={i} value={`tab-${i}`}>
+          <TabsContent key={`${tab.label}-${i}`} value={`tab-${i}`}>
             {tab.content && (
               <p className="text-sm text-foreground whitespace-pre-wrap">{tab.content}</p>
             )}

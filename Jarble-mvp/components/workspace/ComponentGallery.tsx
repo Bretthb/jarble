@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
 import { Package, Loader2, Trash2, Plus, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
 import type { CanvasCard, CanvasAction } from "./types";
 import { DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE } from "./types";
 
@@ -167,6 +168,7 @@ export default function ComponentGallery({ deploymentId, cards, dispatch }: Comp
       dispatch({ type: "BRING_TO_FRONT", id: card.id });
     } catch (err) {
       console.error("[Jarble:Gallery] Failed to load component:", err);
+      toast.error("Failed to load component");
     } finally {
       setLoadingId(null);
     }
@@ -186,6 +188,7 @@ export default function ComponentGallery({ deploymentId, cards, dispatch }: Comp
       setItems(prev => prev.filter(i => i.fileId !== item.fileId));
     } catch (err) {
       console.error("[Jarble:Gallery] Failed to delete:", err);
+      toast.error("Failed to delete component");
     } finally {
       setDeletingId(null);
     }

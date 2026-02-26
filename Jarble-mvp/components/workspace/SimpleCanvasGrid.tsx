@@ -395,19 +395,19 @@ export default function SimpleCanvasGrid({
                   {canSplitCard(card) && (
                     <button onClick={(e) => { e.stopPropagation(); handleSplit(card); }}
                       className="w-5 h-5 flex items-center justify-center rounded transition-colors hover:bg-violet-500/60 text-muted-foreground hover:text-white"
-                      title="Split into individual cards">
+                      aria-label="Split into individual cards" title="Split into individual cards">
                       <SplitSquareHorizontal className="w-3 h-3" />
                     </button>
                   )}
                   <button onClick={(e) => { e.stopPropagation(); handleSaveClick(card); }}
                     className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${
                       card.savedName ? "bg-amber-500/80 text-white" : "hover:bg-amber-500/60 text-muted-foreground hover:text-white"
-                    }`} title={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"}>
+                    }`} aria-label={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"} title={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"}>
                     <Bookmark className={`w-3 h-3 ${card.savedName ? "fill-current" : ""}`} />
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); handleClose(card.id); }}
                     className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:bg-red-500/60 hover:text-white transition-colors"
-                    title="Close">
+                    aria-label="Close card" title="Close">
                     <X className="w-3 h-3" />
                   </button>
                 </div>

@@ -364,7 +364,10 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
     >
       <Card
         className="bg-card border-border hover:border-primary/30 transition-all overflow-hidden cursor-pointer group"
+        role="button"
+        tabIndex={0}
         onClick={handleCardClick}
+        onKeyDown={(e: React.KeyboardEvent) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), handleCardClick())}
       >
         <div className="p-5">
           {/* Row 1: Name + Status */}

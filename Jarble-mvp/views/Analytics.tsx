@@ -158,6 +158,17 @@ export default function Analytics() {
     );
   }
 
+  if (deploymentsQuery.isError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Card className="p-8 bg-card border-border text-center">
+          <p className="text-muted-foreground mb-4">Failed to load deployment data</p>
+          <Button variant="outline" onClick={() => deploymentsQuery.refetch()}>Retry</Button>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Navigation */}
@@ -465,7 +476,10 @@ function CreditMeterCard({ deployment }: { deployment: Deployment }) {
   return (
     <Card
       className="p-4 bg-card border-border hover:border-primary/30 transition-colors cursor-pointer"
+      role="button"
+      tabIndex={0}
       onClick={() => router.push(`/d/${deployment.id}/configure`)}
+      onKeyDown={(e: React.KeyboardEvent) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), router.push(`/d/${deployment.id}/configure`))}
     >
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-medium truncate mr-2">{deployment.name}</span>
@@ -635,7 +649,9 @@ function DeploymentTableRow({
   return (
     <TableRow
       className="border-border cursor-pointer"
+      tabIndex={0}
       onClick={() => router.push(`/d/${deployment.id}/configure`)}
+      onKeyDown={(e: React.KeyboardEvent) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), router.push(`/d/${deployment.id}/configure`))}
     >
       <TableCell>
         <div className="flex items-center gap-2">

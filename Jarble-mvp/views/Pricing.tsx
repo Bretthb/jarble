@@ -138,6 +138,13 @@ export default function Pricing() {
             <div className="flex justify-center py-12">
               <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
+          ) : runtimesQuery.isError ? (
+            <div className="flex flex-col items-center py-12 text-center">
+              <p className="text-muted-foreground mb-3">Failed to load runtimes</p>
+              <button onClick={() => runtimesQuery.refetch()} className="text-sm text-primary hover:underline">
+                Try again
+              </button>
+            </div>
           ) : (
             <div className="grid md:grid-cols-2 gap-6">
               {(runtimesQuery.data ?? []).map((runtime: {

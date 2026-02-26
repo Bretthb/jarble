@@ -96,6 +96,8 @@ export function useCanvasChat(
   const abortRef = useRef<AbortController | null>(null);
   const hasLoadedHistory = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track streaming card animation timers so we can clear them on unmount
+  const cardTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   // Keep a live ref to state so the SSE handler always reads the latest cards (avoids stale closure)
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -132,6 +134,14 @@ export function useCanvasChat(
       }
     };
   }, [deploymentId, messages]);
+
+  // Clear card animation timers on unmount to prevent setState on unmounted component
+  useEffect(() => {
+    return () => {
+      cardTimersRef.current.forEach(clearTimeout);
+      cardTimersRef.current = [];
+    };
+  }, []);
 
   const sendMessage = useCallback(
     async (text: string, displayText?: string) => {
@@ -296,13 +306,14 @@ export function useCanvasChat(
                   pendingBlocks.delete(event.blockId);
                   const cardId = `card-${block.id}`;
                   isDev && console.log(`[Jarble:Chat] Card created: ${cardId} (${block.component})`);
-                  setTimeout(() => {
+                  const timer = setTimeout(() => {
                     setStreamingCardIds((prev) => {
                       const next = new Set(prev);
                       next.delete(cardId);
                       return next;
                     });
                   }, 600);
+                  cardTimersRef.current.push(timer);
                 }
               }
 

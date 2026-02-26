@@ -408,6 +408,8 @@ export default function OnboardingWizard() {
                 <StepChooseRuntime
                   runtimes={runtimesQuery.data ?? []}
                   isLoading={runtimesQuery.isLoading}
+                  isError={runtimesQuery.isError}
+                  onRetry={() => runtimesQuery.refetch()}
                   selectedId={selectedRuntimeId}
                   onSelect={handleRuntimeSelect}
                   isFreeAvailable={!!isFreeAvailable}

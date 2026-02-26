@@ -30,7 +30,7 @@ function AccordionItems({ items }: { items: AccordionItemDef[] }) {
   return (
     <>
       {items.map((item, i) => (
-        <AccordionItem key={i} value={`item-${i}`}>
+        <AccordionItem key={`${item.title}-${i}`} value={`item-${i}`}>
           <AccordionTrigger>{item.title}</AccordionTrigger>
           <AccordionContent>
             {item.content && (
