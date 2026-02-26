@@ -25,7 +25,7 @@ export const userRouter = router({
       name: z.string().min(1).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      await (ctx.db as any)
+      await ctx.db
         .update(users)
         .set(input)
         .where(eq(users.id, ctx.user.id));
@@ -43,7 +43,7 @@ export const userRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const fullName = `${input.firstName} ${input.lastName}`;
-      await (ctx.db as any)
+      await ctx.db
         .update(users)
         .set({ name: fullName })
         .where(eq(users.id, ctx.user.id));

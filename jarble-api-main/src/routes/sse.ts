@@ -65,7 +65,7 @@ sseRouter.get("/:id/logs/stream", async (req, res) => {
       return;
     }
 
-    if ((deployment as any).status !== "running") {
+    if (deployment.status !== "running") {
       res.status(400).json({ error: "Deployment is not running" });
       return;
     }
@@ -174,7 +174,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
       return;
     }
 
-    if ((deployment as any).status !== "running") {
+    if (deployment.status !== "running") {
       res.status(400).json({ error: "Deployment is not running" });
       return;
     }
@@ -361,13 +361,12 @@ sseRouter.get("/status/stream", async (req, res) => {
 
       // Parallelize K8s pod status lookups instead of sequential N+1 calls
       const results = await Promise.all(userDeployments.map(async (dep) => {
-        const d = dep as any;
-        const dbStatus = d.status as string;
+        const dbStatus = dep.status;
 
         const isTransitional = ["creating", "restarting", "stopping"].includes(dbStatus);
         if (!isTransitional && (dbStatus === "running" || dbStatus === "failed")) {
           try {
-            const podStatus = await getDeploymentPodStatus(d.id);
+            const podStatus = await getDeploymentPodStatus(dep.id);
 
             if (podStatus.status !== dbStatus
                 && (podStatus.status === "running" || podStatus.status === "failed")) {
@@ -378,26 +377,26 @@ sseRouter.get("/status/stream", async (req, res) => {
                     ...(podStatus.error ? { error: podStatus.error } : {}),
                   })
                   .where(and(
-                    eq(deploymentsTable.id, d.id),
-                    eq(deploymentsTable.status, dbStatus as any),
+                    eq(deploymentsTable.id, dep.id),
+                    eq(deploymentsTable.status, dbStatus),
                   ));
               } catch (syncErr) {
-                logger.warn({ deploymentId: d.id, syncErr }, "SSE status sync: failed to update DB");
+                logger.warn({ deploymentId: dep.id, syncErr }, "SSE status sync: failed to update DB");
               }
             }
 
             return {
-              deploymentId: d.id,
+              deploymentId: dep.id,
               status: podStatus.status,
               restarts: podStatus.restarts,
               error: podStatus.error,
             };
           } catch {
-            return { deploymentId: d.id, status: dbStatus };
+            return { deploymentId: dep.id, status: dbStatus };
           }
         }
 
-        return { deploymentId: d.id, status: dbStatus };
+        return { deploymentId: dep.id, status: dbStatus };
       }));
 
       return results;

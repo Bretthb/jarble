@@ -64,7 +64,7 @@ export const connectPlatformTool: McpTool = {
     if (existing) {
       await db.update(tables.platformCredentials)
         .set({ credentials: encrypted, updatedAt: dbDate() })
-        .where(eq(tables.platformCredentials.id, (existing as any).id));
+        .where(eq(tables.platformCredentials.id, existing.id));
     } else {
       await db.insert(tables.platformCredentials).values({
         id: nanoid(12),

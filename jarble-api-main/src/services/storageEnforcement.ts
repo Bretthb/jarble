@@ -26,7 +26,7 @@ export async function enforceStorageLimits(): Promise<void> {
 
     for (const dep of running) {
       try {
-        await checkDeploymentStorage(dep as any);
+        await checkDeploymentStorage(dep);
       } catch (err) {
         logger.warn({ deploymentId: dep.id, err }, "storageEnforcement: failed to check deployment");
       }

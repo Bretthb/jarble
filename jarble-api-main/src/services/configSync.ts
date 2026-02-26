@@ -70,7 +70,7 @@ async function buildDeploymentFields(
   });
 
   const platformCredsMap: Record<string, Record<string, string>> = {};
-  for (const row of platformCredsRows as any[]) {
+  for (const row of platformCredsRows) {
     try {
       const decrypted = decryptApiKey(row.credentials);
       platformCredsMap[row.platformId] = JSON.parse(decrypted);
@@ -625,7 +625,7 @@ async function syncPlatformCredentialsFromPvc(
   });
 
   const existingMap = new Map<string, { id: string; creds: Record<string, string> }>();
-  for (const row of existingRows as any[]) {
+  for (const row of existingRows) {
     try {
       const decrypted = decryptApiKey(row.credentials);
       existingMap.set(row.platformId, {

@@ -88,14 +88,13 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
             break;
           }
 
-          const dep = linked as any;
           const updates: Record<string, any> = {};
 
-          if (cancelAtPeriodEnd && !dep.cancelledAt) {
+          if (cancelAtPeriodEnd && !linked.cancelledAt) {
             updates.cancelledAt = new Date().toISOString();
             updates.cancelAtPeriodEnd = currentPeriodEnd?.toISOString() || null;
             logger.info({ deploymentId: linked.id }, "Subscription cancellation synced from Stripe");
-          } else if (!cancelAtPeriodEnd && dep.cancelledAt) {
+          } else if (!cancelAtPeriodEnd && linked.cancelledAt) {
             updates.cancelledAt = null;
             updates.cancelAtPeriodEnd = null;
             logger.info({ deploymentId: linked.id }, "Subscription reactivation synced from Stripe");
@@ -104,7 +103,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
           if (status === "past_due" || status === "unpaid") {
             updates.error = `Subscription ${status}: please update your payment method`;
             logger.warn({ deploymentId: linked.id, status }, "Subscription payment issue");
-          } else if (status === "active" && dep.error?.startsWith("Subscription ")) {
+          } else if (status === "active" && linked.error?.startsWith("Subscription ")) {
             updates.error = null;
           }
 
@@ -174,7 +173,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
                 where: eq(tables.deployments.userId, user.id),
               });
               for (const dep of userDeployments) {
-                if (!(dep as any).isFree && (dep as any).stripeSubscriptionId) {
+                if (!dep.isFree && dep.stripeSubscriptionId) {
                   await db.update(tables.deployments)
                     .set({ error: "Payment failed — please update your payment method" })
                     .where(eq(tables.deployments.id, dep.id));
@@ -247,7 +246,7 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     res.status(400).json({ error: "Unknown runtime" });
     return;
   }
-  const monthlyPriceCents = (runtime as any).monthlyPriceCents;
+  const monthlyPriceCents = runtime.monthlyPriceCents;
   if (!monthlyPriceCents || monthlyPriceCents <= 0) {
     res.status(400).json({ error: "Runtime has no configured price" });
     return;

@@ -173,7 +173,7 @@ export const openrouterRouter = router({
         });
 
         // Encrypt and store the key + hash in the deployment record
-        await (ctx.db as any).update(deployments)
+        await ctx.db.update(deployments)
           .set({
             llmApiKey: encryptApiKey(provisioned.key),
             llmApiKeyId: provisioned.hash,
@@ -212,8 +212,8 @@ export const openrouterRouter = router({
       }
 
       // If this deployment is linked, resolve to the owner's key
-      let keyId = (deployment as any).llmApiKeyId;
-      const sourceId = (deployment as any).llmApiKeySourceDeploymentId;
+      let keyId = deployment.llmApiKeyId;
+      const sourceId = deployment.llmApiKeySourceDeploymentId;
       if (sourceId) {
         const owner = await ctx.db.query.deployments.findFirst({
           where: and(
@@ -221,10 +221,10 @@ export const openrouterRouter = router({
             eq(deployments.userId, ctx.user.id)
           ),
         });
-        keyId = (owner as any)?.llmApiKeyId || keyId;
+        keyId = owner?.llmApiKeyId || keyId;
       }
 
-      if (!keyId || (deployment as any).llmMode !== "included") {
+      if (!keyId || deployment.llmMode !== "included") {
         return null; // Not an included-credits deployment or no key hash stored
       }
 
@@ -257,15 +257,15 @@ export const openrouterRouter = router({
       }
 
       // Block linked deployments — must update the owner instead
-      if ((deployment as any).llmApiKeySourceDeploymentId) {
+      if (deployment.llmApiKeySourceDeploymentId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "This deployment is linked to a credit pool. Update the pool owner instead.",
         });
       }
 
-      const keyId = (deployment as any).llmApiKeyId;
-      if (!keyId || (deployment as any).llmMode !== "included") {
+      const keyId = deployment.llmApiKeyId;
+      if (!keyId || deployment.llmMode !== "included") {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "This deployment does not use included credits.",
@@ -281,7 +281,7 @@ export const openrouterRouter = router({
       }
 
       // Sync the new limit to the DB so the frontend sees the updated value
-      await (ctx.db as any).update(deployments)
+      await ctx.db.update(deployments)
         .set({ llmCreditLimitDollars: input.limitDollars })
         .where(and(
           eq(deployments.id, input.deploymentId),
@@ -306,7 +306,7 @@ export const openrouterRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      const keyId = (deployment as any).llmApiKeyId;
+      const keyId = deployment.llmApiKeyId;
       if (!keyId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -323,7 +323,7 @@ export const openrouterRouter = router({
       }
 
       // Clear the key from the DB
-      await (ctx.db as any).update(deployments)
+      await ctx.db.update(deployments)
         .set({
           llmApiKey: null,
           llmApiKeyId: null,

@@ -206,7 +206,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   }
 
   // 5. Verify ownership (always enforced regardless of auth method)
-  if ((deployment as any).userId !== authenticatedUserId) {
+  if (deployment.userId !== authenticatedUserId) {
     logger.warn({ deploymentId, userId: authenticatedUserId }, "Chat: user does not own deployment");
     sendEvent(res, { type: "RUN_STARTED", runId, threadId });
     const errMsgId = nanoid();
@@ -219,7 +219,6 @@ tamboAgentRouter.post("/", async (req, res) => {
   }
 
   const requestStartMs = Date.now();
-  const dep = deployment as any;
   const agMessages = body.messages || [];
 
   // Extract last user message
@@ -258,10 +257,10 @@ tamboAgentRouter.post("/", async (req, res) => {
     return;
   }
 
-  if (dep.status !== "running") {
+  if (deployment.status !== "running") {
     const messageId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
-    sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Your bot is currently ${dep.status}. It needs to be running to chat. You can start it using the Start button.` });
+    sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Your bot is currently ${deployment.status}. It needs to be running to chat. You can start it using the Start button.` });
     sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
     sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
     res.end();

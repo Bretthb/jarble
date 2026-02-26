@@ -188,7 +188,7 @@ export async function buildToolContext(
       return null;
     }
 
-    if ((deployment as any).userId !== userId) {
+    if (deployment.userId !== userId) {
       logger.warn(
         { userId, deploymentId },
         "buildToolContext: ownership mismatch",

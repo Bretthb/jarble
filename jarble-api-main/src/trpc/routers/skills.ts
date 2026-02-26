@@ -19,7 +19,7 @@ export const skillsRouter = router({
       const all = await ctx.db.query.skillsCatalog.findMany();
 
       if (input?.runtime) {
-        return all.filter((s: any) => s.runtime === input.runtime);
+        return all.filter((s) => s.runtime === input.runtime);
       }
 
       return all;
@@ -43,17 +43,17 @@ export const skillsRouter = router({
       });
 
       // Resolve full skill details for each installed skill
-      const skillIds = installed.map((ds: any) => ds.skillId);
+      const skillIds = installed.map((ds) => ds.skillId);
       if (skillIds.length === 0) return [];
 
       const skills = await ctx.db.query.skillsCatalog.findMany();
-      const skillMap = new Map(skills.map((s: any) => [s.id, s]));
+      const skillMap = new Map(skills.map((s) => [s.id, s]));
 
-      return installed.map((ds: any) => ({
+      return installed.map((ds) => ({
         installId: ds.id,
         installedAt: ds.installedAt,
         skill: skillMap.get(ds.skillId) ?? null,
-      })).filter((entry: any) => entry.skill !== null);
+      })).filter((entry) => entry.skill !== null);
     }),
 
   // Install a skill on a deployment
@@ -93,16 +93,16 @@ export const skillsRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: "Skill already installed on this deployment" });
       }
 
-      await (ctx.db as any).insert(deploymentSkills).values({
+      await ctx.db.insert(deploymentSkills).values({
         id: nanoid(12),
         deploymentId: input.deploymentId,
         skillId: input.skillId,
       });
 
-      logger.info({ deploymentId: input.deploymentId, skillId: input.skillId, skillName: (skill as any).name }, "Skill installed");
+      logger.info({ deploymentId: input.deploymentId, skillId: input.skillId, skillName: skill.name }, "Skill installed");
 
       // Sync updated skills config to PVC if deployment is running
-      if ((deployment as any).status === "running") {
+      if (deployment.status === "running") {
         void syncConfigsToPvc(input.deploymentId);
       }
 
@@ -136,7 +136,7 @@ export const skillsRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Skill is not installed on this deployment" });
       }
 
-      await (ctx.db as any).delete(deploymentSkills)
+      await ctx.db.delete(deploymentSkills)
         .where(and(
           eq(deploymentSkills.deploymentId, input.deploymentId),
           eq(deploymentSkills.skillId, input.skillId),
@@ -145,7 +145,7 @@ export const skillsRouter = router({
       logger.info({ deploymentId: input.deploymentId, skillId: input.skillId }, "Skill uninstalled");
 
       // Sync updated skills config to PVC if deployment is running
-      if ((deployment as any).status === "running") {
+      if (deployment.status === "running") {
         void syncConfigsToPvc(input.deploymentId);
       }
 

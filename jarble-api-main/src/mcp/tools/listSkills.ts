@@ -17,9 +17,9 @@ export const listSkillsTool: McpTool = {
       where: eq(tables.deploymentSkills.deploymentId, ctx.deploymentId),
     });
 
-    const installedIds = new Set((installed as any[]).map((ds) => ds.skillId));
+    const installedIds = new Set(installed.map((ds) => ds.skillId));
 
-    const skills = (catalog as any[]).map((s) => ({
+    const skills = catalog.map((s) => ({
       id: s.id,
       name: s.name,
       description: s.description,

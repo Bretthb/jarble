@@ -35,7 +35,7 @@ export async function enforceSubscriptionStatus(): Promise<void> {
 
     for (const dep of running) {
       try {
-        await checkDeploymentSubscription(dep as any);
+        await checkDeploymentSubscription(dep);
       } catch (err) {
         logger.warn({ deploymentId: dep.id, err }, "subscriptionEnforcement: failed to check deployment");
       }
@@ -192,7 +192,7 @@ async function validateSubscriptionWithStripe(dep: {
       if (cancelAtPeriodEnd && currentPeriodEnd) {
         const currentCancelAt = currentPeriodEnd.toISOString();
         updates.cancelAtPeriodEnd = currentCancelAt;
-        if (!(dep as any).cancelledAt) {
+        if (!(dep).cancelledAt) {
           updates.cancelledAt = new Date().toISOString();
         }
       } else if (!cancelAtPeriodEnd) {

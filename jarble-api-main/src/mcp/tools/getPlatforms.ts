@@ -22,7 +22,7 @@ export const getPlatformsTool: McpTool = {
       where: eq(tables.platformCredentials.deploymentId, ctx.deploymentId),
     });
 
-    const platforms = (creds as any[]).map((cred) => {
+    const platforms = creds.map((cred) => {
       let masked: Record<string, string> = {};
       try {
         const decrypted = decryptApiKey(cred.credentials);

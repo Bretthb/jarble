@@ -87,7 +87,7 @@ canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
       return;
     }
 
-    if ((deployment as any).status !== "running") {
+    if (deployment.status !== "running") {
       res.status(400).json({ error: "Deployment is not running" });
       return;
     }

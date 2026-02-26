@@ -38,7 +38,7 @@ export const installSkillTool: McpTool = {
       ),
     });
     if (existing) {
-      return { success: false, message: `Skill "${(skill as any).name}" is already installed.` };
+      return { success: false, message: `Skill "${skill.name}" is already installed.` };
     }
 
     await db.insert(tables.deploymentSkills).values({
@@ -55,7 +55,7 @@ export const installSkillTool: McpTool = {
 
     return {
       success: true,
-      message: `Skill "${(skill as any).name}" installed successfully.`,
+      message: `Skill "${skill.name}" installed successfully.`,
     };
   },
 };
