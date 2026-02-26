@@ -15,6 +15,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
 import type { CanvasAction, CanvasCard, CanvasState } from "@/components/workspace/types";
 import { findOpenPosition, getDefaultSize, getContainerSize } from "@/components/workspace/autoLayout";
+import { useComponentCatalog } from "@/components/ComponentCatalogProvider";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -76,8 +77,8 @@ interface UIBlockPending {
   saveMethod?: "mcp" | "chat";
 }
 
-/** Regex to strip ```jarble_ui ... ``` and ```jarble_ui_update ... ``` fenced blocks from displayed text */
-const JARBLE_UI_FENCE = /```jarble_ui(?:_update)?\s*\n[\s\S]*?```/g;
+/** Regex to strip ```jarble_ui ... ```, ```jarble_ui_update ... ```, and ```jarble_ui_define ... ``` fenced blocks from displayed text */
+const JARBLE_UI_FENCE = /```jarble_ui(?:_update|_define)?\s*\n[\s\S]*?```/g;
 
 function stripUIMarkers(text: string): string {
   return text.replace(JARBLE_UI_FENCE, "").replace(/\n{3,}/g, "\n\n").trim();
@@ -89,6 +90,7 @@ export function useCanvasChat(
   dispatch: React.Dispatch<CanvasAction>
 ) {
   const { getAccessTokenSilently } = useAuth0();
+  const { registerComponent } = useComponentCatalog();
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingCardIds, setStreamingCardIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -337,6 +339,15 @@ export function useCanvasChat(
                   props: props ?? {},
                   merge: merge ?? true,
                   component,
+                });
+              }
+
+              if (event.type === "COMPONENT_DEFINED") {
+                isDev && console.log(`[Jarble:Chat] Component defined: ${event.name} (${event.layout?.length ?? 0} children)`);
+                registerComponent({
+                  name: event.name,
+                  description: event.description,
+                  layout: event.layout ?? [],
                 });
               }
 

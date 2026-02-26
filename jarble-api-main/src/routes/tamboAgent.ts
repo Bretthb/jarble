@@ -22,8 +22,8 @@ import { logger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { getPodAddress, findPodForDeployment } from "../k8s/index.js";
 import { chatViaGateway, chatViaExec, type GatewayResponse } from "../services/openclawGateway.js";
-import { extractUIBlocks, type JarbleUIBlock } from "../utils/uiBlockParser.js";
-import { readComponentFromPvc } from "../k8s/index.js";
+import { extractUIBlocks, type JarbleUIBlock, type JarbleComponentDef } from "../utils/uiBlockParser.js";
+import { readComponentFromPvc, writeComponentToPvc } from "../k8s/index.js";
 import {
   isBuiltinComponent,
   resolveCustomComponent,
@@ -326,6 +326,25 @@ tamboAgentRouter.post("/", async (req, res) => {
           merge: update.merge,
           ...(update.component ? { component: update.component } : {}),
         });
+      }
+    }
+
+    // Handle component definitions — save to PVC and notify frontend
+    if (gatewayResult.componentDefs && gatewayResult.componentDefs.length > 0) {
+      for (const def of gatewayResult.componentDefs) {
+        // Save to PVC in the background (fire-and-forget)
+        writeComponentToPvc(deploymentId, def.name, def as unknown as Record<string, unknown>).catch((err: unknown) => {
+          logger.warn({ deploymentId, name: def.name, error: err instanceof Error ? err.message : String(err) }, "Failed to save component definition to PVC");
+        });
+
+        // Emit event so frontend can register the component immediately
+        sendEvent(res, {
+          type: "COMPONENT_DEFINED",
+          name: def.name,
+          description: def.description,
+          layout: def.layout,
+        });
+        logger.info({ deploymentId, name: def.name, childCount: def.layout.length }, "Chat: component defined");
       }
     }
 

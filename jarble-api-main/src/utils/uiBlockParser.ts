@@ -33,13 +33,19 @@ const MAX_BLOCKS = 20;
 /** Max JSON size per block (100KB) */
 const MAX_BLOCK_SIZE = 100_000;
 
+export interface JarbleComponentDef {
+  name: string;
+  description?: string;
+  layout: Array<{ component: string; props: Record<string, unknown> }>;
+}
+
 /**
  * Regex to match ```jarble_ui ... ``` fenced code blocks.
- * The negative lookahead (?!_update) prevents matching jarble_ui_update blocks,
- * which would otherwise partially collide since "jarble_ui_update" starts with "jarble_ui".
- * extractUIUpdates must still be called before extractUIBlocks (see extractAllUIBlocks).
+ * The negative lookahead (?!_update|_define) prevents matching jarble_ui_update
+ * and jarble_ui_define blocks, which would otherwise partially collide.
+ * extractUIUpdates and extractComponentDefs must be called before extractUIBlocks.
  */
-const JARBLE_UI_FENCE = /```jarble_ui(?!_update)\s*\n([\s\S]*?)```/g;
+const JARBLE_UI_FENCE = /```jarble_ui(?!_update|_define)\s*\n([\s\S]*?)```/g;
 
 /**
  * Regex to match ```jarble_ui_update ... ``` fenced code blocks.
@@ -172,21 +178,100 @@ export function extractUIUpdates(text: string): {
   return { cleanText: finalText, uiUpdates };
 }
 
+// ── Component Definitions ────────────────────────────────────────────────────
+
+/** Regex for ```jarble_ui_define ... ``` fenced blocks. */
+const JARBLE_UI_DEFINE_FENCE = /```jarble_ui_define\s*\n([\s\S]*?)```/g;
+
+/** Max component definitions per message */
+const MAX_DEFS = 5;
+
 /**
- * Extract both ```jarble_ui and ```jarble_ui_update fenced blocks from text.
+ * Extract ```jarble_ui_define fenced code blocks from bot text.
+ * These define reusable custom components with template variables.
  *
- * Convenience wrapper that runs both extractors. The update fence is matched
- * first (before the general jarble_ui fence) to prevent partial collisions.
+ * Format:
+ *   ```jarble_ui_define
+ *   {"name":"kpi_row","description":"...","layout":[{component,props}]}
+ *   ```
+ */
+export function extractComponentDefs(text: string): {
+  cleanText: string;
+  componentDefs: JarbleComponentDef[];
+} {
+  const componentDefs: JarbleComponentDef[] = [];
+  let defCount = 0;
+
+  const cleanText = text.replace(JARBLE_UI_DEFINE_FENCE, (match, jsonContent: string) => {
+    if (defCount >= MAX_DEFS) {
+      logger.warn(`[uiBlockParser] Exceeded MAX_DEFS (${MAX_DEFS}), truncating`);
+      return match;
+    }
+
+    const trimmed = jsonContent.trim();
+    if (trimmed.length > MAX_BLOCK_SIZE) {
+      logger.warn(`[uiBlockParser] Define block exceeds MAX_BLOCK_SIZE, skipping`);
+      return match;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        typeof parsed.name !== "string" ||
+        !Array.isArray(parsed.layout)
+      ) {
+        return match; // Invalid structure, leave as text
+      }
+
+      // Validate component name format
+      if (!/^[a-z][a-z0-9_]{0,63}$/.test(parsed.name)) {
+        logger.warn(`[uiBlockParser] Invalid component name: ${parsed.name}`);
+        return match;
+      }
+
+      componentDefs.push({
+        name: parsed.name,
+        description: typeof parsed.description === "string" ? parsed.description : undefined,
+        layout: parsed.layout,
+      });
+      defCount++;
+
+      return ""; // Strip the block from text
+    } catch {
+      logger.warn("[uiBlockParser] Failed to parse jarble_ui_define block: %s", trimmed.slice(0, 200));
+      return match;
+    }
+  });
+
+  const finalText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
+
+  if (componentDefs.length > 0) {
+    logger.debug(`[uiBlockParser] Extracted ${componentDefs.length} component definitions`);
+  }
+
+  return { cleanText: finalText, componentDefs };
+}
+
+/**
+ * Extract all fenced block types from text.
+ *
+ * Order matters: define > update > render (each strips its blocks before the next).
  */
 export function extractAllUIBlocks(text: string): {
   cleanText: string;
   uiBlocks: JarbleUIBlock[];
   uiUpdates: JarbleUIUpdate[];
+  componentDefs: JarbleComponentDef[];
 } {
-  // Extract updates first (jarble_ui_update must be matched before jarble_ui)
-  const { cleanText: afterUpdates, uiUpdates } = extractUIUpdates(text);
-  // Then extract render blocks from the remaining text
+  // 1. Extract component definitions first
+  const { cleanText: afterDefs, componentDefs } = extractComponentDefs(text);
+  // 2. Then updates (jarble_ui_update must be matched before jarble_ui)
+  const { cleanText: afterUpdates, uiUpdates } = extractUIUpdates(afterDefs);
+  // 3. Then render blocks from the remaining text
   const { cleanText, uiBlocks } = extractUIBlocks(afterUpdates);
 
-  return { cleanText, uiBlocks, uiUpdates };
+  return { cleanText, uiBlocks, uiUpdates, componentDefs };
 }

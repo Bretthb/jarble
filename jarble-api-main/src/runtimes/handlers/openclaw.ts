@@ -90,6 +90,14 @@ Use \\\`jarble_ui_update\\\` with card ID from \`[CANVAS_STATE]\` or \`[EDITING]
 \\\`\\\`\\\`
 \`merge: true\` (default) patches props. \`merge: false\` replaces all (required for sandbox). Add \`"component": "new_type"\` to change type.
 
+### Defining Custom Components
+Create reusable component templates with \`jarble_ui_define\`. Use \`{{variable}}\` placeholders in props:
+\\\`\\\`\\\`jarble_ui_define
+{"name": "kpi_row", "description": "Row of 3 KPI metrics", "layout": [{"component": "metric_card", "props": {"label": "{{label1}}", "value": "{{value1}}", "change": "{{change1}}"}}, {"component": "metric_card", "props": {"label": "{{label2}}", "value": "{{value2}}", "change": "{{change2}}"}}]}
+\\\`\\\`\\\`
+Then render it with \\\`jarble_ui\\\`: \`{"component": "kpi_row", "props": {"label1": "Revenue", "value1": "$5M", "change1": "+12%", ...}}\`
+Rules: name must be lowercase with underscores, cannot override built-in components, layout children must be built-in types.
+
 ### Interactive Actions
 \`[UI_ACTION] cardId={id} component={name} action={type}\` + JSON payload. You are the backend — respond by updating the card or creating new ones.
 
