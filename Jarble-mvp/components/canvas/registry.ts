@@ -39,6 +39,11 @@ export const cardSchema = z.object({
   title: z.string().optional(),
   subtitle: z.string().optional(),
   body: z.string().optional(),
+  content: z.string().optional(),
+  icon: z.string().optional(),
+  status: z.enum(["info", "success", "warning", "error"]).optional(),
+  live: z.boolean().optional(),
+  lastUpdated: z.string().optional(),
 });
 
 export const dataTableSchema = z.object({
@@ -57,6 +62,8 @@ export const statGridSchema = z.object({
       icon: z.string().optional(),
     })
   ),
+  live: z.boolean().optional(),
+  lastUpdated: z.string().optional(),
 });
 
 export const keyValueSchema = z.object({
@@ -206,12 +213,17 @@ export const dividerSchema = z.object({
 });
 
 export const metricCardSchema = z.object({
-  label: z.string(),
+  label: z.string().optional(),
+  title: z.string().optional(),  // Alias for label (bots often use title)
   value: z.union([z.string(), z.number()]),
   change: z.string().optional(),
   changeLabel: z.string().optional(),
+  subtitle: z.string().optional(),  // Alias for changeLabel
+  trend: z.enum(["up", "down", "neutral"]).optional(),
   icon: z.string().optional(),
   sparkline: z.array(z.number()).optional(),
+  live: z.boolean().optional(),
+  lastUpdated: z.string().optional(),
 });
 
 export const headerSchema = z.object({

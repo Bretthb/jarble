@@ -10,6 +10,7 @@
 
 import { useCallback, useState, useRef, useEffect, type ReactNode } from "react";
 import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Group } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
 import type { CanvasCard, CanvasAction } from "./types";
@@ -65,6 +66,19 @@ export default function SimpleCanvasGrid({
   const [saveStatus, setSaveStatus] = useState<{ cardId: string; status: "saving" | "saved" | "error"; message?: string } | null>(null);
   const saveInputRef = useRef<HTMLInputElement>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Card entrance animation tracking ──────────────────────────────
+  // Cards already "seen" should not animate in (e.g. after RESTORE_STATE or initial mount).
+  // We seed the set with current card IDs on mount so restored cards appear instantly.
+  const seenCardIdsRef = useRef<Set<string>>(new Set(cards.map((c) => c.id)));
+
+  // On every render, mark all current card IDs as seen (so only the first
+  // render of a card can trigger an entrance animation).
+  useEffect(() => {
+    for (const c of cards) {
+      seenCardIdsRef.current.add(c.id);
+    }
+  });
 
   useEffect(() => {
     return () => { if (errorTimerRef.current) clearTimeout(errorTimerRef.current); };
@@ -257,6 +271,16 @@ export default function SimpleCanvasGrid({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
+      {/* Streaming card glow animation (CSS for performance) */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes canvas-streaming-glow {
+          0%, 100% { box-shadow: 0 0 6px 0 hsl(var(--primary) / 0.2); }
+          50% { box-shadow: 0 0 14px 2px hsl(var(--primary) / 0.35); }
+        }
+        .canvas-card-streaming {
+          animation: canvas-streaming-glow 2s ease-in-out infinite;
+        }
+      `}} />
       {/* Toolbar */}
       <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border bg-background z-10 relative">
         {onHide && (
@@ -318,6 +342,7 @@ export default function SimpleCanvasGrid({
         {/* Spacer to make the canvas scrollable beyond the last card */}
         <div style={{ width: Math.max(1200, ...cards.map(c => c.position.x + c.size.width + 100)), height: Math.max(800, ...cards.map(c => c.position.y + c.size.height + 100)) }} />
 
+        <AnimatePresence>
         {cards.filter(c => !c.minimized).map((card) => {
           const isDragging = dragging?.cardId === card.id;
           const isResizingCard = resizing?.cardId === card.id;
@@ -328,9 +353,19 @@ export default function SimpleCanvasGrid({
           const w = isResizingCard && previewSize ? previewSize.w : card.size.width;
           const h = isResizingCard && previewSize ? previewSize.h : card.size.height;
 
+          // Only animate entrance for cards not yet "seen" (new ADD_CARD cards).
+          // Cards from RESTORE_STATE or already present at mount appear instantly.
+          const isNew = !seenCardIdsRef.current.has(card.id);
+          const isStreaming = streamingCardIds.has(card.id);
+
           return (
-            <div
+            <motion.div
               key={card.id}
+              layout="position"
+              initial={isNew ? { opacity: 0, scale: 0.95 } : false}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+              transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
               data-card-id={card.id}
               onPointerDown={(e) => handleDragStart(e, card)}
               style={{
@@ -348,8 +383,8 @@ export default function SimpleCanvasGrid({
                   ? "ring-2 ring-blue-500 shadow-md shadow-blue-500/20 border-blue-500/40"
                   : isDragging
                     ? "shadow-xl border-primary/40 cursor-grabbing"
-                    : streamingCardIds.has(card.id)
-                      ? "ring-1 ring-primary/40 animate-pulse border-primary/30"
+                    : isStreaming
+                      ? "border-primary/50 shadow-md canvas-card-streaming"
                       : card.id === focusedCardId
                         ? "ring-1 ring-primary/30 border-primary/20"
                         : "border-border/60 hover:shadow-md hover:border-border cursor-grab"
@@ -452,9 +487,10 @@ export default function SimpleCanvasGrid({
                 </svg>
               </div>
 
-            </div>
+            </motion.div>
           );
         })}
+        </AnimatePresence>
       </div>
     </div>
   );
