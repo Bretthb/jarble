@@ -24,8 +24,8 @@
  *   void syncConfigsFromPvc(deploymentId);
  */
 
-import { db, tables } from "../db/index.js";
-import { eq, and, inArray } from "drizzle-orm";
+import { db, tables, dbDate } from "../db/index.js";
+import { eq, and } from "drizzle-orm";
 import {
   writeConfigsToPvc,
   readConfigsFromPvc,
@@ -35,6 +35,7 @@ import {
   signalProcessRestart,
   readCurrentSecretData,
 } from "../k8s/index.js";
+import { updateDeploymentConfigMap } from "../k8s/configmap.js";
 import { getHandlerOrNull } from "../runtimes/index.js";
 import type { DeploymentFields } from "../runtimes/types.js";
 import { decryptApiKey, encryptApiKey } from "../utils/encryption.js";
@@ -64,12 +65,12 @@ async function buildDeploymentFields(
     : null;
 
   // Load and decrypt platform credentials
-  const platformCredsRows = await (db as any).query.platformCredentials.findMany({
+  const platformCredsRows = await db.query.platformCredentials.findMany({
     where: eq(platformCredentials.deploymentId, deployment.id),
   });
 
   const platformCredsMap: Record<string, Record<string, string>> = {};
-  for (const row of platformCredsRows as any[]) {
+  for (const row of platformCredsRows) {
     try {
       const decrypted = decryptApiKey(row.credentials);
       platformCredsMap[row.platformId] = JSON.parse(decrypted);
@@ -182,6 +183,7 @@ export function syncConfigsToPvc(deploymentId: string): Promise<void> {
 
 async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
   let previousStatus: string | null = null;
+  const syncStartMs = Date.now();
 
   try {
     // ══════════════════════════════════════════════════════════════════════
@@ -189,7 +191,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     // ══════════════════════════════════════════════════════════════════════
 
     // 1. Load deployment from DB
-    let deployment = await (db as any).query.deployments.findFirst({
+    let deployment = await db.query.deployments.findFirst({
       where: eq(deployments.id, deploymentId),
     });
 
@@ -200,32 +202,21 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
     previousStatus = deployment.status;
 
-    // 2. If deployment is still creating, wait for it to become running.
-    //    Use 150 iterations (5 min) — first-boot takes 3+ min and the
-    //    DB status only flips to "running" after the readiness probe passes.
+    // 2. If deployment is still creating, just update the ConfigMap —
+    //    the init container will copy files on boot, no need to wait for the pod.
     if (deployment.status === "creating") {
-      logger.info({ deploymentId }, "configSync→PVC: deployment creating, waiting up to 5 min for running...");
-      let became_running = false;
-      for (let i = 0; i < 150; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const updated = await (db as any).query.deployments.findFirst({
-          where: eq(deployments.id, deploymentId),
-        });
-        if (!updated || updated.status === "failed" || updated.status === "stopped") {
-          logger.info({ deploymentId, status: updated?.status }, "configSync→PVC: deployment left creating state without running, skipping");
-          return;
-        }
-        if (updated.status === "running") {
-          deployment = updated;
-          previousStatus = "running";
-          became_running = true;
-          break;
+      const runtimeHandler = getHandlerOrNull(deployment.runtime);
+      if (runtimeHandler) {
+        const currentSecret = await readCurrentSecretData(deploymentId);
+        const gatewayToken = currentSecret?.OPENCLAW_GATEWAY_TOKEN ?? undefined;
+        const fields = await buildDeploymentFields(deployment, gatewayToken);
+        const configFiles = runtimeHandler.renderConfigs(fields);
+        if (configFiles.length > 0) {
+          await updateDeploymentConfigMap(deploymentId, configFiles);
+          logger.info({ deploymentId }, "configSync→PVC: updated ConfigMap for creating deployment (init container will apply)");
         }
       }
-      if (!became_running) {
-        logger.warn({ deploymentId }, "configSync→PVC: timed out waiting for deployment to become running (5 min)");
-        return;
-      }
+      return;
     } else if (deployment.status !== "running") {
       logger.info(
         { deploymentId, status: deployment.status },
@@ -302,14 +293,29 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
     if (!comparison.changed) {
       // ── Tier 1: File-only change (zero downtime) ──────────────────────
-      // Secrets are unchanged — just write config files to PVC.
-      // The running process picks up file changes without restart
-      // (e.g., system prompt is read from disk by OpenClaw).
+      // Secrets are unchanged — update the ConfigMap (source of truth for
+      // restarts) and write to the running pod's PVC for immediate effect.
+      logger.info({ deploymentId, tier: 1 }, "ConfigSync: starting tier 1 (file-only, zero downtime)");
       if (configFiles.length > 0) {
-        await writeConfigsToPvc(deploymentId, configFiles);
+        // Always update ConfigMap so the next pod restart gets fresh config
+        await updateDeploymentConfigMap(deploymentId, configFiles);
+
+        // Also write directly to the running pod for immediate effect
+        try {
+          await writeConfigsToPvc(deploymentId, configFiles);
+        } catch (writeErr) {
+          logger.warn(
+            { deploymentId, err: writeErr },
+            "configSync→PVC: direct PVC write failed (ConfigMap updated, will apply on restart)"
+          );
+        }
+        for (const f of configFiles) {
+          logger.debug({ deploymentId, filePath: f.path, contentLength: f.content.length }, "ConfigSync: writing file to PVC");
+        }
+        const durationMs = Date.now() - syncStartMs;
         logger.info(
-          { deploymentId, files: configFiles.map((f) => f.path) },
-          "configSync→PVC: file-only update complete (zero downtime)"
+          { deploymentId, durationMs, tier: 1, files: configFiles.map((f) => f.path) },
+          "ConfigSync: completed (file-only, zero downtime)"
         );
       }
       return;
@@ -317,28 +323,31 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
     if (!comparison.removed) {
       // ── Tier 2: Process restart (env vars added/changed, ~5-10s) ──────
+      logger.info({ deploymentId, tier: 2 }, "ConfigSync: starting tier 2 (process restart)");
       // Secrets changed but none removed. Try in-container process restart:
       // write .env + .reload marker, kill OpenClaw process, entrypoint loop
       // re-sources .env and restarts the gateway.
 
       // Set transitional status
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({ status: "reloading", error: null })
         .where(eq(deployments.id, deploymentId));
 
-      // Write config files to PVC
+      // Update ConfigMap (source of truth for restarts) + write to running pod
       if (configFiles.length > 0) {
+        await updateDeploymentConfigMap(deploymentId, configFiles);
         try {
           await writeConfigsToPvc(deploymentId, configFiles);
         } catch (writeErr) {
           logger.warn(
             { deploymentId, err: writeErr },
-            "configSync→PVC: failed to write config files (non-fatal)"
+            "configSync→PVC: direct PVC write failed (ConfigMap updated, will apply on restart)"
           );
         }
       }
 
       // Update K8s Secret for persistence (if pod truly restarts later, it gets the new values)
+      logger.info({ deploymentId, keyCount: Object.keys(secretEntries).length }, "ConfigSync: updating K8s secret");
       await updateDeploymentSecret(
         deploymentId,
         deployment.userId,
@@ -373,12 +382,13 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         }
 
         if (ready) {
-          await (db as any).update(deployments)
+          await db.update(deployments)
             .set({ status: "running", error: null })
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
-          logger.info({ deploymentId }, "configSync→PVC: process restart completed successfully");
+          const durationMs = Date.now() - syncStartMs;
+          logger.info({ deploymentId, durationMs, tier: 2 }, "ConfigSync: completed (process restart)");
         } else {
-          await (db as any).update(deployments)
+          await db.update(deployments)
             .set({
               status: "failed",
               error: failureReason || "Process did not become ready after reload",
@@ -391,32 +401,35 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
       // Process restart not supported (old image without PID file) — fall through to Tier 3
       logger.info({ deploymentId }, "configSync→PVC: process restart not available, falling back to pod restart");
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({ status: "restarting", error: null })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
     } else {
       // ── Tier 3 entry: Secrets removed (need full pod restart) ─────────
+      logger.info({ deploymentId, tier: 3 }, "ConfigSync: starting tier 3 (secrets removed, full pod restart)");
       // Env vars can't be unset via .env sourcing — must recreate the pod
       // so the K8s Secret envFrom produces a clean environment.
 
       // Set transitional status
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({ status: "restarting", error: null })
         .where(eq(deployments.id, deploymentId));
 
-      // Write config files to PVC
+      // Update ConfigMap (init container will copy on restart) + write to running pod
       if (configFiles.length > 0) {
+        await updateDeploymentConfigMap(deploymentId, configFiles);
         try {
           await writeConfigsToPvc(deploymentId, configFiles);
         } catch (writeErr) {
           logger.warn(
             { deploymentId, err: writeErr },
-            "configSync→PVC: failed to write config files (non-fatal)"
+            "configSync→PVC: direct PVC write failed (ConfigMap updated, will apply on restart)"
           );
         }
       }
 
       // Update K8s Secret (critical for platform tokens)
+      logger.info({ deploymentId, keyCount: Object.keys(secretEntries).length }, "ConfigSync: updating K8s secret");
       await updateDeploymentSecret(
         deploymentId,
         deployment.userId,
@@ -430,6 +443,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     // Either secrets were removed, or process restart wasn't supported.
     // Status is already "restarting" at this point.
 
+    logger.info({ deploymentId }, "ConfigSync: restarting deployment (full pod restart)");
     await restartDeployment(deploymentId);
 
     // Poll for readiness (90 × 2s = 3 min max)
@@ -449,22 +463,26 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     }
 
     if (ready) {
-      const result = await (db as any).update(deployments)
+      const result = await db.update(deployments)
         .set({ status: "running", error: null })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
-      if ((result?.changes ?? result?.rowsAffected ?? 1) === 0) {
+      // Cross-provider: MySQL returns [ResultSetHeader], SQLite returns { changes }, PG returns { rowCount }
+      const affected = (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 1;
+      if (affected === 0) {
         logger.warn({ deploymentId }, "configSync→PVC: status update skipped — deployment no longer in 'restarting' state");
       } else {
-        logger.info({ deploymentId }, "configSync→PVC: pod restart completed successfully");
+        const durationMs = Date.now() - syncStartMs;
+        logger.info({ deploymentId, durationMs, tier: 3 }, "ConfigSync: completed (full pod restart)");
       }
     } else {
-      const result = await (db as any).update(deployments)
+      const result = await db.update(deployments)
         .set({
           status: "failed",
           error: failureReason || "Pod did not become ready after config sync",
         })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
-      if ((result?.changes ?? result?.rowsAffected ?? 1) === 0) {
+      const affected = (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 1;
+      if (affected === 0) {
         logger.warn({ deploymentId, failureReason }, "configSync→PVC: failure status update skipped — deployment no longer in 'restarting' state");
       } else {
         logger.warn({ deploymentId, failureReason }, "configSync→PVC: pod failed to become ready");
@@ -473,14 +491,15 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    const durationMs = Date.now() - syncStartMs;
     logger.error(
-      { deploymentId, err },
-      "configSync→PVC: failed during execution"
+      { deploymentId, durationMs, error: errorMessage },
+      "ConfigSync: failed"
     );
 
     // Restore DB status with error message
     try {
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({
           status: previousStatus || "running",
           error: `Config sync failed: ${errorMessage}. Pod may have inconsistent config.`,
@@ -519,7 +538,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
   try {
     // 1. Load deployment from DB
-    const deployment = await (db as any).query.deployments.findFirst({
+    const deployment = await db.query.deployments.findFirst({
       where: eq(deployments.id, deploymentId),
     });
 
@@ -573,7 +592,7 @@ export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
 
     // 7. Update deployments table if there are changes
     if (Object.keys(updates).length > 0) {
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set(updates)
         .where(eq(deployments.id, deploymentId));
 
@@ -601,12 +620,12 @@ async function syncPlatformCredentialsFromPvc(
   parsedCreds: Record<string, Record<string, string>>
 ): Promise<void> {
   // Load existing platform credentials from DB
-  const existingRows = await (db as any).query.platformCredentials.findMany({
+  const existingRows = await db.query.platformCredentials.findMany({
     where: eq(platformCredentials.deploymentId, deploymentId),
   });
 
   const existingMap = new Map<string, { id: string; creds: Record<string, string> }>();
-  for (const row of existingRows as any[]) {
+  for (const row of existingRows) {
     try {
       const decrypted = decryptApiKey(row.credentials);
       existingMap.set(row.platformId, {
@@ -635,15 +654,15 @@ async function syncPlatformCredentialsFromPvc(
 
     if (existing) {
       // Update existing row
-      await (db as any).update(platformCredentials)
+      await db.update(platformCredentials)
         .set({
           credentials: encrypted,
-          updatedAt: new Date().toISOString(),
+          updatedAt: dbDate(),
         })
         .where(eq(platformCredentials.id, existing.id));
     } else {
       // Insert new row
-      await (db as any).insert(platformCredentials).values({
+      await db.insert(platformCredentials).values({
         id: nanoid(12),
         deploymentId,
         platformId,

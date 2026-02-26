@@ -36,7 +36,7 @@ export default function StatGridEditor({ props, onChange, disabled }: EditorProp
     <fieldset disabled={disabled} className="space-y-3">
       {stats.map((stat, i) => (
         <div
-          key={i}
+          key={`${stat.label}-${i}`}
           className="flex gap-2 items-start group rounded-lg border border-border/40 bg-background/30 p-2"
         >
           <div className="flex-1 space-y-1.5">
@@ -76,6 +76,7 @@ export default function StatGridEditor({ props, onChange, disabled }: EditorProp
           <button
             onClick={() => removeStat(i)}
             className="md:opacity-0 md:group-hover:opacity-100 p-1 mt-1 text-muted-foreground hover:text-red-400 transition-opacity"
+            aria-label={`Remove ${stat.label || "stat"}`}
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>

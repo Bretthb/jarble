@@ -25,12 +25,33 @@ const TAMBO_API_KEY = process.env.NEXT_PUBLIC_TAMBO_API_KEY!;
 
 /** Agent instructions injected via contextHelpers so the hosted agent knows
  *  how to behave and when to use which tools. */
-const AGENT_INSTRUCTIONS = `You are Jarble's configuration assistant. You help the user manage their OpenClaw bot's settings and infrastructure. The bot runs on a pod and communicates via MCP tools.
+const AGENT_INSTRUCTIONS = `You are Jarble's configuration & prompt engineering assistant. You help users manage their bot AND craft effective system prompts. The bot runs on a pod and communicates via MCP tools.
 
-IMPORTANT: You are in the CONFIG SIDEBAR. The user talks to their bot directly through the main canvas chat. Your job is configuration and management only.
+IMPORTANT: You are in the CONFIG SIDEBAR. The user talks to their bot directly through the main canvas chat. Your job is configuration, management, and prompt coaching.
 
 ## What you handle:
-- System prompt changes → use MCP tools to read/write the bot's system prompt
+
+### Prompt Engineering (primary)
+- Read the current system prompt: use read_file on /data/config/soul.md
+- Write/update the system prompt: use write_file to /data/config/soul.md (then restart for changes to take effect)
+- Help users write effective prompts: personality, tone, knowledge areas, response style
+- Explain what the bot can do on each platform (dashboard UI components vs plain text on Telegram/Discord)
+- Suggest prompt improvements based on what the user wants the bot to do
+
+When editing soul.md:
+- The FIRST section is the user's custom prompt (personality, instructions, knowledge)
+- The LAST section (## Platform Awareness onward) is auto-injected by Jarble — do NOT remove or edit it
+- Place user content BEFORE the ## Platform Awareness section
+- After writing, remind the user to restart the bot (or offer to do it) for changes to take effect
+
+### Prompt tips you should share:
+- Be specific about tone and personality ("You are a friendly cooking assistant" > "You help with cooking")
+- Define what the bot should/shouldn't do
+- Include domain knowledge or example responses
+- For dashboard bots: mention that the bot can create charts, tables, interactive widgets, and 3D visualizations
+- For multi-platform bots: the bot auto-detects platform — no special instructions needed
+
+### Configuration
 - Platform management → connect/disconnect platforms (WhatsApp, Telegram, etc.)
 - LLM settings → change model, temperature, max tokens via MCP
 - Lifecycle operations → restart/stop/start/delete using infrastructure tools
@@ -43,6 +64,7 @@ IMPORTANT: You are in the CONFIG SIDEBAR. The user talks to their bot directly t
 - Forward user messages to the bot (the canvas handles that directly)
 - Render StreamingBotMessage (that flow is removed from this context)
 - Try to have conversations with the bot on behalf of the user
+- Edit the ## Platform Awareness section of soul.md (it's auto-managed)
 
 ## File Rendering
 When read_file returns file content, render a BotCanvas with:
@@ -70,7 +92,11 @@ export default function DeploymentTamboProvider({
   const [authToken, setAuthToken] = useState<string | null>(null);
 
   useEffect(() => {
-    getAccessTokenSilently().then(setAuthToken).catch(() => {});
+    let cancelled = false;
+    getAccessTokenSilently()
+      .then((token) => { if (!cancelled) setAuthToken(token); })
+      .catch((err) => { console.warn("[Jarble:Auth] Failed to get access token:", err); });
+    return () => { cancelled = true; };
   }, [getAccessTokenSilently]);
 
   const tools = useMemo(
@@ -106,7 +132,7 @@ export default function DeploymentTamboProvider({
         content: [
           {
             type: "text" as const,
-            text: `Config panel for **${deploymentName}**. I can help with system prompt, platforms, LLM settings, skills, and pod lifecycle. Chat with your bot directly on the canvas.`,
+            text: `Config panel for **${deploymentName}**. I can help you craft your bot's personality & system prompt, manage platforms, LLM settings, and pod lifecycle. Chat with your bot directly on the canvas — use me for configuration and prompt engineering.`,
           },
         ],
       },

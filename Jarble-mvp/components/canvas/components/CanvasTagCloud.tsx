@@ -18,12 +18,12 @@ export default function CanvasTagCloud({ tags, title }: CanvasTagCloudProps) {
 
   return (
     <AntThemeProvider>
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="p-3 h-full">
         {title && <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>}
         <div className="flex flex-wrap gap-2">
           {tags.map((tag, i) => (
             <Tag
-              key={i}
+              key={`${tag.text}-${i}`}
               color={tag.color || COLORS[i % COLORS.length]}
               className={sizeMap[tag.size || "medium"]}
             >

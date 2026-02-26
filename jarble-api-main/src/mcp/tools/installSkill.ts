@@ -23,7 +23,7 @@ export const installSkillTool: McpTool = {
     }
 
     // Verify skill exists
-    const skill = await (db as any).query.skillsCatalog.findFirst({
+    const skill = await db.query.skillsCatalog.findFirst({
       where: eq(tables.skillsCatalog.id, skillId),
     });
     if (!skill) {
@@ -31,17 +31,17 @@ export const installSkillTool: McpTool = {
     }
 
     // Check not already installed
-    const existing = await (db as any).query.deploymentSkills.findFirst({
+    const existing = await db.query.deploymentSkills.findFirst({
       where: and(
         eq(tables.deploymentSkills.deploymentId, ctx.deploymentId),
         eq(tables.deploymentSkills.skillId, skillId),
       ),
     });
     if (existing) {
-      return { success: false, message: `Skill "${(skill as any).name}" is already installed.` };
+      return { success: false, message: `Skill "${skill.name}" is already installed.` };
     }
 
-    await (db as any).insert(tables.deploymentSkills).values({
+    await db.insert(tables.deploymentSkills).values({
       id: nanoid(12),
       deploymentId: ctx.deploymentId,
       skillId,
@@ -55,7 +55,7 @@ export const installSkillTool: McpTool = {
 
     return {
       success: true,
-      message: `Skill "${(skill as any).name}" installed successfully.`,
+      message: `Skill "${skill.name}" installed successfully.`,
     };
   },
 };

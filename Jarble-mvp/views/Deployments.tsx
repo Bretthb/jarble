@@ -256,6 +256,7 @@ function DeploymentDetailPanel({
         <button
           onClick={onClose}
           className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Close panel"
         >
           <X className="w-4 h-4" />
         </button>
@@ -539,12 +540,9 @@ export default function Deployments() {
       {/* Navigation */}
       <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
-          <div
-            className="flex items-center gap-2 cursor-pointer"
-            onClick={() => router.push("/")}
-          >
+          <a href="/" className="flex items-center gap-2 cursor-pointer no-underline text-foreground">
             <span className="font-semibold">Jarble</span>
-          </div>
+          </a>
           <ProfileDropdown />
         </div>
       </nav>
@@ -566,6 +564,13 @@ export default function Deployments() {
               <p className="text-sm text-muted-foreground">
                 Loading deployments...
               </p>
+            </div>
+          </div>
+        ) : deploymentsQuery.isError ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <p className="text-sm text-muted-foreground">Failed to load deployments</p>
+              <Button variant="outline" size="sm" onClick={() => deploymentsQuery.refetch()}>Retry</Button>
             </div>
           </div>
         ) : deployments.length > 0 ? (

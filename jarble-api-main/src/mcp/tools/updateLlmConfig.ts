@@ -1,4 +1,4 @@
-import { db, tables } from "../../db/index.js";
+import { db, tables, dbDate } from "../../db/index.js";
 import { eq } from "drizzle-orm";
 import { encryptApiKey } from "../../utils/encryption.js";
 import { syncConfigsToPvc } from "../../services/configSync.js";
@@ -46,12 +46,12 @@ export const updateLlmConfigTool: McpTool = {
       };
     }
 
-    const updates: Record<string, any> = { updatedAt: new Date().toISOString() };
+    const updates: Record<string, any> = { updatedAt: dbDate() };
     if (provider) updates.llmProvider = provider;
     if (model) updates.llmModel = model;
     if (apiKey) updates.llmApiKey = encryptApiKey(apiKey);
 
-    await (db as any).update(tables.deployments)
+    await db.update(tables.deployments)
       .set(updates)
       .where(eq(tables.deployments.id, ctx.deploymentId));
 

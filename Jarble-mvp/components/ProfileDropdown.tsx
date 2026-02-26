@@ -13,7 +13,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Settings, LogOut, Moon, Sun, User, LayoutDashboard, Layers, BarChart3, CreditCard } from "lucide-react";
+import {
+  Settings,
+  LogOut,
+  Moon,
+  Sun,
+  User,
+  LayoutDashboard,
+  Layers,
+  BarChart3,
+  CreditCard,
+} from "lucide-react";
 
 export default function ProfileDropdown() {
   const { user, logout } = useAuth0();
@@ -32,10 +42,10 @@ export default function ProfileDropdown() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-2 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <Avatar className="h-8 w-8 border border-border hover:border-primary/50 transition-colors">
+        <button className="flex items-center gap-2 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-transform hover:scale-105 active:scale-95">
+          <Avatar className="h-8 w-8 border border-border/60 hover:border-stone-400/50 transition-colors shadow-sm">
             <AvatarImage src={user?.picture} alt={user?.name || "User"} />
-            <AvatarFallback className="text-xs font-medium bg-secondary text-foreground">
+            <AvatarFallback className="text-xs font-medium bg-stone-700 text-stone-200">
               {initials}
             </AvatarFallback>
           </Avatar>
@@ -44,8 +54,12 @@ export default function ProfileDropdown() {
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">{user?.name || "User"}</p>
-            <p className="text-xs text-muted-foreground leading-none">{user?.email || ""}</p>
+            <p className="text-sm font-medium leading-none">
+              {user?.name || "User"}
+            </p>
+            <p className="text-xs text-muted-foreground leading-none truncate">
+              {user?.email || ""}
+            </p>
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -84,7 +98,9 @@ export default function ProfileDropdown() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           variant="destructive"
-          onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+          onClick={() =>
+            logout({ logoutParams: { returnTo: window.location.origin } })
+          }
         >
           <LogOut className="w-4 h-4" />
           Log Out

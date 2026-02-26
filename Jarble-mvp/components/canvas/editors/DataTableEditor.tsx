@@ -61,7 +61,7 @@ export default function DataTableEditor({ props, onChange, disabled }: EditorPro
           <thead>
             <tr>
               {columns.map((col, i) => (
-                <th key={i} className="relative group">
+                <th key={`col-${col}-${i}`} className="relative group">
                   <input
                     type="text"
                     value={col}
@@ -73,6 +73,7 @@ export default function DataTableEditor({ props, onChange, disabled }: EditorPro
                       onClick={() => deleteColumn(i)}
                       className="absolute -top-1.5 -right-1.5 md:hidden md:group-hover:flex w-4 h-4 flex items-center justify-center rounded-full bg-red-500 text-white"
                       title="Delete column"
+                      aria-label={`Delete column ${col}`}
                     >
                       <Trash2 className="w-2.5 h-2.5" />
                     </button>
@@ -110,6 +111,7 @@ export default function DataTableEditor({ props, onChange, disabled }: EditorPro
                       onClick={() => deleteRow(ri)}
                       className="md:opacity-0 md:group-hover:opacity-100 p-1 text-muted-foreground hover:text-red-400 transition-opacity"
                       title="Delete row"
+                      aria-label={`Delete row ${ri + 1}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

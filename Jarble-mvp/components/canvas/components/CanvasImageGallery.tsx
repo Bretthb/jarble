@@ -17,7 +17,7 @@ export default function CanvasImageGallery({
   const [selected, setSelected] = useState<number | null>(null);
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="p-3 h-full">
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>
       )}
@@ -27,13 +27,13 @@ export default function CanvasImageGallery({
       >
         {images.map((img, i) => (
           <button
-            key={i}
+            key={`${img.src}-${i}`}
             onClick={() => setSelected(i)}
             className="overflow-hidden rounded-lg border border-border hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <img
               src={img.src}
-              alt={img.alt || ""}
+              alt={img.alt || img.caption || `Image ${i + 1}`}
               className="w-full h-32 object-cover"
             />
             {img.caption && (
@@ -52,14 +52,14 @@ export default function CanvasImageGallery({
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/80 z-50" />
           <Dialog.Content className="fixed inset-4 z-50 flex items-center justify-center focus:outline-none">
-            <Dialog.Close className="absolute top-4 right-4 text-white text-2xl hover:opacity-70 z-10">
+            <Dialog.Close className="absolute top-4 right-4 text-white text-2xl hover:opacity-70 z-10" aria-label="Close">
               ✕
             </Dialog.Close>
             {selected !== null && images[selected] && (
               <div className="max-w-4xl max-h-full flex flex-col items-center">
                 <img
                   src={images[selected].src}
-                  alt={images[selected].alt || ""}
+                  alt={images[selected].alt || images[selected].caption || ""}
                   className="max-w-full max-h-[80vh] object-contain rounded-lg"
                 />
                 {images[selected].caption && (

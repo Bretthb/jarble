@@ -28,7 +28,7 @@ export default function CanvasDescriptions({
 }: CanvasDescriptionsProps) {
   return (
     <AntThemeProvider>
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="p-3 h-full">
         <Descriptions
           title={title}
           bordered={bordered}

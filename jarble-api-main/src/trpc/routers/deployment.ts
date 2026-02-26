@@ -1,7 +1,7 @@
 import { z } from "zod";
 import crypto from "crypto";
 import { router, protectedProcedure } from "../middleware.js";
-import { tables } from "../../db/index.js";
+import { tables, dbDate, type DbClient } from "../../db/index.js";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc } from "../../k8s/index.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
@@ -27,7 +27,7 @@ const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkill
  * Helper: Check free deployment status for a user.
  * Returns whether the user has used their free deployment and if it's expired.
  */
-async function checkFreeDeployment(db: any, userId: string) {
+async function checkFreeDeployment(db: DbClient, userId: string) {
   const user = await db.query.users.findFirst({
     where: eq(users.id, userId),
   });
@@ -40,7 +40,7 @@ async function checkFreeDeployment(db: any, userId: string) {
 
   // Check if free trial has expired
   let freeExpired = false;
-  let freeExpiresAt: string | null = null;
+  let freeExpiresAt: string | Date | null = null;
 
   if (freeUsed) {
     // Find the free deployment to check its expiry
@@ -87,13 +87,13 @@ export const deploymentRouter = router({
     const result = await ctx.db.query.deployments.findMany({
       where: and(
         eq(deployments.userId, ctx.user.id),
-        eq((deployments as any).llmMode, "included"),
-        isNull((deployments as any).llmApiKeySourceDeploymentId),
+        eq(deployments.llmMode, "included"),
+        isNull(deployments.llmApiKeySourceDeploymentId),
       ),
-      orderBy: (d: any, { desc }: any) => [desc(d.createdAt)],
+      orderBy: (d, { desc }) => [desc(d.createdAt)],
     });
 
-    return result.map((d: any) => ({
+    return result.map((d) => ({
       id: d.id,
       name: d.name,
       runtime: d.runtime,
@@ -263,16 +263,27 @@ export const deploymentRouter = router({
         }
       }
 
-      // Check if this will be a free deployment
-      const freeStatus = await checkFreeDeployment(ctx.db, ctx.user.id);
-      const isFree = !freeStatus.freeUsed;
-
       // K8s requires lowercase RFC 1123 names for resources
       const deploymentId = nanoid();
       const now = new Date();
-      const freeExpiresAt = isFree
-        ? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
-        : null;
+      const freeTrialExpiryDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+      // Atomic guard: attempt to claim the free deployment slot.
+      // This UPDATE only succeeds if freeDeploymentUsed is false/null,
+      // preventing two concurrent requests from both getting a free deployment.
+      const claimResult = await ctx.db.update(users)
+        .set({
+          freeDeploymentUsed: true,
+          freeTrialExpiresAt: dbDate(freeTrialExpiryDate),
+        })
+        .where(and(
+          eq(users.id, ctx.user.id),
+          or(eq(users.freeDeploymentUsed, false), isNull(users.freeDeploymentUsed))
+        ));
+
+      const claimRows = (claimResult as any)?.rowsAffected ?? (claimResult as any)?.changes ?? (claimResult as any)?.[0]?.affectedRows ?? 0;
+      const isFree = claimRows > 0;
+      const freeExpiresAt = isFree ? dbDate(freeTrialExpiryDate) : null;
 
       // ── Link Stripe subscription if available ──────────────────────
       let stripeSubscriptionId: string | null = null;
@@ -282,11 +293,11 @@ export const deploymentRouter = router({
           where: eq(users.id, ctx.user.id),
         });
 
-        if ((currentUser as any)?.pendingStripeSubscriptionId) {
-          stripeSubscriptionId = (currentUser as any).pendingStripeSubscriptionId;
+        if (currentUser?.pendingStripeSubscriptionId) {
+          stripeSubscriptionId = currentUser.pendingStripeSubscriptionId;
 
           // Clear the pending fields (consumed)
-          await (ctx.db as any).update(users)
+          await ctx.db.update(users)
             .set({
               pendingStripeSubscriptionId: null,
             })
@@ -317,8 +328,7 @@ export const deploymentRouter = router({
             throw new TRPCError({ code: "NOT_FOUND", message: "Source deployment not found" });
           }
 
-          const src = sourceDeployment as any;
-          if (src.llmMode !== "included" || !src.llmApiKey) {
+          if (sourceDeployment.llmMode !== "included" || !sourceDeployment.llmApiKey) {
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: "Source deployment does not have included credits configured",
@@ -327,17 +337,17 @@ export const deploymentRouter = router({
 
           // Resolve to root owner (follow the chain if source is itself linked)
           let rootId = sourceDeployment.id;
-          let rootDeployment = src;
-          if (src.llmApiKeySourceDeploymentId) {
+          let rootDeployment = sourceDeployment;
+          if (sourceDeployment.llmApiKeySourceDeploymentId) {
             const root = await ctx.db.query.deployments.findFirst({
               where: and(
-                eq(deployments.id, src.llmApiKeySourceDeploymentId),
+                eq(deployments.id, sourceDeployment.llmApiKeySourceDeploymentId),
                 eq(deployments.userId, ctx.user.id),
               ),
             });
             if (root) {
               rootId = root.id;
-              rootDeployment = root as any;
+              rootDeployment = root;
             }
           }
 
@@ -388,9 +398,12 @@ export const deploymentRouter = router({
       if (resolvedSourceDeploymentId) {
         // Linked: copy the root owner's already-encrypted key
         const rootDep = await ctx.db.query.deployments.findFirst({
-          where: eq(deployments.id, resolvedSourceDeploymentId),
+          where: and(
+            eq(deployments.id, resolvedSourceDeploymentId),
+            eq(deployments.userId, ctx.user.id),
+          ),
         });
-        encryptedKey = (rootDep as any)?.llmApiKey || null;
+        encryptedKey = rootDep?.llmApiKey || null;
       } else {
         encryptedKey = resolvedApiKey ? encryptApiKey(resolvedApiKey) : null;
       }
@@ -405,7 +418,7 @@ export const deploymentRouter = router({
       const monthlyPriceCents = isFree ? 0 : calculateMonthlyPriceCents(finalCpu, finalMemory, finalStorage);
 
       // Insert deployment — price calculated from hardware specs
-      await (ctx.db as any).insert(deployments).values({
+      await ctx.db.insert(deployments).values({
         id: deploymentId,
         userId: ctx.user.id,
         name: input.name,
@@ -430,31 +443,15 @@ export const deploymentRouter = router({
         status: "pending",
       });
 
-      // If this is the free deployment, mark it on the user
-      // NOTE: Ideally this would be in a transaction with the deployment insert above,
-      // but since this only affects free tier (one-time), failure here just means
-      // user might be able to create another free deployment (minor issue).
-      // The atomic check in checkFreeDeployment also queries deployments table as backup.
-      if (isFree) {
-        try {
-          await (ctx.db as any).update(users)
-            .set({
-              freeDeploymentUsed: true,
-              freeTrialExpiresAt: freeExpiresAt,
-            })
-            .where(eq(users.id, ctx.user.id));
-        } catch (err) {
-          // Log but don't fail - deployment already created
-          logger.warn({ userId: ctx.user.id, err }, "Failed to mark free deployment used on user");
-        }
-      }
+      // Free deployment claim was already handled atomically at the top of create
+      // via the conditional UPDATE on users.freeDeploymentUsed (no separate update needed here).
 
       // Save Telegram bot token to platformCredentials (if provided during wizard)
       // This ensures the token is in the DB before deploy, so it gets included in
       // the initial K8s Secret — avoiding a post-deploy configSync restart cycle.
       if (input.telegramBotToken) {
         const encrypted = encryptApiKey(JSON.stringify({ botToken: input.telegramBotToken }));
-        await (ctx.db as any).insert(platformCredentials).values({
+        await ctx.db.insert(platformCredentials).values({
           id: nanoid(12),
           deploymentId,
           platformId: "telegram",
@@ -501,7 +498,7 @@ export const deploymentRouter = router({
       // This prevents race conditions from rapid button clicks causing double-deploys
       const validStartStates = ["pending", "stopped", "failed"];
 
-      const result = await (ctx.db as any).update(deployments)
+      const result = await ctx.db.update(deployments)
         .set({ status: "creating", error: null })
         .where(and(
           eq(deployments.id, deploymentId),
@@ -514,7 +511,7 @@ export const deploymentRouter = router({
         ));
 
       // Check if update affected any rows (Drizzle returns different shapes per DB)
-      const rowsAffected = result?.rowsAffected ?? result?.changes ?? result?.[0]?.affectedRows ?? 0;
+      const rowsAffected = (result as any)?.rowsAffected ?? (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 0;
 
       if (rowsAffected === 0) {
         // Either deployment doesn't exist, user doesn't own it, or it's already deploying
@@ -543,8 +540,8 @@ export const deploymentRouter = router({
       }
 
       // Decrypt the API key for injection into K8s Secrets
-      const rawApiKey = (deployment as any).llmApiKey
-        ? decryptApiKey((deployment as any).llmApiKey)
+      const rawApiKey = deployment.llmApiKey
+        ? decryptApiKey(deployment.llmApiKey)
         : null;
 
       // Load and decrypt platform credentials from DB
@@ -553,7 +550,7 @@ export const deploymentRouter = router({
       });
 
       const platformCredsMap: Record<string, Record<string, string>> = {};
-      for (const row of platformCredsRows as any[]) {
+      for (const row of platformCredsRows) {
         try {
           const decrypted = decryptApiKey(row.credentials);
           platformCredsMap[row.platformId] = JSON.parse(decrypted);
@@ -572,10 +569,10 @@ export const deploymentRouter = router({
         runtime: deployment.runtime,
         name: deployment.name,
         description: deployment.description ?? null,
-        systemPrompt: (deployment as any).systemPrompt ?? null,
-        llmMode: (deployment as any).llmMode ?? "byok",
-        llmProvider: (deployment as any).llmProvider ?? "openrouter",
-        llmModel: (deployment as any).llmModel ?? null,
+        systemPrompt: deployment.systemPrompt ?? null,
+        llmMode: deployment.llmMode ?? "byok",
+        llmProvider: deployment.llmProvider ?? "openrouter",
+        llmModel: deployment.llmModel ?? null,
         llmApiKey: rawApiKey,
         platformCredentials: Object.keys(platformCredsMap).length > 0 ? platformCredsMap : undefined,
         gatewayToken,
@@ -608,13 +605,13 @@ export const deploymentRouter = router({
           });
           logger.info({ deploymentId }, "K8s createDeployment returned, updating status...");
           // Only update if still in transitional state (don't overwrite enforcement actions)
-          await (ctx.db as any).update(deployments)
+          await ctx.db.update(deployments)
             .set({ status: "running" })
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
           logger.info({ deploymentId }, "Deployment succeeded - status set to running");
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Unknown deployment error";
-          await (ctx.db as any).update(deployments)
+          await ctx.db.update(deployments)
             .set({ status: "failed", error: message })
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
           logger.error({ deploymentId, err }, "Deployment failed");
@@ -655,7 +652,7 @@ export const deploymentRouter = router({
       return {
         ...usage,
         // Include the user's configured limit from DB (storageMb is actually GB)
-        allocatedGb: (deployment as any).storageMb || 30,
+        allocatedGb: deployment.storageMb || 30,
       };
     }),
 
@@ -672,7 +669,7 @@ export const deploymentRouter = router({
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
-      if ((deployment as any).status !== "running") {
+      if (deployment.status !== "running") {
         return { logs: "", podName: null };
       }
 
@@ -715,7 +712,7 @@ export const deploymentRouter = router({
       const updates: Record<string, any> = { ...rawUpdates };
 
       // ── Handle LLM mode switching ──────────────────────────────
-      const currentMode = (existing as any).llmMode;
+      const currentMode = existing.llmMode;
       const newMode = rawUpdates.llmMode;
 
       if (newMode && newMode !== currentMode) {
@@ -749,16 +746,16 @@ export const deploymentRouter = router({
           }
         } else if (newMode === "byok") {
           // Switching Included → BYOK: check if this is a pool owner with linked children
-          if (!(existing as any).llmApiKeySourceDeploymentId) {
+          if (!existing.llmApiKeySourceDeploymentId) {
             const linkedChildren = await ctx.db.query.deployments.findMany({
               where: and(
-                eq((deployments as any).llmApiKeySourceDeploymentId, id),
+                eq(deployments.llmApiKeySourceDeploymentId, id),
                 eq(deployments.userId, ctx.user.id),
               ),
             });
 
             if (linkedChildren.length > 0) {
-              const names = linkedChildren.map((c: any) => c.name).join(", ");
+              const names = linkedChildren.map((c) => c.name).join(", ");
               throw new TRPCError({
                 code: "PRECONDITION_FAILED",
                 message: `Cannot switch to BYOK: ${linkedChildren.length} deployment(s) are linked to this credit pool (${names}). Unlink them first.`,
@@ -775,7 +772,7 @@ export const deploymentRouter = router({
           }
 
           // Revoke the old provisioned key (best-effort, don't block)
-          const oldKeyId = (existing as any).llmApiKeyId;
+          const oldKeyId = existing.llmApiKeyId;
           if (oldKeyId) {
             revokeOpenRouterKey(oldKeyId).catch((err: unknown) => {
               logger.warn({ err, deploymentId: id, oldKeyId }, "Failed to revoke old OpenRouter key during mode switch");
@@ -795,15 +792,15 @@ export const deploymentRouter = router({
 
       // Recalculate price if hardware specs changed
       if (updates.cpuLimit || updates.memoryMb || updates.storageMb) {
-        const newCpu = updates.cpuLimit || (existing as any).cpuLimit;
-        const newMemory = updates.memoryMb || (existing as any).memoryMb;
-        const newStorage = updates.storageMb || (existing as any).storageMb;
-        if (!(existing as any).isFree) {
+        const newCpu = updates.cpuLimit || existing.cpuLimit;
+        const newMemory = updates.memoryMb || existing.memoryMb;
+        const newStorage = updates.storageMb || existing.storageMb;
+        if (!existing.isFree) {
           updates.monthlyPriceCents = calculateMonthlyPriceCents(newCpu, newMemory, newStorage);
         }
       }
 
-      await (ctx.db as any).update(deployments)
+      await ctx.db.update(deployments)
         .set(updates)
         .where(and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)));
 
@@ -839,17 +836,25 @@ export const deploymentRouter = router({
 
       try {
         // Set transitional status first
-        await (ctx.db as any).update(deployments)
+        await ctx.db.update(deployments)
           .set({ status: "stopping" })
           .where(eq(deployments.id, input.id));
 
         await stopDeployment(input.id);
 
-        await (ctx.db as any).update(deployments)
+        await ctx.db.update(deployments)
           .set({ status: "stopped" })
           .where(eq(deployments.id, input.id));
         logger.info({ deploymentId: input.id }, "Deployment stopped");
       } catch (err) {
+        // Roll back transitional status so the deployment isn't stuck in "stopping"
+        try {
+          await ctx.db.update(deployments)
+            .set({ status: "running" })
+            .where(and(eq(deployments.id, input.id), eq(deployments.status, "stopping")));
+        } catch (rollbackErr) {
+          logger.error({ deploymentId: input.id, rollbackErr }, "Failed to roll back stopping status");
+        }
         logger.error({ deploymentId: input.id, err }, "Failed to stop deployment");
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -880,7 +885,7 @@ export const deploymentRouter = router({
       }
 
       try {
-        await (ctx.db as any).update(deployments)
+        await ctx.db.update(deployments)
           .set({ status: "creating", error: null })
           .where(eq(deployments.id, input.id));
 
@@ -900,12 +905,12 @@ export const deploymentRouter = router({
               await new Promise((r) => setTimeout(r, 2000));
             }
             // Only update if still in transitional state (don't overwrite enforcement actions)
-            await (ctx.db as any).update(deployments)
+            await ctx.db.update(deployments)
               .set({ status: ready ? "running" : "failed" })
               .where(and(eq(deployments.id, input.id), eq(deployments.status, "creating")));
             logger.info({ deploymentId: input.id, ready }, "Deployment start completed");
           } catch (err) {
-            await (ctx.db as any).update(deployments)
+            await ctx.db.update(deployments)
               .set({ status: "failed", error: "Failed to confirm pod startup" })
               .where(and(eq(deployments.id, input.id), eq(deployments.status, "creating")));
             logger.error({ deploymentId: input.id, err }, "Failed to confirm start");
@@ -914,7 +919,7 @@ export const deploymentRouter = router({
 
         logger.info({ deploymentId: input.id }, "Deployment start initiated");
       } catch (err) {
-        await (ctx.db as any).update(deployments)
+        await ctx.db.update(deployments)
           .set({ status: "stopped" })
           .where(eq(deployments.id, input.id));
         logger.error({ deploymentId: input.id, err }, "Failed to start deployment");
@@ -947,7 +952,7 @@ export const deploymentRouter = router({
       }
 
       try {
-        await (ctx.db as any).update(deployments)
+        await ctx.db.update(deployments)
           .set({ status: "restarting" })
           .where(eq(deployments.id, input.id));
 
@@ -967,12 +972,12 @@ export const deploymentRouter = router({
               await new Promise((r) => setTimeout(r, 2000));
             }
             // Only update if still in transitional state (don't overwrite enforcement actions)
-            await (ctx.db as any).update(deployments)
+            await ctx.db.update(deployments)
               .set({ status: ready ? "running" : "failed" })
               .where(and(eq(deployments.id, input.id), eq(deployments.status, "restarting")));
             logger.info({ deploymentId: input.id, ready }, "Deployment restart completed");
           } catch (err) {
-            await (ctx.db as any).update(deployments)
+            await ctx.db.update(deployments)
               .set({ status: "failed", error: "Restart failed" })
               .where(and(eq(deployments.id, input.id), eq(deployments.status, "restarting")));
             logger.error({ deploymentId: input.id, err }, "Failed to restart");
@@ -981,6 +986,14 @@ export const deploymentRouter = router({
 
         logger.info({ deploymentId: input.id }, "Deployment restart initiated");
       } catch (err) {
+        // Roll back transitional status so the deployment isn't stuck in "restarting"
+        try {
+          await ctx.db.update(deployments)
+            .set({ status: "running" })
+            .where(and(eq(deployments.id, input.id), eq(deployments.status, "restarting")));
+        } catch (rollbackErr) {
+          logger.error({ deploymentId: input.id, rollbackErr }, "Failed to roll back restarting status");
+        }
         logger.error({ deploymentId: input.id, err }, "Failed to initiate restart");
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -1003,23 +1016,21 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      const dep = deployment as any;
-
-      if (dep.isFree) {
+      if (deployment.isFree) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "Free deployments cannot be cancelled — they expire automatically",
         });
       }
 
-      if (!dep.stripeSubscriptionId) {
+      if (!deployment.stripeSubscriptionId) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "No subscription linked to this deployment",
         });
       }
 
-      if (dep.cancelledAt) {
+      if (deployment.cancelledAt) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "Deployment is already cancelled",
@@ -1027,13 +1038,13 @@ export const deploymentRouter = router({
       }
 
       // Schedule Stripe cancellation at period end
-      const { cancelAt } = await cancelSubscriptionAtPeriodEnd(dep.stripeSubscriptionId);
+      const { cancelAt } = await cancelSubscriptionAtPeriodEnd(deployment.stripeSubscriptionId);
 
       // Update DB with cancellation timestamps
-      await (ctx.db as any).update(deployments)
+      await ctx.db.update(deployments)
         .set({
-          cancelledAt: new Date().toISOString(),
-          cancelAtPeriodEnd: cancelAt.toISOString(),
+          cancelledAt: dbDate(),
+          cancelAtPeriodEnd: dbDate(cancelAt),
         })
         .where(eq(deployments.id, input.id));
 
@@ -1054,16 +1065,14 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      const dep = deployment as any;
-
-      if (!dep.cancelledAt) {
+      if (!deployment.cancelledAt) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "Deployment is not cancelled",
         });
       }
 
-      if (!dep.stripeSubscriptionId) {
+      if (!deployment.stripeSubscriptionId) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "No subscription linked to this deployment",
@@ -1071,10 +1080,10 @@ export const deploymentRouter = router({
       }
 
       // Reactivate on Stripe
-      await reactivateSubscription(dep.stripeSubscriptionId);
+      await reactivateSubscription(deployment.stripeSubscriptionId);
 
       // Clear cancellation timestamps
-      await (ctx.db as any).update(deployments)
+      await ctx.db.update(deployments)
         .set({
           cancelledAt: null,
           cancelAtPeriodEnd: null,
@@ -1098,16 +1107,14 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      const dep = deployment as any;
-
-      if (dep.stripeSubscriptionId) {
+      if (deployment.stripeSubscriptionId) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "Deployment already has a subscription linked",
         });
       }
 
-      if (dep.isFree) {
+      if (deployment.isFree) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "Cannot link subscription to a free deployment",
@@ -1119,16 +1126,16 @@ export const deploymentRouter = router({
         where: eq(users.id, ctx.user.id),
       });
 
-      const pendingSub = (user as any)?.pendingStripeSubscriptionId;
+      const pendingSub = user?.pendingStripeSubscriptionId;
 
       if (pendingSub) {
         // Use pending subscription
-        await (ctx.db as any).update(deployments)
+        await ctx.db.update(deployments)
           .set({ stripeSubscriptionId: pendingSub })
           .where(eq(deployments.id, input.deploymentId));
 
         // Clear pending
-        await (ctx.db as any).update(users)
+        await ctx.db.update(users)
           .set({ pendingStripeSubscriptionId: null })
           .where(eq(users.id, ctx.user.id));
 
@@ -1137,21 +1144,21 @@ export const deploymentRouter = router({
       }
 
       // Fallback: look up active subscriptions via Stripe API
-      if (!isStripeConfigured() || !(user as any)?.stripeCustomerId) {
+      if (!isStripeConfigured() || !user?.stripeCustomerId) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "No pending subscription found. Please subscribe first.",
         });
       }
 
-      const activeSubs = await listActiveSubscriptions((user as any).stripeCustomerId);
+      const activeSubs = await listActiveSubscriptions(user!.stripeCustomerId!);
 
       // Find an unlinked subscription (not already used by another deployment)
       const userDeployments = await ctx.db.query.deployments.findMany({
         where: eq(deployments.userId, ctx.user.id),
       });
       const usedSubIds = new Set(
-        userDeployments.map((d: any) => d.stripeSubscriptionId).filter(Boolean)
+        userDeployments.map((d) => d.stripeSubscriptionId).filter(Boolean)
       );
 
       const unlinked = activeSubs.find(s => !usedSubIds.has(s.id));
@@ -1162,7 +1169,7 @@ export const deploymentRouter = router({
         });
       }
 
-      await (ctx.db as any).update(deployments)
+      await ctx.db.update(deployments)
         .set({ stripeSubscriptionId: unlinked.id })
         .where(eq(deployments.id, input.deploymentId));
 
@@ -1219,20 +1226,19 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      const dep = deployment as any;
-      logger.debug({ deploymentId: input.id, status: dep.status, llmMode: dep.llmMode, isFree: dep.isFree }, "delete: deployment found");
+      logger.debug({ deploymentId: input.id, status: deployment.status, llmMode: deployment.llmMode, isFree: deployment.isFree }, "delete: deployment found");
 
       // Check if this is a credit pool owner with linked deployments
-      if (dep.llmMode === "included" && !dep.llmApiKeySourceDeploymentId) {
+      if (deployment.llmMode === "included" && !deployment.llmApiKeySourceDeploymentId) {
         const linkedChildren = await ctx.db.query.deployments.findMany({
           where: and(
-            eq((deployments as any).llmApiKeySourceDeploymentId, input.id),
+            eq(deployments.llmApiKeySourceDeploymentId, input.id),
             eq(deployments.userId, ctx.user.id),
           ),
         });
 
         if (linkedChildren.length > 0) {
-          const names = linkedChildren.map((c: any) => c.name).join(", ");
+          const names = linkedChildren.map((c) => c.name).join(", ");
           logger.warn({ deploymentId: input.id, linkedCount: linkedChildren.length }, "delete: blocked — credit pool has linked children");
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
@@ -1242,9 +1248,9 @@ export const deploymentRouter = router({
       }
 
       // Revoke the OpenRouter key if this is an owner "included" deployment (not linked)
-      const llmMode = dep.llmMode;
-      const keyId = dep.llmApiKeyId;
-      const isLinked = !!dep.llmApiKeySourceDeploymentId;
+      const llmMode = deployment.llmMode;
+      const keyId = deployment.llmApiKeyId;
+      const isLinked = !!deployment.llmApiKeySourceDeploymentId;
       if (llmMode === "included" && keyId && !isLinked) {
         logger.debug({ deploymentId: input.id, keyId }, "delete: revoking OpenRouter key");
         try {
@@ -1256,13 +1262,13 @@ export const deploymentRouter = router({
       }
 
       // Cancel Stripe subscription if one exists (prevent orphaned billing)
-      if (dep.stripeSubscriptionId && isStripeConfigured()) {
-        logger.debug({ deploymentId: input.id, subscriptionId: dep.stripeSubscriptionId }, "delete: cancelling Stripe subscription");
+      if (deployment.stripeSubscriptionId && isStripeConfigured()) {
+        logger.debug({ deploymentId: input.id, subscriptionId: deployment.stripeSubscriptionId }, "delete: cancelling Stripe subscription");
         try {
-          await cancelSubscriptionImmediately(dep.stripeSubscriptionId);
+          await cancelSubscriptionImmediately(deployment.stripeSubscriptionId);
           logger.debug({ deploymentId: input.id }, "delete: Stripe subscription cancelled");
         } catch (err) {
-          logger.warn({ err, deploymentId: input.id, subscriptionId: dep.stripeSubscriptionId }, "delete: failed to cancel Stripe subscription — continuing");
+          logger.warn({ err, deploymentId: input.id, subscriptionId: deployment.stripeSubscriptionId }, "delete: failed to cancel Stripe subscription — continuing");
         }
       }
 
@@ -1273,15 +1279,15 @@ export const deploymentRouter = router({
       logger.info({ deploymentId: input.id }, "delete: K8s cleanup complete, removing DB records");
 
       // Explicitly clean up child rows — SQLite doesn't enforce FK cascades by default
-      const credResult = await (ctx.db as any).delete(platformCredentials)
+      const credResult = await ctx.db.delete(platformCredentials)
         .where(eq(platformCredentials.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id, rows: credResult?.changes ?? credResult?.rowsAffected ?? "?" }, "delete: platform_credentials removed");
+      logger.debug({ deploymentId: input.id, rows: (credResult as any)?.changes ?? (credResult as any)?.rowsAffected ?? "?" }, "delete: platform_credentials removed");
 
-      const skillsResult = await (ctx.db as any).delete(deploymentSkills)
+      const skillsResult = await ctx.db.delete(deploymentSkills)
         .where(eq(deploymentSkills.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id, rows: skillsResult?.changes ?? skillsResult?.rowsAffected ?? "?" }, "delete: deployment_skills removed");
+      logger.debug({ deploymentId: input.id, rows: (skillsResult as any)?.changes ?? (skillsResult as any)?.rowsAffected ?? "?" }, "delete: deployment_skills removed");
 
-      await (ctx.db as any).delete(deployments)
+      await ctx.db.delete(deployments)
         .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
       logger.debug({ deploymentId: input.id }, "delete: deployments row removed");
 

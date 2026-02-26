@@ -66,11 +66,12 @@ export const readFileTool: McpTool = {
         message: `Contents of ${path} (${fileSize} bytes):\n${content}`,
         data: { path, content, size: fileSize },
       };
-    } catch (err: any) {
-      logger.warn({ deploymentId: ctx.deploymentId, err: err.message }, "MCP: read_file failed");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn({ deploymentId: ctx.deploymentId, err: msg }, "MCP: read_file failed");
       return {
         success: false,
-        message: `Could not read file at ${path}: ${err.message}`,
+        message: `Could not read file at ${path}: ${msg}`,
       };
     }
   },

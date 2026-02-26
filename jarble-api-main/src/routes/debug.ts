@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { db, tables } from "../db/index.js";
+import { db, tables, dbDate } from "../db/index.js";
 import { logger } from "../utils/logger.js";
 import { verifyToken } from "../services/auth.js";
 import { syncConfigsToPvc } from "../services/configSync.js";
@@ -47,7 +47,7 @@ debugRouter.post("/deployment/:id/status", async (req, res) => {
       return;
     }
     const { deployments: deploymentsTable } = tables;
-    await (db as any).update(deploymentsTable)
+    await db.update(deploymentsTable)
       .set({ status })
       .where(eq(deploymentsTable.id, id));
     res.json({ success: true, id, status });
@@ -74,7 +74,7 @@ debugRouter.post("/seed-deployment", async (req, res) => {
 
     if (!user) {
       const userId = nanoid();
-      await (db as any).insert(usersTable).values({
+      await db.insert(usersTable).values({
         id: userId,
         email: `dev-${nanoid(6)}@jarble.local`,
         name: "Dev User",
@@ -96,8 +96,8 @@ debugRouter.post("/seed-deployment", async (req, res) => {
 
     // Create a running test deployment
     const deploymentId = nanoid();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    await (db as any).insert(deploymentsTable).values({
+    const expiresAt = dbDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
+    await db.insert(deploymentsTable).values({
       id: deploymentId,
       userId: user!.id,
       name: "Dev Test Deployment",

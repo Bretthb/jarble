@@ -1,7 +1,7 @@
 import type { ConfigFile } from "../runtimes/types.js";
 
 export const NAMESPACE = "jarble";
-export const DEFAULT_IMAGE = "ghcr.io/jarble-ai/openclaw:latest";
+export const DEFAULT_IMAGE = process.env.DEFAULT_POD_IMAGE || "ghcr.io/jarble-ai/openclaw:latest";
 
 export interface DeploymentConfig {
   name: string;

@@ -40,7 +40,7 @@ export default function ListEditor({ props, onChange }: EditorProps) {
       </label>
       <div className="space-y-1.5">
         {items.map((item, i) => (
-          <div key={i} className="flex gap-1.5">
+          <div key={`${item.text}-${i}`} className="flex gap-1.5">
             <input
               type="text"
               value={item.text}
@@ -51,6 +51,7 @@ export default function ListEditor({ props, onChange }: EditorProps) {
             <button
               onClick={() => removeItem(i)}
               className="px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground border border-border/60 hover:bg-secondary"
+              aria-label={`Remove item ${i + 1}`}
             >
               x
             </button>

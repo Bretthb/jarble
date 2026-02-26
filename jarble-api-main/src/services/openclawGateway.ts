@@ -16,7 +16,7 @@ import crypto from "crypto";
 import WebSocket from "ws";
 import { nanoid } from "nanoid";
 import { logger } from "../utils/logger.js";
-import { extractUIBlocks, type JarbleUIBlock } from "../utils/uiBlockParser.js";
+import { extractAllUIBlocks, type JarbleUIBlock, type JarbleUIUpdate } from "../utils/uiBlockParser.js";
 import { execInPod } from "../k8s/exec.js";
 
 // ── Device Identity ─────────────────────────────────────────────────────────
@@ -84,6 +84,8 @@ export interface GatewayResponse {
   /** Clean text with jarble_ui blocks stripped */
   text: string;
   uiBlocks: JarbleUIBlock[];
+  /** In-place update instructions for existing canvas cards */
+  uiUpdates: JarbleUIUpdate[];
 }
 
 export async function chatViaGateway(
@@ -94,6 +96,8 @@ export async function chatViaGateway(
 ): Promise<GatewayResponse> {
   const { ip, port, gatewayToken, sessionKey } = opts;
   const wsUrl = `ws://${ip}:${port}`;
+
+  const connectStartMs = Date.now();
 
   return new Promise<GatewayResponse>((resolve, reject) => {
     const timeoutMs = 120_000;
@@ -110,10 +114,11 @@ export async function chatViaGateway(
     const timeout = setTimeout(() => {
       if (!finished) {
         finished = true;
+        logger.warn({ wsUrl, timeoutMs, textLength: fullText.length }, "Gateway: response timed out");
         ws.close();
         if (fullText) {
-          const { cleanText, uiBlocks } = extractUIBlocks(fullText);
-          resolve({ rawText: fullText, text: cleanText, uiBlocks });
+          const { cleanText, uiBlocks, uiUpdates } = extractAllUIBlocks(fullText);
+          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates });
         } else {
           reject(new Error("Gateway chat timed out after 120s"));
         }
@@ -145,7 +150,8 @@ export async function chatViaGateway(
     }
 
     ws.on("open", () => {
-      logger.debug({ wsUrl }, "Gateway WS connected, waiting for challenge");
+      const connectMs = Date.now() - connectStartMs;
+      logger.info({ wsUrl, connectMs }, "Gateway: WS connected");
     });
 
     ws.on("message", async (data) => {
@@ -155,6 +161,7 @@ export async function chatViaGateway(
       try {
         msg = JSON.parse(String(data));
       } catch {
+        logger.warn({ wsUrl, rawData: String(data).slice(0, 200) }, "Gateway: failed to parse WS message");
         return;
       }
 
@@ -231,10 +238,10 @@ export async function chatViaGateway(
                 reject(new Error(`chat.send failed: ${err.message}`));
               }
             });
-          } catch (err: any) {
+          } catch (err: unknown) {
             finished = true;
             cleanup();
-            reject(new Error(`Gateway auth failed: ${err.message}`));
+            reject(new Error(`Gateway auth failed: ${err instanceof Error ? err.message : String(err)}`));
           }
           return;
         }
@@ -257,14 +264,15 @@ export async function chatViaGateway(
             }
             finished = true;
             cleanup();
-            const { cleanText, uiBlocks } = extractUIBlocks(fullText);
-            resolve({ rawText: fullText, text: cleanText, uiBlocks });
+            const { cleanText, uiBlocks, uiUpdates } = extractAllUIBlocks(fullText);
+            logger.debug({ wsUrl, rawTextLength: fullText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "Gateway: response summary");
+            resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates });
           } else if (state === "aborted") {
             finished = true;
             cleanup();
             const abortText = fullText || "The bot's response was interrupted.";
-            const { cleanText, uiBlocks } = extractUIBlocks(abortText);
-            resolve({ rawText: abortText, text: cleanText, uiBlocks });
+            const { cleanText, uiBlocks, uiUpdates } = extractAllUIBlocks(abortText);
+            resolve({ rawText: abortText, text: cleanText, uiBlocks, uiUpdates });
           }
         }
 
@@ -303,8 +311,8 @@ export async function chatViaGateway(
         clearTimeout(timeout);
         const reason = reasonBuf?.toString() || "";
         if (fullText) {
-          const { cleanText, uiBlocks } = extractUIBlocks(fullText);
-          resolve({ rawText: fullText, text: cleanText, uiBlocks });
+          const { cleanText, uiBlocks, uiUpdates } = extractAllUIBlocks(fullText);
+          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates });
         } else if (!connected) {
           const detail = reason ? ` (${code}: ${reason})` : code ? ` (code ${code})` : "";
           reject(new Error(`Gateway WS closed before auth completed${detail}`));
@@ -391,6 +399,7 @@ export async function chatViaExec(
   // Deliver the full text as a single "delta" so the caller can emit it
   onDelta?.(rawText);
 
-  const { cleanText, uiBlocks } = extractUIBlocks(rawText);
-  return { rawText, text: cleanText, uiBlocks };
+  const { cleanText, uiBlocks, uiUpdates } = extractAllUIBlocks(rawText);
+  logger.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "chatViaExec: response summary");
+  return { rawText, text: cleanText, uiBlocks, uiUpdates };
 }

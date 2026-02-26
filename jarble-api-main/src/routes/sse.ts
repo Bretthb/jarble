@@ -65,7 +65,7 @@ sseRouter.get("/:id/logs/stream", async (req, res) => {
       return;
     }
 
-    if ((deployment as any).status !== "running") {
+    if (deployment.status !== "running") {
       res.status(400).json({ error: "Deployment is not running" });
       return;
     }
@@ -174,7 +174,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
       return;
     }
 
-    if ((deployment as any).status !== "running") {
+    if (deployment.status !== "running") {
       res.status(400).json({ error: "Deployment is not running" });
       return;
     }
@@ -244,7 +244,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
         });
         if (!existing) {
           const encrypted = encryptApiKey(JSON.stringify({}));
-          await (db as any).insert(platformCredentials).values({
+          await db.insert(platformCredentials).values({
             id: nanoid(12),
             deploymentId,
             platformId: "whatsapp",
@@ -359,51 +359,45 @@ sseRouter.get("/status/stream", async (req, res) => {
         where: eq(deploymentsTable.userId, user!.id),
       });
 
-      const results: Array<{
-        deploymentId: string;
-        status: string;
-        restarts?: number;
-        error?: string;
-      }> = [];
-
-      for (const dep of userDeployments) {
-        const d = dep as any;
-        const dbStatus = d.status as string;
+      // Parallelize K8s pod status lookups instead of sequential N+1 calls
+      const results = await Promise.all(userDeployments.map(async (dep) => {
+        const dbStatus = dep.status;
 
         const isTransitional = ["creating", "restarting", "stopping"].includes(dbStatus);
         if (!isTransitional && (dbStatus === "running" || dbStatus === "failed")) {
           try {
-            const podStatus = await getDeploymentPodStatus(d.id);
-            results.push({
-              deploymentId: d.id,
-              status: podStatus.status,
-              restarts: podStatus.restarts,
-              error: podStatus.error,
-            });
+            const podStatus = await getDeploymentPodStatus(dep.id);
 
             if (podStatus.status !== dbStatus
                 && (podStatus.status === "running" || podStatus.status === "failed")) {
               try {
-                await (db as any).update(deploymentsTable)
+                await db.update(deploymentsTable)
                   .set({
                     status: podStatus.status,
                     ...(podStatus.error ? { error: podStatus.error } : {}),
                   })
                   .where(and(
-                    eq(deploymentsTable.id, d.id),
-                    eq(deploymentsTable.status, dbStatus as any),
+                    eq(deploymentsTable.id, dep.id),
+                    eq(deploymentsTable.status, dbStatus),
                   ));
               } catch (syncErr) {
-                logger.warn({ deploymentId: d.id, syncErr }, "SSE status sync: failed to update DB");
+                logger.warn({ deploymentId: dep.id, syncErr }, "SSE status sync: failed to update DB");
               }
             }
+
+            return {
+              deploymentId: dep.id,
+              status: podStatus.status,
+              restarts: podStatus.restarts,
+              error: podStatus.error,
+            };
           } catch {
-            results.push({ deploymentId: d.id, status: dbStatus });
+            return { deploymentId: dep.id, status: dbStatus };
           }
-        } else {
-          results.push({ deploymentId: d.id, status: dbStatus });
         }
-      }
+
+        return { deploymentId: dep.id, status: dbStatus };
+      }));
 
       return results;
     }

@@ -65,14 +65,38 @@ export const sqliteDb = DB_PROVIDER === "sqlite"
 
 // Export the active schema tables for use in queries.
 // Each provider uses its own table definitions to ensure correct SQL generation.
-function getActiveTables() {
+// The return is typed as MySQL schema to match DbClient — all three Drizzle
+// providers share identical runtime APIs, so the cast is safe and lets us
+// use `db.update(tables.X)` etc. without per-call-site `as any` casts.
+type ActiveTables = {
+  users: typeof mysqlSchema.users;
+  deployments: typeof mysqlSchema.deployments;
+  runtimeCatalog: typeof mysqlSchema.runtimeCatalog;
+  platformCredentials: typeof mysqlSchema.platformCredentials;
+  processedWebhookEvents: typeof mysqlSchema.processedWebhookEvents;
+  skillsCatalog: typeof mysqlSchema.skillsCatalog;
+  deploymentSkills: typeof mysqlSchema.deploymentSkills;
+};
+
+function getActiveTables(): ActiveTables {
   if (DB_PROVIDER === "sqlite") {
-    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, runtimeCatalog: sqliteSchema.runtimeCatalog, platformCredentials: sqliteSchema.platformCredentials, processedWebhookEvents: sqliteSchema.processedWebhookEvents, skillsCatalog: sqliteSchema.skillsCatalog, deploymentSkills: sqliteSchema.deploymentSkills };
+    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, runtimeCatalog: sqliteSchema.runtimeCatalog, platformCredentials: sqliteSchema.platformCredentials, processedWebhookEvents: sqliteSchema.processedWebhookEvents, skillsCatalog: sqliteSchema.skillsCatalog, deploymentSkills: sqliteSchema.deploymentSkills } as unknown as ActiveTables;
   }
   if (DB_PROVIDER === "postgres") {
-    return { users: pgSchema.users, deployments: pgSchema.deployments, runtimeCatalog: pgSchema.runtimeCatalog, platformCredentials: pgSchema.platformCredentials, processedWebhookEvents: pgSchema.processedWebhookEvents, skillsCatalog: pgSchema.skillsCatalog, deploymentSkills: pgSchema.deploymentSkills };
+    return { users: pgSchema.users, deployments: pgSchema.deployments, runtimeCatalog: pgSchema.runtimeCatalog, platformCredentials: pgSchema.platformCredentials, processedWebhookEvents: pgSchema.processedWebhookEvents, skillsCatalog: pgSchema.skillsCatalog, deploymentSkills: pgSchema.deploymentSkills } as unknown as ActiveTables;
   }
   return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, runtimeCatalog: mysqlSchema.runtimeCatalog, platformCredentials: mysqlSchema.platformCredentials, processedWebhookEvents: mysqlSchema.processedWebhookEvents, skillsCatalog: mysqlSchema.skillsCatalog, deploymentSkills: mysqlSchema.deploymentSkills };
 }
 
 export const tables = getActiveTables();
+
+/**
+ * Create a date value compatible with the active DB provider.
+ * MySQL timestamp columns expect Date objects; SQLite text columns need ISO strings.
+ * Use this when setting date values in `.set()` or `.values()` calls.
+ */
+export function dbDate(date: Date = new Date()): Date {
+  // Cast is safe: MySQL gets Date (native), SQLite text columns receive an ISO
+  // string at runtime because the SQLite table definition is text-based.
+  return (DB_PROVIDER === "sqlite" ? date.toISOString() : date) as unknown as Date;
+}

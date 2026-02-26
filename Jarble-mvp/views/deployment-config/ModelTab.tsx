@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
@@ -200,6 +201,7 @@ export function ModelTab({ formData, updateFormData, deployment, deploymentId }:
 function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string; deployment: any }) {
   const [newLimit, setNewLimit] = useState<string>(String(deployment.llmCreditLimitDollars || 5));
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"revoke" | "regenerate" | null>(null);
 
   const usageQuery = trpc.openrouter.getKeyUsage.useQuery(
     { deploymentId },
@@ -254,27 +256,43 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
   };
 
   const handleRevoke = () => {
-    if (confirm("Revoke this key? The deployment will switch to BYOK mode and you'll need to provide your own API key.")) {
-      revokeMutation.mutate({ deploymentId });
-    }
+    revokeMutation.mutate({ deploymentId });
+    setConfirmAction(null);
   };
 
   const handleRegenerate = () => {
-    if (confirm("Regenerate key? The current key will be revoked and a new one provisioned. Usage counters will reset.")) {
-      setIsRegenerating(true);
-      revokeMutation.mutate({ deploymentId }, {
-        onSuccess: () => {
-          provisionMutation.mutate({
-            deploymentId,
-            limitDollars: parseInt(newLimit, 10) || 5,
-          });
-        },
-        onError: () => setIsRegenerating(false),
-      });
-    }
+    setIsRegenerating(true);
+    revokeMutation.mutate({ deploymentId }, {
+      onSuccess: () => {
+        provisionMutation.mutate({
+          deploymentId,
+          limitDollars: parseInt(newLimit, 10) || 5,
+        });
+      },
+      onError: () => setIsRegenerating(false),
+    });
+    setConfirmAction(null);
   };
 
   return (
+    <>
+    <ConfirmDialog
+      open={confirmAction === "revoke"}
+      onOpenChange={(open) => !open && setConfirmAction(null)}
+      title="Revoke API Key?"
+      description="The deployment will switch to BYOK mode and you'll need to provide your own API key."
+      confirmLabel="Revoke"
+      variant="destructive"
+      onConfirm={handleRevoke}
+    />
+    <ConfirmDialog
+      open={confirmAction === "regenerate"}
+      onOpenChange={(open) => !open && setConfirmAction(null)}
+      title="Regenerate API Key?"
+      description="The current key will be revoked and a new one provisioned. Usage counters will reset."
+      confirmLabel="Regenerate"
+      onConfirm={handleRegenerate}
+    />
     <Card className="p-5 bg-card border-border space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -343,10 +361,11 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
 
       {/* Credit limit editor */}
       <div className="flex items-center gap-3 pt-1">
-        <Label className="text-xs text-muted-foreground whitespace-nowrap">Monthly Limit</Label>
+        <Label htmlFor="monthly-limit" className="text-xs text-muted-foreground whitespace-nowrap">Monthly Limit</Label>
         <div className="flex items-center gap-2 flex-1">
           <span className="text-sm text-muted-foreground">$</span>
           <Input
+            id="monthly-limit"
             type="number"
             min={1}
             max={1000}
@@ -375,7 +394,7 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
         <Button
           size="sm"
           variant="outline"
-          onClick={handleRegenerate}
+          onClick={() => setConfirmAction("regenerate")}
           disabled={isRegenerating || revokeMutation.isPending}
           className="text-xs h-8"
         >
@@ -389,7 +408,7 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
         <Button
           size="sm"
           variant="outline"
-          onClick={handleRevoke}
+          onClick={() => setConfirmAction("revoke")}
           disabled={revokeMutation.isPending || isRegenerating}
           className="text-xs h-8 text-red-500 hover:text-red-600 hover:bg-red-500/5 border-red-500/20"
         >
@@ -405,6 +424,7 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
         </p>
       </div>
     </Card>
+    </>
   );
 }
 

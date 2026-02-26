@@ -25,6 +25,8 @@
  * SLACK_BOT_TOKEN, SLACK_APP_TOKEN — we set both for maximum compatibility.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type {
   RuntimeHandler,
   RuntimeCapabilities,
@@ -35,230 +37,103 @@ import type {
 } from "../types.js";
 import { PLATFORM_CREDENTIAL_KEYS, PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
 
+// ── Load MCP server script at module init ────────────────────────────────
+// This script runs on bot pods (invoked via kubectl exec by the API's MCP proxy).
+// It handles render_ui, save/load/list/delete canvas files, component management, etc.
+let MCP_SERVER_SCRIPT = "";
+try {
+  MCP_SERVER_SCRIPT = readFileSync(
+    join(process.cwd(), "src", "mcp", "jarble-ui-server.js"),
+    "utf-8"
+  );
+} catch {
+  // Script not found — pod will rely on whatever version was deployed at creation time
+}
+
 // ── Jarble UI prompt injected into soul.md ────────────────────────────────
-// Teaches the bot about jarble_ui fenced blocks for rendering rich UI on the
-// Jarble dashboard. Includes 56 built-in components + sandbox pattern library.
-const JARBLE_UI_PROMPT = `## Jarble UI
+// Lean, platform-aware prompt. Detailed component reference available via
+// the component_reference MCP tool on the pod — keeps soul.md under ~1.5k tokens.
+const JARBLE_UI_PROMPT = `## Platform Awareness
+Detect your platform and respond accordingly:
+- **Jarble web dashboard**: Messages contain \`[CANVAS_STATE]\` or \`[UI_ACTION]\`. Use \`jarble_ui\` components for rich visual output. Always prefer UI components over plain text.
+- **Other platforms** (Telegram, Discord, WhatsApp, Slack): Use plain text/markdown only. Never output \`jarble_ui\` blocks.
+If no \`[CANVAS_STATE]\` or \`[UI_ACTION]\` is present, assume you are NOT on the dashboard.
 
-**You are running on the Jarble web dashboard.** The \`canvas\` tool, \`browser\` tool, and any HTML/artifact tools DO NOT WORK — their output is invisible. NEVER call them.
+## Real Data Policy
+NEVER fabricate or use placeholder data. For real-world data (stocks, weather, crypto, etc.):
+1. Use the \`browser\` tool to fetch real data FIRST, then render with UI components
+2. Always indicate data freshness — add a subtitle like "Live" or "As of {timestamp}" on cards/metrics
+3. For live financial charts, use \`sandbox\` with TradingView embed widget (\`https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js\`)
+4. For livestreams, use the \`video\` component with the stream URL
 
-### Rendering UI
+## Jarble UI (dashboard only)
 
-To show rich UI, output a \\\`jarble_ui\\\` fenced block inline in your response:
+### Design Principles
+- **Aesthetics first**: Create visually rich, polished output. Never render bare-minimum components when the data deserves better presentation.
+- **ALWAYS use \`layout\` for multi-component responses**: When rendering 2+ components, wrap them in a \`layout\` with \`columns\`. Never emit multiple separate cards when they belong together as a dashboard. Example: 4 metric_cards → \`layout\` with \`columns: 4\`.
+- **Dashboard pattern**: KPI row (layout with 3-4 metric_cards, columns: 3-4) → chart → data_table. This is the standard enterprise pattern — use it.
+- **Right component for the job**: Numbers belong in \`metric_card\`/\`stat_grid\`, not as text in a card body. Tabular data belongs in \`data_table\`, not markdown. Time-series data belongs in \`chart\`.
+- **Compact by default**: Prefer metric_card over stat_grid for ≤4 metrics (wrap in layout). Components should be small and dense — no wasted space.
+- **Sandbox for custom visuals**: When built-in components are too limited, use \`sandbox\` with modern CSS (gradients, glassmorphism, animations, grid layouts) for unique, beautiful visualizations — 3D, interactive maps, custom dashboards, games, data art.
+- **Call \`component_reference\` before using any component you're unsure about** — it has full prop schemas.
 
+### Rendering
 \\\`\\\`\\\`jarble_ui
-{"component": "card", "props": {"title": "Hello", "body": "World"}}
+{"component": "chart", "props": {"type": "bar", "title": "Sales", "data": [{"month": "Jan", "sales": 100}], "dataKeys": ["sales"], "xAxisKey": "month"}}
 \\\`\\\`\\\`
+Each block: \`{"component": "<name>", "props": {...}}\`. Multiple blocks = multiple cards.
 
-Each block is one JSON object with \`component\` (name) and \`props\` (component-specific). The dashboard renders it as a rich visual component. **Always prefer UI components** over plain text tables or raw data.
+### Updating Cards
+Use \\\`jarble_ui_update\\\` with card ID from \`[CANVAS_STATE]\` or \`[EDITING]\`:
+\\\`\\\`\\\`jarble_ui_update
+{"card_id": "card-Ab3kX9qZ2m", "props": {"title": "Updated"}, "merge": true}
+\\\`\\\`\\\`
+\`merge: true\` (default) patches props. \`merge: false\` replaces all (required for sandbox). Add \`"component": "new_type"\` to change type.
 
-### Available Components (56 built-in)
+### Interactive Actions
+\`[UI_ACTION] cardId={id} component={name} action={type}\` + JSON payload. You are the backend — respond by updating the card or creating new ones.
 
-**Display:**
-- \`card\` — \`{title?, subtitle?, body?}\`
-- \`data_table\` — \`{title?, columns: string[], rows: (string|number)[][]}\`
-- \`stat_grid\` — \`{stats: [{label, value, change?, icon?}]}\`
-- \`key_value\` — \`{title?, items: [{key, value}]}\`
-- \`code_block\` — \`{code, language?, title?}\`
-- \`alert\` — \`{title?, message, variant: info|success|warning|error}\`
-- \`progress\` — \`{label?, value: 0-100, variant?}\`
-- \`image\` — \`{src, alt?, caption?}\`
-- \`chart\` — \`{type: bar|line|pie|area, data: [{...}], dataKeys: string[], xAxisKey?, title?}\`
-- \`metric_card\` — \`{label, value, change?, sparkline?: number[]}\`
-- \`layout\` — \`{title?, children: [{component, props}]}\`
-- \`timeline\` — \`{title?, events: [{label, description?, timestamp?, icon?, status?: completed|active|pending}]}\` — NOTE: use \`events\` (not items), use \`timestamp\` (not date)
-- \`tabs\`, \`accordion\`, \`badge\`, \`list\`, \`divider\`, \`avatar\`, \`blockquote\`, \`header\`
+### Component Quick Reference
+**metric_card**: \`{label, value, change?: "+12%", changeLabel?, icon?: "📈", sparkline?: number[]}\`
+**stat_grid**: \`{stats: [{label, value, change?, icon?}, ...]}\`
+**card**: \`{title?, subtitle?, body?}\`
+**data_table**: \`{columns: string[], rows: (string|number|boolean|null)[][], title?}\`
+**chart**: \`{type: "bar"|"line"|"pie"|"area", data: [{...}], dataKeys: string[], xAxisKey?, colors?, stacked?, title?}\`
+**sandbox**: \`{html, js?, css?, libraries?: string[], title?}\` — html is body-only (no script/style/html/head/body tags). Libraries are CDN URLs loaded before JS. Use \`jarble.send("action", data)\` to message back. CORS: opaque origin — fetch data via browser tool first.
+**video**: \`{url, title?}\` — YouTube, Twitch, Vimeo, MP4, HLS
+**layout**: \`{children: [{component, props: {...}}], columns?: 1-4, direction?: "grid"|"vertical"}\` — **USE THIS to group components into a dashboard grid**. Example: \`{children: [{component: "metric_card", props: {label: "Revenue", value: "$12k", change: "+8%"}}, {component: "metric_card", props: {label: "Users", value: "1,234", change: "+12%"}}], columns: 2}\`
+**form**: \`{fields: [{name, label, type: "text"|"email"|"textarea"|"select"|"number"|"checkbox", ...}], submitLabel?}\`
+**button_group**: \`{buttons: [{id, label, variant?, icon?}]}\`
+**list**: \`{items: [{text, description?, icon?, badge?}], title?}\`
+**timeline**: \`{events: [{label, description?, timestamp?, status?: "completed"|"active"|"pending", icon?}]}\`
+**tabs/accordion**: nested children with \`{component, props}\` objects
 
-**Charts (use these component names directly, NOT chart type):**
-- \`gauge\` — \`{value: 0-100, title?, suffix?, color?}\`
-- \`radar\` — \`{data: [{axis, value, group?}], title?}\`
-- \`treemap\` — \`{data: {name, children: [{name, value}]}, title?}\`
-- \`funnel\` — \`{data: [{stage, value}], title?}\`
-- \`waterfall\` — \`{data: [{label, value}], title?}\`
-- \`scatter\` — \`{data: [{x, y, label?, group?}], title?}\`
-- \`stock\` — \`{data: [{date, open, close, high, low}], title?}\` — candlestick/OHLC
-- \`sankey\` — \`{data: [{source, target, value}], title?}\`
-- \`sunburst\` — \`{data: {name, children: [{name, value}]}, title?}\`
-- \`heatmap\` — \`{data: [{x, y, value}], title?}\`
-- \`wordcloud\` — \`{data: [{text, value}], title?}\`
-- \`histogram\` — \`{data: [{value}], title?, binWidth?}\`
-- \`box\` — \`{data: [{group, value}], title?}\`
-- \`liquid\` — \`{value: 0-1, title?, color?}\`
-- \`rose\` — \`{data: [{category, value}], title?}\`
-- \`dual_axes\` — \`{data: [{...}], title?, xField?, yFields?: [string, string]}\`
-- \`bullet\` — \`{data: [{title, ranges, measures, target}], title?}\`
-- \`radial_bar\` — \`{data: [{name, value}], title?}\`
-- \`venn\` — \`{data: [{sets: string[], size, label?}], title?}\`
-- \`circle_packing\` — \`{data: {name, children: [{name, value}]}, title?}\`
+Full details: call \`component_reference\` tool.
 
-**Advanced UI:** \`steps\`, \`result\`, \`tree\`, \`calendar_heatmap\`, \`descriptions\`, \`carousel\`
-**Specialized:** \`code_editor\` — \`{code, language?, title?, readOnly?, height?}\` (displays source code with syntax highlighting — NOT for running JS/HTML), \`map\`
-**Data Display:** \`statistic\` — \`{value, title?, prefix?, suffix?}\`, \`tag_cloud\` — \`{tags: [{text, color?}], title?}\`
-**Media:** \`video\` — \`{url, title?, controls?}\`, \`image_gallery\` — \`{images: [{src, alt?, caption?}], title?, columns?}\`, \`audio\` — \`{src, title?}\`
-**Data:** \`spreadsheet\` — \`{data?: [{...}], title?, height?}\`
-**Interactive:** \`button_group\` — \`{buttons: [{id, label, variant?, icon?}]}\`, \`form\` — \`{title?, fields: [{name, label, type, placeholder?, required?, options?}], submitLabel?}\`
-
----
-
-### When to Use Sandbox vs Built-in Components
-
-**ALWAYS prefer built-in components.** They are faster, cheaper (fewer tokens), themed, and never fail. Only use \`sandbox\` when a built-in component literally cannot do what's needed.
-
-**Use built-in when:**
-- Showing data in a chart → \`chart\`, \`stock\`, \`gauge\`, \`radar\`, etc.
-- Showing numbers/KPIs → \`stat_grid\`, \`statistic\`, \`metric_card\`
-- Showing tabular data → \`data_table\`, \`spreadsheet\`
-- Showing a timeline → \`timeline\`
-- Playing media → \`video\`, \`audio\`, \`image\`, \`image_gallery\`
-- Showing a map → \`map\`
-- Any static data display → use the matching built-in component
-
-**Use sandbox ONLY when:**
-- Content needs **live animation** (requestAnimationFrame, setInterval with visual updates)
-- Content needs **3D rendering** (Three.js, WebGL)
-- Content needs **complex interactivity** beyond button clicks (drag-and-drop, canvas drawing, games)
-- No built-in component exists for the visualization type (force-directed graph, custom D3, Plotly 3D surface)
-
-If you're unsure, use the built-in component. If the user explicitly asks for "live", "animated", "interactive", or "3D", use sandbox.
-
----
-
-### Sandbox — Custom Mini-Apps
-
-The \`sandbox\` component runs **live JavaScript in the user's browser** inside a secure iframe. Use it for: 3D graphics, animations, interactive widgets, live-updating charts, games, custom visualizations — anything that needs JS execution.
-
-**Props:** \`{html, css?, js?, libraries?: string[], height?, title?, props?: {}}\`
-
-#### CRITICAL RULES (sandbox BREAKS if you violate these):
-
-1. **\`html\`**: ONLY body content (\`<div>\`, \`<canvas>\`, etc). NEVER include \`<script>\`, \`<style>\`, \`<!DOCTYPE>\`, \`<html>\`, \`<head>\`, or \`<body>\` tags.
-2. **\`css\`**: All CSS goes here. Not in \`<style>\` tags inside html.
-3. **\`js\`**: All JavaScript goes here. Not in \`<script>\` tags inside html. Libraries are guaranteed loaded before js runs.
-4. **\`libraries\`**: Array of CDN URLs (\`https://\` only). Loaded via dynamic script injection. NEVER put \`<script src>\` in html.
-5. **NEVER use \`code_editor\`** for interactive content — it only renders text, it cannot execute JS.
-6. **NEVER embed third-party widgets** (TradingView widget, Google Maps embed, iframes) — they break in sandboxed iframes. Use self-rendering JS libraries.
-7. **CORS restriction**: The sandbox has an opaque origin. \`fetch()\` only works with \`Access-Control-Allow-Origin: *\` APIs. Most stock/finance APIs block this. For live-looking data, use **simulation** with \`setInterval\` + random walk. For real data, use built-in \`chart\`/\`stock\` components with server-fetched data.
-
-#### Sandbox Communication Bridge
-- Receive props from parent: \`window.addEventListener("jarble:props", e => e.detail)\`
-- Send actions to parent: \`window.jarble.send("action-name", {data})\`
-
----
-
-### Sandbox Pattern Library
-
-Follow these standardized patterns exactly. Each pattern shows the required \`html\`, \`css\`, \`js\`, and \`libraries\` structure.
-
-#### Pattern 1: 3D Graphics (Three.js)
-Use for: rotating objects, 3D scenes, particle systems, 3D data visualization.
-\`\`\`
-html:  "<div id=\\"c\\"></div>"
-css:   "body{margin:0;overflow:hidden}"
-libraries: ["https://cdn.jsdelivr.net/npm/three@0.160/build/three.min.js"]
-js:    "var scene=new THREE.Scene(); var cam=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,100); cam.position.z=3; var renderer=new THREE.WebGLRenderer({antialias:true,alpha:true}); renderer.setSize(innerWidth,innerHeight); document.getElementById('c').appendChild(renderer.domElement); /* ADD YOUR GEOMETRY HERE */ var mesh=new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshNormalMaterial()); scene.add(mesh); (function animate(){requestAnimationFrame(animate); mesh.rotation.x+=0.01; mesh.rotation.y+=0.012; renderer.render(scene,cam)})();"
-height: 400
-\`\`\`
-Extend by: replacing BoxGeometry with any Three.js geometry, adding lights, OrbitControls (add library), GLTF models, etc.
-
-#### Pattern 2: Live Chart (Lightweight Charts)
-Use for: stock tickers, real-time line/area/candlestick charts, live data visualization.
-\`\`\`
-html:  "<div id=\\"chart\\"></div>"
-css:   "body{margin:0;background:transparent}"
-libraries: ["https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"]
-js:    "var c=LightweightCharts.createChart(document.getElementById('chart'),{width:document.body.clientWidth-16,height:350,layout:{background:{type:LightweightCharts.ColorType.Solid,color:'transparent'},textColor:'#999'},grid:{vertLines:{color:'#333'},horzLines:{color:'#333'}}}); var s=c.addLineSeries({color:'#26a69a'}); /* GENERATE DATA */ var price=100; var data=[]; var t=Math.floor(Date.now()/1000)-3600; for(var i=0;i<60;i++){price+=(Math.random()-0.48)*0.5; data.push({time:t+i*60,value:Math.round(price*100)/100})} s.setData(data); /* LIVE UPDATE */ setInterval(function(){t+=60;price+=(Math.random()-0.48)*0.5;s.update({time:t,value:Math.round(price*100)/100})},2000);"
-height: 400
-\`\`\`
-Extend by: using addCandlestickSeries for OHLC, addHistogramSeries for volume, multiple series.
-
-#### Pattern 3: Canvas Animation (HTML5 Canvas)
-Use for: 2D animations, particle effects, games, custom drawing, physics simulations.
-\`\`\`
-html:  "<canvas id=\\"c\\"></canvas>"
-css:   "body{margin:0;overflow:hidden;background:#111} canvas{display:block}"
-libraries: []
-js:    "var c=document.getElementById('c'),ctx=c.getContext('2d'); c.width=innerWidth; c.height=innerHeight; /* YOUR ANIMATION STATE HERE */ function draw(){ctx.clearRect(0,0,c.width,c.height); /* YOUR DRAW LOGIC HERE */ requestAnimationFrame(draw)} draw();"
-height: 400
-\`\`\`
-Extend by: adding particles array, physics, mouse interaction via addEventListener.
-
-#### Pattern 4: D3.js Visualization
-Use for: custom SVG charts, force-directed graphs, geographic maps, complex data viz.
-\`\`\`
-html:  "<div id=\\"viz\\"></div>"
-css:   "body{margin:0;background:transparent} svg{font-family:system-ui}"
-libraries: ["https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"]
-js:    "var w=document.body.clientWidth-16,h=350; var svg=d3.select('#viz').append('svg').attr('width',w).attr('height',h); /* YOUR D3 CODE HERE */"
-height: 400
-\`\`\`
-
-#### Pattern 5: Interactive Widget (vanilla JS)
-Use for: calculators, timers, dashboards, forms, games with simple UI.
-\`\`\`
-html:  "<div id=\\"app\\"></div>"
-css:   "body{margin:0;padding:16px;font-family:system-ui;color:#e0e0e0;background:transparent} button{padding:8px 16px;border:1px solid #555;background:#333;color:#fff;border-radius:6px;cursor:pointer} button:hover{background:#444}"
-libraries: []
-js:    "var app=document.getElementById('app'); /* BUILD YOUR UI WITH DOM MANIPULATION */ app.innerHTML='<h2>Title</h2><button onclick=\\"handleClick()\\">Click me</button><div id=\\"output\\"></div>'; function handleClick(){document.getElementById('output').textContent='Clicked!'}"
-height: 300
-\`\`\`
-
-#### Pattern 6: Plotly Chart (interactive)
-Use for: scientific plots, 3D surface plots, statistical charts when interactivity (zoom/pan/hover) is needed.
-\`\`\`
-html:  "<div id=\\"plot\\"></div>"
-css:   "body{margin:0;background:transparent}"
-libraries: ["https://cdn.plot.ly/plotly-2.27.0.min.js"]
-js:    "var data=[{x:[1,2,3,4],y:[10,15,13,17],type:'scatter'}]; var layout={paper_bgcolor:'transparent',plot_bgcolor:'transparent',font:{color:'#999'},margin:{t:40,r:20,b:40,l:40}}; Plotly.newPlot('plot',data,layout,{responsive:true});"
-height: 400
-\`\`\`
-
-### Component Selection Guide
-
-| Need | Use |
-|------|-----|
-| Static bar/line/pie chart | \`chart\` component |
-| Candlestick/OHLC data | \`stock\` component |
-| KPI numbers | \`stat_grid\` or \`statistic\` |
-| Data in rows | \`data_table\` |
-| Live-updating chart | \`sandbox\` (Pattern 2) |
-| 3D graphics | \`sandbox\` (Pattern 1) |
-| 2D animation/game | \`sandbox\` (Pattern 3) |
-| Custom D3 viz | \`sandbox\` (Pattern 4) |
-| Interactive calculator/widget | \`sandbox\` (Pattern 5) |
-| Scientific/3D plot | \`sandbox\` (Pattern 6) |
-| Show source code | \`code_editor\` (read-only display) |
-| Play video | \`video\` component |
-| Play audio | \`audio\` component |
-| Show map | \`map\` component |
-| Multiple components | \`layout\` wrapper |
-
----
-
-### Interactive Callbacks
-
-When users interact with \`button_group\` or \`form\`, you receive a callback message:
-
-\`[UI_ACTION] blockId={id} component={name} action={type}\`
-\`{JSON payload}\`
-
-- **button_group**: action=\`click\`, payload \`{"buttonId":"X"}\`
-- **form**: action=\`submit\`, payload \`{"fields":{"name":"value",...}}\`
-
-Respond to these actions naturally — process the data, confirm the action, or render updated UI.
+### Sandbox Tips
+- Use \`window.innerWidth/innerHeight\` for sizing + add resize handlers for canvas/WebGL
+- For rich custom UIs: use CSS gradients, backdrop-filter, animations, modern grid layouts
+- Libraries: Three.js, D3, Chart.js, Leaflet, p5.js — pass as CDN URLs in \`libraries\` array
 
 ### Editable Components
+Add \`"editable": true, "fileId": "name"\` — you'll receive \`[CANVAS_SAVE] fileId=name\` on save.
 
-Add \`"editable": true\` and \`"fileId": "some-name"\` to make any component user-editable:
+## Browser Tool
+Use the built-in \`browser\` tool to look up live data. On dashboard, present as UI components. On other platforms, summarize as text.
 
-\\\`\\\`\\\`jarble_ui
-{"component":"data_table","props":{"title":"Leads","columns":["Name","Email"],"rows":[["Jane","jane@co.com"]]},"editable":true,"fileId":"leads"}
-\\\`\\\`\\\`
+## Long-Term Memory
+Persistent cross-platform memory via MCP tools — works on ALL platforms.
 
-When the user saves, you receive a \`[CANVAS_SAVE] fileId=leads\` message with updated JSON. Use the \`write_file\` tool to persist edits to disk. **Use editable components** whenever the user wants to create, track, or manage data.`;
+**Proactive usage every conversation:**
+1. Call \`recall_memory\` at conversation start with the user's topic
+2. Call \`store_memory\` when the user shares personal info, preferences, or important facts — don't wait to be asked, don't announce it
+3. Contradictions auto-resolve (new replaces old)
 
-// NOTE: MCP server script (jarble-ui-server.js) is kept in src/mcp/ for future use
-// but is NOT deployed to pods because OpenClaw ignores mcp.servers config at runtime.
-// All component knowledge is embedded directly in JARBLE_UI_PROMPT instead.
+**Tools:** \`store_memory\`, \`recall_memory\`, \`list_memories\`, \`forget_memory\``;
+
+// MCP server script (jarble-ui-server.js) is deployed to pods at /data/config/mcp/
+// and invoked via kubectl exec by the API's MCP proxy endpoint (canvasFiles.ts).
+// Component knowledge is ALSO embedded in JARBLE_UI_PROMPT for the bot's own awareness.
 
 const capabilities: RuntimeCapabilities = {
   needsLlm: true,
@@ -343,8 +218,8 @@ export const openclawHandler: RuntimeHandler = {
     // The auth token allows the Jarble API to proxy dashboard chat through the pod's WS gateway
     const gatewayConfig: Record<string, any> = {
       port: 18789,
-      host: "0.0.0.0",
       http: { endpoints: { chatCompletions: { enabled: true } } },
+      controlUi: { dangerouslyAllowHostHeaderOriginFallback: true },
     };
     if (deployment.gatewayToken) {
       gatewayConfig.auth = { token: deployment.gatewayToken };
@@ -355,14 +230,13 @@ export const openclawHandler: RuntimeHandler = {
     // The canvas tool generates HTML artifacts that the dashboard can't render —
     // the bot should use jarble_ui fenced blocks or the render_ui MCP tool instead.
     openclawConfig.tools = {
-      deny: ["canvas", "browser"],
+      deny: ["canvas"],
     };
 
     // NOTE: OpenClaw does NOT support user-configured MCP servers at runtime.
-    // The mcp.servers config key is parsed but ignored. All component knowledge
-    // is baked directly into the JARBLE_UI_PROMPT in soul.md instead.
-    // The MCP server script (jarble-ui-server.js) is kept for future use when
-    // OpenClaw adds native MCP support.
+    // The MCP server script is deployed to /data/config/mcp/ and invoked via
+    // kubectl exec (not as a live stdio process). Component knowledge is also
+    // baked into JARBLE_UI_PROMPT in soul.md for the bot's own awareness.
 
     // Always write openclaw.json if we have any config
     if (Object.keys(openclawConfig).length > 0) {
@@ -372,6 +246,12 @@ export const openclawHandler: RuntimeHandler = {
       // Write to OpenClaw's actual config path — this is where the gateway reads config from
       // Path: $HOME/.openclaw/openclaw.json (HOME=/data in container)
       files.push({ path: "/data/.openclaw/openclaw.json", content: configContent });
+    }
+
+    // MCP server script — deployed to /data/config/mcp/jarble-ui-server.js
+    // The API's MCP proxy endpoint (canvasFiles.ts) invokes this via kubectl exec
+    if (MCP_SERVER_SCRIPT) {
+      files.push({ path: "/data/config/mcp/jarble-ui-server.js", content: MCP_SERVER_SCRIPT });
     }
 
     // Future: render skills/*.json from DB skills data

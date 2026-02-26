@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
   Settings,
@@ -41,6 +42,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
   const [platformCredentials, setPlatformCredentials] = useState<Record<string, string>>({});
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   const [showQrPairing, setShowQrPairing] = useState(false);
+  const [disconnectPlatformId, setDisconnectPlatformId] = useState<string | null>(null);
 
   // ── Telegram pairing state ──────────────────────────────────────────
   const [telegramPairingOpen, setTelegramPairingOpen] = useState(false);
@@ -209,11 +211,14 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
   };
 
   const handleDisconnect = (platformId: string) => {
-    if (!confirm("Are you sure you want to disconnect this platform? This will remove all credentials.")) {
-      return;
-    }
+    setDisconnectPlatformId(platformId);
+  };
 
-    deleteMutation.mutate({ deploymentId, platformId });
+  const confirmDisconnect = () => {
+    if (disconnectPlatformId) {
+      deleteMutation.mutate({ deploymentId, platformId: disconnectPlatformId });
+    }
+    setDisconnectPlatformId(null);
   };
 
   const copyToClipboard = (text: string) => {
@@ -226,6 +231,16 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
   };
 
   return (
+    <>
+    <ConfirmDialog
+      open={disconnectPlatformId !== null}
+      onOpenChange={(open) => !open && setDisconnectPlatformId(null)}
+      title="Disconnect Platform?"
+      description="This will remove all credentials for this platform. You'll need to reconfigure it to reconnect."
+      confirmLabel="Disconnect"
+      variant="destructive"
+      onConfirm={confirmDisconnect}
+    />
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold mb-1">Platform Integrations</h2>
@@ -298,6 +313,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                       onClick={() => handleDisconnect(platform.id)}
                       disabled={deleteMutation.isPending}
                       className="border-border text-muted-foreground hover:bg-secondary/80"
+                      aria-label={`Disconnect ${platform.name}`}
                     >
                       {deleteMutation.isPending ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -548,6 +564,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                               type="button"
                               onClick={() => toggleSecretVisibility(field.key)}
                               className="p-1 text-muted-foreground hover:text-foreground"
+                              aria-label={showSecrets[field.key] ? "Hide secret" : "Show secret"}
                             >
                               {showSecrets[field.key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
@@ -556,6 +573,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                                 type="button"
                                 onClick={() => copyToClipboard(platformCredentials[field.key])}
                                 className="p-1 text-muted-foreground hover:text-foreground"
+                                aria-label="Copy to clipboard"
                               >
                                 <Copy className="w-4 h-4" />
                               </button>
@@ -636,5 +654,6 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
         </DialogContent>
       </Dialog>
     </div>
+    </>
   );
 }

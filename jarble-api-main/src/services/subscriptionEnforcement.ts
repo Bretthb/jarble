@@ -1,5 +1,5 @@
 import { db, tables, USE_SQLITE } from "../db/index.js";
-import { eq, and, isNotNull, lt, or, ne } from "drizzle-orm";
+import { eq, and, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { stopDeployment } from "../k8s/index.js";
 import { isStripeConfigured, getSubscriptionDetails } from "./stripe.js";
 import { logger } from "../utils/logger.js";
@@ -35,7 +35,7 @@ export async function enforceSubscriptionStatus(): Promise<void> {
 
     for (const dep of running) {
       try {
-        await checkDeploymentSubscription(dep as any);
+        await checkDeploymentSubscription(dep);
       } catch (err) {
         logger.warn({ deploymentId: dep.id, err }, "subscriptionEnforcement: failed to check deployment");
       }
@@ -67,7 +67,7 @@ async function checkDeploymentSubscription(dep: {
 
       const errorMsg = `${FREE_TRIAL_ERROR_PREFIX}: your free trial ended on ${dep.freeExpiresAt.toLocaleDateString()}. Subscribe to keep your bot running.`;
 
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({ status: "stopped", error: errorMsg })
         .where(eq(deployments.id, dep.id));
 
@@ -86,7 +86,7 @@ async function checkDeploymentSubscription(dep: {
 
       await stopDeployment(dep.id);
 
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({
           status: "stopped",
           error: `${SUBSCRIPTION_ERROR_PREFIX} required: no active subscription found`
@@ -107,7 +107,7 @@ async function checkDeploymentSubscription(dep: {
 
         await stopDeployment(dep.id);
 
-        await (db as any).update(deployments)
+        await db.update(deployments)
           .set({
             status: "stopped",
             error: null, // Not an error, just normal cancellation
@@ -155,7 +155,7 @@ async function validateSubscriptionWithStripe(dep: {
 
       await stopDeployment(dep.id);
 
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({
           status: "stopped",
           error: `${SUBSCRIPTION_ERROR_PREFIX} canceled. Subscribe again to restart your bot.`,
@@ -170,7 +170,7 @@ async function validateSubscriptionWithStripe(dep: {
     if (status === "past_due" || status === "unpaid") {
       const existingPaymentError = dep.error?.startsWith(`${SUBSCRIPTION_ERROR_PREFIX} ${status}`);
       if (!existingPaymentError) {
-        await (db as any).update(deployments)
+        await db.update(deployments)
           .set({
             error: `${SUBSCRIPTION_ERROR_PREFIX} ${status}: please update your payment method to avoid service interruption.`
           })
@@ -192,7 +192,7 @@ async function validateSubscriptionWithStripe(dep: {
       if (cancelAtPeriodEnd && currentPeriodEnd) {
         const currentCancelAt = currentPeriodEnd.toISOString();
         updates.cancelAtPeriodEnd = currentCancelAt;
-        if (!(dep as any).cancelledAt) {
+        if (!(dep).cancelledAt) {
           updates.cancelledAt = new Date().toISOString();
         }
       } else if (!cancelAtPeriodEnd) {
@@ -207,22 +207,23 @@ async function validateSubscriptionWithStripe(dep: {
       }
 
       if (Object.keys(updates).length > 0) {
-        await (db as any).update(deployments)
+        await db.update(deployments)
           .set(updates)
           .where(eq(deployments.id, dep.id));
       }
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errObj = err as { code?: string; statusCode?: number; message?: string };
     // Stripe API error — could be invalid subscription ID (e.g., subscription deleted externally)
-    if (err?.code === "resource_missing" || err?.statusCode === 404) {
+    if (errObj.code === "resource_missing" || errObj.statusCode === 404) {
       logger.warn(
-        { deploymentId: dep.id, subscriptionId: dep.stripeSubscriptionId, err: err.message },
+        { deploymentId: dep.id, subscriptionId: dep.stripeSubscriptionId, err: errObj.message },
         "subscriptionEnforcement: subscription not found in Stripe, stopping deployment"
       );
 
       await stopDeployment(dep.id);
 
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({
           status: "stopped",
           error: `${SUBSCRIPTION_ERROR_PREFIX} not found. Please contact support or subscribe again.`,
@@ -256,8 +257,8 @@ export async function cleanupOrphanedDeployments(): Promise<void> {
         eq(deployments.isFree, false),
         // No subscription ID
         or(
-          eq(deployments.stripeSubscriptionId as any, null),
-          eq(deployments.stripeSubscriptionId as any, "")
+          isNull(deployments.stripeSubscriptionId),
+          eq(deployments.stripeSubscriptionId, "")
         )
       ),
     });
@@ -275,7 +276,7 @@ export async function cleanupOrphanedDeployments(): Promise<void> {
 
         await stopDeployment(dep.id);
 
-        await (db as any).update(deployments)
+        await db.update(deployments)
           .set({
             status: "stopped",
             error: `${SUBSCRIPTION_ERROR_PREFIX} required: no active subscription found for this deployment.`

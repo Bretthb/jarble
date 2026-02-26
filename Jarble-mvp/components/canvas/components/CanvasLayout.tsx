@@ -12,18 +12,57 @@ export interface LayoutChild {
 export interface CanvasLayoutProps {
   title?: string;
   children: LayoutChild[];
+  /** Number of grid columns (1-4). Default: auto-detect from child count. */
+  columns?: number;
+  /** Layout direction: "grid" (default) or "vertical" for stacking. */
+  direction?: "grid" | "vertical";
+  /** Gap between children in pixels. Default: 12. */
+  gap?: number;
 }
 
-export default function CanvasLayout({ title, children }: CanvasLayoutProps) {
+const GRID_CLASSES: Record<number, string> = {
+  1: "grid-cols-1",
+  2: "grid-cols-2",
+  3: "grid-cols-3",
+  4: "grid-cols-4",
+};
+
+/** Pick a sensible column count based on child count and types. */
+function autoColumns(children: LayoutChild[]): number {
+  const n = children.length;
+  if (n <= 1) return 1;
+  // Check if all children are compact types (metric cards, stats, badges, progress)
+  const compactTypes = new Set(["metric_card", "stat_grid", "progress", "alert", "badge", "header"]);
+  const allCompact = children.every((c) => compactTypes.has(c.component));
+  if (allCompact) {
+    if (n <= 2) return 2;
+    if (n <= 3) return 3;
+    return 4;
+  }
+  if (n === 2) return 2;
+  if (n <= 4) return 2;
+  return 3;
+}
+
+export default function CanvasLayout({
+  children,
+  columns,
+  direction = "grid",
+  gap = 12,
+}: CanvasLayoutProps) {
   if (!Array.isArray(children) || children.length === 0) {
     return null;
   }
 
+  const isVertical = direction === "vertical";
+  const cols = isVertical ? 1 : (columns ?? autoColumns(children));
+  const gridClass = GRID_CLASSES[Math.min(Math.max(cols, 1), 4)] || "grid-cols-2";
+
   return (
-    <div className="space-y-3">
-      {title && (
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      )}
+    <div
+      className={`${isVertical ? "flex flex-col" : `grid ${gridClass}`} h-full min-h-0`}
+      style={{ gap }}
+    >
       {children.map((child, i) => {
         // Support both propsJson (from Tambo) and props (from bot direct)
         let resolvedProps: Record<string, unknown> = {};
@@ -33,14 +72,15 @@ export default function CanvasLayout({ title, children }: CanvasLayoutProps) {
           try { resolvedProps = JSON.parse(child.propsJson); } catch { /* empty */ }
         }
         return (
-          <CanvasRenderer
-            key={`child-${i}`}
-            block={{
-              id: `child-${i}`,
-              component: child.component,
-              props: resolvedProps,
-            }}
-          />
+          <div key={`child-${i}`} className={isVertical ? "flex-1 min-h-0" : "min-h-0"}>
+            <CanvasRenderer
+              block={{
+                id: `child-${i}`,
+                component: child.component,
+                props: resolvedProps,
+              }}
+            />
+          </div>
         );
       })}
     </div>

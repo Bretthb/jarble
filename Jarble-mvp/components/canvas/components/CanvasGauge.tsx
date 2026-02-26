@@ -39,7 +39,7 @@ export default function CanvasGauge({
 
   return (
     <AntThemeProvider>
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="p-3 h-full">
         {title && (
           <h3 className="text-sm font-semibold text-foreground mb-3">
             {title}

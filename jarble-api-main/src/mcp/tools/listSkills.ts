@@ -12,14 +12,14 @@ export const listSkillsTool: McpTool = {
   },
   rendersComponent: "show_skills",
   async execute(_params: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-    const catalog = await (db as any).query.skillsCatalog.findMany();
-    const installed = await (db as any).query.deploymentSkills.findMany({
+    const catalog = await db.query.skillsCatalog.findMany();
+    const installed = await db.query.deploymentSkills.findMany({
       where: eq(tables.deploymentSkills.deploymentId, ctx.deploymentId),
     });
 
-    const installedIds = new Set((installed as any[]).map((ds) => ds.skillId));
+    const installedIds = new Set(installed.map((ds) => ds.skillId));
 
-    const skills = (catalog as any[]).map((s) => ({
+    const skills = catalog.map((s) => ({
       id: s.id,
       name: s.name,
       description: s.description,

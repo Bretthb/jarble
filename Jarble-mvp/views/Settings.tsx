@@ -58,17 +58,23 @@ export default function SettingsView() {
     if (profileQuery.data) {
       setName(profileQuery.data.name || "");
       setEmail(profileQuery.data.email || "");
+    } else if (profileQuery.isError) {
+      // Fall back to Auth0 user data if profile fails to load
+      if (user) {
+        setName(user.name || "");
+        setEmail(user.email || "");
+      }
+      toast.error("Failed to load profile data");
     } else if (user) {
       setName(user.name || "");
       setEmail(user.email || "");
     }
-  }, [profileQuery.data, user]);
+  }, [profileQuery.data, profileQuery.isError, user]);
 
   const handleSave = () => {
     setIsSaving(true);
     updateProfileMutation.mutate({
       name: name.trim(),
-      email: email.trim(),
     });
   };
 
@@ -78,8 +84,8 @@ export default function SettingsView() {
     if (!user?.email) return;
     setIsResettingPassword(true);
     try {
-      const domain = process.env.NEXT_PUBLIC_AUTH0_DOMAIN || "jarble-dev.us.auth0.com";
-      const clientId = process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID || "";
+      const domain = process.env.NEXT_PUBLIC_AUTH0_DOMAIN ?? "";
+      const clientId = process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID ?? "";
       const res = await fetch(`https://${domain}/dbconnections/change_password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -156,12 +162,9 @@ export default function SettingsView() {
             >
               <ChevronLeft className="w-4 h-4" />
             </Button>
-            <div
-              className="flex items-center gap-2 cursor-pointer"
-              onClick={() => router.push("/")}
-            >
+            <a href="/" className="flex items-center gap-2 cursor-pointer no-underline text-foreground">
               <span className="font-semibold">Jarble</span>
-            </div>
+            </a>
           </div>
           <ProfileDropdown />
         </div>

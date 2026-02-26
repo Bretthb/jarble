@@ -18,11 +18,11 @@ export const getPlatformsTool: McpTool = {
   },
   rendersComponent: "show_platforms",
   async execute(_params: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-    const creds = await (db as any).query.platformCredentials.findMany({
+    const creds = await db.query.platformCredentials.findMany({
       where: eq(tables.platformCredentials.deploymentId, ctx.deploymentId),
     });
 
-    const platforms = (creds as any[]).map((cred) => {
+    const platforms = creds.map((cred) => {
       let masked: Record<string, string> = {};
       try {
         const decrypted = decryptApiKey(cred.credentials);

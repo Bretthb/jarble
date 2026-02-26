@@ -17,6 +17,8 @@ export { writeConfigsToPvc, readConfigsFromPvc, exportDeploymentConfigs, signalP
 
 export { updateDeploymentSecret, readCurrentSecretData } from "./secrets.js";
 
+export { createDeploymentConfigMap, updateDeploymentConfigMap, deleteDeploymentConfigMap, encodeConfigKey, decodeConfigKey } from "./configmap.js";
+
 export { writeComponentToPvc, readComponentFromPvc, listComponentsOnPvc, getCustomComponentsWithDefinitions, deleteComponentFromPvc } from "./components.js";
 
 export { getDeploymentLogs, streamDeploymentLogs } from "./logs.js";

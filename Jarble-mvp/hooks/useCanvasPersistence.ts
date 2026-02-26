@@ -110,7 +110,17 @@ export function loadCanvasState(deploymentId: string): CanvasState | null {
       return null;
     }
 
-    const cards = persisted.cards.map(deserializeCard);
+    // Filter out cards that require props we didn't persist
+    const validCards = persisted.cards.filter((pc) => {
+      // Skip components that need props but don't have them
+      if (SKIP_PROPS_COMPONENTS.has(pc.component) && (!pc.props || Object.keys(pc.props).length === 0)) {
+        if (process.env.NODE_ENV === "development") console.log(`[Canvas] Skipping restoration of ${pc.component} card - props not persisted`);
+        return false;
+      }
+      return true;
+    });
+
+    const cards = validCards.map(deserializeCard);
     // Assign z-indexes in order
     cards.forEach((c, i) => { c.zIndex = i + 1; });
 

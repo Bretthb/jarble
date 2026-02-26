@@ -45,22 +45,6 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
       return;
     }
 
-    // Mark event as processed before handling (prevents duplicate processing)
-    try {
-      await (db as any).insert(tables.processedWebhookEvents).values({
-        eventId: event.id,
-        eventType: event.type,
-      });
-    } catch (insertErr: any) {
-      // Unique constraint violation = another worker already processing this event
-      if (insertErr?.code === "SQLITE_CONSTRAINT" || insertErr?.code === "ER_DUP_ENTRY" || insertErr?.code === "23505") {
-        logger.info({ eventId: event.id }, "Webhook event already being processed by another worker");
-        res.json({ received: true, skipped: true });
-        return;
-      }
-      throw insertErr;
-    }
-
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as any;
@@ -69,7 +53,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
         const subscriptionId = session.subscription as string | null;
 
         if (userId) {
-          await (db as any).update(tables.users)
+          await db.update(tables.users)
             .set({
               stripeCustomerId: customerId,
               emailVerified: true, // If they can pay, they're verified
@@ -104,14 +88,13 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
             break;
           }
 
-          const dep = linked as any;
           const updates: Record<string, any> = {};
 
-          if (cancelAtPeriodEnd && !dep.cancelledAt) {
+          if (cancelAtPeriodEnd && !linked.cancelledAt) {
             updates.cancelledAt = new Date().toISOString();
             updates.cancelAtPeriodEnd = currentPeriodEnd?.toISOString() || null;
             logger.info({ deploymentId: linked.id }, "Subscription cancellation synced from Stripe");
-          } else if (!cancelAtPeriodEnd && dep.cancelledAt) {
+          } else if (!cancelAtPeriodEnd && linked.cancelledAt) {
             updates.cancelledAt = null;
             updates.cancelAtPeriodEnd = null;
             logger.info({ deploymentId: linked.id }, "Subscription reactivation synced from Stripe");
@@ -120,12 +103,12 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
           if (status === "past_due" || status === "unpaid") {
             updates.error = `Subscription ${status}: please update your payment method`;
             logger.warn({ deploymentId: linked.id, status }, "Subscription payment issue");
-          } else if (status === "active" && dep.error?.startsWith("Subscription ")) {
+          } else if (status === "active" && linked.error?.startsWith("Subscription ")) {
             updates.error = null;
           }
 
           if (Object.keys(updates).length > 0) {
-            await (db as any).update(tables.deployments)
+            await db.update(tables.deployments)
               .set(updates)
               .where(eq(tables.deployments.id, linked.id));
           }
@@ -148,7 +131,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
 
           if (linked) {
             await stopDeployment(linked.id);
-            await (db as any).update(tables.deployments)
+            await db.update(tables.deployments)
               .set({ status: "stopped", error: null, stripeSubscriptionId: null, cancelledAt: null, cancelAtPeriodEnd: null })
               .where(eq(tables.deployments.id, linked.id));
             logger.info({ deploymentId: linked.id, subscriptionId }, "Deployment stopped after subscription deletion");
@@ -175,7 +158,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
             });
 
             if (linked) {
-              await (db as any).update(tables.deployments)
+              await db.update(tables.deployments)
                 .set({ error: "Payment failed — please update your payment method" })
                 .where(eq(tables.deployments.id, linked.id));
               logger.warn({ deploymentId: linked.id, subscriptionId: invoiceSubscriptionId }, "Deployment flagged for payment failure");
@@ -190,8 +173,8 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
                 where: eq(tables.deployments.userId, user.id),
               });
               for (const dep of userDeployments) {
-                if (!(dep as any).isFree && (dep as any).stripeSubscriptionId) {
-                  await (db as any).update(tables.deployments)
+                if (!dep.isFree && dep.stripeSubscriptionId) {
+                  await db.update(tables.deployments)
                     .set({ error: "Payment failed — please update your payment method" })
                     .where(eq(tables.deployments.id, dep.id));
                 }
@@ -206,6 +189,21 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
 
       default:
         logger.debug({ type: event.type }, "Unhandled Stripe event");
+    }
+
+    // Mark event as processed AFTER handler succeeds (so Stripe retries on crash)
+    try {
+      await db.insert(tables.processedWebhookEvents).values({
+        eventId: event.id,
+        eventType: event.type,
+      });
+    } catch (insertErr: any) {
+      // Unique constraint violation = another worker already processed this event
+      if (insertErr?.code === "SQLITE_CONSTRAINT" || insertErr?.code === "ER_DUP_ENTRY" || insertErr?.code === "23505") {
+        logger.info({ eventId: event.id }, "Webhook event already processed by another worker");
+      } else {
+        throw insertErr;
+      }
     }
 
     res.json({ received: true });
@@ -248,7 +246,7 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     res.status(400).json({ error: "Unknown runtime" });
     return;
   }
-  const monthlyPriceCents = (runtime as any).monthlyPriceCents;
+  const monthlyPriceCents = runtime.monthlyPriceCents;
   if (!monthlyPriceCents || monthlyPriceCents <= 0) {
     res.status(400).json({ error: "Runtime has no configured price" });
     return;

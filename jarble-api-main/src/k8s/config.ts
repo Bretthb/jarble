@@ -1,7 +1,7 @@
 import { logger } from "../utils/logger.js";
 import { coreApi } from "./client.js";
 import { NAMESPACE } from "./constants.js";
-import { execInPod, execInPodWithStdin, findPodForDeployment, escapeShellValue } from "./exec.js";
+import { execInPod, findPodForDeployment, escapeShellValue } from "./exec.js";
 import type { ConfigFile, ConfigFileSpec } from "../runtimes/types.js";
 import archiver from "archiver";
 
@@ -48,8 +48,9 @@ export async function writeConfigsToPvc(
       await execInPod(podName, ["mkdir", "-p", dir]);
     }
 
-    // Write file content via stdin pipe (use tee to avoid shell injection via filePath)
-    await execInPodWithStdin(podName, ["tee", filePath], file.content);
+    // Write file content via base64-encoded exec (avoids stdin WebSocket hanging issue)
+    const b64 = Buffer.from(file.content).toString("base64");
+    await execInPod(podName, ["sh", "-c", `echo '${b64}' | base64 -d > '${filePath}'`]);
 
     logger.info({ deploymentId, path: file.path }, "Wrote config file to PVC");
   }
@@ -263,7 +264,8 @@ export async function signalProcessRestart(
     })
     .map(([key, value]) => `export ${key}='${escapeShellValue(value)}'`)
     .join("\n") + "\n";
-  await execInPodWithStdin(podName, ["tee", "/data/config/.env"], envContent);
+  const b64Env = Buffer.from(envContent).toString("base64");
+  await execInPod(podName, ["sh", "-c", `echo '${b64Env}' | base64 -d > '/data/config/.env'`]);
 
   // 4. Touch .reload marker (entrypoint checks this after process exits)
   await execInPod(podName, ["touch", "/data/.reload"]);

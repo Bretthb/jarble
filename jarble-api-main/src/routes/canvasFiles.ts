@@ -25,11 +25,16 @@ const ALLOWED_TOOLS = new Set([
   "save_canvas_file",
   "load_canvas_file",
   "list_canvas_files",
+  "delete_canvas_file",
   "render_ui",
   "define_component",
   "list_components",
   "delete_component",
   "write_file",
+  "store_memory",
+  "recall_memory",
+  "list_memories",
+  "forget_memory",
 ]);
 
 canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
@@ -82,7 +87,7 @@ canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
       return;
     }
 
-    if ((deployment as any).status !== "running") {
+    if (deployment.status !== "running") {
       res.status(400).json({ error: "Deployment is not running" });
       return;
     }
@@ -104,15 +109,22 @@ canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
 
     // 6. Call the jarble-ui MCP server directly via node
     // The server script exports an executeTool function and also handles JSON-RPC.
-    // We invoke it with a one-liner that requires the script and calls executeTool.
+    // executeTool is async (memory tools use fetch for embeddings/LLM calls),
+    // so we use an async IIFE to await the result.
     const argsJson = JSON.stringify(args || {});
     const nodeScript = `
-      const s = require('/data/config/mcp/jarble-ui-server.js');
-      const r = typeof s.executeTool === 'function'
-        ? s.executeTool(${JSON.stringify(tool)}, ${argsJson})
-        : null;
-      if (r) { console.log(JSON.stringify(r)); }
-      else { console.log(JSON.stringify({isError:true,text:'Tool not found'})); }
+      (async () => {
+        const s = require('/data/config/mcp/jarble-ui-server.js');
+        const r = typeof s.executeTool === 'function'
+          ? await s.executeTool(${JSON.stringify(tool)}, ${argsJson})
+          : null;
+        if (r) { console.log(JSON.stringify(r)); }
+        else { console.log(JSON.stringify({isError:true,text:'Tool not found'})); }
+        process.exit(0);
+      })().catch(e => {
+        console.log(JSON.stringify({isError:true,text:'Error: ' + e.message}));
+        process.exit(1);
+      });
     `.replace(/\n/g, " ");
     const command = ["node", "-e", nodeScript];
 
@@ -127,8 +139,8 @@ canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
     } catch {
       res.json({ result: { text: output } });
     }
-  } catch (err: any) {
-    logger.error({ err: err.message }, "MCP proxy error");
+  } catch (err: unknown) {
+    logger.error({ err: err instanceof Error ? err.message : String(err) }, "MCP proxy error");
     res.status(500).json({ error: "Failed to invoke MCP tool" });
   }
 });

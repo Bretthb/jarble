@@ -81,14 +81,15 @@ export const renderUiTool: McpTool = {
           },
         },
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       logger.warn(
-        { deploymentId: ctx.deploymentId, component, err: err.message },
+        { deploymentId: ctx.deploymentId, component, err: msg },
         "render_ui: failed to resolve custom component"
       );
       return {
         success: false,
-        message: `Failed to resolve component "${component}": ${err.message}`,
+        message: `Failed to resolve component "${component}": ${msg}`,
       };
     }
   },

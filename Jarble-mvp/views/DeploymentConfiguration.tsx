@@ -6,6 +6,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
   ChevronLeft,
@@ -59,6 +60,7 @@ export default function DeploymentConfiguration() {
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [showTestQr, setShowTestQr] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"cancel" | "delete" | null>(null);
 
   const [formData, setFormData] = useState<DeploymentFormData>({
     name: "",
@@ -240,9 +242,8 @@ export default function DeploymentConfiguration() {
   const isTransitioning = ["creating", "restarting", "stopping"].includes(displayStatus || "");
 
   const handleCancel = () => {
-    if (confirm("Cancel your subscription? Your deployment will remain active until the end of the current billing period.")) {
-      cancelMutation.mutate({ id });
-    }
+    cancelMutation.mutate({ id });
+    setConfirmAction(null);
   };
 
   const handleReactivate = () => {
@@ -254,9 +255,8 @@ export default function DeploymentConfiguration() {
   };
 
   const handleDelete = () => {
-    if (confirm("Are you sure you want to delete this deployment?")) {
-      deleteMutation.mutate({ id });
-    }
+    deleteMutation.mutate({ id });
+    setConfirmAction(null);
   };
 
   if (!isAuthenticated) {
@@ -271,7 +271,49 @@ export default function DeploymentConfiguration() {
     );
   }
 
+  if (deploymentQuery.isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (deploymentQuery.isError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Card className="p-8 bg-card border-border text-center">
+          <h2 className="text-xl font-bold text-foreground mb-2">Failed to load deployment</h2>
+          <p className="text-muted-foreground mb-4">{deploymentQuery.error?.message || "Something went wrong"}</p>
+          <div className="flex gap-2 justify-center">
+            <Button variant="outline" onClick={() => deploymentQuery.refetch()}>Retry</Button>
+            <Button onClick={() => router.push("/dashboard")}>Back to Dashboard</Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
+    <>
+    <ConfirmDialog
+      open={confirmAction === "cancel"}
+      onOpenChange={(open) => !open && setConfirmAction(null)}
+      title="Cancel Subscription?"
+      description="Your deployment will remain active until the end of the current billing period."
+      confirmLabel="Cancel Subscription"
+      variant="destructive"
+      onConfirm={handleCancel}
+    />
+    <ConfirmDialog
+      open={confirmAction === "delete"}
+      onOpenChange={(open) => !open && setConfirmAction(null)}
+      title="Delete Deployment?"
+      description="This will permanently delete the deployment and all its data. This action cannot be undone."
+      confirmLabel="Delete"
+      variant="destructive"
+      onConfirm={handleDelete}
+    />
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
       <header className="border-b border-border/60 bg-background/95 backdrop-blur-sm sticky top-0 z-10">
@@ -358,7 +400,7 @@ export default function DeploymentConfiguration() {
                     </div>
                   ) : (
                     <button
-                      onClick={handleCancel}
+                      onClick={() => setConfirmAction("cancel")}
                       disabled={cancelMutation.isPending}
                       className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
                     >
@@ -413,11 +455,16 @@ export default function DeploymentConfiguration() {
                   Export Config
                 </button>
                 <button
-                  onClick={handleDelete}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+                  onClick={() => setConfirmAction("delete")}
+                  disabled={deleteMutation.isPending}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50 disabled:pointer-events-none"
                 >
-                  <Trash2 className="w-4 h-4 shrink-0" />
-                  Delete
+                  {deleteMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4 shrink-0" />
+                  )}
+                  {deleteMutation.isPending ? "Deleting..." : "Delete"}
                 </button>
               </div>
 
@@ -480,5 +527,6 @@ export default function DeploymentConfiguration() {
         </div>
       </div>
     </div>
+    </>
   );
 }

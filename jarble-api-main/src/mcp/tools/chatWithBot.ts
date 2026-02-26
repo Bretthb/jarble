@@ -97,11 +97,12 @@ export const chatWithBotTool: McpTool = {
         success: true,
         message: text,
       };
-    } catch (err: any) {
-      logger.warn({ deploymentId: ctx.deploymentId, err: err.message }, "MCP: chat_with_bot failed");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn({ deploymentId: ctx.deploymentId, err: msg }, "MCP: chat_with_bot failed");
       return {
         success: false,
-        message: `Failed to reach the bot: ${err.message}`,
+        message: `Failed to reach the bot: ${msg}`,
       };
     }
   },

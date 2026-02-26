@@ -202,67 +202,40 @@ Each runtime implements `RuntimeHandler`:
 ## Canvas & Chat Architecture
 
 ### Chat Flow (`/d/[id]`)
-The deployment chat page supports two modes:
-- **Tambo ON** (default): User ↔ Tambo ↔ OpenClaw bot. Tambo orchestrates, bot has MCP tools.
-- **Tambo OFF**: User ↔ bot directly via SSE streaming.
+The deployment chat page uses Tambo to orchestrate user ↔ bot conversations. Bot responses stream via SSE with text deltas and UI blocks rendered progressively by `StreamingBotMessage`.
 
-```
-User types message
-  → POST /api/tambo-agent (SSE stream)
-  → Backend: JWT auth → deployment ownership check → pod connectivity
-  → Pod: WS to OpenClaw gateway (or kubectl exec fallback)
-  → Bot response streamed as SSE events back to frontend
-  → StreamingBotMessage renders text + UI blocks progressively
-```
+SSE event types: `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT` (delta), `TEXT_MESSAGE_END`, `UI_BLOCK_START`, `UI_BLOCK_PROPS`, `UI_BLOCK_END`, `RUN_FINISHED`
 
-SSE event types: `RUN_STARTED`, `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT` (delta), `TEXT_MESSAGE_END`, `UI_BLOCK_START`, `UI_BLOCK_PROPS`, `UI_BLOCK_END`, `RUN_FINISHED`
+### Canvas Grid System (`SimpleCanvasGrid.tsx`)
+UI components render in a **simple responsive CSS grid** (not react-grid-layout):
+- Components flow naturally at their content size
+- **Drag-to-reorder**: Drag any card to swap positions with another
+- **Split**: Multi-item components (stat_grid, key_value, descriptions) can split into individual cards
+- **Merge**: Compatible cards show a merge button to combine items
+- No visible wrappers — components render without borders/padding (styling removed from all 56+ components)
 
-### Canvas Component System (56+ components)
-Bot renders rich UI via `render_ui` MCP tool → emits ` ```jarble_ui ``` ` fenced blocks → frontend parses and renders.
+**Canvas reducer actions** (`canvasReducer.ts`):
+- `ADD_CARD`, `REMOVE_CARD`, `MOVE_CARD`, `RESIZE_CARD`
+- `SPLIT_CARD` — Splits multi-item components into individual cards
+- `MERGE_CARDS` — Combines items from two compatible cards
+- `REORDER_CARDS` — Drag-to-reorder support
 
-**Component categories:**
-- **Display**: card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, avatar, blockquote, metric_card, header
-- **Charts** (Ant Design Plots + Recharts): gauge, radar, treemap, funnel, waterfall, scatter, stock, sankey, sunburst, heatmap, wordcloud, histogram, box, liquid, rose, dual_axes, bullet, radial_bar, venn, circle_packing
-- **Advanced UI**: steps, result, tree, calendar_heatmap, descriptions, carousel
-- **Specialized**: code_editor (Monaco), map (Leaflet), statistic, tag_cloud
-- **Media**: video, image_gallery, audio
-- **Interactive**: button_group (dispatches UI_ACTION callbacks), form (dispatches on submit)
-- **Data**: spreadsheet (editable grid)
-- **Sandbox**: `sandbox` — **iframe for arbitrary HTML/CSS/JS** (3D with Three.js, live charts, animations, custom widgets). CDN libraries loaded dynamically. Parent/iframe bridge for props and callbacks.
+**Splittable components** (configured in `types.ts:SPLITTABLE_COMPONENTS`):
+- `stat_grid` → splits into `statistic` cards
+- `key_value` → splits into `card` cards
+- `descriptions` → splits into `card` cards
 
-### Component Pipeline
-```
-Registry (registry.ts)         → 56 components with Zod prop schemas
-CanvasRenderer                 → Validates props, renders component with error boundary
-EditableCanvas                 → Wraps renderer with edit/save controls
-StreamingBotMessage            → SSE consumer, assembles UI blocks, renders inline
-CustomComponentRenderer        → Resolves bot-defined components from PVC
-```
+### Canvas Components (56+)
+Bot renders UI via `render_ui` MCP tool → `jarble_ui` fenced blocks → frontend parses and renders.
 
-### Sandbox Component (`CanvasSandbox.tsx`)
-The most powerful component — renders arbitrary code in a secure iframe:
-- `sandbox="allow-scripts allow-popups"` (no `allow-same-origin` — fully isolated)
-- `html` prop: body HTML only (sanitizer extracts `<script>` tags automatically)
-- `js` prop: JavaScript executed after libraries load
-- `libraries` prop: CDN URLs loaded dynamically before JS runs
-- Parent/iframe bridge: `window.__JARBLE_PROPS__` for data, `jarble.send(action, payload)` for callbacks
-- Stop/Restart controls to kill runaway JS
-- Error overlay shows errors visually inside the iframe
+**Categories**: Display (card, stat_grid, data_table, chart, tabs, accordion), Charts (Ant Design Plots + Recharts), Interactive (button_group, form), Media (video, audio, image_gallery), Specialized (code_editor, map, sandbox)
 
-### MCP UI Server (`jarble-api-main/src/mcp/jarble-ui-server.js`)
-Runs inside bot pods as a stdio MCP server (JSON-RPC 2.0). Tools:
-- `render_ui` — Render any built-in or custom component
-- `define_component` — Save reusable component templates to `/data/components/`
-- `list_components` — List all available components (built-in + custom)
-- `component_reference` — Detailed prop schemas for all 56 components
-- `save_canvas_file` / `load_canvas_file` / `list_canvas_files` — Canvas data persistence
+**Sandbox** (`CanvasSandbox.tsx`): Secure iframe for arbitrary HTML/CSS/JS with Three.js, D3, etc. Uses `sandbox="allow-scripts allow-popups"` (no same-origin). Parent/iframe bridge via `window.__JARBLE_PROPS__` and `jarble.send()`.
 
 ### Adding a New Canvas Component
-1. Create `Jarble-mvp/components/canvas/components/Canvas{Name}.tsx`
-2. Add Zod schema to `registry.ts`
-3. Add component + schema to `CANVAS_COMPONENTS` registry object
-4. Add to `BUILTIN_COMPONENTS` arrays in both `jarble-ui-server.js` and `componentResolver.ts`
-5. Add description to `BUILTIN_DESCRIPTIONS` and `COMPONENT_REFERENCE` in `jarble-ui-server.js`
+1. Create `Jarble-mvp/components/canvas/components/Canvas{Name}.tsx` — **no wrapper styling** (use `p-3 h-full`)
+2. Add Zod schema + component to `registry.ts`
+3. Add to `BUILTIN_COMPONENTS` in `jarble-ui-server.js` and `componentResolver.ts`
 
 ## Key Patterns
 
@@ -370,91 +343,32 @@ Available when running locally:
 ### Frontend (Jarble-mvp/)
 | File | Purpose |
 |------|---------|
-| `app/d/[id]/page.tsx` | Deployment chat page — Tambo/direct chat modes, message rendering |
-| `components/tambo/StreamingBotMessage.tsx` | SSE consumer — streams bot text + assembles UI blocks progressively |
-| `components/canvas/registry.ts` | 56+ components with Zod schemas, the central component map |
-| `components/canvas/CanvasRenderer.tsx` | Validates props via Zod, renders component with error boundary |
-| `components/canvas/EditableCanvas.tsx` | Wraps renderer with edit mode, save via MCP/chat/write_file |
-| `components/canvas/CustomComponentRenderer.tsx` | Renders bot-defined custom components from catalog |
-| `components/canvas/CanvasActionContext.tsx` | React context for interactive callbacks (button clicks, form submits) |
-| `components/canvas/components/CanvasSandbox.tsx` | Secure iframe for arbitrary HTML/CSS/JS — the most powerful component |
-| `components/canvas/editors/registry.ts` | Component-specific editors for edit mode |
-| `views/OnboardingWizard.tsx` | Multi-step deployment wizard (runtime, LLM, deploy, platform connect) |
-| `views/DeploymentConfiguration.tsx` | Post-deploy config sidebar (LLM, platforms, skills, system prompt) |
-| `views/onboarding/wizardStepConfig.ts` | Config-driven wizard steps and config tabs per runtime |
-| `hooks/useQrStream.ts` | SSE hook for WhatsApp QR pairing |
-| `hooks/useDirectChat.ts` | Direct chat hook (bypasses Tambo, streams via SSE) |
+| `app/d/[id]/page.tsx` | Deployment chat page — Tambo chat, canvas grid, message rendering |
+| `components/workspace/SimpleCanvasGrid.tsx` | Responsive grid with drag-to-reorder, split/merge buttons |
+| `components/workspace/canvasReducer.ts` | Canvas state: ADD/REMOVE/REORDER/SPLIT/MERGE_CARDS actions |
+| `components/workspace/types.ts` | CanvasCard, CanvasAction types, SPLITTABLE_COMPONENTS config |
+| `components/tambo/StreamingBotMessage.tsx` | SSE consumer — streams bot text + assembles UI blocks |
+| `components/canvas/registry.ts` | 56+ components with Zod schemas |
+| `components/canvas/CanvasRenderer.tsx` | Validates props via Zod, renders with error boundary |
+| `components/canvas/components/CanvasSandbox.tsx` | Secure iframe for arbitrary HTML/CSS/JS |
+| `views/OnboardingWizard.tsx` | Multi-step deployment wizard |
+| `views/DeploymentConfiguration.tsx` | Post-deploy config sidebar |
 | `lib/trpc.ts` | tRPC client setup with Auth0 headers |
 
-## Infrastructure Roadmap
+## Infrastructure Notes
 
-### Security (Priority: High)
-- ✅ **Pod Security Standards**: Enforced via `securityContext` in deployment template — prevents privilege escalation
-- ✅ **Non-root containers**: `runAsNonRoot: true`, `runAsUser: 1000`, `runAsGroup: 1000` in pod securityContext
-- ✅ **Disable service account mount**: `automountServiceAccountToken: false` on all deployment pods
-- ✅ **Drop all capabilities**: `securityContext.capabilities.drop: ["ALL"]`
-- **Secrets as files**: Mount K8s Secrets as volumes at `/run/secrets/` instead of env vars. Requires OpenClaw wrapper or upstream support
-- **Secrets rotation**: Mechanism to rotate a user's LLM API key without redeploying (update Secret + restart pod)
-- ✅ **NetworkPolicy**: Restricts egress to cloud metadata and localhost; allows LLM APIs, messaging platforms, DNS
-- **Audit logging**: Enable K3s audit policies to track who exec'd into which pod
+### Pod Security (Implemented)
+- ✅ Non-root containers, service account disabled, all capabilities dropped
+- ✅ NetworkPolicy restricts egress (allows LLM APIs, messaging platforms, DNS)
+- ✅ Liveness/readiness probes on port 18789
+- ✅ Background status reconciler in `statusReconciler.ts`
 
-### Ops (Priority: High)
-- ✅ **Liveness/readiness probes**: Health check on port 18789 — if OpenClaw hangs, K8s restarts the pod
-  ```yaml
-  livenessProbe:
-    httpGet:
-      path: /__openclaw__/health
-      port: 18789
-    initialDelaySeconds: 120  # slow first boot
-    periodSeconds: 30
-  readinessProbe:
-    httpGet:
-      path: /__openclaw__/health
-      port: 18789
-    initialDelaySeconds: 60
-    periodSeconds: 10
-  ```
-- **Pod Disruption Budgets**: For rolling node upgrades without dropping active bot sessions
-- **PVC backups**: Longhorn snapshots or Velero. If a user's volume dies, they lose conversation history
-- ✅ **Monitoring**: Prometheus + Grafana stack deployed in `jarble-api-main/k8s/monitoring/`
-- ✅ **Background status reconciler**: Runs in `statusReconciler.ts` with pagination (100 deployments per cycle)
+### Known Issues
+- **npm cache corruption**: `ENOTEMPTY` errors on PVC. Fix: clear `/data/.npm` and delete pod
+- **Telegram 409 conflict**: Two pods with same bot token. Scale down stale deployments
 
-### Cost & Scale (Priority: Medium)
-- **Idle pod shutdown**: If no messages in 24h, scale pod to 0. Spin back up on next inbound message (webhook-triggered cold start)
-- **LLM spend limits**: Per-user rate limiting on Anthropic/OpenRouter keys. Claude Opus is expensive — enforce `llmCreditLimitDollars`
-- **Resource quotas per user**: Limit total CPU/memory/storage a single user can consume
-- **Resource limits in pod spec**: Apply `cpuLimit`, `memoryMb` from DB to actual K8s pod resources
-  ```yaml
-  resources:
-    limits:
-      cpu: "2"
-      memory: "2Gi"
-      ephemeral-storage: "1Gi"   # Prevent /tmp, logs, npm cache from filling node disk
-    requests:
-      cpu: "250m"
-      memory: "256Mi"
-      ephemeral-storage: "100Mi"
-  ```
-- **Ephemeral storage limits**: Without this, a runaway pod can fill the node's disk with temp files and cause node-level evictions affecting all pods
-- **Pre-built image**: Bake `openclaw@latest` into the container image to eliminate the 2-3 min npm install on first boot. Fixes npm cache corruption issue too.
+## Claude Agents
 
-### Reliability (Priority: Medium)
-- **ConfigSync atomicity**: Either all steps succeed (write files + update secret + restart) or rollback. Currently partial failures leave inconsistent state
-- **Telegram token uniqueness**: Prevent two deployments from using the same bot token (causes 409 conflict)
-- **Graceful pod shutdown**: Handle SIGTERM in OpenClaw to close active WebSocket/Telegram connections cleanly
-- **PVC permissions**: Tighten `/data/` from 777 to 750, owned by non-root runtime user
-
-## Specialized Debug Agents
-
-This repo has pre-configured debug agents in `.claude/agents/` for common issues:
-- `auth0-debugger` - JWT verification, JWKS cache, email sync
-- `stripe-webhook-debugger` - Webhook handling, subscription lifecycle
-- `k8s-pod-lifecycle-debugger` - Pod lifecycle, PVC mounts, storage issues
-- `nextjs-frontend-debugger` - Hydration, React Query, SSE streams
-- `sse-stream-debugger` - Stream disconnections, event ordering
-- `jarble-api-debugger` - tRPC tracing, async race conditions
-- `canvas-component-builder` - Canvas component development
-- `tambo-integration-reviewer` - Tambo/MCP integration review
+Pre-configured agents in `.claude/agents/`:
 - `code-reviewer` - General code review
 - `docs-updater` - Documentation maintenance
-- `design-system-reviewer` - UI/design consistency

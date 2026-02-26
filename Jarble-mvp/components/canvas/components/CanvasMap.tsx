@@ -44,7 +44,7 @@ export default function CanvasMap({
     : {};
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4" style={containerStyle}>
+    <div className="p-3 h-full" style={containerStyle}>
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3 shrink-0">{title}</h3>
       )}
@@ -60,7 +60,7 @@ export default function CanvasMap({
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           {markers.map((marker, i) => (
-            <Marker key={i} position={[marker.lat, marker.lng]}>
+            <Marker key={`${marker.lat}-${marker.lng}-${i}`} position={[marker.lat, marker.lng]}>
               {marker.label && <Popup>{marker.label}</Popup>}
             </Marker>
           ))}

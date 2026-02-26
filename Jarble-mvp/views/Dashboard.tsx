@@ -162,12 +162,9 @@ export default function Dashboard() {
       {/* Navigation */}
       <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
-          <div
-            className="flex items-center gap-2 cursor-pointer"
-            onClick={() => router.push("/")}
-          >
+          <a href="/" className="flex items-center gap-2 cursor-pointer no-underline text-foreground">
             <span className="font-semibold">Jarble</span>
-          </div>
+          </a>
           <ProfileDropdown />
         </div>
       </nav>
@@ -224,6 +221,20 @@ export default function Dashboard() {
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
               <p className="text-sm text-muted-foreground">Loading deployments...</p>
             </div>
+          </div>
+        ) : deploymentsQuery.isError ? (
+          <div className="text-center py-24">
+            <Bot className="w-12 h-12 mx-auto mb-4 text-destructive/40" />
+            <h3 className="text-xl font-semibold mb-1">Failed to load deployments</h3>
+            <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">
+              {deploymentsQuery.error?.message || "Something went wrong. Please try again."}
+            </p>
+            <Button
+              onClick={() => deploymentsQuery.refetch()}
+              variant="outline"
+            >
+              Retry
+            </Button>
           </div>
         ) : deploymentsQuery.data && deploymentsQuery.data.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -350,7 +361,10 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
     >
       <Card
         className="bg-card border-border hover:border-primary/30 transition-all overflow-hidden cursor-pointer group"
+        role="button"
+        tabIndex={0}
         onClick={handleCardClick}
+        onKeyDown={(e: React.KeyboardEvent) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), handleCardClick())}
       >
         <div className="p-5">
           {/* Row 1: Name + Status */}

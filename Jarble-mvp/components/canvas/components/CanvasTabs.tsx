@@ -2,6 +2,7 @@
 
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import CanvasRenderer from "../CanvasRenderer";
+import { useCanvasAction } from "../CanvasActionContext";
 
 interface TabChild {
   component: string;
@@ -21,22 +22,42 @@ export interface CanvasTabsProps {
 }
 
 export default function CanvasTabs({ tabs, defaultTab = 0 }: CanvasTabsProps) {
+  let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
+  try {
+    const ctx = useCanvasAction();
+    dispatch = ctx.dispatch;
+  } catch {
+    // Not inside CanvasActionProvider — interactivity disabled
+  }
+
   if (!Array.isArray(tabs) || tabs.length === 0) return null;
 
   const defaultValue = `tab-${Math.min(defaultTab, tabs.length - 1)}`;
 
+  const handleTabChange = (value: string) => {
+    if (!dispatch) return;
+    const index = parseInt(value.replace("tab-", ""), 10);
+    const tab = tabs[index];
+    if (tab) {
+      dispatch({
+        action: "tab_change",
+        payload: { tab: tab.label, index },
+      });
+    }
+  };
+
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <Tabs defaultValue={defaultValue}>
+    <div className="p-3 h-full">
+      <Tabs defaultValue={defaultValue} onValueChange={handleTabChange}>
         <TabsList>
           {tabs.map((tab, i) => (
-            <TabsTrigger key={i} value={`tab-${i}`}>
+            <TabsTrigger key={`${tab.label}-${i}`} value={`tab-${i}`}>
               {tab.label}
             </TabsTrigger>
           ))}
         </TabsList>
         {tabs.map((tab, i) => (
-          <TabsContent key={i} value={`tab-${i}`}>
+          <TabsContent key={`${tab.label}-${i}`} value={`tab-${i}`}>
             {tab.content && (
               <p className="text-sm text-foreground whitespace-pre-wrap">{tab.content}</p>
             )}

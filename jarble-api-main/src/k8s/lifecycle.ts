@@ -4,15 +4,15 @@ import { coreApi, appsApi } from "./client.js";
 import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS } from "./constants.js";
 import type { DeploymentConfig } from "./constants.js";
 import { getDeploymentPodStatus } from "./status.js";
-import { writeConfigsToPvc } from "./config.js";
-import { signalProcessRestart } from "./config.js";
+import { createDeploymentConfigMap, deleteDeploymentConfigMap } from "./configmap.js";
 
 export async function createDeployment(
   deploymentId: string,
   userId: string,
   config: DeploymentConfig
 ): Promise<void> {
-  logger.info({ deploymentId, userId }, "Creating deployment");
+  const createStartMs = Date.now();
+  logger.info({ deploymentId, userId }, "K8s: creating deployment");
 
   const containerImage = config.image || DEFAULT_IMAGE;
 
@@ -33,8 +33,10 @@ export async function createDeployment(
   // Resources are created sequentially with rollback on failure to prevent orphans.
   let pvcCreated = false;
   let secretCreated = false;
+  let configMapCreated = false;
 
   try {
+  // 1. Create PVC for deployment storage
   await coreApi.createNamespacedPersistentVolumeClaim(NAMESPACE, {
     metadata: { name: `pvc-${deploymentId}` },
     spec: {
@@ -44,10 +46,9 @@ export async function createDeployment(
     },
   });
   pvcCreated = true;
+  logger.info({ deploymentId, storageGi }, "K8s: created PVC");
 
   // 2. Create Secret for deployment env vars
-  // Base entries are always included; runtime handler provides extras (e.g. LLM keys)
-  // Use pre-generated gateway token or create one
   const gatewayToken = config.gatewayToken || crypto.randomBytes(32).toString("hex");
   const baseSecretData: Record<string, string> = {
     DEPLOYMENT_ID: deploymentId,
@@ -58,11 +59,9 @@ export async function createDeployment(
     OPENCLAW_GATEWAY_TOKEN: gatewayToken,
   };
 
-  // Include JARBLE_API_URL for file watcher callback (PVC → DB sync)
   if (process.env.JARBLE_API_URL) {
     baseSecretData.JARBLE_API_URL = process.env.JARBLE_API_URL;
   }
-  // Include CONFIG_WEBHOOK_SECRET for authenticated config-changed callbacks
   if (process.env.CONFIG_WEBHOOK_SECRET) {
     baseSecretData.CONFIG_WEBHOOK_SECRET = process.env.CONFIG_WEBHOOK_SECRET;
   }
@@ -74,8 +73,45 @@ export async function createDeployment(
     stringData: secretData,
   });
   secretCreated = true;
+  logger.info({ deploymentId, keyCount: Object.keys(secretData).length }, "K8s: created Secret");
 
-  // 3. Create Deployment
+  // 3. Create ConfigMap with initial config files
+  // The init container copies these to the PVC before the main container starts,
+  // eliminating the old "poll-then-exec" race condition.
+  if (config.initialConfigs && config.initialConfigs.length > 0) {
+    await createDeploymentConfigMap(deploymentId, config.initialConfigs);
+    configMapCreated = true;
+    logger.info({ deploymentId, fileCount: config.initialConfigs.length }, "K8s: created ConfigMap");
+  }
+
+  // 4. Build the init container script that copies ConfigMap files to PVC.
+  // Each ConfigMap key encodes the target path:
+  //   - Keys starting with "abs-" → absolute paths (e.g. "abs-data--.openclaw--openclaw.json" → "/data/.openclaw/openclaw.json")
+  //   - Other keys → relative to /data/config/ (e.g. "soul.md" → "/data/config/soul.md")
+  const configInitScript = [
+    // Phase 1: Ensure directories exist with correct permissions
+    "mkdir -p /data/config /data/logs /data/.openclaw /data/components /data/files",
+    "chmod -R 755 /data/config /data/logs /data/.openclaw /data/components /data/files",
+    // Phase 2: Copy ConfigMap files to PVC
+    "if [ -d /config-source ]; then " +
+      "for f in /config-source/*; do " +
+        "key=$(basename \"$f\"); " +
+        "case \"$key\" in " +
+          // Decode abs- prefix back to absolute path
+          "abs-*) target=\"/$(echo \"$key\" | sed 's/^abs-//' | sed 's/--/\\//g')\" ;; " +
+          // Relative paths go under /data/config/
+          "*) target=\"/data/config/$key\" ;; " +
+        "esac; " +
+        "dir=$(dirname \"$target\"); " +
+        "mkdir -p \"$dir\"; " +
+        "cp \"$f\" \"$target\"; " +
+      "done; " +
+      "echo '[config-init] Copied config files from ConfigMap'; " +
+    "fi",
+  ].join(" && ");
+
+  // 5. Create Deployment
+  const hasConfigMap = configMapCreated;
   await appsApi.createNamespacedDeployment(NAMESPACE, {
     metadata: {
       name: `dep-${deploymentId}`,
@@ -83,29 +119,28 @@ export async function createDeployment(
     },
     spec: {
       replicas: 1,
-      strategy: { type: "Recreate" }, // RWO PVCs can only mount to one pod at a time
+      strategy: { type: "Recreate" },
       selector: { matchLabels: { app: `dep-${deploymentId}` } },
       template: {
         metadata: { labels: { app: `dep-${deploymentId}`, "jarble.ai/type": "bot" } },
         spec: {
-          // Disable K8s API access - pods shouldn't query the cluster
           automountServiceAccountToken: false,
-          // Pod-level security: run as non-root user, set group for PVC access
           securityContext: {
-            runAsNonRoot: false,  // Allow init container to run as root
-            fsGroup: 1000,        // PVC files accessible to this group
+            runAsNonRoot: false,
+            fsGroup: 1000,
           },
-          // Init container: fix PVC permissions before main container starts
-          // On first boot (.initialized missing): full recursive chown
-          // On subsequent boots: just ensure dirs exist (fast)
           initContainers: [{
             name: "fix-permissions",
             image: "busybox:1.36",
-            command: ["sh", "-c", "mkdir -p /data/config /data/logs /data/.openclaw /data/components && if [ ! -f /data/.initialized ]; then chown -R 1000:1000 /data && chmod -R 755 /data; else chown 1000:1000 /data/config /data/logs /data/.openclaw /data/components; fi"],
+            command: ["sh", "-c", configInitScript],
             securityContext: {
-              runAsUser: 0,  // Run as root to fix permissions
+              runAsUser: 0,
             },
-            volumeMounts: [{ name: "data", mountPath: "/data" }],
+            volumeMounts: [
+              { name: "data", mountPath: "/data" },
+              // Mount ConfigMap as read-only source for the init container to copy from
+              ...(hasConfigMap ? [{ name: "config-source", mountPath: "/config-source", readOnly: true }] : []),
+            ],
           }],
           containers: [{
             name: "runtime",
@@ -118,36 +153,33 @@ export async function createDeployment(
               requests: { cpu: cpuMillicores, memory: memoryMi, "ephemeral-storage": "100Mi" },
               limits: { cpu: cpuMillicores, memory: memoryMi, "ephemeral-storage": "1Gi" },
             },
-            // Container-level security: run as non-root, drop all capabilities, read-only root filesystem
             securityContext: {
-              runAsNonRoot: true,
-              runAsUser: 1000,
-              runAsGroup: 1000,
+              // Relaxed to allow self-updates (npm), package installs (apt-get python3), etc.
+              // Runs as root so the runtime can apt-get install packages as needed.
+              // Network egress is still restricted by NetworkPolicy; K8s API access disabled.
+              runAsUser: 0,
+              runAsGroup: 0,
               allowPrivilegeEscalation: false,
-              readOnlyRootFilesystem: true,
-              capabilities: { drop: ["ALL"] },
             },
             envFrom: [{ secretRef: { name: `secret-${deploymentId}` } }],
             volumeMounts: [
               { name: "data", mountPath: "/data" },
-              { name: "tmp", mountPath: "/tmp" },        // Writable tmp (root fs is read-only)
+              { name: "tmp", mountPath: "/tmp" },
             ],
-            // Liveness probe: restart pod if OpenClaw gateway stops responding
             livenessProbe: {
               tcpSocket: {
                 port: config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789,
               },
-              initialDelaySeconds: 60, // Gateway starts in ~20-30s (no npm install)
+              initialDelaySeconds: 60,
               periodSeconds: 30,
               timeoutSeconds: 5,
               failureThreshold: 3,
             },
-            // Readiness probe: don't route traffic until gateway port is open
             readinessProbe: {
               tcpSocket: {
                 port: config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789,
               },
-              initialDelaySeconds: 20, // First check after 20s — cached restarts are fast
+              initialDelaySeconds: 20,
               periodSeconds: 10,
               timeoutSeconds: 5,
               failureThreshold: 3,
@@ -155,7 +187,12 @@ export async function createDeployment(
           }],
           volumes: [
             { name: "data", persistentVolumeClaim: { claimName: `pvc-${deploymentId}` } },
-            { name: "tmp", emptyDir: {} },        // Ephemeral tmp directory
+            { name: "tmp", emptyDir: {} },
+            // ConfigMap volume — init container copies files to PVC paths
+            ...(hasConfigMap ? [{
+              name: "config-source",
+              configMap: { name: `config-${deploymentId}` },
+            }] : []),
           ],
           imagePullSecrets: [{ name: "ghcr-pull-secret" }],
         },
@@ -164,8 +201,15 @@ export async function createDeployment(
   });
 
   } catch (err) {
-    // Rollback: clean up any resources created before the failure
-    logger.error({ deploymentId, err, pvcCreated, secretCreated }, "createDeployment failed, rolling back");
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    logger.error({ deploymentId, pvcCreated, secretCreated, configMapCreated, error: errorMessage }, "K8s: createDeployment failed, rolling back");
+    try {
+      if (configMapCreated) {
+        await deleteDeploymentConfigMap(deploymentId);
+      }
+    } catch (cleanupErr) {
+      logger.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete ConfigMap");
+    }
     try {
       if (secretCreated) {
         await coreApi.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
@@ -183,46 +227,8 @@ export async function createDeployment(
     throw err;
   }
 
-  // 4. Write initial config files to PVC (fire-and-forget — don't block deployment return)
-  // We write configs in the background when the pod becomes ready.
-  if (config.initialConfigs && config.initialConfigs.length > 0) {
-    const configs = config.initialConfigs;
-    void (async () => {
-      try {
-        for (let i = 0; i < 150; i++) { // 150 × 2s = 5 min max
-          const status = await getDeploymentPodStatus(deploymentId);
-          if (status.status === "running") {
-            await writeConfigsToPvc(deploymentId, configs);
-            logger.info({ deploymentId }, "Initial config files written to PVC (background)");
-
-            // Signal the gateway to reload so it picks up the new config
-            // (e.g., gateway.auth.token written to the OpenClaw state dir).
-            // The entrypoint's restart loop re-reads the config on reload.
-            try {
-              const reloaded = await signalProcessRestart(deploymentId, {});
-              if (reloaded) {
-                logger.info({ deploymentId }, "Gateway reload signaled after initial config write");
-              }
-            } catch (reloadErr) {
-              logger.debug({ deploymentId, err: reloadErr }, "Gateway reload after initial config write failed (non-fatal)");
-            }
-
-            return;
-          }
-          if (status.status === "failed" || status.status === "not_found") {
-            logger.warn({ deploymentId }, "Pod failed/gone, skipping initial config write");
-            return;
-          }
-          await new Promise((r) => setTimeout(r, 2000));
-        }
-        logger.warn({ deploymentId }, "Pod not ready after 5 min, skipping initial config write");
-      } catch (err) {
-        logger.error({ deploymentId, err }, "Failed to write initial config files (background)");
-      }
-    })();
-  }
-
-  logger.info({ deploymentId }, "Deployment created successfully");
+  const createDurationMs = Date.now() - createStartMs;
+  logger.info({ deploymentId, durationMs: createDurationMs }, "K8s: deployment created successfully");
 }
 
 // ── Stop / Start (replica scaling) ────────────────────────────────────
@@ -276,7 +282,8 @@ export async function startDeployment(deploymentId: string): Promise<void> {
  * Useful for picking up config changes.
  */
 export async function restartDeployment(deploymentId: string): Promise<void> {
-  logger.info({ deploymentId }, "Restarting deployment");
+  const restartStartMs = Date.now();
+  logger.info({ deploymentId }, "K8s: restarting deployment");
 
   await stopDeployment(deploymentId);
 
@@ -293,13 +300,15 @@ export async function restartDeployment(deploymentId: string): Promise<void> {
 
   await startDeployment(deploymentId);
 
-  logger.info({ deploymentId }, "Deployment restarted");
+  const restartDurationMs = Date.now() - restartStartMs;
+  logger.info({ deploymentId, durationMs: restartDurationMs }, "K8s: deployment restarted");
 }
 
 // ── Delete ──────────────────────────────────────────────────────────────
 
 export async function deleteDeployment(deploymentId: string): Promise<void> {
-  logger.info({ deploymentId }, "deleteDeployment: starting");
+  const deleteStartMs = Date.now();
+  logger.info({ deploymentId }, "K8s: deleteDeployment starting");
 
   // Step 1: Scale to 0 so the pod releases the RWO PVC before we delete it.
   logger.debug({ deploymentId }, "deleteDeployment: scaling to 0 replicas");
@@ -327,7 +336,7 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
       await new Promise((r) => setTimeout(r, pollMs));
     }
   } catch (err: unknown) {
-    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       logger.debug({ deploymentId }, "deleteDeployment: K8s deployment not found (already stopped/never created), skipping scale-down");
     } else {
@@ -341,7 +350,7 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
     await appsApi.deleteNamespacedDeployment(`dep-${deploymentId}`, NAMESPACE);
     logger.debug({ deploymentId }, "deleteDeployment: K8s Deployment deleted");
   } catch (err: unknown) {
-    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       logger.debug({ deploymentId }, "deleteDeployment: K8s Deployment already gone (404)");
     } else {
@@ -356,7 +365,7 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
     await coreApi.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
     logger.debug({ deploymentId }, "deleteDeployment: K8s Secret deleted");
   } catch (err: unknown) {
-    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       logger.debug({ deploymentId }, "deleteDeployment: K8s Secret already gone (404)");
     } else {
@@ -365,13 +374,17 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
     }
   }
 
-  // Step 5: Delete PVC (data is gone — intentional)
+  // Step 5: Delete ConfigMap
+  logger.debug({ deploymentId }, "deleteDeployment: deleting K8s ConfigMap");
+  await deleteDeploymentConfigMap(deploymentId);
+
+  // Step 6: Delete PVC (data is gone — intentional)
   logger.debug({ deploymentId }, "deleteDeployment: deleting K8s PVC");
   try {
     await coreApi.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
     logger.debug({ deploymentId }, "deleteDeployment: K8s PVC deleted");
   } catch (err: unknown) {
-    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       logger.debug({ deploymentId }, "deleteDeployment: K8s PVC already gone (404)");
     } else {
@@ -380,5 +393,6 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
     }
   }
 
-  logger.info({ deploymentId }, "deleteDeployment: all K8s resources deleted");
+  const deleteDurationMs = Date.now() - deleteStartMs;
+  logger.info({ deploymentId, durationMs: deleteDurationMs }, "K8s: deleteDeployment completed, all resources deleted");
 }

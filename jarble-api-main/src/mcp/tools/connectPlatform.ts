@@ -1,4 +1,4 @@
-import { db, tables } from "../../db/index.js";
+import { db, tables, dbDate } from "../../db/index.js";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { encryptApiKey } from "../../utils/encryption.js";
@@ -54,7 +54,7 @@ export const connectPlatformTool: McpTool = {
     const encrypted = encryptApiKey(JSON.stringify(credentials));
 
     // Upsert
-    const existing = await (db as any).query.platformCredentials.findFirst({
+    const existing = await db.query.platformCredentials.findFirst({
       where: and(
         eq(tables.platformCredentials.deploymentId, ctx.deploymentId),
         eq(tables.platformCredentials.platformId, platform),
@@ -62,11 +62,11 @@ export const connectPlatformTool: McpTool = {
     });
 
     if (existing) {
-      await (db as any).update(tables.platformCredentials)
-        .set({ credentials: encrypted, updatedAt: new Date().toISOString() })
-        .where(eq(tables.platformCredentials.id, (existing as any).id));
+      await db.update(tables.platformCredentials)
+        .set({ credentials: encrypted, updatedAt: dbDate() })
+        .where(eq(tables.platformCredentials.id, existing.id));
     } else {
-      await (db as any).insert(tables.platformCredentials).values({
+      await db.insert(tables.platformCredentials).values({
         id: nanoid(12),
         deploymentId: ctx.deploymentId,
         platformId: platform,

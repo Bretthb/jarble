@@ -50,7 +50,7 @@ function extractSubFromToken(req: Request): string | null {
 
 /** Rate limit key: user ID from JWT, or fall back to IP address */
 function userKeyGenerator(req: Request): string {
-  return extractSubFromToken(req) ?? ipKeyGenerator(req);
+  return extractSubFromToken(req) ?? ipKeyGenerator(req.ip ?? "unknown");
 }
 
 // ─── Limiters ─────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ export const globalLimiter = rateLimit({
   limit: 300,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  keyGenerator: (req) => ipKeyGenerator(req),
+  keyGenerator: (req) => ipKeyGenerator(req.ip ?? "unknown"),
   skip: (req) => {
     return (
       req.path === "/health" ||

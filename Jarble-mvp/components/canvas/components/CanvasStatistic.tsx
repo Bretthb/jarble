@@ -26,7 +26,7 @@ export default function CanvasStatistic({
 }: CanvasStatisticProps) {
   return (
     <AntThemeProvider>
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="p-3 h-full flex flex-col justify-center">
         {isCountdown && countdownTarget ? (
           <Countdown
             title={title}

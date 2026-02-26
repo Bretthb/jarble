@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../middleware.js";
-import { db, tables } from "../../db/index.js";
+import { db, tables, dbDate } from "../../db/index.js";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { logger } from "../../utils/logger.js";
@@ -63,7 +63,7 @@ export const platformCredentialsRouter = router({
       });
 
       // Decrypt and mask credentials for safe display
-      return creds.map((cred: any) => {
+      return creds.map((cred) => {
         let decryptedObj: Record<string, string> = {};
         try {
           const decrypted = decryptApiKey(cred.credentials);
@@ -122,12 +122,12 @@ export const platformCredentialsRouter = router({
 
       if (existing) {
         // Update
-        await (ctx.db as any).update(platformCredentials)
+        await ctx.db.update(platformCredentials)
           .set({
             credentials: encrypted,
-            updatedAt: new Date().toISOString(),
+            updatedAt: dbDate(),
           })
-          .where(eq(platformCredentials.id, (existing as any).id));
+          .where(eq(platformCredentials.id, existing.id));
 
         logger.info({
           deploymentId: input.deploymentId,
@@ -135,7 +135,7 @@ export const platformCredentialsRouter = router({
         }, "Platform credentials updated");
       } else {
         // Insert
-        await (ctx.db as any).insert(platformCredentials).values({
+        await ctx.db.insert(platformCredentials).values({
           id: nanoid(12),
           deploymentId: input.deploymentId,
           platformId: input.platformId,
@@ -172,7 +172,7 @@ export const platformCredentialsRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      await (ctx.db as any).delete(platformCredentials)
+      await ctx.db.delete(platformCredentials)
         .where(and(
           eq(platformCredentials.deploymentId, input.deploymentId),
           eq(platformCredentials.platformId, input.platformId),
@@ -184,7 +184,7 @@ export const platformCredentialsRouter = router({
       }, "Platform credentials deleted");
 
       // Config sync: push updated configs to PVC if deployment is running
-      if ((deployment as any).status === "running") {
+      if (deployment.status === "running") {
         void syncConfigsToPvc(input.deploymentId);
       }
 
@@ -235,7 +235,7 @@ export const platformCredentialsRouter = router({
 
       if (!existing) {
         const encrypted = encryptApiKey(JSON.stringify({}));
-        await (ctx.db as any).insert(platformCredentials).values({
+        await ctx.db.insert(platformCredentials).values({
           id: nanoid(12),
           deploymentId: input.deploymentId,
           platformId: "whatsapp",
@@ -246,7 +246,7 @@ export const platformCredentialsRouter = router({
       }
 
       // Trigger config sync so openclaw.json gets WhatsApp channel written
-      if ((deployment as any).status === "running") {
+      if (deployment.status === "running") {
         void syncConfigsToPvc(input.deploymentId);
       }
 
@@ -271,7 +271,7 @@ export const platformCredentialsRouter = router({
       // even though the DB hasn't flipped to "running" yet (createDeployment blocks
       // waiting for readiness to write config files). The bot can connect to Telegram
       // before the readiness probe passes, so we should try to exec anyway.
-      const depStatus = (deployment as any).status;
+      const depStatus = deployment.status;
       if (depStatus === "stopped" || depStatus === "failed" || depStatus === "pending") {
         return { status: "pod_not_ready" as const };
       }

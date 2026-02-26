@@ -14,6 +14,8 @@ import type { RuntimeEntry } from "../types";
 interface StepChooseRuntimeProps {
   runtimes: RuntimeEntry[];
   isLoading: boolean;
+  isError?: boolean;
+  onRetry?: () => void;
   selectedId: number | null;
   onSelect: (id: number, slug: string) => void;
   isFreeAvailable: boolean;
@@ -22,6 +24,8 @@ interface StepChooseRuntimeProps {
 export default function StepChooseRuntime({
   runtimes,
   isLoading,
+  isError,
+  onRetry,
   selectedId,
   onSelect,
   isFreeAvailable,
@@ -30,6 +34,19 @@ export default function StepChooseRuntime({
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <p className="text-muted-foreground mb-3">Failed to load available runtimes</p>
+        {onRetry && (
+          <button onClick={onRetry} className="text-sm text-primary hover:underline">
+            Try again
+          </button>
+        )}
       </div>
     );
   }

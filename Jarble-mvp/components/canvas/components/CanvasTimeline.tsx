@@ -23,7 +23,7 @@ export default function CanvasTimeline({ title, events }: CanvasTimelineProps) {
   if (!Array.isArray(events) || events.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="p-3 h-full">
       {title && <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>}
       <div className="space-y-0">
         {events.map((event, i) => {
@@ -32,7 +32,7 @@ export default function CanvasTimeline({ title, events }: CanvasTimelineProps) {
           const isLast = i === events.length - 1;
 
           return (
-            <div key={i} className="flex gap-3">
+            <div key={`${event.label}-${i}`} className="flex gap-3">
               <div className="flex flex-col items-center">
                 {event.icon ? (
                   <span className="text-base shrink-0">{event.icon}</span>

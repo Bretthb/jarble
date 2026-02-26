@@ -16,9 +16,8 @@ export const billingRouter = router({
       where: eq(deployments.userId, ctx.user.id),
     });
 
-    const allDeps = deps as any[];
-    const paidDeps = allDeps.filter((d) => !d.isFree && d.stripeSubscriptionId);
-    const totalMonthlyCents = allDeps.reduce(
+    const paidDeps = deps.filter((d) => !d.isFree && d.stripeSubscriptionId);
+    const totalMonthlyCents = deps.reduce(
       (sum, d) => sum + (d.isFree ? 0 : (d.monthlyPriceCents || 0)),
       0
     );
@@ -28,7 +27,7 @@ export const billingRouter = router({
 
     if (isStripeConfigured() && paidDeps.length > 0) {
       try {
-        const sub = await getSubscriptionDetails(paidDeps[0].stripeSubscriptionId);
+        const sub = await getSubscriptionDetails(paidDeps[0].stripeSubscriptionId!);
         const periodEnd = (sub as any).current_period_end;
         if (periodEnd) {
           nextBillingDate = new Date(periodEnd * 1000).toISOString();
@@ -57,7 +56,7 @@ export const billingRouter = router({
       where: eq(users.id, ctx.user.id),
     });
 
-    const customerId = (currentUser as any)?.stripeCustomerId;
+    const customerId = currentUser?.stripeCustomerId;
     if (!customerId) return [];
 
     try {
@@ -83,7 +82,7 @@ export const billingRouter = router({
       with: { runtimeCatalogEntry: true },
     });
 
-    const paidDeps = (deps as any[]).filter((d) => !d.isFree && d.stripeSubscriptionId);
+    const paidDeps = deps.filter((d) => !d.isFree && d.stripeSubscriptionId);
     if (paidDeps.length === 0) return [];
 
     const results = await Promise.allSettled(
@@ -94,7 +93,7 @@ export const billingRouter = router({
 
         if (isStripeConfigured()) {
           try {
-            const sub = await getSubscriptionDetails(d.stripeSubscriptionId);
+            const sub = await getSubscriptionDetails(d.stripeSubscriptionId!);
             periodStart = new Date((sub as any).current_period_start * 1000).toISOString();
             periodEnd = new Date((sub as any).current_period_end * 1000).toISOString();
             stripeStatus = (sub as any).status;

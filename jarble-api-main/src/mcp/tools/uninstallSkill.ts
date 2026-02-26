@@ -21,7 +21,7 @@ export const uninstallSkillTool: McpTool = {
       return { success: false, message: "Missing skillId." };
     }
 
-    const existing = await (db as any).query.deploymentSkills.findFirst({
+    const existing = await db.query.deploymentSkills.findFirst({
       where: and(
         eq(tables.deploymentSkills.deploymentId, ctx.deploymentId),
         eq(tables.deploymentSkills.skillId, skillId),
@@ -32,7 +32,7 @@ export const uninstallSkillTool: McpTool = {
       return { success: false, message: "Skill is not installed on this deployment." };
     }
 
-    await (db as any).delete(tables.deploymentSkills)
+    await db.delete(tables.deploymentSkills)
       .where(and(
         eq(tables.deploymentSkills.deploymentId, ctx.deploymentId),
         eq(tables.deploymentSkills.skillId, skillId),

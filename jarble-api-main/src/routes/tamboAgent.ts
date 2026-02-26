@@ -130,18 +130,21 @@ tamboAgentRouter.post("/", async (req, res) => {
       if (user) {
         authenticatedUserId = user.id;
       } else {
+        logger.warn("Chat: bearer token valid but user not found in DB");
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
     } catch {
+      logger.warn("Chat: invalid or expired bearer token");
       res.status(401).json({ error: "Invalid token" });
       return;
     }
   } else {
-    const secret = (env as any).TAMBO_AGENT_SECRET as string | undefined;
+    const secret = env.TAMBO_AGENT_SECRET;
     if (secret) {
       const provided = req.headers["x-agent-secret"] as string | undefined;
       if (!provided || !secureCompare(provided, secret)) {
+        logger.warn("Chat: invalid or missing agent secret");
         res.status(401).json({ error: "Invalid agent secret" });
         return;
       }
@@ -151,6 +154,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       }
     } else {
       // No secret configured and no JWT — always reject (even in dev mode)
+      logger.warn("Chat: no auth token and no agent secret configured");
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
@@ -173,6 +177,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   // 3. Extract deployment ID
   const deploymentId = extractDeploymentId(body);
   if (!deploymentId) {
+    logger.warn("Chat: could not extract deploymentId from request body");
     sendEvent(res, { type: "RUN_STARTED", runId, threadId });
     const errMsgId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: errMsgId, role: "assistant" });
@@ -189,6 +194,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   });
 
   if (!deployment) {
+    logger.warn({ deploymentId }, "Chat: deployment not found");
     sendEvent(res, { type: "RUN_STARTED", runId, threadId });
     const errMsgId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: errMsgId, role: "assistant" });
@@ -200,7 +206,8 @@ tamboAgentRouter.post("/", async (req, res) => {
   }
 
   // 5. Verify ownership (always enforced regardless of auth method)
-  if ((deployment as any).userId !== authenticatedUserId) {
+  if (deployment.userId !== authenticatedUserId) {
+    logger.warn({ deploymentId, userId: authenticatedUserId }, "Chat: user does not own deployment");
     sendEvent(res, { type: "RUN_STARTED", runId, threadId });
     const errMsgId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: errMsgId, role: "assistant" });
@@ -211,7 +218,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     return;
   }
 
-  const dep = deployment as any;
+  const requestStartMs = Date.now();
   const agMessages = body.messages || [];
 
   // Extract last user message
@@ -223,6 +230,8 @@ tamboAgentRouter.post("/", async (req, res) => {
         ? lastUserMsg.content.map((c: any) => c.text || "").join("")
         : "")
     : "";
+
+  logger.info({ deploymentId, messageLength: lastUserText.length }, "Chat: request started");
 
   // Send RUN_STARTED
   sendEvent(res, { type: "RUN_STARTED", runId, threadId });
@@ -248,10 +257,10 @@ tamboAgentRouter.post("/", async (req, res) => {
     return;
   }
 
-  if (dep.status !== "running") {
+  if (deployment.status !== "running") {
     const messageId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
-    sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Your bot is currently ${dep.status}. It needs to be running to chat. You can start it using the Start button.` });
+    sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Your bot is currently ${deployment.status}. It needs to be running to chat. You can start it using the Start button.` });
     sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
     sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
     res.end();
@@ -279,10 +288,19 @@ tamboAgentRouter.post("/", async (req, res) => {
     sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
 
     logger.info(
-      { deploymentId, rawText: gatewayResult.rawText.slice(0, 500), blockCount: gatewayResult.uiBlocks.length },
+      {
+        deploymentId,
+        rawText: gatewayResult.rawText.slice(0, 500),
+        blockCount: gatewayResult.uiBlocks.length,
+        updateCount: gatewayResult.uiUpdates?.length ?? 0,
+      },
       "chatWithBot: gateway response summary"
     );
     const resolvedBlocks = await resolveUIBlocks(gatewayResult.uiBlocks, deploymentId);
+    const customCount = resolvedBlocks.filter(b => b.component === "layout" && !gatewayResult.uiBlocks.find(orig => orig.id === b.id && orig.component === "layout")).length;
+    if (resolvedBlocks.length > 0) {
+      logger.debug({ deploymentId, blockCount: resolvedBlocks.length, customCount }, "Chat: resolved UI blocks");
+    }
 
     for (const block of resolvedBlocks) {
       sendEvent(res, {
@@ -297,6 +315,26 @@ tamboAgentRouter.post("/", async (req, res) => {
       sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: block.id, props: block.props });
       sendEvent(res, { type: "UI_BLOCK_END", blockId: block.id });
     }
+
+    // Emit UI_BLOCK_UPDATE events for in-place card updates
+    if (gatewayResult.uiUpdates) {
+      for (const update of gatewayResult.uiUpdates) {
+        sendEvent(res, {
+          type: "UI_BLOCK_UPDATE",
+          cardId: update.cardId,
+          props: update.props,
+          merge: update.merge,
+          ...(update.component ? { component: update.component } : {}),
+        });
+      }
+    }
+
+    const durationMs = Date.now() - requestStartMs;
+    const eventCount = resolvedBlocks.length + (gatewayResult.uiUpdates?.length ?? 0);
+    logger.info(
+      { deploymentId, durationMs, blockCount: resolvedBlocks.length, updateCount: gatewayResult.uiUpdates?.length ?? 0, rawTextLength: gatewayResult.rawText.length },
+      "Chat: request completed"
+    );
 
     sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
     res.end();
@@ -327,10 +365,11 @@ tamboAgentRouter.post("/", async (req, res) => {
       const result = await tryExec();
       await emitGatewayResult(result);
       return;
-    } catch (err: any) {
-      if (err.name === "AbortError" || abortController.signal.aborted) return;
-      logger.error({ deploymentId, error: err.message }, "Exec-only chat failed");
-      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${err.message}` });
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (e.name === "AbortError" || abortController.signal.aborted) return;
+      logger.error({ deploymentId, error: e.message }, "Exec-only chat failed");
+      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${e.message}` });
       sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
       sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
       res.end();
@@ -375,23 +414,25 @@ tamboAgentRouter.post("/", async (req, res) => {
       await emitGatewayResult(gatewayResult);
       return;
 
-    } catch (err: any) {
-      if (err.name === "AbortError" || abortController.signal.aborted) return;
-      lastError = err;
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (e.name === "AbortError" || abortController.signal.aborted) return;
+      lastError = e;
 
       // On connection-level errors, fall back to exec through K8s API
-      const isConnectionError = /ETIMEDOUT|ECONNREFUSED|ECONNRESET|handshake|closed before auth/i.test(err.message);
+      const isConnectionError = /ETIMEDOUT|ECONNREFUSED|ECONNRESET|handshake|closed before auth/i.test(e.message);
       if (isConnectionError && attempt < MAX_ATTEMPTS - 1) {
-        logger.warn({ deploymentId, attempt, error: err.message }, "Gateway WS failed, falling back to exec (npx openclaw agent)");
+        logger.warn({ deploymentId, attempt, error: e.message }, "Gateway WS failed, falling back to exec (npx openclaw agent)");
         lastDeltaText = "";
 
         try {
           const result = await tryExec();
           await emitGatewayResult(result);
           return;
-        } catch (execErr: any) {
-          logger.warn({ deploymentId, error: execErr.message }, "Exec fallback also failed");
-          lastError = execErr;
+        } catch (execErr: unknown) {
+          const execE = execErr instanceof Error ? execErr : new Error(String(execErr));
+          logger.warn({ deploymentId, error: execE.message }, "Exec fallback also failed");
+          lastError = execE;
         }
         continue;
       }
