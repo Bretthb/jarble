@@ -155,12 +155,9 @@ export default function SettingsView() {
             >
               <ChevronLeft className="w-4 h-4" />
             </Button>
-            <div
-              className="flex items-center gap-2 cursor-pointer"
-              onClick={() => router.push("/")}
-            >
+            <a href="/" className="flex items-center gap-2 cursor-pointer no-underline text-foreground">
               <span className="font-semibold">Jarble</span>
-            </div>
+            </a>
           </div>
           <ProfileDropdown />
         </div>

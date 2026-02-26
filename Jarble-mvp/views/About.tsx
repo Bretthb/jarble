@@ -389,8 +389,8 @@ export default function About() {
               <Link href="/" className="text-muted-foreground hover:text-primary transition-colors">Home</Link>
               <Link href="/about" className="text-muted-foreground hover:text-primary transition-colors">About</Link>
               <Link href="/pricing" className="text-muted-foreground hover:text-primary transition-colors">Pricing</Link>
-              <a href="#" className="text-muted-foreground hover:text-primary transition-colors">Documentation</a>
-              <a href="#" className="text-muted-foreground hover:text-primary transition-colors">Contact</a>
+              <span className="text-muted-foreground/50 cursor-default" title="Coming soon">Documentation</span>
+              <span className="text-muted-foreground/50 cursor-default" title="Coming soon">Contact</span>
             </nav>
           </div>
           <div className="mt-8 pt-8 border-t border-border text-center text-muted-foreground text-sm">

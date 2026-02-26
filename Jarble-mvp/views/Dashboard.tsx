@@ -162,12 +162,9 @@ export default function Dashboard() {
       {/* Navigation */}
       <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
-          <div
-            className="flex items-center gap-2 cursor-pointer"
-            onClick={() => router.push("/")}
-          >
+          <a href="/" className="flex items-center gap-2 cursor-pointer no-underline text-foreground">
             <span className="font-semibold">Jarble</span>
-          </div>
+          </a>
           <ProfileDropdown />
         </div>
       </nav>

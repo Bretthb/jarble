@@ -224,6 +224,7 @@ export default function ComponentGallery({ deploymentId, cards, dispatch }: Comp
               onClick={() => fetchGallery()}
               disabled={loading}
               className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+              aria-label="Refresh gallery"
               title="Refresh"
             >
               <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
@@ -254,8 +255,11 @@ export default function ComponentGallery({ deploymentId, cards, dispatch }: Comp
                 {items.map(item => (
                   <div
                     key={item.fileId}
-                    className="group relative flex flex-col gap-1 p-2 rounded-md border border-border/40 bg-secondary/20 hover:bg-secondary/40 hover:border-border/60 transition-colors cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    className="group relative flex flex-col gap-1 p-2 rounded-md border border-border/40 bg-secondary/20 hover:bg-secondary/40 hover:border-border/60 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/50"
                     onClick={() => handleLoad(item)}
+                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), handleLoad(item))}
                     title={`Load "${item.name}" onto canvas`}
                   >
                     {/* Component type badge */}
@@ -287,6 +291,7 @@ export default function ComponentGallery({ deploymentId, cards, dispatch }: Comp
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
                       className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-all"
+                      aria-label={`Delete ${item.name} from library`}
                       title="Delete from library"
                     >
                       {deletingId === item.fileId ? (

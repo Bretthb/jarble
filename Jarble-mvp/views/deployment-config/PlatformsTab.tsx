@@ -548,6 +548,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                               type="button"
                               onClick={() => toggleSecretVisibility(field.key)}
                               className="p-1 text-muted-foreground hover:text-foreground"
+                              aria-label={showSecrets[field.key] ? "Hide secret" : "Show secret"}
                             >
                               {showSecrets[field.key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
@@ -556,6 +557,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                                 type="button"
                                 onClick={() => copyToClipboard(platformCredentials[field.key])}
                                 className="p-1 text-muted-foreground hover:text-foreground"
+                                aria-label="Copy to clipboard"
                               >
                                 <Copy className="w-4 h-4" />
                               </button>
