@@ -313,6 +313,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                       onClick={() => handleDisconnect(platform.id)}
                       disabled={deleteMutation.isPending}
                       className="border-border text-muted-foreground hover:bg-secondary/80"
+                      aria-label={`Disconnect ${platform.name}`}
                     >
                       {deleteMutation.isPending ? (
                         <Loader2 className="w-4 h-4 animate-spin" />

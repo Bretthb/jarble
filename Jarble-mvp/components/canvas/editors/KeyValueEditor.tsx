@@ -43,7 +43,7 @@ export default function KeyValueEditor({ props, onChange }: EditorProps) {
 
       <div className="space-y-1.5">
         {items.map((item, i) => (
-          <div key={i} className="flex gap-1.5 items-center group">
+          <div key={`${item.key}-${i}`} className="flex gap-1.5 items-center group">
             <input
               type="text"
               value={item.key}
@@ -62,6 +62,7 @@ export default function KeyValueEditor({ props, onChange }: EditorProps) {
               onClick={() => removeItem(i)}
               className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-red-400 transition-opacity"
               title="Remove"
+              aria-label={`Remove ${item.key || "pair"}`}
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>

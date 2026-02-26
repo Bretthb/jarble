@@ -77,7 +77,7 @@ export default function LayoutEditor({ props, onChange, disabled }: EditorProps)
 
           return (
             <div
-              key={i}
+              key={`${child.component}-${i}`}
               className="rounded-lg border border-border/60 bg-background/50 overflow-hidden"
             >
               <div className="flex items-center">
@@ -114,6 +114,7 @@ export default function LayoutEditor({ props, onChange, disabled }: EditorProps)
                     onClick={() => setConfirmRemove(i)}
                     className="p-1.5 mr-1 text-muted-foreground/50 hover:text-red-400 transition-colors"
                     title="Remove component"
+                    aria-label={`Remove ${child.component} #${i + 1}`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>

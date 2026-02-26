@@ -278,6 +278,7 @@ function ConfigChat({ deploymentId }: { deploymentId: string }) {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder="Change model, connect platform, edit prompt..."
+            aria-label="Configuration chat"
             className="flex-1 rounded-lg border border-border/60 bg-secondary/30 px-3 py-2 text-xs
               placeholder:text-muted-foreground/50
               focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/40

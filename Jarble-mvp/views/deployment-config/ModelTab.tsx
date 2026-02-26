@@ -361,10 +361,11 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
 
       {/* Credit limit editor */}
       <div className="flex items-center gap-3 pt-1">
-        <Label className="text-xs text-muted-foreground whitespace-nowrap">Monthly Limit</Label>
+        <Label htmlFor="monthly-limit" className="text-xs text-muted-foreground whitespace-nowrap">Monthly Limit</Label>
         <div className="flex items-center gap-2 flex-1">
           <span className="text-sm text-muted-foreground">$</span>
           <Input
+            id="monthly-limit"
             type="number"
             min={1}
             max={1000}

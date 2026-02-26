@@ -12,7 +12,7 @@ export default function CanvasImage({ src, alt, caption }: CanvasImageProps) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
-        alt={alt || ""}
+        alt={alt || caption || ""}
         className="w-full max-h-80 object-contain bg-secondary/20"
         loading="lazy"
       />

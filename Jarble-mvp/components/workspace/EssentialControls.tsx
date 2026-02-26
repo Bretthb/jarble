@@ -157,6 +157,7 @@ export default function EssentialControls({
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="New API key..."
+            aria-label="New API key"
             className="h-7 w-40 rounded-md border border-border/60 bg-background/60 px-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-amber-500/40 focus:border-amber-500/40 transition-colors"
             autoFocus
             onKeyDown={(e) => {

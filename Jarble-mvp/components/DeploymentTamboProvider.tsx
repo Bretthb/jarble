@@ -95,7 +95,7 @@ export default function DeploymentTamboProvider({
     let cancelled = false;
     getAccessTokenSilently()
       .then((token) => { if (!cancelled) setAuthToken(token); })
-      .catch(() => {});
+      .catch((err) => { console.warn("[Jarble:Auth] Failed to get access token:", err); });
     return () => { cancelled = true; };
   }, [getAccessTokenSilently]);
 

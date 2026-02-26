@@ -419,6 +419,7 @@ export default function SimpleCanvasGrid({
                   onPointerDown={(e) => e.stopPropagation()}>
                   <input ref={saveInputRef} type="text" value={saveNameInput}
                     onChange={(e) => setSaveNameInput(e.target.value)}
+                    aria-label="Component name"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleSaveConfirm(card);
                       else if (e.key === "Escape") { setSavingCardId(null); setSaveNameInput(""); }

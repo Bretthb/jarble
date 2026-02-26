@@ -28,7 +28,7 @@ export default function ButtonGroupEditor({ props, onChange }: EditorProps) {
   return (
     <div className="space-y-2">
       {buttons.map((btn, i) => (
-        <div key={i} className="flex gap-1.5 items-center">
+        <div key={btn.id} className="flex gap-1.5 items-center">
           <input
             type="text"
             value={btn.label}
@@ -48,6 +48,7 @@ export default function ButtonGroupEditor({ props, onChange }: EditorProps) {
           <button
             onClick={() => removeButton(i)}
             className="px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground border border-border/60 hover:bg-secondary"
+            aria-label={`Remove button ${btn.label || i + 1}`}
           >
             x
           </button>

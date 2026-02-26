@@ -256,6 +256,7 @@ function DeploymentDetailPanel({
         <button
           onClick={onClose}
           className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Close panel"
         >
           <X className="w-4 h-4" />
         </button>
