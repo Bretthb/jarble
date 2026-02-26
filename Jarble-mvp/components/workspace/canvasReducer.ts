@@ -313,7 +313,6 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
         id: groupId,
         component: "layout",
         props: {
-          title: `Group (${groupedCards.length} items)`,
           children,
         },
         title: `Group (${groupedCards.length} items)`,
