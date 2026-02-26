@@ -22,7 +22,7 @@ import { logger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { getPodAddress, findPodForDeployment } from "../k8s/index.js";
 import { chatViaGateway, chatViaExec, type GatewayResponse } from "../services/openclawGateway.js";
-import { extractUIBlocks, type JarbleUIBlock, type JarbleUIUpdate } from "../utils/uiBlockParser.js";
+import { extractUIBlocks, type JarbleUIBlock } from "../utils/uiBlockParser.js";
 import { readComponentFromPvc } from "../k8s/index.js";
 import {
   isBuiltinComponent,
@@ -366,10 +366,11 @@ tamboAgentRouter.post("/", async (req, res) => {
       const result = await tryExec();
       await emitGatewayResult(result);
       return;
-    } catch (err: any) {
-      if (err.name === "AbortError" || abortController.signal.aborted) return;
-      logger.error({ deploymentId, error: err.message }, "Exec-only chat failed");
-      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${err.message}` });
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (e.name === "AbortError" || abortController.signal.aborted) return;
+      logger.error({ deploymentId, error: e.message }, "Exec-only chat failed");
+      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${e.message}` });
       sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
       sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
       res.end();
@@ -414,23 +415,25 @@ tamboAgentRouter.post("/", async (req, res) => {
       await emitGatewayResult(gatewayResult);
       return;
 
-    } catch (err: any) {
-      if (err.name === "AbortError" || abortController.signal.aborted) return;
-      lastError = err;
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (e.name === "AbortError" || abortController.signal.aborted) return;
+      lastError = e;
 
       // On connection-level errors, fall back to exec through K8s API
-      const isConnectionError = /ETIMEDOUT|ECONNREFUSED|ECONNRESET|handshake|closed before auth/i.test(err.message);
+      const isConnectionError = /ETIMEDOUT|ECONNREFUSED|ECONNRESET|handshake|closed before auth/i.test(e.message);
       if (isConnectionError && attempt < MAX_ATTEMPTS - 1) {
-        logger.warn({ deploymentId, attempt, error: err.message }, "Gateway WS failed, falling back to exec (npx openclaw agent)");
+        logger.warn({ deploymentId, attempt, error: e.message }, "Gateway WS failed, falling back to exec (npx openclaw agent)");
         lastDeltaText = "";
 
         try {
           const result = await tryExec();
           await emitGatewayResult(result);
           return;
-        } catch (execErr: any) {
-          logger.warn({ deploymentId, error: execErr.message }, "Exec fallback also failed");
-          lastError = execErr;
+        } catch (execErr: unknown) {
+          const execE = execErr instanceof Error ? execErr : new Error(String(execErr));
+          logger.warn({ deploymentId, error: execE.message }, "Exec fallback also failed");
+          lastError = execE;
         }
         continue;
       }

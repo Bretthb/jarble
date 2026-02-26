@@ -10,6 +10,7 @@
  */
 
 import { nanoid } from "nanoid";
+import { logger } from "./logger.js";
 
 export interface JarbleUIBlock {
   id: string;
@@ -56,13 +57,13 @@ export function extractUIBlocks(text: string): {
 
   const cleanText = text.replace(JARBLE_UI_FENCE, (match, jsonContent: string) => {
     if (blockCount >= MAX_BLOCKS) {
-      console.warn(`[uiBlockParser] Exceeded MAX_BLOCKS (${MAX_BLOCKS}), truncating`);
+      logger.warn(`[uiBlockParser] Exceeded MAX_BLOCKS (${MAX_BLOCKS}), truncating`);
       return match; // Leave excess blocks as visible text
     }
 
     const trimmed = jsonContent.trim();
     if (trimmed.length > MAX_BLOCK_SIZE) {
-      console.warn(`[uiBlockParser] Block exceeds MAX_BLOCK_SIZE (${trimmed.length} > ${MAX_BLOCK_SIZE}), skipping`);
+      logger.warn(`[uiBlockParser] Block exceeds MAX_BLOCK_SIZE (${trimmed.length} > ${MAX_BLOCK_SIZE}), skipping`);
       return match; // Too large, leave as text
     }
 
@@ -91,7 +92,7 @@ export function extractUIBlocks(text: string): {
 
       return ""; // Strip the block from text
     } catch {
-      console.warn("[uiBlockParser] Failed to parse jarble_ui block:", trimmed.slice(0, 200));
+      logger.warn("[uiBlockParser] Failed to parse jarble_ui block: %s", trimmed.slice(0, 200));
       return match; // Invalid JSON, leave as visible text
     }
   });
@@ -100,7 +101,7 @@ export function extractUIBlocks(text: string): {
   const finalText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
 
   if (uiBlocks.length > 0) {
-    console.log(`[uiBlockParser] Extracted ${uiBlocks.length} blocks from ${text.length} chars`);
+    logger.debug(`[uiBlockParser] Extracted ${uiBlocks.length} blocks from ${text.length} chars`);
   }
 
   return { cleanText: finalText, uiBlocks };
@@ -124,13 +125,13 @@ export function extractUIUpdates(text: string): {
 
   const cleanText = text.replace(JARBLE_UI_UPDATE_FENCE, (match, jsonContent: string) => {
     if (updateCount >= MAX_UPDATES) {
-      console.warn(`[uiBlockParser] Exceeded MAX_UPDATES (${MAX_UPDATES}), truncating`);
+      logger.warn(`[uiBlockParser] Exceeded MAX_UPDATES (${MAX_UPDATES}), truncating`);
       return match;
     }
 
     const trimmed = jsonContent.trim();
     if (trimmed.length > MAX_BLOCK_SIZE) {
-      console.warn(`[uiBlockParser] Update block exceeds MAX_BLOCK_SIZE (${trimmed.length} > ${MAX_BLOCK_SIZE}), skipping`);
+      logger.warn(`[uiBlockParser] Update block exceeds MAX_BLOCK_SIZE (${trimmed.length} > ${MAX_BLOCK_SIZE}), skipping`);
       return match;
     }
 
@@ -157,7 +158,7 @@ export function extractUIUpdates(text: string): {
 
       return ""; // Strip the block from text
     } catch {
-      console.warn("[uiBlockParser] Failed to parse jarble_ui_update block:", jsonContent.trim().slice(0, 200));
+      logger.warn("[uiBlockParser] Failed to parse jarble_ui_update block: %s", jsonContent.trim().slice(0, 200));
       return match; // Invalid JSON, leave as visible text
     }
   });
@@ -165,7 +166,7 @@ export function extractUIUpdates(text: string): {
   const finalText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
 
   if (uiUpdates.length > 0) {
-    console.log(`[uiBlockParser] Extracted ${uiUpdates.length} updates from ${text.length} chars`);
+    logger.debug(`[uiBlockParser] Extracted ${uiUpdates.length} updates from ${text.length} chars`);
   }
 
   return { cleanText: finalText, uiUpdates };

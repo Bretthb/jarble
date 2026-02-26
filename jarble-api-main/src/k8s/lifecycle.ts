@@ -4,7 +4,7 @@ import { coreApi, appsApi } from "./client.js";
 import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS } from "./constants.js";
 import type { DeploymentConfig } from "./constants.js";
 import { getDeploymentPodStatus } from "./status.js";
-import { createDeploymentConfigMap, deleteDeploymentConfigMap, decodeConfigKey } from "./configmap.js";
+import { createDeploymentConfigMap, deleteDeploymentConfigMap } from "./configmap.js";
 
 export async function createDeployment(
   deploymentId: string,

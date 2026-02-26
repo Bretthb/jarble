@@ -53,11 +53,12 @@ export const listFilesTool: McpTool = {
         message: `File listing for ${path}:\n${output}`,
         data: { path, listing: output },
       };
-    } catch (err: any) {
-      logger.warn({ deploymentId: ctx.deploymentId, err: err.message }, "MCP: list_files failed");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn({ deploymentId: ctx.deploymentId, err: msg }, "MCP: list_files failed");
       return {
         success: false,
-        message: `Could not list files at ${path}: ${err.message}`,
+        message: `Could not list files at ${path}: ${msg}`,
       };
     }
   },

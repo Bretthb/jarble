@@ -63,14 +63,15 @@ export const deleteComponentTool: McpTool = {
         success: true,
         message: `Component "${name}" deleted successfully.`,
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       logger.error(
-        { deploymentId: ctx.deploymentId, component: name, err: err.message },
+        { deploymentId: ctx.deploymentId, component: name, err: msg },
         "delete_component: failed"
       );
       return {
         success: false,
-        message: `Failed to delete component: ${err.message}`,
+        message: `Failed to delete component: ${msg}`,
       };
     }
   },

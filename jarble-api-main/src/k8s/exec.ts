@@ -139,8 +139,8 @@ export async function streamExecInPod(
         onExit(status.status === "Success", status.message || stderrData || undefined);
       }
     );
-  } catch (err: any) {
-    onExit(false, err.message || "exec failed to start");
+  } catch (err: unknown) {
+    onExit(false, err instanceof Error ? err.message : "exec failed to start");
     return { abort: () => {} };
   }
 

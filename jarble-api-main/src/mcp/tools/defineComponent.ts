@@ -88,14 +88,15 @@ export const defineComponentTool: McpTool = {
         success: true,
         message: `Component "${name}" saved successfully. You can now use it with render_ui.`,
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       logger.error(
-        { deploymentId: ctx.deploymentId, component: name, err: err.message },
+        { deploymentId: ctx.deploymentId, component: name, err: msg },
         "define_component: failed"
       );
       return {
         success: false,
-        message: `Failed to save component: ${err.message}`,
+        message: `Failed to save component: ${msg}`,
       };
     }
   },

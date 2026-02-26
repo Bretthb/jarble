@@ -139,8 +139,8 @@ canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
     } catch {
       res.json({ result: { text: output } });
     }
-  } catch (err: any) {
-    logger.error({ err: err.message }, "MCP proxy error");
+  } catch (err: unknown) {
+    logger.error({ err: err instanceof Error ? err.message : String(err) }, "MCP proxy error");
     res.status(500).json({ error: "Failed to invoke MCP tool" });
   }
 });

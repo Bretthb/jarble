@@ -27,11 +27,12 @@ export const getLogsTool: McpTool = {
         message: `Fetched ${logLines.length} log lines from pod ${result.podName}.`,
         data: { logs: result.logs, podName: result.podName },
       };
-    } catch (err: any) {
-      logger.warn({ deploymentId: ctx.deploymentId, err: err.message }, "MCP: Failed to fetch logs");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn({ deploymentId: ctx.deploymentId, err: msg }, "MCP: Failed to fetch logs");
       return {
         success: false,
-        message: `Could not fetch logs: ${err.message}. The pod may not be running.`,
+        message: `Could not fetch logs: ${msg}. The pod may not be running.`,
       };
     }
   },

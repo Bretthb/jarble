@@ -56,11 +56,12 @@ export const pairingListTool: McpTool = {
           message: output.trim() || `No pairings found for ${platform}.`,
         };
       }
-    } catch (err: any) {
-      logger.warn({ deploymentId: ctx.deploymentId, err: err.message }, "MCP: pairing_list failed");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn({ deploymentId: ctx.deploymentId, err: msg }, "MCP: pairing_list failed");
       return {
         success: false,
-        message: `Failed to list pairings: ${err.message}`,
+        message: `Failed to list pairings: ${msg}`,
       };
     }
   },
@@ -117,11 +118,12 @@ export const pairingApproveTool: McpTool = {
         success: true,
         message: `Pairing code "${code}" approved for ${platform}. The user has been notified.`,
       };
-    } catch (err: any) {
-      logger.warn({ deploymentId: ctx.deploymentId, err: err.message }, "MCP: pairing_approve failed");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn({ deploymentId: ctx.deploymentId, err: msg }, "MCP: pairing_approve failed");
       return {
         success: false,
-        message: `Failed to approve pairing: ${err.message}`,
+        message: `Failed to approve pairing: ${msg}`,
       };
     }
   },

@@ -78,11 +78,12 @@ export const writeFileTool: McpTool = {
         message: `Successfully wrote ${contentBytes} bytes to ${path}.`,
         data: { path, bytesWritten: contentBytes },
       };
-    } catch (err: any) {
-      logger.warn({ deploymentId: ctx.deploymentId, err: err.message }, "MCP: write_file failed");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn({ deploymentId: ctx.deploymentId, err: msg }, "MCP: write_file failed");
       return {
         success: false,
-        message: `Could not write file at ${path}: ${err.message}`,
+        message: `Could not write file at ${path}: ${msg}`,
       };
     }
   },

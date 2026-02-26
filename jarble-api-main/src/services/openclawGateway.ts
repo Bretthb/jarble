@@ -238,10 +238,10 @@ export async function chatViaGateway(
                 reject(new Error(`chat.send failed: ${err.message}`));
               }
             });
-          } catch (err: any) {
+          } catch (err: unknown) {
             finished = true;
             cleanup();
-            reject(new Error(`Gateway auth failed: ${err.message}`));
+            reject(new Error(`Gateway auth failed: ${err instanceof Error ? err.message : String(err)}`));
           }
           return;
         }

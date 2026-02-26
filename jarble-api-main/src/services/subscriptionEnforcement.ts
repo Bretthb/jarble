@@ -1,5 +1,5 @@
 import { db, tables, USE_SQLITE } from "../db/index.js";
-import { eq, and, isNotNull, lt, or, ne } from "drizzle-orm";
+import { eq, and, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { stopDeployment } from "../k8s/index.js";
 import { isStripeConfigured, getSubscriptionDetails } from "./stripe.js";
 import { logger } from "../utils/logger.js";
@@ -212,11 +212,12 @@ async function validateSubscriptionWithStripe(dep: {
           .where(eq(deployments.id, dep.id));
       }
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errObj = err as { code?: string; statusCode?: number; message?: string };
     // Stripe API error — could be invalid subscription ID (e.g., subscription deleted externally)
-    if (err?.code === "resource_missing" || err?.statusCode === 404) {
+    if (errObj.code === "resource_missing" || errObj.statusCode === 404) {
       logger.warn(
-        { deploymentId: dep.id, subscriptionId: dep.stripeSubscriptionId, err: err.message },
+        { deploymentId: dep.id, subscriptionId: dep.stripeSubscriptionId, err: errObj.message },
         "subscriptionEnforcement: subscription not found in Stripe, stopping deployment"
       );
 
@@ -256,8 +257,8 @@ export async function cleanupOrphanedDeployments(): Promise<void> {
         eq(deployments.isFree, false),
         // No subscription ID
         or(
-          eq(deployments.stripeSubscriptionId as any, null),
-          eq(deployments.stripeSubscriptionId as any, "")
+          isNull(deployments.stripeSubscriptionId),
+          eq(deployments.stripeSubscriptionId, "")
         )
       ),
     });

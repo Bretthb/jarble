@@ -58,10 +58,11 @@ export async function streamLlmCompletion(opts: StreamLlmOptions): Promise<void>
         : "https://api.openai.com/v1";
       await streamOpenAI(baseUrl, apiKey, model, messages, tools, onChunk, onToolCall, onDone, onError, signal);
     }
-  } catch (err: any) {
-    if (err.name === "AbortError") return;
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") return;
+    const msg = err instanceof Error ? err.message : String(err);
     logger.error({ err, provider, model }, "LLM proxy stream error");
-    onError(err.message || "LLM streaming failed");
+    onError(msg || "LLM streaming failed");
   }
 }
 

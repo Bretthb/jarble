@@ -25,7 +25,7 @@
  */
 
 import { db, tables } from "../db/index.js";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   writeConfigsToPvc,
   readConfigsFromPvc,
