@@ -359,14 +359,8 @@ sseRouter.get("/status/stream", async (req, res) => {
         where: eq(deploymentsTable.userId, user!.id),
       });
 
-      const results: Array<{
-        deploymentId: string;
-        status: string;
-        restarts?: number;
-        error?: string;
-      }> = [];
-
-      for (const dep of userDeployments) {
+      // Parallelize K8s pod status lookups instead of sequential N+1 calls
+      const results = await Promise.all(userDeployments.map(async (dep) => {
         const d = dep as any;
         const dbStatus = d.status as string;
 
@@ -374,12 +368,6 @@ sseRouter.get("/status/stream", async (req, res) => {
         if (!isTransitional && (dbStatus === "running" || dbStatus === "failed")) {
           try {
             const podStatus = await getDeploymentPodStatus(d.id);
-            results.push({
-              deploymentId: d.id,
-              status: podStatus.status,
-              restarts: podStatus.restarts,
-              error: podStatus.error,
-            });
 
             if (podStatus.status !== dbStatus
                 && (podStatus.status === "running" || podStatus.status === "failed")) {
@@ -397,13 +385,20 @@ sseRouter.get("/status/stream", async (req, res) => {
                 logger.warn({ deploymentId: d.id, syncErr }, "SSE status sync: failed to update DB");
               }
             }
+
+            return {
+              deploymentId: d.id,
+              status: podStatus.status,
+              restarts: podStatus.restarts,
+              error: podStatus.error,
+            };
           } catch {
-            results.push({ deploymentId: d.id, status: dbStatus });
+            return { deploymentId: d.id, status: dbStatus };
           }
-        } else {
-          results.push({ deploymentId: d.id, status: dbStatus });
         }
-      }
+
+        return { deploymentId: d.id, status: dbStatus };
+      }));
 
       return results;
     }

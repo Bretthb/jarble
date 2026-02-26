@@ -263,16 +263,27 @@ export const deploymentRouter = router({
         }
       }
 
-      // Check if this will be a free deployment
-      const freeStatus = await checkFreeDeployment(ctx.db, ctx.user.id);
-      const isFree = !freeStatus.freeUsed;
-
       // K8s requires lowercase RFC 1123 names for resources
       const deploymentId = nanoid();
       const now = new Date();
-      const freeExpiresAt = isFree
-        ? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
-        : null;
+      const freeTrialExpiry = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      // Atomic guard: attempt to claim the free deployment slot.
+      // This UPDATE only succeeds if freeDeploymentUsed is false/null,
+      // preventing two concurrent requests from both getting a free deployment.
+      const claimResult = await (ctx.db as any).update(users)
+        .set({
+          freeDeploymentUsed: true,
+          freeTrialExpiresAt: freeTrialExpiry,
+        })
+        .where(and(
+          eq(users.id, ctx.user.id),
+          or(eq(users.freeDeploymentUsed, false), isNull(users.freeDeploymentUsed))
+        ));
+
+      const claimRows = claimResult?.rowsAffected ?? claimResult?.changes ?? claimResult?.[0]?.affectedRows ?? 0;
+      const isFree = claimRows > 0;
+      const freeExpiresAt = isFree ? freeTrialExpiry : null;
 
       // ── Link Stripe subscription if available ──────────────────────
       let stripeSubscriptionId: string | null = null;
@@ -433,24 +444,8 @@ export const deploymentRouter = router({
         status: "pending",
       });
 
-      // If this is the free deployment, mark it on the user
-      // NOTE: Ideally this would be in a transaction with the deployment insert above,
-      // but since this only affects free tier (one-time), failure here just means
-      // user might be able to create another free deployment (minor issue).
-      // The atomic check in checkFreeDeployment also queries deployments table as backup.
-      if (isFree) {
-        try {
-          await (ctx.db as any).update(users)
-            .set({
-              freeDeploymentUsed: true,
-              freeTrialExpiresAt: freeExpiresAt,
-            })
-            .where(eq(users.id, ctx.user.id));
-        } catch (err) {
-          // Log but don't fail - deployment already created
-          logger.warn({ userId: ctx.user.id, err }, "Failed to mark free deployment used on user");
-        }
-      }
+      // Free deployment claim was already handled atomically at the top of create
+      // via the conditional UPDATE on users.freeDeploymentUsed (no separate update needed here).
 
       // Save Telegram bot token to platformCredentials (if provided during wizard)
       // This ensures the token is in the DB before deploy, so it gets included in

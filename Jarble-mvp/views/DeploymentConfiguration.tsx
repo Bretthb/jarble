@@ -271,6 +271,29 @@ export default function DeploymentConfiguration() {
     );
   }
 
+  if (deploymentQuery.isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (deploymentQuery.isError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Card className="p-8 bg-card border-border text-center">
+          <h2 className="text-xl font-bold text-foreground mb-2">Failed to load deployment</h2>
+          <p className="text-muted-foreground mb-4">{deploymentQuery.error?.message || "Something went wrong"}</p>
+          <div className="flex gap-2 justify-center">
+            <Button variant="outline" onClick={() => deploymentQuery.refetch()}>Retry</Button>
+            <Button onClick={() => router.push("/dashboard")}>Back to Dashboard</Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}

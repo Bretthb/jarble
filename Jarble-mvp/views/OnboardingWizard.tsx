@@ -43,6 +43,26 @@ export default function OnboardingWizard() {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployProgress, setDeployProgress] = useState(0);
 
+  // Simulate deploy progress (no streaming progress from API, so we animate it)
+  useEffect(() => {
+    if (!isDeploying) {
+      setDeployProgress(0);
+      return;
+    }
+    // Quickly advance to ~30%, then slow down asymptotically toward 90%
+    let frame: number;
+    const start = Date.now();
+    const tick = () => {
+      const elapsed = (Date.now() - start) / 1000; // seconds
+      // Fast start, slow asymptote: 90 * (1 - e^(-t/15))
+      const progress = Math.min(90, 90 * (1 - Math.exp(-elapsed / 15)));
+      setDeployProgress(Math.round(progress));
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [isDeploying]);
+
   // Form state
   const [deploymentName, setDeploymentName] = useState("");
   const [selectedRuntimeId, setSelectedRuntimeId] = useState<number | null>(null);
@@ -175,6 +195,7 @@ export default function OnboardingWizard() {
   const deployMutation = trpc.deployment.deploy.useMutation({
     onSuccess: () => {
       toast.success("Deployed successfully!");
+      setDeployProgress(100);
       setIsDeploying(false);
       // Redirect to Tambo chat page for the newly deployed bot
       const targetId = createdDeploymentId || id;
