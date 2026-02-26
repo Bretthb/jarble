@@ -166,7 +166,7 @@ export default function Dashboard() {
             className="flex items-center gap-2 cursor-pointer"
             onClick={() => router.push("/")}
           >
-            <span className="font-semibold">Jarble</span>
+            <span className="font-serif font-bold text-2xl tracking-tight">Jarble</span>
           </div>
           <ProfileDropdown />
         </div>

@@ -1,15 +1,20 @@
 "use client";
 
+import Image from "next/image";
 import {
   CheckCircle2,
   Loader2,
-  Bot,
   HelpCircle,
   Cpu,
   HardDrive,
   MemoryStick,
 } from "lucide-react";
 import type { RuntimeEntry } from "../types";
+
+const RUNTIME_LOGOS: Record<string, string> = {
+  openclaw: "/openclaw-logo.svg",
+  zeroclaw: "/zeroclaw.png",
+};
 
 interface StepChooseRuntimeProps {
   runtimes: RuntimeEntry[];
@@ -58,15 +63,13 @@ export default function StepChooseRuntime({
               }`}
             >
               <div className="flex items-center gap-4">
-                <div
-                  className={`w-16 h-16 rounded-xl flex items-center justify-center ${
-                    runtime.slug === "openclaw"
-                      ? "bg-gradient-to-br from-purple-500 to-blue-500"
-                      : "bg-gradient-to-br from-emerald-500 to-teal-500"
-                  }`}
-                >
-                  <Bot className="w-8 h-8 text-white" />
-                </div>
+                <Image
+                  src={RUNTIME_LOGOS[runtime.slug] ?? "/openclaw-logo.svg"}
+                  alt={`${runtime.name} logo`}
+                  width={64}
+                  height={64}
+                  className="w-16 h-16 rounded-xl"
+                />
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-semibold text-lg">{runtime.name}</h3>

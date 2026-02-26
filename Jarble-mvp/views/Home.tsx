@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { ArrowRight, Zap, Shield, Gauge, Loader2 } from "lucide-react";
+import { ArrowRight, Zap, Shield, Key, Loader2 } from "lucide-react";
 import { useState } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
 
@@ -101,7 +101,7 @@ export default function Home() {
                   <span className="block text-primary">with Jarble</span>
                 </h2>
                 <p className="text-xl text-muted-foreground">
-                  Create and deploy powerful AI bots across WhatsApp, Discord, Slack, and more. No coding required.
+                  Pick a runtime, bring your own API key, and deploy a live AI agent in minutes. No coding required.
                 </p>
               </div>
 
@@ -109,22 +109,22 @@ export default function Home() {
                 <div className="flex gap-3 items-start animate-fade-in-up-fast">
                   <Zap className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
                   <div>
-                    <h3 className="font-semibold">Lightning Fast Setup</h3>
-                    <p className="text-sm text-muted-foreground">Get your bot running in under 5 minutes</p>
+                    <h3 className="font-semibold">Deploy in Minutes</h3>
+                    <p className="text-sm text-muted-foreground">A guided wizard takes you from zero to live bot in minutes</p>
                   </div>
                 </div>
                 <div className="flex gap-3 items-start animate-fade-in-up-fast">
                   <Shield className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
                   <div>
-                    <h3 className="font-semibold">Secure & Reliable</h3>
-                    <p className="text-sm text-muted-foreground">Enterprise-grade security and uptime</p>
+                    <h3 className="font-semibold">Managed Infrastructure</h3>
+                    <p className="text-sm text-muted-foreground">No servers to configure or maintain - we handle hosting, scaling, and uptime for you</p>
                   </div>
                 </div>
                 <div className="flex gap-3 items-start animate-fade-in-up-fast">
-                  <Gauge className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
+                  <Key className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
                   <div>
-                    <h3 className="font-semibold">Flexible Tiers</h3>
-                    <p className="text-sm text-muted-foreground">Scale from Bronze to Platinum as you grow</p>
+                    <h3 className="font-semibold">Bring Your Own Key</h3>
+                    <p className="text-sm text-muted-foreground">Use your API key from OpenRouter, OpenAI, Anthropic, or Google - no markup</p>
                   </div>
                 </div>
               </div>
