@@ -1264,14 +1264,20 @@ export const deploymentRouter = router({
         }
       }
 
-      // Cancel Stripe subscription if one exists (prevent orphaned billing)
+      // Cancel Stripe subscription if one exists (prevent orphaned billing).
+      // This MUST succeed before we delete anything — otherwise the user gets
+      // billed for a resource that no longer exists and has no way to cancel it.
       if (dep.stripeSubscriptionId && isStripeConfigured()) {
         logger.debug({ deploymentId: input.id, subscriptionId: dep.stripeSubscriptionId }, "delete: cancelling Stripe subscription");
         try {
           await cancelSubscriptionImmediately(dep.stripeSubscriptionId);
           logger.debug({ deploymentId: input.id }, "delete: Stripe subscription cancelled");
         } catch (err) {
-          logger.warn({ err, deploymentId: input.id, subscriptionId: dep.stripeSubscriptionId }, "delete: failed to cancel Stripe subscription — continuing");
+          logger.error({ err, deploymentId: input.id, subscriptionId: dep.stripeSubscriptionId }, "delete: failed to cancel Stripe subscription — aborting deletion");
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to cancel subscription. Please try again or contact support.",
+          });
         }
       }
 
