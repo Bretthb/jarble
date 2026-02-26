@@ -150,8 +150,8 @@ function ConfigChat({ deploymentId }: { deploymentId: string }) {
       try {
         await submit();
         logConfig("Message submitted successfully");
-      } catch (err: any) {
-        const errMsg = err.message || "Failed to send message";
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : "Failed to send message";
         logConfigError("Submit failed:", errMsg);
         setSubmitError(errMsg);
       }
