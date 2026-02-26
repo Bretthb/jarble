@@ -111,7 +111,7 @@ export const layoutSchema = z.object({
     })
   ),
   columns: z.number().min(1).max(4).optional().describe("Grid columns (1-4). Auto-detects if omitted."),
-  direction: z.enum(["grid", "vertical"]).optional().describe("Layout mode: grid (default) or vertical stack."),
+  direction: z.enum(["grid", "vertical", "horizontal"]).optional().describe("Layout mode: grid (default), vertical stack, or horizontal row."),
   gap: z.number().optional().describe("Gap between children in px. Default: 12."),
 });
 

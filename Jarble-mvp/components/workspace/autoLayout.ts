@@ -70,6 +70,7 @@ const TYPE_ORDER: Record<string, number> = {
   progress: 1,
   alert: 2,
   stat_grid: 2,
+  layout: 2,
   chart: 3,
   data_table: 4,
   spreadsheet: 4,

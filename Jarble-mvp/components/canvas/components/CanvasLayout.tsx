@@ -14,8 +14,8 @@ export interface CanvasLayoutProps {
   children: LayoutChild[];
   /** Number of grid columns (1-4). Default: auto-detect from child count. */
   columns?: number;
-  /** Layout direction: "grid" (default) or "vertical" for stacking. */
-  direction?: "grid" | "vertical";
+  /** Layout direction: "grid" (default), "vertical" for stacking, or "horizontal" for row. */
+  direction?: "grid" | "vertical" | "horizontal";
   /** Gap between children in pixels. Default: 12. */
   gap?: number;
 }
@@ -55,12 +55,19 @@ export default function CanvasLayout({
   }
 
   const isVertical = direction === "vertical";
-  const cols = isVertical ? 1 : (columns ?? autoColumns(children));
+  const isHorizontal = direction === "horizontal";
+  const cols = isVertical || isHorizontal ? children.length : (columns ?? autoColumns(children));
   const gridClass = GRID_CLASSES[Math.min(Math.max(cols, 1), 4)] || "grid-cols-2";
+
+  const layoutClass = isVertical
+    ? "flex flex-col"
+    : isHorizontal
+      ? "flex flex-row"
+      : `grid ${gridClass}`;
 
   return (
     <div
-      className={`${isVertical ? "flex flex-col" : `grid ${gridClass}`} h-full min-h-0`}
+      className={`${layoutClass} h-full min-h-0`}
       style={{ gap }}
     >
       {children.map((child, i) => {
@@ -72,7 +79,7 @@ export default function CanvasLayout({
           try { resolvedProps = JSON.parse(child.propsJson); } catch { /* empty */ }
         }
         return (
-          <div key={`child-${i}`} className={isVertical ? "flex-1 min-h-0" : "min-h-0"}>
+          <div key={`child-${i}`} className={isVertical ? "flex-1 min-h-0" : isHorizontal ? "flex-1 min-w-0" : "min-h-0"}>
             <CanvasRenderer
               block={{
                 id: `child-${i}`,

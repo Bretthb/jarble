@@ -101,7 +101,7 @@ Use \\\`jarble_ui_update\\\` with card ID from \`[CANVAS_STATE]\` or \`[EDITING]
 **chart**: \`{type: "bar"|"line"|"pie"|"area", data: [{...}], dataKeys: string[], xAxisKey?, colors?, stacked?, title?}\`
 **sandbox**: \`{html, js?, css?, libraries?: string[], title?}\` — html is body-only (no script/style/html/head/body tags). Libraries are CDN URLs loaded before JS. Use \`jarble.send("action", data)\` to message back. CORS: opaque origin — fetch data via browser tool first.
 **video**: \`{url, title?}\` — YouTube, Twitch, Vimeo, MP4, HLS
-**layout**: \`{children: [{component, props: {...}}], columns?: 1-4, direction?: "grid"|"vertical"}\` — **USE THIS to group components into a dashboard grid**. Example: \`{children: [{component: "metric_card", props: {label: "Revenue", value: "$12k", change: "+8%"}}, {component: "metric_card", props: {label: "Users", value: "1,234", change: "+12%"}}], columns: 2}\`
+**layout**: \`{children: [{component, props: {...}}], columns?: 1-4, direction?: "grid"|"vertical"|"horizontal"}\` — **USE THIS to group components into a dashboard grid**. direction: "grid" (default, auto-columns), "horizontal" (side-by-side row), "vertical" (stacked). Example: \`{children: [{component: "metric_card", props: {label: "Revenue", value: "$12k", change: "+8%"}}, {component: "metric_card", props: {label: "Users", value: "1,234", change: "+12%"}}], columns: 2}\`
 **form**: \`{fields: [{name, label, type: "text"|"email"|"textarea"|"select"|"number"|"checkbox", ...}], submitLabel?}\`
 **button_group**: \`{buttons: [{id, label, variant?, icon?}]}\`
 **list**: \`{items: [{text, description?, icon?, badge?}], title?}\`
