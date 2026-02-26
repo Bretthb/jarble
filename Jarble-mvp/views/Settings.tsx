@@ -68,7 +68,6 @@ export default function SettingsView() {
     setIsSaving(true);
     updateProfileMutation.mutate({
       name: name.trim(),
-      email: email.trim(),
     });
   };
 

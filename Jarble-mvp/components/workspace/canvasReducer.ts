@@ -15,7 +15,7 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
         cards: [...state.cards, { ...action.card, zIndex: state.nextZIndex }],
         nextZIndex: state.nextZIndex + 1,
       };
-      console.log(`[Jarble:Reducer] ADD_CARD -> ${newState.cards.length} cards`);
+      if (process.env.NODE_ENV === "development") console.log(`[Jarble:Reducer] ADD_CARD -> ${newState.cards.length} cards`);
       return newState;
     }
 
@@ -25,7 +25,7 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
         cards: state.cards.filter((c) => c.id !== action.id),
         focusedCardId: state.focusedCardId === action.id ? null : state.focusedCardId,
       };
-      console.log(`[Jarble:Reducer] REMOVE_CARD -> ${newState.cards.length} cards`);
+      if (process.env.NODE_ENV === "development") console.log(`[Jarble:Reducer] REMOVE_CARD -> ${newState.cards.length} cards`);
       return newState;
     }
 
@@ -133,7 +133,7 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       return { ...state, zoom: Math.max(0.25, Math.min(2.0, action.zoom)) };
 
     case "RESTORE_STATE":
-      console.log(`[Jarble:Reducer] RESTORE_STATE -> ${action.state.cards.length} cards`);
+      if (process.env.NODE_ENV === "development") console.log(`[Jarble:Reducer] RESTORE_STATE -> ${action.state.cards.length} cards`);
       return action.state;
 
     case "SPLIT_CARD": {
@@ -177,7 +177,7 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
 
       if (newCards.length === 0) return state; // All transformations failed
 
-      console.log(`[Jarble:Reducer] SPLIT_CARD -> ${items.length} items split into ${newCards.length} cards`);
+      if (process.env.NODE_ENV === "development") console.log(`[Jarble:Reducer] SPLIT_CARD -> ${items.length} items split into ${newCards.length} cards`);
       return {
         ...state,
         // Remove original card, add split cards

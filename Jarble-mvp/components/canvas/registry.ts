@@ -288,7 +288,7 @@ export interface CanvasComponentEntry {
 // Log registered components — call explicitly in a useEffect if needed, not at module load time
 // (module-level calls fire on every hot reload and in SSR contexts)
 export const logRegistry = () => {
-  if (typeof window !== "undefined") {
+  if (typeof window !== "undefined" && process.env.NODE_ENV === "development") {
     const keys = Object.keys(CANVAS_COMPONENTS);
     console.log("[Jarble:Registry]", keys.length, "components registered:", keys.join(", "));
   }

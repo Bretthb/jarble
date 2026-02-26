@@ -3,6 +3,8 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useCanvasAction } from "../CanvasActionContext";
 
+const isDev = process.env.NODE_ENV === "development";
+
 export interface CanvasSandboxProps {
   html: string;
   css?: string;
@@ -35,7 +37,7 @@ function sanitizeHtmlProp(
 
   // Extract <script src="..."> tags → libraries
   cleanHtml = cleanHtml.replace(/<script\s+[^>]*src=["']([^"']+)["'][^>]*>\s*<\/script>/gi, (_match, url) => {
-    console.log("[Jarble:Sandbox] Extracted <script src> from html →", url);
+    isDev && console.log("[Jarble:Sandbox] Extracted <script src> from html →", url);
     if (!extractedLibs.includes(url)) extractedLibs.push(url);
     return "";
   });
@@ -44,7 +46,7 @@ function sanitizeHtmlProp(
   cleanHtml = cleanHtml.replace(/<script[^>]*>([\s\S]*?)<\/script>/gi, (_match, code) => {
     const trimmed = (code as string).trim();
     if (trimmed) {
-      console.log("[Jarble:Sandbox] Extracted inline <script> from html →", trimmed.length, "chars");
+      isDev && console.log("[Jarble:Sandbox] Extracted inline <script> from html →", trimmed.length, "chars");
       extractedJs.push(trimmed);
     }
     return "";
@@ -66,7 +68,7 @@ function sanitizeHtmlProp(
   const allJs = [existingJs, ...extractedJs].filter(Boolean).join("\n");
 
   if (extractedJs.length > 0 || extractedLibs.length > (existingLibs?.length || 0)) {
-    console.log("[Jarble:Sandbox] Sanitized html prop — extracted", extractedJs.length, "script blocks,", extractedLibs.length - (existingLibs?.length || 0), "library URLs");
+    isDev && console.log("[Jarble:Sandbox] Sanitized html prop — extracted", extractedJs.length, "script blocks,", extractedLibs.length - (existingLibs?.length || 0), "library URLs");
   }
 
   return { html: cleanHtml, js: allJs, libraries: extractedLibs };
@@ -248,11 +250,11 @@ export default function CanvasSandbox({
   // Build srcdoc string — changes when content changes
   const srcdoc = buildDocument(sanitized.html, css, sanitized.js, sanitized.libraries);
 
-  console.log("[Jarble:Sandbox] Render — html:", html?.length, "chars, css:", css?.length || 0, "chars, js:", js?.length || 0, "chars, libraries:", libraries);
+  isDev && console.log("[Jarble:Sandbox] Render — html:", html?.length, "chars, css:", css?.length || 0, "chars, js:", js?.length || 0, "chars, libraries:", libraries);
 
   // Reset ready state when content changes (iframe will reload)
   useEffect(() => {
-    console.log("[Jarble:Sandbox] Content changed, resetting ready state");
+    isDev && console.log("[Jarble:Sandbox] Content changed, resetting ready state");
     readyRef.current = false;
   }, [html, css, js, libraries]);
 
@@ -261,7 +263,7 @@ export default function CanvasSandbox({
     (e: MessageEvent) => {
       if (e.source !== iframeRef.current?.contentWindow) return;
       if (e.data?.type === "jarble:ready") {
-        console.log("[Jarble:Sandbox] iframe ready, sending initial props");
+        isDev && console.log("[Jarble:Sandbox] iframe ready, sending initial props");
         readyRef.current = true;
         if (props) {
           iframeRef.current?.contentWindow?.postMessage(
@@ -271,7 +273,7 @@ export default function CanvasSandbox({
         }
       }
       if (e.data?.type === "jarble:action") {
-        console.log("[Jarble:Sandbox] Action received:", e.data.action, e.data.payload);
+        isDev && console.log("[Jarble:Sandbox] Action received:", e.data.action, e.data.payload);
         dispatch({
           action: String(e.data.action || "sandbox_action"),
           payload: (e.data.payload && typeof e.data.payload === "object") ? e.data.payload : {},
@@ -317,12 +319,12 @@ export default function CanvasSandbox({
     if (stopped) {
       // Restart — un-stop so the iframe re-renders with srcdoc
       setStopped(false);
-      console.log("[Jarble:Sandbox] Restarted");
+      isDev && console.log("[Jarble:Sandbox] Restarted");
     } else {
       // Stop — remove the iframe srcdoc to kill all JS execution
       setStopped(true);
       readyRef.current = false;
-      console.log("[Jarble:Sandbox] Stopped — iframe destroyed");
+      isDev && console.log("[Jarble:Sandbox] Stopped — iframe destroyed");
     }
   }, [stopped]);
 

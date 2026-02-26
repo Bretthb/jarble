@@ -42,12 +42,14 @@ import MarkdownMessage from "@/components/MarkdownMessage";
 
 const LOG_PREFIX = "[Jarble:Config]";
 
+const isDev = process.env.NODE_ENV === "development";
+
 function logConfig(msg: string, ...args: unknown[]) {
-  console.log(`${LOG_PREFIX} ${msg}`, ...args);
+  isDev && console.log(`${LOG_PREFIX} ${msg}`, ...args);
 }
 
 function logConfigError(msg: string, ...args: unknown[]) {
-  console.error(`${LOG_PREFIX} ${msg}`, ...args);
+  isDev && console.error(`${LOG_PREFIX} ${msg}`, ...args);
 }
 
 // ── Quick action chip definitions ───────────────────────────────────────────

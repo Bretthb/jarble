@@ -18,7 +18,7 @@ export default function CustomComponentRenderer({
   props,
 }: CustomComponentRendererProps) {
   if (!definition?.layout) {
-    console.warn("[Jarble:Custom] Missing layout for custom component:", definition?.name);
+    if (process.env.NODE_ENV === "development") console.warn("[Jarble:Custom] Missing layout for custom component:", definition?.name);
     return (
       <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-300">
         Custom component missing definition
@@ -27,7 +27,7 @@ export default function CustomComponentRenderer({
   }
 
   const resolvedBlocks = resolveCustomComponent(definition, props);
-  console.log("[Jarble:Custom] Resolved", definition.name, "→", resolvedBlocks.length, "blocks:", resolvedBlocks.map(b => b.component).join(", "));
+  if (process.env.NODE_ENV === "development") console.log("[Jarble:Custom] Resolved", definition.name, "→", resolvedBlocks.length, "blocks:", resolvedBlocks.map(b => b.component).join(", "));
 
   return (
     <div className="space-y-3">

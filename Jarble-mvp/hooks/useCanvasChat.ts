@@ -16,6 +16,8 @@ import { API_URL } from "@/lib/trpc";
 import type { CanvasAction, CanvasCard, CanvasState } from "@/components/workspace/types";
 import { findOpenPosition, getDefaultSize, getContainerSize } from "@/components/workspace/autoLayout";
 
+const isDev = process.env.NODE_ENV === "development";
+
 /** Chat message for the thread (not a canvas card) */
 export interface ChatMessage {
   id: string;
@@ -39,14 +41,14 @@ function loadChatHistory(deploymentId: string): ChatMessage[] {
     const { messages, savedAt } = JSON.parse(raw);
     // Check expiry
     if (Date.now() - savedAt > CHAT_EXPIRY_MS) {
-      console.log(`[Jarble:Chat] Chat history expired for ${deploymentId}, clearing`);
+      isDev && console.log(`[Jarble:Chat] Chat history expired for ${deploymentId}, clearing`);
       localStorage.removeItem(`${CHAT_STORAGE_PREFIX}${deploymentId}`);
       return [];
     }
-    console.log(`[Jarble:Chat] Loaded ${(messages || []).length} messages from localStorage`);
+    isDev && console.log(`[Jarble:Chat] Loaded ${(messages || []).length} messages from localStorage`);
     return messages || [];
   } catch (err) {
-    console.warn(`[Jarble:Chat] Failed to load chat history: ${err instanceof Error ? err.message : String(err)}`);
+    isDev && console.warn(`[Jarble:Chat] Failed to load chat history: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
 }
@@ -59,9 +61,9 @@ function saveChatHistory(deploymentId: string, messages: ChatMessage[]): void {
       `${CHAT_STORAGE_PREFIX}${deploymentId}`,
       JSON.stringify({ messages: trimmed, savedAt: Date.now() })
     );
-    console.log(`[Jarble:Chat] Saved ${trimmed.length} messages to localStorage`);
+    isDev && console.log(`[Jarble:Chat] Saved ${trimmed.length} messages to localStorage`);
   } catch (err) {
-    console.warn(`[Jarble:Chat] Failed to save chat history: ${err instanceof Error ? err.message : String(err)}`);
+    isDev && console.warn(`[Jarble:Chat] Failed to save chat history: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -161,7 +163,7 @@ export function useCanvasChat(
         });
         const canvasBlock = `[CANVAS_STATE]\nCards on canvas:\n${cardLines.join("\n")}\n[/CANVAS_STATE]\n`;
         messageToSend = `${canvasBlock}${messageToSend}`;
-        console.log(`[Jarble:Chat] Prepended canvas state with ${currentState.cards.length} card(s)`);
+        isDev && console.log(`[Jarble:Chat] Prepended canvas state with ${currentState.cards.length} card(s)`);
       }
 
       // Track this request's generation — used in finally to avoid the abort race where
@@ -192,7 +194,7 @@ export function useCanvasChat(
       try {
         const token = await getAccessTokenSilently();
         const url = `${API_URL}/api/tambo-agent`;
-        console.log(`[Jarble:Chat] SSE connecting to ${url} for deployment ${deploymentId}`);
+        isDev && console.log(`[Jarble:Chat] SSE connecting to ${url} for deployment ${deploymentId}`);
 
         const res = await fetch(url, {
           method: "POST",
@@ -226,7 +228,7 @@ export function useCanvasChat(
         const reader = res.body?.getReader();
         if (!reader) return;
 
-        console.log("[Jarble:Chat] SSE connected, streaming...");
+        isDev && console.log("[Jarble:Chat] SSE connected, streaming...");
         const decoder = new TextDecoder();
         let buffer = "";
         const pendingBlocks = new Map<string, UIBlockPending>();
@@ -254,7 +256,7 @@ export function useCanvasChat(
               if (event.type === "TEXT_MESSAGE_CONTENT" && event.delta) {
                 textContentCount++;
                 // Log every 5th TEXT_MESSAGE_CONTENT to avoid spam
-                if (textContentCount % 5 === 0) {
+                if (isDev && textContentCount % 5 === 0) {
                   console.log(`[Jarble:Chat] SSE event: TEXT_MESSAGE_CONTENT (x${textContentCount}, ${accumulatedText.length} chars total)`);
                 }
                 accumulatedText += event.delta;
@@ -264,7 +266,7 @@ export function useCanvasChat(
                   lastStreamUpdate = now;
                   setStreamingText(stripUIMarkers(accumulatedText));
                 }
-              } else if (event.type !== "TEXT_MESSAGE_CONTENT") {
+              } else if (isDev && event.type !== "TEXT_MESSAGE_CONTENT") {
                 console.log(`[Jarble:Chat] SSE event: ${event.type}`);
               }
 
@@ -293,7 +295,7 @@ export function useCanvasChat(
                   addComponentCard(block, messageId, stateRef.current, dispatch);
                   pendingBlocks.delete(event.blockId);
                   const cardId = `card-${block.id}`;
-                  console.log(`[Jarble:Chat] Card created: ${cardId} (${block.component})`);
+                  isDev && console.log(`[Jarble:Chat] Card created: ${cardId} (${block.component})`);
                   setTimeout(() => {
                     setStreamingCardIds((prev) => {
                       const next = new Set(prev);
@@ -306,7 +308,7 @@ export function useCanvasChat(
 
               if (event.type === "UI_BLOCK_UPDATE") {
                 const { cardId, props, merge, component } = event;
-                console.log(`[Jarble:Chat] Card updated: ${cardId} (merge=${merge ?? true})`);
+                isDev && console.log(`[Jarble:Chat] Card updated: ${cardId} (merge=${merge ?? true})`);
                 dispatch({
                   type: "UPDATE_CARD_PROPS",
                   id: cardId,
@@ -319,12 +321,12 @@ export function useCanvasChat(
               // Break both the for loop and the outer while loop cleanly
               if (event.type === "RUN_FINISHED") break outer;
             } catch {
-              console.warn(`[Jarble:Chat] Failed to parse SSE event data: ${trimmed.slice(0, 200)}`);
+              isDev && console.warn(`[Jarble:Chat] Failed to parse SSE event data: ${trimmed.slice(0, 200)}`);
             }
           }
         }
 
-        console.log(`[Jarble:Chat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
+        isDev && console.log(`[Jarble:Chat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
 
         // After streaming ends: add bot text to chat messages (NOT canvas)
         const cleanText = stripUIMarkers(accumulatedText);
@@ -341,7 +343,7 @@ export function useCanvasChat(
         }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
-          console.log(`[Jarble:Chat] SSE aborted after ${Date.now() - streamStart}ms`);
+          isDev && console.log(`[Jarble:Chat] SSE aborted after ${Date.now() - streamStart}ms`);
           return;
         }
         console.error(`[Jarble:Chat] SSE error: ${err instanceof Error ? err.message : String(err)}`);

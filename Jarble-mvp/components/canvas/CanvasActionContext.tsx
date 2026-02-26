@@ -44,7 +44,7 @@ export function CanvasActionProvider({
 }) {
   const dispatch = useCallback(
     (partial: Omit<CanvasAction, "blockId" | "component">) => {
-      console.log("[Jarble:ActionCtx] Dispatch:", component, "→", partial.action, "blockId:", blockId, "payload:", partial.payload);
+      if (process.env.NODE_ENV === "development") console.log("[Jarble:ActionCtx] Dispatch:", component, "→", partial.action, "blockId:", blockId, "payload:", partial.payload);
       try {
         onAction?.({ blockId, component, ...partial });
       } catch (err) {

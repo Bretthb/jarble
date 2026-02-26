@@ -114,7 +114,7 @@ export function loadCanvasState(deploymentId: string): CanvasState | null {
     const validCards = persisted.cards.filter((pc) => {
       // Skip components that need props but don't have them
       if (SKIP_PROPS_COMPONENTS.has(pc.component) && (!pc.props || Object.keys(pc.props).length === 0)) {
-        console.log(`[Canvas] Skipping restoration of ${pc.component} card - props not persisted`);
+        if (process.env.NODE_ENV === "development") console.log(`[Canvas] Skipping restoration of ${pc.component} card - props not persisted`);
         return false;
       }
       return true;

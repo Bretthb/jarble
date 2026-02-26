@@ -9,6 +9,8 @@ import type { UIBlock } from "./CanvasRenderer";
 import type { CanvasAction } from "./CanvasActionContext";
 import { EDITOR_COMPONENTS, FallbackJsonEditor } from "./editors/registry";
 
+const isDev = process.env.NODE_ENV === "development";
+
 /**
  * Extract raw file content from component props based on the component type.
  * Used when saving edits back to the original file on the pod.
@@ -64,13 +66,13 @@ export default function EditableCanvas({
   // but not if the user just saved local edits (those take precedence)
   useEffect(() => {
     if (!isEditing && !hasSavedLocally) {
-      console.log("[Jarble:Editable] Syncing displayProps from block.props for:", block.component);
+      isDev && console.log("[Jarble:Editable] Syncing displayProps from block.props for:", block.component);
       setDisplayProps(block.props);
     }
   }, [block.props, isEditing, hasSavedLocally]);
 
   const handleEdit = useCallback(() => {
-    console.log("[Jarble:Editable] Entering edit mode for:", block.component, block.id);
+    isDev && console.log("[Jarble:Editable] Entering edit mode for:", block.component, block.id);
     setEditedProps({ ...displayProps });
     setIsEditing(true);
     setError(null);
@@ -83,18 +85,18 @@ export default function EditableCanvas({
   }, [displayProps]);
 
   const handleSave = useCallback(async () => {
-    console.log("[Jarble:Editable] Save started for:", block.component, block.id, "saveMethod:", saveMethod, "fileId:", block.fileId);
+    isDev && console.log("[Jarble:Editable] Save started for:", block.component, block.id, "saveMethod:", saveMethod, "fileId:", block.fileId);
     setIsSaving(true);
     setError(null);
 
     try {
       const isFilePath = block.fileId?.startsWith("/data/");
-      console.log("[Jarble:Editable] Save path:", isFilePath ? "write_file MCP" : saveMethod === "chat" ? "chat message" : "save_canvas_file MCP");
+      isDev && console.log("[Jarble:Editable] Save path:", isFilePath ? "write_file MCP" : saveMethod === "chat" ? "chat message" : "save_canvas_file MCP");
 
       if (isFilePath) {
         // Write back to the original file on the pod via write_file MCP tool
         const content = extractFileContent(block.component, editedProps);
-        console.log("[Jarble:Editable] write_file:", block.fileId, "content length:", content.length);
+        isDev && console.log("[Jarble:Editable] write_file:", block.fileId, "content length:", content.length);
         const token = await getAccessTokenSilently();
         const res = await fetch(
           `${API_URL}/api/deployments/${deploymentId}/mcp/invoke`,
@@ -111,7 +113,7 @@ export default function EditableCanvas({
           }
         );
 
-        console.log("[Jarble:Editable] write_file response:", res.status, res.statusText);
+        isDev && console.log("[Jarble:Editable] write_file response:", res.status, res.statusText);
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: "Save failed" }));
           throw new Error(err.error || "Save failed");
@@ -121,19 +123,19 @@ export default function EditableCanvas({
         if (data.result && !data.result.success) {
           throw new Error(data.result.message || "Write failed");
         }
-        console.log("[Jarble:Editable] write_file success");
+        isDev && console.log("[Jarble:Editable] write_file success");
       } else if (saveMethod === "chat" && sendMessage) {
         const payload = JSON.stringify({
           component: block.component,
           props: editedProps,
         });
-        console.log("[Jarble:Editable] Sending chat save message, payload size:", payload.length);
+        isDev && console.log("[Jarble:Editable] Sending chat save message, payload size:", payload.length);
         await sendMessage(
           `[CANVAS_SAVE] fileId=${block.fileId || "untitled"}\n${payload}`
         );
       } else {
         // Fallback: save as canvas component data
-        console.log("[Jarble:Editable] Using save_canvas_file MCP fallback");
+        isDev && console.log("[Jarble:Editable] Using save_canvas_file MCP fallback");
         const token = await getAccessTokenSilently();
         const res = await fetch(
           `${API_URL}/api/deployments/${deploymentId}/mcp/invoke`,
@@ -154,7 +156,7 @@ export default function EditableCanvas({
           }
         );
 
-        console.log("[Jarble:Editable] save_canvas_file response:", res.status, res.statusText);
+        isDev && console.log("[Jarble:Editable] save_canvas_file response:", res.status, res.statusText);
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: "Save failed" }));
           throw new Error(err.error || "Save failed");
@@ -162,7 +164,7 @@ export default function EditableCanvas({
       }
 
       // Update local display state on confirmed success (no direct mutation)
-      console.log("[Jarble:Editable] Save complete ✓ for:", block.component, block.id);
+      isDev && console.log("[Jarble:Editable] Save complete for:", block.component, block.id);
       setDisplayProps(editedProps);
       setHasSavedLocally(true);
       setIsEditing(false);
