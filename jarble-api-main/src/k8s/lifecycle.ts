@@ -336,7 +336,7 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
       await new Promise((r) => setTimeout(r, pollMs));
     }
   } catch (err: unknown) {
-    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       logger.debug({ deploymentId }, "deleteDeployment: K8s deployment not found (already stopped/never created), skipping scale-down");
     } else {
@@ -350,7 +350,7 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
     await appsApi.deleteNamespacedDeployment(`dep-${deploymentId}`, NAMESPACE);
     logger.debug({ deploymentId }, "deleteDeployment: K8s Deployment deleted");
   } catch (err: unknown) {
-    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       logger.debug({ deploymentId }, "deleteDeployment: K8s Deployment already gone (404)");
     } else {
@@ -365,7 +365,7 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
     await coreApi.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
     logger.debug({ deploymentId }, "deleteDeployment: K8s Secret deleted");
   } catch (err: unknown) {
-    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       logger.debug({ deploymentId }, "deleteDeployment: K8s Secret already gone (404)");
     } else {
@@ -384,7 +384,7 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
     await coreApi.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
     logger.debug({ deploymentId }, "deleteDeployment: K8s PVC deleted");
   } catch (err: unknown) {
-    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       logger.debug({ deploymentId }, "deleteDeployment: K8s PVC already gone (404)");
     } else {

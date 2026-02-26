@@ -113,7 +113,7 @@ export async function updateDeploymentConfigMap(
       "ConfigMap updated"
     );
   } catch (err: unknown) {
-    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       // ConfigMap doesn't exist yet (old deployment) — create it
       await createDeploymentConfigMap(deploymentId, files);
@@ -133,7 +133,7 @@ export async function deleteDeploymentConfigMap(
     await coreApi.deleteNamespacedConfigMap(`config-${deploymentId}`, NAMESPACE);
     logger.debug({ deploymentId }, "ConfigMap deleted");
   } catch (err: unknown) {
-    const statusCode = err instanceof Object && "statusCode" in err ? (err as any).statusCode : null;
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       logger.debug({ deploymentId }, "ConfigMap already gone (404)");
     } else {
