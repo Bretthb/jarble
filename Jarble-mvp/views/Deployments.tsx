@@ -565,6 +565,13 @@ export default function Deployments() {
               </p>
             </div>
           </div>
+        ) : deploymentsQuery.isError ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <p className="text-sm text-muted-foreground">Failed to load deployments</p>
+              <Button variant="outline" size="sm" onClick={() => deploymentsQuery.refetch()}>Retry</Button>
+            </div>
+          </div>
         ) : deployments.length > 0 ? (
           <div className="flex flex-col">
             {/* Filter Bar */}

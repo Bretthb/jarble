@@ -51,7 +51,7 @@ export default function CanvasList({ title, items, ordered = false }: CanvasList
       <Tag className="space-y-1">
         {items.map((item, i) => (
           <li
-            key={i}
+            key={`${item.text}-${i}`}
             className="flex items-start gap-2.5 py-1.5 cursor-pointer rounded-md hover:bg-secondary/40 transition-colors px-1 -mx-1"
             onClick={() => handleItemClick(i, item)}
           >

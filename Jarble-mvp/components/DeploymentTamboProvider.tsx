@@ -92,7 +92,11 @@ export default function DeploymentTamboProvider({
   const [authToken, setAuthToken] = useState<string | null>(null);
 
   useEffect(() => {
-    getAccessTokenSilently().then(setAuthToken).catch(() => {});
+    let cancelled = false;
+    getAccessTokenSilently()
+      .then((token) => { if (!cancelled) setAuthToken(token); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [getAccessTokenSilently]);
 
   const tools = useMemo(

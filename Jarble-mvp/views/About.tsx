@@ -279,8 +279,8 @@ export default function About() {
                 "Model-agnostic architecture",
                 "50+ platform integrations",
                 "Tiered pricing for all segments",
-              ].map((point, i) => (
-                <div key={i} className="flex items-center gap-3">
+              ].map((point) => (
+                <div key={point} className="flex items-center gap-3">
                   <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0" />
                   <span className="text-foreground">{point}</span>
                 </div>
@@ -333,8 +333,8 @@ export default function About() {
               { role: "Founder & CEO", placeholder: "Add team member" },
               { role: "CTO", placeholder: "Add team member" },
               { role: "Head of Product", placeholder: "Add team member" },
-            ].map((member, i) => (
-              <div key={i} className="bg-card/80 backdrop-blur-md border border-border rounded-2xl p-6 text-center shadow-sm animate-fade-in-up-fast">
+            ].map((member) => (
+              <div key={member.role} className="bg-card/80 backdrop-blur-md border border-border rounded-2xl p-6 text-center shadow-sm animate-fade-in-up-fast">
                 <div className="w-24 h-24 rounded-full bg-secondary/80 mx-auto mb-4 flex items-center justify-center">
                   <Users className="w-10 h-10 text-muted-foreground" />
                 </div>

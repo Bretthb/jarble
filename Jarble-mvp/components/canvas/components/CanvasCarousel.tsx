@@ -24,7 +24,7 @@ export default function CanvasCarousel({
       <div className="p-3 h-full">
         <Carousel autoplay={autoplay} dots>
           {items.map((item, i) => (
-            <div key={i}>
+            <div key={`${item.title ?? "slide"}-${i}`}>
               <div className="flex flex-col items-center justify-center gap-3 p-6 min-h-[200px]">
                 {item.image && (
                   <img

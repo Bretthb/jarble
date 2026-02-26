@@ -58,11 +58,18 @@ export default function SettingsView() {
     if (profileQuery.data) {
       setName(profileQuery.data.name || "");
       setEmail(profileQuery.data.email || "");
+    } else if (profileQuery.isError) {
+      // Fall back to Auth0 user data if profile fails to load
+      if (user) {
+        setName(user.name || "");
+        setEmail(user.email || "");
+      }
+      toast.error("Failed to load profile data");
     } else if (user) {
       setName(user.name || "");
       setEmail(user.email || "");
     }
-  }, [profileQuery.data, user]);
+  }, [profileQuery.data, profileQuery.isError, user]);
 
   const handleSave = () => {
     setIsSaving(true);

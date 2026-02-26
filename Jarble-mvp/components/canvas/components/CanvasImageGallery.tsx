@@ -27,7 +27,7 @@ export default function CanvasImageGallery({
       >
         {images.map((img, i) => (
           <button
-            key={i}
+            key={`${img.src}-${i}`}
             onClick={() => setSelected(i)}
             className="overflow-hidden rounded-lg border border-border hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring"
           >

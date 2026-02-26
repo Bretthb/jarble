@@ -380,7 +380,7 @@ export default function Pricing() {
           <div className="space-y-4">
             {FAQ.map((item, i) => (
               <div
-                key={i}
+                key={item.question}
                 className="bg-card/80 backdrop-blur-md border border-border rounded-xl overflow-hidden animate-fade-in-up-fast"
               >
                 <button

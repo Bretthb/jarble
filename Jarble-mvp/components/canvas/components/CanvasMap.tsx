@@ -60,7 +60,7 @@ export default function CanvasMap({
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           {markers.map((marker, i) => (
-            <Marker key={i} position={[marker.lat, marker.lng]}>
+            <Marker key={`${marker.lat}-${marker.lng}-${i}`} position={[marker.lat, marker.lng]}>
               {marker.label && <Popup>{marker.label}</Popup>}
             </Marker>
           ))}

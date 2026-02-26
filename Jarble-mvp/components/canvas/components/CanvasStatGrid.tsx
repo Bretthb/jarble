@@ -34,7 +34,7 @@ export default function CanvasStatGrid({ stats = [] }: CanvasStatGridProps) {
     <div className="grid grid-cols-2 gap-2 p-2 h-full">
       {stats.map((stat, i) => (
         <div
-          key={i}
+          key={`${stat.label}-${i}`}
           className="p-2 cursor-pointer rounded-lg hover:bg-secondary/40 transition-colors"
           onClick={() => handleStatClick(stat, i)}
         >

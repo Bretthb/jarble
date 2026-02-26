@@ -23,7 +23,7 @@ export default function CanvasTagCloud({ tags, title }: CanvasTagCloudProps) {
         <div className="flex flex-wrap gap-2">
           {tags.map((tag, i) => (
             <Tag
-              key={i}
+              key={`${tag.text}-${i}`}
               color={tag.color || COLORS[i % COLORS.length]}
               className={sizeMap[tag.size || "medium"]}
             >
