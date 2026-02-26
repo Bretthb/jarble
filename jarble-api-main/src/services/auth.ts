@@ -22,7 +22,7 @@ async function getJWKS() {
 }
 
 // Namespace for custom claims added via Auth0 Post Login Action
-const CLAIMS_NAMESPACE = "https://api.jarble.ai";
+const CLAIMS_NAMESPACE = env.AUTH0_AUDIENCE;
 
 export interface TokenPayload {
   sub: string;  // Auth0 user ID (e.g. "google-oauth2|123456" or "auth0|abc123")
@@ -177,13 +177,14 @@ export async function getUserFromToken(payload: TokenPayload) {
       emailVerified,
       isGoogleUser,
     }, "New user created");
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Handle race condition: two concurrent first-requests both try to INSERT.
     // The second one hits a unique constraint violation — re-fetch instead of 500.
+    const code = (err as { code?: string })?.code;
     const isConstraintViolation =
-      err?.code === "SQLITE_CONSTRAINT" ||  // SQLite
-      err?.code === "ER_DUP_ENTRY" ||       // MySQL
-      err?.code === "23505";                // Postgres
+      code === "SQLITE_CONSTRAINT" ||  // SQLite
+      code === "ER_DUP_ENTRY" ||       // MySQL
+      code === "23505";                // Postgres
     if (isConstraintViolation) {
       logger.info({ auth0Id: payload.sub }, "User creation race condition — re-fetching");
       user = await db.query.users.findFirst({

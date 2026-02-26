@@ -77,8 +77,8 @@ export default function SettingsView() {
     if (!user?.email) return;
     setIsResettingPassword(true);
     try {
-      const domain = process.env.NEXT_PUBLIC_AUTH0_DOMAIN || "jarble-dev.us.auth0.com";
-      const clientId = process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID || "";
+      const domain = process.env.NEXT_PUBLIC_AUTH0_DOMAIN ?? "";
+      const clientId = process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID ?? "";
       const res = await fetch(`https://${domain}/dbconnections/change_password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

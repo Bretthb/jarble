@@ -140,7 +140,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       return;
     }
   } else {
-    const secret = (env as any).TAMBO_AGENT_SECRET as string | undefined;
+    const secret = env.TAMBO_AGENT_SECRET;
     if (secret) {
       const provided = req.headers["x-agent-secret"] as string | undefined;
       if (!provided || !secureCompare(provided, secret)) {
