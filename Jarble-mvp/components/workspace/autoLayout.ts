@@ -20,23 +20,28 @@ export function findOpenPosition(
   // If no cards, place at center
   if (cards.length === 0) return { x: cx, y: cy };
 
-  // Spiral outward to find non-overlapping position
+  // Check center first, then spiral outward to find non-overlapping position
   const step = 40;
-  for (let ring = 0; ring < 20; ring++) {
+  const overlapsAny = (x: number, y: number) =>
+    cards.some(
+      (c) =>
+        x < c.position.x + c.size.width &&
+        x + cardSize.width > c.position.x &&
+        y < c.position.y + c.size.height &&
+        y + cardSize.height > c.position.y
+    );
+
+  // Ring 0: check center position directly
+  if (!overlapsAny(cx, cy)) return { x: cx, y: cy };
+
+  // Rings 1..N: spiral outward
+  for (let ring = 1; ring <= 20; ring++) {
     for (let angle = 0; angle < 360; angle += 30) {
       const rad = (angle * Math.PI) / 180;
       const x = cx + Math.cos(rad) * step * ring;
       const y = cy + Math.sin(rad) * step * ring;
 
-      const overlaps = cards.some(
-        (c) =>
-          x < c.position.x + c.size.width &&
-          x + cardSize.width > c.position.x &&
-          y < c.position.y + c.size.height &&
-          y + cardSize.height > c.position.y
-      );
-
-      if (!overlaps) return { x, y };
+      if (!overlapsAny(x, y)) return { x, y };
     }
   }
 

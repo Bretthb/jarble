@@ -75,14 +75,13 @@ export const SPLITTABLE_COMPONENTS: Record<string, {
 }> = {
   stat_grid: {
     itemsKey: "stats",
-    splitComponent: "statistic",
+    splitComponent: "metric_card",
     transformItem: (item: unknown) => {
-      const stat = item as { label: string; value: string | number; change?: string; trend?: "up" | "down" };
+      const stat = item as { label: string; value: string | number; change?: string; description?: string; trend?: "up" | "down" };
       return {
-        title: stat.label,
+        label: stat.label,
         value: stat.value,
-        suffix: stat.change,
-        trend: stat.trend,
+        change: stat.change || stat.description,
       };
     },
     minItems: 2,

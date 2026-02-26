@@ -165,13 +165,19 @@ export function useCanvasChat(
       }
 
       // Build canvas state summary — skip for action/error messages since they already carry
-      // cardId context and the extra tokens are wasteful for every interaction relay
-      if (currentState.cards.length > 0 && !isActionMessage) {
-        const cardLines = currentState.cards.map((c) => {
-          const title = c.title || c.component.replace(/_/g, " ");
-          return `- ${c.id}: ${c.component} (title: "${title}")`;
-        });
-        const canvasBlock = `[CANVAS_STATE]\nCards on canvas:\n${cardLines.join("\n")}\n[/CANVAS_STATE]\n`;
+      // cardId context and the extra tokens are wasteful for every interaction relay.
+      // Always send [CANVAS_STATE] (even when empty) so the bot knows it's on the web dashboard.
+      if (!isActionMessage) {
+        let canvasBlock: string;
+        if (currentState.cards.length > 0) {
+          const cardLines = currentState.cards.map((c) => {
+            const title = c.title || c.component.replace(/_/g, " ");
+            return `- ${c.id}: ${c.component} (title: "${title}")`;
+          });
+          canvasBlock = `[CANVAS_STATE]\nCards on canvas:\n${cardLines.join("\n")}\n[/CANVAS_STATE]\n`;
+        } else {
+          canvasBlock = `[CANVAS_STATE]\nNo cards on canvas.\n[/CANVAS_STATE]\n`;
+        }
         messageToSend = `${canvasBlock}${messageToSend}`;
         isDev && console.log(`[Jarble:Chat] Prepended canvas state with ${currentState.cards.length} card(s)`);
       }
@@ -242,6 +248,9 @@ export function useCanvasChat(
         const decoder = new TextDecoder();
         let buffer = "";
         const pendingBlocks = new Map<string, UIBlockPending>();
+        // Track cards added during this stream so findOpenPosition can see them
+        // even before React re-renders and updates stateRef.current.cards.
+        const cardsAddedThisStream: CanvasCard[] = [];
         let lastStreamUpdate = 0;
         const STREAM_THROTTLE_MS = 50; // Throttle streaming updates to 20fps
         let textContentCount = 0;
@@ -300,9 +309,11 @@ export function useCanvasChat(
               if (event.type === "UI_BLOCK_END") {
                 const block = pendingBlocks.get(event.blockId);
                 if (block) {
-                  // Use stateRef.current so each successive card is placed relative to
-                  // cards already added in this stream (not the stale closure snapshot)
-                  addComponentCard(block, messageId, stateRef.current, dispatch);
+                  // Pass cardsAddedThisStream so findOpenPosition can see cards
+                  // dispatched earlier in this stream but not yet reflected in stateRef
+                  // (React batches useReducer updates, so stateRef is stale within a tick)
+                  const card = addComponentCard(block, messageId, stateRef.current, dispatch, cardsAddedThisStream);
+                  if (card) cardsAddedThisStream.push(card);
                   pendingBlocks.delete(event.blockId);
                   const cardId = `card-${block.id}`;
                   isDev && console.log(`[Jarble:Chat] Card created: ${cardId} (${block.component})`);
@@ -392,12 +403,16 @@ function addComponentCard(
   block: UIBlockPending,
   messageId: string,
   state: CanvasState,
-  dispatch: React.Dispatch<CanvasAction>
-) {
+  dispatch: React.Dispatch<CanvasAction>,
+  extraCards: CanvasCard[] = []
+): CanvasCard {
   const size = getDefaultSize(block.component);
   const container = getContainerSize();
+  // Merge state.cards with any cards added during the same stream tick that
+  // haven't been reflected in state yet (React batches useReducer dispatches)
+  const allCards = [...state.cards, ...extraCards];
   const position = findOpenPosition(
-    state.cards,
+    allCards,
     state.viewportOffset,
     state.zoom,
     container.width,
@@ -422,4 +437,5 @@ function addComponentCard(
   };
 
   dispatch({ type: "ADD_CARD", card });
+  return card;
 }

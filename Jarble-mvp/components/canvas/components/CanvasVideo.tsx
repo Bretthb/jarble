@@ -66,6 +66,11 @@ function getEmbedUrl(url: string): string | null {
         return `https://www.dailymotion.com/embed/video/${parts[1]}?autoplay=1`;
       }
     }
+
+    // TradingView: s.tradingview.com or tradingview-widget.com embed URLs — pass through as-is
+    if (u.hostname.includes("tradingview.com") || u.hostname.includes("tradingview-widget.com")) {
+      return url;
+    }
   } catch {
     // Invalid URL — fall through to ReactPlayer
   }

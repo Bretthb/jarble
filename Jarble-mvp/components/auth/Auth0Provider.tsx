@@ -22,6 +22,11 @@ export function Auth0Provider({ children }: { children: ReactNode }) {
     setRedirectUri(window.location.origin + '/dashboard');
   }, []);
 
+  // Don't render until redirect URI is available — the Auth0 SDK creates
+  // its internal client on first mount and won't pick up later changes
+  // to redirect_uri, which causes "Unable to issue redirect" errors.
+  if (!redirectUri) return null;
+
   return (
     <Provider
       domain={domain}
@@ -29,7 +34,7 @@ export function Auth0Provider({ children }: { children: ReactNode }) {
       cacheLocation="localstorage"
       useRefreshTokens={true}
       authorizationParams={{
-        redirect_uri: redirectUri || undefined,
+        redirect_uri: redirectUri,
         audience,
       }}
     >
