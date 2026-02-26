@@ -414,10 +414,15 @@ export default function DeploymentConfiguration() {
                 </button>
                 <button
                   onClick={handleDelete}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+                  disabled={deleteMutation.isPending}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50 disabled:pointer-events-none"
                 >
-                  <Trash2 className="w-4 h-4 shrink-0" />
-                  Delete
+                  {deleteMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4 shrink-0" />
+                  )}
+                  {deleteMutation.isPending ? "Deleting..." : "Delete"}
                 </button>
               </div>
 

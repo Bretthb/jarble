@@ -4,7 +4,9 @@ import { INITIAL_CANVAS_STATE, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE, SPLITTABLE
 export { INITIAL_CANVAS_STATE };
 
 export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
-  console.log(`[Jarble:Reducer] ${action.type}`);
+  if (process.env.NODE_ENV === "development") {
+    console.log(`[Jarble:Reducer] ${action.type}`);
+  }
 
   switch (action.type) {
     case "ADD_CARD": {

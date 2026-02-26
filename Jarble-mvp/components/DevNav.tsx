@@ -150,7 +150,7 @@ export default function DevNav() {
   }));
 
   return (
-    <div className="fixed top-3 left-3 z-[9999]">
+    <div className="fixed bottom-3 right-16 z-[9999]">
         <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button

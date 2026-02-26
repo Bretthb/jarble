@@ -225,6 +225,20 @@ export default function Dashboard() {
               <p className="text-sm text-muted-foreground">Loading deployments...</p>
             </div>
           </div>
+        ) : deploymentsQuery.isError ? (
+          <div className="text-center py-24">
+            <Bot className="w-12 h-12 mx-auto mb-4 text-destructive/40" />
+            <h3 className="text-xl font-semibold mb-1">Failed to load deployments</h3>
+            <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">
+              {deploymentsQuery.error?.message || "Something went wrong. Please try again."}
+            </p>
+            <Button
+              onClick={() => deploymentsQuery.refetch()}
+              variant="outline"
+            >
+              Retry
+            </Button>
+          </div>
         ) : deploymentsQuery.data && deploymentsQuery.data.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {deploymentsQuery.data.map((deployment: {

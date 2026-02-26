@@ -1,6 +1,6 @@
 'use client';
 import { Auth0Provider as Provider } from '@auth0/auth0-react';
-import { ReactNode } from 'react';
+import { ReactNode, useState, useEffect } from 'react';
 
 // Strip protocol if accidentally included in env var
 const domain = (process.env.NEXT_PUBLIC_AUTH0_DOMAIN || 'jarble-dev.us.auth0.com')
@@ -9,6 +9,12 @@ const clientId = process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID || '1VR30862RmZIFR44UIM
 const audience = process.env.NEXT_PUBLIC_AUTH0_AUDIENCE || 'https://api.jarble.ai';
 
 export function Auth0Provider({ children }: { children: ReactNode }) {
+  const [redirectUri, setRedirectUri] = useState('');
+
+  useEffect(() => {
+    setRedirectUri(window.location.origin + '/dashboard');
+  }, []);
+
   return (
     <Provider
       domain={domain}
@@ -16,7 +22,7 @@ export function Auth0Provider({ children }: { children: ReactNode }) {
       cacheLocation="localstorage"
       useRefreshTokens={true}
       authorizationParams={{
-        redirect_uri: typeof window !== 'undefined' ? window.location.origin + '/dashboard' : '',
+        redirect_uri: redirectUri || undefined,
         audience,
       }}
     >

@@ -45,22 +45,6 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
       return;
     }
 
-    // Mark event as processed before handling (prevents duplicate processing)
-    try {
-      await (db as any).insert(tables.processedWebhookEvents).values({
-        eventId: event.id,
-        eventType: event.type,
-      });
-    } catch (insertErr: any) {
-      // Unique constraint violation = another worker already processing this event
-      if (insertErr?.code === "SQLITE_CONSTRAINT" || insertErr?.code === "ER_DUP_ENTRY" || insertErr?.code === "23505") {
-        logger.info({ eventId: event.id }, "Webhook event already being processed by another worker");
-        res.json({ received: true, skipped: true });
-        return;
-      }
-      throw insertErr;
-    }
-
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as any;
@@ -206,6 +190,21 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
 
       default:
         logger.debug({ type: event.type }, "Unhandled Stripe event");
+    }
+
+    // Mark event as processed AFTER handler succeeds (so Stripe retries on crash)
+    try {
+      await (db as any).insert(tables.processedWebhookEvents).values({
+        eventId: event.id,
+        eventType: event.type,
+      });
+    } catch (insertErr: any) {
+      // Unique constraint violation = another worker already processed this event
+      if (insertErr?.code === "SQLITE_CONSTRAINT" || insertErr?.code === "ER_DUP_ENTRY" || insertErr?.code === "23505") {
+        logger.info({ eventId: event.id }, "Webhook event already processed by another worker");
+      } else {
+        throw insertErr;
+      }
     }
 
     res.json({ received: true });

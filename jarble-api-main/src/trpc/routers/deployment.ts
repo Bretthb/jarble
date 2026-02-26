@@ -388,7 +388,10 @@ export const deploymentRouter = router({
       if (resolvedSourceDeploymentId) {
         // Linked: copy the root owner's already-encrypted key
         const rootDep = await ctx.db.query.deployments.findFirst({
-          where: eq(deployments.id, resolvedSourceDeploymentId),
+          where: and(
+            eq(deployments.id, resolvedSourceDeploymentId),
+            eq(deployments.userId, ctx.user.id),
+          ),
         });
         encryptedKey = (rootDep as any)?.llmApiKey || null;
       } else {
@@ -850,6 +853,14 @@ export const deploymentRouter = router({
           .where(eq(deployments.id, input.id));
         logger.info({ deploymentId: input.id }, "Deployment stopped");
       } catch (err) {
+        // Roll back transitional status so the deployment isn't stuck in "stopping"
+        try {
+          await (ctx.db as any).update(deployments)
+            .set({ status: "running" })
+            .where(and(eq(deployments.id, input.id), eq(deployments.status, "stopping")));
+        } catch (rollbackErr) {
+          logger.error({ deploymentId: input.id, rollbackErr }, "Failed to roll back stopping status");
+        }
         logger.error({ deploymentId: input.id, err }, "Failed to stop deployment");
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -981,6 +992,14 @@ export const deploymentRouter = router({
 
         logger.info({ deploymentId: input.id }, "Deployment restart initiated");
       } catch (err) {
+        // Roll back transitional status so the deployment isn't stuck in "restarting"
+        try {
+          await (ctx.db as any).update(deployments)
+            .set({ status: "running" })
+            .where(and(eq(deployments.id, input.id), eq(deployments.status, "restarting")));
+        } catch (rollbackErr) {
+          logger.error({ deploymentId: input.id, rollbackErr }, "Failed to roll back restarting status");
+        }
         logger.error({ deploymentId: input.id, err }, "Failed to initiate restart");
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",

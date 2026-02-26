@@ -19,11 +19,10 @@ export const userRouter = router({
     });
   }),
 
-  // Update profile
+  // Update profile (name only — email changes require verification via Auth0)
   updateProfile: protectedProcedure
     .input(z.object({
       name: z.string().min(1).optional(),
-      email: z.string().email().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       await (ctx.db as any)

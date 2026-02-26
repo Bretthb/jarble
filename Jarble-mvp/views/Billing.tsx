@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -22,6 +24,7 @@ import {
   Layers,
   FileText,
   ExternalLink,
+  AlertCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import ProfileDropdown from "@/components/ProfileDropdown";
@@ -122,17 +125,27 @@ export default function Billing() {
     retry: 1,
   });
 
+  const [billingLoading, setBillingLoading] = useState(false);
+
   const handleManageBilling = async () => {
+    setBillingLoading(true);
     try {
       const token = await getAccessTokenSilently();
       const res = await fetch(`${API_URL}/api/stripe/portal`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) throw new Error(`Portal returned ${res.status}`);
       const data = await res.json();
-      if (data.url) window.location.href = data.url;
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error("No portal URL returned");
+      }
     } catch (err) {
       console.error("Portal error:", err);
+      toast.error("Failed to open billing portal. Please try again.");
+      setBillingLoading(false);
     }
   };
 
@@ -279,6 +292,12 @@ export default function Billing() {
               <div className="p-8 text-center">
                 <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
               </div>
+            ) : subsQuery.isError ? (
+              <div className="p-8 text-center">
+                <AlertCircle className="w-8 h-8 mx-auto mb-2 text-destructive/50" />
+                <p className="text-sm text-muted-foreground">Failed to load subscriptions</p>
+                <Button variant="outline" size="sm" className="mt-2" onClick={() => subsQuery.refetch()}>Retry</Button>
+              </div>
             ) : subs.length === 0 ? (
               <div className="p-8 text-center">
                 <Layers className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
@@ -340,6 +359,12 @@ export default function Billing() {
               <div className="p-8 text-center">
                 <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
               </div>
+            ) : invoicesQuery.isError ? (
+              <div className="p-8 text-center">
+                <AlertCircle className="w-8 h-8 mx-auto mb-2 text-destructive/50" />
+                <p className="text-sm text-muted-foreground">Failed to load invoices</p>
+                <Button variant="outline" size="sm" className="mt-2" onClick={() => invoicesQuery.refetch()}>Retry</Button>
+              </div>
             ) : invoices.length === 0 ? (
               <div className="p-8 text-center">
                 <Receipt className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
@@ -400,10 +425,15 @@ export default function Billing() {
             </div>
             <Button
               onClick={handleManageBilling}
+              disabled={billingLoading}
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium shrink-0 ml-4"
             >
-              <CreditCard className="w-4 h-4 mr-1.5" />
-              Manage Billing
+              {billingLoading ? (
+                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+              ) : (
+                <CreditCard className="w-4 h-4 mr-1.5" />
+              )}
+              {billingLoading ? "Opening..." : "Manage Billing"}
             </Button>
           </Card>
         </motion.div>

@@ -32,6 +32,9 @@ interface StatusMismatch {
  * Checks deployments with status: creating, running, restarting
  */
 export async function reconcileStatuses(): Promise<void> {
+  // Skip in local dev mode — no real K8s cluster to reconcile against
+  if (process.env.USE_SQLITE === "true") return;
+
   try {
     // Find deployments that might have drifted
     // Limit to 100 per cycle to prevent overwhelming K8s API at scale

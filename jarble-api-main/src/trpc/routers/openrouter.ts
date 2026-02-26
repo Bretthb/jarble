@@ -112,8 +112,11 @@ export const openrouterRouter = router({
             break;
 
           case "google":
-            url = `https://generativelanguage.googleapis.com/v1/models?key=${input.apiKey}`;
-            fetchOptions = { method: "GET" };
+            url = `https://generativelanguage.googleapis.com/v1/models`;
+            fetchOptions = {
+              method: "GET",
+              headers: { "x-goog-api-key": input.apiKey },
+            };
             break;
 
           default:
@@ -277,6 +280,14 @@ export const openrouterRouter = router({
         });
       }
 
+      // Sync the new limit to the DB so the frontend sees the updated value
+      await (ctx.db as any).update(deployments)
+        .set({ llmCreditLimitDollars: input.limitDollars })
+        .where(and(
+          eq(deployments.id, input.deploymentId),
+          eq(deployments.userId, ctx.user.id),
+        ));
+
       return { success: true };
     }),
 
@@ -318,7 +329,10 @@ export const openrouterRouter = router({
           llmApiKeyId: null,
           llmMode: "byok",
         })
-        .where(eq(deployments.id, input.deploymentId));
+        .where(and(
+          eq(deployments.id, input.deploymentId),
+          eq(deployments.userId, ctx.user.id),
+        ));
 
       return { success: true };
     }),
