@@ -12,8 +12,8 @@ export const listSkillsTool: McpTool = {
   },
   rendersComponent: "show_skills",
   async execute(_params: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-    const catalog = await (db as any).query.skillsCatalog.findMany();
-    const installed = await (db as any).query.deploymentSkills.findMany({
+    const catalog = await db.query.skillsCatalog.findMany();
+    const installed = await db.query.deploymentSkills.findMany({
       where: eq(tables.deploymentSkills.deploymentId, ctx.deploymentId),
     });
 

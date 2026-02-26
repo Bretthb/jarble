@@ -244,7 +244,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
         });
         if (!existing) {
           const encrypted = encryptApiKey(JSON.stringify({}));
-          await (db as any).insert(platformCredentials).values({
+          await db.insert(platformCredentials).values({
             id: nanoid(12),
             deploymentId,
             platformId: "whatsapp",
@@ -372,7 +372,7 @@ sseRouter.get("/status/stream", async (req, res) => {
             if (podStatus.status !== dbStatus
                 && (podStatus.status === "running" || podStatus.status === "failed")) {
               try {
-                await (db as any).update(deploymentsTable)
+                await db.update(deploymentsTable)
                   .set({
                     status: podStatus.status,
                     ...(podStatus.error ? { error: podStatus.error } : {}),

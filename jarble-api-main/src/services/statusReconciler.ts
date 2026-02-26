@@ -169,7 +169,7 @@ async function applyStatusFix(mismatch: StatusMismatch): Promise<void> {
     updateData.error = null;
   }
 
-  await (db as any).update(deployments)
+  await db.update(deployments)
     .set(updateData)
     .where(eq(deployments.id, mismatch.deploymentId));
 }

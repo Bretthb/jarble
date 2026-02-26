@@ -85,7 +85,7 @@ export async function getUserFromToken(payload: TokenPayload) {
 
     if (Object.keys(updates).length > 0) {
       logger.info({ userId: user.id, updates }, "Updating user info from token");
-      await (db as any).update(tables.users)
+      await db.update(tables.users)
         .set(updates)
         .where(eq(tables.users.id, user.id));
 
@@ -140,7 +140,7 @@ export async function getUserFromToken(payload: TokenPayload) {
         updates.name = payload.name;
       }
 
-      await (db as any).update(tables.users)
+      await db.update(tables.users)
         .set(updates)
         .where(eq(tables.users.id, existingByEmail.id));
 
@@ -162,7 +162,7 @@ export async function getUserFromToken(payload: TokenPayload) {
   const userId = nanoid(12);
 
   try {
-    await (db as any).insert(tables.users).values({
+    await db.insert(tables.users).values({
       id: userId,
       auth0Id: payload.sub,
       email: payload.email || `${payload.sub}@auth0.user`,

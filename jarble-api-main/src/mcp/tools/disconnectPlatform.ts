@@ -25,7 +25,7 @@ export const disconnectPlatformTool: McpTool = {
       return { success: false, message: "Missing platform." };
     }
 
-    const existing = await (db as any).query.platformCredentials.findFirst({
+    const existing = await db.query.platformCredentials.findFirst({
       where: and(
         eq(tables.platformCredentials.deploymentId, ctx.deploymentId),
         eq(tables.platformCredentials.platformId, platform),
@@ -36,7 +36,7 @@ export const disconnectPlatformTool: McpTool = {
       return { success: false, message: `${platform} is not connected.` };
     }
 
-    await (db as any).delete(tables.platformCredentials)
+    await db.delete(tables.platformCredentials)
       .where(and(
         eq(tables.platformCredentials.deploymentId, ctx.deploymentId),
         eq(tables.platformCredentials.platformId, platform),

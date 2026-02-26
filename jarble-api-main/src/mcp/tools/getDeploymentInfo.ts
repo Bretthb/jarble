@@ -15,7 +15,7 @@ export const getDeploymentInfoTool: McpTool = {
     const dep = ctx.deployment;
 
     // Fetch connected platforms
-    const creds = await (db as any).query.platformCredentials.findMany({
+    const creds = await db.query.platformCredentials.findMany({
       where: eq(tables.platformCredentials.deploymentId, ctx.deploymentId),
     });
     const platforms = (creds as any[]).map((c) => c.platformId);

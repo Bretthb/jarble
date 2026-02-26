@@ -67,7 +67,7 @@ async function checkDeploymentSubscription(dep: {
 
       const errorMsg = `${FREE_TRIAL_ERROR_PREFIX}: your free trial ended on ${dep.freeExpiresAt.toLocaleDateString()}. Subscribe to keep your bot running.`;
 
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({ status: "stopped", error: errorMsg })
         .where(eq(deployments.id, dep.id));
 
@@ -86,7 +86,7 @@ async function checkDeploymentSubscription(dep: {
 
       await stopDeployment(dep.id);
 
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({
           status: "stopped",
           error: `${SUBSCRIPTION_ERROR_PREFIX} required: no active subscription found`
@@ -107,7 +107,7 @@ async function checkDeploymentSubscription(dep: {
 
         await stopDeployment(dep.id);
 
-        await (db as any).update(deployments)
+        await db.update(deployments)
           .set({
             status: "stopped",
             error: null, // Not an error, just normal cancellation
@@ -155,7 +155,7 @@ async function validateSubscriptionWithStripe(dep: {
 
       await stopDeployment(dep.id);
 
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({
           status: "stopped",
           error: `${SUBSCRIPTION_ERROR_PREFIX} canceled. Subscribe again to restart your bot.`,
@@ -170,7 +170,7 @@ async function validateSubscriptionWithStripe(dep: {
     if (status === "past_due" || status === "unpaid") {
       const existingPaymentError = dep.error?.startsWith(`${SUBSCRIPTION_ERROR_PREFIX} ${status}`);
       if (!existingPaymentError) {
-        await (db as any).update(deployments)
+        await db.update(deployments)
           .set({
             error: `${SUBSCRIPTION_ERROR_PREFIX} ${status}: please update your payment method to avoid service interruption.`
           })
@@ -207,7 +207,7 @@ async function validateSubscriptionWithStripe(dep: {
       }
 
       if (Object.keys(updates).length > 0) {
-        await (db as any).update(deployments)
+        await db.update(deployments)
           .set(updates)
           .where(eq(deployments.id, dep.id));
       }
@@ -223,7 +223,7 @@ async function validateSubscriptionWithStripe(dep: {
 
       await stopDeployment(dep.id);
 
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({
           status: "stopped",
           error: `${SUBSCRIPTION_ERROR_PREFIX} not found. Please contact support or subscribe again.`,
@@ -276,7 +276,7 @@ export async function cleanupOrphanedDeployments(): Promise<void> {
 
         await stopDeployment(dep.id);
 
-        await (db as any).update(deployments)
+        await db.update(deployments)
           .set({
             status: "stopped",
             error: `${SUBSCRIPTION_ERROR_PREFIX} required: no active subscription found for this deployment.`

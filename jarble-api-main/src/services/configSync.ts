@@ -24,7 +24,7 @@
  *   void syncConfigsFromPvc(deploymentId);
  */
 
-import { db, tables } from "../db/index.js";
+import { db, tables, dbDate } from "../db/index.js";
 import { eq, and } from "drizzle-orm";
 import {
   writeConfigsToPvc,
@@ -65,7 +65,7 @@ async function buildDeploymentFields(
     : null;
 
   // Load and decrypt platform credentials
-  const platformCredsRows = await (db as any).query.platformCredentials.findMany({
+  const platformCredsRows = await db.query.platformCredentials.findMany({
     where: eq(platformCredentials.deploymentId, deployment.id),
   });
 
@@ -191,7 +191,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     // ══════════════════════════════════════════════════════════════════════
 
     // 1. Load deployment from DB
-    let deployment = await (db as any).query.deployments.findFirst({
+    let deployment = await db.query.deployments.findFirst({
       where: eq(deployments.id, deploymentId),
     });
 
@@ -329,7 +329,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       // re-sources .env and restarts the gateway.
 
       // Set transitional status
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({ status: "reloading", error: null })
         .where(eq(deployments.id, deploymentId));
 
@@ -382,13 +382,13 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         }
 
         if (ready) {
-          await (db as any).update(deployments)
+          await db.update(deployments)
             .set({ status: "running", error: null })
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
           const durationMs = Date.now() - syncStartMs;
           logger.info({ deploymentId, durationMs, tier: 2 }, "ConfigSync: completed (process restart)");
         } else {
-          await (db as any).update(deployments)
+          await db.update(deployments)
             .set({
               status: "failed",
               error: failureReason || "Process did not become ready after reload",
@@ -401,7 +401,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
       // Process restart not supported (old image without PID file) — fall through to Tier 3
       logger.info({ deploymentId }, "configSync→PVC: process restart not available, falling back to pod restart");
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({ status: "restarting", error: null })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
     } else {
@@ -411,7 +411,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       // so the K8s Secret envFrom produces a clean environment.
 
       // Set transitional status
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({ status: "restarting", error: null })
         .where(eq(deployments.id, deploymentId));
 
@@ -463,23 +463,26 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     }
 
     if (ready) {
-      const result = await (db as any).update(deployments)
+      const result = await db.update(deployments)
         .set({ status: "running", error: null })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
-      if ((result?.changes ?? result?.rowsAffected ?? 1) === 0) {
+      // Cross-provider: MySQL returns [ResultSetHeader], SQLite returns { changes }, PG returns { rowCount }
+      const affected = (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 1;
+      if (affected === 0) {
         logger.warn({ deploymentId }, "configSync→PVC: status update skipped — deployment no longer in 'restarting' state");
       } else {
         const durationMs = Date.now() - syncStartMs;
         logger.info({ deploymentId, durationMs, tier: 3 }, "ConfigSync: completed (full pod restart)");
       }
     } else {
-      const result = await (db as any).update(deployments)
+      const result = await db.update(deployments)
         .set({
           status: "failed",
           error: failureReason || "Pod did not become ready after config sync",
         })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
-      if ((result?.changes ?? result?.rowsAffected ?? 1) === 0) {
+      const affected = (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 1;
+      if (affected === 0) {
         logger.warn({ deploymentId, failureReason }, "configSync→PVC: failure status update skipped — deployment no longer in 'restarting' state");
       } else {
         logger.warn({ deploymentId, failureReason }, "configSync→PVC: pod failed to become ready");
@@ -496,7 +499,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
     // Restore DB status with error message
     try {
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set({
           status: previousStatus || "running",
           error: `Config sync failed: ${errorMessage}. Pod may have inconsistent config.`,
@@ -535,7 +538,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
   try {
     // 1. Load deployment from DB
-    const deployment = await (db as any).query.deployments.findFirst({
+    const deployment = await db.query.deployments.findFirst({
       where: eq(deployments.id, deploymentId),
     });
 
@@ -589,7 +592,7 @@ export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
 
     // 7. Update deployments table if there are changes
     if (Object.keys(updates).length > 0) {
-      await (db as any).update(deployments)
+      await db.update(deployments)
         .set(updates)
         .where(eq(deployments.id, deploymentId));
 
@@ -617,7 +620,7 @@ async function syncPlatformCredentialsFromPvc(
   parsedCreds: Record<string, Record<string, string>>
 ): Promise<void> {
   // Load existing platform credentials from DB
-  const existingRows = await (db as any).query.platformCredentials.findMany({
+  const existingRows = await db.query.platformCredentials.findMany({
     where: eq(platformCredentials.deploymentId, deploymentId),
   });
 
@@ -651,15 +654,15 @@ async function syncPlatformCredentialsFromPvc(
 
     if (existing) {
       // Update existing row
-      await (db as any).update(platformCredentials)
+      await db.update(platformCredentials)
         .set({
           credentials: encrypted,
-          updatedAt: new Date().toISOString(),
+          updatedAt: dbDate(),
         })
         .where(eq(platformCredentials.id, existing.id));
     } else {
       // Insert new row
-      await (db as any).insert(platformCredentials).values({
+      await db.insert(platformCredentials).values({
         id: nanoid(12),
         deploymentId,
         platformId,

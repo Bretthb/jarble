@@ -60,7 +60,7 @@ async function checkDeploymentStorage(dep: {
 
     await stopDeployment(dep.id);
 
-    await (db as any).update(deployments)
+    await db.update(deployments)
       .set({ status: "stopped", error: errorMsg })
       .where(eq(deployments.id, dep.id));
 
@@ -74,7 +74,7 @@ async function checkDeploymentStorage(dep: {
       "storageEnforcement: usage below limit, clearing storage error"
     );
 
-    await (db as any).update(deployments)
+    await db.update(deployments)
       .set({ error: null })
       .where(eq(deployments.id, dep.id));
   }

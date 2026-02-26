@@ -53,7 +53,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
         const subscriptionId = session.subscription as string | null;
 
         if (userId) {
-          await (db as any).update(tables.users)
+          await db.update(tables.users)
             .set({
               stripeCustomerId: customerId,
               emailVerified: true, // If they can pay, they're verified
@@ -109,7 +109,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
           }
 
           if (Object.keys(updates).length > 0) {
-            await (db as any).update(tables.deployments)
+            await db.update(tables.deployments)
               .set(updates)
               .where(eq(tables.deployments.id, linked.id));
           }
@@ -132,7 +132,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
 
           if (linked) {
             await stopDeployment(linked.id);
-            await (db as any).update(tables.deployments)
+            await db.update(tables.deployments)
               .set({ status: "stopped", error: null, stripeSubscriptionId: null, cancelledAt: null, cancelAtPeriodEnd: null })
               .where(eq(tables.deployments.id, linked.id));
             logger.info({ deploymentId: linked.id, subscriptionId }, "Deployment stopped after subscription deletion");
@@ -159,7 +159,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
             });
 
             if (linked) {
-              await (db as any).update(tables.deployments)
+              await db.update(tables.deployments)
                 .set({ error: "Payment failed — please update your payment method" })
                 .where(eq(tables.deployments.id, linked.id));
               logger.warn({ deploymentId: linked.id, subscriptionId: invoiceSubscriptionId }, "Deployment flagged for payment failure");
@@ -175,7 +175,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
               });
               for (const dep of userDeployments) {
                 if (!(dep as any).isFree && (dep as any).stripeSubscriptionId) {
-                  await (db as any).update(tables.deployments)
+                  await db.update(tables.deployments)
                     .set({ error: "Payment failed — please update your payment method" })
                     .where(eq(tables.deployments.id, dep.id));
                 }
@@ -194,7 +194,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
 
     // Mark event as processed AFTER handler succeeds (so Stripe retries on crash)
     try {
-      await (db as any).insert(tables.processedWebhookEvents).values({
+      await db.insert(tables.processedWebhookEvents).values({
         eventId: event.id,
         eventType: event.type,
       });

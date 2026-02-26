@@ -58,7 +58,7 @@ webhooksRouter.post("/auth0/email-verified", async (req, res) => {
       return;
     }
 
-    await (db as any).update(tables.users)
+    await db.update(tables.users)
       .set({ emailVerified: true })
       .where(eq(tables.users.id, user.id));
 

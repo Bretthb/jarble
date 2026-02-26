@@ -1,4 +1,4 @@
-import { db, tables } from "../../db/index.js";
+import { db, tables, dbDate } from "../../db/index.js";
 import { eq } from "drizzle-orm";
 import { syncConfigsToPvc } from "../../services/configSync.js";
 import { logger } from "../../utils/logger.js";
@@ -29,8 +29,8 @@ export const updateSystemPromptTool: McpTool = {
       };
     }
 
-    await (db as any).update(tables.deployments)
-      .set({ systemPrompt: newPrompt, updatedAt: new Date().toISOString() })
+    await db.update(tables.deployments)
+      .set({ systemPrompt: newPrompt, updatedAt: dbDate() })
       .where(eq(tables.deployments.id, ctx.deploymentId));
 
     logger.info({ deploymentId: ctx.deploymentId }, "MCP: System prompt updated");
