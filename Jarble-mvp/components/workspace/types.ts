@@ -194,17 +194,18 @@ export function canMergeCards(source: CanvasCard, target: CanvasCard): boolean {
 // ── Default sizes per component type ─────────────────────────────────────────
 
 export const DEFAULT_CARD_SIZES: Record<string, { width: number; height: number }> = {
-  // Large — data-heavy / immersive
-  sandbox: { width: 560, height: 440 },
-  spreadsheet: { width: 560, height: 400 },
-  code_editor: { width: 520, height: 380 },
-  video: { width: 500, height: 340 },
+  // Immersive — iframe/widget-based, need generous space
+  sandbox: { width: 700, height: 600 },
+  spreadsheet: { width: 600, height: 500 },
+  code_editor: { width: 600, height: 500 },
+  video: { width: 560, height: 420 },
+  map: { width: 560, height: 460 },
+  // Large — data-heavy
   chart: { width: 460, height: 300 },
   data_table: { width: 460, height: 300 },
-  map: { width: 460, height: 340 },
   // Medium — content panels
   text_message: { width: 360, height: 240 },
-  card: { width: 320, height: 200 },
+  card: { width: 300, height: 180 },
   tabs: { width: 400, height: 300 },
   accordion: { width: 400, height: 300 },
   form: { width: 360, height: 320 },
@@ -214,15 +215,15 @@ export const DEFAULT_CARD_SIZES: Record<string, { width: number; height: number 
   timeline: { width: 320, height: 280 },
   code_block: { width: 400, height: 240 },
   image: { width: 360, height: 280 },
-  // Compact — KPI tiles & indicators
-  metric_card: { width: 280, height: 160 },
+  // Compact — KPI tiles & indicators (tight fit to content)
+  metric_card: { width: 260, height: 140 },
   stat_grid: { width: 400, height: 200 },
-  progress: { width: 300, height: 100 },
-  alert: { width: 360, height: 100 },
-  badge: { width: 200, height: 60 },
-  header: { width: 360, height: 80 },
-  divider: { width: 300, height: 40 },
-  button_group: { width: 320, height: 80 },
+  progress: { width: 280, height: 90 },
+  alert: { width: 340, height: 100 },
+  badge: { width: 180, height: 50 },
+  header: { width: 360, height: 70 },
+  divider: { width: 300, height: 30 },
+  button_group: { width: 300, height: 70 },
   // Layout — adapts to children
   layout: { width: 600, height: 360 },
 };

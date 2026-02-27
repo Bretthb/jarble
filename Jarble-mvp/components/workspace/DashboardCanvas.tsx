@@ -18,24 +18,48 @@ import { canSplitCard } from "./types";
 import { computeSpan, TYPE_ORDER } from "./autoLayout";
 import CanvasToolbar from "./CanvasToolbar";
 
-/** Max heights per component category to prevent unbounded growth. */
+/**
+ * Immersive components need guaranteed height because they contain iframes
+ * or widgets that use flex:1 / height:100% and collapse without a concrete parent size.
+ */
+const IMMERSIVE_COMPONENTS = new Set([
+  "sandbox", "map", "video", "code_editor", "spreadsheet", "audio",
+]);
+
+/** Preferred heights for immersive components — used as minHeight so they always get space. */
+const PREFERRED_HEIGHTS: Record<string, number> = {
+  sandbox: 800,
+  map: 600,
+  video: 500,
+  code_editor: 550,
+  spreadsheet: 550,
+  audio: 120,
+};
+
+/** Max heights for content-based components (safety cap to prevent unbounded growth). */
 const MAX_HEIGHTS: Record<string, number> = {
   header: 80,
   divider: 50,
-  metric_card: 200,
-  badge: 80,
-  progress: 120,
-  alert: 160,
-  button_group: 100,
-  chart: 400,
+  metric_card: 160,
+  badge: 60,
+  progress: 100,
+  alert: 150,
+  button_group: 80,
+  chart: 450,
   data_table: 500,
-  sandbox: 600,
-  map: 500,
-  video: 450,
-  code_editor: 500,
-  spreadsheet: 500,
+  list: 400,
+  timeline: 450,
+  card: 300,
+  text_message: 300,
+  stat_grid: 300,
+  result: 200,
+  statistic: 140,
+  blockquote: 200,
+  code_block: 400,
+  image: 500,
+  layout: 600,
 };
-const DEFAULT_MAX_HEIGHT = 450;
+const DEFAULT_MAX_HEIGHT = 400;
 
 interface DashboardCanvasProps {
   cards: CanvasCard[];
@@ -209,6 +233,8 @@ export default function DashboardCanvas({
               const span = Math.min(computeSpan(card, columns), columns);
               const isNew = !seenCardIdsRef.current.has(card.id);
               const isStreaming = streamingCardIds.has(card.id);
+              const isImmersive = IMMERSIVE_COMPONENTS.has(card.component);
+              const preferredH = PREFERRED_HEIGHTS[card.component];
               const maxH = MAX_HEIGHTS[card.component] ?? DEFAULT_MAX_HEIGHT;
 
               return (
@@ -309,7 +335,10 @@ export default function DashboardCanvas({
                   {/* Card content */}
                   <div
                     className="flex-1 min-h-0 overflow-auto rounded-lg"
-                    style={{ maxHeight: maxH }}
+                    style={isImmersive
+                      ? { minHeight: preferredH, height: preferredH }
+                      : { maxHeight: maxH }
+                    }
                   >
                     {renderCard(card)}
                   </div>
