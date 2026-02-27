@@ -13,7 +13,7 @@
 import { useCallback, useRef, useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
-import type { CanvasAction, CanvasCard, CanvasState } from "@/components/workspace/types";
+import type { CanvasAction, CanvasCard, CanvasState, LayoutHint } from "@/components/workspace/types";
 import { findOpenPosition, getDefaultSize, getContainerSize } from "@/components/workspace/autoLayout";
 import { useComponentCatalog } from "@/components/ComponentCatalogProvider";
 
@@ -75,6 +75,7 @@ interface UIBlockPending {
   editable?: boolean;
   fileId?: string;
   saveMethod?: "mcp" | "chat";
+  layoutHint?: LayoutHint;
 }
 
 /** Regex to strip ```jarble_ui ... ```, ```jarble_ui_update ... ```, and ```jarble_ui_define ... ``` fenced blocks from displayed text */
@@ -299,6 +300,7 @@ export function useCanvasChat(
                   ...(event.editable ? { editable: true } : {}),
                   ...(event.fileId ? { fileId: event.fileId } : {}),
                   ...(event.saveMethod ? { saveMethod: event.saveMethod } : {}),
+                  ...(event.layoutHint ? { layoutHint: event.layoutHint } : {}),
                 });
                 setStreamingCardIds((prev) => new Set(prev).add(`card-${event.blockId}`));
               }
@@ -445,6 +447,7 @@ function addComponentCard(
     createdAt: Date.now(),
     sourceMessageId: messageId,
     title: (block.props.title as string) || block.component.replace(/_/g, " "),
+    layoutHint: block.layoutHint,
   };
 
   dispatch({ type: "ADD_CARD", card });

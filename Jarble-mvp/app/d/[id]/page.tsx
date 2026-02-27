@@ -11,6 +11,7 @@ import { useCanvasChat, type ChatMessage } from "@/hooks/useCanvasChat";
 import { useCanvasPersistence } from "@/hooks/useCanvasPersistence";
 import { canvasReducer, INITIAL_CANVAS_STATE } from "@/components/workspace/canvasReducer";
 import SimpleCanvasGrid from "@/components/workspace/SimpleCanvasGrid";
+import DashboardCanvas from "@/components/workspace/DashboardCanvas";
 import EssentialControls from "@/components/workspace/EssentialControls";
 import ConfigPanel from "@/components/workspace/ConfigPanel";
 import CanvasRenderer from "@/components/canvas/CanvasRenderer";
@@ -553,16 +554,27 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
       {/* Dashboard Grid Panel -- for UI blocks only */}
       {canvasSidebarVisible && (
         <div className="flex-1 flex flex-col overflow-hidden relative min-w-[300px] bg-secondary/10 border-l border-border/40">
-          {/* Simple Canvas Grid - components flow naturally */}
-          <SimpleCanvasGrid
-            cards={state.cards}
-            dispatch={dispatch}
-            renderCard={renderCard}
-            focusedCardId={state.focusedCardId}
-            streamingCardIds={streamingCardIds}
-            deploymentId={deploymentId}
-            onHide={() => setShowCanvas(false)}
-          />
+          {state.mode === "dashboard" ? (
+            <DashboardCanvas
+              cards={state.cards}
+              dispatch={dispatch}
+              renderCard={renderCard}
+              focusedCardId={state.focusedCardId}
+              streamingCardIds={streamingCardIds}
+              deploymentId={deploymentId}
+              onHide={() => setShowCanvas(false)}
+            />
+          ) : (
+            <SimpleCanvasGrid
+              cards={state.cards}
+              dispatch={dispatch}
+              renderCard={renderCard}
+              focusedCardId={state.focusedCardId}
+              streamingCardIds={streamingCardIds}
+              deploymentId={deploymentId}
+              onHide={() => setShowCanvas(false)}
+            />
+          )}
         </div>
       )}
 

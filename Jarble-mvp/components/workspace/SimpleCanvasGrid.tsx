@@ -16,6 +16,7 @@ import { API_URL } from "@/lib/trpc";
 import type { CanvasCard, CanvasAction } from "./types";
 import { canSplitCard } from "./types";
 import ComponentGallery from "./ComponentGallery";
+import CanvasToolbar from "./CanvasToolbar";
 
 const MIN_WIDTH = 200;
 const MIN_HEIGHT = 120;
@@ -240,17 +241,15 @@ export default function SimpleCanvasGrid({
   if (cards.length === 0) {
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Toolbar — always visible */}
-        <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border bg-background z-10 relative">
-          {onHide && (
-            <button onClick={onHide} className="flex items-center gap-1 px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors" title="Hide canvas">
-              <X className="w-3.5 h-3.5" />
-              Hide
-            </button>
-          )}
-          <ComponentGallery deploymentId={deploymentId} cards={cards} dispatch={dispatch} />
-          <span className="text-[10px] text-muted-foreground/50 ml-auto">0 components</span>
-        </div>
+        <CanvasToolbar
+          cards={cards}
+          dispatch={dispatch}
+          deploymentId={deploymentId}
+          mode="freeform"
+          onHide={onHide}
+          gridSnap={gridSnap}
+          onToggleGridSnap={() => setGridSnap((v) => !v)}
+        />
         <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
           <div className="w-12 h-12 rounded-xl bg-secondary/50 border border-border/40 flex items-center justify-center">
             <Grid3X3 className="w-6 h-6 text-muted-foreground/50" />
@@ -282,61 +281,19 @@ export default function SimpleCanvasGrid({
         }
       `}} />
       {/* Toolbar */}
-      <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border bg-background z-10 relative">
-        {onHide && (
-          <button onClick={onHide} className="flex items-center gap-1 px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors" title="Hide canvas">
-            <X className="w-3.5 h-3.5" />
-            Hide
-          </button>
-        )}
-        <button
-          onClick={() => setGridSnap((v) => !v)}
-          className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
-            gridSnap ? "bg-primary/20 text-primary border border-primary/30" : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-          }`}
-          title={`Grid snap: ${gridSnap ? "ON" : "OFF"} (${SNAP_SIZE}px)`}
-        >
-          <Grid3X3 className="w-3.5 h-3.5" />
-          Snap
-        </button>
-        <button
-          onClick={() => {
-            const w = canvasRef.current?.clientWidth ?? window.innerWidth - 400;
-            dispatch({ type: "TIDY_LAYOUT", containerWidth: w });
-          }}
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
-          title="Organize cards into a clean layout"
-        >
-          <LayoutGrid className="w-3.5 h-3.5" />
-          Organize
-        </button>
-        <ComponentGallery deploymentId={deploymentId} cards={cards} dispatch={dispatch} />
-
-        {/* Multi-select group action */}
-        {selectedCount >= 2 && (
-          <>
-            <div className="w-px h-4 bg-border/50" />
-            <span className="text-[11px] text-blue-400 font-medium">{selectedCount} selected</span>
-            <button
-              onClick={handleGroup}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30 transition-colors"
-              title="Group selected cards into a layout"
-            >
-              <Group className="w-3.5 h-3.5" />
-              Group
-            </button>
-            <button
-              onClick={() => dispatch({ type: "DESELECT_CARD" })}
-              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
-              title="Deselect all"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </>
-        )}
-
-        <span className="text-[10px] text-muted-foreground/50 ml-auto">{cards.length} component{cards.length !== 1 ? "s" : ""}</span>
-      </div>
+      <CanvasToolbar
+        cards={cards}
+        dispatch={dispatch}
+        deploymentId={deploymentId}
+        mode="freeform"
+        onHide={onHide}
+        gridSnap={gridSnap}
+        onToggleGridSnap={() => setGridSnap((v) => !v)}
+        onOrganize={() => {
+          const w = canvasRef.current?.clientWidth ?? window.innerWidth - 400;
+          dispatch({ type: "TIDY_LAYOUT", containerWidth: w });
+        }}
+      />
 
       {/* Canvas area */}
       <div

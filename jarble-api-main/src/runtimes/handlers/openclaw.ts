@@ -75,7 +75,9 @@ You render UI by writing fenced code blocks directly in your response (like mark
 
 ### Design Principles
 - **Aesthetics first**: Create visually rich, polished output. Never render bare-minimum components when the data deserves better presentation.
-- **ALWAYS use \`layout\` for multi-component responses**: When rendering 2+ components, wrap them in a \`layout\` with \`columns\`. Never emit multiple separate cards when they belong together. Example: 4 metric_cards → \`layout\` with \`columns: 4\`.
+- **Emit each component as a separate \`jarble_ui\` block** — the dashboard arranges them into a professional grid automatically. Do NOT wrap multiple components in a \`layout\` unless they are literally nested (e.g. tabs with sub-components inside).
+- **Dashboard composition**: Lead with a \`header\`, then KPI metrics (\`metric_card\` or \`stat_grid\`), then visualizations (\`chart\`, \`timeline\`), then detailed data (\`data_table\`, \`list\`). The grid sorts by this priority automatically.
+- **Layout hints**: Add \`"layout_hint"\` to control width: \`"full-width"\`, \`"half"\`, \`"third"\`, \`"compact"\`. Auto-detection handles most cases — hints are for fine-tuning.
 - **Match component to content** — you have 24 component types, USE THEM. Don't default to metric_card + chart + data_table for everything. Choose based on what the data actually is:
   - Schedules, processes, history, step-by-step → \`timeline\` (with status: completed/active/pending)
   - Feature lists, inventories, menu items → \`list\` (with icons and badges, not data_table)
@@ -94,9 +96,9 @@ You render UI by writing fenced code blocks directly in your response (like mark
 ### Rendering Components
 Output a \\\`\\\`\\\`jarble_ui fenced block to render a component:
 \\\`\\\`\\\`jarble_ui
-{"component": "chart", "props": {"type": "bar", "title": "Sales", "data": [{"month": "Jan", "sales": 100}], "dataKeys": ["sales"], "xAxisKey": "month"}}
+{"component": "chart", "props": {"type": "bar", "title": "Sales", "data": [{"month": "Jan", "sales": 100}], "dataKeys": ["sales"], "xAxisKey": "month"}, "layout_hint": "half"}
 \\\`\\\`\\\`
-Each block: \`{"component": "<name>", "props": {...}}\`. Multiple blocks = multiple cards.
+Each block: \`{"component": "<name>", "props": {...}, "layout_hint"?: "full-width"|"half"|"third"|"compact"}\`. Multiple blocks = multiple cards arranged in the dashboard grid.
 
 ### Updating Cards
 Output a \\\`\\\`\\\`jarble_ui_update fenced block with card ID from \`[CANVAS_STATE]\` or \`[EDITING]\`:
@@ -117,7 +119,7 @@ Rules: name must be lowercase with underscores, cannot override built-in compone
 \`[UI_ACTION] cardId={id} component={name} action={type}\` + JSON payload. You are the backend — respond by updating the card or creating new ones.
 
 ### Component Quick Reference
-**layout**: \`{children: [{component, props}], columns?: 1-4, direction?: "grid"|"vertical"|"horizontal"}\` — wrapper for grouping components. REQUIRED for 2+ components.
+**layout**: \`{children: [{component, props}], columns?: 1-4, direction?: "grid"|"vertical"|"horizontal"}\` — wrapper for literal nesting only (e.g. tabs with sub-components). Do NOT use to wrap top-level cards — emit them separately.
 **metric_card**: \`{label, value, change?, changeLabel?, icon?, sparkline?: number[]}\` — single KPI with trend. Use for ≤4 metrics in a layout.
 **stat_grid**: \`{stats: [{label, value, change?, icon?}, ...]}\` — compact grid of 5+ metrics. Better than many metric_cards when space matters.
 **chart**: \`{type: "bar"|"line"|"pie"|"area", data: [{...}], dataKeys: string[], xAxisKey?, colors?, stacked?, title?}\` — data visualization.

@@ -1,4 +1,4 @@
-import type { CanvasCard } from "./types";
+import type { CanvasCard, LayoutHint } from "./types";
 import { DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE } from "./types";
 
 /**
@@ -63,7 +63,7 @@ export function getContainerSize(): { width: number; height: number } {
 
 // ── Component type ordering for tidy layout ─────────────────────────────────
 // Compact KPI-style components come first (top row), then charts/tables, then misc.
-const TYPE_ORDER: Record<string, number> = {
+export const TYPE_ORDER: Record<string, number> = {
   header: 0,
   metric_card: 1,
   badge: 1,
@@ -164,4 +164,134 @@ export function tidyLayout(cards: CanvasCard[], containerWidth: number): CanvasC
   }
 
   return result;
+}
+
+// ── Dashboard layout: span computation + row packing ─────────────────────────
+
+/** Span lookup by component type. Returns the default column span (1-3). */
+const AUTO_SPAN: Record<string, number | ((card: CanvasCard) => number)> = {
+  // Compact (span 1)
+  metric_card: 1,
+  progress: 1,
+  alert: 1,
+  badge: 1,
+  card: 1,
+  code_block: 1,
+  form: 1,
+  image: 1,
+  button_group: 1,
+  // Medium (span 2)
+  chart: 2,
+  list: 2,
+  timeline: 2,
+  tabs: 2,
+  accordion: 2,
+  key_value: 2,
+  descriptions: 2,
+  // Full-width (span 3)
+  sandbox: 3,
+  map: 3,
+  code_editor: 3,
+  video: 3,
+  spreadsheet: 3,
+  header: 3,
+  divider: 3,
+  layout: 3,
+  // Dynamic
+  data_table: (card: CanvasCard) => {
+    const cols = card.props.columns;
+    if (Array.isArray(cols)) {
+      if (cols.length <= 3) return 1;
+      if (cols.length <= 6) return 2;
+    }
+    return 3;
+  },
+  stat_grid: (card: CanvasCard) => {
+    const stats = card.props.stats;
+    if (Array.isArray(stats) && stats.length <= 3) return 2;
+    return 3;
+  },
+};
+
+const HINT_TO_SPAN: Record<string, number> = {
+  "full-width": 3,
+  half: 2,
+  third: 1,
+  compact: 1,
+};
+
+/**
+ * Compute the column span for a card in the dashboard grid.
+ * layoutHint overrides auto-detection when present.
+ */
+export function computeSpan(card: CanvasCard, totalColumns = 3): number {
+  // Explicit hint takes priority
+  if (card.layoutHint && card.layoutHint !== "auto") {
+    const hintSpan = HINT_TO_SPAN[card.layoutHint];
+    if (hintSpan) return Math.min(hintSpan, totalColumns);
+  }
+
+  // Auto-detect from component type + content
+  const entry = AUTO_SPAN[card.component];
+  let span: number;
+  if (typeof entry === "function") {
+    span = entry(card);
+  } else if (typeof entry === "number") {
+    span = entry;
+  } else {
+    span = 1; // Unknown component defaults to 1
+  }
+
+  return Math.min(span, totalColumns);
+}
+
+export interface DashboardRow {
+  cards: Array<{ card: CanvasCard; span: number }>;
+}
+
+/**
+ * Pack cards into rows for the dashboard grid.
+ * Sorts by type priority, then greedily fills rows up to totalColumns.
+ */
+export function packIntoRows(cards: CanvasCard[], totalColumns = 3): DashboardRow[] {
+  if (cards.length === 0) return [];
+
+  // Sort by type priority (header → KPIs → charts → tables → detail)
+  const sorted = [...cards].sort((a, b) => {
+    const oa = TYPE_ORDER[a.component] ?? 10;
+    const ob = TYPE_ORDER[b.component] ?? 10;
+    return oa - ob;
+  });
+
+  const rows: DashboardRow[] = [];
+  let currentRow: DashboardRow = { cards: [] };
+  let currentSpanSum = 0;
+
+  for (const card of sorted) {
+    const span = computeSpan(card, totalColumns);
+
+    // If this card doesn't fit in the current row, start a new one
+    if (currentRow.cards.length > 0 && currentSpanSum + span > totalColumns) {
+      rows.push(currentRow);
+      currentRow = { cards: [] };
+      currentSpanSum = 0;
+    }
+
+    currentRow.cards.push({ card, span });
+    currentSpanSum += span;
+
+    // Row is full
+    if (currentSpanSum >= totalColumns) {
+      rows.push(currentRow);
+      currentRow = { cards: [] };
+      currentSpanSum = 0;
+    }
+  }
+
+  // Don't forget the last partial row
+  if (currentRow.cards.length > 0) {
+    rows.push(currentRow);
+  }
+
+  return rows;
 }

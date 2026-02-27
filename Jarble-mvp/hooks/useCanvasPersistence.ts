@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useRef, useCallback } from "react";
-import type { CanvasState, CanvasAction, CanvasCard } from "@/components/workspace/types";
+import type { CanvasState, CanvasAction, CanvasCard, CanvasMode } from "@/components/workspace/types";
 
 const STORAGE_PREFIX = "jarble-canvas-";
 const MAX_BYTES = 2 * 1024 * 1024; // 2MB
@@ -44,6 +44,7 @@ interface PersistedState {
   viewportOffset: { x: number; y: number };
   zoom: number;
   savedAt: number;
+  mode?: CanvasMode;
 }
 
 function serializeCard(card: CanvasCard): PersistedCard {
@@ -130,6 +131,7 @@ export function loadCanvasState(deploymentId: string): CanvasState | null {
       zoom: persisted.zoom,
       nextZIndex: cards.length + 1,
       focusedCardId: null,
+      mode: persisted.mode || "dashboard",
     };
   } catch {
     return null;
@@ -144,6 +146,7 @@ function saveCanvasState(deploymentId: string, state: CanvasState): void {
       viewportOffset: state.viewportOffset,
       zoom: state.zoom,
       savedAt: Date.now(),
+      mode: state.mode,
     };
 
     const json = JSON.stringify(persisted);

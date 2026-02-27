@@ -1,5 +1,8 @@
 /** Canvas workspace types — cards, state, and actions. */
 
+export type LayoutHint = "full-width" | "half" | "third" | "compact" | "auto";
+export type CanvasMode = "dashboard" | "freeform";
+
 export interface CanvasCard {
   id: string;
   /** Registered component name (e.g. "chart", "sandbox", "text_message") */
@@ -24,6 +27,8 @@ export interface CanvasCard {
   selected?: boolean;
   /** Name given when the user saved this card to their library */
   savedName?: string;
+  /** Dashboard grid layout hint: controls column span */
+  layoutHint?: LayoutHint;
 }
 
 export interface CanvasState {
@@ -32,6 +37,7 @@ export interface CanvasState {
   zoom: number;
   nextZIndex: number;
   focusedCardId: string | null;
+  mode: CanvasMode;
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -60,7 +66,8 @@ export type CanvasAction =
   | { type: "SELECT_CARD"; id: string }
   | { type: "DESELECT_CARD" }
   | { type: "SAVE_CARD"; id: string; savedName: string }
-  | { type: "TIDY_LAYOUT"; containerWidth: number };
+  | { type: "TIDY_LAYOUT"; containerWidth: number }
+  | { type: "SET_CANVAS_MODE"; mode: CanvasMode };
 
 // ── Splittable components config ────────────────────────────────────────────
 
@@ -228,4 +235,5 @@ export const INITIAL_CANVAS_STATE: CanvasState = {
   zoom: 1,
   nextZIndex: 1,
   focusedCardId: null,
+  mode: "dashboard",
 };

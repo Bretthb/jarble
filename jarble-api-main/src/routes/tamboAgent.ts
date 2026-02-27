@@ -311,6 +311,7 @@ tamboAgentRouter.post("/", async (req, res) => {
         ...(block.editable ? { editable: true } : {}),
         ...(block.fileId ? { fileId: block.fileId } : {}),
         ...(block.saveMethod ? { saveMethod: block.saveMethod } : {}),
+        ...(block.layoutHint ? { layoutHint: block.layoutHint } : {}),
       });
       sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: block.id, props: block.props });
       sendEvent(res, { type: "UI_BLOCK_END", blockId: block.id });

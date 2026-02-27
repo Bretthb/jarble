@@ -12,6 +12,10 @@
 import { nanoid } from "nanoid";
 import { logger } from "./logger.js";
 
+export type LayoutHint = "full-width" | "half" | "third" | "compact" | "auto";
+
+const VALID_LAYOUT_HINTS = new Set<string>(["full-width", "half", "third", "compact", "auto"]);
+
 export interface JarbleUIBlock {
   id: string;
   component: string;
@@ -19,6 +23,7 @@ export interface JarbleUIBlock {
   editable?: boolean;
   fileId?: string;
   saveMethod?: "mcp" | "chat";
+  layoutHint?: LayoutHint;
 }
 
 export interface JarbleUIUpdate {
@@ -93,6 +98,9 @@ export function extractUIBlocks(text: string): {
         ...(parsed.editable === true ? { editable: true } : {}),
         ...(typeof parsed.fileId === "string" ? { fileId: parsed.fileId } : {}),
         ...(parsed.saveMethod === "chat" ? { saveMethod: "chat" as const } : {}),
+        ...(typeof parsed.layout_hint === "string" && VALID_LAYOUT_HINTS.has(parsed.layout_hint)
+          ? { layoutHint: parsed.layout_hint as LayoutHint }
+          : {}),
       });
       blockCount++;
 

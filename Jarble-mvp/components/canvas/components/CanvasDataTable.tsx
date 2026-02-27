@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { useCanvasAction } from "../CanvasActionContext";
 
 export interface CanvasDataTableProps {
@@ -82,7 +83,12 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
   };
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className="h-full flex flex-col overflow-hidden"
+    >
       {title && (
         <div className="px-4 py-2.5 border-b border-border shrink-0">
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
@@ -92,11 +98,11 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
         <table className="w-full text-sm">
           {resolvedColumns.length > 0 && (
             <thead className="sticky top-0 z-10">
-              <tr className="border-b border-border bg-muted/60 backdrop-blur-sm">
+              <tr className="bg-muted/60 backdrop-blur-sm">
                 {resolvedColumns.map((col, i) => (
                   <th
                     key={col}
-                    className={`px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap ${
+                    className={`px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap border-b-2 border-primary/20 ${
                       numericCols[i] ? "text-right" : "text-left"
                     }`}
                   >
@@ -110,13 +116,15 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
             {normalizedRows.map((row, ri) => (
               <tr
                 key={ri}
-                className="border-b border-border/40 last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
+                className={`group cursor-pointer transition-colors border-b border-border/20 last:border-0 hover:bg-accent/50 ${
+                  ri % 2 === 1 ? "bg-muted/15" : ""
+                }`}
                 onClick={() => handleRowClick(ri, row)}
               >
                 {row.map((cell, ci) => (
                   <td
                     key={ci}
-                    className={`px-4 py-2.5 whitespace-nowrap ${
+                    className={`px-4 py-2.5 whitespace-nowrap border-l-2 border-transparent group-hover:first:border-l-primary/40 ${
                       numericCols[ci]
                         ? "text-right font-mono tabular-nums text-foreground"
                         : "text-foreground/90"
@@ -130,13 +138,13 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
           </tbody>
         </table>
       </div>
-      {normalizedRows.length > 5 && (
-        <div className="px-4 py-2 border-t border-border shrink-0">
-          <span className="text-xs text-muted-foreground">
-            {normalizedRows.length} rows
+      {normalizedRows.length > 0 && (
+        <div className="px-4 py-2 border-t border-border/40 shrink-0 flex items-center">
+          <span className="inline-flex items-center rounded-full bg-secondary/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {normalizedRows.length} {normalizedRows.length === 1 ? "row" : "rows"}
           </span>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
