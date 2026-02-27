@@ -877,19 +877,28 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      if (deployment.status !== "stopped") {
+      if (deployment.status !== "stopped" && deployment.status !== "failed") {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: `Cannot start a deployment that is ${deployment.status}`,
         });
       }
 
+      // When recovering from "failed", use restart (stop+start) to force a fresh pod
+      // and reset CrashLoopBackOff backoff timers. Plain startDeployment() would be a
+      // no-op if the pod is already at replicas=1 but crashing.
+      const wasFailedState = deployment.status === "failed";
+
       try {
         await ctx.db.update(deployments)
           .set({ status: "creating", error: null })
           .where(eq(deployments.id, input.id));
 
-        await startDeployment(input.id);
+        if (wasFailedState) {
+          await restartDeployment(input.id);
+        } else {
+          await startDeployment(input.id);
+        }
 
         // Poll for pod readiness (fire-and-forget)
         void (async () => {
@@ -917,10 +926,10 @@ export const deploymentRouter = router({
           }
         })();
 
-        logger.info({ deploymentId: input.id }, "Deployment start initiated");
+        logger.info({ deploymentId: input.id, wasFailedState }, "Deployment start initiated");
       } catch (err) {
         await ctx.db.update(deployments)
-          .set({ status: "stopped" })
+          .set({ status: "stopped", error: "Failed to start deployment" })
           .where(eq(deployments.id, input.id));
         logger.error({ deploymentId: input.id, err }, "Failed to start deployment");
         throw new TRPCError({
@@ -944,7 +953,7 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      if (deployment.status !== "running") {
+      if (deployment.status !== "running" && deployment.status !== "failed") {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: `Cannot restart a deployment that is ${deployment.status}`,

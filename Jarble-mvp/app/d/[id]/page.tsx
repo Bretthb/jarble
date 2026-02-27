@@ -23,6 +23,8 @@ import { useReducer, useRef, useState, useCallback, useEffect, memo } from "reac
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
 import ProfileDropdown from "@/components/ProfileDropdown";
+import ChatErrorCard from "@/components/workspace/ChatErrorCard";
+import { useDiagnose } from "@/hooks/useDiagnose";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -272,9 +274,11 @@ function WorkspacePage({
 // ── Canvas Workspace ──────────────────────────────────────────────────────────
 
 function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
+  const startMutation = trpc.deployment.start.useMutation();
   const [state, dispatch] = useReducer(canvasReducer, INITIAL_CANVAS_STATE);
-  const { sendMessage, isStreaming, streamingCardIds, messages, streamingText } = useCanvasChat(deploymentId, state, dispatch);
+  const { sendMessage, isStreaming, streamingCardIds, messages, streamingText, lastChatError, lastUserMessage, clearChatError } = useCanvasChat(deploymentId, state, dispatch);
   useCanvasPersistence(deploymentId, state, dispatch);
+  const { result: diagnosis, isLoading: isDiagnosing, runDiagnosis } = useDiagnose(deploymentId);
   const [input, setInput] = useState("");
   const [showCanvas, setShowCanvas] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -332,6 +336,13 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
       chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [isStreaming]);
+
+  // Scroll to error card when it appears
+  useEffect(() => {
+    if (lastChatError) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [lastChatError]);
 
   // Auto-resize textarea
   const adjustTextareaHeight = useCallback(() => {
@@ -472,6 +483,23 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Chat error card with diagnostics */}
+          {lastChatError && !isStreaming && (
+            <ChatErrorCard
+              error={lastChatError}
+              onRetry={lastUserMessage ? () => sendMessage(lastUserMessage) : undefined}
+              onStartBot={lastChatError.canStart ? () => {
+                startMutation.mutate({ id: deploymentId }, {
+                  onSuccess: () => clearChatError(),
+                  onError: (err) => console.error("[Jarble:Chat] Start bot failed:", err.message),
+                });
+              } : undefined}
+              onDiagnose={runDiagnosis}
+              diagnosis={diagnosis}
+              isDiagnosing={isDiagnosing}
+            />
           )}
           <div ref={chatEndRef} />
         </div>

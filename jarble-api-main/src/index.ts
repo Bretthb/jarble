@@ -21,6 +21,7 @@ import { debugRouter } from "./routes/debug.js";
 import { tamboAgentRouter } from "./routes/tamboAgent.js";
 import { canvasFilesRouter } from "./routes/canvasFiles.js";
 import { mcpRouter } from "./routes/mcp.js";
+import { diagnoseRouter } from "./routes/diagnose.js";
 
 const app = express();
 
@@ -73,6 +74,7 @@ app.use("/api/deployments", sseRouter);
 app.use("/api/tambo-agent", tamboAgentRouter);
 app.use("/api/deployments", canvasFilesRouter);
 app.use("/api/mcp", mcpRouter);
+app.use("/api/deployments", diagnoseRouter);
 
 // Debug endpoints — dev only
 if (env.NODE_ENV === "development") {

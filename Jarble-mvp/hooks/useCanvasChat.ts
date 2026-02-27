@@ -16,6 +16,7 @@ import { API_URL } from "@/lib/trpc";
 import type { CanvasAction, CanvasCard, CanvasState, LayoutHint } from "@/components/workspace/types";
 import { findOpenPosition, getDefaultSize, getContainerSize } from "@/components/workspace/autoLayout";
 import { useComponentCatalog } from "@/components/ComponentCatalogProvider";
+import type { ClassifiedChatError } from "@/components/workspace/ChatErrorCard";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -96,6 +97,8 @@ export function useCanvasChat(
   const [streamingCardIds, setStreamingCardIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingText, setStreamingText] = useState("");
+  const [lastChatError, setLastChatError] = useState<ClassifiedChatError | null>(null);
+  const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const hasLoadedHistory = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -191,6 +194,8 @@ export function useCanvasChat(
       isStreamingRef.current = true;
       setIsStreaming(true);
       setStreamingText("");
+      setLastChatError(null);
+      setLastUserMessage(text);
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -353,6 +358,11 @@ export function useCanvasChat(
                 });
               }
 
+              if (event.type === "CHAT_ERROR" && event.error) {
+                isDev && console.log(`[Jarble:Chat] CHAT_ERROR: ${event.error.code} — ${event.error.message}`);
+                setLastChatError(event.error as ClassifiedChatError);
+              }
+
               // Break both the for loop and the outer while loop cleanly
               if (event.type === "RUN_FINISHED") break outer;
             } catch {
@@ -407,7 +417,9 @@ export function useCanvasChat(
     [deploymentId, getAccessTokenSilently, dispatch]
   );
 
-  return { sendMessage, isStreaming, streamingCardIds, messages, streamingText };
+  const clearChatError = useCallback(() => setLastChatError(null), []);
+
+  return { sendMessage, isStreaming, streamingCardIds, messages, streamingText, lastChatError, lastUserMessage, clearChatError };
 }
 
 // ── Helper: create canvas card for UI blocks only ────────────────────────────

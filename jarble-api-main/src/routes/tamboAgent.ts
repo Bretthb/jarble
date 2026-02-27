@@ -29,6 +29,7 @@ import {
   resolveCustomComponent,
   type ComponentDefinition,
 } from "../utils/componentResolver.js";
+import { classifyError } from "../utils/chatErrors.js";
 
 export const tamboAgentRouter = Router();
 
@@ -258,10 +259,12 @@ tamboAgentRouter.post("/", async (req, res) => {
   }
 
   if (deployment.status !== "running") {
+    const classified = classifyError("", { deploymentStatus: deployment.status });
     const messageId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
     sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Your bot is currently ${deployment.status}. It needs to be running to chat. You can start it using the Start button.` });
     sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+    sendEvent(res, { type: "CHAT_ERROR", error: classified });
     sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
     res.end();
     return;
@@ -389,8 +392,10 @@ tamboAgentRouter.post("/", async (req, res) => {
       const e = err instanceof Error ? err : new Error(String(err));
       if (e.name === "AbortError" || abortController.signal.aborted) return;
       logger.error({ deploymentId, error: e.message }, "Exec-only chat failed");
+      const classified = classifyError(e.message, { deploymentStatus: deployment.status });
       sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${e.message}` });
       sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+      sendEvent(res, { type: "CHAT_ERROR", error: classified });
       sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
       res.end();
       return;
@@ -406,8 +411,10 @@ tamboAgentRouter.post("/", async (req, res) => {
       const podAddr = await getPodAddress(deploymentId);
 
       if (!podAddr) {
+        const classified = classifyError("No pod found", { deploymentStatus: deployment.status });
         sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "No running pod found for this deployment. Try restarting the bot." });
         sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+        sendEvent(res, { type: "CHAT_ERROR", error: classified });
         sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
         res.end();
         return;
@@ -462,8 +469,10 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   // All attempts failed
   logger.error({ deploymentId, error: lastError?.message }, "Gateway proxy error (all attempts failed)");
+  const classified = classifyError(lastError?.message ?? "", { deploymentStatus: deployment.status });
   sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${lastError?.message}` });
   sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+  sendEvent(res, { type: "CHAT_ERROR", error: classified });
   sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
   res.end();
 });
