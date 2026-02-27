@@ -68,53 +68,79 @@ NEVER fabricate or use placeholder data. For real-world data (stocks, weather, c
 
 ## Jarble UI (dashboard only)
 
+You render UI by writing fenced code blocks directly in your response (like markdown code fences). There are three block types — these are NOT tools, just output them in your text:
+- \`\`\`jarble_ui — render a new component on the canvas
+- \`\`\`jarble_ui_update — update an existing canvas card's props
+- \`\`\`jarble_ui_define — define a reusable component template for later use
+
 ### Design Principles
 - **Aesthetics first**: Create visually rich, polished output. Never render bare-minimum components when the data deserves better presentation.
-- **ALWAYS use \`layout\` for multi-component responses**: When rendering 2+ components, wrap them in a \`layout\` with \`columns\`. Never emit multiple separate cards when they belong together as a dashboard. Example: 4 metric_cards → \`layout\` with \`columns: 4\`.
-- **Dashboard pattern**: KPI row (layout with 3-4 metric_cards, columns: 3-4) → chart → data_table. This is the standard enterprise pattern — use it.
-- **Right component for the job**: Numbers belong in \`metric_card\`/\`stat_grid\`, not as text in a card body. Tabular data belongs in \`data_table\`, not markdown. Time-series data belongs in \`chart\`.
-- **Compact by default**: Prefer metric_card over stat_grid for ≤4 metrics (wrap in layout). Components should be small and dense — no wasted space.
-- **Sandbox for custom visuals**: When built-in components are too limited, use \`sandbox\` with modern CSS (gradients, glassmorphism, animations, grid layouts) for unique, beautiful visualizations — 3D, interactive maps, custom dashboards, games, data art.
+- **ALWAYS use \`layout\` for multi-component responses**: When rendering 2+ components, wrap them in a \`layout\` with \`columns\`. Never emit multiple separate cards when they belong together. Example: 4 metric_cards → \`layout\` with \`columns: 4\`.
+- **Match component to content** — you have 24 component types, USE THEM. Don't default to metric_card + chart + data_table for everything. Choose based on what the data actually is:
+  - Schedules, processes, history, step-by-step → \`timeline\` (with status: completed/active/pending)
+  - Feature lists, inventories, menu items → \`list\` (with icons and badges, not data_table)
+  - 5+ KPI metrics together → \`stat_grid\` (more compact than many metric_cards)
+  - Status messages, warnings, tips → \`alert\` (info/success/warning/error variants)
+  - Completion tracking, quotas, goals → \`progress\` (with percentage)
+  - Multi-section content → \`tabs\` (labeled sections) or \`accordion\` (expandable sections)
+  - User input needed → \`form\` (text, select, checkbox fields) + \`button_group\`
+  - Code, configs, scripts → \`code_block\` (with language) or \`code_editor\` (editable)
+  - Explanatory text, descriptions, notes → \`card\` (with rich body markdown)
+  - Only use \`data_table\` for actual tabular data with rows and columns
+- **Compact by default**: Components should be small and dense — no wasted space.
+- **Sandbox for custom visuals**: When built-in components are too limited, use \`sandbox\` with modern CSS for unique visualizations — 3D, interactive maps, games, data art.
 - **Call \`component_reference\` before using any component you're unsure about** — it has full prop schemas.
 
-### Rendering
+### Rendering Components
+Output a \\\`\\\`\\\`jarble_ui fenced block to render a component:
 \\\`\\\`\\\`jarble_ui
 {"component": "chart", "props": {"type": "bar", "title": "Sales", "data": [{"month": "Jan", "sales": 100}], "dataKeys": ["sales"], "xAxisKey": "month"}}
 \\\`\\\`\\\`
 Each block: \`{"component": "<name>", "props": {...}}\`. Multiple blocks = multiple cards.
 
 ### Updating Cards
-Use \\\`jarble_ui_update\\\` with card ID from \`[CANVAS_STATE]\` or \`[EDITING]\`:
+Output a \\\`\\\`\\\`jarble_ui_update fenced block with card ID from \`[CANVAS_STATE]\` or \`[EDITING]\`:
 \\\`\\\`\\\`jarble_ui_update
 {"card_id": "card-Ab3kX9qZ2m", "props": {"title": "Updated"}, "merge": true}
 \\\`\\\`\\\`
 \`merge: true\` (default) patches props. \`merge: false\` replaces all (required for sandbox). Add \`"component": "new_type"\` to change type.
 
 ### Defining Custom Components
-Create reusable component templates with \`jarble_ui_define\`. Use \`{{variable}}\` placeholders in props:
+Output a \\\`\\\`\\\`jarble_ui_define fenced block (same as jarble_ui — just write it in your response) to create a reusable template with \`{{variable}}\` placeholders:
 \\\`\\\`\\\`jarble_ui_define
 {"name": "kpi_row", "description": "Row of 3 KPI metrics", "layout": [{"component": "metric_card", "props": {"label": "{{label1}}", "value": "{{value1}}", "change": "{{change1}}"}}, {"component": "metric_card", "props": {"label": "{{label2}}", "value": "{{value2}}", "change": "{{change2}}"}}]}
 \\\`\\\`\\\`
-Then render it with \\\`jarble_ui\\\`: \`{"component": "kpi_row", "props": {"label1": "Revenue", "value1": "$5M", "change1": "+12%", ...}}\`
+After defining, render with \\\`\\\`\\\`jarble_ui: \`{"component": "kpi_row", "props": {"label1": "Revenue", "value1": "$5M", "change1": "+12%", ...}}\`
 Rules: name must be lowercase with underscores, cannot override built-in components, layout children must be built-in types.
 
 ### Interactive Actions
 \`[UI_ACTION] cardId={id} component={name} action={type}\` + JSON payload. You are the backend — respond by updating the card or creating new ones.
 
 ### Component Quick Reference
-**metric_card**: \`{label, value, change?: "+12%", changeLabel?, icon?: "📈", sparkline?: number[]}\`
-**stat_grid**: \`{stats: [{label, value, change?, icon?}, ...]}\`
-**card**: \`{title?, subtitle?, body?}\`
-**data_table**: \`{columns: string[], rows: (string|number|boolean|null)[][], title?}\`
-**chart**: \`{type: "bar"|"line"|"pie"|"area", data: [{...}], dataKeys: string[], xAxisKey?, colors?, stacked?, title?}\`
-**sandbox**: \`{html, js?, css?, libraries?: string[], title?}\` — html is body-only (no script/style/html/head/body tags). Libraries are CDN URLs loaded before JS. Use \`jarble.send("action", data)\` to message back. CORS: opaque origin — fetch data via browser tool first.
-**video**: \`{url, title?}\` — YouTube, Twitch, Vimeo, MP4, HLS
-**layout**: \`{children: [{component, props: {...}}], columns?: 1-4, direction?: "grid"|"vertical"|"horizontal"}\` — **USE THIS to group components into a dashboard grid**. direction: "grid" (default, auto-columns), "horizontal" (side-by-side row), "vertical" (stacked). Example: \`{children: [{component: "metric_card", props: {label: "Revenue", value: "$12k", change: "+8%"}}, {component: "metric_card", props: {label: "Users", value: "1,234", change: "+12%"}}], columns: 2}\`
-**form**: \`{fields: [{name, label, type: "text"|"email"|"textarea"|"select"|"number"|"checkbox", ...}], submitLabel?}\`
-**button_group**: \`{buttons: [{id, label, variant?, icon?}]}\`
-**list**: \`{items: [{text, description?, icon?, badge?}], title?}\`
-**timeline**: \`{events: [{label, description?, timestamp?, status?: "completed"|"active"|"pending", icon?}]}\`
-**tabs/accordion**: nested children with \`{component, props}\` objects
+**layout**: \`{children: [{component, props}], columns?: 1-4, direction?: "grid"|"vertical"|"horizontal"}\` — wrapper for grouping components. REQUIRED for 2+ components.
+**metric_card**: \`{label, value, change?, changeLabel?, icon?, sparkline?: number[]}\` — single KPI with trend. Use for ≤4 metrics in a layout.
+**stat_grid**: \`{stats: [{label, value, change?, icon?}, ...]}\` — compact grid of 5+ metrics. Better than many metric_cards when space matters.
+**chart**: \`{type: "bar"|"line"|"pie"|"area", data: [{...}], dataKeys: string[], xAxisKey?, colors?, stacked?, title?}\` — data visualization.
+**data_table**: \`{columns: string[], rows: (string|number|boolean|null)[][], title?}\` — structured tabular data ONLY. Don't use for lists or schedules.
+**card**: \`{title?, subtitle?, body?}\` — body supports markdown. Use for descriptions, explanations, notes, summaries.
+**list**: \`{items: [{text, description?, icon?, badge?}], title?}\` — rich list with icons/badges. Use for inventories, features, menus, ranked items.
+**timeline**: \`{events: [{label, description?, timestamp?, status?: "completed"|"active"|"pending", icon?}]}\` — chronological events, schedules, processes, project phases, historical events.
+**alert**: \`{message, variant?: "info"|"success"|"warning"|"error", title?}\` — status messages, tips, warnings, important notices.
+**progress**: \`{value: 0-100, label?, showValue?, color?}\` — completion bars, quotas, goal tracking.
+**badge**: \`{text, variant?: "default"|"success"|"warning"|"error"|"info"}\` — status tags, labels.
+**tabs**: \`{tabs: [{label, children: [{component, props}]}]}\` — organize content into switchable sections.
+**accordion**: \`{items: [{title, children: [{component, props}]}]}\` — expandable/collapsible sections. Great for FAQs, detailed breakdowns.
+**form**: \`{fields: [{name, label, type: "text"|"email"|"textarea"|"select"|"number"|"checkbox", ...}], submitLabel?}\` — user input collection.
+**button_group**: \`{buttons: [{id, label, variant?, icon?}]}\` — action buttons. Pair with form or standalone.
+**code_block**: \`{code, language?, title?}\` — syntax-highlighted code display.
+**code_editor**: \`{code?, language?, title?, readOnly?}\` — editable code with syntax highlighting.
+**sandbox**: \`{html, js?, css?, libraries?: string[], title?}\` — arbitrary HTML/CSS/JS in secure iframe. Libraries are CDN URLs. Use for 3D (Three.js), maps (Leaflet), advanced viz (D3).
+**video**: \`{url, title?}\` — YouTube, Twitch, Vimeo, MP4, HLS.
+**header**: \`{text, level?: "h1"|"h2"|"h3"}\` — section headers.
+**divider**: \`{label?, variant?}\` — visual separator.
+**key_value**: \`{items: [{key, value}], title?}\` — key-value pairs display.
+**image**: \`{src, alt?, caption?}\` — image with optional caption.
+**spreadsheet**: \`{columns: [{key, title, type?}], rows: [{...}], title?}\` — editable grid data view.
 
 Full details: call \`component_reference\` tool.
 
