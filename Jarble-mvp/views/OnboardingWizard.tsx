@@ -28,7 +28,6 @@ import {
 } from "./onboarding/wizardStepConfig";
 import type { KeyValidationStatus, RuntimeEntry } from "./onboarding/types";
 import StepName from "./onboarding/steps/StepName";
-import StepChooseRuntime from "./onboarding/steps/StepChooseRuntime";
 import StepLlmSetup from "./onboarding/steps/StepLlmSetup";
 import StepDeploy from "./onboarding/steps/StepDeploy";
 
@@ -187,6 +186,22 @@ export default function OnboardingWizard() {
   // Fetch runtimes from API
   const runtimesQuery = trpc.runtimeCatalog.list.useQuery();
 
+  // Auto-select OpenClaw runtime (MVP: skip runtime selection step)
+  useEffect(() => {
+    if (runtimesQuery.data && selectedRuntimeId === null) {
+      const openclaw = runtimesQuery.data.find((r: RuntimeEntry) => r.slug === "openclaw");
+      if (openclaw) {
+        setSelectedRuntimeId(openclaw.id);
+        setSelectedRuntimeSlug(openclaw.slug);
+      } else if (runtimesQuery.data.length > 0) {
+        // Fallback: select first available runtime
+        const first = runtimesQuery.data[0] as RuntimeEntry;
+        setSelectedRuntimeId(first.id);
+        setSelectedRuntimeSlug(first.slug);
+      }
+    }
+  }, [runtimesQuery.data, selectedRuntimeId]);
+
   // Check free deployment status
   const canDeployQuery = trpc.deployment.canDeploy.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading,
@@ -324,8 +339,6 @@ export default function OnboardingWizard() {
     switch (currentStepId) {
       case "name":
         return deploymentName.trim().length >= 2;
-      case "runtime":
-        return selectedRuntimeId !== null;
       case "llm":
         if (llmMode === "included") return true;
         return keyValidation === "valid";
@@ -471,17 +484,6 @@ export default function OnboardingWizard() {
             >
               {currentStepId === "name" && (
                 <StepName name={deploymentName} setName={setDeploymentName} />
-              )}
-              {currentStepId === "runtime" && (
-                <StepChooseRuntime
-                  runtimes={runtimesQuery.data ?? []}
-                  isLoading={runtimesQuery.isLoading}
-                  isError={runtimesQuery.isError}
-                  onRetry={() => runtimesQuery.refetch()}
-                  selectedId={selectedRuntimeId}
-                  onSelect={handleRuntimeSelect}
-                  isFreeAvailable={!!isFreeAvailable}
-                />
               )}
               {currentStepId === "llm" && (
                 <StepLlmSetup

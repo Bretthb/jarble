@@ -8,14 +8,20 @@ const domain = (process.env.NEXT_PUBLIC_AUTH0_DOMAIN ?? '')
 const clientId = process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID ?? '';
 const audience = process.env.NEXT_PUBLIC_AUTH0_AUDIENCE ?? '';
 
-if (!domain || !clientId || !audience) {
-  throw new Error(
-    'Missing Auth0 environment variables. Set NEXT_PUBLIC_AUTH0_DOMAIN, ' +
-    'NEXT_PUBLIC_AUTH0_CLIENT_ID, and NEXT_PUBLIC_AUTH0_AUDIENCE.'
-  );
-}
-
 export function Auth0Provider({ children }: { children: ReactNode }) {
+  // During Next.js static generation / prerendering env vars may not be set.
+  // Render children without the Auth0 wrapper so the build doesn't crash.
+  if (!domain || !clientId || !audience) {
+    if (typeof window !== 'undefined') {
+      // At runtime the vars are truly missing — surface the error
+      throw new Error(
+        'Missing Auth0 environment variables. Set NEXT_PUBLIC_AUTH0_DOMAIN, ' +
+        'NEXT_PUBLIC_AUTH0_CLIENT_ID, and NEXT_PUBLIC_AUTH0_AUDIENCE.'
+      );
+    }
+    // SSR / build — skip Auth0, just render children
+    return <>{children}</>;
+  }
   const [redirectUri, setRedirectUri] = useState('');
 
   useEffect(() => {
