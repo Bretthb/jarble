@@ -35,6 +35,7 @@ interface EditableCanvasProps {
   deploymentId: string;
   sendMessage?: (text: string, displayText?: string) => Promise<void>;
   onAction?: (action: CanvasAction) => void;
+  onPropsUpdate?: (id: string, props: Record<string, unknown>) => void;
 }
 
 export default function EditableCanvas({
@@ -42,6 +43,7 @@ export default function EditableCanvas({
   deploymentId,
   sendMessage,
   onAction,
+  onPropsUpdate,
 }: EditableCanvasProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [isEditing, setIsEditing] = useState(false);
@@ -171,6 +173,33 @@ export default function EditableCanvas({
       setShowSaved(true);
       if (showSavedTimerRef.current) clearTimeout(showSavedTimerRef.current);
       showSavedTimerRef.current = setTimeout(() => setShowSaved(false), 2000);
+
+      // Layer 1: Write edited props back to canvas reducer so state persists across view switches
+      onPropsUpdate?.(block.id, editedProps);
+
+      // Layer 3: Fire-and-forget PVC persistence for cross-session durability
+      if (block.editable) {
+        getAccessTokenSilently().then((token) => {
+          fetch(`${API_URL}/api/deployments/${deploymentId}/mcp/invoke`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              tool: "save_canvas_file",
+              args: {
+                fileId: block.fileId || block.id,
+                component: block.component,
+                props: editedProps,
+                name: block.fileId || block.component,
+              },
+            }),
+          }).catch((err) => {
+            isDev && console.warn("[Jarble:Editable] PVC auto-save failed (non-critical):", err);
+          });
+        }).catch(() => {});
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to save";
       console.error("[Jarble:Editable] Save FAILED:", err);
@@ -183,9 +212,12 @@ export default function EditableCanvas({
     sendMessage,
     block.component,
     block.fileId,
+    block.id,
+    block.editable,
     editedProps,
     getAccessTokenSilently,
     deploymentId,
+    onPropsUpdate,
   ]);
 
   // Build a display block with local state instead of original props

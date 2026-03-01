@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { motion } from "framer-motion";
 
 export interface CanvasBlockquoteProps {
   text: string;
@@ -18,14 +19,19 @@ function CanvasBlockquoteInner({ text, attribution, variant = "default" }: Canva
   const borderStyle = VARIANT_STYLES[variant] || VARIANT_STYLES.default;
 
   return (
-    <blockquote className={`border-l-4 ${borderStyle} pl-4 py-1`}>
+    <motion.blockquote
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className={`border-l-4 ${borderStyle} bg-muted/30 rounded-lg p-4`}
+    >
       <p className="text-sm text-foreground italic">{text}</p>
       {attribution && (
         <footer className="mt-1.5 text-xs text-muted-foreground">
           — {attribution}
         </footer>
       )}
-    </blockquote>
+    </motion.blockquote>
   );
 }
 

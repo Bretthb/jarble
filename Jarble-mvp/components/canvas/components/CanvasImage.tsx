@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { motion } from "framer-motion";
 
 export interface CanvasImageProps {
   src: string;
@@ -10,7 +11,12 @@ export interface CanvasImageProps {
 
 function CanvasImageInner({ src, alt, caption }: CanvasImageProps) {
   return (
-    <div className="h-full overflow-hidden">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 h-full overflow-hidden"
+    >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
@@ -23,7 +29,7 @@ function CanvasImageInner({ src, alt, caption }: CanvasImageProps) {
           <p className="text-xs text-muted-foreground">{caption}</p>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 

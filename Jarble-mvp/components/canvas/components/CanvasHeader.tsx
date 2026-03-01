@@ -22,10 +22,10 @@ function CanvasHeaderInner({ title, subtitle, level = 2, divider = false }: Canv
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.35 }}
-      className="space-y-1"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 space-y-1"
     >
       <h3
         className={`${headingStyle} ${

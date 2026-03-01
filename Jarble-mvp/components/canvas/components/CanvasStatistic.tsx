@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useState, useEffect } from "react";
+import { motion } from "framer-motion";
 
 export interface CanvasStatisticProps {
   value: string | number;
@@ -66,7 +67,12 @@ function CanvasStatisticInner({
   })();
 
   return (
-    <div className="p-3 h-full flex flex-col justify-center">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 h-full flex flex-col justify-center"
+    >
       {title && (
         <div className="text-xs text-muted-foreground mb-1">{title}</div>
       )}
@@ -81,7 +87,7 @@ function CanvasStatisticInner({
           <span className="text-xl text-muted-foreground">{suffix}</span>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 

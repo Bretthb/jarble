@@ -26,7 +26,7 @@ function CanvasCodeEditorInner({
   height = 300,
 }: CanvasCodeEditorProps) {
   return (
-    <div className="p-3 h-full">
+    <div className="p-4 h-full">
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>
       )}

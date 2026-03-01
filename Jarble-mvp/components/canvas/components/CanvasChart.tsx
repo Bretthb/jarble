@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { motion } from "framer-motion";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -62,7 +63,7 @@ function CanvasChartInner({
 
   if (!data || data.length === 0 || !dataKeys || dataKeys.length === 0) {
     return (
-      <div className="p-3 h-full flex items-center justify-center text-sm text-muted-foreground">
+      <div className="p-4 h-full flex items-center justify-center text-sm text-muted-foreground">
         No chart data provided
       </div>
     );
@@ -237,7 +238,12 @@ function CanvasChartInner({
   };
 
   return (
-    <div className="p-3 h-full flex flex-col">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 h-full flex flex-col"
+    >
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3 shrink-0">{title}</h3>
       )}
@@ -246,7 +252,7 @@ function CanvasChartInner({
           {renderChart()!}
         </ChartContainer>
       </div>
-    </div>
+    </motion.div>
   );
 }
 

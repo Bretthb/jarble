@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { motion } from "framer-motion";
 import {
   Accordion,
   AccordionItem,
@@ -69,7 +70,12 @@ function CanvasAccordionInner({ items, type = "multiple" }: CanvasAccordionProps
     .filter(Boolean) as string[];
 
   return (
-    <div className="px-3 h-full">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 h-full"
+    >
       {type === "single" ? (
         <Accordion type="single" defaultValue={defaultOpen[0]} collapsible>
           <AccordionItems items={items} />
@@ -79,7 +85,7 @@ function CanvasAccordionInner({ items, type = "multiple" }: CanvasAccordionProps
           <AccordionItems items={items} />
         </Accordion>
       )}
-    </div>
+    </motion.div>
   );
 }
 

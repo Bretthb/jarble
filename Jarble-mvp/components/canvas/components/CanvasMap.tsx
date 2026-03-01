@@ -45,7 +45,7 @@ function CanvasMapInner({
     : {};
 
   return (
-    <div className="p-3 h-full" style={containerStyle}>
+    <div className="p-4 h-full" style={containerStyle}>
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3 shrink-0">{title}</h3>
       )}

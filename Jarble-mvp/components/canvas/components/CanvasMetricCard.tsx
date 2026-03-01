@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo } from "react";
 import {
   AreaChart,
   Area,
@@ -21,60 +21,6 @@ export interface CanvasMetricCardProps {
   sparkline?: number[];
   live?: boolean;
   lastUpdated?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Animated number counter hook
-// Counts from 0 to the target over `duration` ms on mount.
-// Only animates pure numeric values; mixed strings render immediately.
-// ---------------------------------------------------------------------------
-
-function useAnimatedNumber(
-  target: string | number,
-  duration = 800
-): string {
-  const numericTarget =
-    typeof target === "number" ? target : parseFloat(target);
-  const isNumeric = !isNaN(numericTarget) && String(numericTarget) === String(target).trim();
-
-  const [display, setDisplay] = useState(isNumeric ? "0" : String(target));
-  const rafRef = useRef<number | null>(null);
-  const startRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!isNumeric) {
-      setDisplay(String(target));
-      return;
-    }
-
-    // Determine decimal places to preserve formatting
-    const parts = String(target).split(".");
-    const decimals = parts.length > 1 ? parts[1].length : 0;
-
-    startRef.current = null;
-
-    const animate = (ts: number) => {
-      if (startRef.current === null) startRef.current = ts;
-      const elapsed = ts - startRef.current;
-      const progress = Math.min(elapsed / duration, 1);
-      // Ease-out cubic
-      const eased = 1 - Math.pow(1 - progress, 3);
-      const current = eased * numericTarget;
-      setDisplay(current.toFixed(decimals));
-      if (progress < 1) {
-        rafRef.current = requestAnimationFrame(animate);
-      }
-    };
-
-    rafRef.current = requestAnimationFrame(animate);
-    return () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-    };
-    // Only run on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return display;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +89,12 @@ function CanvasMetricCardInner({
     ?.replace(/^[+\-↑↓]\s*/, "")
     .trim();
 
-  const animatedValue = useAnimatedNumber(value);
+  // Accent border color based on trend
+  const accentBorderClass = isPositive
+    ? "border-l-emerald-500"
+    : isNegative
+      ? "border-l-red-500"
+      : "border-l-zinc-400 dark:border-l-zinc-600";
 
   // Sparkline colour tokens
   const sparkStroke = isNegative ? "#ef4444" : "#10b981";
@@ -151,35 +102,11 @@ function CanvasMetricCardInner({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, ease: "easeOut" }}
-      className="relative overflow-hidden rounded-xl p-4 h-full
-        bg-gradient-to-br from-[var(--metric-from)] to-[var(--metric-to)]
-        border border-border/40"
-      style={
-        {
-          "--metric-from": isPositive
-            ? "rgba(16,185,129,0.12)"
-            : isNegative
-              ? "rgba(239,68,68,0.12)"
-              : "rgba(99,102,241,0.08)",
-          "--metric-to": "transparent",
-        } as React.CSSProperties
-      }
+      transition={{ duration: 0.3, ease: "easeOut" }}
+      className={`relative overflow-hidden p-4 h-full border-l-[3px] ${accentBorderClass}`}
     >
-      {/* ── Ambient glow (top-right) ── */}
-      <div
-        className="pointer-events-none absolute -top-8 -right-8 h-24 w-24 rounded-full blur-2xl opacity-20"
-        style={{
-          background: isPositive
-            ? "radial-gradient(circle, #10b981 0%, transparent 70%)"
-            : isNegative
-              ? "radial-gradient(circle, #ef4444 0%, transparent 70%)"
-              : "radial-gradient(circle, #6366f1 0%, transparent 70%)",
-        }}
-      />
-
       {/* ── Top row: label + live indicator ── */}
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5">
@@ -200,9 +127,9 @@ function CanvasMetricCardInner({
       {/* ── Value + sparkline row ── */}
       <div className="flex items-end justify-between mt-1">
         <div className="space-y-1">
-          {/* Animated number */}
+          {/* Value */}
           <div className="text-3xl font-bold tracking-tight tabular-nums text-foreground leading-none">
-            {animatedValue}
+            {String(value)}
           </div>
 
           {/* Trend indicator */}

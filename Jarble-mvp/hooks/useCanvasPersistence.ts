@@ -62,8 +62,10 @@ function serializeCard(card: CanvasCard): PersistedCard {
   if (card.saveMethod) base.saveMethod = card.saveMethod;
   if (card.title) base.title = card.title;
 
-  // Only persist props for small-prop components
-  if (SMALL_PROP_COMPONENTS.has(card.component)) {
+  // Always persist props for editable cards (user-edited data must survive)
+  if (card.editable) {
+    base.props = card.props;
+  } else if (SMALL_PROP_COMPONENTS.has(card.component)) {
     base.props = card.props;
   } else if (!SKIP_PROPS_COMPONENTS.has(card.component)) {
     // For medium components, persist props if they're under 1KB
@@ -113,6 +115,8 @@ export function loadCanvasState(deploymentId: string): CanvasState | null {
 
     // Filter out cards that require props we didn't persist
     const validCards = persisted.cards.filter((pc) => {
+      // Always restore editable cards (they have persisted props or can load from PVC)
+      if (pc.editable) return true;
       // Skip components that need props but don't have them
       if (SKIP_PROPS_COMPONENTS.has(pc.component) && (!pc.props || Object.keys(pc.props).length === 0)) {
         if (process.env.NODE_ENV === "development") console.log(`[Canvas] Skipping restoration of ${pc.component} card - props not persisted`);

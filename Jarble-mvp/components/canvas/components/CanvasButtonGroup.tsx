@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useState } from "react";
+import { motion } from "framer-motion";
 import { useCanvasAction } from "../CanvasActionContext";
 
 interface ButtonDef {
@@ -34,7 +35,12 @@ function CanvasButtonGroupInner({ buttons }: CanvasButtonGroupProps) {
   };
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 flex flex-wrap gap-2"
+    >
       {buttons.map((btn) => {
         const isDisabled = btn.disabled || clicked !== null;
         const isClicked = clicked === btn.id;
@@ -45,7 +51,7 @@ function CanvasButtonGroupInner({ buttons }: CanvasButtonGroupProps) {
             key={btn.id}
             onClick={() => handleClick(btn.id)}
             disabled={isDisabled}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${style} ${
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${style} ${
               isClicked ? "ring-2 ring-primary/30" : ""
             }`}
           >
@@ -54,7 +60,7 @@ function CanvasButtonGroupInner({ buttons }: CanvasButtonGroupProps) {
           </button>
         );
       })}
-    </div>
+    </motion.div>
   );
 }
 

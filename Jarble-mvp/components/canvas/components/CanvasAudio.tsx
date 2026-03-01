@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { motion } from "framer-motion";
 
 export interface CanvasAudioProps {
   src: string;
@@ -14,7 +15,12 @@ function CanvasAudioInner({
   autoplay = false,
 }: CanvasAudioProps) {
   return (
-    <div className="p-3 h-full">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 h-full"
+    >
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>
       )}
@@ -22,7 +28,7 @@ function CanvasAudioInner({
         <source src={src} />
         Your browser does not support the audio element.
       </audio>
-    </div>
+    </motion.div>
   );
 }
 

@@ -34,7 +34,7 @@ function CanvasTimelineInner({ title, events }: CanvasTimelineProps) {
   if (!Array.isArray(events) || events.length === 0) return null;
 
   return (
-    <div className="p-3 h-full">
+    <div className="p-4 h-full">
       {title && (
         <motion.h3
           initial={{ opacity: 0 }}

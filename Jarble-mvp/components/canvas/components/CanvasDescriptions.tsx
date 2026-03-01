@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { motion } from "framer-motion";
 
 export interface CanvasDescriptionsProps {
   title?: string;
@@ -16,7 +17,12 @@ function CanvasDescriptionsInner({
   bordered = true,
 }: CanvasDescriptionsProps) {
   return (
-    <div className="p-3 h-full">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 h-full"
+    >
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3">
           {title}
@@ -60,7 +66,7 @@ function CanvasDescriptionsInner({
           );
         })}
       </div>
-    </div>
+    </motion.div>
   );
 }
 

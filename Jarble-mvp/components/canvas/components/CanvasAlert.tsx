@@ -83,10 +83,10 @@ function CanvasAlertInner({ title, message, variant }: CanvasAlertProps) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: "easeOut" }}
-      className={`relative overflow-hidden rounded-xl border border-border/40 bg-card/60 backdrop-blur-sm shadow-sm ${styles.container}`}
+      transition={{ duration: 0.3, ease: "easeOut" }}
+      className={`relative overflow-hidden rounded-xl border border-border/40 bg-card/60 shadow-sm ${styles.container}`}
     >
       {/* Left accent bar */}
       <div className={`absolute left-0 top-0 bottom-0 w-1 ${styles.accent}`} />

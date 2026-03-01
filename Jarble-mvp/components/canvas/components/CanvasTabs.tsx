@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { motion } from "framer-motion";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import CanvasRenderer from "../CanvasRenderer";
 import { useCanvasAction } from "../CanvasActionContext";
@@ -48,7 +49,12 @@ function CanvasTabsInner({ tabs, defaultTab = 0 }: CanvasTabsProps) {
   };
 
   return (
-    <div className="p-3 h-full">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 h-full"
+    >
       <Tabs defaultValue={defaultValue} onValueChange={handleTabChange}>
         <TabsList>
           {tabs.map((tab, i) => (
@@ -78,7 +84,7 @@ function CanvasTabsInner({ tabs, defaultTab = 0 }: CanvasTabsProps) {
           </TabsContent>
         ))}
       </Tabs>
-    </div>
+    </motion.div>
   );
 }
 

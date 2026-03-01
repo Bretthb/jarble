@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { motion } from "framer-motion";
 
 export interface CanvasBadgeProps {
   text: string;
@@ -23,10 +24,17 @@ function CanvasBadgeInner({ text, variant = "default", icon }: CanvasBadgeProps)
   const style = VARIANT_STYLES[variant] || VARIANT_STYLES.default;
 
   return (
-    <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${style}`}>
-      {icon && <span>{icon}</span>}
-      {text}
-    </span>
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="px-4 py-2"
+    >
+      <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${style}`}>
+        {icon && <span>{icon}</span>}
+        {text}
+      </span>
+    </motion.div>
   );
 }
 

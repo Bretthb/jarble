@@ -87,7 +87,7 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: "easeOut" }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
       className="h-full flex flex-col overflow-hidden"
     >
       {title && (
@@ -99,11 +99,11 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
         <table className="w-full text-sm">
           {resolvedColumns.length > 0 && (
             <thead className="sticky top-0 z-10">
-              <tr className="bg-muted/60 backdrop-blur-sm">
+              <tr className="bg-muted/60">
                 {resolvedColumns.map((col, i) => (
                   <th
                     key={col}
-                    className={`px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap border-b-2 border-primary/20 ${
+                    className={`px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap border-b border-border ${
                       numericCols[i] ? "text-right" : "text-left"
                     }`}
                   >
@@ -125,7 +125,7 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
                 {row.map((cell, ci) => (
                   <td
                     key={ci}
-                    className={`px-4 py-2.5 whitespace-nowrap border-l-2 border-transparent group-hover:first:border-l-primary/40 ${
+                    className={`px-4 py-2.5 whitespace-nowrap ${
                       numericCols[ci]
                         ? "text-right font-mono tabular-nums text-foreground"
                         : "text-foreground/90"

@@ -70,7 +70,7 @@ function CanvasStatGridInner({
   };
 
   return (
-    <div className="relative p-3 h-full">
+    <div className="relative p-4 h-full">
       {/* Header row: live indicator + timestamp */}
       {(live || lastUpdated) && (
         <div className="flex items-center justify-end gap-2 mb-2">
@@ -99,17 +99,16 @@ function CanvasStatGridInner({
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{
-                duration: 0.35,
+                duration: 0.3,
                 delay: i * 0.06,
                 ease: [0.25, 0.46, 0.45, 0.94],
               }}
               onClick={() => handleStatClick(stat, i)}
               className={[
                 "group cursor-pointer rounded-lg border-l-[3px] p-3",
-                "bg-card/60 backdrop-blur-sm",
-                "transition-all duration-200",
-                "hover:shadow-md hover:shadow-black/5 hover:-translate-y-0.5",
-                "dark:hover:shadow-black/20",
+                "bg-card/60",
+                "transition-colors duration-200",
+                "hover:bg-accent/40",
                 BORDER_COLOR[trend],
               ].join(" ")}
             >

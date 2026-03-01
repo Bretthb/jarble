@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { motion } from "framer-motion";
 
 export interface CanvasDividerProps {
   label?: string;
@@ -26,15 +27,31 @@ function CanvasDividerInner({ label, variant = "solid", spacing = "md" }: Canvas
 
   if (label) {
     return (
-      <div className={`flex items-center gap-3 ${spacingClass}`}>
-        <div className={`flex-1 border-t border-border ${variantStyle}`} />
-        <span className="text-xs text-muted-foreground shrink-0">{label}</span>
-        <div className={`flex-1 border-t border-border ${variantStyle}`} />
-      </div>
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="p-4"
+      >
+        <div className={`flex items-center gap-3 ${spacingClass}`}>
+          <div className={`flex-1 border-t border-border ${variantStyle}`} />
+          <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+          <div className={`flex-1 border-t border-border ${variantStyle}`} />
+        </div>
+      </motion.div>
     );
   }
 
-  return <div className={`border-t border-border ${variantStyle} ${spacingClass}`} />;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4"
+    >
+      <div className={`border-t border-border ${variantStyle} ${spacingClass}`} />
+    </motion.div>
+  );
 }
 
 export default memo(CanvasDividerInner);

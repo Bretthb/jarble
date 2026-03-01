@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useState, useEffect, useCallback, useRef } from "react";
+import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export interface CanvasCarouselProps {
@@ -37,7 +38,12 @@ function CanvasCarouselInner({
   const currentItem = items[currentIndex];
 
   return (
-    <div className="p-3 h-full">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 h-full"
+    >
       <div className="relative">
         {/* Slide content */}
         <div className="flex flex-col items-center justify-center gap-3 p-6 min-h-[200px]">
@@ -98,7 +104,7 @@ function CanvasCarouselInner({
           ))}
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 

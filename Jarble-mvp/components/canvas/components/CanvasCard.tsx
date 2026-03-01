@@ -62,7 +62,7 @@ function CanvasCardInner({
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: "easeOut" }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
       className="h-full flex flex-col overflow-hidden rounded-lg shadow-sm dark:shadow-md dark:shadow-black/20"
     >
       {/* ── Top accent stripe ─────────────────────────────────── */}

@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { motion } from "framer-motion";
 import { CheckCircle2, XCircle, Info, AlertTriangle } from "lucide-react";
 
 export interface CanvasResultProps {
@@ -38,7 +39,12 @@ function CanvasResultInner({
   const Icon = config.icon;
 
   return (
-    <div className="p-3 h-full">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 h-full"
+    >
       <div className="flex flex-col items-center justify-center gap-3 py-6">
         <Icon className={`w-12 h-12 ${config.colorClass}`} />
         <h3 className="text-lg font-semibold text-foreground text-center">
@@ -50,7 +56,7 @@ function CanvasResultInner({
           </p>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 

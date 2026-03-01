@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useState } from "react";
+import { motion } from "framer-motion";
 import { useCanvasAction } from "../CanvasActionContext";
 
 interface FormField {
@@ -60,7 +61,12 @@ function CanvasFormInner({
     "w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50";
 
   return (
-    <div className="p-3 h-full">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 h-full"
+    >
       {title && <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>}
       <form onSubmit={handleSubmit} className="space-y-3">
         {fields.map((field) => (
@@ -139,7 +145,7 @@ function CanvasFormInner({
           Form submitted successfully
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 

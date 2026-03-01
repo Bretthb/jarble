@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { motion } from "framer-motion";
 
 export interface CanvasStepsProps {
   current: number;
@@ -16,7 +17,12 @@ function CanvasStepsInner({
   const isVertical = direction === "vertical";
 
   return (
-    <div className="p-3 h-full">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="p-4 h-full"
+    >
       <div
         className={
           isVertical
@@ -148,7 +154,7 @@ function CanvasStepsInner({
           );
         })}
       </div>
-    </div>
+    </motion.div>
   );
 }
 

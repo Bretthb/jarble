@@ -622,6 +622,9 @@ const CardContent = memo(function CardContent({
         deploymentId={deploymentId}
         sendMessage={sendMessage}
         onAction={handleAction}
+        onPropsUpdate={(id, props) => {
+          canvasDispatch({ type: "UPDATE_CARD_PROPS", id, props, merge: false });
+        }}
       />
     );
   }

@@ -48,7 +48,7 @@ function CanvasListInner({ title, items, ordered = false }: CanvasListProps) {
   };
 
   return (
-    <div className="p-3 h-full">
+    <div className="p-4 h-full">
       {title && <h3 className="text-sm font-semibold text-foreground mb-2">{title}</h3>}
       <Tag className="space-y-0.5">
         {items.map((item, i) => (
@@ -61,7 +61,7 @@ function CanvasListInner({ title, items, ordered = false }: CanvasListProps) {
               delay: i * 0.04,
               ease: [0.25, 0.46, 0.45, 0.94],
             }}
-            className="flex items-start gap-2.5 py-1.5 cursor-pointer rounded-lg hover:bg-secondary/40 transition-all duration-150 px-1.5 -mx-1.5 border-b border-transparent last:border-0 [&:not(:last-child)]:border-border/20"
+            className="flex items-start gap-2.5 py-1.5 cursor-pointer rounded-lg hover:bg-accent/40 transition-colors duration-150 px-1.5 border-b border-transparent last:border-0 [&:not(:last-child)]:border-border/20"
             onClick={() => handleItemClick(i, item)}
           >
             {item.icon ? (
