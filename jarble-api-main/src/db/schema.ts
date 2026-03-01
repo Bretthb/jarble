@@ -47,6 +47,7 @@ export const deployments = mysqlTable("deployments", {
   cancelAtPeriodEnd: timestamp("cancel_at_period_end"), // Billing period end (when deployment auto-stops)
   status: varchar("status", { length: 50 }).notNull().default("creating"),
   error: text("error"),
+  messagingOnly: boolean("messaging_only").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });

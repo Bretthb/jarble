@@ -65,6 +65,7 @@ const CREATE_TABLES_SQL = `
     cancel_at_period_end TEXT,
     status TEXT DEFAULT 'creating' NOT NULL,
     error TEXT,
+    messaging_only INTEGER DEFAULT 0 NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );

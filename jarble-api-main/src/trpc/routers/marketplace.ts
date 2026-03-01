@@ -2,6 +2,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { router, publicProcedure, protectedProcedure } from "../middleware.js";
 import { tables, dbDate } from "../../db/index.js";
+import type { InferSelectModel } from "drizzle-orm";
 import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../../utils/logger.js";
@@ -20,6 +21,14 @@ const {
   componentPurchases,
   componentReviews,
 } = tables;
+
+// ── Row types inferred from the canonical MySQL schema ────────────────────
+type ComponentRow = InferSelectModel<typeof marketplaceComponents>;
+type VersionRow = InferSelectModel<typeof componentVersions>;
+type InstallRow = InferSelectModel<typeof componentInstalls>;
+type ReviewRow = InferSelectModel<typeof componentReviews>;
+type PurchaseRow = InferSelectModel<typeof componentPurchases>;
+type CreatorRow = InferSelectModel<typeof creatorProfiles>;
 
 // --- Helpers ---
 
@@ -95,29 +104,29 @@ export const marketplaceRouter = router({
         where: eq(marketplaceComponents.status, "published"),
       });
 
-      let filtered = allComponents;
+      let filtered: ComponentRow[] = allComponents;
 
       // Category filter
       if (input.category) {
-        filtered = filtered.filter((c: any) => c.category === input.category);
+        filtered = filtered.filter((c) => c.category === input.category);
       }
 
       // Tier filter
       if (input.tier) {
-        filtered = filtered.filter((c: any) => c.tier === input.tier);
+        filtered = filtered.filter((c) => c.tier === input.tier);
       }
 
       // Pricing filter
       if (input.pricing === "free") {
-        filtered = filtered.filter((c: any) => c.pricingModel === "free");
+        filtered = filtered.filter((c) => c.pricingModel === "free");
       } else if (input.pricing === "paid") {
-        filtered = filtered.filter((c: any) => c.pricingModel !== "free");
+        filtered = filtered.filter((c) => c.pricingModel !== "free");
       }
 
       // Search filter (name, displayName, description)
       if (input.search) {
         const searchLower = input.search.toLowerCase();
-        filtered = filtered.filter((c: any) =>
+        filtered = filtered.filter((c) =>
           c.name?.toLowerCase().includes(searchLower) ||
           c.displayName?.toLowerCase().includes(searchLower) ||
           c.description?.toLowerCase().includes(searchLower)
@@ -127,14 +136,14 @@ export const marketplaceRouter = router({
       // Tags filter (component must have at least one matching tag)
       if (input.tags && input.tags.length > 0) {
         const searchTags = new Set(input.tags.map((t) => t.toLowerCase()));
-        filtered = filtered.filter((c: any) => {
+        filtered = filtered.filter((c) => {
           const componentTags: string[] = c.tags ? JSON.parse(c.tags) : [];
-          return componentTags.some((t: string) => searchTags.has(t.toLowerCase()));
+          return componentTags.some((t) => searchTags.has(t.toLowerCase()));
         });
       }
 
       // Sort
-      filtered.sort((a: any, b: any) => {
+      filtered.sort((a, b) => {
         switch (input.sort) {
           case "popular":
             return (b.totalInstalls ?? 0) - (a.totalInstalls ?? 0);
@@ -153,7 +162,7 @@ export const marketplaceRouter = router({
       // Cursor-based pagination
       let startIdx = 0;
       if (input.cursor) {
-        const cursorIdx = filtered.findIndex((c: any) => c.id === input.cursor);
+        const cursorIdx = filtered.findIndex((c) => c.id === input.cursor);
         if (cursorIdx >= 0) {
           startIdx = cursorIdx + 1;
         }
@@ -163,18 +172,18 @@ export const marketplaceRouter = router({
       const nextCursor = page.length === input.limit ? page[page.length - 1]?.id : undefined;
 
       // creatorId references users.id — look up creator profiles by userId
-      const creatorUserIds = [...new Set(page.map((c: any) => c.creatorId).filter(Boolean))];
-      const creatorProfilesList: any[] = [];
+      const creatorUserIds = [...new Set(page.map((c) => c.creatorId).filter(Boolean))];
+      const creatorProfilesList: CreatorRow[] = [];
       for (const userId of creatorUserIds) {
         const profile = await ctx.db.query.creatorProfiles.findFirst({
           where: eq(creatorProfiles.userId, userId),
         });
         if (profile) creatorProfilesList.push(profile);
       }
-      const creatorMap = new Map(creatorProfilesList.map((p: any) => [p.userId, p]));
+      const creatorMap = new Map(creatorProfilesList.map((p) => [p.userId, p]));
 
       return {
-        items: page.map((c: any) => ({
+        items: page.map((c) => ({
           id: c.id,
           name: c.name,
           displayName: c.displayName,
@@ -209,9 +218,9 @@ export const marketplaceRouter = router({
       }
 
       // Fetch creator profile by userId (creatorId references users.id)
-      const creator = (component as any).creatorId
+      const creator = component.creatorId
         ? await ctx.db.query.creatorProfiles.findFirst({
-            where: eq(creatorProfiles.userId, (component as any).creatorId),
+            where: eq(creatorProfiles.userId, component.creatorId),
           })
         : null;
 
@@ -227,31 +236,30 @@ export const marketplaceRouter = router({
 
       const ratingDistribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
       for (const review of reviews) {
-        const rating = (review as any).rating;
-        if (rating >= 1 && rating <= 5) {
-          ratingDistribution[rating]++;
+        if (review.rating >= 1 && review.rating <= 5) {
+          ratingDistribution[review.rating]++;
         }
       }
 
       return {
         ...component,
-        tags: (component as any).tags ? JSON.parse((component as any).tags) : [],
-        examplePrompts: (component as any).examplePrompts ? JSON.parse((component as any).examplePrompts) : [],
+        tags: component.tags ? JSON.parse(component.tags) : [],
+        examplePrompts: component.examplePrompts ? JSON.parse(component.examplePrompts) : [],
         creator: creator ? {
-          id: (creator as any).id,
-          displayName: (creator as any).displayName,
-          bio: (creator as any).bio,
-          websiteUrl: (creator as any).websiteUrl,
+          id: creator.id,
+          displayName: creator.displayName,
+          bio: creator.bio,
+          websiteUrl: creator.websiteUrl,
         } : null,
-        versions: versions.map((v: any) => ({
+        versions: versions.map((v) => ({
           id: v.id,
           version: v.version,
           changelog: v.changelog,
           createdAt: v.createdAt,
         })),
         reviewSummary: {
-          averageRating: (component as any).averageRating ?? 0,
-          count: (component as any).ratingCount ?? 0,
+          averageRating: component.averageRating ?? 0,
+          count: component.ratingCount ?? 0,
           distribution: ratingDistribution,
         },
       };
@@ -264,11 +272,11 @@ export const marketplaceRouter = router({
     });
 
     const featured = allPublished
-      .filter((c: any) => c.featuredAt != null)
-      .sort((a: any, b: any) => new Date(b.featuredAt).getTime() - new Date(a.featuredAt).getTime())
+      .filter((c) => c.featuredAt != null)
+      .sort((a, b) => new Date(b.featuredAt!).getTime() - new Date(a.featuredAt!).getTime())
       .slice(0, 6);
 
-    return featured.map((c: any) => ({
+    return featured.map((c) => ({
       id: c.id,
       name: c.name,
       displayName: c.displayName,
@@ -290,7 +298,7 @@ export const marketplaceRouter = router({
 
     const categoryCounts = new Map<string, number>();
     for (const c of allPublished) {
-      const category = (c as any).category ?? "uncategorized";
+      const category = c.category ?? "uncategorized";
       categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1);
     }
 
@@ -330,7 +338,7 @@ export const marketplaceRouter = router({
       }
 
       // Access check: paid components require a purchase
-      if ((component as any).pricingModel !== "free") {
+      if (component.pricingModel !== "free") {
         const purchase = await ctx.db.query.componentPurchases.findFirst({
           where: and(
             eq(componentPurchases.userId, ctx.user.id),
@@ -370,7 +378,7 @@ export const marketplaceRouter = router({
         if (!version) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Version not found" });
         }
-        installedVersion = (version as any).version;
+        installedVersion = version.version;
       } else {
         // Find latest version
         const versions = await ctx.db.query.componentVersions.findMany({
@@ -378,11 +386,11 @@ export const marketplaceRouter = router({
         });
         if (versions.length > 0) {
           // Sort by createdAt desc, take first
-          const sorted = versions.sort((a: any, b: any) =>
+          const sorted = versions.sort((a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
-          versionId = (sorted[0] as any).id;
-          installedVersion = (sorted[0] as any).version;
+          versionId = sorted[0].id;
+          installedVersion = sorted[0].version;
         }
       }
 
@@ -398,14 +406,14 @@ export const marketplaceRouter = router({
         versionId,
         userId: ctx.user.id,
         installedAt: dbDate(),
-      } as any);
+      });
 
       // Increment totalInstalls on the component
       await ctx.db
         .update(marketplaceComponents)
         .set({
-          totalInstalls: sql`${marketplaceComponents.totalInstalls} + 1`,
-        } as any)
+          totalInstalls: sql`${marketplaceComponents.totalInstalls} + 1` as any,
+        })
         .where(eq(marketplaceComponents.id, input.componentId));
 
       logger.info({
@@ -416,23 +424,23 @@ export const marketplaceRouter = router({
       }, "Marketplace component installed");
 
       // Fire-and-forget: sync component to pod PVC if deployment is running
-      if ((deployment as any).status === "running") {
+      if (deployment.status === "running") {
         const manifest = {
-          name: (component as any).name,
-          displayName: (component as any).displayName,
-          description: (component as any).description,
-          tier: (component as any).tier,
-          category: (component as any).category,
-          propsSchema: (component as any).propsSchema,
+          name: component.name,
+          displayName: component.displayName,
+          description: component.description,
+          tier: component.tier,
+          category: component.category,
+          propsSchema: component.propsSchema,
           version: installedVersion,
         };
-        const templateOrHtml = (component as any).exampleProps ?? (component as any).propsSchema;
+        const templateOrHtml = component.exampleProps ?? component.propsSchema ?? "";
         void syncMarketplaceComponent(
           input.deploymentId,
           input.componentId,
           manifest,
           templateOrHtml,
-          (component as any).tier,
+          component.tier as "template" | "sandbox",
         ).catch((err) =>
           logger.error({ err, componentId: input.componentId, deploymentId: input.deploymentId },
             "marketplace.install: failed to sync component to pod (non-fatal)")
@@ -480,7 +488,7 @@ export const marketplaceRouter = router({
       }, "Marketplace component uninstalled");
 
       // Fire-and-forget: remove component from pod PVC if deployment is running
-      if ((deployment as any).status === "running") {
+      if (deployment.status === "running") {
         void removeMarketplaceComponent(
           input.deploymentId,
           input.componentId,
@@ -514,28 +522,28 @@ export const marketplaceRouter = router({
       const results = [];
       for (const install of installs) {
         const component = await ctx.db.query.marketplaceComponents.findFirst({
-          where: eq(marketplaceComponents.id, (install as any).componentId),
+          where: eq(marketplaceComponents.id, install.componentId),
         });
 
-        let version = null;
-        if ((install as any).versionId) {
+        let version: VersionRow | undefined = undefined;
+        if (install.versionId) {
           version = await ctx.db.query.componentVersions.findFirst({
-            where: eq(componentVersions.id, (install as any).versionId),
+            where: eq(componentVersions.id, install.versionId),
           });
         }
 
         results.push({
-          installId: (install as any).id,
-          installedAt: (install as any).installedAt,
-          versionId: (install as any).versionId,
-          version: version ? (version as any).version : null,
+          installId: install.id,
+          installedAt: install.installedAt,
+          versionId: install.versionId,
+          version: version ? version.version : null,
           component: component ? {
-            id: (component as any).id,
-            name: (component as any).name,
-            displayName: (component as any).displayName,
-            description: (component as any).description,
-            tier: (component as any).tier,
-            category: (component as any).category,
+            id: component.id,
+            name: component.name,
+            displayName: component.displayName,
+            description: component.description,
+            tier: component.tier,
+            category: component.category,
           } : null,
         });
       }
@@ -583,7 +591,7 @@ export const marketplaceRouter = router({
       // Update the install to use the new version
       await ctx.db
         .update(componentInstalls)
-        .set({ versionId: input.versionId } as any)
+        .set({ versionId: input.versionId })
         .where(and(
           eq(componentInstalls.componentId, input.componentId),
           eq(componentInstalls.deploymentId, input.deploymentId),
@@ -597,27 +605,27 @@ export const marketplaceRouter = router({
       }, "Marketplace component version updated");
 
       // Fire-and-forget: re-sync component to pod PVC with new version
-      if ((deployment as any).status === "running") {
+      if (deployment.status === "running") {
         const component = await ctx.db.query.marketplaceComponents.findFirst({
           where: eq(marketplaceComponents.id, input.componentId),
         });
         if (component) {
           const manifest = {
-            name: (component as any).name,
-            displayName: (component as any).displayName,
-            description: (component as any).description,
-            tier: (component as any).tier,
-            category: (component as any).category,
-            propsSchema: (component as any).propsSchema,
-            version: (version as any).version,
+            name: component.name,
+            displayName: component.displayName,
+            description: component.description,
+            tier: component.tier,
+            category: component.category,
+            propsSchema: component.propsSchema,
+            version: version.version,
           };
-          const templateOrHtml = (component as any).exampleProps ?? (component as any).propsSchema;
+          const templateOrHtml = component.exampleProps ?? component.propsSchema ?? "";
           void syncMarketplaceComponent(
             input.deploymentId,
             input.componentId,
             manifest,
             templateOrHtml,
-            (component as any).tier,
+            component.tier as "template" | "sandbox",
           ).catch((err) =>
             logger.error({ err, componentId: input.componentId, deploymentId: input.deploymentId },
               "marketplace.updateVersion: failed to sync component to pod (non-fatal)")
@@ -625,7 +633,7 @@ export const marketplaceRouter = router({
         }
       }
 
-      return { success: true as const, version: (version as any).version };
+      return { success: true as const, version: version.version };
     }),
 
   // ==========================================
@@ -654,19 +662,19 @@ export const marketplaceRouter = router({
     const results = [];
     for (const purchase of purchases) {
       const component = await ctx.db.query.marketplaceComponents.findFirst({
-        where: eq(marketplaceComponents.id, (purchase as any).componentId),
+        where: eq(marketplaceComponents.id, purchase.componentId),
       });
 
       results.push({
-        id: (purchase as any).id,
-        componentId: (purchase as any).componentId,
-        amountCents: (purchase as any).amountCents,
-        status: (purchase as any).status,
-        purchasedAt: (purchase as any).purchasedAt,
+        id: purchase.id,
+        componentId: purchase.componentId,
+        amountCents: purchase.amountCents,
+        status: purchase.status,
+        purchasedAt: purchase.purchasedAt,
         component: component ? {
-          id: (component as any).id,
-          name: (component as any).name,
-          displayName: (component as any).displayName,
+          id: component.id,
+          name: component.name,
+          displayName: component.displayName,
         } : null,
       });
     }
@@ -692,7 +700,7 @@ export const marketplaceRouter = router({
 
       // Sort
       const sorted = [...allReviews];
-      sorted.sort((a: any, b: any) => {
+      sorted.sort((a, b) => {
         switch (input.sort) {
           case "newest":
             return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -708,18 +716,18 @@ export const marketplaceRouter = router({
       // Cursor-based pagination
       let startIdx = 0;
       if (input.cursor) {
-        const cursorIdx = sorted.findIndex((r: any) => r.id === input.cursor);
+        const cursorIdx = sorted.findIndex((r) => r.id === input.cursor);
         if (cursorIdx >= 0) {
           startIdx = cursorIdx + 1;
         }
       }
 
       const page = sorted.slice(startIdx, startIdx + input.limit);
-      const nextCursor = page.length === input.limit ? (page[page.length - 1] as any)?.id : undefined;
+      const nextCursor = page.length === input.limit ? page[page.length - 1]?.id : undefined;
 
       // Fetch user info for reviews
-      const userIds = [...new Set(page.map((r: any) => r.userId).filter(Boolean))];
-      const reviewUsers: any[] = [];
+      const userIds = [...new Set(page.map((r) => r.userId).filter(Boolean))];
+      const reviewUsers: Array<InferSelectModel<typeof users>> = [];
       for (const userId of userIds) {
         const user = await ctx.db.query.users.findFirst({
           where: eq(users.id, userId),
@@ -729,11 +737,11 @@ export const marketplaceRouter = router({
       const userMap = new Map(reviewUsers.map((u) => [u.id, u]));
 
       // Summary stats
-      const totalRating = allReviews.reduce((sum: number, r: any) => sum + (r.rating ?? 0), 0);
+      const totalRating = allReviews.reduce((sum, r) => sum + (r.rating ?? 0), 0);
       const avgRating = allReviews.length > 0 ? totalRating / allReviews.length : 0;
 
       return {
-        items: page.map((r: any) => ({
+        items: page.map((r) => ({
           id: r.id,
           rating: r.rating,
           title: r.title,
@@ -793,8 +801,8 @@ export const marketplaceRouter = router({
             title: input.title ?? null,
             body: input.body ?? null,
             updatedAt: dbDate(),
-          } as any)
-          .where(eq(componentReviews.id, (existing as any).id));
+          })
+          .where(eq(componentReviews.id, existing.id));
       } else {
         // Create new review
         await ctx.db.insert(componentReviews).values({
@@ -806,14 +814,14 @@ export const marketplaceRouter = router({
           body: input.body ?? null,
           createdAt: dbDate(),
           updatedAt: dbDate(),
-        } as any);
+        });
       }
 
       // Recalculate average rating for the component (stored as 1-500 scaled integer)
       const allReviews = await ctx.db.query.componentReviews.findMany({
         where: eq(componentReviews.componentId, input.componentId),
       });
-      const totalRating = allReviews.reduce((sum: number, r: any) => sum + (r.rating ?? 0), 0);
+      const totalRating = allReviews.reduce((sum, r) => sum + (r.rating ?? 0), 0);
       const avgRating = allReviews.length > 0 ? totalRating / allReviews.length : 0;
 
       await ctx.db
@@ -821,7 +829,7 @@ export const marketplaceRouter = router({
         .set({
           averageRating: ratingToScaled(avgRating),
           ratingCount: allReviews.length,
-        } as any)
+        })
         .where(eq(marketplaceComponents.id, input.componentId));
 
       logger.info({
@@ -862,7 +870,7 @@ export const marketplaceRouter = router({
         websiteUrl: input.websiteUrl ?? null,
         createdAt: dbDate(),
         updatedAt: dbDate(),
-      } as any);
+      });
 
       logger.info({ userId: ctx.user.id, profileId: id }, "Creator profile created");
 
@@ -888,8 +896,8 @@ export const marketplaceRouter = router({
       });
 
       return {
-        ...(profile as any),
-        components: allComponents.map((c: any) => ({
+        ...profile,
+        components: allComponents.map((c) => ({
           id: c.id,
           name: c.name,
           displayName: c.displayName,
@@ -951,7 +959,7 @@ export const marketplaceRouter = router({
         ratingCount: 0,
         createdAt: dbDate(),
         updatedAt: dbDate(),
-      } as any);
+      });
 
       // Create initial version with placeholder package info (S3 upload skipped for MVP)
       await ctx.db.insert(componentVersions).values({
@@ -963,7 +971,7 @@ export const marketplaceRouter = router({
         packageSizeBytes: 0,
         manifestHash: crypto.createHash("sha256").update(componentId).digest("hex"),
         createdAt: dbDate(),
-      } as any);
+      });
 
       logger.info({
         componentId,
@@ -986,36 +994,32 @@ export const marketplaceRouter = router({
       }
 
       // Verify creator owns this component (creatorId = userId)
-      if ((component as any).creatorId !== ctx.user.id) {
+      if (component.creatorId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "You do not own this component" });
       }
-      if ((component as any).status !== "draft") {
+      if (component.status !== "draft") {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Component status is "${(component as any).status}", must be "draft" to publish`,
+          message: `Component status is "${component.status}", must be "draft" to publish`,
         });
       }
 
       // Tier 1 (template): auto-approve
       // Tier 2 (sandbox): needs review
-      const newStatus = (component as any).tier === "template" ? "published" : "submitted";
-
-      const updateData: any = {
-        status: newStatus,
-        updatedAt: dbDate(),
-      };
-      if (newStatus === "published") {
-        updateData.publishedAt = dbDate();
-      }
+      const newStatus = component.tier === "template" ? "published" : "submitted";
 
       await ctx.db
         .update(marketplaceComponents)
-        .set(updateData)
+        .set({
+          status: newStatus,
+          updatedAt: dbDate(),
+          ...(newStatus === "published" ? { publishedAt: dbDate() } : {}),
+        })
         .where(eq(marketplaceComponents.id, input.componentId));
 
       logger.info({
         componentId: input.componentId,
-        tier: (component as any).tier,
+        tier: component.tier,
         newStatus,
         userId: ctx.user.id,
       }, "Marketplace component publish requested");
@@ -1041,11 +1045,11 @@ export const marketplaceRouter = router({
       }
 
       // Verify creator owns this component (creatorId = userId)
-      if ((component as any).creatorId !== ctx.user.id) {
+      if (component.creatorId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "You do not own this component" });
       }
 
-      const updateData: any = { updatedAt: dbDate() };
+      const updateData: Record<string, unknown> = { updatedAt: dbDate() };
       if (input.displayName !== undefined) updateData.displayName = input.displayName;
       if (input.description !== undefined) updateData.description = input.description;
       if (input.botDescription !== undefined) updateData.botDescription = input.botDescription;
@@ -1054,7 +1058,7 @@ export const marketplaceRouter = router({
 
       await ctx.db
         .update(marketplaceComponents)
-        .set(updateData)
+        .set(updateData as any)
         .where(eq(marketplaceComponents.id, input.componentId));
 
       logger.info({
@@ -1072,7 +1076,7 @@ export const marketplaceRouter = router({
     });
 
     return myComponents
-      .map((c: any) => ({
+      .map((c) => ({
         id: c.id,
         name: c.name,
         displayName: c.displayName,
@@ -1089,7 +1093,7 @@ export const marketplaceRouter = router({
         publishedAt: c.publishedAt,
         createdAt: c.createdAt,
       }))
-      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }),
 
   getCreatorAnalytics: protectedProcedure
@@ -1103,14 +1107,14 @@ export const marketplaceRouter = router({
         const component = await ctx.db.query.marketplaceComponents.findFirst({
           where: eq(marketplaceComponents.id, input.componentId),
         });
-        if (!component || (component as any).creatorId !== ctx.user.id) {
+        if (!component || component.creatorId !== ctx.user.id) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Component not found" });
         }
 
         return {
-          totalInstalls: (component as any).totalInstalls ?? 0,
-          averageRating: (component as any).averageRating ?? 0,
-          ratingCount: (component as any).ratingCount ?? 0,
+          totalInstalls: component.totalInstalls ?? 0,
+          averageRating: component.averageRating ?? 0,
+          ratingCount: component.ratingCount ?? 0,
         };
       }
 
@@ -1119,16 +1123,16 @@ export const marketplaceRouter = router({
         where: eq(marketplaceComponents.creatorId, ctx.user.id),
       });
 
-      const totalInstalls = myComponents.reduce((sum: number, c: any) => sum + (c.totalInstalls ?? 0), 0);
-      const totalRatings = myComponents.reduce((sum: number, c: any) => sum + (c.ratingCount ?? 0), 0);
+      const totalInstalls = myComponents.reduce((sum, c) => sum + (c.totalInstalls ?? 0), 0);
+      const totalRatings = myComponents.reduce((sum, c) => sum + (c.ratingCount ?? 0), 0);
       const weightedRatingSum = myComponents.reduce(
-        (sum: number, c: any) => sum + ((c.averageRating ?? 0) * (c.ratingCount ?? 0)), 0
+        (sum, c) => sum + ((c.averageRating ?? 0) * (c.ratingCount ?? 0)), 0
       );
       const overallRating = totalRatings > 0 ? Math.round(weightedRatingSum / totalRatings) : 0;
 
       return {
         totalComponents: myComponents.length,
-        publishedComponents: myComponents.filter((c: any) => c.status === "published").length,
+        publishedComponents: myComponents.filter((c) => c.status === "published").length,
         totalInstalls,
         overallAverageRating: overallRating,
         totalRatingCount: totalRatings,
@@ -1144,9 +1148,9 @@ export const marketplaceRouter = router({
 
     const allComponents = await ctx.db.query.marketplaceComponents.findMany();
     return allComponents
-      .filter((c: any) => c.status === "submitted" || c.status === "in_review")
-      .sort((a: any, b: any) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime())
-      .map((c: any) => ({
+      .filter((c) => c.status === "submitted" || c.status === "in_review")
+      .sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime())
+      .map((c) => ({
         id: c.id,
         name: c.name,
         displayName: c.displayName,
@@ -1175,11 +1179,10 @@ export const marketplaceRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Component not found" });
       }
 
-      const status = (component as any).status;
-      if (status !== "submitted" && status !== "in_review") {
+      if (component.status !== "submitted" && component.status !== "in_review") {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Component status is "${status}", must be "submitted" or "in_review" to approve`,
+          message: `Component status is "${component.status}", must be "submitted" or "in_review" to approve`,
         });
       }
 
@@ -1190,7 +1193,7 @@ export const marketplaceRouter = router({
           publishedAt: dbDate(),
           reviewNotes: input.notes ?? null,
           updatedAt: dbDate(),
-        } as any)
+        })
         .where(eq(marketplaceComponents.id, input.componentId));
 
       logger.info({
@@ -1216,11 +1219,10 @@ export const marketplaceRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Component not found" });
       }
 
-      const status = (component as any).status;
-      if (status !== "submitted" && status !== "in_review") {
+      if (component.status !== "submitted" && component.status !== "in_review") {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Component status is "${status}", must be "submitted" or "in_review" to reject`,
+          message: `Component status is "${component.status}", must be "submitted" or "in_review" to reject`,
         });
       }
 
@@ -1230,7 +1232,7 @@ export const marketplaceRouter = router({
           status: "rejected",
           reviewNotes: input.notes,
           updatedAt: dbDate(),
-        } as any)
+        })
         .where(eq(marketplaceComponents.id, input.componentId));
 
       logger.info({

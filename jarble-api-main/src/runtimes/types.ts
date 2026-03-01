@@ -56,6 +56,8 @@ export interface DeploymentFields {
   platformCredentials?: Record<string, Record<string, string>>;
   /** Gateway auth token for OpenClaw WS auth — generated at deploy time, stored in K8s Secret */
   gatewayToken?: string;
+  /** If true, deployment only uses messaging platforms (no web chat) — enables condensed prompt */
+  messagingOnly?: boolean;
 }
 
 /**

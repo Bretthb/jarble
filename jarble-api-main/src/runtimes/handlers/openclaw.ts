@@ -181,10 +181,8 @@ You are a messaging bot. Use plain text and markdown only. Do not output jarble_
 //   1. Add a `messagingOnly` boolean column to the deployments table
 //   2. Check `deployment.messagingOnly` here
 //   3. Deployments flagged as messaging-only will save ~1,250 tokens per request
-function isMessagingOnly(_deployment: DeploymentFields): boolean {
-  // Future: check _deployment.messagingOnly flag or similar
-  // For now, all deployments have web chat, so always include full UI prompt
-  return false;
+function isMessagingOnly(deployment: DeploymentFields): boolean {
+  return deployment.messagingOnly === true;
 }
 
 const capabilities: RuntimeCapabilities = {

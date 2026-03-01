@@ -234,6 +234,7 @@ export const deploymentRouter = router({
       memoryMb: z.number().int().positive().optional(),   // e.g. 2048 — RAM in MB
       storageMb: z.number().int().positive().optional(),  // e.g. 30 — storage in GB (historical naming)
       telegramBotToken: z.string().optional(), // Pre-validated Telegram bot token (included in initial K8s Secret)
+      messagingOnly: z.boolean().optional(), // If true, omit web-chat UI prompt (~1,250 tokens saved)
     }))
     .mutation(async ({ ctx, input }) => {
       // Look up the runtime catalog entry
@@ -440,6 +441,7 @@ export const deploymentRouter = router({
         llmApiKeySourceDeploymentId: resolvedSourceDeploymentId,
         systemPrompt: input.systemPrompt || null,
         stripeSubscriptionId,
+        messagingOnly: input.messagingOnly ?? false,
         status: "pending",
       });
 
@@ -696,6 +698,7 @@ export const deploymentRouter = router({
       cpuLimit: z.string().optional(),
       memoryMb: z.number().int().positive().optional(),
       storageMb: z.number().int().positive().optional(),
+      messagingOnly: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...rawUpdates } = input;

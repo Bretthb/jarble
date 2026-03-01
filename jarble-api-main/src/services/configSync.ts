@@ -96,6 +96,7 @@ async function buildDeploymentFields(
     llmApiKey: rawApiKey,
     platformCredentials: Object.keys(platformCredsMap).length > 0 ? platformCredsMap : undefined,
     gatewayToken,
+    messagingOnly: deployment.messagingOnly ?? false,
   };
 }
 

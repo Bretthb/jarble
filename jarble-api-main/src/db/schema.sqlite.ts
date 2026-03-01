@@ -49,6 +49,7 @@ export const deployments = sqliteTable("deployments", {
   cancelAtPeriodEnd: text("cancel_at_period_end"), // Billing period end (when deployment auto-stops, ISO string)
   status: text("status").notNull().default("creating"),
   error: text("error"),
+  messagingOnly: integer("messaging_only", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 });
