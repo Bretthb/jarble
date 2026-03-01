@@ -7,6 +7,7 @@
  * library, multi-select group action, and component count.
  */
 
+import { memo } from "react";
 import { X, Grid3X3, LayoutGrid, Group, LayoutDashboard, Move, Trash2 } from "lucide-react";
 import type { CanvasCard, CanvasAction, CanvasMode } from "./types";
 import ComponentGallery from "./ComponentGallery";
@@ -24,7 +25,7 @@ interface CanvasToolbarProps {
   onOrganize?: () => void;
 }
 
-export default function CanvasToolbar({
+function CanvasToolbarInner({
   cards,
   dispatch,
   deploymentId,
@@ -153,3 +154,5 @@ export default function CanvasToolbar({
     </div>
   );
 }
+
+export default memo(CanvasToolbarInner);

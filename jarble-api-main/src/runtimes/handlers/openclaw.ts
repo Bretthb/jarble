@@ -161,9 +161,31 @@ Persistent cross-platform memory via MCP tools — works on ALL platforms.
 
 **Tools:** \`store_memory\`, \`recall_memory\`, \`list_memories\`, \`forget_memory\``;
 
+// ── Condensed messaging-only prompt ──────────────────────────────────────
+// Used instead of JARBLE_UI_PROMPT when a deployment is messaging-only
+// (no web chat). Saves ~1,250 tokens and avoids confusing the LLM with
+// jarble_ui instructions it can never use on messaging platforms.
+const MESSAGING_ONLY_PROMPT = `## Platform Awareness
+You are a messaging bot. Use plain text and markdown only. Do not output jarble_ui blocks or attempt to render UI components.`;
+
 // MCP server script (jarble-ui-server.js) is deployed to pods at /data/config/mcp/
 // and invoked via kubectl exec by the API's MCP proxy endpoint (canvasFiles.ts).
 // Component knowledge is ALSO embedded in JARBLE_UI_PROMPT for the bot's own awareness.
+
+// ── Platform-conditional prompt selection ────────────────────────────────
+// Determines whether a deployment should receive the full JARBLE_UI_PROMPT
+// (with canvas/component instructions) or the condensed MESSAGING_ONLY_PROMPT.
+//
+// Currently always returns false because every deployment has web chat at
+// /d/[id]. To activate the optimization later:
+//   1. Add a `messagingOnly` boolean column to the deployments table
+//   2. Check `deployment.messagingOnly` here
+//   3. Deployments flagged as messaging-only will save ~1,250 tokens per request
+function isMessagingOnly(_deployment: DeploymentFields): boolean {
+  // Future: check _deployment.messagingOnly flag or similar
+  // For now, all deployments have web chat, so always include full UI prompt
+  return false;
+}
 
 const capabilities: RuntimeCapabilities = {
   needsLlm: true,
@@ -188,12 +210,17 @@ export const openclawHandler: RuntimeHandler = {
   renderConfigs(deployment: DeploymentFields): ConfigFile[] {
     const files: ConfigFile[] = [];
 
-    // soul.md — system prompt / personality + jarble_ui canvas instructions
+    // soul.md — system prompt / personality + platform-appropriate UI instructions
+    // Messaging-only deployments get a condensed prompt (~1,250 tokens saved)
+    const uiPromptSection = isMessagingOnly(deployment)
+      ? MESSAGING_ONLY_PROMPT
+      : JARBLE_UI_PROMPT;
+
     const soulParts: string[] = [];
     if (deployment.systemPrompt) {
       soulParts.push(deployment.systemPrompt);
     }
-    soulParts.push(JARBLE_UI_PROMPT);
+    soulParts.push(uiPromptSection);
     const soulContent = soulParts.join("\n\n");
 
     // Write to both the Jarble config path AND the OpenClaw workspace path

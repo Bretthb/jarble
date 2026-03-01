@@ -2,8 +2,8 @@
   "name": "jarble-api",
   "version": "1.0.0",
   "description": "Jarble API - Express + tRPC backend",
-  "main": "dist/index.js",
-  "types": "dist/trpc/index.d.ts",
+  "main": "dist/jarble-api-main/src/index.js",
+  "types": "dist/jarble-api-main/src/trpc/index.d.ts",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "dev:test": "USE_SQLITE=true tsx watch src/index.ts",

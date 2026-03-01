@@ -110,6 +110,7 @@ export function createMcpServer(ctx: ToolContext): McpServer {
   for (const tool of tools) {
     const inputSchema = buildInputSchema(tool);
 
+    // @ts-expect-error — deep type instantiation from MCP SDK generics
     server.registerTool(
       tool.name,
       {

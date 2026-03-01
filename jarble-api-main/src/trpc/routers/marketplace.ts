@@ -5,6 +5,10 @@ import { tables, dbDate } from "../../db/index.js";
 import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../../utils/logger.js";
+import {
+  syncMarketplaceComponent,
+  removeMarketplaceComponent,
+} from "../../services/configSync.js";
 
 const {
   users,
@@ -411,6 +415,30 @@ export const marketplaceRouter = router({
         version: installedVersion,
       }, "Marketplace component installed");
 
+      // Fire-and-forget: sync component to pod PVC if deployment is running
+      if ((deployment as any).status === "running") {
+        const manifest = {
+          name: (component as any).name,
+          displayName: (component as any).displayName,
+          description: (component as any).description,
+          tier: (component as any).tier,
+          category: (component as any).category,
+          propsSchema: (component as any).propsSchema,
+          version: installedVersion,
+        };
+        const templateOrHtml = (component as any).exampleProps ?? (component as any).propsSchema;
+        void syncMarketplaceComponent(
+          input.deploymentId,
+          input.componentId,
+          manifest,
+          templateOrHtml,
+          (component as any).tier,
+        ).catch((err) =>
+          logger.error({ err, componentId: input.componentId, deploymentId: input.deploymentId },
+            "marketplace.install: failed to sync component to pod (non-fatal)")
+        );
+      }
+
       return { success: true as const, installedVersion };
     }),
 
@@ -450,6 +478,17 @@ export const marketplaceRouter = router({
         deploymentId: input.deploymentId,
         userId: ctx.user.id,
       }, "Marketplace component uninstalled");
+
+      // Fire-and-forget: remove component from pod PVC if deployment is running
+      if ((deployment as any).status === "running") {
+        void removeMarketplaceComponent(
+          input.deploymentId,
+          input.componentId,
+        ).catch((err) =>
+          logger.error({ err, componentId: input.componentId, deploymentId: input.deploymentId },
+            "marketplace.uninstall: failed to remove component from pod (non-fatal)")
+        );
+      }
 
       return { success: true as const };
     }),
@@ -556,6 +595,35 @@ export const marketplaceRouter = router({
         versionId: input.versionId,
         userId: ctx.user.id,
       }, "Marketplace component version updated");
+
+      // Fire-and-forget: re-sync component to pod PVC with new version
+      if ((deployment as any).status === "running") {
+        const component = await ctx.db.query.marketplaceComponents.findFirst({
+          where: eq(marketplaceComponents.id, input.componentId),
+        });
+        if (component) {
+          const manifest = {
+            name: (component as any).name,
+            displayName: (component as any).displayName,
+            description: (component as any).description,
+            tier: (component as any).tier,
+            category: (component as any).category,
+            propsSchema: (component as any).propsSchema,
+            version: (version as any).version,
+          };
+          const templateOrHtml = (component as any).exampleProps ?? (component as any).propsSchema;
+          void syncMarketplaceComponent(
+            input.deploymentId,
+            input.componentId,
+            manifest,
+            templateOrHtml,
+            (component as any).tier,
+          ).catch((err) =>
+            logger.error({ err, componentId: input.componentId, deploymentId: input.deploymentId },
+              "marketplace.updateVersion: failed to sync component to pod (non-fatal)")
+          );
+        }
+      }
 
       return { success: true as const, version: (version as any).version };
     }),

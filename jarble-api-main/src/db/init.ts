@@ -105,6 +105,115 @@ const CREATE_TABLES_SQL = `
   );
 
   CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_skill ON deployment_skills(deployment_id, skill_id);
+
+  CREATE TABLE IF NOT EXISTS creator_profiles (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) UNIQUE,
+    display_name TEXT NOT NULL,
+    bio TEXT,
+    website_url TEXT,
+    avatar_url TEXT,
+    stripe_connect_account_id TEXT,
+    stripe_connect_onboarded INTEGER DEFAULT 0 NOT NULL,
+    is_verified INTEGER DEFAULT 0 NOT NULL,
+    total_earnings_cents INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS marketplace_components (
+    id TEXT PRIMARY KEY,
+    creator_id TEXT NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    bot_description TEXT,
+    tier TEXT NOT NULL,
+    category TEXT NOT NULL,
+    tags TEXT,
+    icon TEXT,
+    props_schema TEXT,
+    example_props TEXT,
+    example_prompts TEXT,
+    pricing_model TEXT DEFAULT 'free' NOT NULL,
+    price_usd_cents INTEGER DEFAULT 0 NOT NULL,
+    stripe_price_id TEXT,
+    stripe_product_id TEXT,
+    current_version TEXT DEFAULT '1.0.0' NOT NULL,
+    status TEXT DEFAULT 'draft' NOT NULL,
+    review_notes TEXT,
+    total_installs INTEGER DEFAULT 0 NOT NULL,
+    total_revenue_cents INTEGER DEFAULT 0 NOT NULL,
+    average_rating INTEGER,
+    rating_count INTEGER DEFAULT 0 NOT NULL,
+    featured_at TEXT,
+    published_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_creator_component_name ON marketplace_components(creator_id, name);
+
+  CREATE TABLE IF NOT EXISTS component_versions (
+    id TEXT PRIMARY KEY,
+    component_id TEXT NOT NULL REFERENCES marketplace_components(id) ON DELETE CASCADE,
+    version TEXT NOT NULL,
+    changelog TEXT,
+    package_url TEXT NOT NULL,
+    package_size_bytes INTEGER NOT NULL,
+    manifest_hash TEXT NOT NULL,
+    status TEXT DEFAULT 'published' NOT NULL,
+    download_count INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_component_version ON component_versions(component_id, version);
+
+  CREATE TABLE IF NOT EXISTS component_installs (
+    id TEXT PRIMARY KEY,
+    component_id TEXT NOT NULL REFERENCES marketplace_components(id),
+    version_id TEXT NOT NULL REFERENCES component_versions(id),
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    pinned_version TEXT,
+    auto_update INTEGER DEFAULT 1 NOT NULL,
+    synced_at TEXT,
+    installed_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_component ON component_installs(deployment_id, component_id);
+
+  CREATE TABLE IF NOT EXISTS component_purchases (
+    id TEXT PRIMARY KEY,
+    component_id TEXT NOT NULL REFERENCES marketplace_components(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    stripe_payment_intent_id TEXT,
+    stripe_subscription_id TEXT,
+    amount_cents INTEGER NOT NULL,
+    platform_fee_cents INTEGER NOT NULL,
+    creator_payout_cents INTEGER NOT NULL,
+    status TEXT DEFAULT 'active' NOT NULL,
+    purchased_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    expires_at TEXT
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_user_component_purchase ON component_purchases(user_id, component_id);
+
+  CREATE TABLE IF NOT EXISTS component_reviews (
+    id TEXT PRIMARY KEY,
+    component_id TEXT NOT NULL REFERENCES marketplace_components(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    rating INTEGER NOT NULL,
+    title TEXT,
+    body TEXT,
+    creator_response TEXT,
+    creator_responded_at TEXT,
+    helpful INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_user_component_review ON component_reviews(user_id, component_id);
 `;
 
 export async function initDatabase() {
@@ -179,9 +288,10 @@ async function seedDatabase() {
   });
 
   // Create test deployment (free trial, OpenClaw, expires in 7 days)
+  const deploymentId = nanoid();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   await sqliteDb.insert(sqliteSchema.deployments).values({
-    id: nanoid(),
+    id: deploymentId,
     userId,
     name: "My First Deployment",
     description: "A test deployment for development",
@@ -209,4 +319,138 @@ async function seedDatabase() {
   }
 
   logger.info("Seeded: 2 runtimes, 1 user, 1 deployment, 5 skills");
+
+  // Seed marketplace data
+  await seedMarketplaceData(sqliteDb, userId, deploymentId);
+}
+
+async function seedMarketplaceData(
+  db: NonNullable<typeof sqliteDb>,
+  userId: string,
+  deploymentId: string,
+) {
+  // Idempotency check
+  const existing = await db.query.creatorProfiles.findFirst();
+  if (existing) {
+    logger.info("Marketplace already seeded, skipping");
+    return;
+  }
+
+  const creatorId = nanoid();
+  const now = new Date().toISOString();
+
+  // 1. Creator profile for the test user
+  await db.insert(sqliteSchema.creatorProfiles).values({
+    id: creatorId,
+    userId,
+    displayName: "Jarble Official",
+    bio: "Official components from the Jarble team",
+    isVerified: true,
+  });
+
+  // 2. Three sample components (free, template tier, published)
+  const components = [
+    {
+      id: `cmp_seed_dashboard`,
+      creatorId: userId,
+      name: "sales_dashboard",
+      displayName: "Sales Dashboard",
+      description: "A comprehensive sales dashboard with key metrics and charts",
+      tier: "template",
+      category: "dashboard",
+      tags: JSON.stringify(["sales", "metrics", "dashboard"]),
+      pricingModel: "free",
+      status: "published",
+      publishedAt: now,
+      totalInstalls: 1,
+      averageRating: 500,
+      ratingCount: 1,
+    },
+    {
+      id: `cmp_seed_chart`,
+      creatorId: userId,
+      name: "analytics_chart",
+      displayName: "Analytics Chart",
+      description: "Interactive analytics chart with multiple visualization types",
+      tier: "template",
+      category: "chart",
+      tags: JSON.stringify(["analytics", "chart", "visualization"]),
+      pricingModel: "free",
+      status: "published",
+      publishedAt: now,
+    },
+    {
+      id: `cmp_seed_form`,
+      creatorId: userId,
+      name: "contact_form",
+      displayName: "Contact Form",
+      description: "A customizable contact form with validation",
+      tier: "template",
+      category: "form",
+      tags: JSON.stringify(["form", "contact", "input"]),
+      pricingModel: "free",
+      status: "published",
+      publishedAt: now,
+    },
+  ];
+
+  for (const comp of components) {
+    await db.insert(sqliteSchema.marketplaceComponents).values(comp);
+  }
+
+  // 3. One version per component (v1.0.0)
+  const versions = [
+    {
+      id: `ver_seed_dashboard`,
+      componentId: `cmp_seed_dashboard`,
+      version: "1.0.0",
+      changelog: "Initial release",
+      packageUrl: "local://seed/sales_dashboard/1.0.0",
+      packageSizeBytes: 2048,
+      manifestHash: "sha256-seed-dashboard",
+    },
+    {
+      id: `ver_seed_chart`,
+      componentId: `cmp_seed_chart`,
+      version: "1.0.0",
+      changelog: "Initial release",
+      packageUrl: "local://seed/analytics_chart/1.0.0",
+      packageSizeBytes: 1536,
+      manifestHash: "sha256-seed-chart",
+    },
+    {
+      id: `ver_seed_form`,
+      componentId: `cmp_seed_form`,
+      version: "1.0.0",
+      changelog: "Initial release",
+      packageUrl: "local://seed/contact_form/1.0.0",
+      packageSizeBytes: 1024,
+      manifestHash: "sha256-seed-form",
+    },
+  ];
+
+  for (const ver of versions) {
+    await db.insert(sqliteSchema.componentVersions).values(ver);
+  }
+
+  // 4. One install (sales_dashboard on test deployment)
+  await db.insert(sqliteSchema.componentInstalls).values({
+    id: `inst_seed_dashboard`,
+    componentId: `cmp_seed_dashboard`,
+    versionId: `ver_seed_dashboard`,
+    deploymentId,
+    userId,
+  });
+
+  // 5. One review (5 stars on sales_dashboard)
+  await db.insert(sqliteSchema.componentReviews).values({
+    id: `rev_seed_dashboard`,
+    componentId: `cmp_seed_dashboard`,
+    userId,
+    rating: 5,
+    title: "Great dashboard component",
+    body: "Easy to use and looks great out of the box.",
+  });
+
+  logger.info("Seeded marketplace: 1 creator, 3 components, 3 versions, 1 install, 1 review");
 }

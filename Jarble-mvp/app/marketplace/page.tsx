@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Search, SlidersHorizontal, Package, X } from "lucide-react";
@@ -41,40 +41,42 @@ export default function MarketplaceBrowsePage() {
   const [tier, setTier] = useState("all");
   const [pricing, setPricing] = useState("all");
   const [sort, setSort] = useState("popular");
-  const [page, setPage] = useState(0);
 
-  // tRPC query -- will fail gracefully until the API router exists.
-  // Using `as any` because the marketplace router doesn't exist on AppRouter yet.
-  const browseQuery = (trpc as any).marketplace?.browse?.useQuery?.(
-    {
-      category: category === "all" ? undefined : category,
-      tier: tier === "all" ? undefined : tier,
-      pricing: pricing === "all" ? undefined : pricing,
-      sort,
-      search: search || undefined,
-      limit: PAGE_SIZE,
-      offset: page * PAGE_SIZE,
-    },
-    { enabled: false }
-  );
+  // Cursor-based pagination: track current cursor + history for back navigation
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const cursorHistory = useRef<(string | undefined)[]>([]);
+  const [pageIndex, setPageIndex] = useState(0);
 
-  // The data from the query, or undefined if the router doesn't exist yet
-  const components: MarketplaceComponentData[] | undefined = browseQuery?.data?.components;
-  const totalCount: number = browseQuery?.data?.totalCount ?? 0;
-  const isLoading = browseQuery?.isLoading ?? false;
+  const browseQuery = trpc.marketplace.browse.useQuery({
+    category: category === "all" ? undefined : category,
+    tier: tier === "all" ? undefined : (tier as "template" | "sandbox"),
+    pricing: pricing === "all" ? undefined : (pricing as "free" | "paid"),
+    sort: sort as "popular" | "newest" | "top_rated" | "trending",
+    search: search || undefined,
+    limit: PAGE_SIZE,
+    cursor,
+  });
+
+  const components: MarketplaceComponentData[] | undefined = browseQuery.data?.items;
+  const nextCursor = browseQuery.data?.nextCursor;
+  const isLoading = browseQuery.isLoading;
   const hasData = components !== undefined;
   const isEmpty = hasData && components.length === 0;
   const hasActiveFilters = category !== "all" || tier !== "all" || pricing !== "all" || search !== "";
+
+  const resetPagination = useCallback(() => {
+    setCursor(undefined);
+    cursorHistory.current = [];
+    setPageIndex(0);
+  }, []);
 
   const clearFilters = useCallback(() => {
     setSearch("");
     setCategory("all");
     setTier("all");
     setPricing("all");
-    setPage(0);
-  }, []);
-
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+    resetPagination();
+  }, [resetPagination]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -153,7 +155,7 @@ export default function MarketplaceBrowsePage() {
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
-              setPage(0);
+              resetPagination();
             }}
             className="pl-10 h-11 text-base"
           />
@@ -161,7 +163,7 @@ export default function MarketplaceBrowsePage() {
             <button
               onClick={() => {
                 setSearch("");
-                setPage(0);
+                resetPagination();
               }}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
             >
@@ -182,7 +184,7 @@ export default function MarketplaceBrowsePage() {
             value={category}
             onValueChange={(v) => {
               setCategory(v);
-              setPage(0);
+              resetPagination();
             }}
           >
             <SelectTrigger className="w-[140px]">
@@ -202,7 +204,7 @@ export default function MarketplaceBrowsePage() {
             value={tier}
             onValueChange={(v) => {
               setTier(v);
-              setPage(0);
+              resetPagination();
             }}
           >
             <SelectTrigger className="w-[130px]">
@@ -220,7 +222,7 @@ export default function MarketplaceBrowsePage() {
             value={pricing}
             onValueChange={(v) => {
               setPricing(v);
-              setPage(0);
+              resetPagination();
             }}
           >
             <SelectTrigger className="w-[120px]">
@@ -274,36 +276,39 @@ export default function MarketplaceBrowsePage() {
           />
         ) : (
           <>
-            {/* Results count */}
-            <p className="text-sm text-muted-foreground mb-4">
-              {totalCount} component{totalCount !== 1 ? "s" : ""} found
-            </p>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {components.map((comp) => (
                 <ComponentCard key={comp.id} component={comp} />
               ))}
             </div>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
+            {/* Cursor-based pagination */}
+            {(pageIndex > 0 || nextCursor) && (
               <div className="flex items-center justify-center gap-2 mt-10">
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={page === 0}
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={pageIndex === 0}
+                  onClick={() => {
+                    const prevCursor = cursorHistory.current.pop();
+                    setCursor(prevCursor);
+                    setPageIndex((p) => p - 1);
+                  }}
                 >
                   Previous
                 </Button>
                 <span className="text-sm text-muted-foreground px-3">
-                  Page {page + 1} of {totalPages}
+                  Page {pageIndex + 1}
                 </span>
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={page >= totalPages - 1}
-                  onClick={() => setPage((p) => p + 1)}
+                  disabled={!nextCursor}
+                  onClick={() => {
+                    cursorHistory.current.push(cursor);
+                    setCursor(nextCursor);
+                    setPageIndex((p) => p + 1);
+                  }}
                 >
                   Next
                 </Button>

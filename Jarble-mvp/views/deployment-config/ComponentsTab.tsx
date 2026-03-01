@@ -24,26 +24,21 @@ export interface ComponentsTabProps {
 export function ComponentsTab({ deploymentId, deploymentStatus }: ComponentsTabProps) {
   const utils = trpc.useUtils();
 
-  // ── Query installed marketplace components ────────────────────────
-  // The tRPC marketplace router may not exist yet — cast through `any`
-  // to avoid compile errors. Hooks will return undefined gracefully.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const trpcAny = trpc as any;
-
-  const installedQuery = trpcAny.marketplace?.listInstalled?.useQuery?.(
+  // Typed tRPC queries
+  const installedQuery = trpc.marketplace.listInstalled.useQuery(
     { deploymentId },
     { enabled: !!deploymentId }
-  ) ?? { data: undefined, isLoading: false, isError: false, refetch: () => {} };
+  );
 
-  const uninstallMutation = trpcAny.marketplace?.uninstall?.useMutation?.({
+  const uninstallMutation = trpc.marketplace.uninstall.useMutation({
     onSuccess: () => {
       toast.success("Component uninstalled");
-      (utils as any).marketplace?.listInstalled?.invalidate?.();
+      utils.marketplace.listInstalled.invalidate();
     },
-    onError: (err: { message?: string }) => {
+    onError: (err) => {
       toast.error(err.message || "Failed to uninstall component");
     },
-  }) ?? { mutate: () => {}, isPending: false };
+  });
 
   // Track which component is being uninstalled
   const [pendingUninstall, setPendingUninstall] = useState<string | null>(null);
@@ -58,21 +53,12 @@ export function ComponentsTab({ deploymentId, deploymentStatus }: ComponentsTabP
     );
   };
 
-  const installed = installedQuery.data as
-    | Array<{
-        id: string;
-        componentId: string;
-        name: string;
-        displayName: string;
-        tier: string;
-        version: string;
-        installedAt: string;
-      }>
-    | undefined;
+  // Backend listInstalled returns array of objects with nested `component` field
+  const installed = installedQuery.data;
 
   const isNotRunning = deploymentStatus && deploymentStatus !== "running";
 
-  // ── Not running warning ───────────────────────────────────────────
+  // -- Not running warning --
   if (isNotRunning) {
     return (
       <div className="space-y-6">
@@ -95,7 +81,7 @@ export function ComponentsTab({ deploymentId, deploymentStatus }: ComponentsTabP
     );
   }
 
-  // ── Loading state ─────────────────────────────────────────────────
+  // -- Loading state --
   if (installedQuery.isLoading) {
     return (
       <div className="space-y-6">
@@ -115,7 +101,7 @@ export function ComponentsTab({ deploymentId, deploymentStatus }: ComponentsTabP
     );
   }
 
-  // ── Error state ───────────────────────────────────────────────────
+  // -- Error state --
   if (installedQuery.isError) {
     return (
       <div className="space-y-6">
@@ -162,7 +148,7 @@ export function ComponentsTab({ deploymentId, deploymentStatus }: ComponentsTabP
         </Link>
       </div>
 
-      {/* ── Installed Components ──────────────────────────────────────── */}
+      {/* Installed Components */}
       {hasInstalled ? (
         <div>
           <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
@@ -173,12 +159,14 @@ export function ComponentsTab({ deploymentId, deploymentStatus }: ComponentsTabP
             </Badge>
           </h3>
           <div className="space-y-3">
-            {installed.map((component) => {
-              const isUninstalling = pendingUninstall === component.componentId;
+            {installed.map((item) => {
+              const comp = item.component;
+              if (!comp) return null;
+              const isUninstalling = pendingUninstall === comp.id;
 
               return (
                 <div
-                  key={component.id}
+                  key={item.installId}
                   className="p-4 rounded-lg border border-primary/20 bg-primary/5 transition-all"
                 >
                   <div className="flex items-start justify-between gap-4">
@@ -189,26 +177,28 @@ export function ComponentsTab({ deploymentId, deploymentStatus }: ComponentsTabP
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="font-semibold text-sm">
-                            {component.displayName || component.name}
+                            {comp.displayName || comp.name}
                           </h4>
-                          <TierBadge tier={component.tier} />
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px] px-1.5 py-0"
-                          >
-                            v{component.version}
-                          </Badge>
+                          <TierBadge tier={comp.tier} />
+                          {item.version && (
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] px-1.5 py-0"
+                            >
+                              v{item.version}
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-[11px] text-muted-foreground/70 mt-1.5">
                           Installed{" "}
-                          {new Date(component.installedAt).toLocaleDateString()}
+                          {new Date(item.installedAt).toLocaleDateString()}
                         </p>
                       </div>
                     </div>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleUninstall(component.componentId)}
+                      onClick={() => handleUninstall(comp.id)}
                       disabled={isUninstalling}
                       className="border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 flex-shrink-0"
                     >
@@ -228,7 +218,7 @@ export function ComponentsTab({ deploymentId, deploymentStatus }: ComponentsTabP
           </div>
         </div>
       ) : (
-        /* ── Empty State ─────────────────────────────────────────────── */
+        /* Empty State */
         <div className="py-16 text-center">
           <Package className="w-10 h-10 text-muted-foreground/40 mx-auto mb-4" />
           <p className="text-sm text-muted-foreground mb-1">

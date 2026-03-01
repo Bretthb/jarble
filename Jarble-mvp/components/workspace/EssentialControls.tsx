@@ -12,7 +12,7 @@
  * - API key shown as a small key icon, expands inline on click
  */
 
-import { useState, useCallback } from "react";
+import { memo, useState, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,7 +36,7 @@ interface EssentialControlsProps {
   status: string;
 }
 
-export default function EssentialControls({
+function EssentialControlsInner({
   deploymentId,
   status,
 }: EssentialControlsProps) {
@@ -227,3 +227,5 @@ export default function EssentialControls({
     </div>
   );
 }
+
+export default memo(EssentialControlsInner);

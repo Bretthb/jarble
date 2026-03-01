@@ -8,6 +8,7 @@ import { StarRating } from "./StarRating";
 import { CategoryBadge } from "./CategoryBadge";
 import { TierBadge } from "./TierBadge";
 
+/** Matches the shape of items returned by marketplace.browse */
 export interface MarketplaceComponentData {
   id: string;
   name: string;
@@ -15,12 +16,15 @@ export interface MarketplaceComponentData {
   description: string;
   tier: "template" | "sandbox";
   category: string;
-  installs: number;
-  rating: number;
-  reviewCount: number;
+  totalInstalls: number;
+  averageRating: number;
+  ratingCount: number;
   pricingModel: "free" | "one_time" | "subscription";
   priceUsdCents: number;
-  creatorName: string;
+  creator: {
+    id: string;
+    displayName: string;
+  } | null;
 }
 
 interface ComponentCardProps {
@@ -86,18 +90,20 @@ export function ComponentCard({ component, className }: ComponentCardProps) {
         <CardFooter className="pt-0 pb-4 flex items-center justify-between text-xs text-muted-foreground">
           {/* Rating + installs */}
           <div className="flex items-center gap-3">
-            <StarRating rating={component.rating} count={component.reviewCount} />
+            <StarRating rating={(component.averageRating ?? 0) / 100} count={component.ratingCount} />
             <span className="flex items-center gap-1">
               <Download className="size-3" />
-              {formatInstalls(component.installs)}
+              {formatInstalls(component.totalInstalls)}
             </span>
           </div>
 
           {/* Creator */}
-          <span className="flex items-center gap-1 truncate max-w-[120px]">
-            <User className="size-3 shrink-0" />
-            <span className="truncate">{component.creatorName}</span>
-          </span>
+          {component.creator && (
+            <span className="flex items-center gap-1 truncate max-w-[120px]">
+              <User className="size-3 shrink-0" />
+              <span className="truncate">{component.creator.displayName}</span>
+            </span>
+          )}
         </CardFooter>
       </Card>
     </Link>

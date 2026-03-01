@@ -14,7 +14,7 @@
  * - [Jarble:Config] prefix logging
  */
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import { memo, useRef, useEffect, useState, useCallback } from "react";
 import {
   useTambo,
   useTamboThreadInput,
@@ -68,7 +68,7 @@ interface ConfigPanelProps {
   onClose: () => void;
 }
 
-export default function ConfigPanel({ deploymentId, onClose }: ConfigPanelProps) {
+function ConfigPanelInner({ deploymentId, onClose }: ConfigPanelProps) {
   return (
     <div className="h-full w-[360px] shrink-0 border-r border-border/60 bg-background flex flex-col relative">
       {/* Left accent line */}
@@ -99,6 +99,8 @@ export default function ConfigPanel({ deploymentId, onClose }: ConfigPanelProps)
     </div>
   );
 }
+
+export default memo(ConfigPanelInner);
 
 // ── Config Chat (Tambo-powered) ─────────────────────────────────────────────
 

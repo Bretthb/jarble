@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { AlertTriangle, RefreshCw, Play, Stethoscope, CheckCircle2, AlertCircle, XCircle, MinusCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -38,7 +38,7 @@ const STATUS_COLORS: Record<DiagnosticCheck["status"], string> = {
   skipped: "text-muted-foreground/50",
 };
 
-export default function ChatErrorCard({
+function ChatErrorCardInner({
   error,
   onRetry,
   onStartBot,
@@ -139,3 +139,5 @@ export default function ChatErrorCard({
     </div>
   );
 }
+
+export default memo(ChatErrorCardInner);

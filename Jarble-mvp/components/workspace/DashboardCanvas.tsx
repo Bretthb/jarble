@@ -8,7 +8,7 @@
  * Column span is computed per-card from component type + layoutHint.
  */
 
-import { useCallback, useState, useRef, useEffect, type ReactNode } from "react";
+import { memo, useCallback, useState, useRef, useEffect, type ReactNode } from "react";
 import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, SplitSquareHorizontal, Grid3X3 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -82,7 +82,7 @@ interface DashboardCanvasProps {
   onHide?: () => void;
 }
 
-export default function DashboardCanvas({
+function DashboardCanvasInner({
   cards,
   dispatch,
   renderCard,
@@ -362,3 +362,5 @@ export default function DashboardCanvas({
     </div>
   );
 }
+
+export default memo(DashboardCanvasInner);

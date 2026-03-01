@@ -23,24 +23,11 @@ interface DeploymentPickerProps {
  * Used on marketplace detail pages to pick a target deployment before install.
  */
 export default function DeploymentPicker({ selectedId, onSelect }: DeploymentPickerProps) {
-  // Fetch user's deployments. The procedure may be `deployment.list` or
-  // `deployment.getAll` -- handle gracefully if not available yet.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const trpcAny = trpc as any;
-  const deploymentsQuery = trpcAny.deployment?.list?.useQuery?.(undefined, {
+  const deploymentsQuery = trpc.deployment.list.useQuery(undefined, {
     staleTime: 30_000,
-  }) ?? trpcAny.deployment?.getAll?.useQuery?.(undefined, {
-    staleTime: 30_000,
-  }) ?? { data: undefined, isLoading: false, isError: false };
+  });
 
-  const deployments = deploymentsQuery.data as
-    | Array<{
-        id: string;
-        name: string;
-        status: string;
-        runtime?: string;
-      }>
-    | undefined;
+  const deployments = deploymentsQuery.data;
 
   // Only show running/active deployments
   const activeDeployments = (deployments ?? []).filter(

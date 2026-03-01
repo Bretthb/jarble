@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, type ReactNode } from "react";
+import { memo, useCallback, type ReactNode } from "react";
 import { Rnd } from "react-rnd";
 import { Minus, X } from "lucide-react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
@@ -18,7 +18,7 @@ const MIN_WIDTH = 200;
 const MIN_HEIGHT = 100;
 const TITLE_BAR_HEIGHT = 32;
 
-export default function CanvasCardWrapper({ card, dispatch, focused, streaming, children }: CanvasCardWrapperProps) {
+function CanvasCardWrapperInner({ card, dispatch, focused, streaming, children }: CanvasCardWrapperProps) {
   const bringToFront = useCallback(() => {
     dispatch({ type: "BRING_TO_FRONT", id: card.id });
   }, [card.id, dispatch]);
@@ -114,6 +114,8 @@ export default function CanvasCardWrapper({ card, dispatch, focused, streaming, 
     </Rnd>
   );
 }
+
+export default memo(CanvasCardWrapperInner);
 
 // ── Context Menu ──────────────────────────────────────────────────────────────
 

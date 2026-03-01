@@ -8,7 +8,7 @@
  * Keeps the same export name (SimpleCanvasGrid) so page.tsx doesn't change.
  */
 
-import { useCallback, useState, useRef, useEffect, type ReactNode } from "react";
+import { memo, useCallback, useState, useRef, useEffect, type ReactNode } from "react";
 import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Group, LayoutGrid } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -32,7 +32,7 @@ interface SimpleCanvasGridProps {
   onHide?: () => void;
 }
 
-export default function SimpleCanvasGrid({
+function SimpleCanvasGridInner({
   cards,
   dispatch,
   renderCard,
@@ -463,3 +463,5 @@ export default function SimpleCanvasGrid({
     </div>
   );
 }
+
+export default memo(SimpleCanvasGridInner);

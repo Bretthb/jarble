@@ -7,7 +7,7 @@
  * as clickable cards, and loads them onto the canvas on click.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
 import { Package, Loader2, Trash2, Plus, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
@@ -46,7 +46,7 @@ const COMPONENT_LABELS: Record<string, string> = {
   tabs: "Tabs",
 };
 
-export default function ComponentGallery({ deploymentId, cards, dispatch }: ComponentGalleryProps) {
+function ComponentGalleryInner({ deploymentId, cards, dispatch }: ComponentGalleryProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<SavedComponent[]>([]);
@@ -315,3 +315,5 @@ export default function ComponentGallery({ deploymentId, cards, dispatch }: Comp
     </div>
   );
 }
+
+export default memo(ComponentGalleryInner);

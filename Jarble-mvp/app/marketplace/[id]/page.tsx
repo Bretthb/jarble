@@ -37,10 +37,7 @@ import {
 import { StarRating } from "@/components/marketplace/StarRating";
 import { CategoryBadge } from "@/components/marketplace/CategoryBadge";
 import { TierBadge } from "@/components/marketplace/TierBadge";
-import type {
-  MarketplaceComponent,
-  MarketplaceReview,
-} from "@/components/marketplace/types";
+import type { MarketplaceReview } from "@/components/marketplace/types";
 import DeploymentPicker from "@/components/marketplace/DeploymentPicker";
 import { trpc } from "@/lib/trpc";
 import ProfileDropdown from "@/components/ProfileDropdown";
@@ -53,28 +50,28 @@ export default function MarketplaceDetailPage() {
   const [selectedDeployment, setSelectedDeployment] = useState<string | null>(null);
   const [installState, setInstallState] = useState<"idle" | "installing" | "installed">("idle");
 
-  // tRPC queries -- gracefully handle missing router.
-  // Using `as any` because the marketplace router doesn't exist on AppRouter yet.
-  const componentQuery = (trpc as any).marketplace?.getById?.useQuery?.(
+  // tRPC queries — fully typed
+  const componentQuery = trpc.marketplace.getById.useQuery(
     { id },
     { enabled: !!id }
   );
-  const reviewsQuery = (trpc as any).marketplace?.getReviews?.useQuery?.(
+  const reviewsQuery = trpc.marketplace.getReviews.useQuery(
     { componentId: id },
     { enabled: !!id }
   );
 
-  // Mutations -- will be no-ops until the API exists
-  const installMutation = (trpc as any).marketplace?.install?.useMutation?.();
-  const uninstallMutation = (trpc as any).marketplace?.uninstall?.useMutation?.();
+  // Mutations
+  const installMutation = trpc.marketplace.install.useMutation();
+  const uninstallMutation = trpc.marketplace.uninstall.useMutation();
 
-  const component: MarketplaceComponent | undefined = componentQuery?.data;
-  const reviews: MarketplaceReview[] | undefined = reviewsQuery?.data;
-  const isLoading = componentQuery?.isLoading ?? false;
+  const component = componentQuery.data;
+  const reviewsData = reviewsQuery.data;
+  const reviews = reviewsData?.items;
+  const isLoading = componentQuery.isLoading;
   const hasData = component !== undefined;
 
   const handleInstall = async () => {
-    if (!selectedDeployment || !installMutation) return;
+    if (!selectedDeployment) return;
     setInstallState("installing");
     try {
       await installMutation.mutateAsync({
@@ -88,7 +85,7 @@ export default function MarketplaceDetailPage() {
   };
 
   const handleUninstall = async () => {
-    if (!selectedDeployment || !uninstallMutation) return;
+    if (!selectedDeployment) return;
     try {
       await uninstallMutation.mutateAsync({
         componentId: id,
@@ -99,6 +96,11 @@ export default function MarketplaceDetailPage() {
       // Silently fail -- error shown via tRPC error handling
     }
   };
+
+  // Derive display values from the backend response shape
+  const displayRating = component ? (component.reviewSummary.averageRating ?? 0) : 0;
+  const displayReviewCount = component ? (component.reviewSummary.count ?? 0) : 0;
+  const latestVersion = component?.versions?.[0]?.version ?? "1.0.0";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -173,13 +175,13 @@ export default function MarketplaceDetailPage() {
                 </div>
                 <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                   <StarRating
-                    rating={component.rating}
-                    count={component.reviewCount}
+                    rating={displayRating}
+                    count={displayReviewCount}
                     size="md"
                   />
                   <span className="flex items-center gap-1">
                     <Download className="size-3.5" />
-                    {component.installs.toLocaleString()} installs
+                    {(component.totalInstalls ?? 0).toLocaleString()} installs
                   </span>
                 </div>
               </div>
@@ -200,39 +202,29 @@ export default function MarketplaceDetailPage() {
                 {/* Preview placeholder */}
                 <section>
                   <h3 className="text-lg font-semibold mb-3">Preview</h3>
-                  {component.previewImageUrl ? (
-                    <div className="rounded-lg border border-border overflow-hidden bg-muted">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={component.previewImageUrl}
-                        alt={`${component.displayName} preview`}
-                        className="w-full h-auto"
-                      />
+                  <div className="rounded-lg border border-dashed border-border bg-muted/30 flex items-center justify-center h-48 text-muted-foreground">
+                    <div className="flex flex-col items-center gap-2">
+                      <ImageIcon className="size-8" />
+                      <span className="text-sm">No preview available</span>
                     </div>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-border bg-muted/30 flex items-center justify-center h-48 text-muted-foreground">
-                      <div className="flex flex-col items-center gap-2">
-                        <ImageIcon className="size-8" />
-                        <span className="text-sm">No preview available</span>
-                      </div>
-                    </div>
-                  )}
+                  </div>
                 </section>
 
                 {/* Props Schema */}
-                {component.propsSchema &&
-                  Object.keys(component.propsSchema).length > 0 && (
-                    <section>
-                      <h3 className="text-lg font-semibold mb-3">
-                        Props Schema
-                      </h3>
-                      <pre className="rounded-lg border border-border bg-muted/50 p-4 overflow-x-auto text-sm text-foreground">
-                        <code>
-                          {JSON.stringify(component.propsSchema, null, 2)}
-                        </code>
-                      </pre>
-                    </section>
-                  )}
+                {component.propsSchema && (
+                  <section>
+                    <h3 className="text-lg font-semibold mb-3">
+                      Props Schema
+                    </h3>
+                    <pre className="rounded-lg border border-border bg-muted/50 p-4 overflow-x-auto text-sm text-foreground">
+                      <code>
+                        {typeof component.propsSchema === "string"
+                          ? component.propsSchema
+                          : JSON.stringify(component.propsSchema, null, 2)}
+                      </code>
+                    </pre>
+                  </section>
+                )}
 
                 {/* Example prompts */}
                 {component.examplePrompts &&
@@ -242,7 +234,7 @@ export default function MarketplaceDetailPage() {
                         Example Prompts
                       </h3>
                       <div className="space-y-2">
-                        {component.examplePrompts.map((prompt, i) => (
+                        {component.examplePrompts.map((prompt: string, i: number) => (
                           <div
                             key={i}
                             className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-3"
@@ -255,22 +247,10 @@ export default function MarketplaceDetailPage() {
                     </section>
                   )}
 
-                {/* README */}
-                {component.readme && (
-                  <section>
-                    <h3 className="text-lg font-semibold mb-3">README</h3>
-                    <div className="rounded-lg border border-border bg-muted/30 p-4 prose prose-sm dark:prose-invert max-w-none">
-                      <pre className="whitespace-pre-wrap text-sm text-foreground font-sans">
-                        {component.readme}
-                      </pre>
-                    </div>
-                  </section>
-                )}
-
                 {/* Reviews */}
                 <section>
                   <h3 className="text-lg font-semibold mb-4">
-                    Reviews ({component.reviewCount})
+                    Reviews ({displayReviewCount})
                   </h3>
                   {!reviews || reviews.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
@@ -279,7 +259,7 @@ export default function MarketplaceDetailPage() {
                     </p>
                   ) : (
                     <div className="space-y-4">
-                      {reviews.map((review) => (
+                      {reviews.map((review: { id: string; rating: number; title: string | null; body: string | null; createdAt: string; user: { id: string; name: string } | null }) => (
                         <ReviewCard key={review.id} review={review} />
                       ))}
                     </div>
@@ -296,9 +276,9 @@ export default function MarketplaceDetailPage() {
                     <div className="text-center">
                       <span className="text-3xl font-bold">
                         {component.pricingModel === "free" ||
-                        component.priceUsdCents === 0
+                        (component.priceUsdCents ?? 0) === 0
                           ? "Free"
-                          : `$${(component.priceUsdCents / 100).toFixed(2)}`}
+                          : `$${((component.priceUsdCents ?? 0) / 100).toFixed(2)}`}
                       </span>
                       {component.pricingModel === "subscription" && (
                         <span className="text-muted-foreground text-sm">
@@ -344,8 +324,7 @@ export default function MarketplaceDetailPage() {
                           className="w-full"
                           disabled={
                             !selectedDeployment ||
-                            installState === "installing" ||
-                            !installMutation
+                            installState === "installing"
                           }
                           onClick={handleInstall}
                         >
@@ -364,41 +343,43 @@ export default function MarketplaceDetailPage() {
                 </Card>
 
                 {/* Creator card */}
-                <Card className="border border-border">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold">
-                      Creator
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="pt-0 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="size-8 rounded-full bg-muted flex items-center justify-center">
-                        <User className="size-4 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {component.creatorName}
-                        </p>
-                        {component.creatorBio && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {component.creatorBio}
+                {component.creator && (
+                  <Card className="border border-border">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-semibold">
+                        Creator
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="size-8 rounded-full bg-muted flex items-center justify-center">
+                          <User className="size-4 text-muted-foreground" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {component.creator.displayName}
                           </p>
-                        )}
+                          {component.creator.bio && (
+                            <p className="text-xs text-muted-foreground truncate">
+                              {component.creator.bio}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    {component.creatorUrl && (
-                      <a
-                        href={component.creatorUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                      >
-                        <ExternalLink className="size-3" />
-                        Website
-                      </a>
-                    )}
-                  </CardContent>
-                </Card>
+                      {component.creator.websiteUrl && (
+                        <a
+                          href={component.creator.websiteUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <ExternalLink className="size-3" />
+                          Website
+                        </a>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Component info card */}
                 <Card className="border border-border">
@@ -415,7 +396,7 @@ export default function MarketplaceDetailPage() {
                           Version
                         </dt>
                         <dd className="font-mono text-xs">
-                          {component.version}
+                          {latestVersion}
                         </dd>
                       </div>
 
@@ -443,7 +424,7 @@ export default function MarketplaceDetailPage() {
                         <div>
                           <dt className="text-muted-foreground mb-1.5">Tags</dt>
                           <dd className="flex flex-wrap gap-1">
-                            {component.tags.map((tag) => (
+                            {component.tags.map((tag: string) => (
                               <Badge
                                 key={tag}
                                 variant="secondary"
@@ -467,7 +448,7 @@ export default function MarketplaceDetailPage() {
   );
 }
 
-// ── Review Card ───────────────────────────────────────────────────────────
+// -- Review Card ----------------------------------------------------------
 
 function ReviewCard({ review }: { review: MarketplaceReview }) {
   return (
@@ -478,23 +459,27 @@ function ReviewCard({ review }: { review: MarketplaceReview }) {
             <div className="size-6 rounded-full bg-muted flex items-center justify-center">
               <User className="size-3 text-muted-foreground" />
             </div>
-            <span className="text-sm font-medium">{review.userName}</span>
+            <span className="text-sm font-medium">
+              {review.user?.name ?? "Anonymous"}
+            </span>
           </div>
           <span className="text-xs text-muted-foreground">
             {new Date(review.createdAt).toLocaleDateString()}
           </span>
         </div>
         <StarRating rating={review.rating} size="sm" />
-        <h4 className="font-medium text-sm">{review.title}</h4>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          {review.body}
-        </p>
+        {review.title && <h4 className="font-medium text-sm">{review.title}</h4>}
+        {review.body && (
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {review.body}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-// ── Skeleton ──────────────────────────────────────────────────────────────
+// -- Skeleton -------------------------------------------------------------
 
 function DetailSkeleton() {
   return (
@@ -529,7 +514,7 @@ function DetailSkeleton() {
   );
 }
 
-// ── Not Found ─────────────────────────────────────────────────────────────
+// -- Not Found ------------------------------------------------------------
 
 function DetailNotFound() {
   return (
