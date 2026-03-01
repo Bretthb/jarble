@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 18, 2026 (Session 15 — Drizzle Migrations, Dev BYOK Bypass, Subscription/Storage Enforcement)
+📅 Last updated: February 28, 2026 (Session 16 — Component Manifest, AutoFix, Marketplace, Security Hardening, assistant-ui)
 
 </aside>
 
@@ -17,6 +17,7 @@ Jarble is a **no-code AI deployment platform** that lets users deploy AI-powered
 | --- | --- |
 | Frontend | Next.js 15 (App Router), React 19, TypeScript |
 | Styling | Tailwind CSS v4, shadcn/ui (40+ components), Framer Motion |
+| Chat UI | @assistant-ui/react (ExternalStoreRuntime) |
 | API | Express + tRPC, SuperJSON serialization |
 | Database | Drizzle ORM — MySQL (prod), PostgreSQL (alt), SQLite (dev) |
 | Auth | Auth0 (Email/Password, Google OAuth, GitHub OAuth) |
@@ -24,6 +25,8 @@ Jarble is a **no-code AI deployment platform** that lets users deploy AI-powered
 | Infrastructure | Hetzner Cloud, Terraform IaC, K3s (Longhorn, Traefik) |
 | LLM Providers | OpenRouter, OpenAI, Anthropic, Google |
 | State Management | React Query + tRPC hooks |
+| Monitoring | Sentry (client + server), PostHog analytics |
+| Shared Package | @jarble/component-manifest (single source of truth for all component definitions) |
 
 ### System Architecture Diagram
 
@@ -46,6 +49,8 @@ graph TB
         L[Template Router]
         BILL[Billing Router]
         PC[Platform Credentials Router]
+        SK[Skills Router]
+        MKT[Marketplace Router]
         WH[Auth0 Webhook Endpoint]
     end
 
@@ -56,6 +61,11 @@ graph TB
         P[OpenRouter Service - Key Provisioning]
         SUB_ENF[Subscription Enforcement]
         STOR_ENF[Storage Enforcement]
+        MFVAL[Manifest Validator]
+    end
+
+    subgraph "Shared Package"
+        MANIFEST[@jarble/component-manifest]
     end
 
     subgraph "Data Layer"
@@ -94,7 +104,12 @@ graph TB
     H --> R
     I --> R
     J --> R
+    MKT --> MFVAL
     R --> Q
+
+    MANIFEST --> I
+    MANIFEST --> MKT
+    MANIFEST --> SK
 
     TF -->|Provision| S
     O --> S
@@ -175,14 +190,18 @@ graph TB
         U2[getProfile - protected]
         U3[updateProfile - protected]
         U4[completeProfile - protected]
+        U5[resendVerificationEmail - protected]
     end
 
-    subgraph "Deployment Router"
+    subgraph "Deployment Router - 21 procedures"
         D1[canDeploy - query]
         D2[list - query]
         D2b[listLinkableDeployments - query]
         D3[getById - query]
+        D3b[getComponentCatalog - query]
         D4[create - mutation + linking]
+        D4b[defineComponent - mutation]
+        D4c[deleteComponent - mutation]
         D5[deploy - mutation]
         D6[getStatus - query]
         D6b[getStorageUsage - query]
@@ -195,12 +214,14 @@ graph TB
         D13[reactivate - mutation]
         D14[linkSubscription - mutation + Stripe API fallback]
         D15[exportConfigs - mutation]
+        D16[getLogs - query]
     end
 
     subgraph "Runtime Catalog Router"
         RC1[list - public query]
         RC2[getById - public query]
         RC3[getBySlug - public query]
+        RC4[getCapabilities - public query]
     end
 
     subgraph "OpenRouter Router"
@@ -219,6 +240,41 @@ graph TB
         PC2[save - mutation upsert]
         PC3[delete - mutation]
         PC4[testConnection - mutation]
+        PC5[checkWhatsAppStatus - query]
+        PC6[markWhatsAppConnected - mutation]
+        PC7[pollTelegramPairing - mutation]
+    end
+
+    subgraph "Skills Router"
+        SK1[listCatalog - protected query]
+        SK2[listForDeployment - protected query]
+        SK3[install - protected mutation]
+        SK4[uninstall - protected mutation]
+    end
+
+    subgraph "Marketplace Router - 22 procedures"
+        MKT1[browse - public query]
+        MKT2[getById - public query]
+        MKT3[getFeatured - public query]
+        MKT4[getCategories - public query]
+        MKT5[install - protected mutation]
+        MKT6[uninstall - protected mutation]
+        MKT7[listInstalled - protected query]
+        MKT8[updateVersion - protected mutation]
+        MKT9[createCheckout - protected mutation]
+        MKT10[getPurchases - protected query]
+        MKT11[getReviews - public query]
+        MKT12[createReview - protected mutation]
+        MKT13[createCreatorProfile - protected mutation]
+        MKT14[getCreatorProfile - public query]
+        MKT15[submitComponent - protected mutation]
+        MKT16[publishComponent - protected mutation]
+        MKT17[updateComponent - protected mutation]
+        MKT18[myComponents - protected query]
+        MKT19[getCreatorAnalytics - protected query]
+        MKT20[getReviewQueue - protected query]
+        MKT21[approveComponent - protected mutation]
+        MKT22[rejectComponent - protected mutation]
     end
 
     subgraph "Template Router"
@@ -235,9 +291,16 @@ graph TB
 | POST | /api/stripe/checkout | JWT | Create checkout session |
 | POST | /api/stripe/portal | JWT | Create billing portal |
 | POST | /api/auth0/email-verified | M2M | Auth0 email verification sync |
+| POST | /api/config-changed | deploymentId | PVC file-watcher config sync webhook |
+| POST | /api/tambo-agent | JWT | Chat SSE stream (bot text + UI blocks) |
 | GET | /api/deployments/status/stream | JWT | SSE stream of deployment status changes |
-| GET | /api/deployments/:id/logs | JWT | SSE stream of K8s container logs |
-| POST | /api/auth0/resend-verification | JWT | Resend Auth0 email verification |
+| GET | /api/deployments/:id/logs/stream | JWT | SSE stream of K8s container logs |
+| GET | /api/deployments/:id/whatsapp/qr | JWT | SSE stream of WhatsApp QR pairing |
+| GET | /api/deployments/:id/diagnose | JWT | Deployment health diagnostics |
+| POST | /api/deployments/:id/mcp/invoke | JWT | MCP tool call proxy to pod |
+| POST | /api/mcp/:deploymentId | JWT | MCP Streamable HTTP (initialize, tools) |
+| GET | /api/mcp/:deploymentId | JWT | MCP SSE stream for server notifications |
+| DELETE | /api/mcp/:deploymentId | JWT | Close MCP session |
 | GET | /debug/db | None | View DB tables (dev only) |
 
 ---
@@ -316,9 +379,96 @@ erDiagram
         timestamp processedAt "defaultNow()"
     }
 
+    skillsCatalog {
+        int id PK
+        varchar name
+        varchar slug UK
+        text description
+        boolean isActive
+        timestamp createdAt
+    }
+
+    deploymentSkills {
+        varchar id PK
+        varchar deploymentId FK
+        int skillId FK
+        timestamp createdAt
+    }
+
+    creatorProfiles {
+        varchar id PK
+        varchar userId FK
+        varchar displayName
+        text bio
+        varchar websiteUrl
+        timestamp createdAt
+    }
+
+    marketplaceComponents {
+        varchar id PK
+        varchar creatorId FK
+        varchar name UK
+        varchar displayName
+        text description
+        varchar tier "template or sandbox"
+        varchar category
+        varchar status "draft/pending/published/rejected"
+        varchar pricingModel "free/one_time/subscription"
+        int priceUsdCents
+        int installCount
+        int scaledRating "1-500 representing 0.01-5.00 stars"
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    componentVersions {
+        varchar id PK
+        varchar componentId FK
+        varchar version
+        text template "JSON template or sandbox HTML"
+        text propsSchema "JSON Zod schema"
+        timestamp createdAt
+    }
+
+    componentInstalls {
+        varchar id PK
+        varchar deploymentId FK
+        varchar componentId FK
+        varchar versionId FK
+        timestamp installedAt
+    }
+
+    componentPurchases {
+        varchar id PK
+        varchar userId FK
+        varchar componentId FK
+        int paidCents
+        timestamp purchasedAt
+    }
+
+    componentReviews {
+        varchar id PK
+        varchar userId FK
+        varchar componentId FK
+        int rating "1-5"
+        text body
+        timestamp createdAt
+    }
+
     users ||--o{ deployments : "has many"
+    users ||--o| creatorProfiles : "has one"
+    users ||--o{ componentInstalls : "has many"
+    users ||--o{ componentPurchases : "has many"
+    users ||--o{ componentReviews : "has many"
     runtimeCatalog ||--o{ deployments : "used by"
     deployments ||--o{ platformCredentials : "has many"
+    deployments ||--o{ deploymentSkills : "has many"
+    skillsCatalog ||--o{ deploymentSkills : "used by"
+    creatorProfiles ||--o{ marketplaceComponents : "publishes"
+    marketplaceComponents ||--o{ componentVersions : "has many"
+    marketplaceComponents ||--o{ componentInstalls : "installed via"
+    marketplaceComponents ||--o{ componentPurchases : "purchased via"
+    marketplaceComponents ||--o{ componentReviews : "reviewed via"
 ```
 
 ---
@@ -781,6 +931,14 @@ flowchart TD
 - [x]  **Deployment Logs tab** — Terminal-style log viewer (LogsTab), auto-scroll, pause/resume, clear, download, severity-colored lines, registered in wizardStepConfig for all runtimes
 - [x]  **Billing page** — `/billing` with overview cards (Monthly Spend, Active Subs, Next Payment, Payment Method), subscriptions table with status badges, invoice history with PDF links, Stripe portal link
 - [x]  **WhatsApp QR Pairing (real)** — `WhatsAppQrModal` + `useQrStream` hook, real Baileys QR from OpenClaw via K8s exec streaming, auto-connect detection
+- [x]  **assistant-ui integration** — `@assistant-ui/react` with `ExternalStoreRuntime`; replaces custom `StreamingBotMessage.tsx` (~400 lines removed). `Jarble-mvp/lib/assistantRuntime.ts` wraps `useCanvasChat` hook
+- [x]  **Deployment chat page** — `/d/[id]` chat interface with Tambo + canvas grid; bot renders rich UI components inline via `jarble_ui` fenced blocks
+- [x]  **Canvas grid** — `SimpleCanvasGrid` CSS grid with drag-to-reorder, split/merge for multi-item components (stat_grid, key_value, descriptions)
+- [x]  **37 active canvas components** — Display, Charts (Recharts), Interactive, Media, Specialized categories. 22 old Ant Design chart components removed
+- [x]  **Marketplace** — `/marketplace` (browse/search/filter) and `/marketplace/[id]` (detail + install) pages. 5 shared UI components in `Jarble-mvp/components/marketplace/`
+- [x]  **Sentry + PostHog** — Client error monitoring (`sentry.client.config.ts`, `sentry.server.config.ts`) and product analytics (`lib/posthog.ts`)
+- [x]  **Security response headers** — `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` in `next.config.ts`
+- [x]  **HTML sanitization** — `lib/sanitize.ts` via DOMPurify for XSS prevention
 
 ## Backend ✅
 
@@ -822,6 +980,17 @@ flowchart TD
 - [x]  **WhatsApp QR SSE endpoint** — `GET /api/deployments/:id/whatsapp/qr` streams Baileys QR via `streamExecInPod()`
 - [x]  **Rate limiting middleware** — Global (300/min/IP), auth (120/min/user), stripe (10/min/user) via express-rate-limit
 - [x]  **Production Docker image** — Multi-stage Dockerfile, entrypoint.sh (migrate → seed → start)
+- [x]  **Marketplace tRPC router** — 22 procedures: browse, install, review, creator profile, component submit/publish/approve workflows
+- [x]  **Skills tRPC router** — 4 procedures: listCatalog, listForDeployment, install, uninstall. `skills_catalog` + `deployment_skills` tables
+- [x]  **6 new marketplace DB tables** — `creator_profiles`, `marketplace_components`, `component_versions`, `component_installs`, `component_purchases`, `component_reviews`
+- [x]  **Component manifest validator** — `src/services/manifestValidator.ts` validates submitted component manifests server-side
+- [x]  **Diagnostic endpoint** — `GET /api/deployments/:id/diagnose` runs health checks (pod status, storage, gateway connectivity) with per-check timeouts
+- [x]  **MCP Streamable HTTP endpoint** — `POST/GET/DELETE /api/mcp/:deploymentId` for external MCP clients (Claude Desktop, Cursor)
+- [x]  **MCP proxy endpoint** — `POST /api/deployments/:id/mcp/invoke` routes tool calls to the bot pod
+- [x]  **tambo-agent chat endpoint** — `POST /api/tambo-agent` streams bot responses as SSE (text deltas + UI blocks)
+- [x]  **Chat SSE streaming pipeline** — Incremental block extraction during deltas, brace-depth JSON parser, rAF-throttled frontend updates
+- [x]  **Server-side library URL validation** — `validateLibraryUrl()` in `uiBlockParser.ts` enforces TRUSTED_CDN_ORIGINS allowlist (10 origins) before block reaches frontend
+- [x]  **Status reconciler** — `statusReconciler.ts` background service syncs DB status with K8s reality (fixes "stuck at creating")
 
 ## Infrastructure ✅
 
@@ -872,13 +1041,25 @@ flowchart TD
 2. ~~Dev BYOK bypass~~ — ✅ Done (Session 15). `dev-*` prefixed keys accepted in SQLite/dev mode
 3. ~~Drizzle migrations (SQLite + PostgreSQL)~~ — ✅ Done (Session 15). Initial migrations generated and version-controlled
 
+## 🟡 Important (Post-Launch — Component Ecosystem)
+
+1. ~~Component manifest (shared package)~~ — ✅ Done (Session 16). `@jarble/component-manifest` package, consumed by frontend + API + MCP server
+2. ~~AutoFix prop repair system~~ — ✅ Done (Session 16). 20 repair rules in `autoFixProps.ts`, runs before Zod validation in CanvasRenderer
+3. ~~Marketplace foundation~~ — ✅ Done (Session 16). 6 DB tables, 22-procedure router, browse/detail pages, MarketplaceSandbox double-iframe, manifest validator
+4. ~~Security hardening~~ — ✅ Done (Session 16). Sandbox CSP CDN allowlist, server-side library URL validation, CSP violation monitoring, security response headers
+5. ~~Streaming pipeline improvements~~ — ✅ Done (Session 16). Incremental block extraction, brace-depth JSON parser, rAF-throttled text updates
+6. ~~Sentry + PostHog integration~~ — ✅ Done (Session 16). Client + server error monitoring, product analytics, autofix repair frequency tracking via Sentry breadcrumbs
+7. ~~assistant-ui integration~~ — ✅ Done (Session 16). `@assistant-ui/react` with ExternalStoreRuntime, replaces StreamingBotMessage.tsx
+8. ~~Prompt optimization~~ — ✅ Done (Session 16). Component quick reference trimmed 36→10 inline components, ~878 tokens saved per message
+
 ## 🟢 Nice-to-Have (Future)
 
 1. Team/organization support — Multi-user orgs, RBAC
-2. Chat testing playground — In-browser bot testing
-3. Skill marketplace — Browse, install pre-built skills
-4. Multi-region cluster support
-5. Cluster auto-scaling based on deployments
+2. Marketplace payment processing — Stripe Connect for creator payouts
+3. Multi-region cluster support
+4. Cluster auto-scaling based on deployments
+5. Telegram Mini Apps — Full canvas UI within Telegram
+6. Platform-conditional prompts — Skip web-specific prompt sections on non-web platforms (~1,250 token savings)
 
 ---
 
@@ -886,13 +1067,21 @@ flowchart TD
 
 Shared: ProfileDropdown, IntegrationsMarquee, TemplateSelector, WizardLoader, ErrorBoundary, ThemeToggle, StatusBadge, StorageMeter, CancellationGracePeriod, WhatsAppQrModal, DevNav
 
-Hooks: useStatusStream (SSE real-time status), useLogStream (SSE deployment logs), useQrStream (SSE WhatsApp QR), useComposition (IME composition), useMobile (responsive breakpoint), usePersistFn (stable fn ref)
+Canvas Components (37 active + 1 alias): card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, metric_card, header, button_group, form, code_editor, spreadsheet, sandbox (+ canvas alias), marketplace_sandbox, video, audio, avatar, blockquote, text_message, image_gallery, map, descriptions, steps, result, carousel, statistic, tag_cloud, tree
+
+Marketplace Components: CategoryBadge, ComponentCard, DeploymentPicker, StarRating, TierBadge
+
+Hooks: useStatusStream (SSE real-time status), useLogStream (SSE deployment logs), useQrStream (SSE WhatsApp QR), useCanvasChat (chat + canvas state), useComposition (IME composition), useMobile (responsive breakpoint), usePersistFn (stable fn ref)
 
 Auth: Auth0Provider, LoginButton, LogoutButton
 
-Views: Home, About, Pricing, Login, NotFound, Dashboard, Deployments (Linked Deployments), OnboardingWizard, DeploymentConfiguration, Settings, Analytics, Billing
+Views: Home, About, Pricing, Login, NotFound, Dashboard, Deployments (Linked Deployments), OnboardingWizard, DeploymentConfiguration, Settings, Analytics, Billing, Marketplace (browse + detail)
+
+Libraries: lib/trpc.ts, lib/assistantRuntime.ts, lib/posthog.ts, lib/sanitize.ts, lib/autoFixProps.ts
 
 UI Library: 40+ shadcn/ui components (Button, Card, Dialog, Tabs, Toast, Badge, etc.)
+
+Shared Package: @jarble/component-manifest — 37+ component entries with Zod schemas, layout hints, derive functions (generatePromptReference, generateMcpReference, deriveComponentNames)
 
 ---
 
@@ -905,6 +1094,9 @@ UI Library: 40+ shadcn/ui components (Button, Card, Dialog, Tabs, Toast, Badge, 
 - `NEXT_PUBLIC_AUTH0_AUDIENCE` — Auth0 API audience
 - `NEXT_PUBLIC_API_URL` — Backend API endpoint (default: `http://localhost:3001`)
 - `NEXT_PUBLIC_APP_URL` — Frontend URL for Auth0 callbacks (default: `http://localhost:3000`)
+- `NEXT_PUBLIC_SENTRY_DSN` — Sentry DSN for client-side error monitoring (optional)
+- `NEXT_PUBLIC_POSTHOG_KEY` — PostHog project API key for analytics (optional)
+- `NEXT_PUBLIC_POSTHOG_HOST` — PostHog host (default: `https://us.i.posthog.com`)
 
 ### Backend (.env)
 
@@ -918,6 +1110,7 @@ UI Library: 40+ shadcn/ui components (Button, Card, Dialog, Tabs, Toast, Badge, 
 - `OPENROUTER_API_KEY` — OpenRouter API key for model listing / health checks
 - `OPENROUTER_MANAGEMENT_KEY` — OpenRouter Management API key for tenant key provisioning (optional — required for "Included Credits" mode)
 - `API_KEY_ENCRYPTION_KEY` — 32-byte hex key (64 hex chars) for AES-256-GCM API key encryption
+- `FRONTEND_URL` — Allowed CORS origin (default: `http://localhost:3000`)
 
 ### Terraform (terraform.tfvars)
 
@@ -936,6 +1129,19 @@ UI Library: 40+ shadcn/ui components (Button, Card, Dialog, Tabs, Toast, Badge, 
 
 ```
 monorepo/
+├── shared/
+│   └── component-manifest/            # @jarble/component-manifest (shared package)
+│       ├── index.ts                   # COMPONENT_MANIFEST + derived exports
+│       ├── types.ts                   # ComponentManifestEntry, LayoutHintType, etc.
+│       ├── components/                # Per-component entry files (card.ts, chart.ts, ...)
+│       ├── schemas/                   # Zod schemas index
+│       ├── derive/                    # promptText.ts, mcpReference.ts, nameList.ts
+│       └── generated/                 # MCP JSON snapshot (generate-mcp-manifest.ts output)
+│
+├── scripts/
+│   ├── check-manifest.ts              # CI check: manifest ↔ registry sync
+│   └── generate-mcp-manifest.ts       # Generates JSON snapshot for MCP server
+│
 ├── Jarble-mvp/                        # Frontend (Next.js 15)
 │   ├── app/
 │   │   ├── page.tsx                   # Landing page
@@ -948,6 +1154,10 @@ monorepo/
 │   │   ├── analytics/page.tsx         # Usage Analytics route
 │   │   ├── billing/page.tsx           # Billing route
 │   │   ├── settings/page.tsx          # Settings route
+│   │   ├── marketplace/               # Marketplace browse + detail pages
+│   │   │   ├── page.tsx               # Browse/search marketplace components
+│   │   │   └── [id]/page.tsx          # Component detail + install
+│   │   ├── d/[id]/page.tsx            # Deployment chat page (Tambo + canvas)
 │   │   ├── d/[id]/configure/page.tsx  # Deployment config route
 │   │   └── onboarding/[id]/page.tsx   # Onboarding wizard route
 │   ├── views/
@@ -970,38 +1180,74 @@ monorepo/
 │   │   └── onboarding/
 │   │       └── wizardStepConfig.ts    # Runtime steps, LLM providers, models, credit plans, hardware options
 │   ├── hooks/
+│   │   ├── useCanvasChat.ts           # Main chat + canvas state hook (brace-depth parser, rAF throttle)
 │   │   ├── useStatusStream.ts         # SSE hook for real-time deployment status changes
 │   │   ├── useLogStream.ts            # SSE hook for deployment container log streaming
 │   │   ├── useQrStream.ts             # SSE hook for WhatsApp QR pairing
 │   │   ├── useComposition.ts          # IME composition event handling for inputs
 │   │   ├── useMobile.tsx              # Responsive breakpoint detection (768px)
 │   │   └── usePersistFn.ts            # Stable function reference (useCallback alternative)
+│   ├── lib/
+│   │   ├── trpc.ts                    # tRPC client setup with Auth0 headers
+│   │   ├── assistantRuntime.ts        # @assistant-ui/react ExternalStoreRuntime adapter
+│   │   ├── autoFixProps.ts            # 20 repair rules for LLM prop errors (Phase 2)
+│   │   ├── posthog.ts                 # PostHog analytics initialization
+│   │   └── sanitize.ts                # DOMPurify HTML sanitization
 │   ├── components/
+│   │   ├── canvas/
+│   │   │   ├── registry.ts            # 37+ components with Zod schemas
+│   │   │   ├── CanvasRenderer.tsx     # Validates props (autofix → Zod), renders with error boundary
+│   │   │   └── components/            # 37 Canvas*.tsx component files + MarketplaceSandbox.tsx
+│   │   ├── workspace/
+│   │   │   ├── DashboardCanvas.tsx    # Canvas grid wrapper
+│   │   │   ├── canvasReducer.ts       # ADD/REMOVE/REORDER/SPLIT/MERGE_CARDS actions
+│   │   │   ├── CanvasToolbar.tsx      # Canvas action toolbar
+│   │   │   ├── autoLayout.ts          # Auto-arrangement logic
+│   │   │   └── types.ts               # CanvasCard, CanvasAction, SPLITTABLE_COMPONENTS
+│   │   ├── marketplace/               # Marketplace UI components
+│   │   │   ├── ComponentCard.tsx      # Marketplace component card
+│   │   │   ├── CategoryBadge.tsx      # Category label
+│   │   │   ├── TierBadge.tsx          # Template/Sandbox tier indicator
+│   │   │   ├── StarRating.tsx         # Review star rating
+│   │   │   └── DeploymentPicker.tsx   # Deployment selector for installs
+│   │   ├── chat/
+│   │   │   └── AssistantUIChat.tsx    # assistant-ui Thread component for chat interface
 │   │   ├── ProfileDropdown.tsx        # User menu (Dashboard, Billing, Analytics, Settings)
 │   │   ├── StatusBadge.tsx            # Shared status indicator
 │   │   ├── StorageMeter.tsx           # Storage usage bar with color coding
 │   │   ├── WhatsAppQrModal.tsx        # Reusable QR pairing dialog
-│   │   ├── DevNav.tsx                 # Dev-only navigation sidebar
-│   │   └── ...                        # 40+ shadcn/ui components
-│   └── lib/trpc.ts
+│   │   └── DevNav.tsx                 # Dev-only navigation sidebar
+│   ├── sentry.client.config.ts        # Sentry client-side error monitoring
+│   └── sentry.server.config.ts        # Sentry server-side error monitoring
 │
 ├── jarble-api-main/                   # Backend (Express + tRPC)
 │   ├── Dockerfile                     # Multi-stage build (node:22-alpine)
 │   ├── entrypoint.sh                  # migrate → seed → start
 │   ├── src/
-│   │   ├── index.ts                   # Server entry + REST webhooks + SSE endpoints
+│   │   ├── index.ts                   # Server entry — mounts all route modules
 │   │   ├── middleware/
 │   │   │   └── rateLimit.ts           # 3-tier rate limiting (global/auth/stripe)
+│   │   ├── routes/
+│   │   │   ├── stripe.ts              # POST /api/stripe/checkout|portal + webhook
+│   │   │   ├── webhooks.ts            # POST /api/auth0/email-verified + /api/config-changed
+│   │   │   ├── sse.ts                 # GET /api/deployments/status/stream, logs, whatsapp/qr
+│   │   │   ├── tamboAgent.ts          # POST /api/tambo-agent (chat SSE)
+│   │   │   ├── canvasFiles.ts         # POST /api/deployments/:id/mcp/invoke (MCP proxy)
+│   │   │   ├── mcp.ts                 # POST/GET/DELETE /api/mcp/:deploymentId (Streamable HTTP)
+│   │   │   ├── diagnose.ts            # GET /api/deployments/:id/diagnose
+│   │   │   └── debug.ts               # GET /debug/db, POST /debug/deployment/:id/status (dev only)
 │   │   ├── trpc/routers/
-│   │   │   ├── deployment.ts          # CRUD + linking + owner protection
-│   │   │   ├── openrouter.ts          # Key provisioning, usage, validation
-│   │   │   ├── user.ts                # Profile management + email resend
-│   │   │   ├── billing.ts             # Billing overview, invoices, subscriptions
-│   │   │   ├── runtimeCatalog.ts      # Runtime listing + capabilities
-│   │   │   ├── platformCredentials.ts # Platform cred CRUD + WhatsApp QR status
-│   │   │   └── template.ts            # Static templates
+│   │   │   ├── deployment.ts          # 21 procedures: CRUD + canvas components + linking
+│   │   │   ├── openrouter.ts          # 8 procedures: key provisioning, usage, validation
+│   │   │   ├── user.ts                # 5 procedures: profile management + email resend
+│   │   │   ├── billing.ts             # 3 procedures: overview, invoices, subscriptions
+│   │   │   ├── runtimeCatalog.ts      # 4 procedures: runtime listing + capabilities
+│   │   │   ├── platformCredentials.ts # 7 procedures: cred CRUD + QR status + Telegram pairing
+│   │   │   ├── skills.ts              # 4 procedures: catalog, install, uninstall
+│   │   │   ├── marketplace.ts         # 22 procedures: browse, install, review, creator, admin
+│   │   │   └── template.ts            # 1 procedure: static templates
 │   │   ├── db/
-│   │   │   ├── schema.ts             # MySQL schema
+│   │   │   ├── schema.ts             # MySQL schema (incl. 6 marketplace tables)
 │   │   │   ├── schema.pg.ts          # PostgreSQL schema (production)
 │   │   │   ├── schema.sqlite.ts      # SQLite schema (dev)
 │   │   │   ├── init.ts               # SQLite CREATE TABLE + seed
@@ -1017,15 +1263,24 @@ monorepo/
 │   │   │   ├── encryption.ts         # AES-256-GCM encrypt/decrypt
 │   │   │   ├── openrouter.ts         # OpenRouter Management API utilities
 │   │   │   ├── pricing.ts            # Hardware-based pricing calculator
+│   │   │   ├── uiBlockParser.ts      # Brace-depth jarble_ui block parser + library URL validation
+│   │   │   ├── componentResolver.ts  # Custom component template substitution + validation
 │   │   │   ├── env.ts                # Environment variable validation
 │   │   │   └── logger.ts             # Pino logger
+│   │   ├── mcp/
+│   │   │   ├── jarble-ui-server.js   # MCP stdio server (render_ui, define_component, list_components, ...)
+│   │   │   └── tools/                # Server-side MCP tool implementations
 │   │   ├── services/
 │   │   │   ├── auth.ts               # Auth0 JWT verification + user provisioning
 │   │   │   ├── stripe.ts             # Stripe checkout, portal, subscriptions, invoices
 │   │   │   ├── configSync.ts         # Two-way config sync (Frontend↔PVC)
+│   │   │   ├── openclawGateway.ts    # WebSocket + exec chat with OpenClaw gateway
+│   │   │   ├── manifestValidator.ts  # Validates marketplace component manifests server-side
+│   │   │   ├── marketplace.types.ts  # Type definitions for marketplace domain
+│   │   │   ├── statusReconciler.ts   # Background DB↔K8s status sync (fixes stuck "creating")
 │   │   │   ├── subscriptionEnforcement.ts # Background subscription validation (5-min cycle)
 │   │   │   └── storageEnforcement.ts # Background storage quota enforcement (5-min cycle)
-│   │   └── k8s/                       # K8s orchestration (deploy, stop, start, logs, exec streaming)
+│   │   └── k8s/                       # K8s orchestration modules (lifecycle, exec, secrets, status, logs)
 │   ├── k8s/                           # K8s manifests
 │   │   ├── deployment.yaml            # API deployment + RBAC + Ingress (TLS)
 │   │   ├── cert-manager.yaml          # Let's Encrypt ClusterIssuer
@@ -1066,7 +1321,7 @@ monorepo/
 ---
 
 <aside>
-📚 This document provides a complete snapshot of the Jarble platform as of February 18, 2026 (Session 15). Use the roadmap section to prioritize next steps.
+📚 This document provides a complete snapshot of the Jarble platform as of February 28, 2026 (Session 16). Use the roadmap section to prioritize next steps.
 
 </aside>
 
@@ -1096,6 +1351,11 @@ flowchart TB
         LOGS_FE["✅ Deployment Log Viewer"]
         BILLING_FE["✅ Billing Page + Invoice History"]
         WHATSAPP_FE["✅ WhatsApp QR Pairing (real)"]
+        CHAT_PAGE["✅ Deployment Chat Page + Canvas"]
+        MARKETPLACE_FE["✅ Marketplace Browse + Detail Pages"]
+        ASSISTANTUI["✅ assistant-ui Integration"]
+        AUTOFIX_FE["✅ AutoFix Prop Repair (20 rules)"]
+        SENTRY_FE["✅ Sentry + PostHog Monitoring"]
     end
 
     subgraph DONE_API["✅ DONE — API"]
@@ -1125,6 +1385,14 @@ flowchart TB
         MOCK_K8S_DONE["✅ Mock K8s Mode"]
         DEV_BYOK["✅ Dev BYOK Bypass"]
         MULTI_VALIDATE["✅ Multi-Provider Key Validation"]
+        MARKETPLACE_API["✅ Marketplace Router (22 procedures)"]
+        SKILLS_API["✅ Skills Router (4 procedures)"]
+        MANIFEST_API["✅ Component Manifest Shared Package"]
+        DIAGNOSE_API["✅ Diagnostic Endpoint"]
+        MCP_HTTP["✅ MCP Streamable HTTP Endpoint"]
+        CHAT_SSE["✅ Chat SSE (tambo-agent)"]
+        LIBURL_VAL["✅ Server-side Library URL Validation"]
+        STATUS_RECON["✅ Status Reconciler"]
     end
 
     subgraph DONE_INFRA["✅ DONE — Infrastructure"]
@@ -1187,6 +1455,13 @@ flowchart TB
         MOCKK8S_DONE["✅ Mock K8s Mode\nSession 15"]
         DEVBYOK_DONE["✅ Dev BYOK Bypass\nSession 15"]
         DRIZZLE_DONE["✅ Drizzle Migrations\nSession 15"]
+        MANIFEST_DONE["✅ Component Manifest\nSession 16"]
+        AUTOFIX_DONE["✅ AutoFix Prop Repair\nSession 16"]
+        MARKETPLACE_DONE["✅ Marketplace Foundation\nSession 16"]
+        SECURITY_DONE["✅ Security Hardening\nSession 16"]
+        STREAMING_DONE["✅ Streaming Pipeline\nSession 16"]
+        ASSISTANTUI_DONE["✅ assistant-ui Integration\nSession 16"]
+        MONITORING_DONE["✅ Sentry + PostHog\nSession 16"]
     end
 
     subgraph DONE_DEPLOY["✅ DONE — Production Readiness"]

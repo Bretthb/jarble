@@ -1,7 +1,7 @@
 # Jarble API Endpoints Reference
 
-> Complete reference for every API endpoint in the Jarble platform. Covers all 45 tRPC procedures and 10 REST endpoints.
-> Last updated: February 18, 2026 (Session 15)
+> Complete reference for every API endpoint in the Jarble platform. Covers all 67 tRPC procedures and 19 REST endpoints.
+> Last updated: February 28, 2026 (Session 16)
 
 ---
 
@@ -12,12 +12,14 @@
 3. [Rate Limiting](#3-rate-limiting)
 4. [tRPC Procedures](#4-trpc-procedures)
    - [User Router](#user-router-5-procedures)
-   - [Deployment Router](#deployment-router-18-procedures)
+   - [Deployment Router](#deployment-router-21-procedures)
    - [OpenRouter Router](#openrouter-router-8-procedures)
    - [Billing Router](#billing-router-3-procedures)
-   - [Platform Credentials Router](#platform-credentials-router-6-procedures)
+   - [Platform Credentials Router](#platform-credentials-router-7-procedures)
    - [Runtime Catalog Router](#runtime-catalog-router-4-procedures)
    - [Template Router](#template-router-1-procedure)
+   - [Skills Router](#skills-router-4-procedures)
+   - [Marketplace Router](#marketplace-router-22-procedures)
 5. [REST Endpoints](#5-rest-endpoints)
    - [Webhooks](#webhooks)
    - [Payment Routes](#payment-routes)
@@ -155,13 +157,15 @@ All tRPC endpoints are at `/trpc/<router>.<procedure>`. Types flow automatically
 graph TD
     CLIENT["Frontend<br/>trpc.router.procedure.useQuery()"] -->|"HTTP POST/GET"| TRPC["/trpc endpoint"]
 
-    TRPC --> DEPLOYMENT["deployment<br/>18 procedures"]
+    TRPC --> DEPLOYMENT["deployment<br/>21 procedures"]
     TRPC --> OPENROUTER["openrouter<br/>8 procedures"]
     TRPC --> USER["user<br/>5 procedures"]
     TRPC --> BILLING["billing<br/>3 procedures"]
-    TRPC --> PLATCREDS["platformCredentials<br/>6 procedures"]
+    TRPC --> PLATCREDS["platformCredentials<br/>7 procedures"]
     TRPC --> RUNTIME_CAT["runtimeCatalog<br/>4 procedures"]
     TRPC --> TEMPLATE["template<br/>1 procedure"]
+    TRPC --> SKILLS["skills<br/>4 procedures"]
+    TRPC --> MARKETPLACE["marketplace<br/>22 procedures"]
 
     DEPLOYMENT --> DB[("Database")]
     DEPLOYMENT --> K8S["K8s Cluster"]
@@ -170,6 +174,9 @@ graph TD
     PLATCREDS --> DB
     USER --> DB
     RUNTIME_CAT --> DB
+    SKILLS --> DB
+    MARKETPLACE --> DB
+    MARKETPLACE --> MFVAL["Manifest Validator"]
 ```
 
 ---
@@ -203,7 +210,7 @@ graph LR
 
 ---
 
-### Deployment Router (18 procedures)
+### Deployment Router (21 procedures)
 
 ```mermaid
 graph TD
@@ -212,6 +219,7 @@ graph TD
         LIST["list"]
         LINKABLE["listLinkableDeployments"]
         BYID["getById"]
+        COMPCAT["getComponentCatalog"]
         STATUS["getStatus"]
         STORAGE["getStorageUsage"]
         LOGS["getLogs"]
@@ -229,6 +237,8 @@ graph TD
     subgraph Config["Config Mutations"]
         UPDATE["update"]
         EXPORT["exportConfigs"]
+        DEFCOMP["defineComponent"]
+        DELCOMP["deleteComponent"]
     end
 
     subgraph Billing["Billing Mutations"]
@@ -260,11 +270,14 @@ graph TD
 | `deployment.list` | query | -- | All user deployments, newest first, with runtime catalog data |
 | `deployment.listLinkableDeployments` | query | -- | Deployments eligible as credit pool owners (included mode, not linked) |
 | `deployment.getById` | query | `{ id }` | Single deployment with ownership check |
+| `deployment.getComponentCatalog` | query | `{ id }` | List custom component definitions saved to this deployment's PVC |
 | `deployment.getStatus` | query | `{ id }` | Live pod status from K8s (running/failed/pending/creating/not_found) |
 | `deployment.getStorageUsage` | query | `{ id }` | Live storage usage via `df` in pod (`usedGb`, `allocatedGb`) |
 | `deployment.getLogs` | query | `{ id, tailLines?: 1-5000 }` | Pod logs snapshot (non-streaming, default 200 lines) |
 | `deployment.create` | mutation | See below | Create DB record + optional LLM key provisioning. Does NOT deploy |
 | `deployment.deploy` | mutation | `deploymentId` | Trigger K8s deployment (fire-and-forget). Creates PVC + Secret + Deployment |
+| `deployment.defineComponent` | mutation | `{ id, name, description, template }` | Save a custom component definition to the deployment's PVC |
+| `deployment.deleteComponent` | mutation | `{ id, name }` | Delete a custom component definition from the deployment's PVC |
 | `deployment.update` | mutation | `{ id, name?, systemPrompt?, llmMode?, llmProvider?, llmModel?, llmApiKey?, ... }` | Update settings. Syncs config to PVC if running |
 | `deployment.stop` | mutation | `{ id }` | Scale K8s replicas to 0. PVC preserved |
 | `deployment.start` | mutation | `{ id }` | Scale K8s replicas to 1 (fire-and-forget) |
@@ -372,7 +385,7 @@ graph LR
 
 ---
 
-### Platform Credentials Router (6 procedures)
+### Platform Credentials Router (7 procedures)
 
 ```mermaid
 graph LR
@@ -383,6 +396,7 @@ graph LR
         WA_CHECK["checkWhatsAppStatus<br/>query"]
         WA_MARK["markWhatsAppConnected<br/>mutation"]
         TEST["testConnection<br/>mutation"]
+        TGPOLL["pollTelegramPairing<br/>mutation"]
     end
 
     GET --> DB[("Database")]
@@ -392,6 +406,7 @@ graph LR
     DEL -->|"if running"| K8S
     WA_CHECK --> DB
     WA_MARK --> DB
+    TGPOLL --> K8SEXEC["K8s exec<br/>(openclaw pairing)"]
 ```
 
 | Procedure | Type | Input | Description |
@@ -402,6 +417,7 @@ graph LR
 | `platformCredentials.checkWhatsAppStatus` | query | `{ deploymentId }` | Check if WhatsApp is connected (DB row exists) |
 | `platformCredentials.markWhatsAppConnected` | mutation | `{ deploymentId }` | Mark WhatsApp connected (called by QR SSE endpoint) |
 | `platformCredentials.testConnection` | mutation | `{ deploymentId, platformId, credentials }` | Validate credential format (required fields present) |
+| `platformCredentials.pollTelegramPairing` | mutation | `{ deploymentId }` | Poll for pending Telegram pairing codes via K8s exec. Auto-approves on match |
 
 #### Supported Platforms
 
@@ -433,6 +449,88 @@ graph LR
 | Procedure | Type | Auth | Input | Description |
 |---|---|---|---|---|
 | `template.list` | query | public | -- | Hardcoded bot templates (personal, business, support) |
+
+---
+
+### Skills Router (4 procedures)
+
+| Procedure | Type | Auth | Input | Description |
+|---|---|---|---|---|
+| `skills.listCatalog` | query | protected | -- | All active skills in the platform catalog (Web Search, Weather, Calculator, etc.) |
+| `skills.listForDeployment` | query | protected | `{ deploymentId }` | Skills installed on a specific deployment |
+| `skills.install` | mutation | protected | `{ deploymentId, skillId }` | Install a skill on a deployment (idempotent) |
+| `skills.uninstall` | mutation | protected | `{ deploymentId, skillId }` | Remove a skill from a deployment |
+
+---
+
+### Marketplace Router (22 procedures)
+
+The marketplace enables creators to publish and sell custom canvas components. Two tiers exist: **Template** (safe JSON, auto-approved) and **Sandbox** (arbitrary HTML/JS in a double-iframe, requires admin review).
+
+```mermaid
+graph TD
+    subgraph Browse["Browse (public)"]
+        B1["browse<br/>query | paginated + filtered"]
+        B2["getById<br/>query | full detail + versions + reviews"]
+        B3["getFeatured<br/>query | curated list"]
+        B4["getCategories<br/>query | category counts"]
+    end
+
+    subgraph Install["Install/Manage (protected)"]
+        I1["install<br/>mutation | add to deployment"]
+        I2["uninstall<br/>mutation | remove from deployment"]
+        I3["listInstalled<br/>query | deployment's components"]
+        I4["updateVersion<br/>mutation | upgrade/downgrade"]
+        I5["createCheckout<br/>mutation | Stripe for paid components"]
+        I6["getPurchases<br/>query | user purchase history"]
+    end
+
+    subgraph Reviews["Reviews (mixed)"]
+        R1["getReviews<br/>query | public"]
+        R2["createReview<br/>mutation | protected, must have installed"]
+    end
+
+    subgraph Creator["Creator (protected)"]
+        C1["createCreatorProfile<br/>mutation"]
+        C2["getCreatorProfile<br/>query | public"]
+        C3["submitComponent<br/>mutation | enter review queue"]
+        C4["publishComponent<br/>mutation | creator self-publish for templates"]
+        C5["updateComponent<br/>mutation | edit draft"]
+        C6["myComponents<br/>query | creator's own components"]
+        C7["getCreatorAnalytics<br/>query | install/purchase stats"]
+    end
+
+    subgraph Admin["Admin (protected + admin role)"]
+        A1["getReviewQueue<br/>query | pending reviews"]
+        A2["approveComponent<br/>mutation | publish sandbox component"]
+        A3["rejectComponent<br/>mutation | reject with reason"]
+    end
+```
+
+| Procedure | Type | Auth | Description |
+|---|---|---|---|
+| `marketplace.browse` | query | public | Paginated component browser with category/tier/pricing/sort/search filters |
+| `marketplace.getById` | query | public | Full component detail with versions, creator profile, and reviews |
+| `marketplace.getFeatured` | query | public | Curated featured component list |
+| `marketplace.getCategories` | query | public | Category list with component counts |
+| `marketplace.install` | mutation | protected | Install a component on a deployment. Creates `component_installs` record |
+| `marketplace.uninstall` | mutation | protected | Remove an installed component from a deployment |
+| `marketplace.listInstalled` | query | protected | All components installed on a specific deployment |
+| `marketplace.updateVersion` | mutation | protected | Upgrade or downgrade an installed component to a specific version |
+| `marketplace.createCheckout` | mutation | protected | Create Stripe checkout for paid components (placeholder — returns not-implemented) |
+| `marketplace.getPurchases` | query | protected | All components the user has purchased |
+| `marketplace.getReviews` | query | public | Paginated reviews for a component |
+| `marketplace.createReview` | mutation | protected | Submit a 1-5 star review. User must have the component installed |
+| `marketplace.createCreatorProfile` | mutation | protected | Create or update a creator profile (display name, bio, website) |
+| `marketplace.getCreatorProfile` | query | public | Public creator profile with their published components |
+| `marketplace.submitComponent` | mutation | protected | Submit a new component for review. Validates name uniqueness. Template tier: auto-approved |
+| `marketplace.publishComponent` | mutation | protected | Creator self-publishes a template component (skips review) |
+| `marketplace.updateComponent` | mutation | protected | Update component metadata (display name, description, tags, etc.) |
+| `marketplace.myComponents` | query | protected | All components created by the authenticated user |
+| `marketplace.getCreatorAnalytics` | query | protected | Creator dashboard: install counts, purchase revenue, rating averages |
+| `marketplace.getReviewQueue` | query | protected (admin) | All components pending admin review |
+| `marketplace.approveComponent` | mutation | protected (admin) | Approve a pending component submission. Sets status to `published` |
+| `marketplace.rejectComponent` | mutation | protected (admin) | Reject a pending component with a reason message |
 
 ---
 
@@ -469,6 +567,7 @@ sequenceDiagram
 | POST | `/api/stripe/webhook` | Stripe signature (`stripe-signature` header) | Exempt | Handles 4 event types: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. **Idempotent** — deduplicates via `processedWebhookEvents` table |
 | POST | `/api/auth0/email-verified` | M2M Bearer secret (`AUTH0_M2M_SECRET`) | Exempt | Auth0 Post Login Action webhook. Updates `emailVerified` flag in DB |
 | POST | `/api/config-changed` | deploymentId in body | Global | Called by pod file-watcher when PVC config files change. Triggers reverse sync (PVC → DB) |
+| POST | `/api/tambo-agent` | JWT Bearer | 120 req/min | Chat endpoint. Streams bot response as SSE with text deltas and `jarble_ui` UI block events. Proxies to pod via OpenClaw gateway |
 
 ---
 
@@ -554,8 +653,19 @@ sequenceDiagram
 | GET | `/api/deployments/status/stream` | JWT (header or `?token=`) | `snapshot`, delta `data`, `: ping` | Real-time status for all user deployments. Polls K8s every 5s, sends deltas |
 | GET | `/api/deployments/:id/logs/stream` | JWT (header or `?token=`) | `data` (log lines), `end`, `error`, `: ping` | Live pod log streaming. `?tailLines=` (default 100, max 1000) |
 | GET | `/api/deployments/:id/whatsapp/qr` | JWT (header or `?token=`) | `qr`, `connected`, `log`, `timeout`, `error`, `: ping` | WhatsApp QR pairing via K8s exec. 90-second timeout |
+| POST | `/api/tambo-agent` | JWT Bearer | `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT` (delta), `TEXT_MESSAGE_END`, `UI_BLOCK_START`, `UI_BLOCK_PROPS`, `UI_BLOCK_END`, `RUN_FINISHED` | Chat SSE. Proxies to OpenClaw gateway. Library URLs validated server-side against TRUSTED_CDN_ORIGINS |
 
 ---
+
+### Diagnostic & MCP
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/deployments/:id/diagnose` | JWT Bearer | Health diagnostics for a deployment. Runs pod status, storage, and gateway connectivity checks with per-check 5s timeouts. Returns `overallHealth: "healthy" \| "degraded" \| "unhealthy"` + per-check details and suggestions |
+| POST | `/api/deployments/:id/mcp/invoke` | JWT Bearer | MCP tool call proxy. Routes allowed tool calls (save_canvas_file, render_ui, list_components, etc.) to the bot pod via K8s exec |
+| POST | `/api/mcp/:deploymentId` | JWT Bearer | MCP Streamable HTTP — initialize and call tools (Claude Desktop, Cursor, external clients) |
+| GET | `/api/mcp/:deploymentId` | JWT Bearer | MCP SSE stream for server-to-client notifications (keyed by `mcp-session-id` header) |
+| DELETE | `/api/mcp/:deploymentId` | JWT Bearer | Close and clean up an MCP session |
 
 ### Health & Debug
 
@@ -563,8 +673,9 @@ sequenceDiagram
 |---|---|---|---|
 | GET | `/health` | None | K8s liveness/readiness probe. Returns `{ status: "ok", timestamp }` |
 | GET | `/debug/db` | None | **Dev only** (`NODE_ENV=development`). Dumps all DB tables |
-| GET | `/debug/mock-pvc` | None | **Dev only** (`MOCK_K8S=true`). Inspect in-memory PVC store |
-| POST | `/debug/mock-pvc` | None | **Dev only** (`MOCK_K8S=true`). Write files to mock PVC |
+| POST | `/debug/deployment/:id/status` | None | **Dev only**. Force-set a deployment's status |
+| POST | `/debug/seed-deployment` | None | **Dev only**. Seed a test deployment |
+| POST | `/debug/deployment/:id/sync-config` | None | **Dev only**. Trigger a config sync |
 
 ---
 
@@ -572,47 +683,64 @@ sequenceDiagram
 
 | Category | Count | Auth | Rate Limit | Streaming |
 |----------|-------|------|-----------|-----------|
-| tRPC Queries | 17 | public/protected | 120 req/min | No |
-| tRPC Mutations | 28 | protected | 120 req/min | No |
+| tRPC Queries | 31 | public/protected | 120 req/min | No |
+| tRPC Mutations | 36 | protected | 120 req/min | No |
 | REST Webhooks | 3 | signature/M2M/deploymentId | global/exempt | No |
 | REST Payment | 2 | JWT Bearer | 10 req/min | No |
+| REST Chat | 1 | JWT Bearer | 120 req/min | Yes |
 | SSE Streams | 3 | JWT (header or query) | 120 req/min | Yes |
-| Health/Debug | 4 | none | exempt | No |
-| **Total** | **57** | -- | -- | -- |
+| MCP Endpoints | 5 | JWT Bearer | global | Mixed |
+| Health/Debug | 5 | none | exempt | No |
+| **Total** | **86** | -- | -- | -- |
 
 ### Quick Reference by Router
 
 | Router | Queries | Mutations | Total |
 |--------|---------|-----------|-------|
-| `deployment` | 7 | 11 | 18 |
+| `deployment` | 8 | 13 | 21 |
 | `openrouter` | 3 | 5 | 8 |
 | `user` | 2 | 3 | 5 |
 | `runtimeCatalog` | 4 | 0 | 4 |
 | `billing` | 3 | 0 | 3 |
-| `platformCredentials` | 2 | 4 | 6 |
+| `platformCredentials` | 2 | 5 | 7 |
 | `template` | 1 | 0 | 1 |
-| **tRPC Total** | **22** | **23** | **45** |
-| REST endpoints | -- | -- | **12** |
-| **Grand Total** | -- | -- | **57** |
+| `skills` | 2 | 2 | 4 |
+| `marketplace` | 11 | 11 | 22 |
+| **tRPC Total** | **36** | **39** | **75** |
+| REST endpoints | -- | -- | **11** |
+| **Grand Total** | -- | -- | **86** |
 
 ### Key Files
 
 | File | What It Contains |
 |---|---|
-| `jarble-api-main/src/index.ts` | Express server, REST endpoints, SSE streams, webhooks |
-| `jarble-api-main/src/trpc/index.ts` | tRPC router composition (merges all routers) |
+| `jarble-api-main/src/index.ts` | Express server — mounts all route modules |
+| `jarble-api-main/src/routes/sse.ts` | SSE streams: status, logs, whatsapp/qr |
+| `jarble-api-main/src/routes/tamboAgent.ts` | POST /api/tambo-agent chat SSE endpoint |
+| `jarble-api-main/src/routes/canvasFiles.ts` | POST /api/deployments/:id/mcp/invoke proxy |
+| `jarble-api-main/src/routes/mcp.ts` | MCP Streamable HTTP (POST/GET/DELETE) |
+| `jarble-api-main/src/routes/diagnose.ts` | GET /api/deployments/:id/diagnose |
+| `jarble-api-main/src/trpc/index.ts` | tRPC router composition (9 routers) |
 | `jarble-api-main/src/trpc/middleware.ts` | `publicProcedure`, `protectedProcedure` definitions |
 | `jarble-api-main/src/middleware/rateLimit.ts` | Three-tier rate limiting configuration |
 | `jarble-api-main/src/services/auth.ts` | Auth0 JWT verification + user provisioning |
 | `jarble-api-main/src/services/stripe.ts` | Stripe checkout, portal, subscriptions |
+| `jarble-api-main/src/services/configSync.ts` | Two-way PVC config sync + K8s Secret update |
+| `jarble-api-main/src/services/openclawGateway.ts` | WebSocket + exec chat with OpenClaw |
+| `jarble-api-main/src/services/manifestValidator.ts` | Marketplace component manifest validation |
+| `jarble-api-main/src/services/statusReconciler.ts` | Background DB↔K8s status reconciler |
 | `jarble-api-main/src/services/subscriptionEnforcement.ts` | Background subscription validation (5-min cycle) |
 | `jarble-api-main/src/services/storageEnforcement.ts` | Background storage quota enforcement (5-min cycle) |
+| `jarble-api-main/src/utils/uiBlockParser.ts` | Brace-depth jarble_ui parser + library URL validation |
 | `jarble-api-main/src/utils/pricing.ts` | Hardware-based pricing calculator ($10/vCPU, $2.50/GB RAM, $0.08/GB storage) |
-| `jarble-api-main/src/utils/openrouter.ts` | OpenRouter Management API (provision, revoke, usage, limit updates) |
-| `jarble-api-main/src/trpc/routers/deployment.ts` | 18 procedures (CRUD, lifecycle, billing) |
+| `jarble-api-main/src/trpc/routers/deployment.ts` | 21 procedures (CRUD, lifecycle, billing, canvas components) |
 | `jarble-api-main/src/trpc/routers/openrouter.ts` | 8 procedures (LLM key management) |
 | `jarble-api-main/src/trpc/routers/user.ts` | 5 procedures (profile, email verification) |
 | `jarble-api-main/src/trpc/routers/billing.ts` | 3 procedures (overview, invoices, subscriptions) |
-| `jarble-api-main/src/trpc/routers/platformCredentials.ts` | 6 procedures (credential CRUD, WhatsApp QR) |
+| `jarble-api-main/src/trpc/routers/platformCredentials.ts` | 7 procedures (credential CRUD, WhatsApp QR, Telegram pairing) |
 | `jarble-api-main/src/trpc/routers/runtimeCatalog.ts` | 4 procedures (runtime listing) |
+| `jarble-api-main/src/trpc/routers/skills.ts` | 4 procedures (skills catalog, install/uninstall) |
+| `jarble-api-main/src/trpc/routers/marketplace.ts` | 22 procedures (browse, install, review, creator, admin) |
 | `jarble-api-main/src/trpc/routers/template.ts` | 1 procedure (bot templates) |
+| `shared/component-manifest/index.ts` | COMPONENT_MANIFEST + derived exports — consumed by all layers |
+| `scripts/check-manifest.ts` | CI check verifying manifest ↔ registry sync |

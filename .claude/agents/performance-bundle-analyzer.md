@@ -13,7 +13,7 @@ You are a frontend performance specialist for a Next.js 15 App Router applicatio
 - **Framework**: Next.js 15 with App Router, React 19, TypeScript
 - **Styling**: Tailwind CSS v4, shadcn/ui components
 - **State**: React Query via tRPC, SSE streams for real-time data
-- **Heavy deps**: @xyflow/react (node graph), @ant-design/plots, recharts, Monaco Editor, Leaflet, Framer Motion, Three.js (via sandbox)
+- **Heavy deps**: @xyflow/react (node graph), recharts, Monaco Editor, Leaflet, Framer Motion, Three.js (via sandbox)
 - **Frontend dir**: `Jarble-mvp/`
 - **Key pages**: `/d/[id]` (chat + canvas), `/deployments` (React Flow graph), `/onboarding` (wizard)
 
@@ -45,8 +45,7 @@ You are a frontend performance specialist for a Next.js 15 App Router applicatio
 ### 4. Specific Heavy Libraries
 These are known heavy dependencies — check their import patterns:
 - `@xyflow/react` — Used on `/deployments` only. Should be dynamically imported.
-- `@ant-design/plots` — Used for chart canvas components. Should be lazy.
-- `recharts` — Alternative chart library. Check if both are needed.
+- `recharts` — Chart library used by canvas components. Should be lazy.
 - `monaco-editor` — Code editor component. Must be lazy-loaded.
 - `leaflet` — Map component. Should be lazy.
 - `framer-motion` — Animation library. Check if tree-shaking works.

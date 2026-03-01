@@ -16,18 +16,19 @@
 8. [LLM Keys and Credit Pools](#8-llm-keys-and-credit-pools)
 9. [Platform Credentials](#9-platform-credentials)
 10. [Config Sync — The Two-Way Mirror](#10-config-sync--the-two-way-mirror)
-11. [Real-Time Updates (SSE)](#11-real-time-updates-sse)
-12. [Authentication Flow](#12-authentication-flow)
-13. [Payments (Stripe)](#13-payments-stripe)
-14. [Encryption](#14-encryption)
-15. [Infrastructure (Terraform + Hetzner)](#15-infrastructure-terraform--hetzner)
-16. [Runtime Images (Docker)](#16-runtime-images-docker)
-17. [The Database](#17-the-database)
-18. [Environment Variables](#18-environment-variables)
-19. [Local Development Setup](#19-local-development-setup)
-20. [Production Deployment](#20-production-deployment)
-21. [Common Workflows](#21-common-workflows)
-22. [Glossary](#22-glossary)
+11. [Canvas Components & The Shared Manifest](#11-canvas-components--the-shared-manifest)
+12. [Real-Time Updates (SSE)](#12-real-time-updates-sse)
+13. [Authentication Flow](#13-authentication-flow)
+14. [Payments (Stripe)](#14-payments-stripe)
+15. [Encryption](#15-encryption)
+16. [Infrastructure (Terraform + Hetzner)](#16-infrastructure-terraform--hetzner)
+17. [Runtime Images (Docker)](#17-runtime-images-docker)
+18. [The Database](#18-the-database)
+19. [Environment Variables](#19-environment-variables)
+20. [Local Development Setup](#20-local-development-setup)
+21. [Production Deployment](#21-production-deployment)
+22. [Common Workflows](#22-common-workflows)
+23. [Glossary](#23-glossary)
 
 ---
 
@@ -98,6 +99,10 @@ Think of Jarble as a **restaurant franchise system**:
 | **Config files** | The menu and recipes |
 | **Dashboard** | The franchise management app |
 | **Onboarding Wizard** | The "open a new location" workflow |
+| **Canvas Components** | Specialty dishes — data tables, charts, maps — plated by the kitchen on demand |
+| **Marketplace** | A cookbook store — browse and install new dish recipes |
+| **AutoFix** | The chef correcting a misread order before it goes to the kitchen |
+| **@jarble/component-manifest** | The master ingredient list shared by kitchen, dining room, and menu printer |
 
 When a user "deploys" a bot, they're essentially **opening a new restaurant location** — we set up the building (K8s Pod), stock the fridge (PVC), put the supplier passwords in the safe (Secret), and print the menus (config files).
 
@@ -121,21 +126,25 @@ graph LR
     subgraph Protected["Protected Routes (require login)"]
         DASH["/dashboard"]
         WIZARD["/onboarding/[id]"]
+        CHAT["/d/[id]"]
         CONFIG["/d/[id]/configure"]
         LINKED["/deployments"]
         ANALYTICS["/analytics"]
         BILLING["/billing"]
         SETTINGS["/settings"]
+        MARKET["/marketplace"]
     end
 
     HOME -->|Sign In| LOGIN
     LOGIN -->|Auth0| DASH
     DASH -->|New Bot| WIZARD
-    DASH -->|Click Bot| CONFIG
+    DASH -->|Chat| CHAT
+    DASH -->|Configure| CONFIG
     DASH -->|Profile Menu| ANALYTICS
     DASH -->|Profile Menu| BILLING
     DASH -->|Profile Menu| SETTINGS
     DASH -->|Profile Menu| LINKED
+    DASH -->|Profile Menu| MARKET
     WIZARD -->|Complete| DASH
 ```
 
@@ -148,11 +157,14 @@ graph LR
 | Pricing | `/pricing` | Shows runtime options and costs |
 | **Dashboard** | `/dashboard` | Lists all your bots with status, controls |
 | **Onboarding** | `/onboarding/[id]` | Step-by-step wizard to create a new bot |
+| **Chat** | `/d/[id]` | Deployment chat interface — Tambo + canvas grid |
 | **Config** | `/d/[id]/configure` | Edit an existing bot (6 tabs) |
 | Linked Deployments | `/deployments` | Shows credit pool sharing between bots |
 | Analytics | `/analytics` | Usage stats, credit meters, sortable table |
 | **Billing** | `/billing` | Billing overview, subscriptions, invoices |
 | Settings | `/settings` | Profile, theme, password reset |
+| **Marketplace** | `/marketplace` | Browse and install community-built canvas components |
+| **Marketplace Detail** | `/marketplace/[id]` | Component detail, reviews, and install button |
 
 ### How the Frontend Talks to the Backend
 
@@ -227,23 +239,28 @@ The API is an **Express.js** server with **tRPC** for structured endpoints and p
 
 ### Two Types of Endpoints
 
-**1. tRPC Procedures** (45 total)
+**1. tRPC Procedures** (75 total across 9 routers)
 Structured, typed function calls. Protected by JWT auth. Used for all normal CRUD operations.
 
 ```
-trpc.deployment.list     → List your bots
-trpc.deployment.create   → Create a new bot
-trpc.deployment.update   → Change bot settings
-trpc.deployment.delete   → Delete a bot
-trpc.openrouter.provisionKey → Get a new LLM API key
+trpc.deployment.list            → List your bots
+trpc.deployment.create          → Create a new bot
+trpc.deployment.update          → Change bot settings
+trpc.deployment.delete          → Delete a bot
+trpc.openrouter.provisionKey    → Get a new LLM API key
+trpc.marketplace.browse         → Browse marketplace components
+trpc.marketplace.install        → Install a component on a deployment
+trpc.skills.listCatalog         → List available skills
 ```
 
-**2. REST Endpoints** (12 total)
+**2. REST Endpoints** (11 total)
 Plain HTTP routes for things that can't use tRPC:
-- **Webhooks** (Stripe, Auth0) — external services POST to us
-- **SSE Streams** (logs, status, WhatsApp QR) — long-lived connections that push data
+- **Webhooks** (Stripe, Auth0, config-changed) — external services POST to us
+- **SSE Streams** (logs, status, WhatsApp QR, chat) — long-lived connections that push data
+- **MCP endpoints** (Streamable HTTP + proxy) — for external MCP clients
+- **Diagnostic endpoint** — structured health checks for a deployment
 - **Health check** — for Kubernetes to know we're alive
-- **Debug endpoints** (dev only) — inspect DB and mock PVC state
+- **Debug endpoints** (dev only) — inspect DB state
 
 ### Background Services
 
@@ -309,29 +326,34 @@ graph TD
     REQ["Incoming Request<br/>POST /trpc/deployment.list"] --> MW["Auth Middleware<br/>JWT verification"]
     MW --> ROUTER{"Which Router?"}
 
-    ROUTER -->|"deployment.*"| DEPLOY["deployment.ts<br/>18 procedures"]
+    ROUTER -->|"deployment.*"| DEPLOY["deployment.ts<br/>21 procedures"]
     ROUTER -->|"openrouter.*"| OR["openrouter.ts<br/>8 procedures"]
     ROUTER -->|"user.*"| USER["user.ts<br/>5 procedures"]
     ROUTER -->|"billing.*"| BILL["billing.ts<br/>3 procedures"]
-    ROUTER -->|"platformCredentials.*"| PLAT["platformCredentials.ts<br/>6 procedures"]
+    ROUTER -->|"platformCredentials.*"| PLAT["platformCredentials.ts<br/>7 procedures"]
     ROUTER -->|"runtimeCatalog.*"| RUNTIME["runtimeCatalog.ts<br/>4 procedures"]
     ROUTER -->|"template.*"| TMPL["template.ts<br/>1 procedure"]
+    ROUTER -->|"skills.*"| SKILLS["skills.ts<br/>4 procedures"]
+    ROUTER -->|"marketplace.*"| MKT["marketplace.ts<br/>22 procedures"]
 
     DEPLOY --> DB[("Database")]
     DEPLOY --> K8S["K8s Cluster"]
     OR --> ORAPI["OpenRouter API"]
     BILL --> STRIPE_API["Stripe API"]
     PLAT --> DB
+    MKT --> DB
 ```
 
 ```
 src/trpc/routers/
-  ├── deployment.ts          ← 18 procedures (the biggest one)
+  ├── deployment.ts          ← 21 procedures (CRUD + canvas components + lifecycle)
   ├── openrouter.ts          ← 8 procedures (LLM key management)
   ├── user.ts                ← 5 procedures (profile, email verify)
   ├── billing.ts             ← 3 procedures (overview, invoices, subscriptions)
-  ├── platformCredentials.ts ← 6 procedures (Discord/Slack tokens, WhatsApp QR)
+  ├── platformCredentials.ts ← 7 procedures (Discord/Slack tokens, WhatsApp QR, Telegram pairing)
   ├── runtimeCatalog.ts      ← 4 procedures (list available runtimes)
+  ├── skills.ts              ← 4 procedures (skills catalog, install/uninstall)
+  ├── marketplace.ts         ← 22 procedures (browse, install, review, creator, admin)
   └── template.ts            ← 1 procedure (bot templates)
 ```
 
@@ -1129,7 +1151,97 @@ This prevents **circular sync**:
 
 ---
 
-## 11. Real-Time Updates (SSE)
+## 11. Canvas Components & The Shared Manifest
+
+### How Bots Render Rich UI
+
+When a bot wants to display a chart, table, or interactive widget, it outputs a special fenced code block:
+
+```
+```jarble_ui
+{"component": "data_table", "props": {"columns": ["Name","Score"], "rows": [["Alice",95]]}}
+```
+```
+
+The frontend parses these blocks as the SSE stream arrives (incrementally, using a brace-depth JSON parser), validates the props, applies AutoFix repairs if needed, and renders the component in the canvas grid.
+
+### The @jarble/component-manifest Package
+
+**The problem:** The same component definitions needed to appear in three places:
+- Frontend (Zod schemas for validation, layout hints for the grid)
+- API/MCP server (component names for the `list_components` tool)
+- Bot system prompt (compact reference so the LLM knows what components exist)
+
+**The solution:** A shared package at `shared/component-manifest/` consumed by all layers.
+
+```mermaid
+graph TD
+    MANIFEST["@jarble/component-manifest<br/>shared/component-manifest/index.ts"]
+
+    MANIFEST --> REG["Jarble-mvp/components/canvas/registry.ts<br/>(Zod schemas + component mapping)"]
+    MANIFEST --> RESOLVER["jarble-api-main/src/utils/componentResolver.ts<br/>(builtin name validation)"]
+    MANIFEST --> LIST["jarble-api-main/src/mcp/tools/listComponents.ts<br/>(component descriptions for LLM)"]
+    MANIFEST --> OC["jarble-api-main/src/runtimes/handlers/openclaw.ts<br/>(generatePromptReference for soul.md)"]
+    MANIFEST --> MCP["jarble-api-main/src/mcp/jarble-ui-server.js<br/>(via generated JSON snapshot)"]
+
+    style MANIFEST fill:#7c3aed,color:#fff
+```
+
+**Key exports:**
+- `COMPONENT_MANIFEST` — keyed by component name, includes schema + layout + splittable config
+- `generatePromptReference()` — produces compact LLM-friendly reference (10 inline, rest summarized → ~878 tokens saved vs old 36-inline format)
+- `generateMcpReference()` — full MCP tool descriptions
+- `COMPONENT_SCHEMAS` — Zod schemas for all components
+- `DEFAULT_CARD_SIZES`, `MANIFEST_SPLITTABLE` — derived from manifest, replace old hardcoded objects
+
+### AutoFix Prop Repair (`lib/autoFixProps.ts`)
+
+LLMs frequently produce props that are _close_ but not quite right. AutoFix runs before Zod validation to silently repair common mistakes:
+
+```mermaid
+flowchart LR
+    INPUT["Raw props from jarble_ui block"]
+    AUTOFIX["autoFixProps.ts<br/>20 repair rules"]
+    ZOD["Zod schema validation<br/>(@jarble/component-manifest)"]
+    RENDER["Render component"]
+    ERROR["Show error card"]
+
+    INPUT --> AUTOFIX --> ZOD
+    ZOD -->|Pass| RENDER
+    ZOD -->|Fail| ERROR
+```
+
+Sentry breadcrumbs record every repair that fires, so we can identify which rules are most needed and add new ones.
+
+### Canvas Grid
+
+The `/d/[id]` page shows a CSS grid where bot responses appear as cards:
+
+```
+User message → bot streams text + UI blocks → cards appear in grid
+```
+
+**Grid features:**
+- Drag any card to swap positions with another
+- **Split**: cards from multi-item components (stat_grid, key_value, descriptions) can split into individual cards
+- **Merge**: compatible cards can be combined
+- No borders or padding on components — they fill their card area (`p-3 h-full`)
+
+### Marketplace Sandbox (Double-Iframe Security)
+
+Marketplace sandbox-tier components run arbitrary HTML/CSS/JS. They use a **double-iframe** architecture for security:
+
+```
+Outer iframe: sandboxed (no same-origin, allow-scripts only)
+  └── Inner iframe: user's HTML + JS runs here
+      └── Communicates with outer via postMessage
+```
+
+This prevents sandbox code from accessing the Jarble app's DOM, cookies, or localStorage. The CSP further restricts what the sandbox can load — only origins in `TRUSTED_CDN_ORIGINS` are allowed.
+
+---
+
+## 12. Real-Time Updates (SSE)
 
 ### What Is SSE?
 
@@ -1198,7 +1310,7 @@ The browser's `EventSource` API (used for SSE) can't set custom headers. So we p
 
 ---
 
-## 12. Authentication Flow
+## 13. Authentication Flow
 
 We use **Auth0** for authentication. We never see or store user passwords.
 
@@ -1255,7 +1367,7 @@ Users must verify their email before deploying bots (prevents abuse). The flow:
 
 ---
 
-## 13. Payments (Stripe)
+## 14. Payments (Stripe)
 
 ### The Payment Flow
 
@@ -1331,7 +1443,7 @@ This makes the webhook handler safe against duplicate deliveries across multiple
 
 ---
 
-## 14. Encryption
+## 15. Encryption
 
 ### What Gets Encrypted
 
@@ -1389,7 +1501,7 @@ They are NEVER decrypted for display. The frontend only sees masked versions.
 
 ---
 
-## 15. Infrastructure (Terraform + Hetzner)
+## 16. Infrastructure (Terraform + Hetzner)
 
 ### What Is Terraform?
 
@@ -1531,7 +1643,7 @@ graph LR
 
 ---
 
-## 16. Runtime Images (Docker)
+## 17. Runtime Images (Docker)
 
 ### What Is a Docker Image?
 
@@ -1602,7 +1714,7 @@ flowchart TD
 
 ---
 
-## 17. The Database
+## 18. The Database
 
 ### Multi-Database Support
 
@@ -1666,6 +1778,59 @@ erDiagram
         string eventType
         timestamp processedAt
     }
+
+    skillsCatalog {
+        int id PK
+        string slug UK
+        string name
+        boolean isActive
+    }
+
+    deploymentSkills {
+        string id PK
+        string deploymentId FK
+        int skillId FK
+    }
+
+    creatorProfiles {
+        string id PK
+        string userId FK
+        string displayName
+    }
+
+    marketplaceComponents {
+        string id PK
+        string creatorId FK
+        string name UK
+        string tier "template or sandbox"
+        string status "draft/pending/published/rejected"
+    }
+
+    componentVersions {
+        string id PK
+        string componentId FK
+        string version
+        text template
+    }
+
+    componentInstalls {
+        string id PK
+        string deploymentId FK
+        string componentId FK
+    }
+
+    componentPurchases {
+        string id PK
+        string userId FK
+        string componentId FK
+    }
+
+    componentReviews {
+        string id PK
+        string userId FK
+        string componentId FK
+        int rating
+    }
 ```
 
 ### The ORM (Drizzle)
@@ -1693,7 +1858,7 @@ When running locally with SQLite, the database auto-creates:
 
 ---
 
-## 18. Environment Variables
+## 19. Environment Variables
 
 ### Frontend (`.env.local`)
 
@@ -1702,6 +1867,11 @@ NEXT_PUBLIC_API_URL=http://localhost:3001    # Backend URL
 NEXT_PUBLIC_AUTH0_DOMAIN=jarble-dev.us.auth0.com
 NEXT_PUBLIC_AUTH0_CLIENT_ID=1VR30862...
 NEXT_PUBLIC_AUTH0_AUDIENCE=https://api.jarble.ai
+
+# Optional monitoring (omit to disable)
+NEXT_PUBLIC_SENTRY_DSN=https://xxx@sentry.io/xxx
+NEXT_PUBLIC_POSTHOG_KEY=phc_xxx
+NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com  # default
 ```
 
 ### Backend (`.env`)
@@ -1741,7 +1911,7 @@ API_KEY_ENCRYPTION_KEY=0123456789abcdef...
 
 ---
 
-## 19. Local Development Setup
+## 20. Local Development Setup
 
 ### Prerequisites
 
@@ -1786,15 +1956,19 @@ The API starts with an **in-memory SQLite database** pre-seeded with test data. 
 | Dashboard | Yes | Shows seeded test deployment |
 | Onboarding wizard | Yes | All steps render. Use `dev-*` prefix keys to bypass LLM validation |
 | tRPC queries | Yes | SQLite has seed data |
-| K8s deployment | Yes (mock) | Set `MOCK_K8S=true` — uses in-memory simulation. Inspect via `/debug/mock-pvc` |
+| K8s deployment | Yes (mock) | Set `MOCK_K8S=true` — uses in-memory simulation |
 | Stripe payments | Partial | Need Stripe test keys. Subscription/storage enforcement skipped in dev |
 | OpenRouter provisioning | Partial | Need management key |
 | Config sync | Yes (mock) | With `MOCK_K8S=true`, config files read/write to in-memory store |
 | LLM key validation | Yes (bypass) | Keys prefixed with `dev-` are accepted without calling provider APIs |
+| Marketplace browsing | Yes | Reads from SQLite marketplace tables (empty on fresh start) |
+| Canvas chat (/d/[id]) | Partial | Needs a running pod for actual chat. UI renders without it |
+| Sentry / PostHog | No | Omit `NEXT_PUBLIC_SENTRY_DSN` and `NEXT_PUBLIC_POSTHOG_KEY` to disable |
+| Manifest CI check | Yes | Run `npm run check:manifest` from `jarble-api-main/` |
 
 ---
 
-## 20. Production Deployment
+## 21. Production Deployment
 
 ### End-to-End Deployment Flow
 
@@ -1905,7 +2079,7 @@ See `jarble-api-main/k8s/secrets.yaml.example` for the full template. Critical o
 
 ---
 
-## 21. Common Workflows
+## 22. Common Workflows
 
 ### "I need to add a new runtime"
 
@@ -1955,19 +2129,69 @@ See `jarble-api-main/k8s/secrets.yaml.example` for the full template. Critical o
 
 Check in this order:
 1. **Dashboard** — Status badge shows "failed"
-2. **Deployment config → Logs tab** — Container logs (if it started at all)
-3. **API server logs** — Look for `[ERROR]` entries with the deployment ID
-4. **K8s directly** — `kubectl describe pod deploy-<id> -n jarble`
-5. **Database** — Check `deployments.error` column for error message
+2. **Chat page → Diagnose** — Hit `GET /api/deployments/:id/diagnose` for structured health checks
+3. **Deployment config → Logs tab** — Container logs (if it started at all)
+4. **API server logs** — Look for `[ERROR]` entries with the deployment ID
+5. **K8s directly** — `kubectl describe pod deploy-<id> -n jarble`
+6. **Database** — Check `deployments.error` column for error message
+
+### "I need to add a new canvas component"
+
+1. Add a component entry file in `shared/component-manifest/components/mycomponent.ts`:
+   ```typescript
+   export const myComponentEntry: ComponentManifestEntry = {
+     name: "my_component",
+     description: "...",
+     category: "display",
+     schema: myComponentSchema,
+     layout: { defaultSize: { w: 4, h: 3 }, layoutHint: "auto" },
+   };
+   ```
+2. Register it in `shared/component-manifest/index.ts` and `schemas/index.ts`
+3. Create `Jarble-mvp/components/canvas/components/CanvasMyComponent.tsx` — **no wrapper styling**, use `p-3 h-full`
+4. Add to `Jarble-mvp/components/canvas/registry.ts`
+5. Add the component name to `BUILTIN_COMPONENTS` in `jarble-api-main/src/mcp/jarble-ui-server.js` and `src/utils/componentResolver.ts`
+6. Run `npm run check:manifest` from `jarble-api-main/` to verify everything is wired correctly
+7. Run `npm run generate-mcp-manifest` if you need to regenerate the MCP JSON snapshot
+
+### "I need to understand the AutoFix system"
+
+When a bot renders a UI block, the flow is:
+```
+Bot output: ```jarble_ui { "component": "DataTable", "props": {...} } ```
+  ↓
+uiBlockParser.ts: Extract the block, validate library URLs
+  ↓
+Frontend CanvasRenderer.tsx:
+  1. autoFixProps.ts: 20 repair rules (name normalization, type coercion, enum aliases, ...)
+  2. Zod schema validation (from @jarble/component-manifest)
+  3. Render component or show error card
+  ↓
+Sentry breadcrumbs track: which repairs fired (for future rule improvements)
+```
+
+**The 6 repair categories:**
+| Category | Examples |
+|---|---|
+| Type coercion | `"42"` → `42` for number fields |
+| Enum normalization | `"primary"` → `"default"` for variant aliases |
+| Missing defaults | Auto-add `variant: "default"` to alerts |
+| Structural fixes | Unwrap `{props: {items: [...]}}` nesting |
+| Field aliases | `content` → `body`, `description` → `message` |
+| Data normalization | Strip `%` from progress values |
 
 ---
 
-## 22. Glossary
+## 23. Glossary
 
 | Term | What It Means |
 |---|---|
 | **Auth0** | Third-party login service. We never store passwords. |
+| **AutoFix** | Pre-Zod prop repair system. 20 rules in `lib/autoFixProps.ts` fix common LLM output errors before validation |
+| **@assistant-ui/react** | React library for chat UI. We use `ExternalStoreRuntime` to wrap our `useCanvasChat` hook |
+| **@jarble/component-manifest** | Shared package (`shared/component-manifest/`) — single source of truth for all canvas component definitions, schemas, and derive functions |
 | **BYOK** | "Bring Your Own Key" — user provides their own LLM API key |
+| **Canvas** | The grid area in `/d/[id]` where bot-rendered UI components appear |
 | **Credit Pool** | Shared LLM budget across multiple bots (owner/linked model) |
 | **Deployment** | One user's bot instance (database record + K8s resources) |
 | **DB_PROVIDER** | Env var to select database backend: `sqlite`, `mysql`, `postgres` |
@@ -1975,25 +2199,35 @@ Check in this order:
 | **EventSource / SSE** | Browser API for receiving server-pushed updates |
 | **Hetzner** | German cloud hosting provider (cheaper than AWS/GCP) |
 | **Included Credits** | We provide the LLM key with a monthly spending cap |
+| **jarble_ui** | Fenced code block format the bot uses to render canvas components: `\`\`\`jarble_ui { "component": "chart", "props": {...} } \`\`\`` |
 | **JWT** | JSON Web Token — a signed auth token from Auth0 |
 | **K3s** | Lightweight Kubernetes (same API, smaller footprint) |
 | **K8s** | Kubernetes — container orchestration platform |
 | **Longhorn** | Distributed storage system for Kubernetes |
+| **Marketplace** | Platform feature where creators can publish and share canvas components. Two tiers: Template (safe JSON) and Sandbox (HTML/JS, admin-reviewed) |
+| **MarketplaceSandbox** | Double-iframe renderer for sandbox-tier components. Outer iframe is sandboxed; inner iframe runs user code |
+| **MCP** | Model Context Protocol — standard for AI tool use. Jarble exposes an MCP server inside each pod and a Streamable HTTP endpoint at `/api/mcp/:deploymentId` |
 | **Mock K8s** | In-memory K8s simulation (`MOCK_K8S=true`) for local dev without a cluster |
 | **Namespace** | K8s isolation boundary (we use `jarble`) |
 | **Next.js** | React framework with routing, SSR, and build tooling |
 | **OpenClaw** | TypeScript/Node.js bot runtime (primary) |
 | **OpenRouter** | LLM API aggregator (200+ models, one API key) |
 | **Pod** | Smallest K8s unit — one running container |
+| **PostHog** | Product analytics library. Initialized in `lib/posthog.ts`. Requires `NEXT_PUBLIC_POSTHOG_KEY` |
 | **PVC** | Persistent Volume Claim — durable disk storage in K8s |
+| **rAF throttle** | `requestAnimationFrame`-based update coalescing in `useCanvasChat.ts` — prevents excessive React renders during fast SSE delta streams |
 | **React Query** | Data fetching + caching library (powers tRPC hooks) |
 | **Runtime** | The bot engine (OpenClaw or ZeroClaw) |
 | **Secret** | K8s encrypted key-value store (env vars for pods) |
+| **Sentry** | Error monitoring platform. Client config: `sentry.client.config.ts`. Requires `NEXT_PUBLIC_SENTRY_DSN` |
+| **SimpleCanvasGrid** | CSS grid layout for the canvas (no react-grid-layout). Supports drag-to-reorder, split, and merge |
 | **SSE** | Server-Sent Events — server pushes data to browser |
 | **SuperJSON** | Serialization library that handles Dates, Maps, etc. |
+| **Tambo** | Chat orchestration framework used in the `/d/[id]` chat page |
 | **Terraform** | Infrastructure-as-code tool (defines servers in config files) |
 | **Traefik** | Reverse proxy / ingress controller for K8s |
 | **tRPC** | Type-safe RPC framework (frontend calls backend functions directly) |
+| **TRUSTED_CDN_ORIGINS** | Allowlist of 10 CDN origins for sandbox library URLs. Enforced server-side in `uiBlockParser.ts` and client-side in `CanvasSandbox.tsx` |
 | **ZeroClaw** | Rust-based bot runtime (lightweight, ~3.4MB binary) |
 | **Webhook Idempotency** | `processedWebhookEvents` table prevents duplicate Stripe event processing |
 | **ZIP export** | Download bot configs as a ZIP file (for backup/migration) |
