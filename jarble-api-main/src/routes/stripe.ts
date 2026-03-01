@@ -235,7 +235,7 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     return;
   }
 
-  const { runtimeSlug, cpuLimit, memoryMb, storageMb } = req.body;
+  const { runtimeSlug, cpuLimit, memoryMb, storageMb, inline } = req.body;
   if (!runtimeSlug) {
     res.status(400).json({ error: "Missing runtimeSlug" });
     return;
@@ -271,6 +271,30 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
       logger.info({ userId: user.id, stripeCustomerId }, "Created Stripe customer");
     }
 
+    // Inline mode: create an incomplete subscription and return client_secret
+    // for Stripe Elements (PaymentElement) to confirm in the browser.
+    if (inline) {
+      const result = await createIncompleteSubscription({
+        userId: user.id,
+        userEmail: user.email,
+        runtimeSlug,
+        monthlyPriceCents,
+        stripeCustomerId,
+      });
+
+      // Store pending subscription so deployment.create can link it
+      await (db as any).update(tables.users)
+        .set({ pendingStripeSubscriptionId: result.subscriptionId })
+        .where(eq(tables.users.id, user.id));
+
+      res.json({
+        clientSecret: result.clientSecret,
+        subscriptionId: result.subscriptionId,
+      });
+      return;
+    }
+
+    // Redirect mode: create a Checkout Session and return the URL
     const frontendUrl = env.FRONTEND_URL || "http://localhost:3000";
     const session = await createCheckoutSession({
       userId: user.id,

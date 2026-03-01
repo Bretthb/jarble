@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import type { Appearance } from "@stripe/stripe-js";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -22,6 +23,9 @@ import {
   CreditCard,
 } from "lucide-react";
 import QRCode from "react-qr-code";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements } from "@stripe/react-stripe-js";
+import { StripePaymentForm } from "@/components/StripePaymentForm";
 import { DeploymentLoader } from "@/components/WizardLoader";
 import { calculateMonthlyPriceCents, formatPriceCents } from "@/lib/pricing";
 import type { RuntimeEntry } from "../types";
@@ -32,6 +36,10 @@ import {
   MEMORY_OPTIONS,
   STORAGE_OPTIONS,
 } from "../wizardStepConfig";
+
+const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
+  : null;
 
 interface StepDeployProps {
   isDeploying: boolean;
@@ -51,10 +59,12 @@ interface StepDeployProps {
   emailVerified: boolean;
   deployPhase: "idle" | "deploying" | "pairing" | "paired";
   telegramBotUsername: string | null;
-  // Stripe checkout (redirect)
+  // Stripe inline payment (Elements)
   checkoutConfirmed: boolean;
-  isRedirectingToCheckout: boolean;
-  onCheckout: () => void;
+  stripeClientSecret: string | null;
+  isLoadingCheckout: boolean;
+  onInitCheckout: () => void;
+  onCheckoutComplete: () => void;
 }
 
 export default function StepDeploy({
@@ -76,8 +86,10 @@ export default function StepDeploy({
   deployPhase,
   telegramBotUsername,
   checkoutConfirmed,
-  isRedirectingToCheckout,
-  onCheckout,
+  stripeClientSecret,
+  isLoadingCheckout,
+  onInitCheckout,
+  onCheckoutComplete,
 }: StepDeployProps) {
   const providerDef = getProviderById(llmProvider);
   const modelDef = LLM_MODELS.find((m) => m.id === llmModel);
@@ -93,6 +105,47 @@ export default function StepDeploy({
     },
     onSettled: () => setIsResendingVerification(false),
   });
+
+  // Build Stripe Elements appearance to match app theme (light/dark)
+  const stripeAppearance = useMemo<Appearance>(() => {
+    const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+    return {
+      theme: isDark ? "night" : "stripe",
+      variables: {
+        colorPrimary: isDark ? "#e4e4e7" : "#000000",
+        colorBackground: isDark ? "#111113" : "#ffffff",
+        colorText: isDark ? "#f4f4f5" : "#1a1a1a",
+        colorTextSecondary: isDark ? "#a1a1aa" : "#666666",
+        colorDanger: isDark ? "#ef4444" : "#dc2626",
+        fontFamily: "'Inter', sans-serif",
+        borderRadius: "0.5rem",
+        colorTextPlaceholder: isDark ? "#52525b" : "#a1a1aa",
+      },
+      rules: {
+        ".Input": {
+          border: `1px solid ${isDark ? "#232326" : "#e4e4e7"}`,
+          backgroundColor: isDark ? "#09090b" : "#ffffff",
+          boxShadow: "none",
+        },
+        ".Input:focus": {
+          border: `1px solid ${isDark ? "#a1a1aa" : "#000000"}`,
+          boxShadow: `0 0 0 1px ${isDark ? "#a1a1aa" : "#000000"}`,
+        },
+        ".Label": {
+          color: isDark ? "#a1a1aa" : "#666666",
+          fontSize: "0.8125rem",
+        },
+        ".Tab": {
+          border: `1px solid ${isDark ? "#232326" : "#e4e4e7"}`,
+          backgroundColor: isDark ? "#1c1c1f" : "#f4f4f5",
+        },
+        ".Tab--selected": {
+          border: `1px solid ${isDark ? "#e4e4e7" : "#000000"}`,
+          backgroundColor: isDark ? "#111113" : "#ffffff",
+        },
+      },
+    };
+  }, []);
 
   // Effective values (custom or runtime defaults)
   const effectiveCpu = cpuLimit ?? runtime?.cpuLimit ?? "2.0";
@@ -219,22 +272,22 @@ export default function StepDeploy({
             </div>
           )}
 
-          {/* Stripe Checkout — shown for paid runtimes before payment */}
-          {!checkoutConfirmed && needsPayment && (
+          {/* Stripe payment — shown for paid runtimes before payment */}
+          {!checkoutConfirmed && needsPayment && !stripeClientSecret && (
             <div className="rounded-xl border border-border bg-card p-6 text-center space-y-4">
               <p className="text-sm font-semibold">{formatPriceCents(dynamicPriceCents)}/mo</p>
               <p className="text-xs text-muted-foreground">
-                You&apos;ll be redirected to Stripe to complete payment
+                Complete payment to deploy your bot
               </p>
               <Button
-                onClick={onCheckout}
-                disabled={isRedirectingToCheckout}
+                onClick={onInitCheckout}
+                disabled={isLoadingCheckout}
                 className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
               >
-                {isRedirectingToCheckout ? (
+                {isLoadingCheckout ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Redirecting...
+                    Loading checkout...
                   </>
                 ) : (
                   <>
@@ -243,6 +296,24 @@ export default function StepDeploy({
                   </>
                 )}
               </Button>
+            </div>
+          )}
+
+          {/* Stripe Elements payment form */}
+          {!checkoutConfirmed && needsPayment && stripeClientSecret && stripePromise && (
+            <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+              <div className="text-center">
+                <p className="text-sm font-semibold">{formatPriceCents(dynamicPriceCents)}/mo</p>
+              </div>
+              <Elements
+                stripe={stripePromise}
+                options={{ clientSecret: stripeClientSecret, appearance: stripeAppearance }}
+              >
+                <StripePaymentForm
+                  onSuccess={onCheckoutComplete}
+                  priceLabel={`${formatPriceCents(dynamicPriceCents)}/mo`}
+                />
+              </Elements>
             </div>
           )}
 

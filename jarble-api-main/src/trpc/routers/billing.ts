@@ -17,33 +17,64 @@ export const billingRouter = router({
     });
 
     const paidDeps = deps.filter((d) => !d.isFree && d.stripeSubscriptionId);
-    const totalMonthlyCents = deps.reduce(
-      (sum, d) => sum + (d.isFree ? 0 : (d.monthlyPriceCents || 0)),
-      0
-    );
 
+    let totalMonthlyCents = 0;
     let nextBillingDate: string | null = null;
     let paymentMethodLast4: string | null = null;
+    let activeCount = 0;
 
     if (isStripeConfigured() && paidDeps.length > 0) {
-      try {
-        const sub = await getSubscriptionDetails(paidDeps[0].stripeSubscriptionId!);
-        const periodEnd = (sub as any).current_period_end;
-        if (periodEnd) {
-          nextBillingDate = new Date(periodEnd * 1000).toISOString();
+      // Fetch all subscriptions from Stripe in parallel for accurate data
+      const results = await Promise.allSettled(
+        paidDeps.map((d) => getSubscriptionDetails(d.stripeSubscriptionId!))
+      );
+
+      let earliestBilling: number | null = null;
+
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.status !== "fulfilled") continue;
+        const sub = result.value as any;
+
+        if (sub.status === "active" || sub.status === "past_due") {
+          activeCount++;
+
+          // Use actual Stripe price as source of truth
+          const item = sub.items?.data?.[0];
+          const unitAmount = item?.price?.unit_amount ?? 0;
+          totalMonthlyCents += unitAmount;
+
+          // Track earliest next billing date across all subscriptions
+          const periodEnd = sub.current_period_end;
+          if (periodEnd && (earliestBilling === null || periodEnd < earliestBilling)) {
+            earliestBilling = periodEnd;
+          }
+
+          // Get payment method from first subscription that has one
+          if (!paymentMethodLast4) {
+            const pm = sub.default_payment_method;
+            if (pm && typeof pm === "object" && pm.card) {
+              paymentMethodLast4 = pm.card.last4 ?? null;
+            }
+          }
         }
-        const pm = (sub as any).default_payment_method;
-        if (pm && typeof pm === "object" && pm.card) {
-          paymentMethodLast4 = pm.card.last4 ?? null;
-        }
-      } catch (err) {
-        logger.warn({ err, userId: ctx.user.id }, "Failed to fetch subscription details for billing overview");
       }
+
+      if (earliestBilling) {
+        nextBillingDate = new Date(earliestBilling * 1000).toISOString();
+      }
+    } else {
+      // Stripe not configured — fall back to DB values
+      totalMonthlyCents = deps.reduce(
+        (sum, d) => sum + (d.isFree ? 0 : (d.monthlyPriceCents || 0)),
+        0
+      );
+      activeCount = paidDeps.length;
     }
 
     return {
       totalMonthlyCents,
-      activeSubscriptionCount: paidDeps.length,
+      activeSubscriptionCount: activeCount,
       nextBillingDate,
       paymentMethodLast4,
     };
@@ -90,6 +121,8 @@ export const billingRouter = router({
         let periodStart: string | null = null;
         let periodEnd: string | null = null;
         let stripeStatus = "unknown";
+        // Default to DB price, override with Stripe if available
+        let monthlyPriceCents = d.monthlyPriceCents || 0;
 
         if (isStripeConfigured()) {
           try {
@@ -97,8 +130,14 @@ export const billingRouter = router({
             periodStart = new Date((sub as any).current_period_start * 1000).toISOString();
             periodEnd = new Date((sub as any).current_period_end * 1000).toISOString();
             stripeStatus = (sub as any).status;
+
+            // Use the actual Stripe price as source of truth
+            const item = (sub as any).items?.data?.[0];
+            if (item?.price?.unit_amount != null) {
+              monthlyPriceCents = item.price.unit_amount;
+            }
           } catch {
-            // Fall through with defaults
+            // Fall through with DB defaults
           }
         }
 
@@ -106,7 +145,7 @@ export const billingRouter = router({
           deploymentId: d.id,
           deploymentName: d.name,
           runtime: d.runtimeCatalogEntry?.name ?? d.runtime,
-          monthlyPriceCents: d.monthlyPriceCents,
+          monthlyPriceCents,
           cancelledAt: d.cancelledAt ? new Date(d.cancelledAt).toISOString() : null,
           cancelAtPeriodEnd: d.cancelAtPeriodEnd ? new Date(d.cancelAtPeriodEnd).toISOString() : null,
           stripeStatus,

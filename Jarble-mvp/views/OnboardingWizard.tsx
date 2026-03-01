@@ -82,9 +82,10 @@ export default function OnboardingWizard() {
   const [createdDeploymentId, setCreatedDeploymentId] = useState<string | null>(null);
   const [deployPhase, setDeployPhase] = useState<"idle" | "deploying" | "pairing" | "paired">("idle");
 
-  // Stripe checkout (redirect)
+  // Stripe inline payment (Elements)
   const [checkoutComplete, setCheckoutComplete] = useState(false);
-  const [isRedirectingToCheckout, setIsRedirectingToCheckout] = useState(false);
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+  const [isLoadingCheckout, setIsLoadingCheckout] = useState(false);
 
   // Telegram pairing poll mutation (used in deploy step after deploy succeeds)
   const pollTelegramMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
@@ -278,9 +279,9 @@ export default function OnboardingWizard() {
     });
   }, [llmApiKey, llmProvider, validateKeyMutation]);
 
-  // Redirect to Stripe Checkout for paid deployments
-  const handleCheckout = useCallback(async () => {
-    setIsRedirectingToCheckout(true);
+  // Create an incomplete Stripe subscription and get clientSecret for PaymentElement
+  const handleInitCheckout = useCallback(async () => {
+    setIsLoadingCheckout(true);
     try {
       const token = await getAccessTokenSilently();
       const res = await fetch(`${API_URL}/api/stripe/checkout`, {
@@ -291,20 +292,28 @@ export default function OnboardingWizard() {
           cpuLimit: cpuLimit || undefined,
           memoryMb: memoryMb || undefined,
           storageMb: storageMb || undefined,
+          inline: true,
         }),
       });
       const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
+      if (data.clientSecret) {
+        setStripeClientSecret(data.clientSecret);
       } else {
         toast.error(data.error || "Failed to start checkout");
-        setIsRedirectingToCheckout(false);
       }
     } catch {
       toast.error("Failed to reach payment service");
-      setIsRedirectingToCheckout(false);
+    } finally {
+      setIsLoadingCheckout(false);
     }
   }, [getAccessTokenSilently, selectedRuntimeSlug, cpuLimit, memoryMb, storageMb]);
+
+  // Reset payment form when hardware config changes (price changes)
+  useEffect(() => {
+    if (stripeClientSecret) {
+      setStripeClientSecret(null);
+    }
+  }, [cpuLimit, memoryMb, storageMb]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Extract deploy logic so both handleNext and payment form can call it
   const triggerDeploy = useCallback(() => {
@@ -529,8 +538,10 @@ export default function OnboardingWizard() {
                   deployPhase={deployPhase}
                   telegramBotUsername={telegramBotUsername}
                   checkoutConfirmed={checkoutComplete}
-                  isRedirectingToCheckout={isRedirectingToCheckout}
-                  onCheckout={handleCheckout}
+                  stripeClientSecret={stripeClientSecret}
+                  isLoadingCheckout={isLoadingCheckout}
+                  onInitCheckout={handleInitCheckout}
+                  onCheckoutComplete={() => setCheckoutComplete(true)}
                 />
               )}
               {/* Telegram step removed — platform connections happen via Tambo chat after deploy */}

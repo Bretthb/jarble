@@ -145,6 +145,7 @@ export async function createDeployment(
           containers: [{
             name: "runtime",
             image: containerImage,
+            imagePullPolicy: process.env.K8S_IMAGE_PULL_POLICY === "IfNotPresent" ? "IfNotPresent" : "Always",
             ports: [{
               containerPort: config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789,
               name: "gateway",
