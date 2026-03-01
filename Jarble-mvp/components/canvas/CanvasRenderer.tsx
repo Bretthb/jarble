@@ -156,11 +156,48 @@ function CanvasRendererInner({
   // 0. Auto-fix props and normalize component name before validation
   const fixed = autoFixProps(block.component, block.props);
 
-  if (isDev && fixed.repairs.length > 0) {
-    console.warn(
-      `[CanvasRenderer] AutoFix applied ${fixed.repairs.length} repairs to ${fixed.component}:`,
-      fixed.repairs,
-    );
+  if (fixed.repairs.length > 0) {
+    // Dev logging
+    if (isDev) {
+      console.warn(
+        `[CanvasRenderer] AutoFix applied ${fixed.repairs.length} repairs to ${fixed.component}:`,
+        fixed.repairs,
+      );
+    }
+
+    // Sentry breadcrumbs — track repair frequency for prompt tuning
+    for (const repair of fixed.repairs) {
+      Sentry.addBreadcrumb({
+        category: "autofix",
+        message: `${repair.rule} on ${fixed.component}.${repair.field}`,
+        level: "info",
+        data: {
+          component: fixed.component,
+          rule: repair.rule,
+          field: repair.field,
+          from: typeof repair.from === "object" ? JSON.stringify(repair.from).slice(0, 100) : String(repair.from),
+          to: typeof repair.to === "object" ? JSON.stringify(repair.to).slice(0, 100) : String(repair.to),
+        },
+      });
+    }
+
+    // If 3+ repairs on a single component, capture a Sentry event for visibility
+    if (fixed.repairs.length >= 3) {
+      Sentry.captureMessage(
+        `AutoFix: ${fixed.repairs.length} repairs on ${fixed.component}`,
+        {
+          level: "warning",
+          tags: {
+            component: fixed.component,
+            repairCount: String(fixed.repairs.length),
+          },
+          extra: {
+            repairs: fixed.repairs,
+            originalComponent: block.component,
+          },
+        }
+      );
+    }
   }
 
   // 1. Try built-in registry (using normalized component name)

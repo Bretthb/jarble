@@ -5,5 +5,8 @@
   "type": "module",
   "main": "index.ts",
   "types": "index.ts",
+  "scripts": {
+    "check": "npx tsx ../../scripts/check-manifest.ts"
+  },
   "description": "Single source of truth for all Jarble canvas component metadata, schemas, and derived prompt/MCP reference data."
 }

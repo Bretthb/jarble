@@ -42,6 +42,61 @@ const MAX_BLOCKS = 20;
 /** Max JSON size per block (100KB) */
 const MAX_BLOCK_SIZE = 100_000;
 
+// ── Server-side library URL validation ──────────────────────────────────────
+
+/**
+ * Allowlist of trusted CDN origins for sandbox library URLs.
+ * Must match the frontend TRUSTED_CDN_ORIGINS in CanvasSandbox.tsx exactly.
+ */
+export const TRUSTED_CDN_ORIGINS = new Set([
+  "https://cdn.jsdelivr.net",
+  "https://cdnjs.cloudflare.com",
+  "https://unpkg.com",
+  "https://cdn.tailwindcss.com",
+  "https://esm.sh",
+  "https://threejs.org",
+  "https://d3js.org",
+  "https://cdn.plot.ly",
+  "https://fonts.googleapis.com",
+  "https://fonts.gstatic.com",
+]);
+
+/**
+ * Validate that a library URL is from a trusted CDN origin.
+ * Returns true only for HTTPS URLs whose origin is in TRUSTED_CDN_ORIGINS.
+ */
+export function validateLibraryUrl(url: string): boolean {
+  if (!url.startsWith("https://")) return false;
+  try {
+    const parsed = new URL(url);
+    return TRUSTED_CDN_ORIGINS.has(parsed.origin);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Sanitize a libraries array by filtering out invalid or untrusted URLs.
+ * Returns only string entries that pass validateLibraryUrl.
+ * Logs a warning for each rejected URL.
+ */
+export function sanitizeLibraries(libraries: unknown): string[] {
+  if (!Array.isArray(libraries)) return [];
+  const result: string[] = [];
+  for (const item of libraries) {
+    if (typeof item !== "string") {
+      logger.warn("[uiBlockParser] Rejected non-string library entry: %s", typeof item);
+      continue;
+    }
+    if (validateLibraryUrl(item)) {
+      result.push(item);
+    } else {
+      logger.warn("[uiBlockParser] Rejected untrusted library URL: %s", item);
+    }
+  }
+  return result;
+}
+
 export interface JarbleComponentDef {
   name: string;
   description?: string;
@@ -211,6 +266,11 @@ export function extractUIBlocks(text: string): {
         parsed.props === null
       ) {
         continue; // Invalid structure, leave as text
+      }
+
+      // Server-side library URL validation for sandbox components
+      if (parsed.props.libraries) {
+        parsed.props.libraries = sanitizeLibraries(parsed.props.libraries);
       }
 
       uiBlocks.push({

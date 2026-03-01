@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useCallback, useState } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { useCanvasAction } from "../CanvasActionContext";
 import { sanitizeHtml } from "@/lib/sanitize";
 
@@ -183,6 +184,20 @@ window.onunhandledrejection = function(e) {
     }
   }, "*");
 };
+// CSP violation monitoring — report blocked resources to parent
+document.addEventListener("securitypolicyviolation", function(e) {
+  parent.postMessage({
+    type: "jarble:csp-violation",
+    detail: {
+      blockedURI: e.blockedURI || "",
+      violatedDirective: e.violatedDirective || "",
+      effectiveDirective: e.effectiveDirective || "",
+      originalPolicy: e.originalPolicy ? e.originalPolicy.substring(0, 200) : "",
+      sourceFile: e.sourceFile || "",
+      lineNumber: e.lineNumber || 0
+    }
+  }, "*");
+});
 console.log("[Jarble:Sandbox] iframe document loaded");
 // Bridge: receive props from parent
 window.__JARBLE_PROPS__ = {};
@@ -329,6 +344,19 @@ function CanvasSandboxInner({
             component: "sandbox",
             title: title || "Sandbox",
           },
+        });
+      }
+      if (e.data?.type === "jarble:csp-violation") {
+        const detail = e.data.detail;
+        console.warn(
+          `[Jarble:Sandbox] CSP violation: ${detail.violatedDirective} blocked ${detail.blockedURI}`,
+          detail,
+        );
+        Sentry.addBreadcrumb({
+          category: "csp-violation",
+          message: `${detail.violatedDirective} blocked ${detail.blockedURI}`,
+          level: "warning",
+          data: detail,
         });
       }
     },
