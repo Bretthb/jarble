@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 
 export interface CanvasProgressProps {
@@ -50,7 +50,7 @@ function useAnimatedNumber(target: number, duration = 700): string {
   return display;
 }
 
-export default function CanvasProgress({ label, value, variant = "default" }: CanvasProgressProps) {
+function CanvasProgressInner({ label, value, variant = "default" }: CanvasProgressProps) {
   const clamped = Math.max(0, Math.min(100, value));
   const animatedValue = useAnimatedNumber(clamped);
   const gradient = BAR_GRADIENT[variant] || BAR_GRADIENT.default;
@@ -92,3 +92,5 @@ export default function CanvasProgress({ label, value, variant = "default" }: Ca
     </motion.div>
   );
 }
+
+export default memo(CanvasProgressInner);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
@@ -42,6 +42,7 @@ export default function OnboardingWizard() {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployProgress, setDeployProgress] = useState(0);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   // Simulate deploy progress (no streaming progress from API, so we animate it)
   useEffect(() => {
@@ -192,18 +193,23 @@ export default function OnboardingWizard() {
     },
   });
 
+  // Track the deployment ID from create → deploy flow via ref (avoids stale closure)
+  const deployTargetIdRef = useRef<string | null>(null);
+
   const deployMutation = trpc.deployment.deploy.useMutation({
     onSuccess: () => {
-      toast.success("Deployed successfully!");
       setDeployProgress(100);
       setIsDeploying(false);
-      // Redirect to Tambo chat page for the newly deployed bot
-      const targetId = createdDeploymentId || id;
-      if (targetId && targetId !== "new") {
-        router.replace(`/d/${targetId}`);
-      } else {
-        router.replace("/dashboard");
-      }
+      setIsNavigating(true);
+      const targetId = deployTargetIdRef.current || createdDeploymentId || id;
+      // Brief delay so the transition overlay animates in before navigation
+      setTimeout(() => {
+        if (targetId && targetId !== "new") {
+          router.replace(`/d/${targetId}`);
+        } else {
+          router.replace("/dashboard");
+        }
+      }, 600);
     },
     onError: (error: { message?: string }) => {
       toast.error(error.message || "Deployment failed");
@@ -213,10 +219,14 @@ export default function OnboardingWizard() {
 
   const createMutation = trpc.deployment.create.useMutation({
     onSuccess: (data: { id?: string } | null | undefined) => {
-      if (data?.id) {
-        setCreatedDeploymentId(data.id);
-        deployMutation.mutate(data.id);
+      if (!data?.id) {
+        toast.error("Deployment created but no ID returned");
+        setIsDeploying(false);
+        return;
       }
+      setCreatedDeploymentId(data.id);
+      deployTargetIdRef.current = data.id;
+      deployMutation.mutate(data.id);
     },
     onError: (error: { message?: string }) => {
       toast.error(error.message || "Failed to create deployment");
@@ -254,11 +264,12 @@ export default function OnboardingWizard() {
 
   const handleNext = async () => {
     if (currentStepId === "deploy" && !isDeploying && deployPhase === "idle") {
+      setIsDeploying(true);
       if (!user?.email_verified) {
         toast.error("Please verify your email before deploying.");
+        setIsDeploying(false);
         return;
       }
-      setIsDeploying(true);
       if (id !== "new") {
         setCreatedDeploymentId(id);
         deployMutation.mutate(id);
@@ -511,6 +522,38 @@ export default function OnboardingWizard() {
           </Button>
         </div>
       </div>
+
+      {/* Deploy → chat transition overlay */}
+      <AnimatePresence>
+        {isNavigating && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+            className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background"
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.1, duration: 0.3, ease: "easeOut" }}
+              className="flex flex-col items-center gap-4"
+            >
+              <div className="relative">
+                <Rocket className="w-10 h-10 text-primary" />
+                <motion.div
+                  className="absolute inset-0 rounded-full border-2 border-primary/30"
+                  animate={{ scale: [1, 1.8], opacity: [0.6, 0] }}
+                  transition={{ duration: 1.2, repeat: Infinity, ease: "easeOut" }}
+                />
+              </div>
+              <p className="text-sm font-medium text-muted-foreground">
+                Launching your bot...
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

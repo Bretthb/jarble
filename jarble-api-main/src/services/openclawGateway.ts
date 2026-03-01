@@ -16,7 +16,7 @@ import crypto from "crypto";
 import WebSocket from "ws";
 import { nanoid } from "nanoid";
 import { logger } from "../utils/logger.js";
-import { extractAllUIBlocks, type JarbleUIBlock, type JarbleUIUpdate, type JarbleComponentDef } from "../utils/uiBlockParser.js";
+import { extractAllUIBlocks, extractUIBlocks, type JarbleUIBlock, type JarbleUIUpdate, type JarbleComponentDef } from "../utils/uiBlockParser.js";
 import { execInPod } from "../k8s/exec.js";
 
 // ── Device Identity ─────────────────────────────────────────────────────────
@@ -95,6 +95,7 @@ export async function chatViaGateway(
   message: string,
   onDelta?: (text: string) => void,
   signal?: AbortSignal,
+  onBlockDetected?: (block: JarbleUIBlock) => void,
 ): Promise<GatewayResponse> {
   const { ip, port, gatewayToken, sessionKey } = opts;
   const wsUrl = `ws://${ip}:${port}`;
@@ -107,6 +108,10 @@ export async function chatViaGateway(
     let connected = false;
     let finished = false;
     const pending = new Map<string, PendingRequest>();
+    // Track how many UI blocks have been emitted during streaming deltas.
+    // Since blocks appear sequentially in the text and extractUIBlocks returns
+    // them in order, we only emit blocks at index >= this count.
+    let emittedBlockCount = 0;
 
     const ws = new WebSocket(wsUrl, {
       origin: "http://localhost",
@@ -257,6 +262,18 @@ export async function chatViaGateway(
             const text = extractText(payload.message);
             if (text) {
               fullText = text; // Delta sends the full accumulated text each time
+
+              // Incrementally extract complete UI blocks from accumulated text
+              // so the frontend can render them before the response finishes.
+              if (onBlockDetected) {
+                const { uiBlocks } = extractUIBlocks(fullText);
+                // Only emit blocks we haven't seen before (new blocks at the end)
+                for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
+                  onBlockDetected(uiBlocks[idx]);
+                }
+                emittedBlockCount = uiBlocks.length;
+              }
+
               onDelta?.(text);
             }
           } else if (state === "final") {
@@ -267,8 +284,10 @@ export async function chatViaGateway(
             finished = true;
             cleanup();
             const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
-            logger.debug({ wsUrl, rawTextLength: fullText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "Gateway: response summary");
-            resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs });
+            // Skip blocks already emitted during streaming deltas (they appear in order)
+            const remainingBlocks = uiBlocks.slice(emittedBlockCount);
+            logger.debug({ wsUrl, rawTextLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, updateCount: uiUpdates.length }, "Gateway: response summary");
+            resolve({ rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs });
           } else if (state === "aborted") {
             finished = true;
             cleanup();

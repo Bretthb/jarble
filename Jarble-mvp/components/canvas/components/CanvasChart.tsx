@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -38,7 +39,7 @@ function humanize(key: string): string {
   return key.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export default function CanvasChart({
+function CanvasChartInner({
   type,
   title,
   data,
@@ -248,3 +249,5 @@ export default function CanvasChart({
     </div>
   );
 }
+
+export default memo(CanvasChartInner);

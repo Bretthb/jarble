@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import {
   Accordion,
   AccordionItem,
@@ -60,7 +61,7 @@ function AccordionItems({ items }: { items: AccordionItemDef[] }) {
   );
 }
 
-export default function CanvasAccordion({ items, type = "multiple" }: CanvasAccordionProps) {
+function CanvasAccordionInner({ items, type = "multiple" }: CanvasAccordionProps) {
   if (!Array.isArray(items) || items.length === 0) return null;
 
   const defaultOpen = items
@@ -81,3 +82,5 @@ export default function CanvasAccordion({ items, type = "multiple" }: CanvasAcco
     </div>
   );
 }
+
+export default memo(CanvasAccordionInner);

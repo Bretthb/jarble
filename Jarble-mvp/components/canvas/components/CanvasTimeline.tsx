@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 
 interface TimelineEvent {
@@ -29,7 +30,7 @@ function CheckIcon() {
   );
 }
 
-export default function CanvasTimeline({ title, events }: CanvasTimelineProps) {
+function CanvasTimelineInner({ title, events }: CanvasTimelineProps) {
   if (!Array.isArray(events) || events.length === 0) return null;
 
   return (
@@ -115,3 +116,5 @@ export default function CanvasTimeline({ title, events }: CanvasTimelineProps) {
     </div>
   );
 }
+
+export default memo(CanvasTimelineInner);

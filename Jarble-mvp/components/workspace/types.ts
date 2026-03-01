@@ -67,7 +67,8 @@ export type CanvasAction =
   | { type: "DESELECT_CARD" }
   | { type: "SAVE_CARD"; id: string; savedName: string }
   | { type: "TIDY_LAYOUT"; containerWidth: number }
-  | { type: "SET_CANVAS_MODE"; mode: CanvasMode };
+  | { type: "SET_CANVAS_MODE"; mode: CanvasMode }
+  | { type: "CLEAR_CANVAS" };
 
 // ── Splittable components config ────────────────────────────────────────────
 
@@ -191,42 +192,11 @@ export function canMergeCards(source: CanvasCard, target: CanvasCard): boolean {
   return true;
 }
 
-// ── Default sizes per component type ─────────────────────────────────────────
+// ── Default sizes per component type (derived from shared manifest) ──────────
 
-export const DEFAULT_CARD_SIZES: Record<string, { width: number; height: number }> = {
-  // Immersive — iframe/widget-based, need generous space
-  sandbox: { width: 700, height: 600 },
-  spreadsheet: { width: 600, height: 500 },
-  code_editor: { width: 600, height: 500 },
-  video: { width: 560, height: 420 },
-  map: { width: 560, height: 460 },
-  // Large — data-heavy
-  chart: { width: 460, height: 300 },
-  data_table: { width: 460, height: 300 },
-  // Medium — content panels
-  text_message: { width: 360, height: 240 },
-  card: { width: 300, height: 180 },
-  tabs: { width: 400, height: 300 },
-  accordion: { width: 400, height: 300 },
-  form: { width: 360, height: 320 },
-  list: { width: 320, height: 260 },
-  key_value: { width: 320, height: 220 },
-  descriptions: { width: 320, height: 220 },
-  timeline: { width: 320, height: 280 },
-  code_block: { width: 400, height: 240 },
-  image: { width: 360, height: 280 },
-  // Compact — KPI tiles & indicators (tight fit to content)
-  metric_card: { width: 260, height: 140 },
-  stat_grid: { width: 400, height: 200 },
-  progress: { width: 280, height: 90 },
-  alert: { width: 340, height: 100 },
-  badge: { width: 180, height: 50 },
-  header: { width: 360, height: 70 },
-  divider: { width: 300, height: 30 },
-  button_group: { width: 300, height: 70 },
-  // Layout — adapts to children
-  layout: { width: 600, height: 360 },
-};
+import { DEFAULT_CARD_SIZES as MANIFEST_SIZES } from "@jarble/component-manifest";
+
+export const DEFAULT_CARD_SIZES: Record<string, { width: number; height: number }> = MANIFEST_SIZES;
 
 export const DEFAULT_CARD_SIZE = { width: 320, height: 220 };
 

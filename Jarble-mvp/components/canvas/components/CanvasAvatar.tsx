@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 export interface CanvasAvatarProps {
   name: string;
   src?: string;
@@ -23,7 +25,7 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
-export default function CanvasAvatar({ name, src, subtitle, size = "md" }: CanvasAvatarProps) {
+function CanvasAvatarInner({ name, src, subtitle, size = "md" }: CanvasAvatarProps) {
   const sizeClasses = SIZE_CLASSES[size] || SIZE_CLASSES.md;
 
   return (
@@ -46,3 +48,5 @@ export default function CanvasAvatar({ name, src, subtitle, size = "md" }: Canva
     </div>
   );
 }
+
+export default memo(CanvasAvatarInner);

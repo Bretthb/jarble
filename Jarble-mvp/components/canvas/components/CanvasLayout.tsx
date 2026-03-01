@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import CanvasRenderer from "../CanvasRenderer";
 
 export interface LayoutChild {
@@ -44,7 +45,7 @@ function autoColumns(children: LayoutChild[]): number {
   return 3;
 }
 
-export default function CanvasLayout({
+function CanvasLayoutInner({
   children,
   columns,
   direction = "grid",
@@ -93,3 +94,5 @@ export default function CanvasLayout({
     </div>
   );
 }
+
+export default memo(CanvasLayoutInner);

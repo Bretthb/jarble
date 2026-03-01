@@ -5,6 +5,7 @@
 # Environment variables (NEVER commit these)
 .env
 .env.local
+.mcp.json
 .env.development.local
 .env.test.local
 .env.production.local

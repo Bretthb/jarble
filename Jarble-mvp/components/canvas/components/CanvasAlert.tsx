@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { memo } from "react";
 import { motion } from "framer-motion";
 
 export interface CanvasAlertProps {
@@ -77,7 +77,7 @@ const VARIANT_ICONS: Record<CanvasAlertProps["variant"], () => React.ReactNode> 
   error: ErrorIcon,
 };
 
-export default function CanvasAlert({ title, message, variant }: CanvasAlertProps) {
+function CanvasAlertInner({ title, message, variant }: CanvasAlertProps) {
   const styles = VARIANT_STYLES[variant] || VARIANT_STYLES.info;
   const Icon = VARIANT_ICONS[variant] || VARIANT_ICONS.info;
 
@@ -103,3 +103,5 @@ export default function CanvasAlert({ title, message, variant }: CanvasAlertProp
     </motion.div>
   );
 }
+
+export default memo(CanvasAlertInner);

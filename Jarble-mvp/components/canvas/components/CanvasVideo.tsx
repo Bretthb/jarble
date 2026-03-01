@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import dynamic from "next/dynamic";
 
 // Fallback for direct file URLs (mp4, webm, etc.)
@@ -77,7 +77,7 @@ function getEmbedUrl(url: string): string | null {
   return null;
 }
 
-export default function CanvasVideo({
+function CanvasVideoInner({
   url,
   title,
   controls = true,
@@ -114,3 +114,5 @@ export default function CanvasVideo({
     </div>
   );
 }
+
+export default memo(CanvasVideoInner);

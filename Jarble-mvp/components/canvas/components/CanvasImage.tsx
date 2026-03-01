@@ -1,12 +1,14 @@
 "use client";
 
+import { memo } from "react";
+
 export interface CanvasImageProps {
   src: string;
   alt?: string;
   caption?: string;
 }
 
-export default function CanvasImage({ src, alt, caption }: CanvasImageProps) {
+function CanvasImageInner({ src, alt, caption }: CanvasImageProps) {
   return (
     <div className="h-full overflow-hidden">
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -24,3 +26,5 @@ export default function CanvasImage({ src, alt, caption }: CanvasImageProps) {
     </div>
   );
 }
+
+export default memo(CanvasImageInner);

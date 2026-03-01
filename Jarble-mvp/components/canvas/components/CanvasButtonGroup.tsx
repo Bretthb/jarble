@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useCanvasAction } from "../CanvasActionContext";
 
 interface ButtonDef {
@@ -22,7 +22,7 @@ const VARIANT_STYLES: Record<string, string> = {
   outline: "bg-transparent text-foreground hover:bg-secondary border border-border",
 };
 
-export default function CanvasButtonGroup({ buttons }: CanvasButtonGroupProps) {
+function CanvasButtonGroupInner({ buttons }: CanvasButtonGroupProps) {
   const { dispatch } = useCanvasAction();
   const [clicked, setClicked] = useState<string | null>(null);
 
@@ -57,3 +57,5 @@ export default function CanvasButtonGroup({ buttons }: CanvasButtonGroupProps) {
     </div>
   );
 }
+
+export default memo(CanvasButtonGroupInner);

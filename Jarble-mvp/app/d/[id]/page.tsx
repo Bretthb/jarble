@@ -7,7 +7,9 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { useStatusStream } from "@/hooks/useStatusStream";
 import { ComponentCatalogProvider } from "@/components/ComponentCatalogProvider";
 import DeploymentTamboProvider from "@/components/DeploymentTamboProvider";
-import { useCanvasChat, type ChatMessage } from "@/hooks/useCanvasChat";
+import { useCanvasChat } from "@/hooks/useCanvasChat";
+import { useJarbleRuntime } from "@/lib/assistantRuntime";
+import AssistantUIChat from "@/components/chat/AssistantUIChat";
 import { useCanvasPersistence } from "@/hooks/useCanvasPersistence";
 import { canvasReducer, INITIAL_CANVAS_STATE } from "@/components/workspace/canvasReducer";
 import SimpleCanvasGrid from "@/components/workspace/SimpleCanvasGrid";
@@ -18,31 +20,14 @@ import CanvasRenderer from "@/components/canvas/CanvasRenderer";
 import EditableCanvas from "@/components/canvas/EditableCanvas";
 import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, SendHorizontal, Settings, MessageSquare, Layout, X, Sparkles } from "lucide-react";
+import { ArrowLeft, Loader2, SendHorizontal, Settings, MessageSquare, Layout, X } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, memo } from "react";
 import { cn } from "@/lib/utils";
-import MarkdownMessage from "@/components/MarkdownMessage";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import ChatErrorCard from "@/components/workspace/ChatErrorCard";
 import { useDiagnose } from "@/hooks/useDiagnose";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Format a createdAt timestamp into a short time string */
-function formatTime(ts: number): string {
-  const d = new Date(ts);
-  const now = new Date();
-  const isToday =
-    d.getDate() === now.getDate() &&
-    d.getMonth() === now.getMonth() &&
-    d.getFullYear() === now.getFullYear();
-  if (isToday) {
-    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  }
-  return d.toLocaleDateString([], { month: "short", day: "numeric" }) +
-    " " +
-    d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
 
 /** Generate a friendly, concise display message for a UI action relay */
 function formatActionDisplay(action: CanvasAction): string {
@@ -101,33 +86,6 @@ function formatActionDisplay(action: CanvasAction): string {
     default:
       return `Interacted with ${component.replace(/_/g, " ")}`;
   }
-}
-
-// ── Typing Indicator ─────────────────────────────────────────────────────────
-
-function ThinkingIndicator() {
-  return (
-    <div className="flex gap-3">
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500/20 to-primary/20 border border-primary/10 flex items-center justify-center shrink-0">
-        <Sparkles className="w-3.5 h-3.5 text-primary/70" />
-      </div>
-      <div className="flex items-center gap-2 rounded-lg bg-secondary/30 px-4 py-3">
-        <span
-          className="inline-block w-1.5 h-1.5 rounded-full bg-primary/50 animate-bounce"
-          style={{ animationDelay: "0ms", animationDuration: "1s" }}
-        />
-        <span
-          className="inline-block w-1.5 h-1.5 rounded-full bg-primary/50 animate-bounce"
-          style={{ animationDelay: "150ms", animationDuration: "1s" }}
-        />
-        <span
-          className="inline-block w-1.5 h-1.5 rounded-full bg-primary/50 animate-bounce"
-          style={{ animationDelay: "300ms", animationDuration: "1s" }}
-        />
-        <span className="text-xs text-muted-foreground/70 ml-1">Thinking...</span>
-      </div>
-    </div>
-  );
 }
 
 // ── Example prompts for empty state ──────────────────────────────────────────
@@ -277,12 +235,12 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
   const startMutation = trpc.deployment.start.useMutation();
   const [state, dispatch] = useReducer(canvasReducer, INITIAL_CANVAS_STATE);
   const { sendMessage, isStreaming, streamingCardIds, messages, streamingText, lastChatError, lastUserMessage, clearChatError } = useCanvasChat(deploymentId, state, dispatch);
+  const runtime = useJarbleRuntime({ messages, streamingText, isStreaming, sendMessage });
   useCanvasPersistence(deploymentId, state, dispatch);
   const { result: diagnosis, isLoading: isDiagnosing, runDiagnosis } = useDiagnose(deploymentId);
   const [input, setInput] = useState("");
   const [showCanvas, setShowCanvas] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
 
   // ── Resizable chat panel state ──
   const [chatWidth, setChatWidth] = useState(400);
@@ -324,25 +282,6 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
     },
     [chatWidth]
   );
-
-  // Auto-scroll chat to bottom on new messages (not on every streaming update)
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
-
-  // Also scroll when thinking indicator appears (isStreaming starts)
-  useEffect(() => {
-    if (isStreaming) {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [isStreaming]);
-
-  // Scroll to error card when it appears
-  useEffect(() => {
-    if (lastChatError) {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [lastChatError]);
 
   // Auto-resize textarea
   const adjustTextareaHeight = useCallback(() => {
@@ -429,10 +368,11 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
         )}
         style={canvasSidebarVisible ? { width: chatWidth } : undefined}
       >
-        {/* Chat messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {/* Empty state */}
-          {messages.length === 0 && !streamingText && !isStreaming && (
+        {/* Chat messages via assistant-ui */}
+        <AssistantUIChat
+          runtime={runtime}
+          isStreaming={isStreaming}
+          emptyState={
             <div className="h-full flex flex-col items-center justify-center gap-4 px-4">
               <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/10 flex items-center justify-center">
                 <MessageSquare className="w-6 h-6 text-primary/50" />
@@ -456,37 +396,12 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
                 ))}
               </div>
             </div>
-          )}
+          }
+        />
 
-          {messages.map((msg) => (
-            <ChatBubble key={msg.id} message={msg} />
-          ))}
-
-          {/* Thinking indicator -- shown when streaming but no text yet */}
-          {isStreaming && !streamingText && (
-            <ThinkingIndicator />
-          )}
-
-          {/* Streaming text bubble */}
-          {streamingText && (
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500/20 to-primary/20 border border-primary/10 flex items-center justify-center shrink-0">
-                <Sparkles className="w-3.5 h-3.5 text-primary/70" />
-              </div>
-              <div className="flex flex-col gap-1 flex-1 max-w-[80%]">
-                <div className="rounded-lg bg-secondary/30 px-4 py-3 animate-[shimmer_2s_ease-in-out_infinite]" style={{
-                  backgroundSize: "200% 100%",
-                  backgroundImage: "linear-gradient(90deg, transparent 0%, hsl(var(--secondary)/0.15) 50%, transparent 100%)",
-                }}>
-                  <MarkdownMessage content={streamingText} />
-                  <span className="inline-block w-2 h-4 bg-primary/60 animate-pulse ml-1 align-middle" />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Chat error card with diagnostics */}
-          {lastChatError && !isStreaming && (
+        {/* Chat error card with diagnostics */}
+        {lastChatError && !isStreaming && (
+          <div className="px-4 pb-2">
             <ChatErrorCard
               error={lastChatError}
               onRetry={lastUserMessage ? () => sendMessage(lastUserMessage) : undefined}
@@ -500,9 +415,8 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
               diagnosis={diagnosis}
               isDiagnosing={isDiagnosing}
             />
-          )}
-          <div ref={chatEndRef} />
-        </div>
+          </div>
+        )}
 
         {/* Chat input */}
         <div className="border-t border-border/60 bg-background/95 backdrop-blur-sm shrink-0 p-4">
@@ -622,70 +536,6 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
   );
 }
 
-// ── Chat Bubble Component ────────────────────────────────────────────────────
-
-const ChatBubble = memo(function ChatBubble({ message }: { message: ChatMessage }) {
-  const isUser = message.role === "user";
-  const isAction = message.isActionRelay;
-  const displayContent = message.displayText || message.content;
-
-  // Action relay messages render as compact, muted inline notes (no avatar, no full bubble)
-  if (isUser && isAction) {
-    return (
-      <div className="flex justify-end">
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50 border border-border/40 max-w-[70%]">
-          <span className="text-xs italic text-muted-foreground">{displayContent}</span>
-          {message.createdAt > 0 && (
-            <span className="text-[10px] text-muted-foreground/30 select-none shrink-0">
-              {formatTime(message.createdAt)}
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className={cn("flex gap-3", isUser && "flex-row-reverse")}>
-      {/* Avatar */}
-      <div className={cn(
-        "w-8 h-8 rounded-full flex items-center justify-center shrink-0 border",
-        isUser
-          ? "bg-primary/90 text-primary-foreground border-primary/20"
-          : "bg-gradient-to-br from-violet-500/20 to-primary/20 border-primary/10"
-      )}>
-        {isUser ? (
-          <span className="text-[10px] font-semibold">Y</span>
-        ) : (
-          <Sparkles className="w-3.5 h-3.5 text-primary/70" />
-        )}
-      </div>
-
-      {/* Message content + timestamp */}
-      <div className={cn("flex flex-col gap-0.5", isUser ? "items-end" : "items-start", "flex-1 max-w-[80%]")}>
-        <div className={cn(
-          "rounded-lg px-4 py-3",
-          isUser
-            ? "bg-primary/90 text-primary-foreground shadow-sm"
-            : "bg-secondary/30"
-        )}>
-          {isUser ? (
-            <p className="text-sm">{displayContent}</p>
-          ) : (
-            <MarkdownMessage content={displayContent} />
-          )}
-        </div>
-        {/* Timestamp */}
-        {message.createdAt > 0 && (
-          <span className="text-[10px] text-muted-foreground/40 px-1 select-none">
-            {formatTime(message.createdAt)}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-});
-
 // ── Card Content Renderer (UI blocks only -- chat messages are separate) ───────
 
 const CardContent = memo(function CardContent({
@@ -701,7 +551,7 @@ const CardContent = memo(function CardContent({
 }) {
   // Handle actions from interactive components -- relay ALL actions to the bot as chat messages
   const handleAction = useCallback(
-    (action: CanvasAction) => {
+    async (action: CanvasAction) => {
       const actionStart = Date.now();
       console.log(`[Jarble:ActionRelay] Action received: ${action.component} → ${action.action} (blockId: ${action.blockId})`);
 
@@ -712,7 +562,7 @@ const CardContent = memo(function CardContent({
         const errorMsg = `[COMPONENT_ERROR] cardId=${action.blockId} component=${component}\nThe component failed to render with this error:\n${error}\n\nPlease fix the component by outputting a \`\`\`jarble_ui_update\`\`\` block with card_id="${action.blockId}" and corrected props. Do NOT create a new component — update the existing one in place.`;
         console.log("[Jarble:ActionRelay] Forwarding component error to bot for fix");
         try {
-          sendMessage(errorMsg, "Fix this component");
+          await sendMessage(errorMsg, "Fix this component");
         } catch (err) {
           console.error(`[Jarble:ActionRelay] Failed to send error to bot: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -734,7 +584,7 @@ const CardContent = memo(function CardContent({
           const displayText = "Fix this component";
           console.log("[Jarble:ActionRelay] Forwarding sandbox error to bot");
           try {
-            sendMessage(errorMsg, displayText);
+            await sendMessage(errorMsg, displayText);
           } catch (err) {
             console.error(`[Jarble:ActionRelay] Failed to send action to bot: ${err instanceof Error ? err.message : String(err)}`);
           }
@@ -749,7 +599,7 @@ const CardContent = memo(function CardContent({
       const actionMsg = `[UI_ACTION] cardId=${action.blockId} component=${action.component} action=${action.action}\n${JSON.stringify(action.payload)}`;
       console.log(`[Jarble:ActionRelay] Relaying UI action to bot (${Date.now() - actionStart}ms prep)`);
       try {
-        sendMessage(actionMsg, displayText);
+        await sendMessage(actionMsg, displayText);
       } catch (err) {
         console.error(`[Jarble:ActionRelay] Failed to send action to bot: ${err instanceof Error ? err.message : String(err)}`);
       }

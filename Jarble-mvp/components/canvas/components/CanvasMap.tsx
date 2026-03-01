@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import dynamic from "next/dynamic";
 
 // Leaflet CSS must be imported for proper rendering
@@ -30,7 +31,7 @@ export interface CanvasMapProps {
   height?: number;
 }
 
-export default function CanvasMap({
+function CanvasMapInner({
   center,
   zoom = 13,
   markers = [],
@@ -69,3 +70,5 @@ export default function CanvasMap({
     </div>
   );
 }
+
+export default memo(CanvasMapInner);

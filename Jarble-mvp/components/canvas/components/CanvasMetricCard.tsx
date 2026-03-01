@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import {
   AreaChart,
   Area,
@@ -118,7 +118,7 @@ function LiveDot() {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function CanvasMetricCard({
+function CanvasMetricCardInner({
   label: labelProp,
   title,
   value,
@@ -263,3 +263,5 @@ export default function CanvasMetricCard({
     </motion.div>
   );
 }
+
+export default memo(CanvasMetricCardInner);

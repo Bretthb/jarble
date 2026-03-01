@@ -1,16 +1,18 @@
 "use client";
 
-import { createContext, useContext, Component, type ReactNode } from "react";
+import { memo, createContext, useContext, Component, type ReactNode } from "react";
 import { AlertTriangle, Wrench, X } from "lucide-react";
 import { CANVAS_COMPONENTS } from "./registry";
 import { useComponentCatalog } from "@/components/ComponentCatalogProvider";
 import CustomComponentRenderer from "./CustomComponentRenderer";
 import { CanvasActionProvider, type CanvasAction } from "./CanvasActionContext";
+import { autoFixProps } from "@/lib/autoFixProps";
+import * as Sentry from "@sentry/nextjs";
 
 const isDev = process.env.NODE_ENV === "development";
 
 // Components that may be expensive to render — measure their render time
-const EXPENSIVE_COMPONENTS = new Set(["sandbox", "code_editor", "map", "stock", "heatmap", "treemap", "sankey"]);
+const EXPENSIVE_COMPONENTS = new Set(["sandbox", "code_editor", "map", "spreadsheet", "chart"]);
 
 // ── Component Error Card ──────────────────────────────────────────────────────
 
@@ -92,8 +94,12 @@ class CanvasErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
     return { error };
   }
 
-  componentDidCatch(error: Error) {
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error(`[Jarble:Render] Error boundary caught error in ${this.props.componentName}: ${error.message}`);
+    Sentry.captureException(error, {
+      tags: { component: this.props.componentName },
+      extra: { componentStack: errorInfo.componentStack },
+    });
   }
 
   render() {
@@ -129,7 +135,7 @@ const CanvasDepthContext = createContext(0);
  * validating props with Zod, and rendering. Falls back to custom component
  * resolution from the catalog, then to an error card.
  */
-export default function CanvasRenderer({
+function CanvasRendererInner({
   block,
   onAction,
 }: {
@@ -147,18 +153,28 @@ export default function CanvasRenderer({
     );
   }
 
-  // 1. Try built-in registry
-  const entry = CANVAS_COMPONENTS[block.component];
+  // 0. Auto-fix props and normalize component name before validation
+  const fixed = autoFixProps(block.component, block.props);
+
+  if (isDev && fixed.repairs.length > 0) {
+    console.warn(
+      `[CanvasRenderer] AutoFix applied ${fixed.repairs.length} repairs to ${fixed.component}:`,
+      fixed.repairs,
+    );
+  }
+
+  // 1. Try built-in registry (using normalized component name)
+  const entry = CANVAS_COMPONENTS[fixed.component];
 
   if (entry) {
-    const result = entry.propsSchema.safeParse(block.props);
+    const result = entry.propsSchema.safeParse(fixed.props);
 
     if (!result.success) {
       const errorMsg = result.error.issues.map((i) => i.message).join(", ");
-      isDev && console.warn("[Jarble:Render] Zod validation FAILED for", block.component, ":", result.error.issues, "\n  Raw props:", block.props);
+      isDev && console.warn("[Jarble:Render] Zod validation FAILED for", fixed.component, ":", result.error.issues, "\n  Raw props:", fixed.props);
       return (
         <ComponentErrorCard
-          componentName={block.component}
+          componentName={fixed.component}
           error={`Invalid props: ${errorMsg}`}
           blockId={block.id}
           onAction={onAction}
@@ -168,9 +184,9 @@ export default function CanvasRenderer({
 
     const Component = entry.component;
     const validatedProps = result.data as Record<string, unknown>;
-    const isExpensive = EXPENSIVE_COMPONENTS.has(block.component);
+    const isExpensive = EXPENSIVE_COMPONENTS.has(fixed.component);
 
-    isDev && console.log("[Jarble:Render] Rendering", block.component, "— props keys:", Object.keys(validatedProps), "block:", block.id);
+    isDev && console.log("[Jarble:Render] Rendering", fixed.component, "— props keys:", Object.keys(validatedProps), "block:", block.id);
 
     // For expensive components, measure render time
     const renderStart = isExpensive ? Date.now() : 0;
@@ -179,17 +195,17 @@ export default function CanvasRenderer({
       requestAnimationFrame(() => {
         const elapsed = Date.now() - renderStart;
         if (elapsed > 100) {
-          console.warn(`[Jarble:Render] Slow render: ${block.component} took ${elapsed}ms`);
+          console.warn(`[Jarble:Render] Slow render: ${fixed.component} took ${elapsed}ms`);
         }
       });
     }
 
     return (
       <CanvasDepthContext.Provider value={depth + 1}>
-        <CanvasErrorBoundary componentName={block.component} blockId={block.id} onAction={onAction}>
+        <CanvasErrorBoundary componentName={fixed.component} blockId={block.id} onAction={onAction}>
           <CanvasActionProvider
             blockId={block.id}
-            component={block.component}
+            component={fixed.component}
             onAction={onAction}
           >
             <Component {...validatedProps} />
@@ -199,24 +215,26 @@ export default function CanvasRenderer({
     );
   }
 
-  // 2. Try custom component from catalog
-  const customDef = getCustomComponent(block.component);
+  // 2. Try custom component from catalog (using normalized name)
+  const customDef = getCustomComponent(fixed.component);
   if (customDef) {
-    isDev && console.log("[Jarble:Render] Rendering custom component:", block.component);
+    isDev && console.log("[Jarble:Render] Rendering custom component:", fixed.component);
     return (
       <CanvasDepthContext.Provider value={depth + 1}>
-        <CanvasErrorBoundary componentName={block.component} blockId={block.id} onAction={onAction}>
-          <CustomComponentRenderer definition={customDef} props={block.props} />
+        <CanvasErrorBoundary componentName={fixed.component} blockId={block.id} onAction={onAction}>
+          <CustomComponentRenderer definition={customDef} props={fixed.props} />
         </CanvasErrorBoundary>
       </CanvasDepthContext.Provider>
     );
   }
 
   // 3. Unknown component fallback
-  isDev && console.warn(`[Jarble:Render] Unknown component: ${block.component}, showing fallback`);
+  isDev && console.warn(`[Jarble:Render] Unknown component: ${fixed.component}, showing fallback`);
   return (
     <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-300">
-      Unknown component: <code>{block.component}</code>
+      Unknown component: <code>{fixed.component}</code>
     </div>
   );
 }
+
+export default memo(CanvasRendererInner);

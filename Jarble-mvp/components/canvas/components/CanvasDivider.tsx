@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 export interface CanvasDividerProps {
   label?: string;
   variant?: "solid" | "dashed" | "dotted";
@@ -18,7 +20,7 @@ const VARIANT_STYLES: Record<string, string> = {
   dotted: "border-dotted",
 };
 
-export default function CanvasDivider({ label, variant = "solid", spacing = "md" }: CanvasDividerProps) {
+function CanvasDividerInner({ label, variant = "solid", spacing = "md" }: CanvasDividerProps) {
   const spacingClass = SPACING_CLASSES[spacing] || SPACING_CLASSES.md;
   const variantStyle = VARIANT_STYLES[variant] || VARIANT_STYLES.solid;
 
@@ -34,3 +36,5 @@ export default function CanvasDivider({ label, variant = "solid", spacing = "md"
 
   return <div className={`border-t border-border ${variantStyle} ${spacingClass}`} />;
 }
+
+export default memo(CanvasDividerInner);

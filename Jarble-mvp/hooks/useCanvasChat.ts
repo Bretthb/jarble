@@ -111,6 +111,10 @@ export function useCanvasChat(
   const isStreamingRef = useRef(false);
   // Generation counter — detects when a new request supersedes an aborted one in finally
   const generationRef = useRef(0);
+  // rAF-based throttle for streaming text updates — coalesces rapid deltas into
+  // a single React re-render per animation frame (~16ms / 60fps)
+  const pendingTextRef = useRef<string>("");
+  const rafIdRef = useRef<number | null>(null);
 
   // Load chat history from localStorage on mount
   useEffect(() => {
@@ -141,11 +145,15 @@ export function useCanvasChat(
     };
   }, [deploymentId, messages]);
 
-  // Clear card animation timers on unmount to prevent setState on unmounted component
+  // Clear card animation timers and rAF on unmount to prevent setState on unmounted component
   useEffect(() => {
     return () => {
       cardTimersRef.current.forEach(clearTimeout);
       cardTimersRef.current = [];
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
     };
   }, []);
 
@@ -155,7 +163,7 @@ export function useCanvasChat(
       if (!text.trim() || isStreamingRef.current) return;
 
       // Skip card reference prepend for action/error messages — these already contain card context
-      const isActionMessage = text.startsWith("[UI_ACTION]") || text.startsWith("[SANDBOX_ERROR]");
+      const isActionMessage = text.startsWith("[UI_ACTION]") || text.startsWith("[SANDBOX_ERROR]") || text.startsWith("[COMPONENT_ERROR]");
 
       // Use stateRef.current for selectedCard and canvas state — keeps deps stable
       const currentState = stateRef.current;
@@ -259,9 +267,18 @@ export function useCanvasChat(
         // Track cards added during this stream so findOpenPosition can see them
         // even before React re-renders and updates stateRef.current.cards.
         const cardsAddedThisStream: CanvasCard[] = [];
-        let lastStreamUpdate = 0;
-        const STREAM_THROTTLE_MS = 50; // Throttle streaming updates to 20fps
         let textContentCount = 0;
+
+        // rAF-based throttle: coalesce rapid text deltas into one setState per frame
+        function scheduleTextUpdate(text: string) {
+          pendingTextRef.current = text;
+          if (rafIdRef.current === null) {
+            rafIdRef.current = requestAnimationFrame(() => {
+              setStreamingText(pendingTextRef.current);
+              rafIdRef.current = null;
+            });
+          }
+        }
 
         // Labeled outer loop so RUN_FINISHED can break out of both loops cleanly
         outer: while (true) {
@@ -287,12 +304,8 @@ export function useCanvasChat(
                   console.log(`[Jarble:Chat] SSE event: TEXT_MESSAGE_CONTENT (x${textContentCount}, ${accumulatedText.length} chars total)`);
                 }
                 accumulatedText += event.delta;
-                // Throttle streaming text updates to reduce re-renders
-                const now = Date.now();
-                if (now - lastStreamUpdate >= STREAM_THROTTLE_MS) {
-                  lastStreamUpdate = now;
-                  setStreamingText(stripUIMarkers(accumulatedText));
-                }
+                // Schedule rAF-throttled update — coalesces rapid deltas into one render per frame
+                scheduleTextUpdate(stripUIMarkers(accumulatedText));
               } else if (isDev && event.type !== "TEXT_MESSAGE_CONTENT") {
                 console.log(`[Jarble:Chat] SSE event: ${event.type}`);
               }
@@ -373,6 +386,13 @@ export function useCanvasChat(
 
         isDev && console.log(`[Jarble:Chat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
 
+        // Cancel any pending rAF and flush the final text immediately
+        if (rafIdRef.current !== null) {
+          cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = null;
+        }
+        setStreamingText(stripUIMarkers(accumulatedText));
+
         // After streaming ends: add bot text to chat messages (NOT canvas)
         const cleanText = stripUIMarkers(accumulatedText);
         if (cleanText) {
@@ -406,6 +426,11 @@ export function useCanvasChat(
         // The generation check prevents the abort race: when request A is aborted
         // and request B starts, A's finally must not clear B's streaming state.
         if (generationRef.current === generation) {
+          // Cancel any pending rAF to prevent stale updates
+          if (rafIdRef.current !== null) {
+            cancelAnimationFrame(rafIdRef.current);
+            rafIdRef.current = null;
+          }
           isStreamingRef.current = false;
           setIsStreaming(false);
           setStreamingText("");

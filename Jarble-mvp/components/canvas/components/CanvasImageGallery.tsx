@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 
 export interface CanvasImageGalleryProps {
@@ -9,7 +9,7 @@ export interface CanvasImageGalleryProps {
   columns?: number;
 }
 
-export default function CanvasImageGallery({
+function CanvasImageGalleryInner({
   images,
   title,
   columns = 3,
@@ -75,3 +75,5 @@ export default function CanvasImageGallery({
     </div>
   );
 }
+
+export default memo(CanvasImageGalleryInner);

@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import dynamic from "next/dynamic";
 
 const Workbook = dynamic(
@@ -15,7 +16,7 @@ export interface CanvasSpreadsheetProps {
   height?: number;
 }
 
-export default function CanvasSpreadsheet({
+function CanvasSpreadsheetInner({
   data,
   title,
   height = 400,
@@ -49,3 +50,5 @@ export default function CanvasSpreadsheet({
     </div>
   );
 }
+
+export default memo(CanvasSpreadsheetInner);

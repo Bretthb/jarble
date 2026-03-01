@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
-  transpilePackages: [],
+  transpilePackages: ["@jarble/component-manifest"],
 
   // Suppress optional peer dep warnings from @tambo-ai/react → @standard-community/standard-json
   webpack: (config) => {
@@ -37,6 +38,20 @@ const nextConfig: NextConfig = {
   // Enable gzip compression
   compress: true,
 
+  // Security response headers
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
+        ],
+      },
+    ];
+  },
+
   // Powered-by header is a minor info leak
   poweredByHeader: false,
 
@@ -47,8 +62,16 @@ const nextConfig: NextConfig = {
       "framer-motion",
       "recharts",
       "date-fns",
+      "@xyflow/react",
+      "@monaco-editor/react",
     ],
   },
 };
 
-export default nextConfig;
+// Wrap with Sentry only when DSN is configured
+export default process.env.NEXT_PUBLIC_SENTRY_DSN
+  ? withSentryConfig(nextConfig, {
+      silent: true,
+      sourcemaps: { disable: true },
+    })
+  : nextConfig;

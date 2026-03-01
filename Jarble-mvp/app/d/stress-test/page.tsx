@@ -63,54 +63,6 @@ function generateLargeText(chars: number): string {
   return result.slice(0, chars);
 }
 
-function generateScatterData(points: number) {
-  return Array.from({ length: points }, (_, i) => ({
-    x: Math.random() * 100,
-    y: Math.random() * 100,
-    label: `Point ${i}`,
-    group: i % 3 === 0 ? "A" : i % 3 === 1 ? "B" : "C",
-  }));
-}
-
-function generateStockData(points: number) {
-  let price = 100;
-  return Array.from({ length: points }, (_, i) => {
-    const d = new Date(2024, 0, i + 1);
-    const open = price;
-    const close = price + (Math.random() - 0.5) * 10;
-    const high = Math.max(open, close) + Math.random() * 5;
-    const low = Math.min(open, close) - Math.random() * 5;
-    price = close;
-    return {
-      date: d.toISOString().split("T")[0],
-      open: +open.toFixed(2),
-      close: +close.toFixed(2),
-      high: +high.toFixed(2),
-      low: +low.toFixed(2),
-    };
-  });
-}
-
-function generateCalendarData(days: number) {
-  const data = [];
-  const start = new Date(2024, 0, 1);
-  for (let i = 0; i < days; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    data.push({ date: d.toISOString().split("T")[0], value: Math.floor(Math.random() * 10) });
-  }
-  return data;
-}
-
-function generateHeatmapData(xCount: number, yCount: number) {
-  const data = [];
-  for (let x = 0; x < xCount; x++) {
-    for (let y = 0; y < yCount; y++) {
-      data.push({ x: `X${x}`, y: `Y${y}`, value: Math.floor(Math.random() * 100) });
-    }
-  }
-  return data;
-}
 
 // XSS/injection test strings
 const XSS_STRING = '<script>alert("xss")</script>';
@@ -220,59 +172,6 @@ function getNormalProps(): Record<string, Record<string, unknown>> {
       ],
       submitLabel: "Send",
     },
-    gauge: { value: 72, title: "CPU Usage", suffix: "%" },
-    radar: {
-      data: [
-        { axis: "Speed", value: 80 },
-        { axis: "Strength", value: 65 },
-        { axis: "Defense", value: 90 },
-        { axis: "Magic", value: 40 },
-        { axis: "Luck", value: 70 },
-      ],
-      title: "Character Stats",
-    },
-    treemap: {
-      data: {
-        name: "root",
-        children: [
-          { name: "JavaScript", value: 40 },
-          { name: "Python", value: 30 },
-          { name: "Rust", value: 20 },
-          { name: "Go", value: 10 },
-        ],
-      },
-      title: "Language Usage",
-    },
-    funnel: {
-      data: [
-        { stage: "Visitors", value: 1000 },
-        { stage: "Leads", value: 600 },
-        { stage: "Qualified", value: 300 },
-        { stage: "Customers", value: 100 },
-      ],
-      title: "Sales Funnel",
-    },
-    waterfall: {
-      data: [
-        { label: "Revenue", value: 500 },
-        { label: "COGS", value: -200 },
-        { label: "Expenses", value: -100 },
-        { label: "Tax", value: -50 },
-        { label: "Profit", value: 150 },
-      ],
-      title: "P&L Waterfall",
-    },
-    scatter: {
-      data: [
-        { x: 10, y: 20, label: "A" },
-        { x: 30, y: 50, label: "B" },
-        { x: 60, y: 30, label: "C" },
-        { x: 80, y: 70, label: "D" },
-      ],
-      title: "Scatter Plot",
-      xLabel: "X Axis",
-      yLabel: "Y Axis",
-    },
     steps: {
       current: 1,
       items: [
@@ -295,10 +194,6 @@ function getNormalProps(): Record<string, Record<string, unknown>> {
       ],
       title: "File Tree",
       defaultExpandAll: true,
-    },
-    calendar_heatmap: {
-      data: generateCalendarData(90),
-      title: "Activity Heatmap",
     },
     descriptions: {
       title: "Server Details",
@@ -333,120 +228,6 @@ function getNormalProps(): Record<string, Record<string, unknown>> {
         { title: "Slide 2", description: "Second slide content" },
         { title: "Slide 3", description: "Third slide content" },
       ],
-    },
-    stock: {
-      data: generateStockData(30),
-      title: "AAPL Stock",
-    },
-    sankey: {
-      data: [
-        { source: "Budget", target: "Engineering", value: 50 },
-        { source: "Budget", target: "Marketing", value: 30 },
-        { source: "Budget", target: "Sales", value: 20 },
-        { source: "Engineering", target: "Frontend", value: 25 },
-        { source: "Engineering", target: "Backend", value: 25 },
-      ],
-      title: "Budget Flow",
-    },
-    sunburst: {
-      data: {
-        name: "Company",
-        children: [
-          { name: "Engineering", value: 50, children: [{ name: "Frontend", value: 25 }, { name: "Backend", value: 25 }] },
-          { name: "Sales", value: 30 },
-          { name: "Marketing", value: 20 },
-        ],
-      },
-      title: "Org Chart",
-    },
-    heatmap: {
-      data: [
-        { x: "Mon", y: "Morning", value: 5 },
-        { x: "Mon", y: "Afternoon", value: 8 },
-        { x: "Tue", y: "Morning", value: 3 },
-        { x: "Tue", y: "Afternoon", value: 9 },
-        { x: "Wed", y: "Morning", value: 7 },
-        { x: "Wed", y: "Afternoon", value: 4 },
-      ],
-      title: "Activity Heatmap",
-    },
-    wordcloud: {
-      data: [
-        { text: "React", value: 80 },
-        { text: "TypeScript", value: 60 },
-        { text: "Next.js", value: 50 },
-        { text: "Tailwind", value: 40 },
-        { text: "Node.js", value: 35 },
-        { text: "Zod", value: 20 },
-      ],
-      title: "Tech Stack",
-    },
-    histogram: {
-      data: Array.from({ length: 50 }, () => ({ value: Math.random() * 100 })),
-      title: "Distribution",
-      binWidth: 10,
-    },
-    box: {
-      data: [
-        { group: "A", value: 10 },
-        { group: "A", value: 20 },
-        { group: "A", value: 30 },
-        { group: "B", value: 15 },
-        { group: "B", value: 25 },
-        { group: "B", value: 35 },
-      ],
-      title: "Box Plot",
-    },
-    liquid: { value: 0.65, title: "Completion", color: "#3b82f6" },
-    rose: {
-      data: [
-        { category: "A", value: 40 },
-        { category: "B", value: 30 },
-        { category: "C", value: 20 },
-        { category: "D", value: 10 },
-      ],
-      title: "Rose Chart",
-    },
-    dual_axes: {
-      data: [
-        { month: "Jan", revenue: 100, users: 20 },
-        { month: "Feb", revenue: 150, users: 35 },
-        { month: "Mar", revenue: 200, users: 50 },
-      ],
-      title: "Revenue vs Users",
-      xField: "month",
-      yFields: ["revenue", "users"] as [string, string],
-    },
-    bullet: {
-      data: [{ title: "Revenue", ranges: [100, 200, 300], measures: [150, 220], target: 250 }],
-      title: "Bullet Chart",
-    },
-    radial_bar: {
-      data: [
-        { name: "React", value: 80 },
-        { name: "Vue", value: 60 },
-        { name: "Angular", value: 40 },
-      ],
-      title: "Framework Usage",
-    },
-    venn: {
-      data: [
-        { sets: ["A"], size: 10, label: "Set A" },
-        { sets: ["B"], size: 8, label: "Set B" },
-        { sets: ["A", "B"], size: 3, label: "A & B" },
-      ],
-      title: "Venn Diagram",
-    },
-    circle_packing: {
-      data: {
-        name: "Root",
-        children: [
-          { name: "Child A", value: 50 },
-          { name: "Child B", value: 30 },
-          { name: "Child C", value: 20, children: [{ name: "Grandchild", value: 10 }] },
-        ],
-      },
-      title: "Circle Packing",
     },
     statistic: { value: 99.9, title: "Uptime", suffix: "%", precision: 1 },
     tag_cloud: {
@@ -614,30 +395,6 @@ function getEdgeCaseProps(): Record<string, Record<string, unknown>[]> {
         ],
       },
     ],
-    gauge: [
-      { value: 0 },
-      { value: 100, title: XSS_STRING },
-    ],
-    radar: [
-      { data: [] },
-      { data: [{ axis: XSS_STRING, value: EXTREME_NUMBER }] },
-    ],
-    treemap: [
-      { data: { name: "root", children: [] } },
-      { data: { name: XSS_STRING, children: [{ name: UNICODE_STRING, value: EXTREME_NUMBER }] } },
-    ],
-    funnel: [
-      { data: [] },
-      { data: [{ stage: XSS_STRING, value: 0 }] },
-    ],
-    waterfall: [
-      { data: [] },
-      { data: [{ label: UNICODE_STRING, value: -EXTREME_NUMBER }] },
-    ],
-    scatter: [
-      { data: [] },
-      { data: generateScatterData(500) },
-    ],
     steps: [
       { current: 0, items: [] },
       { current: 999, items: [{ title: XSS_STRING }] },
@@ -661,10 +418,6 @@ function getEdgeCaseProps(): Record<string, Record<string, unknown>[]> {
         ],
       },
     ],
-    calendar_heatmap: [
-      { data: [] },
-      { data: generateCalendarData(365) },
-    ],
     descriptions: [
       { items: [] },
       { items: [{ label: XSS_STRING, value: EXTREME_NUMBER }] },
@@ -680,58 +433,6 @@ function getEdgeCaseProps(): Record<string, Record<string, unknown>[]> {
     carousel: [
       { items: [] },
       { items: Array.from({ length: 20 }, (_, i) => ({ title: `Slide ${i}`, description: i === 0 ? XSS_STRING : `Content ${i}` })) },
-    ],
-    stock: [
-      { data: [] },
-      { data: generateStockData(200) },
-    ],
-    sankey: [
-      { data: [] },
-      { data: [{ source: XSS_STRING, target: UNICODE_STRING, value: EXTREME_NUMBER }] },
-    ],
-    sunburst: [
-      { data: { name: "root", children: [] } },
-    ],
-    heatmap: [
-      { data: [] },
-      { data: generateHeatmapData(20, 20) },
-    ],
-    wordcloud: [
-      { data: [] },
-      { data: Array.from({ length: 100 }, (_, i) => ({ text: `Word${i}`, value: Math.random() * 100 })) },
-    ],
-    histogram: [
-      { data: [] },
-      { data: Array.from({ length: 500 }, () => ({ value: Math.random() * 100 })) },
-    ],
-    box: [
-      { data: [] },
-      { data: Array.from({ length: 200 }, (_, i) => ({ group: i % 5 === 0 ? "A" : "B", value: Math.random() * 100 })) },
-    ],
-    liquid: [
-      { value: 0 },
-      { value: 1 },
-    ],
-    rose: [
-      { data: [] },
-      { data: Array.from({ length: 20 }, (_, i) => ({ category: `C${i}`, value: Math.random() * 100 })) },
-    ],
-    dual_axes: [
-      { data: [] },
-      { data: [{ x: XSS_STRING, a: EXTREME_NUMBER, b: -EXTREME_NUMBER }] },
-    ],
-    bullet: [
-      { data: [] },
-      { data: [{ title: XSS_STRING, ranges: [100], measures: [50], target: 75 }] },
-    ],
-    radial_bar: [
-      { data: [] },
-    ],
-    venn: [
-      { data: [] },
-    ],
-    circle_packing: [
-      { data: { name: "root", children: [] } },
     ],
     statistic: [
       { value: 0 },
@@ -1435,45 +1136,6 @@ export default function StressTestPage() {
                 </div>
               </div>
 
-              {/* Large scatter */}
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-                <div className="px-3 py-2 bg-zinc-800/50 border-b border-zinc-800">
-                  <span className="text-xs font-mono text-zinc-300">scatter (1000 points)</span>
-                </div>
-                <div className="p-2 max-h-[400px] overflow-auto">
-                  <CanvasRenderer
-                    block={{
-                      id: "perf-large-scatter",
-                      component: "scatter",
-                      props: {
-                        title: "1000 Points",
-                        data: generateScatterData(1000),
-                      },
-                    }}
-                    onAction={handleAction}
-                  />
-                </div>
-              </div>
-
-              {/* Large stock chart */}
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-                <div className="px-3 py-2 bg-zinc-800/50 border-b border-zinc-800">
-                  <span className="text-xs font-mono text-zinc-300">stock (365 days)</span>
-                </div>
-                <div className="p-2 max-h-[400px] overflow-auto">
-                  <CanvasRenderer
-                    block={{
-                      id: "perf-large-stock",
-                      component: "stock",
-                      props: {
-                        title: "365 Day Stock",
-                        data: generateStockData(365),
-                      },
-                    }}
-                    onAction={handleAction}
-                  />
-                </div>
-              </div>
             </div>
           </section>
         )}

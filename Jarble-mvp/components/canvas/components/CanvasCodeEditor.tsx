@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import dynamic from "next/dynamic";
 
 const Editor = dynamic(() => import("@monaco-editor/react").then((m) => m.default), {
@@ -17,7 +18,7 @@ export interface CanvasCodeEditorProps {
   height?: number;
 }
 
-export default function CanvasCodeEditor({
+function CanvasCodeEditorInner({
   code,
   language = "javascript",
   title,
@@ -51,3 +52,5 @@ export default function CanvasCodeEditor({
     </div>
   );
 }
+
+export default memo(CanvasCodeEditorInner);

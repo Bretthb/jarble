@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 
 export interface CanvasCardProps {
@@ -43,7 +44,7 @@ function LiveDot() {
   );
 }
 
-export default function CanvasCard({
+function CanvasCardInner({
   title,
   subtitle,
   body,
@@ -140,3 +141,5 @@ export default function CanvasCard({
     </motion.div>
   );
 }
+
+export default memo(CanvasCardInner);

@@ -340,11 +340,7 @@ function ConfigMessageBubble({
       {/* Content */}
       <div className={`flex-1 min-w-0 ${isUser ? "text-right" : ""} space-y-1.5`}>
         {(() => {
-          const hasStreamingComponent = !isUser && message.content.some(
-            (b) => b.type === "component" && (b as any).name === "StreamingBotMessage"
-          );
           return message.content
-            .filter((block) => !(hasStreamingComponent && block.type === "text"))
             .map((block, i) => (
               <ConfigContentBlock
                 key={`${message.id}-${i}`}

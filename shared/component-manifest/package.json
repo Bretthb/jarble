@@ -1,0 +1,9 @@
+{
+  "name": "@jarble/component-manifest",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "description": "Single source of truth for all Jarble canvas component metadata, schemas, and derived prompt/MCP reference data."
+}

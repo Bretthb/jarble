@@ -14,8 +14,7 @@ import { MCPTransport, TamboMcpProvider } from "@tambo-ai/react/mcp";
 import { tamboComponents, createTamboTools } from "@/lib/tambo";
 import { API_URL } from "@/lib/trpc";
 
-/** React context so child components (StreamingBotMessage) can read the real
- *  deploymentId without relying on Tambo LLM to pass it correctly. */
+/** React context so child components can read the deployment ID. */
 const DeploymentIdContext = createContext<string>("");
 export function useDeploymentId() {
   return useContext(DeploymentIdContext);
@@ -62,7 +61,6 @@ When editing soul.md:
 
 ## DO NOT:
 - Forward user messages to the bot (the canvas handles that directly)
-- Render StreamingBotMessage (that flow is removed from this context)
 - Try to have conversations with the bot on behalf of the user
 - Edit the ## Platform Awareness section of soul.md (it's auto-managed)
 

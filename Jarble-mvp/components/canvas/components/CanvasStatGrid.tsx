@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 import { useCanvasAction } from "../CanvasActionContext";
 
@@ -47,7 +48,7 @@ const ICON_BG: Record<string, string> = {
   neutral: "bg-zinc-500/10",
 };
 
-export default function CanvasStatGrid({
+function CanvasStatGridInner({
   stats = [],
   live,
   lastUpdated,
@@ -152,3 +153,5 @@ export default function CanvasStatGrid({
     </div>
   );
 }
+
+export default memo(CanvasStatGridInner);

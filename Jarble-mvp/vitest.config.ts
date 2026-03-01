@@ -14,6 +14,6 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./__tests__/setup.ts"],
     include: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
-    exclude: ["node_modules", ".next"],
+    exclude: ["node_modules", ".next", "e2e", "tests"],
   },
 });

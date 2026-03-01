@@ -24,6 +24,10 @@ const FILE_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 const MAX_FILE_SIZE = 1_000_000; // 1MB
 
 // ── Built-in components ────────────────────────────────────────────────
+// NOTE: These lists are duplicated from @jarble/component-manifest.
+// To regenerate from the manifest, run: npx tsx scripts/generate-mcp-manifest.ts
+// which writes shared/component-manifest/generated/component-data.json.
+// Future: load from that JSON instead of hardcoding here.
 
 const BUILTIN_COMPONENTS = [
   "card", "data_table", "stat_grid", "key_value",
@@ -32,6 +36,11 @@ const BUILTIN_COMPONENTS = [
   "timeline", "divider", "metric_card", "header",
   "button_group", "form", "code_editor", "spreadsheet",
   "sandbox", "video",
+  "audio", "avatar", "blockquote", "text_message",
+  "image_gallery", "map",
+  "descriptions", "steps", "result", "carousel",
+  "statistic", "tag_cloud",
+  "tree",
 ];
 
 const BUILTIN_DESCRIPTIONS = {
@@ -59,6 +68,19 @@ const BUILTIN_DESCRIPTIONS = {
   spreadsheet: "Editable Excel-like spreadsheet grid",
   sandbox: "Sandboxed iframe for custom HTML/CSS/JS mini-apps — render anything. Use for charts, 3D, animations, gauges, maps, or any visualization not covered by built-in components.",
   video: "Video/livestream player — supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct URLs. Use for livestreams (NASA ISS, Twitch channels, YouTube Live).",
+  audio: "HTML5 audio player with controls. Props: src (URL), title (optional), autoplay (optional boolean).",
+  avatar: "User avatar with image or initials fallback. Props: name (string), src (optional image URL), subtitle (optional), size ('sm'|'md'|'lg').",
+  blockquote: "Styled quote block with attribution. Props: text (string), attribution (optional author name), variant ('default'|'info'|'warning').",
+  text_message: "Chat-style message bubble. Props: botText (string), userText (optional string).",
+  image_gallery: "Grid of images with click-to-zoom modal. Props: images (array of {src, alt?, caption?}), title (optional), columns (optional number).",
+  map: "Interactive Leaflet map with markers. Props: center ([lat, lng]), zoom (optional), markers (optional array of {lat, lng, label?}), title (optional).",
+  descriptions: "Key-value description list (Ant Design). Props: title (optional), items (array of {label, value, span?}), columns (optional), bordered (optional boolean).",
+  steps: "Step-by-step progress indicator. Props: current (number, 0-indexed), items (array of {title, description?, icon?}), direction ('vertical'|'horizontal').",
+  result: "Status result page. Props: status ('success'|'error'|'info'|'warning'), title (string), subtitle (optional).",
+  carousel: "Swipeable slide carousel. Props: items (array of {title?, description?, image?}), autoplay (optional boolean).",
+  statistic: "Large number display with optional countdown. Props: value (string|number), title (optional), prefix (optional), suffix (optional), precision (optional number), isCountdown (optional boolean), countdownTarget (optional ISO date string).",
+  tag_cloud: "Collection of colored tags. Props: tags (array of {text, color?, size?}), title (optional).",
+  tree: "Expandable tree hierarchy. Props: data (array of {title, key, children?}), title (optional), defaultExpandAll (optional boolean).",
 };
 
 // ── Component resolver ─────────────────────────────────────────────────

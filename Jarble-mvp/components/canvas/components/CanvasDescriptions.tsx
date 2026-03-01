@@ -1,17 +1,6 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import AntThemeProvider from "../AntThemeProvider";
-
-const Descriptions = dynamic(
-  () => import("antd").then((m) => m.Descriptions),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-[100px] animate-pulse rounded bg-muted" />
-    ),
-  }
-);
+import { memo } from "react";
 
 export interface CanvasDescriptionsProps {
   title?: string;
@@ -20,28 +9,59 @@ export interface CanvasDescriptionsProps {
   bordered?: boolean;
 }
 
-export default function CanvasDescriptions({
+function CanvasDescriptionsInner({
   title,
   items,
   columns = 2,
   bordered = true,
 }: CanvasDescriptionsProps) {
   return (
-    <AntThemeProvider>
-      <div className="p-3 h-full">
-        <Descriptions
-          title={title}
-          bordered={bordered}
-          column={columns}
-          size="small"
-          items={items.map((item, i) => ({
-            key: i,
-            label: item.label,
-            children: item.value,
-            span: item.span,
-          }))}
-        />
+    <div className="p-3 h-full">
+      {title && (
+        <h3 className="text-sm font-semibold text-foreground mb-3">
+          {title}
+        </h3>
+      )}
+      <div
+        className="w-full"
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+          gap: 0,
+        }}
+      >
+        {items.map((item, index) => {
+          const col = index % columns;
+          const isLastRow =
+            index >= items.length - (items.length % columns || columns);
+          const isLastCol = col === columns - 1;
+
+          return (
+            <div
+              key={`${item.label}-${index}`}
+              className={`p-2.5 ${
+                bordered
+                  ? `${!isLastRow ? "border-b border-border" : ""} ${
+                      !isLastCol ? "border-r border-border" : ""
+                    }`
+                  : ""
+              }`}
+              style={{
+                gridColumn: item.span ? `span ${item.span}` : undefined,
+              }}
+            >
+              <div className="text-xs text-muted-foreground font-medium">
+                {item.label}
+              </div>
+              <div className="text-sm text-foreground mt-0.5">
+                {item.value}
+              </div>
+            </div>
+          );
+        })}
       </div>
-    </AntThemeProvider>
+    </div>
   );
 }
+
+export default memo(CanvasDescriptionsInner);

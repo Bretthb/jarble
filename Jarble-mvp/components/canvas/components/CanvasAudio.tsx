@@ -1,12 +1,14 @@
 "use client";
 
+import { memo } from "react";
+
 export interface CanvasAudioProps {
   src: string;
   title?: string;
   autoplay?: boolean;
 }
 
-export default function CanvasAudio({
+function CanvasAudioInner({
   src,
   title,
   autoplay = false,
@@ -23,3 +25,5 @@ export default function CanvasAudio({
     </div>
   );
 }
+
+export default memo(CanvasAudioInner);

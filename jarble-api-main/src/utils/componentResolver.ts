@@ -6,34 +6,10 @@
  * that get substituted from the caller's props.
  */
 
-// Built-in component names that cannot be overridden
-export const BUILTIN_COMPONENTS = new Set([
-  "card",
-  "data_table",
-  "stat_grid",
-  "key_value",
-  "code_block",
-  "alert",
-  "progress",
-  "image",
-  "layout",
-  "chart",
-  "tabs",
-  "accordion",
-  "badge",
-  "list",
-  "timeline",
-  "divider",
-  "metric_card",
-  "header",
-  "button_group",
-  "form",
-  "code_editor",
-  "spreadsheet",
-  "sandbox",
-  "video",
-  "canvas", // alias for sandbox
-]);
+// Built-in component names — imported from the shared manifest (single source of truth)
+import { COMPONENT_NAME_SET } from "@jarble/component-manifest";
+
+export const BUILTIN_COMPONENTS: Set<string> = COMPONENT_NAME_SET;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

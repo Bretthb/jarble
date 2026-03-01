@@ -40,24 +40,35 @@ const PREFERRED_HEIGHTS: Record<string, number> = {
 const MAX_HEIGHTS: Record<string, number> = {
   header: 80,
   divider: 50,
-  metric_card: 160,
+  metric_card: 180,
   badge: 60,
   progress: 100,
-  alert: 150,
+  alert: 180,
   button_group: 80,
-  chart: 450,
-  data_table: 500,
-  list: 400,
-  timeline: 450,
-  card: 300,
-  text_message: 300,
-  stat_grid: 300,
-  result: 200,
-  statistic: 140,
-  blockquote: 200,
-  code_block: 400,
+  chart: 500,
+  data_table: 600,
+  list: 500,
+  timeline: 500,
+  card: 400,
+  text_message: 400,
+  stat_grid: 350,
+  result: 250,
+  statistic: 160,
+  blockquote: 250,
+  code_block: 500,
   image: 500,
-  layout: 600,
+  layout: 700,
+  steps: 200,
+  descriptions: 400,
+  tag_cloud: 300,
+  tree: 500,
+  carousel: 450,
+  accordion: 600,
+  tabs: 600,
+  form: 500,
+  key_value: 400,
+  image_gallery: 600,
+  avatar: 100,
 };
 const DEFAULT_MAX_HEIGHT = 400;
 
@@ -245,7 +256,7 @@ export default function DashboardCanvas({
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
                   transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
-                  style={{ gridColumn: `span ${span}` }}
+                  style={{ gridColumn: `span ${span}`, alignSelf: "start" }}
                   className={`group rounded-lg overflow-hidden flex flex-col relative transition-shadow ${
                     card.selected
                       ? "ring-2 ring-blue-500 shadow-md shadow-blue-500/20"
@@ -334,7 +345,7 @@ export default function DashboardCanvas({
 
                   {/* Card content */}
                   <div
-                    className="flex-1 min-h-0 overflow-auto rounded-lg"
+                    className={`overflow-auto rounded-lg ${isImmersive ? "flex-1 min-h-0" : ""}`}
                     style={isImmersive
                       ? { minHeight: preferredH, height: preferredH }
                       : { maxHeight: maxH }

@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 
 export interface CanvasHeaderProps {
@@ -15,7 +16,7 @@ const LEVEL_STYLES: Record<number, string> = {
   3: "text-sm font-semibold",
 };
 
-export default function CanvasHeader({ title, subtitle, level = 2, divider = false }: CanvasHeaderProps) {
+function CanvasHeaderInner({ title, subtitle, level = 2, divider = false }: CanvasHeaderProps) {
   const headingStyle = LEVEL_STYLES[level] || LEVEL_STYLES[2];
   const isH1 = level === 1;
 
@@ -44,3 +45,5 @@ export default function CanvasHeader({ title, subtitle, level = 2, divider = fal
     </motion.div>
   );
 }
+
+export default memo(CanvasHeaderInner);

@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import MarkdownMessage from "@/components/MarkdownMessage";
 
 interface CanvasTextMessageProps {
@@ -11,7 +12,7 @@ interface CanvasTextMessageProps {
  * Simple markdown card for text-only bot responses.
  * Shows user's original message (smaller, dimmed) above the bot response.
  */
-export default function CanvasTextMessage({ botText, userText }: CanvasTextMessageProps) {
+function CanvasTextMessageInner({ botText, userText }: CanvasTextMessageProps) {
   return (
     <div className="space-y-3">
       {userText && (
@@ -25,3 +26,5 @@ export default function CanvasTextMessage({ botText, userText }: CanvasTextMessa
     </div>
   );
 }
+
+export default memo(CanvasTextMessageInner);

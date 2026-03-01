@@ -17,10 +17,6 @@ import ConfirmAction from "@/components/tambo/ConfirmAction";
 
 import BotCanvas from "@/components/tambo/BotCanvas";
 
-// ── Streaming Bot Message (SSE-based real-time response) ────────────────────
-
-import StreamingBotMessage from "@/components/tambo/StreamingBotMessage";
-
 export { createTamboTools } from "./tambo-tools";
 
 export const tamboComponents: TamboComponent[] = [
@@ -68,22 +64,6 @@ export const tamboComponents: TamboComponent[] = [
       fileId: z.string().optional().describe("uiBlocks[].fileId — for file-backed editable components"),
       saveMethod: z.enum(["mcp", "chat"]).optional().describe("uiBlocks[].saveMethod — how edits are saved"),
       deploymentId: z.string().describe("The deployment ID from context"),
-    }),
-  },
-
-  // ── Streaming Bot Message — real-time SSE response from bot ─────────────
-
-  {
-    name: "StreamingBotMessage",
-    description:
-      "ALWAYS render this when forwarding a user message to the bot. Pass the user's exact message text and the deploymentId from context. This streams the bot's response in real-time with text animation and renders rich UI blocks (charts, tables, cards) as they arrive.",
-    component: StreamingBotMessage,
-    propsSchema: z.object({
-      message: z.string().describe("The user's message to forward to the bot"),
-      deploymentId: z
-        .string()
-        .optional()
-        .describe("Optional — automatically resolved from context"),
     }),
   },
 

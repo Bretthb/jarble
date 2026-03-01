@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 export interface CanvasBlockquoteProps {
   text: string;
   attribution?: string;
@@ -12,7 +14,7 @@ const VARIANT_STYLES: Record<string, string> = {
   warning: "border-l-yellow-500",
 };
 
-export default function CanvasBlockquote({ text, attribution, variant = "default" }: CanvasBlockquoteProps) {
+function CanvasBlockquoteInner({ text, attribution, variant = "default" }: CanvasBlockquoteProps) {
   const borderStyle = VARIANT_STYLES[variant] || VARIANT_STYLES.default;
 
   return (
@@ -26,3 +28,5 @@ export default function CanvasBlockquote({ text, attribution, variant = "default
     </blockquote>
   );
 }
+
+export default memo(CanvasBlockquoteInner);

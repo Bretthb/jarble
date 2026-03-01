@@ -1,8 +1,10 @@
 "use client";
 
+import { memo } from "react";
+
 export interface CanvasBadgeProps {
   text: string;
-  variant?: "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info";
+  variant?: "default" | "secondary" | "destructive" | "outline" | "success" | "positive" | "warning" | "info";
   icon?: string;
 }
 
@@ -12,11 +14,12 @@ const VARIANT_STYLES: Record<string, string> = {
   destructive: "bg-red-500/15 text-red-400 border-red-500/30",
   outline: "bg-transparent text-foreground border-border",
   success: "bg-green-500/15 text-green-400 border-green-500/30",
+  positive: "bg-green-500/15 text-green-400 border-green-500/30",
   warning: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
   info: "bg-blue-500/15 text-blue-400 border-blue-500/30",
 };
 
-export default function CanvasBadge({ text, variant = "default", icon }: CanvasBadgeProps) {
+function CanvasBadgeInner({ text, variant = "default", icon }: CanvasBadgeProps) {
   const style = VARIANT_STYLES[variant] || VARIANT_STYLES.default;
 
   return (
@@ -26,3 +29,5 @@ export default function CanvasBadge({ text, variant = "default", icon }: CanvasB
     </span>
   );
 }
+
+export default memo(CanvasBadgeInner);

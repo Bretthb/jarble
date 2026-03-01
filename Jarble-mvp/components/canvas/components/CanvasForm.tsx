@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useCanvasAction } from "../CanvasActionContext";
 
 interface FormField {
@@ -19,7 +19,7 @@ export interface CanvasFormProps {
   submitLabel?: string;
 }
 
-export default function CanvasForm({
+function CanvasFormInner({
   title,
   fields,
   submitLabel = "Submit",
@@ -142,3 +142,5 @@ export default function CanvasForm({
     </div>
   );
 }
+
+export default memo(CanvasFormInner);

@@ -1,12 +1,7 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import AntThemeProvider from "../AntThemeProvider";
-
-const Tree = dynamic(() => import("antd").then((m) => m.Tree), {
-  ssr: false,
-  loading: () => <div className="h-[200px] animate-pulse rounded bg-muted" />,
-});
+import { memo, useState, useCallback } from "react";
+import { ChevronRight, ChevronDown } from "lucide-react";
 
 export interface TreeNode {
   title: string;
@@ -20,26 +15,113 @@ export interface CanvasTreeProps {
   defaultExpandAll?: boolean;
 }
 
-export default function CanvasTree({
+function collectAllKeys(nodes: TreeNode[]): Set<string> {
+  const keys = new Set<string>();
+  const walk = (list: TreeNode[]) => {
+    for (const node of list) {
+      keys.add(node.key);
+      if (node.children) walk(node.children);
+    }
+  };
+  walk(nodes);
+  return keys;
+}
+
+function TreeNodeComponent({
+  node,
+  expandedKeys,
+  onToggle,
+  level,
+}: {
+  node: TreeNode;
+  expandedKeys: Set<string>;
+  onToggle: (key: string) => void;
+  level: number;
+}) {
+  const hasChildren = node.children && node.children.length > 0;
+  const isExpanded = expandedKeys.has(node.key);
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-1 py-1 hover:bg-muted/50 rounded-sm cursor-default"
+        style={{ paddingLeft: `${level * 20}px` }}
+      >
+        {hasChildren ? (
+          <button
+            onClick={() => onToggle(node.key)}
+            className="p-0.5 rounded hover:bg-muted text-muted-foreground"
+            aria-label={isExpanded ? "Collapse" : "Expand"}
+          >
+            {isExpanded ? (
+              <ChevronDown className="w-4 h-4" />
+            ) : (
+              <ChevronRight className="w-4 h-4" />
+            )}
+          </button>
+        ) : (
+          <span className="w-5" />
+        )}
+        <span className="text-sm text-foreground">{node.title}</span>
+      </div>
+      {hasChildren && isExpanded && (
+        <div>
+          {node.children!.map((child) => (
+            <TreeNodeComponent
+              key={child.key}
+              node={child}
+              expandedKeys={expandedKeys}
+              onToggle={onToggle}
+              level={level + 1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CanvasTreeInner({
   data,
   title,
   defaultExpandAll = true,
 }: CanvasTreeProps) {
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() =>
+    defaultExpandAll ? collectAllKeys(data) : new Set()
+  );
+
+  const handleToggle = useCallback((key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
   return (
-    <AntThemeProvider>
-      <div className="p-3 h-full">
-        {title && (
-          <h3 className="text-sm font-semibold text-foreground mb-3">
-            {title}
-          </h3>
-        )}
-        <Tree
-          treeData={data}
-          defaultExpandAll={defaultExpandAll}
-          showLine
-          showIcon={false}
-        />
+    <div className="p-3 h-full">
+      {title && (
+        <h3 className="text-sm font-semibold text-foreground mb-3">
+          {title}
+        </h3>
+      )}
+      <div>
+        {data.map((node) => (
+          <TreeNodeComponent
+            key={node.key}
+            node={node}
+            expandedKeys={expandedKeys}
+            onToggle={handleToggle}
+            level={0}
+          />
+        ))}
       </div>
-    </AntThemeProvider>
+    </div>
   );
 }
+
+export default memo(CanvasTreeInner);

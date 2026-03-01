@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { motion } from "framer-motion";
 
 export interface CanvasCodeBlockProps {
@@ -26,7 +26,7 @@ function CheckIcon() {
   );
 }
 
-export default function CanvasCodeBlock({ code, language, title }: CanvasCodeBlockProps) {
+function CanvasCodeBlockInner({ code, language, title }: CanvasCodeBlockProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -90,3 +90,5 @@ export default function CanvasCodeBlock({ code, language, title }: CanvasCodeBlo
     </motion.div>
   );
 }
+
+export default memo(CanvasCodeBlockInner);

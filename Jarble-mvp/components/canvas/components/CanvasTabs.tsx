@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import CanvasRenderer from "../CanvasRenderer";
 import { useCanvasAction } from "../CanvasActionContext";
@@ -21,7 +22,7 @@ export interface CanvasTabsProps {
   defaultTab?: number;
 }
 
-export default function CanvasTabs({ tabs, defaultTab = 0 }: CanvasTabsProps) {
+function CanvasTabsInner({ tabs, defaultTab = 0 }: CanvasTabsProps) {
   let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
   try {
     const ctx = useCanvasAction();
@@ -80,3 +81,5 @@ export default function CanvasTabs({ tabs, defaultTab = 0 }: CanvasTabsProps) {
     </div>
   );
 }
+
+export default memo(CanvasTabsInner);

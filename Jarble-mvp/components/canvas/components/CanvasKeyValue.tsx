@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 export interface KeyValueItem {
   key: string;
   value: string | number;
@@ -10,7 +12,7 @@ export interface CanvasKeyValueProps {
   items: KeyValueItem[];
 }
 
-export default function CanvasKeyValue({ title, items = [] }: CanvasKeyValueProps) {
+function CanvasKeyValueInner({ title, items = [] }: CanvasKeyValueProps) {
   return (
     <div className="p-3 h-full space-y-2">
       {title && <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>}
@@ -23,3 +25,5 @@ export default function CanvasKeyValue({ title, items = [] }: CanvasKeyValueProp
     </div>
   );
 }
+
+export default memo(CanvasKeyValueInner);

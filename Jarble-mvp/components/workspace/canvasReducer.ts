@@ -354,6 +354,9 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
     case "SET_CANVAS_MODE":
       return { ...state, mode: action.mode };
 
+    case "CLEAR_CANVAS":
+      return { ...INITIAL_CANVAS_STATE, mode: state.mode };
+
     default:
       return state;
   }

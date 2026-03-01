@@ -7,7 +7,7 @@
  * library, multi-select group action, and component count.
  */
 
-import { X, Grid3X3, LayoutGrid, Group, LayoutDashboard, Move } from "lucide-react";
+import { X, Grid3X3, LayoutGrid, Group, LayoutDashboard, Move, Trash2 } from "lucide-react";
 import type { CanvasCard, CanvasAction, CanvasMode } from "./types";
 import ComponentGallery from "./ComponentGallery";
 
@@ -104,6 +104,18 @@ export default function CanvasToolbar({
         >
           <LayoutGrid className="w-3.5 h-3.5" />
           Organize
+        </button>
+      )}
+
+      {/* Clear canvas */}
+      {cards.length > 0 && (
+        <button
+          onClick={() => dispatch({ type: "CLEAR_CANVAS" })}
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          title="Clear all components from canvas"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          Clear
         </button>
       )}
 

@@ -7,6 +7,10 @@
  *   ```
  *
  * This parser extracts them, returning cleaned text and an array of UI blocks.
+ *
+ * Uses a JSON-aware brace-depth parser instead of regex to correctly handle
+ * nested backticks inside JSON payloads (e.g. code_block components with
+ * markdown content containing fenced code blocks).
  */
 
 import { nanoid } from "nanoid";
@@ -44,42 +48,160 @@ export interface JarbleComponentDef {
   layout: Array<{ component: string; props: Record<string, unknown> }>;
 }
 
-/**
- * Regex to match ```jarble_ui ... ``` fenced code blocks.
- * The negative lookahead (?!_update|_define) prevents matching jarble_ui_update
- * and jarble_ui_define blocks, which would otherwise partially collide.
- * extractUIUpdates and extractComponentDefs must be called before extractUIBlocks.
- */
-const JARBLE_UI_FENCE = /```jarble_ui(?!_update|_define)\s*\n([\s\S]*?)```/g;
+// ── Brace-depth JSON extractor ──────────────────────────────────────────────
 
 /**
- * Regex to match ```jarble_ui_update ... ``` fenced code blocks.
- * Must be applied BEFORE the general jarble_ui fence since "jarble_ui_update"
- * would partially match "jarble_ui" otherwise.
+ * Extract a complete JSON object from text starting at the given index.
+ *
+ * Tracks brace depth to find the matching closing `}`, correctly skipping
+ * braces inside JSON string literals. This handles cases where the JSON
+ * payload contains triple backticks (e.g. code_block with markdown content),
+ * which would cause the old regex-based parser to terminate early.
+ *
+ * Returns the JSON substring and the index after the closing `}`, or null
+ * if no complete JSON object is found (incomplete block during streaming).
  */
-const JARBLE_UI_UPDATE_FENCE = /```jarble_ui_update\s*\n([\s\S]*?)```/g;
+function extractJsonFromBlock(text: string, startIndex: number): { json: string; endIndex: number } | null {
+  // Find opening brace
+  let i = startIndex;
+  while (i < text.length && text[i] !== "{") i++;
+  if (i >= text.length) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  const start = i;
+
+  for (; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\" && inString) { escape = true; continue; }
+    if (ch === '"' && !escape) { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        return { json: text.slice(start, i + 1), endIndex: i + 1 };
+      }
+    }
+  }
+
+  return null; // Incomplete block
+}
+
+/**
+ * Find all fenced blocks of a given type and extract their JSON payloads.
+ *
+ * Scans for ``` + marker (e.g. "jarble_ui") openings, uses brace-depth
+ * parsing to find the complete JSON object, then continues scanning.
+ *
+ * Returns an array of { json, matchStart, matchEnd } for each found block,
+ * where matchStart/matchEnd span the entire fenced block (opening backticks
+ * through the JSON object end). The closing ``` is consumed if present.
+ */
+interface FencedBlock {
+  json: string;
+  matchStart: number;
+  matchEnd: number;
+}
+
+function findFencedBlocks(text: string, marker: string): FencedBlock[] {
+  const blocks: FencedBlock[] = [];
+  const openPattern = "```" + marker;
+  let searchFrom = 0;
+
+  while (searchFrom < text.length) {
+    const openIdx = text.indexOf(openPattern, searchFrom);
+    if (openIdx === -1) break;
+
+    // Verify the marker is followed by whitespace/newline (not a longer marker)
+    const afterMarker = openIdx + openPattern.length;
+    if (afterMarker < text.length) {
+      const nextChar = text[afterMarker];
+      // For "jarble_ui", reject if followed by "_" (which would be _update or _define)
+      if (marker === "jarble_ui" && nextChar === "_") {
+        searchFrom = afterMarker;
+        continue;
+      }
+      // Marker must be followed by whitespace or newline
+      if (nextChar !== " " && nextChar !== "\t" && nextChar !== "\n" && nextChar !== "\r") {
+        searchFrom = afterMarker;
+        continue;
+      }
+    }
+
+    // Find the JSON object using brace-depth parsing
+    const result = extractJsonFromBlock(text, afterMarker);
+    if (!result) {
+      // Incomplete block (still streaming) — skip
+      searchFrom = afterMarker;
+      continue;
+    }
+
+    // Find and consume the closing ``` if present after the JSON
+    let matchEnd = result.endIndex;
+    // Skip whitespace/newlines after JSON
+    let closeSearch = result.endIndex;
+    while (closeSearch < text.length && (text[closeSearch] === " " || text[closeSearch] === "\t" || text[closeSearch] === "\n" || text[closeSearch] === "\r")) {
+      closeSearch++;
+    }
+    // Check for closing backticks
+    if (text.startsWith("```", closeSearch)) {
+      matchEnd = closeSearch + 3;
+    }
+
+    blocks.push({
+      json: result.json,
+      matchStart: openIdx,
+      matchEnd,
+    });
+
+    searchFrom = matchEnd;
+  }
+
+  return blocks;
+}
+
+/**
+ * Remove found fenced blocks from text, replacing them with empty strings.
+ * Processes blocks in reverse order to maintain correct indices.
+ */
+function stripBlocks(text: string, blocks: FencedBlock[]): string {
+  if (blocks.length === 0) return text;
+
+  // Process in reverse order so indices remain valid
+  let result = text;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i];
+    result = result.slice(0, block.matchStart) + result.slice(block.matchEnd);
+  }
+  return result;
+}
+
+// ── Extraction functions ────────────────────────────────────────────────────
 
 export function extractUIBlocks(text: string): {
   cleanText: string;
   uiBlocks: JarbleUIBlock[];
 } {
   const uiBlocks: JarbleUIBlock[] = [];
-  let blockCount = 0;
+  const fenced = findFencedBlocks(text, "jarble_ui");
+  const validBlocks: FencedBlock[] = [];
 
-  const cleanText = text.replace(JARBLE_UI_FENCE, (match, jsonContent: string) => {
-    if (blockCount >= MAX_BLOCKS) {
+  for (const block of fenced) {
+    if (uiBlocks.length >= MAX_BLOCKS) {
       logger.warn(`[uiBlockParser] Exceeded MAX_BLOCKS (${MAX_BLOCKS}), truncating`);
-      return match; // Leave excess blocks as visible text
+      break;
     }
 
-    const trimmed = jsonContent.trim();
-    if (trimmed.length > MAX_BLOCK_SIZE) {
-      logger.warn(`[uiBlockParser] Block exceeds MAX_BLOCK_SIZE (${trimmed.length} > ${MAX_BLOCK_SIZE}), skipping`);
-      return match; // Too large, leave as text
+    if (block.json.length > MAX_BLOCK_SIZE) {
+      logger.warn(`[uiBlockParser] Block exceeds MAX_BLOCK_SIZE (${block.json.length} > ${MAX_BLOCK_SIZE}), skipping`);
+      continue;
     }
 
     try {
-      const parsed = JSON.parse(trimmed);
+      const parsed = JSON.parse(block.json);
 
       if (
         typeof parsed !== "object" ||
@@ -88,7 +210,7 @@ export function extractUIBlocks(text: string): {
         typeof parsed.props !== "object" ||
         parsed.props === null
       ) {
-        return match; // Invalid structure, leave as text
+        continue; // Invalid structure, leave as text
       }
 
       uiBlocks.push({
@@ -102,23 +224,20 @@ export function extractUIBlocks(text: string): {
           ? { layoutHint: parsed.layout_hint as LayoutHint }
           : {}),
       });
-      blockCount++;
-
-      return ""; // Strip the block from text
+      validBlocks.push(block);
     } catch {
-      logger.warn("[uiBlockParser] Failed to parse jarble_ui block: %s", trimmed.slice(0, 200));
-      return match; // Invalid JSON, leave as visible text
+      logger.warn("[uiBlockParser] Failed to parse jarble_ui block: %s", block.json.slice(0, 200));
+      // Invalid JSON, leave as visible text
     }
-  });
+  }
 
-  // Clean up extra blank lines left by stripped blocks
-  const finalText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
+  const cleanText = stripBlocks(text, validBlocks).replace(/\n{3,}/g, "\n\n").trim();
 
   if (uiBlocks.length > 0) {
     logger.debug(`[uiBlockParser] Extracted ${uiBlocks.length} blocks from ${text.length} chars`);
   }
 
-  return { cleanText: finalText, uiBlocks };
+  return { cleanText, uiBlocks };
 }
 
 /** Max update blocks per message */
@@ -135,22 +254,22 @@ export function extractUIUpdates(text: string): {
   uiUpdates: JarbleUIUpdate[];
 } {
   const uiUpdates: JarbleUIUpdate[] = [];
-  let updateCount = 0;
+  const fenced = findFencedBlocks(text, "jarble_ui_update");
+  const validBlocks: FencedBlock[] = [];
 
-  const cleanText = text.replace(JARBLE_UI_UPDATE_FENCE, (match, jsonContent: string) => {
-    if (updateCount >= MAX_UPDATES) {
+  for (const block of fenced) {
+    if (uiUpdates.length >= MAX_UPDATES) {
       logger.warn(`[uiBlockParser] Exceeded MAX_UPDATES (${MAX_UPDATES}), truncating`);
-      return match;
+      break;
     }
 
-    const trimmed = jsonContent.trim();
-    if (trimmed.length > MAX_BLOCK_SIZE) {
-      logger.warn(`[uiBlockParser] Update block exceeds MAX_BLOCK_SIZE (${trimmed.length} > ${MAX_BLOCK_SIZE}), skipping`);
-      return match;
+    if (block.json.length > MAX_BLOCK_SIZE) {
+      logger.warn(`[uiBlockParser] Update block exceeds MAX_BLOCK_SIZE (${block.json.length} > ${MAX_BLOCK_SIZE}), skipping`);
+      continue;
     }
 
     try {
-      const parsed = JSON.parse(trimmed);
+      const parsed = JSON.parse(block.json);
 
       if (
         typeof parsed !== "object" ||
@@ -159,7 +278,7 @@ export function extractUIUpdates(text: string): {
         typeof parsed.props !== "object" ||
         parsed.props === null
       ) {
-        return match; // Invalid structure, leave as text
+        continue; // Invalid structure, leave as text
       }
 
       uiUpdates.push({
@@ -168,28 +287,23 @@ export function extractUIUpdates(text: string): {
         merge: parsed.merge !== false,
         ...(typeof parsed.component === "string" ? { component: parsed.component } : {}),
       });
-      updateCount++;
-
-      return ""; // Strip the block from text
+      validBlocks.push(block);
     } catch {
-      logger.warn("[uiBlockParser] Failed to parse jarble_ui_update block: %s", jsonContent.trim().slice(0, 200));
-      return match; // Invalid JSON, leave as visible text
+      logger.warn("[uiBlockParser] Failed to parse jarble_ui_update block: %s", block.json.slice(0, 200));
+      // Invalid JSON, leave as visible text
     }
-  });
+  }
 
-  const finalText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
+  const cleanText = stripBlocks(text, validBlocks).replace(/\n{3,}/g, "\n\n").trim();
 
   if (uiUpdates.length > 0) {
     logger.debug(`[uiBlockParser] Extracted ${uiUpdates.length} updates from ${text.length} chars`);
   }
 
-  return { cleanText: finalText, uiUpdates };
+  return { cleanText, uiUpdates };
 }
 
 // ── Component Definitions ────────────────────────────────────────────────────
-
-/** Regex for ```jarble_ui_define ... ``` fenced blocks. */
-const JARBLE_UI_DEFINE_FENCE = /```jarble_ui_define\s*\n([\s\S]*?)```/g;
 
 /** Max component definitions per message */
 const MAX_DEFS = 5;
@@ -208,22 +322,22 @@ export function extractComponentDefs(text: string): {
   componentDefs: JarbleComponentDef[];
 } {
   const componentDefs: JarbleComponentDef[] = [];
-  let defCount = 0;
+  const fenced = findFencedBlocks(text, "jarble_ui_define");
+  const validBlocks: FencedBlock[] = [];
 
-  const cleanText = text.replace(JARBLE_UI_DEFINE_FENCE, (match, jsonContent: string) => {
-    if (defCount >= MAX_DEFS) {
+  for (const block of fenced) {
+    if (componentDefs.length >= MAX_DEFS) {
       logger.warn(`[uiBlockParser] Exceeded MAX_DEFS (${MAX_DEFS}), truncating`);
-      return match;
+      break;
     }
 
-    const trimmed = jsonContent.trim();
-    if (trimmed.length > MAX_BLOCK_SIZE) {
+    if (block.json.length > MAX_BLOCK_SIZE) {
       logger.warn(`[uiBlockParser] Define block exceeds MAX_BLOCK_SIZE, skipping`);
-      return match;
+      continue;
     }
 
     try {
-      const parsed = JSON.parse(trimmed);
+      const parsed = JSON.parse(block.json);
 
       if (
         typeof parsed !== "object" ||
@@ -231,13 +345,13 @@ export function extractComponentDefs(text: string): {
         typeof parsed.name !== "string" ||
         !Array.isArray(parsed.layout)
       ) {
-        return match; // Invalid structure, leave as text
+        continue; // Invalid structure, leave as text
       }
 
       // Validate component name format
       if (!/^[a-z][a-z0-9_]{0,63}$/.test(parsed.name)) {
         logger.warn(`[uiBlockParser] Invalid component name: ${parsed.name}`);
-        return match;
+        continue;
       }
 
       componentDefs.push({
@@ -245,22 +359,20 @@ export function extractComponentDefs(text: string): {
         description: typeof parsed.description === "string" ? parsed.description : undefined,
         layout: parsed.layout,
       });
-      defCount++;
-
-      return ""; // Strip the block from text
+      validBlocks.push(block);
     } catch {
-      logger.warn("[uiBlockParser] Failed to parse jarble_ui_define block: %s", trimmed.slice(0, 200));
-      return match;
+      logger.warn("[uiBlockParser] Failed to parse jarble_ui_define block: %s", block.json.slice(0, 200));
+      // Invalid JSON, leave as visible text
     }
-  });
+  }
 
-  const finalText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
+  const cleanText = stripBlocks(text, validBlocks).replace(/\n{3,}/g, "\n\n").trim();
 
   if (componentDefs.length > 0) {
     logger.debug(`[uiBlockParser] Extracted ${componentDefs.length} component definitions`);
   }
 
-  return { cleanText: finalText, componentDefs };
+  return { cleanText, componentDefs };
 }
 
 /**

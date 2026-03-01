@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { memo, useEffect, useRef, useCallback, useState } from "react";
 import { useCanvasAction } from "../CanvasActionContext";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -71,6 +72,9 @@ function sanitizeHtmlProp(
     isDev && console.log("[Jarble:Sandbox] Sanitized html prop — extracted", extractedJs.length, "script blocks,", extractedLibs.length - (existingLibs?.length || 0), "library URLs");
   }
 
+  // Additional XSS sanitization via DOMPurify
+  cleanHtml = sanitizeHtml(cleanHtml);
+
   return { html: cleanHtml, js: allJs, libraries: extractedLibs };
 }
 
@@ -91,7 +95,30 @@ function buildDocument(
     .filter((url) => /^https?:\/\//.test(url));
   const libsJson = JSON.stringify(safeLibs);
 
-  const csp = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-src *";
+  const TRUSTED_CDN_ORIGINS = [
+    "https://cdn.jsdelivr.net",
+    "https://cdnjs.cloudflare.com",
+    "https://unpkg.com",
+    "https://cdn.tailwindcss.com",
+    "https://esm.sh",
+    "https://threejs.org",
+    "https://d3js.org",
+    "https://cdn.plot.ly",
+    "https://fonts.googleapis.com",
+    "https://fonts.gstatic.com",
+  ];
+  const cdnOrigins = TRUSTED_CDN_ORIGINS.join(" ");
+  const csp = [
+    `default-src 'none'`,
+    `script-src 'unsafe-inline' 'unsafe-eval' ${cdnOrigins}`,
+    `style-src 'unsafe-inline' ${cdnOrigins}`,
+    `img-src ${cdnOrigins} data: blob:`,
+    `font-src ${cdnOrigins} data:`,
+    `media-src ${cdnOrigins} data: blob:`,
+    `connect-src ${cdnOrigins}`,
+    `worker-src blob:`,
+    `frame-src 'none'`,
+  ].join("; ");
 
   const themeCSS = `
     :root { color-scheme: light dark; font-family: system-ui, -apple-system, sans-serif; }
@@ -206,6 +233,14 @@ new ResizeObserver(function(entries) {
     requestAnimationFrame(__jarbleAutoResize);
   }
 }).observe(document.documentElement);
+// Watchdog: report if sandbox runs longer than 30s without completing
+setTimeout(function() {
+  if (document.hidden) return;
+  parent.postMessage({
+    type: "jarble:error",
+    error: { message: "Sandbox execution timeout (30s)", source: "", line: 0, column: 0, stack: "" }
+  }, "*");
+}, 30000);
 // Dynamic library loader — guarantees scripts are fully loaded before user JS runs
 (function() {
   var libs = ${libsJson};
@@ -230,7 +265,7 @@ new ResizeObserver(function(entries) {
 </html>`;
 }
 
-export default function CanvasSandbox({
+function CanvasSandboxInner({
   html,
   css,
   js,
@@ -363,9 +398,12 @@ export default function CanvasSandbox({
           ref={iframeRef}
           srcDoc={srcdoc}
           sandbox="allow-scripts allow-popups"
+          allow="autoplay; fullscreen"
           style={{ flex: 1, width: "100%", minHeight: 0, border: "none", borderRadius: 8, background: "transparent" }}
         />
       )}
     </div>
   );
 }
+
+export default memo(CanvasSandboxInner);

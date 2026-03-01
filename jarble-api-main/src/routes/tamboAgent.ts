@@ -436,6 +436,28 @@ tamboAgentRouter.post("/", async (req, res) => {
           }
         },
         abortController.signal,
+        // Emit UI blocks as soon as they're detected during streaming (before response finishes)
+        async (block) => {
+          try {
+            const resolved = await resolveUIBlocks([block], deploymentId);
+            for (const b of resolved) {
+              sendEvent(res, {
+                type: "UI_BLOCK_START",
+                blockId: b.id,
+                component: b.component,
+                messageId,
+                ...(b.editable ? { editable: true } : {}),
+                ...(b.fileId ? { fileId: b.fileId } : {}),
+                ...(b.saveMethod ? { saveMethod: b.saveMethod } : {}),
+                ...(b.layoutHint ? { layoutHint: b.layoutHint } : {}),
+              });
+              sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: b.id, props: b.props });
+              sendEvent(res, { type: "UI_BLOCK_END", blockId: b.id });
+            }
+          } catch (err: unknown) {
+            logger.warn({ deploymentId, blockId: block.id, error: err instanceof Error ? err.message : String(err) }, "Chat: failed to emit streamed UI block");
+          }
+        },
       );
 
       await emitGatewayResult(gatewayResult);

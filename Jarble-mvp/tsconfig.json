@@ -3,7 +3,8 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts"
+    ".next/types/**/*.ts",
+    "../shared/**/*.ts"
   ],
   "exclude": [
     "node_modules",
@@ -37,6 +38,15 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@jarble/component-manifest": [
+        "../shared/component-manifest/index.ts"
+      ],
+      "@jarble/component-manifest/*": [
+        "../shared/component-manifest/*"
+      ],
+      "zod": [
+        "./node_modules/zod"
       ]
     },
     "plugins": [

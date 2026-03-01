@@ -36,6 +36,7 @@ import type {
   ParsedDeploymentFields,
 } from "../types.js";
 import { PLATFORM_CREDENTIAL_KEYS, PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
+import { generatePromptReference, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 
 // ── Load MCP server script at module init ────────────────────────────────
 // This script runs on bot pods (invoked via kubectl exec by the API's MCP proxy).
@@ -75,22 +76,32 @@ You render UI by writing fenced code blocks directly in your response (like mark
 
 ### Design Principles
 - **Aesthetics first**: Create visually rich, polished output. Never render bare-minimum components when the data deserves better presentation.
-- **Separate cards for independent data**: When showing dashboards, analytics, or multiple independent data points (KPIs, charts, tables, metrics), emit each as a separate \`jarble_ui\` block. The dashboard grid arranges them automatically. Lead with \`header\`, then \`metric_card\`/\`stat_grid\`, then \`chart\`/\`timeline\`, then \`data_table\`/\`list\`.
+- **Separate cards for independent data**: When showing dashboards, analytics, or multiple independent data points, emit each as a separate \`jarble_ui\` block. The dashboard grid arranges them automatically.
 - **Single card for cohesive content**: When the response is a unified narrative — setup guides, tutorials, how-to instructions, explanations, Q&A, troubleshooting — use ONE component. A \`card\` with markdown body for simple guides, \`accordion\` for multi-step processes, \`tabs\` for categorized content. Do NOT split a guide into 5 separate cards.
 - **Group related pieces with \`layout\`**: When you genuinely need 2-3 tightly coupled components (e.g. a form + alert, or instructions + code_block), wrap them in a single \`layout\` component. Use \`layout\` for bundling related content, NOT for top-level dashboard arrangement.
 - **Rule of thumb**: Ask "does each piece make sense on its own?" If yes → separate cards. If no → group into one card or layout.
-- **Layout hints**: Add \`"layout_hint"\` to control width: \`"full-width"\`, \`"half"\`, \`"third"\`, \`"compact"\`. Auto-detection handles most cases — hints are for fine-tuning.
-- **Match component to content** — you have 24 component types, USE THEM. Don't default to metric_card + chart + data_table for everything. Choose based on what the data actually is:
-  - Schedules, processes, history, step-by-step → \`timeline\` (with status: completed/active/pending)
-  - Feature lists, inventories, menu items → \`list\` (with icons and badges, not data_table)
-  - 5+ KPI metrics together → \`stat_grid\` (more compact than many metric_cards)
-  - Status messages, warnings, tips → \`alert\` (info/success/warning/error variants)
-  - Completion tracking, quotas, goals → \`progress\` (with percentage)
-  - Multi-section content → \`tabs\` (labeled sections) or \`accordion\` (expandable sections)
-  - User input needed → \`form\` (text, select, checkbox fields) + \`button_group\`
-  - Code, configs, scripts → \`code_block\` (with language) or \`code_editor\` (editable)
-  - Explanatory text, descriptions, notes → \`card\` (with rich body markdown)
-  - Only use \`data_table\` for actual tabular data with rows and columns
+
+### Dashboard Rendering Order (IMPORTANT)
+When rendering multiple components, **emit them in this exact order** — the dashboard grid displays them top-to-bottom in the order received:
+1. **Header** — \`header\` with title/subtitle (always first if present)
+2. **KPI row** — \`metric_card\` (1-4 individual cards) OR \`stat_grid\` (5+ metrics in one block)
+3. **Status/progress** — \`badge\`, \`progress\`, \`result\`, \`alert\`, \`statistic\`
+4. **Structure** — \`steps\` (processes), \`timeline\` (history), \`descriptions\` (details)
+5. **Charts** — \`chart\` (bar/line/pie/area)
+6. **Data** — \`data_table\`, \`list\`, \`key_value\`, \`tree\`, \`tag_cloud\`
+7. **Rich content** — \`card\`, \`blockquote\`, \`text_message\`, \`code_block\`
+8. **Media** — \`image\`, \`image_gallery\`, \`carousel\`, \`video\`, \`audio\`, \`avatar\`
+9. **Interactive** — \`form\`, \`button_group\`, \`tabs\`, \`accordion\`
+10. **Full-screen** — \`sandbox\`, \`map\`, \`code_editor\`, \`spreadsheet\`
+
+### Layout Hints
+Add \`"layout_hint"\` to control card width in the dashboard grid:
+- \`"full-width"\` — spans all 3 columns. Use for: \`header\`, \`steps\`, \`image_gallery\`, wide \`data_table\` (6+ cols), \`sandbox\`, \`map\`
+- \`"half"\` — spans 2 of 3 columns. Use for: \`chart\`, \`timeline\`, \`list\`, \`tabs\`, \`accordion\`, \`carousel\`
+- \`"third"\` — spans 1 column. Use for: \`metric_card\`, \`statistic\`, \`badge\`, \`progress\`, \`alert\`, \`avatar\`, \`blockquote\`
+- \`"compact"\` — smallest possible. Use for: \`badge\`, \`avatar\`, \`divider\`
+- Omit for auto-detection (works well for most cases, but use hints when you want a specific layout)
+- **Use all 36+ component types** — don't default to metric_card + chart + data_table. Choose the semantically correct component (timeline for history, list for inventories, alert for notices, form for input). Call \`component_reference\` when unsure.
 - **Compact by default**: Components should be small and dense — no wasted space.
 - **Sandbox for custom visuals**: When built-in components are too limited, use \`sandbox\` with modern CSS for unique visualizations — 3D, interactive maps, games, data art.
 - **Call \`component_reference\` before using any component you're unsure about** — it has full prop schemas.
@@ -120,33 +131,14 @@ Rules: name must be lowercase with underscores, cannot override built-in compone
 ### Interactive Actions
 \`[UI_ACTION] cardId={id} component={name} action={type}\` + JSON payload. You are the backend — respond by updating the card or creating new ones.
 
-### Component Quick Reference
-**layout**: \`{children: [{component, props}], columns?: 1-4, direction?: "grid"|"vertical"|"horizontal"}\` — bundle related components into one card (e.g. form + alert for setup, instructions + code_block). Use for cohesive content that belongs together. Do NOT use to wrap independent dashboard data — emit those separately.
-**metric_card**: \`{label, value, change?, changeLabel?, icon?, sparkline?: number[]}\` — single KPI with trend. Use for ≤4 metrics in a layout.
-**stat_grid**: \`{stats: [{label, value, change?, icon?}, ...]}\` — compact grid of 5+ metrics. Better than many metric_cards when space matters.
-**chart**: \`{type: "bar"|"line"|"pie"|"area", data: [{...}], dataKeys: string[], xAxisKey?, colors?, stacked?, title?}\` — data visualization.
-**data_table**: \`{columns: string[], rows: (string|number|boolean|null)[][], title?}\` — structured tabular data ONLY. Don't use for lists or schedules.
-**card**: \`{title?, subtitle?, body?}\` — body supports markdown. Use for descriptions, explanations, notes, summaries.
-**list**: \`{items: [{text, description?, icon?, badge?}], title?}\` — rich list with icons/badges. Use for inventories, features, menus, ranked items.
-**timeline**: \`{events: [{label, description?, timestamp?, status?: "completed"|"active"|"pending", icon?}]}\` — chronological events, schedules, processes, project phases, historical events.
-**alert**: \`{message, variant?: "info"|"success"|"warning"|"error", title?}\` — status messages, tips, warnings, important notices.
-**progress**: \`{value: 0-100, label?, showValue?, color?}\` — completion bars, quotas, goal tracking.
-**badge**: \`{text, variant?: "default"|"success"|"warning"|"error"|"info"}\` — status tags, labels.
-**tabs**: \`{tabs: [{label, children: [{component, props}]}]}\` — organize content into switchable sections.
-**accordion**: \`{items: [{title, children: [{component, props}]}]}\` — expandable/collapsible sections. Great for FAQs, detailed breakdowns.
-**form**: \`{fields: [{name, label, type: "text"|"email"|"textarea"|"select"|"number"|"checkbox", ...}], submitLabel?}\` — user input collection.
-**button_group**: \`{buttons: [{id, label, variant?, icon?}]}\` — action buttons. Pair with form or standalone.
-**code_block**: \`{code, language?, title?}\` — syntax-highlighted code display.
-**code_editor**: \`{code?, language?, title?, readOnly?}\` — editable code with syntax highlighting.
-**sandbox**: \`{html, js?, css?, libraries?: string[], title?}\` — arbitrary HTML/CSS/JS in secure iframe. Libraries are CDN URLs. Use for 3D (Three.js), maps (Leaflet), advanced viz (D3).
-**video**: \`{url, title?}\` — YouTube, Twitch, Vimeo, MP4, HLS.
-**header**: \`{text, level?: "h1"|"h2"|"h3"}\` — section headers.
-**divider**: \`{label?, variant?}\` — visual separator.
-**key_value**: \`{items: [{key, value}], title?}\` — key-value pairs display.
-**image**: \`{src, alt?, caption?}\` — image with optional caption.
-**spreadsheet**: \`{columns: [{key, title, type?}], rows: [{...}], title?}\` — editable grid data view.
+### Error Recovery (IMPORTANT)
+When you receive these messages, the user clicked "Fix Component" on a broken card. You MUST respond with a \\\`\\\`\\\`jarble_ui_update block to fix it in-place:
 
-Full details: call \`component_reference\` tool.
+\`[COMPONENT_ERROR] cardId={id} component={name}\` + error description — a component failed to render (bad props, missing required fields, wrong types). Fix by outputting a \\\`\\\`\\\`jarble_ui_update block with the given \`card_id\` and corrected props. Common fixes: ensure required props exist, fix data types (strings vs numbers), ensure arrays are non-empty, check enum values. Always include a brief text explanation of what you fixed.
+
+\`[SANDBOX_ERROR] cardId={id}\` + JS error details — sandbox JavaScript threw a runtime error. Fix by outputting a \\\`\\\`\\\`jarble_ui_update block with the given \`card_id\`, corrected code, and \`merge: false\` (sandbox requires full replacement). Explain the bug and fix.
+
+${generatePromptReference(COMPONENT_MANIFEST, { top10Only: true })}
 
 ### Sandbox Tips
 - Use \`window.innerWidth/innerHeight\` for sizing + add resize handlers for canvas/WebGL

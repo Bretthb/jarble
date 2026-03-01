@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 import { useCanvasAction } from "../CanvasActionContext";
 
@@ -25,7 +26,7 @@ const BADGE_STYLES: Record<string, string> = {
   info: "bg-blue-500/15 text-blue-400 border-blue-500/30",
 };
 
-export default function CanvasList({ title, items, ordered = false }: CanvasListProps) {
+function CanvasListInner({ title, items, ordered = false }: CanvasListProps) {
   let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
   try {
     const ctx = useCanvasAction();
@@ -93,3 +94,5 @@ export default function CanvasList({ title, items, ordered = false }: CanvasList
     </div>
   );
 }
+
+export default memo(CanvasListInner);

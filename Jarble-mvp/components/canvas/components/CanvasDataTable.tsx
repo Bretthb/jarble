@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
 import { useCanvasAction } from "../CanvasActionContext";
 
@@ -47,7 +48,7 @@ function isNumericColumn(rows: string[][], colIdx: number): boolean {
   return numericCount > rows.length * 0.6;
 }
 
-export default function CanvasDataTable({ title, columns = [], rows = [] }: CanvasDataTableProps) {
+function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTableProps) {
   let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
   try {
     const ctx = useCanvasAction();
@@ -148,3 +149,5 @@ export default function CanvasDataTable({ title, columns = [], rows = [] }: Canv
     </motion.div>
   );
 }
+
+export default memo(CanvasDataTableInner);
