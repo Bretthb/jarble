@@ -19,9 +19,11 @@ import {
   SlidersHorizontal,
   MailWarning,
   MailCheck,
+  CreditCard,
 } from "lucide-react";
 import QRCode from "react-qr-code";
 import { DeploymentLoader } from "@/components/WizardLoader";
+import { calculateMonthlyPriceCents, formatPriceCents } from "@/lib/pricing";
 import type { RuntimeEntry } from "../types";
 import {
   LLM_MODELS,
@@ -49,6 +51,10 @@ interface StepDeployProps {
   emailVerified: boolean;
   deployPhase: "idle" | "deploying" | "pairing" | "paired";
   telegramBotUsername: string | null;
+  // Stripe checkout (redirect)
+  checkoutConfirmed: boolean;
+  isRedirectingToCheckout: boolean;
+  onCheckout: () => void;
 }
 
 export default function StepDeploy({
@@ -69,6 +75,9 @@ export default function StepDeploy({
   emailVerified,
   deployPhase,
   telegramBotUsername,
+  checkoutConfirmed,
+  isRedirectingToCheckout,
+  onCheckout,
 }: StepDeployProps) {
   const providerDef = getProviderById(llmProvider);
   const modelDef = LLM_MODELS.find((m) => m.id === llmModel);
@@ -90,6 +99,10 @@ export default function StepDeploy({
   const effectiveMemory = memoryMb ?? runtime?.memoryMb ?? 2048;
   const effectiveStorage = storageMb ?? runtime?.storageMb ?? 30;
   const isCustomized = cpuLimit !== null || memoryMb !== null || storageMb !== null;
+
+  // Dynamic price based on actual hardware selection
+  const dynamicPriceCents = calculateMonthlyPriceCents(effectiveCpu, effectiveMemory, effectiveStorage);
+  const needsPayment = !isFree && runtime && dynamicPriceCents > 0;
 
   const handleResetToRecommended = () => {
     setCpuLimit(null);
@@ -198,6 +211,43 @@ export default function StepDeploy({
             </div>
           )}
 
+          {/* Payment success badge */}
+          {checkoutConfirmed && (
+            <div className="flex items-center gap-3 rounded-lg border border-green-500/40 bg-green-500/10 px-4 py-3 text-left">
+              <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
+              <p className="text-sm font-medium text-green-500">Payment confirmed — ready to deploy!</p>
+            </div>
+          )}
+
+          {/* Stripe Checkout — shown for paid runtimes before payment */}
+          {!checkoutConfirmed && needsPayment && (
+            <div className="rounded-xl border border-border bg-card p-6 text-center space-y-4">
+              <p className="text-sm font-semibold">{formatPriceCents(dynamicPriceCents)}/mo</p>
+              <p className="text-xs text-muted-foreground">
+                You&apos;ll be redirected to Stripe to complete payment
+              </p>
+              <Button
+                onClick={onCheckout}
+                disabled={isRedirectingToCheckout}
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+              >
+                {isRedirectingToCheckout ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Redirecting...
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="w-4 h-4 mr-2" />
+                    Subscribe — {formatPriceCents(dynamicPriceCents)}/mo
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+
+          {/* Ready-to-deploy summary — shown when free OR after payment confirmed */}
+          {(checkoutConfirmed || !needsPayment) && (
           <div className="bg-secondary/50 rounded-xl border border-border/50 p-12">
             <div className="flex flex-col items-center gap-4">
               <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center border-2 border-primary/50">
@@ -245,6 +295,7 @@ export default function StepDeploy({
               </div>
             </div>
           </div>
+          )}
 
           {/* Hardware Configuration (collapsible) */}
           <div className="text-left">
@@ -437,7 +488,9 @@ export default function StepDeploy({
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
             <Rocket className="w-4 h-4 text-primary" />
             <p className="text-sm">
-              Click &quot;Deploy&quot; to launch your bot!
+              {needsPayment && !checkoutConfirmed
+                ? "Complete payment to deploy your bot"
+                : "Click \"Deploy\" to launch your bot!"}
             </p>
           </div>
         </>

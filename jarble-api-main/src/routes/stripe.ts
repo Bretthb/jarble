@@ -6,13 +6,16 @@ import { logger } from "../utils/logger.js";
 import { env } from "../utils/env.js";
 import {
   isStripeConfigured,
+  getStripe,
   createCheckoutSession,
+  createIncompleteSubscription,
   createPortalSession,
   constructWebhookEvent,
 } from "../services/stripe.js";
 import { stopDeployment } from "../k8s/index.js";
 import { getUserFromRequest } from "../helpers/auth.js";
 import { stripeActionLimiter } from "../middleware/rateLimit.js";
+import { calculateMonthlyPriceCents } from "../utils/pricing.js";
 
 /**
  * Stripe webhook handler — must be mounted BEFORE express.json() in index.ts
@@ -232,13 +235,13 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     return;
   }
 
-  const { runtimeSlug } = req.body;
+  const { runtimeSlug, cpuLimit, memoryMb, storageMb } = req.body;
   if (!runtimeSlug) {
     res.status(400).json({ error: "Missing runtimeSlug" });
     return;
   }
 
-  // Look up runtime catalog to get the canonical price (never trust client-sent price)
+  // Look up runtime catalog to get the canonical defaults (never trust client-sent price)
   const runtime = await db.query.runtimeCatalog.findFirst({
     where: eq(tables.runtimeCatalog.slug, runtimeSlug),
   });
@@ -252,27 +255,38 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     return;
   }
 
-  // If user already has a Stripe customer, redirect to portal for managing subscriptions
-  if (user.stripeCustomerId) {
-    res.json({ redirectToPortal: true });
-    return;
-  }
-
   try {
+    // Ensure user has a Stripe customer record
+    let stripeCustomerId = user.stripeCustomerId;
+    if (!stripeCustomerId) {
+      const s = getStripe();
+      const customer = await s.customers.create({
+        email: user.email,
+        metadata: { userId: user.id },
+      });
+      stripeCustomerId = customer.id;
+      await (db as any).update(tables.users)
+        .set({ stripeCustomerId })
+        .where(eq(tables.users.id, user.id));
+      logger.info({ userId: user.id, stripeCustomerId }, "Created Stripe customer");
+    }
+
+    const frontendUrl = env.FRONTEND_URL || "http://localhost:3000";
     const session = await createCheckoutSession({
       userId: user.id,
       userEmail: user.email,
       runtimeSlug,
       monthlyPriceCents,
-      stripeCustomerId: user.stripeCustomerId,
-      successUrl: `${env.FRONTEND_URL}/dashboard?checkout=success`,
-      cancelUrl: `${env.FRONTEND_URL}/pricing?checkout=canceled`,
+      stripeCustomerId,
+      successUrl: `${frontendUrl}/onboarding/new?checkout=success`,
+      cancelUrl: `${frontendUrl}/onboarding/new?checkout=cancel`,
     });
 
-    res.json({ url: session.url });
-  } catch (err) {
+    res.json({ url: session.url, sessionId: session.id });
+  } catch (err: any) {
     logger.error({ err, userId: user.id, runtimeSlug }, "Failed to create checkout session");
-    res.status(500).json({ error: "Failed to create checkout session" });
+    const detail = err?.message || err?.raw?.message || "Unknown error";
+    res.status(500).json({ error: `Failed to create checkout: ${detail}` });
   }
 });
 

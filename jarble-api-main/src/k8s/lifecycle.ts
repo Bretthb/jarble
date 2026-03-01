@@ -41,7 +41,7 @@ export async function createDeployment(
     metadata: { name: `pvc-${deploymentId}` },
     spec: {
       accessModes: ["ReadWriteOnce"],
-      storageClassName: "longhorn",
+      storageClassName: process.env.K8S_STORAGE_CLASS || "longhorn",
       resources: { requests: { storage: storageGi } },
     },
   });
