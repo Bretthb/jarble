@@ -76,16 +76,23 @@ type ActiveTables = {
   processedWebhookEvents: typeof mysqlSchema.processedWebhookEvents;
   skillsCatalog: typeof mysqlSchema.skillsCatalog;
   deploymentSkills: typeof mysqlSchema.deploymentSkills;
+  // Marketplace tables
+  creatorProfiles: typeof mysqlSchema.creatorProfiles;
+  marketplaceComponents: typeof mysqlSchema.marketplaceComponents;
+  componentVersions: typeof mysqlSchema.componentVersions;
+  componentInstalls: typeof mysqlSchema.componentInstalls;
+  componentPurchases: typeof mysqlSchema.componentPurchases;
+  componentReviews: typeof mysqlSchema.componentReviews;
 };
 
 function getActiveTables(): ActiveTables {
   if (DB_PROVIDER === "sqlite") {
-    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, runtimeCatalog: sqliteSchema.runtimeCatalog, platformCredentials: sqliteSchema.platformCredentials, processedWebhookEvents: sqliteSchema.processedWebhookEvents, skillsCatalog: sqliteSchema.skillsCatalog, deploymentSkills: sqliteSchema.deploymentSkills } as unknown as ActiveTables;
+    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, runtimeCatalog: sqliteSchema.runtimeCatalog, platformCredentials: sqliteSchema.platformCredentials, processedWebhookEvents: sqliteSchema.processedWebhookEvents, skillsCatalog: sqliteSchema.skillsCatalog, deploymentSkills: sqliteSchema.deploymentSkills, creatorProfiles: sqliteSchema.creatorProfiles, marketplaceComponents: sqliteSchema.marketplaceComponents, componentVersions: sqliteSchema.componentVersions, componentInstalls: sqliteSchema.componentInstalls, componentPurchases: sqliteSchema.componentPurchases, componentReviews: sqliteSchema.componentReviews } as unknown as ActiveTables;
   }
   if (DB_PROVIDER === "postgres") {
-    return { users: pgSchema.users, deployments: pgSchema.deployments, runtimeCatalog: pgSchema.runtimeCatalog, platformCredentials: pgSchema.platformCredentials, processedWebhookEvents: pgSchema.processedWebhookEvents, skillsCatalog: pgSchema.skillsCatalog, deploymentSkills: pgSchema.deploymentSkills } as unknown as ActiveTables;
+    return { users: pgSchema.users, deployments: pgSchema.deployments, runtimeCatalog: pgSchema.runtimeCatalog, platformCredentials: pgSchema.platformCredentials, processedWebhookEvents: pgSchema.processedWebhookEvents, skillsCatalog: pgSchema.skillsCatalog, deploymentSkills: pgSchema.deploymentSkills, creatorProfiles: pgSchema.creatorProfiles, marketplaceComponents: pgSchema.marketplaceComponents, componentVersions: pgSchema.componentVersions, componentInstalls: pgSchema.componentInstalls, componentPurchases: pgSchema.componentPurchases, componentReviews: pgSchema.componentReviews } as unknown as ActiveTables;
   }
-  return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, runtimeCatalog: mysqlSchema.runtimeCatalog, platformCredentials: mysqlSchema.platformCredentials, processedWebhookEvents: mysqlSchema.processedWebhookEvents, skillsCatalog: mysqlSchema.skillsCatalog, deploymentSkills: mysqlSchema.deploymentSkills };
+  return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, runtimeCatalog: mysqlSchema.runtimeCatalog, platformCredentials: mysqlSchema.platformCredentials, processedWebhookEvents: mysqlSchema.processedWebhookEvents, skillsCatalog: mysqlSchema.skillsCatalog, deploymentSkills: mysqlSchema.deploymentSkills, creatorProfiles: mysqlSchema.creatorProfiles, marketplaceComponents: mysqlSchema.marketplaceComponents, componentVersions: mysqlSchema.componentVersions, componentInstalls: mysqlSchema.componentInstalls, componentPurchases: mysqlSchema.componentPurchases, componentReviews: mysqlSchema.componentReviews };
 }
 
 export const tables = getActiveTables();

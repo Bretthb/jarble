@@ -23,6 +23,7 @@ import {
   LayoutDashboard,
   AlertCircle,
   Palette,
+  Package,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -61,6 +62,13 @@ const navItems: NavItem[] = [
     icon: <DollarSign className="w-4 h-4" />,
     category: "public",
     description: "Pricing plans",
+  },
+  {
+    label: "Marketplace",
+    path: "/marketplace",
+    icon: <Package className="w-4 h-4" />,
+    category: "public",
+    description: "Component marketplace",
   },
   // Auth pages
   {

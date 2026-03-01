@@ -35,6 +35,7 @@ import { formEntry } from "./components/form.js";
 import { codeEditorEntry } from "./components/code_editor.js";
 import { spreadsheetEntry } from "./components/spreadsheet.js";
 import { sandboxEntry } from "./components/sandbox.js";
+import { marketplaceSandboxEntry } from "./components/marketplace_sandbox.js";
 import { videoEntry } from "./components/video.js";
 import { audioEntry } from "./components/audio.js";
 import { avatarEntry } from "./components/avatar.js";
@@ -82,6 +83,7 @@ export const COMPONENT_MANIFEST: Record<string, ComponentManifestEntry> = {
   code_editor: codeEditorEntry,
   spreadsheet: spreadsheetEntry,
   sandbox: sandboxEntry,
+  marketplace_sandbox: marketplaceSandboxEntry,
   video: videoEntry,
   // Alias: LLMs often say "canvas" when they mean "sandbox"
   canvas: { ...sandboxEntry, name: "canvas", aliases: [] },
@@ -164,6 +166,7 @@ export {
   codeEditorSchema,
   spreadsheetSchema,
   sandboxSchema,
+  marketplaceSandboxSchema,
   videoSchema,
   audioSchema,
   avatarSchema,

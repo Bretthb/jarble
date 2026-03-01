@@ -38,6 +38,7 @@ import {
   codeEditorSchema,
   spreadsheetSchema,
   sandboxSchema,
+  marketplaceSandboxSchema,
   videoSchema,
   audioSchema,
   avatarSchema,
@@ -79,6 +80,7 @@ export {
   codeEditorSchema,
   spreadsheetSchema,
   sandboxSchema,
+  marketplaceSandboxSchema,
   videoSchema,
   audioSchema,
   avatarSchema,
@@ -127,6 +129,7 @@ const CanvasChart = dynamic(() => import("./components/CanvasChart"), { ssr: fal
 const CanvasCodeEditor = dynamic(() => import("./components/CanvasCodeEditor"), { ssr: false });
 const CanvasSpreadsheet = dynamic(() => import("./components/CanvasSpreadsheet"), { ssr: false });
 const CanvasSandbox = dynamic(() => import("./components/CanvasSandbox"), { ssr: false });
+const MarketplaceSandbox = dynamic(() => import("./components/MarketplaceSandbox"), { ssr: false });
 const CanvasVideo = dynamic(() => import("./components/CanvasVideo"), { ssr: false });
 const CanvasMap = dynamic(() => import("./components/CanvasMap"), { ssr: false });
 const CanvasImageGallery = dynamic(() => import("./components/CanvasImageGallery"), { ssr: false });
@@ -182,6 +185,7 @@ export const CANVAS_COMPONENTS: Record<string, CanvasComponentEntry> = {
   code_editor: { component: CanvasCodeEditor, propsSchema: codeEditorSchema },
   spreadsheet: { component: CanvasSpreadsheet, propsSchema: spreadsheetSchema },
   sandbox: { component: CanvasSandbox, propsSchema: sandboxSchema },
+  marketplace_sandbox: { component: MarketplaceSandbox, propsSchema: marketplaceSandboxSchema },
   video: { component: CanvasVideo, propsSchema: videoSchema },
   // Alias: LLMs often say "canvas" when they mean "sandbox"
   canvas: { component: CanvasSandbox, propsSchema: sandboxSchema },

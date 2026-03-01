@@ -34,6 +34,8 @@ import {
   getDeploymentPodStatus,
   signalProcessRestart,
   readCurrentSecretData,
+  findPodForDeployment,
+  execInPod,
 } from "../k8s/index.js";
 import { updateDeploymentConfigMap } from "../k8s/configmap.js";
 import { getHandlerOrNull } from "../runtimes/index.js";
@@ -679,4 +681,87 @@ async function syncPlatformCredentialsFromPvc(
       "configSync←PVC: platform credentials synced from PVC"
     );
   }
+}
+
+// ── Marketplace Component Sync ──────────────────────────────────────────────
+
+/**
+ * Write a marketplace component package to a deployment's PVC.
+ * Called when a component is installed on a deployment.
+ *
+ * Writes the manifest and component file (template.json or sandbox.html)
+ * to /data/marketplace/{componentId}/ on the pod using the same base64-
+ * encoded exec pattern as writeConfigsToPvc.
+ *
+ * @param deploymentId - Target deployment
+ * @param componentId - Unique component identifier (used as directory name)
+ * @param manifest - Validated marketplace manifest object
+ * @param templateOrHtml - Template JSON string (tier 1) or HTML string (tier 2)
+ * @param tier - "template" or "sandbox"
+ */
+export async function syncMarketplaceComponent(
+  deploymentId: string,
+  componentId: string,
+  manifest: Record<string, unknown>,
+  templateOrHtml: string,
+  tier: "template" | "sandbox",
+): Promise<void> {
+  const podName = await findPodForDeployment(deploymentId);
+  if (!podName) {
+    throw new Error(`No running pod found for deployment ${deploymentId}`);
+  }
+
+  const basePath = `/data/marketplace/${componentId}`;
+
+  // Ensure the marketplace component directory exists
+  await execInPod(podName, ["mkdir", "-p", basePath]);
+
+  // Write manifest.json
+  const manifestContent = JSON.stringify(manifest, null, 2);
+  const manifestB64 = Buffer.from(manifestContent).toString("base64");
+  await execInPod(podName, [
+    "sh", "-c",
+    `echo '${manifestB64}' | base64 -d > '${basePath}/manifest.json'`,
+  ]);
+
+  // Write the component file based on tier
+  const fileName = tier === "template" ? "template.json" : "sandbox.html";
+  const fileB64 = Buffer.from(templateOrHtml).toString("base64");
+  await execInPod(podName, [
+    "sh", "-c",
+    `echo '${fileB64}' | base64 -d > '${basePath}/${fileName}'`,
+  ]);
+
+  logger.info(
+    { deploymentId, componentId, tier },
+    "syncMarketplaceComponent: wrote component to PVC"
+  );
+}
+
+/**
+ * Remove a marketplace component from a deployment's PVC.
+ * Called when a component is uninstalled.
+ *
+ * Removes the entire /data/marketplace/{componentId}/ directory from the pod.
+ *
+ * @param deploymentId - Target deployment
+ * @param componentId - Component to remove
+ */
+export async function removeMarketplaceComponent(
+  deploymentId: string,
+  componentId: string,
+): Promise<void> {
+  const podName = await findPodForDeployment(deploymentId);
+  if (!podName) {
+    throw new Error(`No running pod found for deployment ${deploymentId}`);
+  }
+
+  const basePath = `/data/marketplace/${componentId}`;
+
+  await execInPod(podName, ["rm", "-rf", basePath]);
+
+  logger.info(
+    { deploymentId, componentId },
+    "removeMarketplaceComponent: removed component from PVC"
+  );
 }

@@ -31,6 +31,7 @@ import { PlatformsTab } from "./deployment-config/PlatformsTab";
 import { SkillsTab } from "./deployment-config/SkillsTab";
 import { AdvancedTab } from "./deployment-config/AdvancedTab";
 import { LogsTab } from "./deployment-config/LogsTab";
+import { ComponentsTab } from "./deployment-config/ComponentsTab";
 import { useStatusStream } from "@/hooks/useStatusStream";
 import { WhatsAppQrModal } from "@/components/WhatsAppQrModal";
 
@@ -517,6 +518,9 @@ export default function DeploymentConfiguration() {
                 )}
                 {activeTab === "logs" && (
                   <LogsTab deploymentId={id} deploymentStatus={displayStatus} />
+                )}
+                {activeTab === "components" && (
+                  <ComponentsTab deploymentId={id} deploymentStatus={displayStatus} />
                 )}
                 {activeTab === "advanced" && (
                   <AdvancedTab formData={formData} updateFormData={updateFormData} deployment={deployment} />

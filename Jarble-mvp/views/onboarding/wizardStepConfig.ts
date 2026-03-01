@@ -71,6 +71,7 @@ import {
   Link2,
   Shield,
   Terminal,
+  Package,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -170,16 +171,18 @@ export const UNIVERSAL_CONFIG_TABS: ConfigTabDef[] = [
 
 // Runtime-specific tabs (inserted between General and Advanced)
 const RUNTIME_CONFIG_TABS: Record<string, ConfigTabDef[]> = {
-  // OpenClaw — AI WhatsApp bot, needs Model + Platforms + Skills
+  // OpenClaw — AI WhatsApp bot, needs Model + Platforms + Skills + Components
   openclaw: [
     { id: "model", label: "Model", icon: Bot },
     { id: "platforms", label: "Platforms", icon: Link2 },
     { id: "skills", label: "Skills", icon: Sparkles },
+    { id: "components", label: "Components", icon: Package },
   ],
 
-  // ZeroClaw — lightweight bot, only Platforms
+  // ZeroClaw — lightweight bot, Platforms + Components
   zeroclaw: [
     { id: "platforms", label: "Platforms", icon: Link2 },
+    { id: "components", label: "Components", icon: Package },
   ],
 
   // ── Add new runtimes here ──
@@ -195,6 +198,7 @@ const DEFAULT_CONFIG_TABS: ConfigTabDef[] = [
   { id: "model", label: "Model", icon: Bot },
   { id: "platforms", label: "Platforms", icon: Link2 },
   { id: "skills", label: "Skills", icon: Sparkles },
+  { id: "components", label: "Components", icon: Package },
 ];
 
 // Always shown (before Advanced)
