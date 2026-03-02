@@ -24,64 +24,36 @@ const FILE_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 const MAX_FILE_SIZE = 1_000_000; // 1MB
 
 // ── Built-in components ────────────────────────────────────────────────
-// NOTE: These lists are duplicated from @jarble/component-manifest.
-// To regenerate from the manifest, run: npx tsx scripts/generate-mcp-manifest.ts
-// which writes shared/component-manifest/generated/component-data.json.
-// Future: load from that JSON instead of hardcoding here.
+// Loaded from generated JSON (shared/component-manifest/generated/component-data.json).
+// To regenerate: npx tsx scripts/generate-mcp-manifest.ts (run from jarble-api-main/)
+// Falls back to inline list if JSON not found (e.g. first boot before build step).
 
-const BUILTIN_COMPONENTS = [
-  "card", "data_table", "stat_grid", "key_value",
-  "code_block", "alert", "progress", "image", "layout",
-  "chart", "tabs", "accordion", "badge", "list",
-  "timeline", "divider", "metric_card", "header",
-  "button_group", "form", "code_editor", "spreadsheet",
-  "sandbox", "video",
-  "audio", "avatar", "blockquote", "text_message",
-  "image_gallery", "map",
-  "descriptions", "steps", "result", "carousel",
-  "statistic", "tag_cloud",
-  "tree",
-];
+let BUILTIN_COMPONENTS;
+let BUILTIN_DESCRIPTIONS;
 
-const BUILTIN_DESCRIPTIONS = {
-  card: "Simple card with title, subtitle, and body text",
-  data_table: "Table with column headers and data rows",
-  stat_grid: "Grid of metric cards with labels, values, and optional change indicators",
-  key_value: "List of key-value pairs",
-  code_block: "Syntax-highlighted code snippet",
-  alert: "Notification banner (info, success, warning, error)",
-  progress: "Progress bar with label and percentage",
-  image: "Image with optional alt text and caption",
-  layout: "Container that renders an array of child components",
-  chart: "Bar, line, pie, or area chart with data series (recharts)",
-  tabs: "Tabbed content panels with optional nested child components",
-  accordion: "Collapsible sections with titles and content",
-  badge: "Small label/tag with variant styling",
-  list: "Structured list with optional icons, descriptions, and badges",
-  timeline: "Chronological event timeline with status indicators",
-  divider: "Visual separator with optional label",
-  metric_card: "Single metric display with optional sparkline chart",
-  header: "Section heading with optional subtitle and divider",
-  button_group: "Row of action buttons that dispatch UI_ACTION callbacks on click",
-  form: "Input form with text, email, textarea, select, checkbox, number fields — dispatches UI_ACTION on submit",
-  code_editor: "Monaco code editor with syntax highlighting",
-  spreadsheet: "Editable Excel-like spreadsheet grid",
-  sandbox: "Sandboxed iframe for custom HTML/CSS/JS mini-apps — render anything. Use for charts, 3D, animations, gauges, maps, or any visualization not covered by built-in components.",
-  video: "Video/livestream player — supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct URLs. Use for livestreams (NASA ISS, Twitch channels, YouTube Live).",
-  audio: "HTML5 audio player with controls. Props: src (URL), title (optional), autoplay (optional boolean).",
-  avatar: "User avatar with image or initials fallback. Props: name (string), src (optional image URL), subtitle (optional), size ('sm'|'md'|'lg').",
-  blockquote: "Styled quote block with attribution. Props: text (string), attribution (optional author name), variant ('default'|'info'|'warning').",
-  text_message: "Chat-style message bubble. Props: botText (string), userText (optional string).",
-  image_gallery: "Grid of images with click-to-zoom modal. Props: images (array of {src, alt?, caption?}), title (optional), columns (optional number).",
-  map: "Interactive Leaflet map with markers. Props: center ([lat, lng]), zoom (optional), markers (optional array of {lat, lng, label?}), title (optional).",
-  descriptions: "Key-value description list (Ant Design). Props: title (optional), items (array of {label, value, span?}), columns (optional), bordered (optional boolean).",
-  steps: "Step-by-step progress indicator. Props: current (number, 0-indexed), items (array of {title, description?, icon?}), direction ('vertical'|'horizontal').",
-  result: "Status result page. Props: status ('success'|'error'|'info'|'warning'), title (string), subtitle (optional).",
-  carousel: "Swipeable slide carousel. Props: items (array of {title?, description?, image?}), autoplay (optional boolean).",
-  statistic: "Large number display with optional countdown. Props: value (string|number), title (optional), prefix (optional), suffix (optional), precision (optional number), isCountdown (optional boolean), countdownTarget (optional ISO date string).",
-  tag_cloud: "Collection of colored tags. Props: tags (array of {text, color?, size?}), title (optional).",
-  tree: "Expandable tree hierarchy. Props: data (array of {title, key, children?}), title (optional), defaultExpandAll (optional boolean).",
-};
+try {
+  // Try to load from generated manifest JSON (created by build step)
+  const manifestPath = path.resolve(__dirname, "../../../shared/component-manifest/generated/component-data.json");
+  const manifestData = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+  BUILTIN_COMPONENTS = manifestData.componentNames;
+  BUILTIN_DESCRIPTIONS = manifestData.descriptions;
+} catch {
+  // Fallback: inline list for first boot / when JSON not yet generated
+  BUILTIN_COMPONENTS = [
+    "card", "data_table", "stat_grid", "key_value",
+    "code_block", "alert", "progress", "image", "layout",
+    "chart", "tabs", "accordion", "badge", "list",
+    "timeline", "divider", "metric_card", "header",
+    "button_group", "form", "code_editor", "spreadsheet",
+    "sandbox", "video",
+    "audio", "avatar", "blockquote", "text_message",
+    "image_gallery", "map",
+    "descriptions", "steps", "result", "carousel",
+    "statistic", "tag_cloud",
+    "tree", "marketplace_sandbox",
+  ];
+  BUILTIN_DESCRIPTIONS = {};
+}
 
 // ── Component resolver ─────────────────────────────────────────────────
 
