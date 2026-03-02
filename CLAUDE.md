@@ -28,7 +28,8 @@ npm run dev          # Start dev server on :3000
 npm run build        # Production build
 npm run check        # TypeScript type-check (tsc --noEmit)
 npm run format       # Prettier format
-npm run test         # Run Vitest unit tests
+npm run test         # Run Vitest unit tests (227 tests)
+npm run test:coverage # Run tests with v8 coverage report
 npx vitest run path/to/file.test.ts   # Run a single unit test file
 npm run check:manifest   # Verify manifest ↔ component sync
 ```
@@ -39,7 +40,8 @@ npm run dev          # Start with file watching (tsx watch)
 npm run dev:test     # Start with SQLite (USE_SQLITE=true) for local dev
 npm run typecheck    # TypeScript type-check
 npm run lint         # ESLint
-npm run test         # Run Vitest unit tests
+npm run test         # Run Vitest unit tests (406 tests)
+npm run test:coverage # Run tests with v8 coverage report
 npm run db:push      # Push schema to database (MySQL/SQLite)
 npm run db:studio    # Open Drizzle Studio
 npm run db:generate  # Generate migrations (MySQL/SQLite)
@@ -61,6 +63,77 @@ npx playwright test e2e/smoke.spec.ts  # Run a single E2E spec file
 ```
 
 E2E auth setup requires `e2e/.env.test` with Auth0 ROPC credentials (see `e2e/.env.test.example`). Run `npm run test:e2e:auth` once to generate `e2e/.auth/storageState.json`.
+
+## Test Suite
+
+**633 tests across 27 files** (406 backend + 227 frontend), all Vitest.
+
+### Backend Test Structure (jarble-api-main/src/)
+```
+├── utils/encryption.test.ts           # AES-256-GCM encrypt/decrypt (19 tests)
+├── utils/chatErrors.test.ts           # Error classification patterns (21 tests)
+├── utils/pricing.test.ts              # Pricing formula (10 tests)
+├── utils/__tests__/libraryValidation  # CDN allowlist + security (19 tests)
+├── services/manifestValidator.test.ts # Manifest validation (74 tests)
+├── runtimes/handlers/openclaw.test.ts # OpenClaw runtime handler (48 tests)
+├── runtimes/handlers/zeroclaw.test.ts # ZeroClaw runtime handler (19 tests)
+├── k8s/constants.test.ts              # K8s constants, dual-mode (16 tests)
+├── k8s/configmap.test.ts              # ConfigMap key encoding (22 tests)
+├── __tests__/contracts/schemas.test.ts # Zod input schema contracts (25 tests)
+├── __tests__/helpers/testDb.ts        # In-memory SQLite test harness
+├── __tests__/helpers/testCaller.ts    # tRPC caller with mock auth
+├── __tests__/helpers/harness.test.ts  # Harness smoke tests (4 tests)
+└── __tests__/routers/
+    ├── deployment.test.ts             # Deployment CRUD + lifecycle (30 tests)
+    ├── user.test.ts                   # User management (10 tests)
+    ├── platformCredentials.test.ts    # Credential CRUD + configSync (16 tests)
+    └── openrouter.test.ts            # LLM key validation (14 tests)
+```
+
+### Frontend Test Structure (Jarble-mvp/)
+```
+├── lib/__tests__/autoFixProps.test.ts              # AutoFix prop repair (51 tests)
+├── lib/__tests__/sanitize.test.ts                  # HTML sanitization (14 tests)
+├── __tests__/ChatErrorCard.test.tsx                # Error card UI (22 tests)
+├── components/workspace/__tests__/canvasReducer    # Canvas state, 26 actions (54 tests)
+├── components/workspace/__tests__/autoLayout       # Grid layout logic (35 tests)
+├── components/canvas/__tests__/canvasComponents    # Renderer + registry (23 tests)
+├── components/canvas/__tests__/sandbox-csp         # Sandbox CSP security (5 tests)
+├── hooks/__tests__/useStatusStream                 # SSE status stream (9 tests)
+├── hooks/__tests__/useCanvasPersistence            # Canvas localStorage (9 tests)
+└── hooks/__tests__/useMobile                       # Mobile detection (5 tests)
+```
+
+### Integration Test Harness
+Backend router tests use a real in-memory SQLite DB (`__tests__/helpers/testDb.ts`) with mocked K8s, Stripe, and external APIs. Each test gets a fresh DB via `beforeEach`. The harness creates all tables and seeds runtime catalog + test user.
+
+```ts
+// Usage pattern:
+import { createTestDb } from "../helpers/testDb.js";
+import { createTestCaller } from "../helpers/testCaller.js";
+
+let db: ReturnType<typeof createTestDb>;
+let caller: ReturnType<typeof createTestCaller>;
+
+beforeEach(() => {
+  db = createTestDb();
+  caller = createTestCaller(db, { userId: "test-user" });
+});
+```
+
+### Key Mocking Patterns
+- **Encryption tests**: `vi.mock("./env.js")` to control `API_KEY_ENCRYPTION_KEY`
+- **Runtime handler tests**: `vi.mock("../../trpc/routers/platformCredentials.js")` to break circular deps
+- **K8s tests**: `vi.mock("./client.js")` to avoid KubeConfig init at import
+- **Frontend hooks**: Mock `EventSource`, `window.matchMedia`, `localStorage`
+- **Router tests**: Mock K8s lifecycle, Stripe, configSync, fetch
+
+### Writing New Tests
+- Backend unit tests: place next to source file as `{name}.test.ts`
+- Backend integration tests: place in `src/__tests__/routers/`
+- Frontend unit tests: place in `__tests__/` subdirectory next to source
+- Run single file: `npx vitest run path/to/file.test.ts`
+- Coverage: `npm run test:coverage` (generates text + HTML + lcov reports)
 
 ### Running Both Services
 Start API and frontend in separate terminals:
