@@ -1,0 +1,38 @@
+# Test ConfigMap for operator evaluation
+#
+# Contains initial config files that the operator's init chain copies to PVC.
+#
+# NOTE: Our production code uses encoded keys for absolute paths
+# (e.g. "abs-data--.openclaw--openclaw.json" for "/data/.openclaw/openclaw.json").
+# The operator's init chain may NOT support this encoding.
+#
+# For this eval, we use simple keys to test operator behavior.
+# If the operator copies keys as flat filenames, we need to verify
+# where they end up on the PVC.
+#
+# Usage:
+#   kubectl apply -f test-configmap.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-test-eval-001
+  namespace: jarble-eval
+  labels:
+    app: dep-test-eval-001
+    jarble.ai/deployment-id: "test-eval-001"
+data:
+  # Soul prompt — system instructions for the bot
+  soul.md: |
+    You are a helpful test assistant for evaluating the OpenClaw K8s operator.
+    Keep responses concise. You can render UI components using jarble_ui blocks.
+
+  # OpenClaw channel config
+  openclaw.json: |
+    {
+      "agent": {
+        "model": "claude-sonnet-4-20250514",
+        "provider": "anthropic"
+      },
+      "channels": {}
+    }
