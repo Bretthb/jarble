@@ -12,6 +12,11 @@ const nextConfig: NextConfig = {
       sury: false,
       "@valibot/to-json-schema": false,
     };
+    // Allow .js imports in shared packages to resolve to .ts source files
+    config.resolve.extensionAlias = {
+      ...config.resolve.extensionAlias,
+      ".js": [".ts", ".tsx", ".js"],
+    };
     return config;
   },
   // Skip tRPC AppRouter type errors during build (monorepo cross-package issue)

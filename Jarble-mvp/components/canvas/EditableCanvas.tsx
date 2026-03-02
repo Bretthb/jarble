@@ -95,6 +95,8 @@ export default function EditableCanvas({
       const isFilePath = block.fileId?.startsWith("/data/");
       isDev && console.log("[Jarble:Editable] Save path:", isFilePath ? "write_file MCP" : saveMethod === "chat" ? "chat message" : "save_canvas_file MCP");
 
+      let usedMcpFallback = false;
+
       if (isFilePath) {
         // Write back to the original file on the pod via write_file MCP tool
         const content = extractFileContent(block.component, editedProps);
@@ -137,6 +139,7 @@ export default function EditableCanvas({
         );
       } else {
         // Fallback: save as canvas component data
+        usedMcpFallback = true;
         isDev && console.log("[Jarble:Editable] Using save_canvas_file MCP fallback");
         const token = await getAccessTokenSilently();
         const res = await fetch(
@@ -178,7 +181,8 @@ export default function EditableCanvas({
       onPropsUpdate?.(block.id, editedProps);
 
       // Layer 3: Fire-and-forget PVC persistence for cross-session durability
-      if (block.editable) {
+      // Skip if primary save already used save_canvas_file (avoid double write)
+      if (block.editable && !usedMcpFallback) {
         getAccessTokenSilently().then((token) => {
           fetch(`${API_URL}/api/deployments/${deploymentId}/mcp/invoke`, {
             method: "POST",

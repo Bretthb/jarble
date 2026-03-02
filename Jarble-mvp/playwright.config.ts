@@ -1,15 +1,23 @@
 import { defineConfig, devices } from "@playwright/test";
+import * as path from "path";
+import * as fs from "fs";
+
+// Use auth state if it exists (created by auth-setup.ts)
+const authFile = path.join(__dirname, "e2e", ".auth", "storageState.json");
+const hasAuth = fs.existsSync(authFile);
 
 export default defineConfig({
   testDir: "./e2e",
   outputDir: "./test-results",
-  timeout: 30_000,
+  timeout: 120_000,
   retries: 0,
-  reporter: "html",
+  reporter: [["html", { open: "always" }]],
   use: {
     baseURL: "http://localhost:3000",
-    screenshot: "only-on-failure",
-    trace: "on-first-retry",
+    screenshot: "on",
+    trace: "on",
+    ...(hasAuth ? { storageState: authFile } : {}),
+    ...devices["Desktop Chrome"],
   },
   projects: [
     {

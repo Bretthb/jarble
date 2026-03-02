@@ -10,6 +10,12 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:auth": "npx tsx e2e/auth-setup.ts",
+    "test:e2e:auth0-setup": "npx tsx e2e/auth0-setup.ts",
+    "test:e2e:browse": "playwright test user-browse.spec.ts",
+    "test:e2e:chat": "playwright test user-chat-components.spec.ts",
+    "test:e2e:edit": "playwright test user-edit-persist.spec.ts",
+    "test:e2e:report": "playwright show-report",
     "check:manifest": "npx tsx ../scripts/check-manifest.ts",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "db:seed": "npx tsx drizzle/seed.ts"
