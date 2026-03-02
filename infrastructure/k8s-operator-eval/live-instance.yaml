@@ -1,0 +1,73 @@
+# Live eval instance — corrected to match actual CRD schema (v0.10.16)
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: test-eval-agent
+  namespace: jarble-eval
+  labels:
+    jarble.ai/deployment-id: "test-eval-001"
+    jarble.ai/type: "bot"
+spec:
+  image:
+    repository: ghcr.io/jarble-ai/openclaw
+    tag: "latest"
+    pullPolicy: IfNotPresent
+    pullSecrets:
+      - name: ghcr-pull-secret
+
+  envFrom:
+    - secretRef:
+        name: secret-test-eval-001
+
+  env:
+    - name: DEPLOYMENT_ID
+      value: "test-eval-001"
+    - name: USER_ID
+      value: "test-user-001"
+    - name: DEPLOYMENT_NAME
+      value: "Eval Test Agent"
+    - name: TEMPLATE
+      value: "personal"
+    - name: RUNTIME
+      value: "openclaw"
+
+  config:
+    configMapRef:
+      name: config-test-eval-001
+    mergeMode: overwrite
+
+  storage:
+    persistence:
+      enabled: true
+      size: 30Gi
+      storageClass: longhorn
+
+  gateway:
+    existingSecret: secret-test-eval-001
+
+  resources:
+    requests:
+      cpu: "2000m"
+      memory: "3072Mi"
+    limits:
+      cpu: "2000m"
+      memory: "3072Mi"
+
+  # Override security to allow our image entrypoint to write to /data
+  # (our image expects /data as writable; operator mounts PVC at /home/openclaw/.openclaw)
+  security:
+    containerSecurityContext:
+      readOnlyRootFilesystem: false
+      allowPrivilegeEscalation: false
+
+  probes:
+    liveness:
+      initialDelaySeconds: 60
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 20
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
