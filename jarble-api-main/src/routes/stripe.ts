@@ -309,8 +309,7 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     res.json({ url: session.url, sessionId: session.id });
   } catch (err: any) {
     logger.error({ err, userId: user.id, runtimeSlug }, "Failed to create checkout session");
-    const detail = err?.message || err?.raw?.message || "Unknown error";
-    res.status(500).json({ error: `Failed to create checkout: ${detail}` });
+    res.status(500).json({ error: "Failed to create checkout session. Please try again." });
   }
 });
 

@@ -793,8 +793,16 @@ export const deploymentRouter = router({
         updates.llmApiKey = encryptApiKey(rawUpdates.llmApiKey);
       }
 
-      // Recalculate price if hardware specs changed
+      // Block hardware spec changes on paid deployments with active Stripe subscriptions.
+      // The Stripe subscription price would need to be updated to match, which requires
+      // a proper upgrade/downgrade flow. Until that's built, reject the change.
       if (updates.cpuLimit || updates.memoryMb || updates.storageMb) {
+        if (!existing.isFree && existing.stripeSubscriptionId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Hardware spec changes are not supported for paid deployments. Please contact support to change your plan.",
+          });
+        }
         const newCpu = updates.cpuLimit || existing.cpuLimit;
         const newMemory = updates.memoryMb || existing.memoryMb;
         const newStorage = updates.storageMb || existing.storageMb;
