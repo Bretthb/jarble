@@ -4,6 +4,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useRouter } from "next/navigation";
 import {
   Plus,
@@ -135,10 +136,35 @@ export default function Dashboard() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-muted-foreground">Loading...</p>
+      <div className="min-h-screen bg-background text-foreground">
+        <nav className="border-b border-border/60 sticky top-0 z-50 bg-background">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
+            <Skeleton className="h-5 w-14" />
+            <Skeleton className="w-8 h-8 rounded-full" />
+          </div>
+        </nav>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+          <div className="flex items-center justify-between mb-6">
+            <Skeleton className="h-6 w-32" />
+            <Skeleton className="h-8 w-36 rounded-md" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Card key={i} className="bg-card border-border overflow-hidden">
+                <div className="p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <Skeleton className="w-10 h-10 rounded-lg" />
+                    <div className="flex-1 min-w-0">
+                      <Skeleton className="h-4 w-32 mb-1.5" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-3.5 w-full mb-1.5" />
+                  <Skeleton className="h-3.5 w-3/4" />
+                </div>
+              </Card>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -216,16 +242,35 @@ export default function Dashboard() {
 
         {/* Deployments Grid */}
         {deploymentsQuery.isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="w-6 h-6 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">Loading deployments...</p>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Card key={i} className="bg-card border-border overflow-hidden">
+                <div className="p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <Skeleton className="w-10 h-10 rounded-lg" />
+                    <div className="flex-1 min-w-0">
+                      <Skeleton className="h-4 w-32 mb-1.5" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                  </div>
+                  <Skeleton className="h-3.5 w-full mb-1.5" />
+                  <Skeleton className="h-3.5 w-3/4 mb-3" />
+                  <div className="pt-3 border-t border-border/50 flex items-center justify-between">
+                    <Skeleton className="h-3 w-24" />
+                    <div className="flex gap-1">
+                      <Skeleton className="h-7 w-7 rounded-md" />
+                      <Skeleton className="h-7 w-7 rounded-md" />
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            ))}
           </div>
         ) : deploymentsQuery.isError ? (
           <div className="text-center py-24">
             <Bot className="w-12 h-12 mx-auto mb-4 text-destructive/40" />
-            <h3 className="text-xl font-semibold mb-1">Failed to load deployments</h3>
+            <h3 className="text-lg font-semibold mb-1">Failed to load deployments</h3>
             <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">
               {deploymentsQuery.error?.message || "Something went wrong. Please try again."}
             </p>
@@ -278,7 +323,7 @@ export default function Dashboard() {
             className="text-center py-24"
           >
             <Bot className="w-12 h-12 mx-auto mb-4 text-muted-foreground/40" />
-            <h3 className="text-xl font-semibold mb-1">No deployments yet</h3>
+            <h3 className="text-lg font-semibold mb-1">No deployments yet</h3>
             <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">Create your first AI deployment in under 2 minutes</p>
             <Button
               onClick={handleCreateDeployment}
@@ -360,7 +405,7 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
       transition={{ duration: 0.3 }}
     >
       <Card
-        className="bg-card border-border hover:border-primary/30 transition-all overflow-hidden cursor-pointer group"
+        className="bg-card border-border hover:border-primary/30 transition-all overflow-hidden cursor-pointer group focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background outline-none"
         role="button"
         tabIndex={0}
         onClick={handleCardClick}
@@ -455,6 +500,7 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
                   disabled={isToggling}
                   className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
                   title="Stop"
+                  aria-label="Stop deployment"
                 >
                   {isToggling ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -472,6 +518,7 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
                   disabled={isToggling}
                   className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
                   title="Start"
+                  aria-label="Start deployment"
                 >
                   {isToggling ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -488,6 +535,7 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
                   disabled
                   className="text-muted-foreground h-7 w-7 p-0"
                   title="Starting..."
+                  aria-label="Deployment starting"
                 >
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 </Button>
@@ -502,6 +550,7 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
                   disabled={isExporting}
                   className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
                   title="Export configs"
+                  aria-label="Export deployment configs"
                 >
                   {isExporting ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -520,6 +569,7 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
                   disabled={isToggling}
                   className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
                   title="Restart"
+                  aria-label="Restart deployment"
                 >
                   <RotateCw className="w-3.5 h-3.5" />
                 </Button>
@@ -552,6 +602,7 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
                   onClick={() => setConfirmDelete(true)}
                   className="text-muted-foreground hover:text-red-500 h-7 w-7 p-0"
                   title="Delete"
+                  aria-label="Delete deployment"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>

@@ -12,7 +12,15 @@ import ProfileDropdown from "@/components/ProfileDropdown";
 
 const IntegrationsMarquee = dynamic(() => import("@/components/IntegrationsMarquee"), {
   ssr: false,
-  loading: () => <div className="w-full h-64" />,
+  loading: () => (
+    <div className="w-full h-64 flex items-center justify-center">
+      <div className="flex gap-4 px-4 overflow-hidden opacity-30">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="w-20 h-20 rounded-xl bg-muted animate-pulse shrink-0" />
+        ))}
+      </div>
+    </div>
+  ),
 });
 
 
@@ -99,11 +107,11 @@ export default function Home() {
                 <span className="inline-flex items-center px-3 py-1 rounded-full bg-secondary/80 backdrop-blur-sm text-xs font-medium text-muted-foreground border border-border/50">
                   No-Code AI Platform
                 </span>
-                <h2 className="text-6xl lg:text-7xl font-serif font-medium leading-[1.1] tracking-tight">
+                <h2 className="text-4xl sm:text-6xl lg:text-7xl font-serif font-medium leading-[1.1] tracking-tight">
                   Deploy Your AI
                   <span className="block text-primary">with Jarble</span>
                 </h2>
-                <p className="text-xl text-muted-foreground">
+                <p className="text-lg sm:text-xl text-muted-foreground">
                   Create and deploy powerful AI bots across WhatsApp, Discord, Slack, and more. No coding required.
                 </p>
               </div>

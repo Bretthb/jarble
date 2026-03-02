@@ -15,6 +15,7 @@ import {
   Rocket,
   Gift,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -309,8 +310,38 @@ export default function OnboardingWizard() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-background text-foreground">
+        {/* Skeleton header */}
+        <header className="border-b border-border/60 bg-background sticky top-0 z-10">
+          <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Skeleton className="w-8 h-8 rounded" />
+              <Skeleton className="h-4 w-28" />
+            </div>
+            <div className="flex items-center gap-4">
+              <Skeleton className="h-3 w-8" />
+              <Skeleton className="w-8 h-8 rounded-full" />
+            </div>
+          </div>
+          <div className="w-full bg-secondary/40 h-1" />
+        </header>
+        <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+          {/* Skeleton step nav */}
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center">
+                <Skeleton className="h-7 w-20 rounded-full" />
+                {i < 4 && <div className="w-6 h-px mx-1 bg-border" />}
+              </div>
+            ))}
+          </div>
+          {/* Skeleton content area */}
+          <div className="space-y-4">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-4 w-72" />
+            <Skeleton className="h-12 w-full rounded-lg" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -379,7 +410,7 @@ export default function OnboardingWizard() {
                 <button
                   onClick={() => idx <= currentStepIndex && !hasDeployed && setCurrentStepIndex(idx)}
                   disabled={idx > currentStepIndex || hasDeployed}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                     isCurrent
                       ? "bg-primary text-primary-foreground"
                       : isCompleted

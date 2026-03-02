@@ -23,6 +23,7 @@ import {
   MailCheck,
 } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 
 export default function SettingsView() {
@@ -131,8 +132,33 @@ export default function SettingsView() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-background text-foreground">
+        <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-8 w-8 rounded-md" />
+              <Skeleton className="h-5 w-14" />
+            </div>
+            <Skeleton className="h-8 w-8 rounded-full" />
+          </div>
+        </nav>
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+          <Skeleton className="h-7 w-40 mb-2" />
+          <Skeleton className="h-4 w-64 mb-8" />
+          <Card className="p-6 bg-card border-border">
+            <div className="flex items-center gap-4 mb-6">
+              <Skeleton className="h-16 w-16 rounded-full" />
+              <div>
+                <Skeleton className="h-5 w-32 mb-1.5" />
+                <Skeleton className="h-4 w-48" />
+              </div>
+            </div>
+            <div className="space-y-4">
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -230,12 +256,12 @@ export default function SettingsView() {
                   placeholder="you@example.com"
                 />
                 {user?.email_verified ? (
-                  <p className="text-xs text-green-600 dark:text-green-400 mt-1.5 flex items-center gap-1">
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1.5 flex items-center gap-1">
                     <Shield className="w-3 h-3" />
                     Email verified
                   </p>
                 ) : (
-                  <p className="text-xs text-orange-500 mt-1.5 flex items-center gap-1">
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5 flex items-center gap-1">
                     <Shield className="w-3 h-3" />
                     Not verified
                   </p>
@@ -267,17 +293,17 @@ export default function SettingsView() {
               <p className="text-sm text-muted-foreground mb-4">
                 Choose your preferred theme
               </p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
                   onClick={() => theme !== "light" && toggleTheme()}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                  className={`p-4 rounded-lg border-2 transition-all text-left outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                     theme === "light"
                       ? "border-primary bg-primary/5"
                       : "border-border hover:border-primary/30"
                   }`}
                 >
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-white border border-zinc-200 flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-full bg-white dark:bg-zinc-100 border border-border flex items-center justify-center">
                       <Sun className="w-4 h-4 text-amber-500" />
                     </div>
                     <span className="font-medium text-sm">Light</span>
@@ -286,14 +312,14 @@ export default function SettingsView() {
                 </button>
                 <button
                   onClick={() => theme !== "dark" && toggleTheme()}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                  className={`p-4 rounded-lg border-2 transition-all text-left outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                     theme === "dark"
                       ? "border-primary bg-primary/5"
                       : "border-border hover:border-primary/30"
                   }`}
                 >
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-full bg-zinc-900 dark:bg-zinc-800 border border-border flex items-center justify-center">
                       <Moon className="w-4 h-4 text-blue-400" />
                     </div>
                     <span className="font-medium text-sm">Dark</span>
@@ -321,7 +347,7 @@ export default function SettingsView() {
               </div>
               <div className="flex justify-between py-2.5">
                 <span className="text-muted-foreground">Email Verified</span>
-                <span className={user?.email_verified ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}>
+                <span className={user?.email_verified ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
                   {user?.email_verified ? "Yes" : "No"}
                 </span>
               </div>

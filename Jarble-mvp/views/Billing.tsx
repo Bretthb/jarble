@@ -27,6 +27,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
@@ -205,7 +206,7 @@ export default function Billing() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="grid grid-cols-2 lg:grid-cols-4 gap-4"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
         >
           <Card className="p-5 bg-card border-border">
             <div className="flex items-center gap-3 mb-3">
@@ -214,13 +215,11 @@ export default function Billing() {
               </div>
               <span className="text-sm text-muted-foreground">Monthly Spend</span>
             </div>
-            <p className="text-2xl font-bold">
-              {!overviewSettled ? (
-                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-              ) : (
-                formatCents(overview?.totalMonthlyCents ?? 0)
-              )}
-            </p>
+            {!overviewSettled ? (
+              <Skeleton className="h-7 w-20 mt-1" />
+            ) : (
+              <p className="text-2xl font-bold">{formatCents(overview?.totalMonthlyCents ?? 0)}</p>
+            )}
           </Card>
 
           <Card className="p-5 bg-card border-border">
@@ -230,13 +229,11 @@ export default function Billing() {
               </div>
               <span className="text-sm text-muted-foreground">Active Subscriptions</span>
             </div>
-            <p className="text-2xl font-bold">
-              {!overviewSettled ? (
-                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-              ) : (
-                overview?.activeSubscriptionCount ?? 0
-              )}
-            </p>
+            {!overviewSettled ? (
+              <Skeleton className="h-7 w-10 mt-1" />
+            ) : (
+              <p className="text-2xl font-bold">{overview?.activeSubscriptionCount ?? 0}</p>
+            )}
           </Card>
 
           <Card className="p-5 bg-card border-border">
@@ -246,15 +243,13 @@ export default function Billing() {
               </div>
               <span className="text-sm text-muted-foreground">Next Payment</span>
             </div>
-            <p className="text-2xl font-bold">
-              {overviewQuery.isLoading ? (
-                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-              ) : overview?.nextBillingDate ? (
-                formatDate(overview.nextBillingDate)
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </p>
+            {overviewQuery.isLoading ? (
+              <Skeleton className="h-7 w-28 mt-1" />
+            ) : (
+              <p className="text-2xl font-bold">
+                {overview?.nextBillingDate ? formatDate(overview.nextBillingDate) : <span className="text-muted-foreground">—</span>}
+              </p>
+            )}
           </Card>
 
           <Card className="p-5 bg-card border-border">
@@ -264,15 +259,17 @@ export default function Billing() {
               </div>
               <span className="text-sm text-muted-foreground">Payment Method</span>
             </div>
-            <p className="text-2xl font-bold">
-              {overviewQuery.isLoading ? (
-                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-              ) : overview?.paymentMethodLast4 ? (
-                <span className="text-lg">···· {overview.paymentMethodLast4}</span>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </p>
+            {overviewQuery.isLoading ? (
+              <Skeleton className="h-7 w-24 mt-1" />
+            ) : (
+              <p className="text-2xl font-bold">
+                {overview?.paymentMethodLast4 ? (
+                  <span className="text-lg">···· {overview.paymentMethodLast4}</span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </p>
+            )}
           </Card>
         </motion.div>
 
@@ -285,12 +282,20 @@ export default function Billing() {
           <Card className="bg-card border-border overflow-hidden">
             <div className="px-5 py-4 border-b border-border/60 flex items-center gap-2">
               <Layers className="w-4 h-4 text-primary" />
-              <h2 className="font-semibold text-sm">Active Subscriptions</h2>
+              <h2 className="font-semibold text-base">Active Subscriptions</h2>
             </div>
 
             {subsQuery.isLoading && !subsQuery.isError ? (
-              <div className="p-8 text-center">
-                <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+              <div className="p-5 space-y-3">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-4">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                    <Skeleton className="h-4 w-28 ml-auto" />
+                  </div>
+                ))}
               </div>
             ) : subsQuery.isError ? (
               <div className="p-8 text-center">
@@ -301,7 +306,10 @@ export default function Billing() {
             ) : subs.length === 0 ? (
               <div className="p-8 text-center">
                 <Layers className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
-                <p className="text-sm text-muted-foreground">No active subscriptions</p>
+                <p className="text-sm text-muted-foreground mb-3">No active subscriptions</p>
+                <Button variant="outline" size="sm" onClick={() => router.push("/onboarding/new")}>
+                  Create a Deployment
+                </Button>
               </div>
             ) : (
               <Table>
@@ -331,6 +339,7 @@ export default function Billing() {
                           size="sm"
                           className="h-7 px-2 text-xs"
                           onClick={() => router.push(`/d/${sub.deploymentId}/configure`)}
+                          aria-label="Open deployment configuration"
                         >
                           <ExternalLink className="w-3 h-3" />
                         </Button>
@@ -352,12 +361,19 @@ export default function Billing() {
           <Card className="bg-card border-border overflow-hidden">
             <div className="px-5 py-4 border-b border-border/60 flex items-center gap-2">
               <Receipt className="w-4 h-4 text-primary" />
-              <h2 className="font-semibold text-sm">Invoice History</h2>
+              <h2 className="font-semibold text-base">Invoice History</h2>
             </div>
 
             {invoicesQuery.isLoading && !invoicesQuery.isError ? (
-              <div className="p-8 text-center">
-                <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+              <div className="p-5 space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-4">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-5 w-14 rounded-full" />
+                  </div>
+                ))}
               </div>
             ) : invoicesQuery.isError ? (
               <div className="p-8 text-center">
@@ -368,7 +384,7 @@ export default function Billing() {
             ) : invoices.length === 0 ? (
               <div className="p-8 text-center">
                 <Receipt className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
-                <p className="text-sm text-muted-foreground">No invoices yet</p>
+                <p className="text-sm text-muted-foreground">No invoices yet — invoices appear after your first billing cycle</p>
               </div>
             ) : (
               <Table>
@@ -396,7 +412,8 @@ export default function Billing() {
                             href={inv.pdfUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
+                            className="inline-flex items-center text-muted-foreground hover:text-foreground transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                            aria-label="Download invoice PDF"
                           >
                             <FileText className="w-4 h-4" />
                           </a>

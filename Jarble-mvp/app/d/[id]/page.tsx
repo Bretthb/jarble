@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, SendHorizontal, Settings, MessageSquare, Layout, X } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, memo } from "react";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import ChatErrorCard from "@/components/workspace/ChatErrorCard";
 import { useDiagnose } from "@/hooks/useDiagnose";
@@ -131,10 +132,44 @@ export default function DeploymentChatPage() {
 
   if (deploymentQuery.isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-6 h-6 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Loading deployment...</p>
+      <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden">
+        {/* Header skeleton */}
+        <header className="border-b border-border/60 bg-background/95 shrink-0">
+          <div className="px-4 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-8 w-8 rounded-md" />
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </div>
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-8 w-8 rounded-md" />
+              <Skeleton className="h-8 w-8 rounded-full" />
+            </div>
+          </div>
+        </header>
+        {/* Content skeleton */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Chat panel skeleton */}
+          <div className="w-[400px] flex flex-col border-r border-border/40">
+            <div className="flex-1 p-4 space-y-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className={cn("flex gap-2", i % 2 === 0 ? "" : "justify-end")}>
+                  <Skeleton className={cn("h-16 rounded-lg", i % 2 === 0 ? "w-3/4" : "w-1/2")} />
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-border/60 p-4">
+              <Skeleton className="h-10 w-full rounded-lg" />
+            </div>
+          </div>
+          {/* Canvas skeleton */}
+          <div className="flex-1 bg-secondary/10 p-6">
+            <div className="grid grid-cols-2 gap-4">
+              <Skeleton className="h-40 rounded-lg" />
+              <Skeleton className="h-40 rounded-lg" />
+              <Skeleton className="h-56 rounded-lg col-span-2" />
+            </div>
+          </div>
         </div>
       </div>
     );

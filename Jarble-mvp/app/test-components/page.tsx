@@ -37,7 +37,7 @@ export default function TestComponentsPage() {
       {/* Avatar */}
       <section className="space-y-3">
         <p className="text-xs text-muted-foreground mb-2">CanvasAvatar</p>
-        <div className="grid grid-cols-3 gap-4 rounded-lg border border-border/40 p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-lg border border-border/40 p-4">
           <CanvasAvatar name="Jane Smith" subtitle="Senior Engineer" size="lg" />
           <CanvasAvatar name="Bob Chen" subtitle="Product Manager" size="md" />
           <CanvasAvatar name="Alice K" subtitle="Designer" size="sm" />
@@ -105,7 +105,7 @@ export default function TestComponentsPage() {
       {/* Statistic */}
       <section className="space-y-3">
         <p className="text-xs text-muted-foreground mb-2">CanvasStatistic</p>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="rounded-lg border border-border/40">
             <CanvasStatistic value={99.97} title="Uptime" suffix="%" precision={2} />
           </div>
@@ -265,7 +265,7 @@ export default function TestComponentsPage() {
       {/* Metric Cards */}
       <section className="space-y-3">
         <p className="text-xs text-muted-foreground mb-2">CanvasMetricCard</p>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="rounded-lg overflow-hidden border border-border/40">
             <CanvasMetricCard label="Revenue" value="$2.4M" change="+12.5%" trend="up" />
           </div>
