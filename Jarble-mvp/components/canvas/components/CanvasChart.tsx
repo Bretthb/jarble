@@ -237,21 +237,21 @@ function CanvasChartInner({
     }
   };
 
+  const chartHeight = height || 250;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="p-4 h-full flex flex-col"
+      className="p-4"
     >
       {title && (
-        <h3 className="text-sm font-semibold text-foreground mb-3 shrink-0">{title}</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>
       )}
-      <div className="flex-1 min-h-0" style={{ minHeight: height || 200 }}>
-        <ChartContainer config={chartConfig} className="aspect-auto h-full w-full">
-          {renderChart()!}
-        </ChartContainer>
-      </div>
+      <ChartContainer config={chartConfig} className="aspect-auto w-full" style={{ height: chartHeight }}>
+        {renderChart()!}
+      </ChartContainer>
     </motion.div>
   );
 }
