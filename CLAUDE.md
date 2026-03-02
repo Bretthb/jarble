@@ -28,7 +28,8 @@ npm run dev          # Start dev server on :3000
 npm run build        # Production build
 npm run check        # TypeScript type-check (tsc --noEmit)
 npm run format       # Prettier format
-npm run test         # Run Vitest tests
+npm run test         # Run Vitest unit tests
+npx vitest run path/to/file.test.ts   # Run a single unit test file
 npm run check:manifest   # Verify manifest ↔ component sync
 ```
 
@@ -38,11 +39,28 @@ npm run dev          # Start with file watching (tsx watch)
 npm run dev:test     # Start with SQLite (USE_SQLITE=true) for local dev
 npm run typecheck    # TypeScript type-check
 npm run lint         # ESLint
-npm run db:push      # Push schema to database
+npm run test         # Run Vitest unit tests
+npm run db:push      # Push schema to database (MySQL/SQLite)
 npm run db:studio    # Open Drizzle Studio
-npm run db:generate  # Generate migrations
+npm run db:generate  # Generate migrations (MySQL/SQLite)
 npm run db:migrate   # Run migrations
+npm run db:push:pg   # Push schema (PostgreSQL)
+npm run db:generate:pg  # Generate migrations (PostgreSQL)
+npm run db:migrate:pg   # Run migrations (PostgreSQL)
 ```
+
+### E2E Tests (Jarble-mvp/)
+```bash
+npm run test:e2e           # Run all Playwright E2E tests
+npm run test:e2e:auth      # Fetch Auth0 ROPC tokens + seed deployment (run before first E2E)
+npm run test:e2e:browse    # Run browse/navigation tests only
+npm run test:e2e:chat      # Run chat component tests only
+npm run test:e2e:edit      # Run edit/persist tests only
+npm run test:e2e:report    # Open Playwright HTML report
+npx playwright test e2e/smoke.spec.ts  # Run a single E2E spec file
+```
+
+E2E auth setup requires `e2e/.env.test` with Auth0 ROPC credentials (see `e2e/.env.test.example`). Run `npm run test:e2e:auth` once to generate `e2e/.auth/storageState.json`.
 
 ### Running Both Services
 Start API and frontend in separate terminals:
@@ -100,6 +118,16 @@ Core tables in `jarble-api-main/src/db/schema.ts` (SQLite variant in `schema.sql
 - `marketplaceCreators` - Creator profiles
 
 SQLite dev DB is file-based at `jarble-api-main/local.db` (persists across tsx watch restarts). Seed data (test user, runtime catalog, skills) created on startup via `db/init.ts`.
+
+### Path Aliases & Zod Version Split
+Both `Jarble-mvp/tsconfig.json` and `jarble-api-main/tsconfig.json` define path aliases:
+- `@/*` → `Jarble-mvp/*` (frontend only)
+- `@jarble/component-manifest` → `shared/component-manifest/index.ts` (both)
+- `zod` → pinned to each package's local `node_modules/zod`
+
+**Critical**: Frontend uses **Zod v4** (`zod@^4.1.12`), API uses **Zod v3** (`zod@^3.22.0`). Each tsconfig pins the `zod` path to its own copy. The shared `component-manifest` package must work with both — import schemas from the manifest, don't construct Zod schemas that cross the version boundary.
+
+The `@jarble/component-manifest` package must be listed in `next.config.ts:transpilePackages` since it's raw TypeScript (no build step).
 
 ### Config-Driven UI
 The wizard and config tabs are driven by `Jarble-mvp/views/onboarding/wizardStepConfig.ts`:
@@ -488,3 +516,18 @@ Component marketplace for discovering, installing, and publishing custom UI comp
 Pre-configured agents in `.claude/agents/`:
 - `code-reviewer` - General code review
 - `docs-updater` - Documentation maintenance
+- `auth0-debugger` - Auth0 JWT/JWKS/redirect debugging
+- `canvas-component-builder` - Build new canvas components
+- `design-system-reviewer` - UI/design consistency checks
+- `drizzle-db-schema` - Database schema changes & migrations
+- `jarble-api-debugger` - tRPC/service layer debugging
+- `k8s-pod-lifecycle-debugger` - Pod startup, PVC, image pull issues
+- `mcp-server` - MCP UI server tools & component resolution
+- `nextjs-frontend-debugger` - Hydration, React Query, SSE, routing issues
+- `performance-bundle-analyzer` - Bundle size & rendering perf
+- `runtime-handler` - Bot runtime config rendering & secrets
+- `sse-stream-debugger` - SSE stream disconnects & cleanup
+- `stripe-webhook-debugger` - Stripe webhook event handling
+- `tambo-integration-reviewer` - Tambo chat integration
+- `terraform-infra` - Terraform/Hetzner/K3s infrastructure
+- `test-writer` - Vitest unit/integration + Playwright E2E tests
