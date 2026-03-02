@@ -1,4 +1,5 @@
 import { getDeploymentLogs } from "../../k8s/index.js";
+import type { ManagedBy } from "../../k8s/constants.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 
@@ -19,7 +20,8 @@ export const getLogsTool: McpTool = {
     const lines = Math.min(Math.max(Number(params.lines) || 50, 1), 200);
 
     try {
-      const result = await getDeploymentLogs(ctx.deploymentId, lines);
+      const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
+      const result = await getDeploymentLogs(ctx.deploymentId, lines, managedBy);
       const logLines = result.logs.split("\n").filter(Boolean);
 
       return {

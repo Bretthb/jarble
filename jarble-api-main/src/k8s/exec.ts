@@ -1,12 +1,17 @@
 import stream from "stream";
 import { logger } from "../utils/logger.js";
 import { coreApi, execClient } from "./client.js";
-import { NAMESPACE } from "./constants.js";
+import { NAMESPACE, LEGACY_CONTAINER_NAME, getContainerName, podLabelSelector } from "./constants.js";
+import type { ManagedBy } from "./constants.js";
 
 /**
  * Execute a command in a pod (no stdin, capture stdout/stderr).
  */
-export async function execInPod(podName: string, command: string[]): Promise<string> {
+export async function execInPod(
+  podName: string,
+  command: string[],
+  containerName: string = LEGACY_CONTAINER_NAME
+): Promise<string> {
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
 
@@ -19,7 +24,7 @@ export async function execInPod(podName: string, command: string[]): Promise<str
     execClient.exec(
       NAMESPACE,
       podName,
-      "runtime",
+      containerName,
       command,
       stdout,
       stderr,
@@ -46,7 +51,8 @@ export async function execInPodWithStdin(
   podName: string,
   command: string[],
   stdinContent: string,
-  timeoutMs: number = 30000
+  timeoutMs: number = 30000,
+  containerName: string = LEGACY_CONTAINER_NAME
 ): Promise<void> {
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
@@ -68,7 +74,7 @@ export async function execInPodWithStdin(
     execClient.exec(
       NAMESPACE,
       podName,
-      "runtime",
+      containerName,
       command,
       stdout,
       stderr,
@@ -98,7 +104,8 @@ export async function streamExecInPod(
   podName: string,
   command: string[],
   onLine: (line: string) => void,
-  onExit: (success: boolean, message?: string) => void
+  onExit: (success: boolean, message?: string) => void,
+  containerName: string = LEGACY_CONTAINER_NAME
 ): Promise<{ abort: () => void }> {
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
@@ -124,7 +131,7 @@ export async function streamExecInPod(
     execWs = await execClient.exec(
       NAMESPACE,
       podName,
-      "runtime",
+      containerName,
       command,
       stdout,
       stderr,
@@ -157,14 +164,17 @@ export async function streamExecInPod(
  *
  * @param requireReady - if true (default), pod must pass readiness probe.
  *   For exec operations (e.g. pairing commands), set false — the pod just needs
- *   to be in Running phase so we can exec into it. The readiness probe (TCP 18789)
- *   may still be failing even after OpenClaw has started and is responding to messages.
+ *   to be in Running phase so we can exec into it.
+ * @param managedBy - "legacy" or "operator" — determines label selector and container name
  */
 export async function findPodForDeployment(
   deploymentId: string,
-  opts?: { requireReady?: boolean }
+  opts?: { requireReady?: boolean; managedBy?: ManagedBy }
 ): Promise<string | null> {
   const requireReady = opts?.requireReady ?? true;
+  const managedBy = opts?.managedBy ?? "legacy";
+  const labelSelector = podLabelSelector(deploymentId, managedBy);
+  const targetContainer = getContainerName(managedBy);
 
   const pods = await coreApi.listNamespacedPod(
     NAMESPACE,
@@ -172,15 +182,21 @@ export async function findPodForDeployment(
     undefined,
     undefined,
     undefined,
-    `app=dep-${deploymentId}`
+    labelSelector
   );
 
   if (pods.body.items.length === 0) return null;
 
   const pod = pods.body.items[0];
   const podName = pod.metadata?.name;
+
+  // Find the correct container's status by name (operator pods have 2 containers)
+  const containerStatus = pod.status?.containerStatuses?.find(
+    (cs) => cs.name === targetContainer
+  ) ?? pod.status?.containerStatuses?.[0];
+
   const isRunning = pod.status?.phase === "Running" &&
-    (requireReady ? pod.status?.containerStatuses?.[0]?.ready : true);
+    (requireReady ? containerStatus?.ready : true);
 
   if (!podName || !isRunning) return null;
   return podName;

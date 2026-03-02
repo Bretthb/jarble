@@ -4,6 +4,7 @@
  * Returns a data_table showing all components the bot can use with render_ui.
  */
 import { listComponentsOnPvc } from "../../k8s/index.js";
+import type { ManagedBy } from "../../k8s/constants.js";
 import { COMPONENT_NAME_SET, getComponentDescriptions, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 
@@ -25,7 +26,8 @@ export const listComponentsTool: McpTool = {
     ctx: ToolContext
   ): Promise<ToolResult> {
     // Gather custom components from PVC
-    const customComponents = await listComponentsOnPvc(ctx.deploymentId);
+    const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
+    const customComponents = await listComponentsOnPvc(ctx.deploymentId, managedBy);
 
     // Build rows: built-in first, then custom
     const rows: Array<[string, string, string]> = [];

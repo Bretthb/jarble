@@ -4,6 +4,8 @@ import { router, protectedProcedure } from "../middleware.js";
 import { tables, dbDate, type DbClient } from "../../db/index.js";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc } from "../../k8s/index.js";
+import type { ManagedBy } from "../../k8s/constants.js";
+import { getPvcMountPath } from "../../k8s/constants.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
 import { cancelSubscriptionAtPeriodEnd, cancelSubscriptionImmediately, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
 import { customAlphabet } from "nanoid";
@@ -140,10 +142,11 @@ export const deploymentRouter = router({
       ];
 
       // Custom/library components from PVC (only if pod is running)
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
       let customs: Array<{ name: string; description?: string; layout: Array<{ component: string; props: Record<string, unknown> }> }> = [];
       if (deployment.status === "running") {
         try {
-          customs = await getCustomComponentsWithDefinitions(input.id);
+          customs = await getCustomComponentsWithDefinitions(input.id, managedBy);
         } catch (err) {
           logger.warn({ deploymentId: input.id, err }, "Failed to fetch custom components from PVC");
         }
@@ -189,7 +192,8 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: defErr });
       }
 
-      await writeComponentToPvc(input.id, input.name, definition);
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      await writeComponentToPvc(input.id, input.name, definition, managedBy);
       return { success: true, message: `Component "${input.name}" saved successfully.` };
     }),
 
@@ -209,7 +213,8 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Deployment is not running" });
       }
 
-      const deleted = await deleteComponentFromPvc(input.id, input.name);
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      const deleted = await deleteComponentFromPvc(input.id, input.name, managedBy);
       if (!deleted) {
         throw new TRPCError({ code: "NOT_FOUND", message: `Component "${input.name}" not found.` });
       }
@@ -564,6 +569,10 @@ export const deploymentRouter = router({
       // Generate gateway token before renderConfigs so it can be included in the OpenClaw config
       const gatewayToken = crypto.randomBytes(32).toString("hex");
 
+      // Determine management mode: operator (new deployments when enabled) vs legacy
+      const managedBy: ManagedBy = process.env.USE_OPERATOR === "true" ? "operator" : "legacy";
+      const pvcMount = getPvcMountPath(managedBy);
+
       // Build runtime handler data for K8s (config files + secret entries)
       const runtimeHandler = getHandlerOrNull(deployment.runtime);
       const deploymentFields: DeploymentFields = {
@@ -578,6 +587,7 @@ export const deploymentRouter = router({
         llmApiKey: rawApiKey,
         platformCredentials: Object.keys(platformCredsMap).length > 0 ? platformCredsMap : undefined,
         gatewayToken,
+        managedBy,
       };
       const initialConfigs = runtimeHandler?.renderConfigs(deploymentFields) ?? [];
       const extraSecretEntries = runtimeHandler?.getSecretEntries(deploymentFields) ?? {};
@@ -586,7 +596,7 @@ export const deploymentRouter = router({
       // Only runs on first deploy; user modifications are never overwritten by configSync.
       for (const comp of COMPONENT_LIBRARY) {
         initialConfigs.push({
-          path: `/data/components/${comp.name}.json`,
+          path: `${pvcMount}/components/${comp.name}.json`,
           content: JSON.stringify(comp, null, 2),
         });
       }
@@ -594,6 +604,11 @@ export const deploymentRouter = router({
       // Start K8s deployment (fire-and-forget — don't block the response)
       void (async () => {
         try {
+          // Persist managedBy on the DB row before creating K8s resources
+          await ctx.db.update(deployments)
+            .set({ managedBy })
+            .where(eq(deployments.id, deploymentId));
+
           await createDeployment(deploymentId, ctx.user.id, {
             name: deployment.name,
             runtime: deployment.runtime,
@@ -604,7 +619,7 @@ export const deploymentRouter = router({
             initialConfigs,
             extraSecretEntries,
             gatewayToken,
-          });
+          }, managedBy);
           logger.info({ deploymentId }, "K8s createDeployment returned, updating status...");
           // Only update if still in transitional state (don't overwrite enforcement actions)
           await ctx.db.update(deployments)
@@ -634,7 +649,8 @@ export const deploymentRouter = router({
         return { status: "not_found" };
       }
 
-      return getDeploymentPodStatus(input.id);
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      return getDeploymentPodStatus(input.id, managedBy);
     }),
 
   // Get storage usage from K8s (exec df inside the pod)
@@ -650,7 +666,8 @@ export const deploymentRouter = router({
       }
 
       // Get live usage from the pod + DB-configured limit
-      const usage = await getDeploymentStorageUsage(input.id);
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      const usage = await getDeploymentStorageUsage(input.id, managedBy);
       return {
         ...usage,
         // Include the user's configured limit from DB (storageMb is actually GB)
@@ -675,8 +692,9 @@ export const deploymentRouter = router({
         return { logs: "", podName: null };
       }
 
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
       try {
-        const result = await getDeploymentLogs(input.id, input.tailLines);
+        const result = await getDeploymentLogs(input.id, input.tailLines, managedBy);
         return result;
       } catch (err) {
         logger.warn({ deploymentId: input.id, err }, "Failed to fetch logs");
@@ -837,13 +855,15 @@ export const deploymentRouter = router({
         });
       }
 
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+
       try {
         // Set transitional status first
         await ctx.db.update(deployments)
           .set({ status: "stopping" })
           .where(eq(deployments.id, input.id));
 
-        await stopDeployment(input.id);
+        await stopDeployment(input.id, managedBy);
 
         await ctx.db.update(deployments)
           .set({ status: "stopped" })
@@ -891,16 +911,27 @@ export const deploymentRouter = router({
       // and reset CrashLoopBackOff backoff timers. Plain startDeployment() would be a
       // no-op if the pod is already at replicas=1 but crashing.
       const wasFailedState = deployment.status === "failed";
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
 
       try {
         await ctx.db.update(deployments)
           .set({ status: "creating", error: null })
           .where(eq(deployments.id, input.id));
 
+        // For operator mode, start/restart needs config to recreate the CR
+        const deployConfig = {
+          name: deployment.name,
+          runtime: deployment.runtime,
+          image: deployment.image || undefined,
+          cpuLimit: deployment.cpuLimit || undefined,
+          memoryMb: deployment.memoryMb || undefined,
+          storageMb: deployment.storageMb || undefined,
+        };
+
         if (wasFailedState) {
-          await restartDeployment(input.id);
+          await restartDeployment(input.id, managedBy, ctx.user.id, deployConfig);
         } else {
-          await startDeployment(input.id);
+          await startDeployment(input.id, managedBy, ctx.user.id, deployConfig);
         }
 
         // Poll for pod readiness (fire-and-forget)
@@ -911,7 +942,7 @@ export const deploymentRouter = router({
 
             let ready = false;
             for (let i = 0; i < 30; i++) {
-              const podStatus = await getDeploymentPodStatus(input.id);
+              const podStatus = await getDeploymentPodStatus(input.id, managedBy);
               if (podStatus.status === "running") { ready = true; break; }
               if (podStatus.status === "failed") break;
               await new Promise((r) => setTimeout(r, 2000));
@@ -963,6 +994,8 @@ export const deploymentRouter = router({
         });
       }
 
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+
       try {
         await ctx.db.update(deployments)
           .set({ status: "restarting" })
@@ -971,14 +1004,21 @@ export const deploymentRouter = router({
         // Fire-and-forget restart + status polling
         void (async () => {
           try {
-            await restartDeployment(input.id);
+            await restartDeployment(input.id, managedBy, ctx.user.id, {
+              name: deployment.name,
+              runtime: deployment.runtime,
+              image: deployment.image || undefined,
+              cpuLimit: deployment.cpuLimit || undefined,
+              memoryMb: deployment.memoryMb || undefined,
+              storageMb: deployment.storageMb || undefined,
+            });
 
             // Brief delay to let transitional status be visible in UI
             await new Promise((r) => setTimeout(r, 1500));
 
             let ready = false;
             for (let i = 0; i < 30; i++) {
-              const podStatus = await getDeploymentPodStatus(input.id);
+              const podStatus = await getDeploymentPodStatus(input.id, managedBy);
               if (podStatus.status === "running") { ready = true; break; }
               if (podStatus.status === "failed") break;
               await new Promise((r) => setTimeout(r, 2000));
@@ -1208,8 +1248,9 @@ export const deploymentRouter = router({
         });
       }
 
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
       try {
-        const result = await exportDeploymentConfigs(input.id);
+        const result = await exportDeploymentConfigs(input.id, managedBy);
         logger.info({ deploymentId: input.id }, "Config export completed");
         return result;
       } catch (err) {
@@ -1286,8 +1327,9 @@ export const deploymentRouter = router({
 
       // Delete K8s resources first — if this throws, we abort and leave the DB record intact
       // so the user can retry. Step-by-step logs are inside deleteDeployment.
-      logger.info({ deploymentId: input.id }, "delete: starting K8s resource cleanup");
-      await deleteDeployment(input.id);
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      logger.info({ deploymentId: input.id, managedBy }, "delete: starting K8s resource cleanup");
+      await deleteDeployment(input.id, managedBy);
       logger.info({ deploymentId: input.id }, "delete: K8s cleanup complete, removing DB records");
 
       // Explicitly clean up child rows — SQLite doesn't enforce FK cascades by default

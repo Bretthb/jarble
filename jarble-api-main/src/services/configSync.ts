@@ -37,6 +37,8 @@ import {
   findPodForDeployment,
   execInPod,
 } from "../k8s/index.js";
+import type { ManagedBy } from "../k8s/constants.js";
+import { getPvcMountPath, getContainerName } from "../k8s/constants.js";
 import { updateDeploymentConfigMap } from "../k8s/configmap.js";
 import { getHandlerOrNull } from "../runtimes/index.js";
 import type { DeploymentFields } from "../runtimes/types.js";
@@ -60,6 +62,7 @@ const syncMutexes = new Map<string, Promise<void>>();
 async function buildDeploymentFields(
   deployment: any,
   gatewayToken?: string,
+  managedBy?: "legacy" | "operator",
 ): Promise<DeploymentFields> {
   // Decrypt LLM API key
   const rawApiKey = deployment.llmApiKey
@@ -97,6 +100,7 @@ async function buildDeploymentFields(
     platformCredentials: Object.keys(platformCredsMap).length > 0 ? platformCredsMap : undefined,
     gatewayToken,
     messagingOnly: deployment.messagingOnly ?? false,
+    managedBy: managedBy ?? deployment.managedBy ?? "legacy",
   };
 }
 
@@ -204,6 +208,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     }
 
     previousStatus = deployment.status;
+    const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
 
     // 2. If deployment is still creating, just update the ConfigMap —
     //    the init container will copy files on boot, no need to wait for the pod.
@@ -212,10 +217,10 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       if (runtimeHandler) {
         const currentSecret = await readCurrentSecretData(deploymentId);
         const gatewayToken = currentSecret?.OPENCLAW_GATEWAY_TOKEN ?? undefined;
-        const fields = await buildDeploymentFields(deployment, gatewayToken);
+        const fields = await buildDeploymentFields(deployment, gatewayToken, managedBy);
         const configFiles = runtimeHandler.renderConfigs(fields);
         if (configFiles.length > 0) {
-          await updateDeploymentConfigMap(deploymentId, configFiles);
+          await updateDeploymentConfigMap(deploymentId, configFiles, managedBy);
           logger.info({ deploymentId }, "configSync→PVC: updated ConfigMap for creating deployment (init container will apply)");
         }
       }
@@ -231,12 +236,12 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     // 3. Verify pod is actually running in K8s.
     // If it's still creating (npm install in progress), wait up to 3 minutes.
     // This handles the case where credentials are saved while the pod is still booting.
-    let podStatus = await getDeploymentPodStatus(deploymentId);
+    let podStatus = await getDeploymentPodStatus(deploymentId, managedBy);
     if (podStatus.status === "creating") {
       logger.info({ deploymentId }, "configSync→PVC: pod still starting in K8s, waiting for readiness...");
       for (let i = 0; i < 90; i++) {
         await new Promise((r) => setTimeout(r, 2000));
-        podStatus = await getDeploymentPodStatus(deploymentId);
+        podStatus = await getDeploymentPodStatus(deploymentId, managedBy);
         if (podStatus.status === "running") {
           logger.info({ deploymentId }, "configSync→PVC: pod is now ready");
           break;
@@ -272,7 +277,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     const gatewayToken = currentSecret?.OPENCLAW_GATEWAY_TOKEN ?? undefined;
 
     // 6. Build DeploymentFields and render configs
-    const fields = await buildDeploymentFields(deployment, gatewayToken);
+    const fields = await buildDeploymentFields(deployment, gatewayToken, managedBy);
     const configFiles = runtimeHandler.renderConfigs(fields);
     const secretEntries = runtimeHandler.getSecretEntries(fields);
 
@@ -301,11 +306,11 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       logger.info({ deploymentId, tier: 1 }, "ConfigSync: starting tier 1 (file-only, zero downtime)");
       if (configFiles.length > 0) {
         // Always update ConfigMap so the next pod restart gets fresh config
-        await updateDeploymentConfigMap(deploymentId, configFiles);
+        await updateDeploymentConfigMap(deploymentId, configFiles, managedBy);
 
         // Also write directly to the running pod for immediate effect
         try {
-          await writeConfigsToPvc(deploymentId, configFiles);
+          await writeConfigsToPvc(deploymentId, configFiles, managedBy);
         } catch (writeErr) {
           logger.warn(
             { deploymentId, err: writeErr },
@@ -338,9 +343,9 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
       // Update ConfigMap (source of truth for restarts) + write to running pod
       if (configFiles.length > 0) {
-        await updateDeploymentConfigMap(deploymentId, configFiles);
+        await updateDeploymentConfigMap(deploymentId, configFiles, managedBy);
         try {
-          await writeConfigsToPvc(deploymentId, configFiles);
+          await writeConfigsToPvc(deploymentId, configFiles, managedBy);
         } catch (writeErr) {
           logger.warn(
             { deploymentId, err: writeErr },
@@ -364,15 +369,15 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         ...secretEntries,
       };
 
-      // Attempt process restart
-      const restarted = await signalProcessRestart(deploymentId, envOverrides);
+      // Attempt process restart (operator mode skips Tier 2 — signalProcessRestart returns false)
+      const restarted = await signalProcessRestart(deploymentId, envOverrides, managedBy);
 
       if (restarted) {
         // Process restart signaled — poll for readiness (shorter timeout since no pod recreation)
         let ready = false;
         let failureReason = "";
         for (let i = 0; i < 30; i++) { // 30 × 2s = 60s max
-          const status = await getDeploymentPodStatus(deploymentId);
+          const status = await getDeploymentPodStatus(deploymentId, managedBy);
           if (status.status === "running") {
             ready = true;
             break;
@@ -420,9 +425,9 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
       // Update ConfigMap (init container will copy on restart) + write to running pod
       if (configFiles.length > 0) {
-        await updateDeploymentConfigMap(deploymentId, configFiles);
+        await updateDeploymentConfigMap(deploymentId, configFiles, managedBy);
         try {
-          await writeConfigsToPvc(deploymentId, configFiles);
+          await writeConfigsToPvc(deploymentId, configFiles, managedBy);
         } catch (writeErr) {
           logger.warn(
             { deploymentId, err: writeErr },
@@ -446,14 +451,21 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     // Either secrets were removed, or process restart wasn't supported.
     // Status is already "restarting" at this point.
 
-    logger.info({ deploymentId }, "ConfigSync: restarting deployment (full pod restart)");
-    await restartDeployment(deploymentId);
+    // For operator mode, restartDeployment needs userId + config to recreate the CR
+    logger.info({ deploymentId, managedBy }, "ConfigSync: restarting deployment (full pod restart)");
+    await restartDeployment(deploymentId, managedBy, deployment.userId, {
+      name: deployment.name,
+      runtime: deployment.runtime,
+      extraSecretEntries: secretEntries,
+      initialConfigs: configFiles,
+      gatewayToken: currentSecret?.OPENCLAW_GATEWAY_TOKEN,
+    });
 
     // Poll for readiness (90 × 2s = 3 min max)
     let ready = false;
     let failureReason = "";
     for (let i = 0; i < 90; i++) {
-      const status = await getDeploymentPodStatus(deploymentId);
+      const status = await getDeploymentPodStatus(deploymentId, managedBy);
       if (status.status === "running") {
         ready = true;
         break;
@@ -559,6 +571,8 @@ export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
       return;
     }
 
+    const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+
     // 3. Get runtime handler
     const runtimeHandler = getHandlerOrNull(deployment.runtime);
     if (!runtimeHandler) {
@@ -570,7 +584,7 @@ export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
     }
 
     // 4. Read config files from PVC
-    const files = await readConfigsFromPvc(deploymentId, runtimeHandler.configFiles);
+    const files = await readConfigsFromPvc(deploymentId, runtimeHandler.configFiles, managedBy);
 
     if (files.length === 0) {
       logger.debug({ deploymentId }, "configSync←PVC: no config files found on PVC");
@@ -706,16 +720,19 @@ export async function syncMarketplaceComponent(
   manifest: Record<string, unknown>,
   templateOrHtml: string,
   tier: "template" | "sandbox",
+  managedBy: ManagedBy = "legacy",
 ): Promise<void> {
-  const podName = await findPodForDeployment(deploymentId);
+  const podName = await findPodForDeployment(deploymentId, { managedBy });
   if (!podName) {
     throw new Error(`No running pod found for deployment ${deploymentId}`);
   }
 
-  const basePath = `/data/marketplace/${componentId}`;
+  const containerName = getContainerName(managedBy);
+  const pvcMount = getPvcMountPath(managedBy);
+  const basePath = `${pvcMount}/marketplace/${componentId}`;
 
   // Ensure the marketplace component directory exists
-  await execInPod(podName, ["mkdir", "-p", basePath]);
+  await execInPod(podName, ["mkdir", "-p", basePath], containerName);
 
   // Write manifest.json
   const manifestContent = JSON.stringify(manifest, null, 2);
@@ -723,7 +740,7 @@ export async function syncMarketplaceComponent(
   await execInPod(podName, [
     "sh", "-c",
     `echo '${manifestB64}' | base64 -d > '${basePath}/manifest.json'`,
-  ]);
+  ], containerName);
 
   // Write the component file based on tier
   const fileName = tier === "template" ? "template.json" : "sandbox.html";
@@ -731,7 +748,7 @@ export async function syncMarketplaceComponent(
   await execInPod(podName, [
     "sh", "-c",
     `echo '${fileB64}' | base64 -d > '${basePath}/${fileName}'`,
-  ]);
+  ], containerName);
 
   logger.info(
     { deploymentId, componentId, tier },
@@ -751,15 +768,18 @@ export async function syncMarketplaceComponent(
 export async function removeMarketplaceComponent(
   deploymentId: string,
   componentId: string,
+  managedBy: ManagedBy = "legacy",
 ): Promise<void> {
-  const podName = await findPodForDeployment(deploymentId);
+  const podName = await findPodForDeployment(deploymentId, { managedBy });
   if (!podName) {
     throw new Error(`No running pod found for deployment ${deploymentId}`);
   }
 
-  const basePath = `/data/marketplace/${componentId}`;
+  const containerName = getContainerName(managedBy);
+  const pvcMount = getPvcMountPath(managedBy);
+  const basePath = `${pvcMount}/marketplace/${componentId}`;
 
-  await execInPod(podName, ["rm", "-rf", basePath]);
+  await execInPod(podName, ["rm", "-rf", basePath], containerName);
 
   logger.info(
     { deploymentId, componentId },

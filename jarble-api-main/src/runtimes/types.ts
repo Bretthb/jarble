@@ -58,6 +58,8 @@ export interface DeploymentFields {
   gatewayToken?: string;
   /** If true, deployment only uses messaging platforms (no web chat) — enables condensed prompt */
   messagingOnly?: boolean;
+  /** Management mode: "legacy" (K8s Deployment) or "operator" (OpenClaw CRD). Affects PVC paths. */
+  managedBy?: "legacy" | "operator";
 }
 
 /**

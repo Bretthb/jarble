@@ -1,9 +1,10 @@
 import { findPodForDeployment, execInPodWithStdin } from "../../k8s/index.js";
+import type { ManagedBy } from "../../k8s/constants.js";
+import { getPvcMountPath, getContainerName } from "../../k8s/constants.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 
 const MAX_CONTENT_SIZE = 1_048_576; // 1 MB
-const BLOCKED_PATHS = ["/data/.initialized", "/data/runtime", "/data/.npm"];
 
 export const writeFileTool: McpTool = {
   name: "write_file",
@@ -14,7 +15,7 @@ export const writeFileTool: McpTool = {
     properties: {
       path: {
         type: "string",
-        description: "Absolute path to write to (must be under /data/)",
+        description: "Absolute path to write to (must be under the PVC mount)",
       },
       content: {
         type: "string",
@@ -34,9 +35,14 @@ export const writeFileTool: McpTool = {
       return { success: false, message: "No content provided." };
     }
 
-    // Validate path is under /data/
-    if (!path.startsWith("/data/") && path !== "/data") {
-      return { success: false, message: "Path must be under /data/." };
+    const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
+    const pvcMount = getPvcMountPath(managedBy);
+    const containerName = getContainerName(managedBy);
+    const blockedPaths = [`${pvcMount}/.initialized`, `${pvcMount}/runtime`, `${pvcMount}/.npm`];
+
+    // Validate path is under PVC mount
+    if (!path.startsWith(`${pvcMount}/`) && path !== pvcMount) {
+      return { success: false, message: `Path must be under ${pvcMount}/.` };
     }
 
     // Reject path traversal
@@ -45,7 +51,7 @@ export const writeFileTool: McpTool = {
     }
 
     // Block protected paths
-    for (const blocked of BLOCKED_PATHS) {
+    for (const blocked of blockedPaths) {
       if (path === blocked || path.startsWith(blocked + "/")) {
         return { success: false, message: `Writing to ${blocked} is not allowed.` };
       }
@@ -60,7 +66,7 @@ export const writeFileTool: McpTool = {
       };
     }
 
-    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false });
+    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false, managedBy });
     if (!podName) {
       return {
         success: false,
@@ -71,7 +77,7 @@ export const writeFileTool: McpTool = {
     try {
       // Escape single quotes in path for shell safety
       const escapedPath = path.replace(/'/g, "'\\''");
-      await execInPodWithStdin(podName, ["sh", "-c", `cat > '${escapedPath}'`], content);
+      await execInPodWithStdin(podName, ["sh", "-c", `cat > '${escapedPath}'`], content, undefined, containerName);
 
       return {
         success: true,

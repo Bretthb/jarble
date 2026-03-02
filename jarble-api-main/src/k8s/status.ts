@@ -1,7 +1,8 @@
 import stream from "stream";
 import { logger } from "../utils/logger.js";
 import { coreApi, execClient } from "./client.js";
-import { NAMESPACE, RUNTIME_PORTS } from "./constants.js";
+import { NAMESPACE, RUNTIME_PORTS, getContainerName, getPvcMountPath, podLabelSelector } from "./constants.js";
+import type { ManagedBy } from "./constants.js";
 
 export interface DeploymentPodStatus {
   status: "creating" | "running" | "failed" | "not_found";
@@ -10,15 +11,21 @@ export interface DeploymentPodStatus {
   error?: string;
 }
 
-export async function getDeploymentPodStatus(deploymentId: string): Promise<DeploymentPodStatus> {
+export async function getDeploymentPodStatus(
+  deploymentId: string,
+  managedBy: ManagedBy = "legacy"
+): Promise<DeploymentPodStatus> {
   try {
+    const labelSelector = podLabelSelector(deploymentId, managedBy);
+    const targetContainer = getContainerName(managedBy);
+
     const pods = await coreApi.listNamespacedPod(
       NAMESPACE,
       undefined,
       undefined,
       undefined,
       undefined,
-      `app=dep-${deploymentId}`
+      labelSelector
     );
 
     if (pods.body.items.length === 0) {
@@ -27,7 +34,11 @@ export async function getDeploymentPodStatus(deploymentId: string): Promise<Depl
 
     const pod = pods.body.items[0];
     const phase = pod.status?.phase;
-    const containerStatus = pod.status?.containerStatuses?.[0];
+
+    // Find container status by name (operator pods have 2 containers: openclaw + gateway-proxy)
+    const containerStatus = pod.status?.containerStatuses?.find(
+      (cs) => cs.name === targetContainer
+    ) ?? pod.status?.containerStatuses?.[0];
 
     // Check for errors
     if (containerStatus?.state?.waiting?.reason) {
@@ -86,8 +97,15 @@ export interface StorageUsage {
  * Get storage usage for a deployment by exec-ing `df` inside the running pod.
  * Returns null if the pod isn't running or the command fails.
  */
-export async function getDeploymentStorageUsage(deploymentId: string): Promise<StorageUsage | null> {
+export async function getDeploymentStorageUsage(
+  deploymentId: string,
+  managedBy: ManagedBy = "legacy"
+): Promise<StorageUsage | null> {
   try {
+    const labelSelector = podLabelSelector(deploymentId, managedBy);
+    const targetContainer = getContainerName(managedBy);
+    const mountPath = getPvcMountPath(managedBy);
+
     // Find the running pod for this deployment
     const pods = await coreApi.listNamespacedPod(
       NAMESPACE,
@@ -95,7 +113,7 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
       undefined,
       undefined,
       undefined,
-      `app=dep-${deploymentId}`
+      labelSelector
     );
 
     if (pods.body.items.length === 0) {
@@ -104,14 +122,16 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
 
     const pod = pods.body.items[0];
     const podName = pod.metadata?.name;
-    const isRunning = pod.status?.phase === "Running" && pod.status?.containerStatuses?.[0]?.ready;
+    const containerStatus = pod.status?.containerStatuses?.find(
+      (cs) => cs.name === targetContainer
+    ) ?? pod.status?.containerStatuses?.[0];
+    const isRunning = pod.status?.phase === "Running" && containerStatus?.ready;
 
     if (!podName || !isRunning) {
       return null;
     }
 
-    // Exec `df /data` inside the container to get filesystem usage
-    // Output format: "Filesystem 1K-blocks Used Available Use% Mounted on"
+    // Exec `df` inside the container to get filesystem usage
     const stdout = new stream.PassThrough();
     const stderr = new stream.PassThrough();
 
@@ -124,8 +144,8 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
       execClient.exec(
         NAMESPACE,
         podName,
-        "runtime",
-        ["df", "-B1", "/data"],  // -B1 = output in bytes
+        targetContainer,
+        ["df", "-B1", mountPath],  // -B1 = output in bytes
         stdout,
         stderr,
         null,
@@ -145,7 +165,6 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
     }
 
     // Parse df output (second line contains the data)
-    // Example: "/dev/longhorn/pvc-xxx 21474836480 1048576 21473787904 1% /data"
     const lines = stdoutData.trim().split("\n");
     if (lines.length < 2) {
       logger.warn({ deploymentId, output: stdoutData }, "Unexpected df output");
@@ -153,7 +172,6 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
     }
 
     const parts = lines[1].trim().split(/\s+/);
-    // parts: [filesystem, total, used, available, use%, mountpoint]
     if (parts.length < 6) {
       logger.warn({ deploymentId, output: stdoutData }, "Could not parse df output");
       return null;
@@ -191,12 +209,18 @@ export async function getDeploymentStorageUsage(deploymentId: string): Promise<S
  * For local dev: set POD_PROXY_URL=http://localhost:18790 (kubectl port-forward)
  * to bypass unreachable pod cluster IPs.
  */
-export async function getPodAddress(deploymentId: string): Promise<{
+export async function getPodAddress(
+  deploymentId: string,
+  managedBy: ManagedBy = "legacy"
+): Promise<{
   ip: string;
   port: number;
   gatewayToken: string;
 } | null> {
   try {
+    const labelSelector = podLabelSelector(deploymentId, managedBy);
+    const targetContainer = getContainerName(managedBy);
+
     // Find running, ready pod
     const pods = await coreApi.listNamespacedPod(
       NAMESPACE,
@@ -204,14 +228,17 @@ export async function getPodAddress(deploymentId: string): Promise<{
       undefined,
       undefined,
       undefined,
-      `app=dep-${deploymentId}`
+      labelSelector
     );
 
     if (pods.body.items.length === 0) return null;
 
     const pod = pods.body.items[0];
     const podIp = pod.status?.podIP;
-    const isRunning = pod.status?.phase === "Running" && pod.status?.containerStatuses?.[0]?.ready;
+    const containerStatus = pod.status?.containerStatuses?.find(
+      (cs) => cs.name === targetContainer
+    ) ?? pod.status?.containerStatuses?.[0];
+    const isRunning = pod.status?.phase === "Running" && containerStatus?.ready;
 
     if (!podIp || !isRunning) return null;
 
@@ -222,7 +249,6 @@ export async function getPodAddress(deploymentId: string): Promise<{
     const gatewayToken = tokenB64 ? Buffer.from(tokenB64, "base64").toString("utf-8") : "";
 
     // Local dev override: POD_PROXY_URL=http://localhost:18790
-    // Use with `kubectl port-forward <pod> 18790:18789` to reach pods from Windows
     const proxyUrl = process.env.POD_PROXY_URL;
     if (proxyUrl) {
       try {
@@ -238,7 +264,9 @@ export async function getPodAddress(deploymentId: string): Promise<{
     }
 
     // Determine port from the pod's container spec, fallback to RUNTIME_PORTS
-    const containerPort = pod.spec?.containers?.[0]?.ports?.[0]?.containerPort
+    const containerSpec = pod.spec?.containers?.find((c) => c.name === targetContainer)
+      ?? pod.spec?.containers?.[0];
+    const containerPort = containerSpec?.ports?.[0]?.containerPort
       ?? RUNTIME_PORTS["openclaw"];
 
     return { ip: podIp, port: containerPort, gatewayToken };

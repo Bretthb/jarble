@@ -1,6 +1,7 @@
 import { db, tables } from "../db/index.js";
 import { eq, inArray, desc } from "drizzle-orm";
 import { getDeploymentPodStatus, type DeploymentPodStatus } from "../k8s/index.js";
+import type { ManagedBy } from "../k8s/constants.js";
 import { logger } from "../utils/logger.js";
 
 const { deployments } = tables;
@@ -40,7 +41,7 @@ export async function reconcileStatuses(): Promise<void> {
     // Limit to 100 per cycle to prevent overwhelming K8s API at scale
     const driftCandidates = await db.query.deployments.findMany({
       where: inArray(deployments.status, ["creating", "running", "restarting", "reloading"]),
-      columns: { id: true, status: true, name: true, updatedAt: true },
+      columns: { id: true, status: true, name: true, updatedAt: true, managedBy: true },
       limit: 100,
       orderBy: (d, { desc }) => [desc(d.updatedAt)], // Prioritize recently changed
     });
@@ -53,7 +54,7 @@ export async function reconcileStatuses(): Promise<void> {
 
     for (const dep of driftCandidates) {
       try {
-        const mismatch = await checkDeploymentStatus(dep as { id: string; status: DbStatus; name: string });
+        const mismatch = await checkDeploymentStatus(dep as { id: string; status: DbStatus; name: string; managedBy: string | null });
         if (mismatch) {
           mismatches.push(mismatch);
         }
@@ -87,8 +88,10 @@ async function checkDeploymentStatus(dep: {
   id: string;
   status: DbStatus;
   name: string;
+  managedBy: string | null;
 }): Promise<StatusMismatch | null> {
-  const k8sStatus = await getDeploymentPodStatus(dep.id);
+  const managedBy = (dep.managedBy ?? "legacy") as ManagedBy;
+  const k8sStatus = await getDeploymentPodStatus(dep.id, managedBy);
 
   // Determine what the DB status should be based on K8s reality
   let expectedDbStatus: DbStatus;

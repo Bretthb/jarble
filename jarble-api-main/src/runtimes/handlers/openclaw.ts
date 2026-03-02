@@ -208,6 +208,11 @@ export const openclawHandler: RuntimeHandler = {
   renderConfigs(deployment: DeploymentFields): ConfigFile[] {
     const files: ConfigFile[] = [];
 
+    // Compute container HOME based on management mode (affects absolute paths)
+    // Legacy: HOME=/data, Operator: HOME=/home/openclaw
+    const managedBy = deployment.managedBy ?? "legacy";
+    const home = managedBy === "operator" ? "/home/openclaw" : "/data";
+
     // soul.md — system prompt / personality + platform-appropriate UI instructions
     // Messaging-only deployments get a condensed prompt (~1,250 tokens saved)
     const uiPromptSection = isMessagingOnly(deployment)
@@ -222,10 +227,9 @@ export const openclawHandler: RuntimeHandler = {
     const soulContent = soulParts.join("\n\n");
 
     // Write to both the Jarble config path AND the OpenClaw workspace path
-    // OpenClaw reads SOUL.md from ~/.openclaw/workspace/ ($HOME=/data in container)
+    // OpenClaw reads SOUL.md from $HOME/.openclaw/.openclaw/workspace/
     files.push({ path: "soul.md", content: soulContent });
-    // OpenClaw's HOME=/data, and its workspace path is $HOME/.openclaw/.openclaw/workspace/
-    files.push({ path: "/data/.openclaw/.openclaw/workspace/SOUL.md", content: soulContent });
+    files.push({ path: `${home}/.openclaw/.openclaw/workspace/SOUL.md`, content: soulContent });
 
     // openclaw.json — agent config + channel credentials
     const openclawConfig: Record<string, any> = {};
@@ -299,14 +303,14 @@ export const openclawHandler: RuntimeHandler = {
       // Write to Jarble config path (for reference / reverse sync)
       files.push({ path: "openclaw.json", content: configContent });
       // Write to OpenClaw's actual config path — this is where the gateway reads config from
-      // Path: $HOME/.openclaw/openclaw.json (HOME=/data in container)
-      files.push({ path: "/data/.openclaw/openclaw.json", content: configContent });
+      // Path: $HOME/.openclaw/openclaw.json
+      files.push({ path: `${home}/.openclaw/openclaw.json`, content: configContent });
     }
 
-    // MCP server script — deployed to /data/config/mcp/jarble-ui-server.js
-    // The API's MCP proxy endpoint (canvasFiles.ts) invokes this via kubectl exec
+    // MCP server script — deployed to {pvcMount}/config/mcp/jarble-ui-server.js
+    // Relative path so writeConfigsToPvc prefixes with correct PVC mount.
     if (MCP_SERVER_SCRIPT) {
-      files.push({ path: "/data/config/mcp/jarble-ui-server.js", content: MCP_SERVER_SCRIPT });
+      files.push({ path: "mcp/jarble-ui-server.js", content: MCP_SERVER_SCRIPT });
     }
 
     // Future: render skills/*.json from DB skills data
@@ -393,6 +397,21 @@ export const openclawHandler: RuntimeHandler = {
     }
     if (deployment.llmModel) {
       entries["LLM_MODEL"] = deployment.llmModel;
+    }
+
+    // Gateway token duplicate key for operator compatibility.
+    // Operator reads `token` key from the Secret; legacy reads OPENCLAW_GATEWAY_TOKEN.
+    // Adding `token` is harmless for legacy mode.
+    if (deployment.gatewayToken) {
+      entries["token"] = deployment.gatewayToken;
+    }
+
+    // Operator mode: set env vars so the MCP server inside the pod uses correct PVC paths
+    // (jarble-ui-server.js reads these; defaults to /data/... for legacy mode)
+    if (deployment.managedBy === "operator") {
+      entries["JARBLE_COMPONENTS_DIR"] = "/home/openclaw/.openclaw/components";
+      entries["JARBLE_FILES_DIR"] = "/home/openclaw/.openclaw/files";
+      entries["JARBLE_MEMORY_DIR"] = "/home/openclaw/.openclaw/memory";
     }
 
     // Platform credential env var fallbacks (OpenClaw reads these as backup)

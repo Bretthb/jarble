@@ -1,10 +1,12 @@
 // Barrel re-export — all K8s operations
 // Consumers should import from "../k8s/index.js" (or just "../k8s")
 
-export { coreApi, appsApi, execClient, kc } from "./client.js";
+export { coreApi, appsApi, customApi, execClient, kc } from "./client.js";
 
 export { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS } from "./constants.js";
-export type { DeploymentConfig } from "./constants.js";
+export { CRD_GROUP, CRD_VERSION, CRD_PLURAL } from "./constants.js";
+export { getContainerName, getPvcMountPath, getContainerHome, podLabelSelector } from "./constants.js";
+export type { DeploymentConfig, ManagedBy } from "./constants.js";
 
 export { execInPod, execInPodWithStdin, streamExecInPod, findPodForDeployment, escapeShellValue } from "./exec.js";
 
@@ -23,3 +25,5 @@ export { writeComponentToPvc, readComponentFromPvc, listComponentsOnPvc, getCust
 
 export { getDeploymentLogs, streamDeploymentLogs } from "./logs.js";
 export type { DeploymentLogsResult } from "./logs.js";
+
+export { buildCRSpec, createOpenClawInstance, deleteOpenClawInstance, getOpenClawInstance, isOperatorInstalled } from "./operator.js";

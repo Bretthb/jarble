@@ -16,8 +16,8 @@
 const fs = require("fs");
 const path = require("path");
 
-const COMPONENTS_DIR = "/data/components";
-const FILES_DIR = "/data/files";
+const COMPONENTS_DIR = process.env.JARBLE_COMPONENTS_DIR || "/data/components";
+const FILES_DIR = process.env.JARBLE_FILES_DIR || "/data/files";
 const PROTOCOL_VERSION = "2024-11-05";
 
 const FILE_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -582,7 +582,7 @@ function executeUpdateUi(args) {
 // Stores memories as JSON on PVC with embeddings for similarity search.
 // Uses the bot's LLM provider for embeddings and fact extraction.
 
-const MEMORY_DIR = "/data/memory";
+const MEMORY_DIR = process.env.JARBLE_MEMORY_DIR || "/data/memory";
 const MEMORY_FILE = path.join(MEMORY_DIR, "store.json");
 const MEMORY_VERSION = 1;
 const EMBEDDING_DIMS = 512;

@@ -1,8 +1,8 @@
 import { findPodForDeployment, execInPod } from "../../k8s/index.js";
+import type { ManagedBy } from "../../k8s/constants.js";
+import { getPvcMountPath, getContainerName } from "../../k8s/constants.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
-
-const BLOCKED_DIRS = ["/data/runtime/node_modules", "/data/.npm"];
 
 export const listFilesTool: McpTool = {
   name: "list_files",
@@ -13,16 +13,21 @@ export const listFilesTool: McpTool = {
     properties: {
       path: {
         type: "string",
-        description: "Directory path to list (default: /data/)",
+        description: "Directory path to list (default: PVC root)",
       },
     },
   },
   async execute(params: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-    const path = (params.path as string) || "/data/";
+    const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
+    const pvcMount = getPvcMountPath(managedBy);
+    const containerName = getContainerName(managedBy);
+    const blockedDirs = [`${pvcMount}/runtime/node_modules`, `${pvcMount}/.npm`];
 
-    // Validate path is under /data/
-    if (!path.startsWith("/data/") && path !== "/data") {
-      return { success: false, message: "Path must be under /data/." };
+    const path = (params.path as string) || `${pvcMount}/`;
+
+    // Validate path is under PVC mount
+    if (!path.startsWith(`${pvcMount}/`) && path !== pvcMount) {
+      return { success: false, message: `Path must be under ${pvcMount}/.` };
     }
 
     // Reject path traversal
@@ -31,13 +36,13 @@ export const listFilesTool: McpTool = {
     }
 
     // Block sensitive directories
-    for (const blocked of BLOCKED_DIRS) {
+    for (const blocked of blockedDirs) {
       if (path === blocked || path.startsWith(blocked + "/")) {
         return { success: false, message: `Access to ${blocked} is not allowed.` };
       }
     }
 
-    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false });
+    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false, managedBy });
     if (!podName) {
       return {
         success: false,
@@ -46,7 +51,7 @@ export const listFilesTool: McpTool = {
     }
 
     try {
-      const output = await execInPod(podName, ["ls", "-la", "--time-style=iso", path]);
+      const output = await execInPod(podName, ["ls", "-la", "--time-style=iso", path], containerName);
 
       return {
         success: true,

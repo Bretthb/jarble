@@ -5,6 +5,7 @@
  * with {{variable}} placeholders for dynamic data.
  */
 import { writeComponentToPvc } from "../../k8s/index.js";
+import type { ManagedBy } from "../../k8s/constants.js";
 import {
   validateComponentName,
   validateComponentDefinition,
@@ -77,7 +78,8 @@ export const defineComponentTool: McpTool = {
 
     // Write to PVC
     try {
-      await writeComponentToPvc(ctx.deploymentId, name, definition);
+      const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
+      await writeComponentToPvc(ctx.deploymentId, name, definition, managedBy);
 
       logger.info(
         { deploymentId: ctx.deploymentId, component: name },

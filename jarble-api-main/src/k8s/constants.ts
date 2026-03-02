@@ -26,3 +26,42 @@ export const RUNTIME_PORTS: Record<string, number> = {
   openclaw: 18789,
   zeroclaw: 3000,
 };
+
+// ── Operator CRD constants ────────────────────────────────────────────────
+export const CRD_GROUP = "openclaw.rocks";
+export const CRD_VERSION = "v1alpha1";
+export const CRD_PLURAL = "openclawinstances";
+
+// ── Dual-mode constants ──────────────────────────────────────────────────
+export type ManagedBy = "legacy" | "operator";
+
+export const LEGACY_CONTAINER_NAME = "runtime";
+export const OPERATOR_CONTAINER_NAME = "openclaw";
+export const LEGACY_PVC_MOUNT = "/data";
+export const OPERATOR_PVC_MOUNT = "/home/openclaw/.openclaw";
+
+/** Get the main container name based on management mode. */
+export function getContainerName(managedBy: ManagedBy): string {
+  return managedBy === "operator" ? OPERATOR_CONTAINER_NAME : LEGACY_CONTAINER_NAME;
+}
+
+/** Get the PVC mount path based on management mode. */
+export function getPvcMountPath(managedBy: ManagedBy): string {
+  return managedBy === "operator" ? OPERATOR_PVC_MOUNT : LEGACY_PVC_MOUNT;
+}
+
+/** Get the container HOME directory based on management mode. */
+export function getContainerHome(managedBy: ManagedBy): string {
+  return managedBy === "operator" ? "/home/openclaw" : "/data";
+}
+
+/**
+ * Build a K8s label selector to find pods for a deployment.
+ * Legacy uses `app=dep-{id}`, operator uses `app.kubernetes.io/instance=dep-{id}`.
+ */
+export function podLabelSelector(deploymentId: string, managedBy: ManagedBy): string {
+  if (managedBy === "operator") {
+    return `app.kubernetes.io/instance=dep-${deploymentId}`;
+  }
+  return `app=dep-${deploymentId}`;
+}

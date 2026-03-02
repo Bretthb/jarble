@@ -21,6 +21,8 @@ import { env } from "../utils/env.js";
 import { logger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { getPodAddress, findPodForDeployment } from "../k8s/index.js";
+import type { ManagedBy } from "../k8s/constants.js";
+import { getContainerName } from "../k8s/constants.js";
 import { chatViaGateway, chatViaExec, type GatewayResponse } from "../services/openclawGateway.js";
 import { extractUIBlocks, type JarbleUIBlock, type JarbleComponentDef } from "../utils/uiBlockParser.js";
 import { readComponentFromPvc, writeComponentToPvc } from "../k8s/index.js";
@@ -81,7 +83,8 @@ function extractDeploymentId(body: any): string | null {
  */
 async function resolveUIBlocks(
   blocks: JarbleUIBlock[],
-  deploymentId: string
+  deploymentId: string,
+  managedBy: ManagedBy = "legacy"
 ): Promise<JarbleUIBlock[]> {
   const resolved: JarbleUIBlock[] = [];
   for (const block of blocks) {
@@ -91,7 +94,7 @@ async function resolveUIBlocks(
     }
     // Custom component — try to resolve from PVC
     try {
-      const definition = await readComponentFromPvc(deploymentId, block.component);
+      const definition = await readComponentFromPvc(deploymentId, block.component, managedBy);
       if (!definition) {
         resolved.push(block); // Let frontend show "unknown component"
         continue;
@@ -219,6 +222,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     return;
   }
 
+  const managedBy = ((deployment as any).managedBy ?? "legacy") as ManagedBy;
   const requestStartMs = Date.now();
   const agMessages = body.messages || [];
 
@@ -299,7 +303,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       },
       "chatWithBot: gateway response summary"
     );
-    const resolvedBlocks = await resolveUIBlocks(gatewayResult.uiBlocks, deploymentId);
+    const resolvedBlocks = await resolveUIBlocks(gatewayResult.uiBlocks, deploymentId, managedBy);
     const customCount = resolvedBlocks.filter(b => b.component === "layout" && !gatewayResult.uiBlocks.find(orig => orig.id === b.id && orig.component === "layout")).length;
     if (resolvedBlocks.length > 0) {
       logger.debug({ deploymentId, blockCount: resolvedBlocks.length, customCount }, "Chat: resolved UI blocks");
@@ -337,7 +341,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     if (gatewayResult.componentDefs && gatewayResult.componentDefs.length > 0) {
       for (const def of gatewayResult.componentDefs) {
         // Save to PVC in the background (fire-and-forget)
-        writeComponentToPvc(deploymentId, def.name, def as unknown as Record<string, unknown>).catch((err: unknown) => {
+        writeComponentToPvc(deploymentId, def.name, def as unknown as Record<string, unknown>, managedBy).catch((err: unknown) => {
           logger.warn({ deploymentId, name: def.name, error: err instanceof Error ? err.message : String(err) }, "Failed to save component definition to PVC");
         });
 
@@ -365,7 +369,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   // Helper: run chat via exec (kubectl exec into pod)
   const tryExec = async (): Promise<GatewayResponse> => {
-    const podName = await findPodForDeployment(deploymentId, { requireReady: false });
+    const podName = await findPodForDeployment(deploymentId, { requireReady: false, managedBy });
     if (!podName) throw new Error("No pod found for this deployment");
     return chatViaExec(
       podName,
@@ -408,7 +412,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
-      const podAddr = await getPodAddress(deploymentId);
+      const podAddr = await getPodAddress(deploymentId, managedBy);
 
       if (!podAddr) {
         const classified = classifyError("No pod found", { deploymentStatus: deployment.status });
@@ -439,7 +443,7 @@ tamboAgentRouter.post("/", async (req, res) => {
         // Emit UI blocks as soon as they're detected during streaming (before response finishes)
         async (block) => {
           try {
-            const resolved = await resolveUIBlocks([block], deploymentId);
+            const resolved = await resolveUIBlocks([block], deploymentId, managedBy);
             for (const b of resolved) {
               sendEvent(res, {
                 type: "UI_BLOCK_START",

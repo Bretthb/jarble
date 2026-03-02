@@ -50,6 +50,7 @@ export const deployments = sqliteTable("deployments", {
   status: text("status").notNull().default("creating"),
   error: text("error"),
   messagingOnly: integer("messaging_only", { mode: "boolean" }).notNull().default(false),
+  managedBy: text("managed_by").notNull().default("legacy"),  // "legacy" | "operator"
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 });

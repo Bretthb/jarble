@@ -1,6 +1,7 @@
 import { logger } from "../utils/logger.js";
 import { coreApi } from "./client.js";
 import { NAMESPACE } from "./constants.js";
+import type { ManagedBy } from "./constants.js";
 import type { ConfigFile } from "../runtimes/types.js";
 
 /**
@@ -27,15 +28,28 @@ import type { ConfigFile } from "../runtimes/types.js";
 
 /**
  * Encode a config file path into a valid ConfigMap data key.
- * K8s ConfigMap keys must be valid DNS subdomain names (alphanumeric, -, ., _).
- * We encode "/" as "--" and prefix absolute paths with "abs-".
+ *
+ * Legacy mode:
+ *   K8s ConfigMap keys must be valid DNS subdomain names (alphanumeric, -, ., _).
+ *   We encode "/" as "--" and prefix absolute paths with "abs-".
+ *
+ * Operator mode:
+ *   Uses flat keys (just the filename) — the operator reads these directly
+ *   and merges them into its own config. Absolute paths are stripped to basename.
  */
-export function encodeConfigKey(path: string): string {
+export function encodeConfigKey(path: string, managedBy: ManagedBy = "legacy"): string {
+  if (managedBy === "operator") {
+    // Operator mode: use flat keys (basename only for absolute paths)
+    if (path.startsWith("/")) {
+      return path.substring(path.lastIndexOf("/") + 1);
+    }
+    return path;
+  }
+
+  // Legacy mode: encode absolute paths with abs- prefix
   if (path.startsWith("/")) {
-    // Absolute path: strip leading /, replace / with --, prefix with "abs-"
     return "abs-" + path.slice(1).replace(/\//g, "--");
   }
-  // Relative path: use as-is (already valid for ConfigMap keys)
   return path;
 }
 
@@ -56,11 +70,12 @@ export function decodeConfigKey(key: string): string {
  */
 export async function createDeploymentConfigMap(
   deploymentId: string,
-  files: ConfigFile[]
+  files: ConfigFile[],
+  managedBy: ManagedBy = "legacy"
 ): Promise<void> {
   const data: Record<string, string> = {};
   for (const file of files) {
-    data[encodeConfigKey(file.path)] = file.content;
+    data[encodeConfigKey(file.path, managedBy)] = file.content;
   }
 
   await coreApi.createNamespacedConfigMap(NAMESPACE, {
@@ -86,11 +101,12 @@ export async function createDeploymentConfigMap(
  */
 export async function updateDeploymentConfigMap(
   deploymentId: string,
-  files: ConfigFile[]
+  files: ConfigFile[],
+  managedBy: ManagedBy = "legacy"
 ): Promise<void> {
   const data: Record<string, string> = {};
   for (const file of files) {
-    data[encodeConfigKey(file.path)] = file.content;
+    data[encodeConfigKey(file.path, managedBy)] = file.content;
   }
 
   try {
@@ -116,7 +132,7 @@ export async function updateDeploymentConfigMap(
     const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       // ConfigMap doesn't exist yet (old deployment) — create it
-      await createDeploymentConfigMap(deploymentId, files);
+      await createDeploymentConfigMap(deploymentId, files, managedBy);
     } else {
       throw err;
     }

@@ -1,7 +1,8 @@
 import * as k8s from "@kubernetes/client-node";
 import stream from "stream";
 import { coreApi, kc } from "./client.js";
-import { NAMESPACE } from "./constants.js";
+import { NAMESPACE, getContainerName, podLabelSelector } from "./constants.js";
+import type { ManagedBy } from "./constants.js";
 
 // ── Deployment Logs ──────────────────────────────────────────────────
 
@@ -16,15 +17,19 @@ export interface DeploymentLogsResult {
  */
 export async function getDeploymentLogs(
   deploymentId: string,
-  tailLines: number = 200
+  tailLines: number = 200,
+  managedBy: ManagedBy = "legacy"
 ): Promise<DeploymentLogsResult> {
+  const labelSelector = podLabelSelector(deploymentId, managedBy);
+  const containerName = getContainerName(managedBy);
+
   const pods = await coreApi.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
     undefined,
     undefined,
-    `app=dep-${deploymentId}`
+    labelSelector
   );
 
   if (pods.body.items.length === 0) {
@@ -38,7 +43,7 @@ export async function getDeploymentLogs(
   const response = await coreApi.readNamespacedPodLog(
     podName,
     NAMESPACE,
-    "runtime",     // container
+    containerName,  // container
     undefined,     // follow
     undefined,     // insecureSkipTLSVerifyBackend
     undefined,     // limitBytes
@@ -63,15 +68,19 @@ export async function getDeploymentLogs(
 export async function streamDeploymentLogs(
   deploymentId: string,
   writable: stream.Writable,
-  options: { tailLines?: number } = {}
+  options: { tailLines?: number; managedBy?: ManagedBy } = {}
 ): Promise<{ podName: string; abort: () => void }> {
+  const managedBy = options.managedBy ?? "legacy";
+  const labelSelector = podLabelSelector(deploymentId, managedBy);
+  const containerName = getContainerName(managedBy);
+
   const pods = await coreApi.listNamespacedPod(
     NAMESPACE,
     undefined,
     undefined,
     undefined,
     undefined,
-    `app=dep-${deploymentId}`
+    labelSelector
   );
 
   if (pods.body.items.length === 0) {
@@ -82,14 +91,17 @@ export async function streamDeploymentLogs(
   const podName = pod.metadata?.name;
   if (!podName) throw new Error("Pod has no name");
 
-  const isRunning = pod.status?.phase === "Running"
-    && pod.status?.containerStatuses?.[0]?.ready;
+  const targetContainer = getContainerName(managedBy);
+  const containerStatus = pod.status?.containerStatuses?.find(
+    (cs) => cs.name === targetContainer
+  ) ?? pod.status?.containerStatuses?.[0];
+  const isRunning = pod.status?.phase === "Running" && containerStatus?.ready;
   if (!isRunning) {
     throw new Error("Pod is not running");
   }
 
   const log = new k8s.Log(kc);
-  const request = await log.log(NAMESPACE, podName, "runtime", writable, {
+  const request = await log.log(NAMESPACE, podName, containerName, writable, {
     follow: true,
     tailLines: options.tailLines ?? 100,
     timestamps: true,

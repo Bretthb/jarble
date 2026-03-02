@@ -1,4 +1,5 @@
-import { findPodForDeployment, execInPod } from "../../k8s/index.js";
+import { findPodForDeployment } from "../../k8s/index.js";
+import type { ManagedBy } from "../../k8s/constants.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 
@@ -19,7 +20,8 @@ export const getWhatsappQrTool: McpTool = {
       };
     }
 
-    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false });
+    const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
+    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false, managedBy });
     if (!podName) {
       return {
         success: false,
