@@ -129,19 +129,40 @@ export async function createDeployment(
             runAsNonRoot: false,
             fsGroup: 1000,
           },
-          initContainers: [{
-            name: "fix-permissions",
-            image: "busybox:1.36",
-            command: ["sh", "-c", configInitScript],
-            securityContext: {
-              runAsUser: 0,
+          initContainers: [
+            {
+              name: "config-init",
+              image: "busybox:1.36",
+              command: ["sh", "-c", configInitScript],
+              securityContext: {
+                runAsUser: 0,
+              },
+              volumeMounts: [
+                { name: "data", mountPath: "/data" },
+                // Mount ConfigMap as read-only source for the init container to copy from
+                ...(hasConfigMap ? [{ name: "config-source", mountPath: "/config-source", readOnly: true }] : []),
+              ],
             },
-            volumeMounts: [
-              { name: "data", mountPath: "/data" },
-              // Mount ConfigMap as read-only source for the init container to copy from
-              ...(hasConfigMap ? [{ name: "config-source", mountPath: "/config-source", readOnly: true }] : []),
-            ],
-          }],
+            // Pre-flight config validation using the OpenClaw CLI.
+            // Catches misconfigurations before the gateway starts.
+            // Gracefully skips if the validate subcommand is unavailable.
+            ...(hasConfigMap ? [{
+              name: "validate-config",
+              image: containerImage,
+              command: ["sh", "-c",
+                "if command -v openclaw >/dev/null 2>&1 && openclaw config validate --help >/dev/null 2>&1; then " +
+                  "openclaw config validate --json && echo '[validate-config] Config OK' || " +
+                  "{ echo '[validate-config] Config validation failed' >&2; exit 1; }; " +
+                "else " +
+                  "echo '[validate-config] Skipping — validate not available'; " +
+                "fi"
+              ],
+              envFrom: [{ secretRef: { name: `secret-${deploymentId}` } }],
+              volumeMounts: [
+                { name: "data", mountPath: "/data" },
+              ],
+            }] : []),
+          ],
           containers: [{
             name: "runtime",
             image: containerImage,
@@ -167,7 +188,8 @@ export async function createDeployment(
               { name: "tmp", mountPath: "/tmp" },
             ],
             livenessProbe: {
-              tcpSocket: {
+              httpGet: {
+                path: "/healthz",
                 port: config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789,
               },
               initialDelaySeconds: 60,
@@ -176,7 +198,8 @@ export async function createDeployment(
               failureThreshold: 3,
             },
             readinessProbe: {
-              tcpSocket: {
+              httpGet: {
+                path: "/healthz",
                 port: config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789,
               },
               initialDelaySeconds: 20,

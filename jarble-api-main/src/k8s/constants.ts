@@ -1,6 +1,9 @@
 import type { ConfigFile } from "../runtimes/types.js";
 
 export const NAMESPACE = "jarble";
+// Pin to a specific image tag in production via DEFAULT_POD_IMAGE env var.
+// Using :latest as fallback for local dev only — production deployments
+// should always set DEFAULT_POD_IMAGE to a versioned tag (e.g. :2026.3.2).
 export const DEFAULT_IMAGE = process.env.DEFAULT_POD_IMAGE || "ghcr.io/jarble-ai/openclaw:latest";
 
 export interface DeploymentConfig {
