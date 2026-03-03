@@ -8,7 +8,7 @@
  * Config files on PVC:
  *   /data/soul.md          — System prompt / personality
  *   /data/openclaw.json    — Agent + channel configuration (OpenClaw native format)
- *   /data/skills/*         — Skill definitions (future)
+ *   /data/skills/*         — Skill definitions (one JSON file per installed skill)
  *
  * OpenClaw channel config format (openclaw.json):
  *   {
@@ -195,8 +195,7 @@ const capabilities: RuntimeCapabilities = {
 const configFiles: ConfigFileSpec[] = [
   { path: "soul.md", description: "System prompt / personality", isGlob: false },
   { path: "openclaw.json", description: "Agent + channel configuration (OpenClaw native)", isGlob: false },
-  // Future:
-  // { path: "skills/*", description: "Skill definitions", isGlob: true },
+  { path: "skills/*", description: "Skill definitions", isGlob: true },
 ];
 
 export const openclawHandler: RuntimeHandler = {
@@ -313,7 +312,17 @@ export const openclawHandler: RuntimeHandler = {
       files.push({ path: "mcp/jarble-ui-server.js", content: MCP_SERVER_SCRIPT });
     }
 
-    // Future: render skills/*.json from DB skills data
+    // Render installed skills as individual JSON files under /data/skills/
+    if (deployment.skills && deployment.skills.length > 0) {
+      for (const skill of deployment.skills) {
+        // Sanitize skill name for use as filename (lowercase, alphanumeric + hyphens)
+        const safeName = skill.name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+        files.push({
+          path: `skills/${safeName}.json`,
+          content: skill.config,
+        });
+      }
+    }
 
     return files;
   },

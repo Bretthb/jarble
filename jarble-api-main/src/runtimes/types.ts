@@ -60,6 +60,8 @@ export interface DeploymentFields {
   messagingOnly?: boolean;
   /** Management mode: "legacy" (K8s Deployment) or "operator" (OpenClaw CRD). Affects PVC paths. */
   managedBy?: "legacy" | "operator";
+  /** Installed skills: array of { name, config } from deploymentSkills + skillsCatalog join */
+  skills?: Array<{ name: string; config: string }>;
 }
 
 /**
