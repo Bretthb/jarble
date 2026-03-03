@@ -222,6 +222,16 @@ export const openclawHandler: RuntimeHandler = {
     if (deployment.systemPrompt) {
       soulParts.push(deployment.systemPrompt);
     }
+
+    // Append instruction snippets from installed packages
+    // Each snippet is wrapped in a labeled section so it can be cleanly identified
+    // and removed when the package is uninstalled (next syncConfigsToPvc excludes it).
+    if (deployment.packageSnippets && deployment.packageSnippets.length > 0) {
+      for (const ps of deployment.packageSnippets) {
+        soulParts.push(`## Package: ${ps.packageName}\n${ps.snippet}`);
+      }
+    }
+
     soulParts.push(uiPromptSection);
     const soulContent = soulParts.join("\n\n");
 

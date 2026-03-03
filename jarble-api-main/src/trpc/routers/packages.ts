@@ -268,7 +268,13 @@ export const packagesRouter = router({
         installedSkills: installedSkills.length,
       }, "Package installed");
 
-      // Fire-and-forget: sync components + skills to pod
+      // TODO: For hosted (remote) packages, store creator's gateway token as an
+      // encrypted credential on the buyer's deployment so the pod can reach the
+      // package's remote API. Also add availability monitoring for remote endpoints.
+
+      // Fire-and-forget: sync components + configs to pod
+      // Always sync configs when a package is installed — packageSnippets need to
+      // be appended to soul.md, and skills need config files on the PVC.
       if (deployment.status === "running") {
         for (const compId of installedComponents) {
           const comp = await ctx.db.query.marketplaceComponents.findFirst({
@@ -299,12 +305,11 @@ export const packagesRouter = router({
           );
         }
 
-        if (installedSkills.length > 0) {
-          void syncConfigsToPvc(input.deploymentId).catch((err) =>
-            logger.error({ err, deploymentId: input.deploymentId },
-              "packages.install: failed to sync skill configs (non-fatal)")
-          );
-        }
+        // Sync configs to PVC — writes skill files + rebuilds soul.md with packageSnippets
+        void syncConfigsToPvc(input.deploymentId).catch((err) =>
+          logger.error({ err, deploymentId: input.deploymentId },
+            "packages.install: failed to sync configs (non-fatal)")
+        );
       }
 
       return {
@@ -391,7 +396,9 @@ export const packagesRouter = router({
         removedSkills,
       }, "Package uninstalled");
 
-      if (deployment.status === "running" && (removedComponents > 0 || removedSkills > 0)) {
+      // Always sync configs on uninstall — removes package snippet from soul.md
+      // and cleans up skill config files from PVC
+      if (deployment.status === "running") {
         void syncConfigsToPvc(input.deploymentId).catch((err) =>
           logger.error({ err, deploymentId: input.deploymentId },
             "packages.uninstall: failed to sync config after uninstall (non-fatal)")
@@ -505,7 +512,7 @@ export const packagesRouter = router({
         hostingModel: input.hostingModel,
         instructionSnippet: input.instructionSnippet ?? null,
         remoteApiEndpoint: input.remoteApiEndpoint ?? null,
-        status: "published",
+        status: "pending_review",
         pricingModel: input.pricingModel,
         priceUsdCents: input.priceUsdCents,
         createdAt: dbDate(),
@@ -529,7 +536,7 @@ export const packagesRouter = router({
         components: input.componentIds.length,
         skills: input.skillIds.length,
         userId: ctx.user.id,
-      }, "Package published");
+      }, "Package submitted for review");
 
       return { packageId };
     }),
