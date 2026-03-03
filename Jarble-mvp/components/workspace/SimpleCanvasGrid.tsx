@@ -8,7 +8,7 @@
  * Keeps the same export name (SimpleCanvasGrid) so page.tsx doesn't change.
  */
 
-import { memo, useCallback, useState, useRef, useEffect, type ReactNode } from "react";
+import { memo, useCallback, useState, useRef, useEffect, type ReactNode, type KeyboardEvent } from "react";
 import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Group, LayoutGrid } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -68,6 +68,11 @@ function SimpleCanvasGridInner({
   const saveInputRef = useRef<HTMLInputElement>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Keyboard navigation state ────────────────────────────────────
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const [liveAnnouncement, setLiveAnnouncement] = useState("");
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
   // ── Card entrance animation tracking ──────────────────────────────
   // Cards already "seen" should not animate in (e.g. after RESTORE_STATE or initial mount).
   // We seed the set with current card IDs on mount so restored cards appear instantly.
@@ -95,6 +100,40 @@ function SimpleCanvasGridInner({
       return () => clearTimeout(t);
     }
   }, [saveStatus]);
+
+  // ── Keyboard navigation handler ───────────────────────────────────
+  const visibleCards = cards.filter(c => !c.minimized);
+  const handleGridKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+    const count = visibleCards.length;
+    if (count === 0) return;
+
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowDown": {
+        e.preventDefault();
+        const next = focusedIndex < count - 1 ? focusedIndex + 1 : 0;
+        setFocusedIndex(next);
+        const card = visibleCards[next];
+        if (card) cardRefs.current.get(card.id)?.focus();
+        break;
+      }
+      case "ArrowLeft":
+      case "ArrowUp": {
+        e.preventDefault();
+        const prev = focusedIndex > 0 ? focusedIndex - 1 : count - 1;
+        setFocusedIndex(prev);
+        const card = visibleCards[prev];
+        if (card) cardRefs.current.get(card.id)?.focus();
+        break;
+      }
+      case "Escape": {
+        e.preventDefault();
+        setFocusedIndex(-1);
+        canvasRef.current?.focus();
+        break;
+      }
+    }
+  }, [focusedIndex, visibleCards]);
 
   // ── Snap helper ────────────────────────────────────────────────────
   const snap = useCallback((v: number) => gridSnap ? Math.round(v / SNAP_SIZE) * SNAP_SIZE : v, [gridSnap]);
@@ -127,6 +166,10 @@ function SimpleCanvasGridInner({
       const pos = previewPosRef.current;
       if (d && pos) {
         dispatch({ type: "MOVE_CARD", id: d.cardId, position: pos });
+        const movedCard = cards.find(c => c.id === d.cardId);
+        if (movedCard) {
+          setLiveAnnouncement(`Card "${movedCard.title || movedCard.component.replace(/_/g, " ")}" moved to position ${Math.round(pos.x)}, ${Math.round(pos.y)}`);
+        }
       }
       setDragging(null);
       setPreviewPos(null);
@@ -295,9 +338,18 @@ function SimpleCanvasGridInner({
         }}
       />
 
+      {/* Aria live region for reorder announcements */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {liveAnnouncement}
+      </div>
+
       {/* Canvas area */}
       <div
         ref={canvasRef}
+        role="grid"
+        aria-label="Canvas cards"
+        tabIndex={0}
+        onKeyDown={handleGridKeyDown}
         className="flex-1 overflow-auto relative"
         style={{
           // Dot grid background
@@ -326,10 +378,25 @@ function SimpleCanvasGridInner({
           const isNew = !seenCardIdsRef.current.has(card.id);
           const isStreaming = streamingCardIds.has(card.id);
 
+          const cardIndex = visibleCards.indexOf(card);
+
           return (
             <motion.div
               key={card.id}
               layout="position"
+              ref={(el) => { if (el) cardRefs.current.set(card.id, el); else cardRefs.current.delete(card.id); }}
+              role="gridcell"
+              aria-label={card.title || card.component.replace(/_/g, " ")}
+              aria-grabbed={isDragging}
+              aria-dropeffect={dragging && !isDragging ? "move" : undefined}
+              tabIndex={cardIndex === focusedIndex ? 0 : -1}
+              onFocus={() => setFocusedIndex(cardIndex)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  dispatch({ type: "TOGGLE_SELECT_CARD", id: card.id });
+                }
+              }}
               initial={isNew ? { opacity: 0, scale: 0.95 } : false}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
@@ -358,8 +425,8 @@ function SimpleCanvasGridInner({
                         : "hover:ring-1 hover:ring-border/50 cursor-grab"
               }`}
             >
-              {/* Card header — hidden until hover */}
-              <div className="shrink-0 flex items-center justify-between px-2 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity absolute top-0 left-0 right-0 z-20 bg-background/80 backdrop-blur-sm">
+              {/* Card header — always partially visible, full on hover/focus */}
+              <div className="shrink-0 flex items-center justify-between px-2 py-0.5 opacity-40 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity absolute top-0 left-0 right-0 z-20 bg-background/80 backdrop-blur-sm">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <GripVertical className="w-3 h-3 text-muted-foreground/40 shrink-0 cursor-grab" />
                   <span className="text-[10px] text-muted-foreground/60 truncate">
@@ -387,31 +454,31 @@ function SimpleCanvasGridInner({
 
                 {/* Controls */}
                 <div className={`flex items-center gap-0.5 shrink-0 transition-opacity ${
-                  card.selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                  card.selected ? "opacity-100" : "opacity-40 group-hover:opacity-100 group-focus-within:opacity-100"
                 }`}>
                   <button onClick={(e) => { e.stopPropagation(); handleSelect(card); }}
-                    className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${
+                    className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
                       card.selected ? "bg-blue-500 text-white" : "hover:bg-blue-500/60 text-muted-foreground hover:text-white"
-                    }`} title={card.selected ? "Deselect" : "Select (multi-select to group)"}>
-                    <MousePointerClick className="w-3 h-3" />
+                    }`} aria-label={card.selected ? "Deselect" : "Select (multi-select to group)"} title={card.selected ? "Deselect" : "Select (multi-select to group)"}>
+                    <MousePointerClick className="w-3.5 h-3.5" />
                   </button>
                   {canSplitCard(card) && (
                     <button onClick={(e) => { e.stopPropagation(); handleSplit(card); }}
-                      className="w-5 h-5 flex items-center justify-center rounded transition-colors hover:bg-violet-500/60 text-muted-foreground hover:text-white"
+                      className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-violet-500/60 text-muted-foreground hover:text-white"
                       aria-label="Split into individual cards" title="Split into individual cards">
-                      <SplitSquareHorizontal className="w-3 h-3" />
+                      <SplitSquareHorizontal className="w-3.5 h-3.5" />
                     </button>
                   )}
                   <button onClick={(e) => { e.stopPropagation(); handleSaveClick(card); }}
-                    className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${
+                    className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
                       card.savedName ? "bg-amber-500/80 text-white" : "hover:bg-amber-500/60 text-muted-foreground hover:text-white"
                     }`} aria-label={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"} title={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"}>
-                    <Bookmark className={`w-3 h-3 ${card.savedName ? "fill-current" : ""}`} />
+                    <Bookmark className={`w-3.5 h-3.5 ${card.savedName ? "fill-current" : ""}`} />
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); handleClose(card.id); }}
-                    className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:bg-red-500/60 hover:text-white transition-colors"
+                    className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:bg-red-500/60 hover:text-white transition-colors"
                     aria-label="Close card" title="Close">
-                    <X className="w-3 h-3" />
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -442,10 +509,16 @@ function SimpleCanvasGridInner({
                 {renderCard(card)}
               </div>
 
-              {/* Resize handle — bottom right, very subtle */}
+              {/* Resize handle — bottom right */}
               <div
                 onPointerDown={(e) => handleResizeStart(e, card)}
-                className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize opacity-0 group-hover:opacity-40 hover:!opacity-80 transition-opacity z-10"
+                role="slider"
+                aria-label="Resize card"
+                aria-valuemin={MIN_WIDTH}
+                aria-valuemax={2000}
+                aria-valuenow={w}
+                tabIndex={-1}
+                className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize opacity-40 group-hover:opacity-60 group-focus-within:opacity-60 hover:!opacity-80 transition-opacity z-10"
                 title="Drag to resize"
               >
                 <svg viewBox="0 0 16 16" className="w-full h-full text-muted-foreground" fill="currentColor">

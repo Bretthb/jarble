@@ -8,7 +8,7 @@
  * Column span is computed per-card from component type + layoutHint.
  */
 
-import { memo, useCallback, useState, useRef, useEffect, type ReactNode } from "react";
+import { memo, useCallback, useState, useRef, useEffect, type ReactNode, type KeyboardEvent } from "react";
 import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, SplitSquareHorizontal, Grid3X3 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -125,6 +125,11 @@ function DashboardCanvasInner({
   const saveInputRef = useRef<HTMLInputElement>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Keyboard navigation state ────────────────────────────────────
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const [liveAnnouncement, setLiveAnnouncement] = useState("");
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
   useEffect(() => { return () => { if (errorTimerRef.current) clearTimeout(errorTimerRef.current); }; }, []);
   useEffect(() => { if (savingCardId && saveInputRef.current) saveInputRef.current.focus(); }, [savingCardId]);
   useEffect(() => {
@@ -181,6 +186,39 @@ function DashboardCanvasInner({
       return a.createdAt - b.createdAt;
     });
 
+  // ── Keyboard navigation handler ───────────────────────────────────
+  const handleGridKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+    const count = sortedCards.length;
+    if (count === 0) return;
+
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowDown": {
+        e.preventDefault();
+        const next = focusedIndex < count - 1 ? focusedIndex + 1 : 0;
+        setFocusedIndex(next);
+        const card = sortedCards[next];
+        if (card) cardRefs.current.get(card.id)?.focus();
+        break;
+      }
+      case "ArrowLeft":
+      case "ArrowUp": {
+        e.preventDefault();
+        const prev = focusedIndex > 0 ? focusedIndex - 1 : count - 1;
+        setFocusedIndex(prev);
+        const card = sortedCards[prev];
+        if (card) cardRefs.current.get(card.id)?.focus();
+        break;
+      }
+      case "Escape": {
+        e.preventDefault();
+        setFocusedIndex(-1);
+        containerRef.current?.focus();
+        break;
+      }
+    }
+  }, [focusedIndex, sortedCards]);
+
   // ── Empty state ────────────────────────────────────────────────────
   if (cards.length === 0) {
     return (
@@ -227,12 +265,21 @@ function DashboardCanvasInner({
         onHide={onHide}
       />
 
+      {/* Aria live region for announcements */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {liveAnnouncement}
+      </div>
+
       {/* Dashboard grid */}
       <div
         ref={containerRef}
         className="flex-1 overflow-y-auto p-4"
       >
         <div
+          role="grid"
+          aria-label="Dashboard cards"
+          tabIndex={0}
+          onKeyDown={handleGridKeyDown}
           className="gap-4"
           style={{
             display: "grid",
@@ -248,10 +295,23 @@ function DashboardCanvasInner({
               const preferredH = PREFERRED_HEIGHTS[card.component];
               const maxH = MAX_HEIGHTS[card.component] ?? DEFAULT_MAX_HEIGHT;
 
+              const cardIndex = sortedCards.indexOf(card);
+
               return (
                 <motion.div
                   key={card.id}
                   layout
+                  ref={(el) => { if (el) cardRefs.current.set(card.id, el); else cardRefs.current.delete(card.id); }}
+                  role="gridcell"
+                  aria-label={card.title || card.component.replace(/_/g, " ")}
+                  tabIndex={cardIndex === focusedIndex ? 0 : -1}
+                  onFocus={() => setFocusedIndex(cardIndex)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      dispatch({ type: "TOGGLE_SELECT_CARD", id: card.id });
+                    }
+                  }}
                   data-card-id={card.id}
                   initial={isNew ? { opacity: 0, scale: 0.95, y: 12 } : false}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -268,8 +328,8 @@ function DashboardCanvasInner({
                           : "hover:ring-1 hover:ring-border/50"
                   }`}
                 >
-                  {/* Card header — hidden until hover */}
-                  <div className="shrink-0 flex items-center justify-between px-2 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity absolute top-0 left-0 right-0 z-20 bg-background/80 backdrop-blur-sm">
+                  {/* Card header — always partially visible, full on hover/focus */}
+                  <div className="shrink-0 flex items-center justify-between px-2 py-0.5 opacity-40 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity absolute top-0 left-0 right-0 z-20 bg-background/80 backdrop-blur-sm">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <GripVertical className="w-3 h-3 text-muted-foreground/40 shrink-0" />
                       <span className="text-[10px] text-muted-foreground/60 truncate">
@@ -294,31 +354,31 @@ function DashboardCanvasInner({
                     </div>
 
                     <div className={`flex items-center gap-0.5 shrink-0 transition-opacity ${
-                      card.selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      card.selected ? "opacity-100" : "opacity-40 group-hover:opacity-100 group-focus-within:opacity-100"
                     }`}>
                       <button onClick={(e) => { e.stopPropagation(); handleSelect(card); }}
-                        className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${
+                        className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
                           card.selected ? "bg-blue-500 text-white" : "hover:bg-blue-500/60 text-muted-foreground hover:text-white"
-                        }`} title={card.selected ? "Deselect" : "Select"}>
-                        <MousePointerClick className="w-3 h-3" />
+                        }`} aria-label={card.selected ? "Deselect" : "Select"} title={card.selected ? "Deselect" : "Select"}>
+                        <MousePointerClick className="w-3.5 h-3.5" />
                       </button>
                       {canSplitCard(card) && (
                         <button onClick={(e) => { e.stopPropagation(); handleSplit(card); }}
-                          className="w-5 h-5 flex items-center justify-center rounded transition-colors hover:bg-violet-500/60 text-muted-foreground hover:text-white"
-                          title="Split into individual cards">
-                          <SplitSquareHorizontal className="w-3 h-3" />
+                          className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-violet-500/60 text-muted-foreground hover:text-white"
+                          aria-label="Split into individual cards" title="Split into individual cards">
+                          <SplitSquareHorizontal className="w-3.5 h-3.5" />
                         </button>
                       )}
                       <button onClick={(e) => { e.stopPropagation(); handleSaveClick(card); }}
-                        className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${
+                        className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
                           card.savedName ? "bg-amber-500/80 text-white" : "hover:bg-amber-500/60 text-muted-foreground hover:text-white"
-                        }`} title={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"}>
-                        <Bookmark className={`w-3 h-3 ${card.savedName ? "fill-current" : ""}`} />
+                        }`} aria-label={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"} title={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"}>
+                        <Bookmark className={`w-3.5 h-3.5 ${card.savedName ? "fill-current" : ""}`} />
                       </button>
                       <button onClick={(e) => { e.stopPropagation(); handleClose(card.id); }}
-                        className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:bg-red-500/60 hover:text-white transition-colors"
-                        title="Close">
-                        <X className="w-3 h-3" />
+                        className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:bg-red-500/60 hover:text-white transition-colors"
+                        aria-label="Close card" title="Close">
+                        <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
