@@ -3,7 +3,9 @@ import { eq, and } from "drizzle-orm";
 import stream from "stream";
 import { nanoid } from "nanoid";
 import { db, tables } from "../db/index.js";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("sse");
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { encryptApiKey } from "../utils/encryption.js";
 import { syncConfigsToPvc } from "../services/configSync.js";
@@ -35,7 +37,8 @@ async function authenticateSSE(req: any) {
   try {
     const payload = await verifyToken(token);
     return await getUserFromToken(payload);
-  } catch {
+  } catch (err) {
+    log.warn({ err, authMethod: headerToken ? "header" : "query" }, "authenticateSSE: JWT verification failed");
     return null;
   }
 }
@@ -107,7 +110,7 @@ sseRouter.get("/:id/logs/stream", async (req, res) => {
     });
 
     logStream.on("error", (err) => {
-      logger.error({ deploymentId, err }, "Log stream error");
+      log.error({ deploymentId, err }, "Log stream error");
       res.write(`event: error\ndata: ${JSON.stringify({ message: "Stream error" })}\n\n`);
       res.end();
     });
@@ -119,9 +122,9 @@ sseRouter.get("/:id/logs/stream", async (req, res) => {
     try {
       const result = await streamDeploymentLogs(deploymentId, logStream, { tailLines });
       abortFn = result.abort;
-      logger.info({ deploymentId, podName: result.podName }, "Log stream started");
+      log.info({ deploymentId, podName: result.podName }, "Log stream started");
     } catch (err) {
-      logger.error({ deploymentId, err }, "Failed to start log stream");
+      log.error({ deploymentId, err }, "Failed to start log stream");
       res.write(`event: error\ndata: ${JSON.stringify({ message: "Failed to connect to pod logs" })}\n\n`);
       res.end();
       return;
@@ -136,13 +139,13 @@ sseRouter.get("/:id/logs/stream", async (req, res) => {
 
     // Clean up when client disconnects
     req.on("close", () => {
-      logger.debug({ deploymentId }, "Log stream client disconnected");
+      log.debug({ deploymentId }, "Log stream client disconnected");
       clearInterval(keepAlive);
       logStream.destroy();
       if (abortFn) abortFn();
     });
   } catch (err) {
-    logger.error({ err }, "SSE log stream error");
+    log.error({ err }, "SSE log stream error");
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error" });
     }
@@ -250,11 +253,11 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
             platformId: "whatsapp",
             credentials: encrypted,
           });
-          logger.info({ deploymentId }, "WhatsApp marked as connected via QR pairing");
+          log.info({ deploymentId }, "WhatsApp marked as connected via QR pairing");
         }
         void syncConfigsToPvc(deploymentId);
       } catch (err) {
-        logger.error({ deploymentId, err }, "Failed to mark WhatsApp connected");
+        log.error({ deploymentId, err }, "Failed to mark WhatsApp connected");
       }
     };
 
@@ -296,7 +299,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
     );
     abortFn = result.abort;
 
-    logger.info({ deploymentId, podName }, "WhatsApp QR pairing stream started");
+    log.info({ deploymentId, podName }, "WhatsApp QR pairing stream started");
 
     // 90-second timeout for the entire pairing session
     const timeout = setTimeout(() => {
@@ -316,13 +319,13 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
 
     // Clean up when client disconnects
     req.on("close", () => {
-      logger.debug({ deploymentId }, "WhatsApp QR stream client disconnected");
+      log.debug({ deploymentId }, "WhatsApp QR stream client disconnected");
       clearTimeout(timeout);
       clearInterval(keepAlive);
       if (abortFn) abortFn();
     });
   } catch (err) {
-    logger.error({ err }, "WhatsApp QR stream error");
+    log.error({ err }, "WhatsApp QR stream error");
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error" });
     }
@@ -381,7 +384,7 @@ sseRouter.get("/status/stream", async (req, res) => {
                     eq(deploymentsTable.status, dbStatus),
                   ));
               } catch (syncErr) {
-                logger.warn({ deploymentId: dep.id, syncErr }, "SSE status sync: failed to update DB");
+                log.warn({ deploymentId: dep.id, syncErr }, "SSE status sync: failed to update DB");
               }
             }
 
@@ -410,7 +413,7 @@ sseRouter.get("/status/stream", async (req, res) => {
       }
       res.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
     } catch (err) {
-      logger.error({ err, userId: user.id }, "Failed to build initial status snapshot");
+      log.error({ err, userId: user.id }, "Failed to build initial status snapshot");
       res.write(`event: error\ndata: ${JSON.stringify({ message: "Failed to fetch deployment statuses" })}\n\n`);
       res.end();
       return;
@@ -443,7 +446,7 @@ sseRouter.get("/status/stream", async (req, res) => {
           }
         }
       } catch (err) {
-        logger.error({ err, userId: user.id }, "Status stream poll error");
+        log.error({ err, userId: user.id }, "Status stream poll error");
       }
     }, 5_000);
 
@@ -457,7 +460,7 @@ sseRouter.get("/status/stream", async (req, res) => {
     // Maximum connection lifetime: 1 hour
     const maxConnectionMs = 60 * 60 * 1000;
     const connectionTimeout = setTimeout(() => {
-      logger.debug({ userId: user!.id }, "Status stream max lifetime reached, closing");
+      log.debug({ userId: user!.id }, "Status stream max lifetime reached, closing");
       clearInterval(pollInterval);
       clearInterval(keepAlive);
       res.write(`event: reconnect\ndata: {"reason":"max_lifetime"}\n\n`);
@@ -466,13 +469,13 @@ sseRouter.get("/status/stream", async (req, res) => {
 
     // Clean up when client disconnects
     req.on("close", () => {
-      logger.debug({ userId: user!.id }, "Status stream client disconnected");
+      log.debug({ userId: user!.id }, "Status stream client disconnected");
       clearInterval(pollInterval);
       clearInterval(keepAlive);
       clearTimeout(connectionTimeout);
     });
   } catch (err) {
-    logger.error({ err }, "SSE status stream error");
+    log.error({ err }, "SSE status stream error");
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error" });
     }

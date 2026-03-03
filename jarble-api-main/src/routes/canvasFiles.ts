@@ -15,7 +15,9 @@ import { eq, and } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { findPodForDeployment, execInPod } from "../k8s/index.js";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("canvasFiles");
 import { writeFileTool } from "../mcp/tools/writeFile.js";
 
 export const canvasFilesRouter = Router();
@@ -51,7 +53,8 @@ canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
     try {
       const payload = await verifyToken(bearerToken);
       user = await getUserFromToken(payload);
-    } catch {
+    } catch (err) {
+      log.warn({ err, deploymentId: req.params.id }, "canvasFiles: JWT verification failed");
       res.status(401).json({ error: "Invalid token" });
       return;
     }
@@ -128,7 +131,7 @@ canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
     `.replace(/\n/g, " ");
     const command = ["node", "-e", nodeScript];
 
-    logger.debug({ deploymentId, tool, podName }, "MCP proxy: invoking tool in pod");
+    log.debug({ deploymentId, tool, podName }, "MCP proxy: invoking tool in pod");
 
     const output = await execInPod(podName, command);
 
@@ -140,7 +143,7 @@ canvasFilesRouter.post("/:id/mcp/invoke", async (req, res) => {
       res.json({ result: { text: output } });
     }
   } catch (err: unknown) {
-    logger.error({ err: err instanceof Error ? err.message : String(err) }, "MCP proxy error");
+    log.error({ err: err instanceof Error ? err.message : String(err) }, "MCP proxy error");
     res.status(500).json({ error: "Failed to invoke MCP tool" });
   }
 });
