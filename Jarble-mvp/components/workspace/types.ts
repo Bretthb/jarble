@@ -15,6 +15,9 @@ export const FIX_ATTEMPT_LIMIT = 3;
 /** Window (ms) in which fix attempts are counted before resetting. */
 export const FIX_ATTEMPT_WINDOW_MS = 60_000;
 
+/** Maximum number of cards allowed on the canvas before eviction. */
+export const MAX_CANVAS_CARDS = 100;
+
 export interface CanvasCard {
   id: string;
   /** Registered component name (e.g. "chart", "sandbox", "text_message") */
@@ -41,6 +44,14 @@ export interface CanvasCard {
   savedName?: string;
   /** Dashboard grid layout hint: controls column span */
   layoutHint?: LayoutHint;
+  /** Whether this card is pinned (immune to canvas clears and eviction) */
+  pinned?: boolean;
+  /** Whether the original props were lost (e.g. trimmed by context window) */
+  propsLost?: boolean;
+  /** LLM provider that generated this card (e.g. "anthropic", "openai") */
+  llmProvider?: string;
+  /** LLM model that generated this card (e.g. "claude-3-opus") */
+  llmModel?: string;
 }
 
 export interface CanvasState {
@@ -84,7 +95,9 @@ export type CanvasAction =
   | { type: "SET_CANVAS_MODE"; mode: CanvasMode }
   | { type: "CLEAR_CANVAS" }
   | { type: "RECORD_FIX_ATTEMPT"; id: string }
-  | { type: "RESET_FIX_ATTEMPTS"; id: string };
+  | { type: "RESET_FIX_ATTEMPTS"; id: string }
+  | { type: "PIN_CARD"; id: string }
+  | { type: "UNPIN_CARD"; id: string };
 
 // ── Splittable components config ────────────────────────────────────────────
 
