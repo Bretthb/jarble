@@ -75,7 +75,7 @@ function CanvasStatGridInner({
       {(live || lastUpdated) && (
         <div className="flex items-center justify-end gap-2 mb-2">
           {lastUpdated && (
-            <span className="text-[10px] text-muted-foreground/70 font-mono tracking-tight">
+            <span className="text-[10px] text-muted-foreground-subtle font-mono tracking-tight">
               {lastUpdated}
             </span>
           )}
@@ -89,12 +89,14 @@ function CanvasStatGridInner({
       )}
 
       {/* Stats grid */}
-      <div className="grid grid-cols-2 gap-3">
+      <div role="list" aria-label="Statistics" className="grid grid-cols-2 gap-3">
         {stats.map((stat, i) => {
           const trend = getTrend(stat.change);
 
           return (
             <motion.div
+              role="listitem"
+              aria-label={`${stat.label}: ${stat.value}${stat.change ? `, ${stat.change}` : ""}`}
               key={`${stat.label}-${i}`}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}

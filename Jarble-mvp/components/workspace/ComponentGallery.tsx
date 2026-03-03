@@ -277,7 +277,7 @@ function ComponentGalleryInner({ deploymentId, cards, dispatch }: ComponentGalle
 
                     {/* Date */}
                     {item.savedAt && (
-                      <span className="text-[9px] text-muted-foreground/50">{item.savedAt}</span>
+                      <span className="text-[9px] text-muted-foreground-subtle">{item.savedAt}</span>
                     )}
 
                     {/* Loading overlay */}

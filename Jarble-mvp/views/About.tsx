@@ -389,7 +389,7 @@ export default function About() {
               <Link href="/" className="text-muted-foreground hover:text-primary transition-colors">Home</Link>
               <Link href="/about" className="text-muted-foreground hover:text-primary transition-colors">About</Link>
               <Link href="/pricing" className="text-muted-foreground hover:text-primary transition-colors">Pricing</Link>
-              <span className="text-muted-foreground/50 cursor-default" title="Coming soon">Documentation</span>
+              <span className="text-muted-foreground-subtle cursor-default" title="Coming soon">Documentation</span>
               <span className="text-muted-foreground/50 cursor-default" title="Coming soon">Contact</span>
             </nav>
           </div>

@@ -227,6 +227,55 @@ export const componentReviews = sqliteTable("component_reviews", {
   userComponentReviewIdx: uniqueIndex("uq_user_component_review").on(table.userId, table.componentId),
 }));
 
+
+// ── Package Tables ────────────────────────────────────────────────────────
+
+export const marketplacePackages = sqliteTable("marketplace_packages", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pkg")),
+  creatorId: text("creator_id").notNull().references(() => creatorProfiles.id),
+  name: text("name").notNull(),
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  hostingModel: text("hosting_model").notNull(),
+  instructionSnippet: text("instruction_snippet"),
+  remoteApiEndpoint: text("remote_api_endpoint"),
+  status: text("status").notNull().default("draft"),
+  pricingModel: text("pricing_model").notNull().default("free"),
+  priceUsdCents: integer("price_usd_cents").notNull().default(0),
+  totalInstalls: integer("total_installs").notNull().default(0),
+  avgRating: text("avg_rating"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+}, (table) => ({
+  creatorPackageNameIdx: uniqueIndex("uq_creator_package_name").on(table.creatorId, table.name),
+}));
+
+export const packageComponents = sqliteTable("package_components", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pkc")),
+  packageId: text("package_id").notNull().references(() => marketplacePackages.id, { onDelete: "cascade" }),
+  componentId: text("component_id").notNull().references(() => marketplaceComponents.id),
+}, (table) => ({
+  packageComponentIdx: uniqueIndex("uq_package_component").on(table.packageId, table.componentId),
+}));
+
+export const packageSkills = sqliteTable("package_skills", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pks")),
+  packageId: text("package_id").notNull().references(() => marketplacePackages.id, { onDelete: "cascade" }),
+  skillId: text("skill_id").notNull().references(() => skillsCatalog.id),
+}, (table) => ({
+  packageSkillIdx: uniqueIndex("uq_package_skill").on(table.packageId, table.skillId),
+}));
+
+export const packageInstalls = sqliteTable("package_installs", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pki")),
+  packageId: text("package_id").notNull().references(() => marketplacePackages.id),
+  deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id),
+  installedAt: text("installed_at").notNull().$defaultFn(now),
+}, (table) => ({
+  deploymentPackageIdx: uniqueIndex("uq_deployment_package").on(table.deploymentId, table.packageId),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many, one }) => ({
   deployments: many(deployments),
@@ -294,4 +343,29 @@ export const componentPurchasesRelations = relations(componentPurchases, ({ one 
 export const componentReviewsRelations = relations(componentReviews, ({ one }) => ({
   component: one(marketplaceComponents, { fields: [componentReviews.componentId], references: [marketplaceComponents.id] }),
   user: one(users, { fields: [componentReviews.userId], references: [users.id] }),
+}));
+
+// ── Package Relations ─────────────────────────────────────────────────────
+
+export const marketplacePackagesRelations = relations(marketplacePackages, ({ one, many }) => ({
+  creator: one(creatorProfiles, { fields: [marketplacePackages.creatorId], references: [creatorProfiles.id] }),
+  components: many(packageComponents),
+  skills: many(packageSkills),
+  installs: many(packageInstalls),
+}));
+
+export const packageComponentsRelations = relations(packageComponents, ({ one }) => ({
+  package: one(marketplacePackages, { fields: [packageComponents.packageId], references: [marketplacePackages.id] }),
+  component: one(marketplaceComponents, { fields: [packageComponents.componentId], references: [marketplaceComponents.id] }),
+}));
+
+export const packageSkillsRelations = relations(packageSkills, ({ one }) => ({
+  package: one(marketplacePackages, { fields: [packageSkills.packageId], references: [marketplacePackages.id] }),
+  skill: one(skillsCatalog, { fields: [packageSkills.skillId], references: [skillsCatalog.id] }),
+}));
+
+export const packageInstallsRelations = relations(packageInstalls, ({ one }) => ({
+  package: one(marketplacePackages, { fields: [packageInstalls.packageId], references: [marketplacePackages.id] }),
+  deployment: one(deployments, { fields: [packageInstalls.deploymentId], references: [deployments.id] }),
+  user: one(users, { fields: [packageInstalls.userId], references: [users.id] }),
 }));

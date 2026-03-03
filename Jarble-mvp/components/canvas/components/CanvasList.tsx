@@ -50,7 +50,7 @@ function CanvasListInner({ title, items, ordered = false }: CanvasListProps) {
   return (
     <div className="p-4 h-full">
       {title && <h3 className="text-sm font-semibold text-foreground mb-2">{title}</h3>}
-      <Tag className="space-y-0.5">
+      <Tag aria-label={title || "List"} className="space-y-0.5">
         {items.map((item, i) => (
           <motion.li
             key={`${item.text}-${i}`}
@@ -85,7 +85,7 @@ function CanvasListInner({ title, items, ordered = false }: CanvasListProps) {
                 )}
               </div>
               {item.description && (
-                <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">{item.description}</p>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{item.description}</p>
               )}
             </div>
           </motion.li>

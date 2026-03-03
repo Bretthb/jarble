@@ -219,7 +219,7 @@ export function SkillsTab({ deploymentId }: SkillsTabProps) {
                         <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
                           {skill.description}
                         </p>
-                        <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                        <p className="text-[11px] text-muted-foreground-subtle mt-1.5">
                           by {skill.author}
                           {entry.installedAt && (
                             <>
@@ -293,7 +293,7 @@ export function SkillsTab({ deploymentId }: SkillsTabProps) {
                 <p className="text-sm text-muted-foreground">
                   No skills available yet
                 </p>
-                <p className="text-xs text-muted-foreground/70 mt-1">
+                <p className="text-xs text-muted-foreground-subtle mt-1">
                   Skills will appear here as they are published to the marketplace
                 </p>
               </>

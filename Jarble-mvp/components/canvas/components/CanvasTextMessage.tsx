@@ -22,7 +22,7 @@ function CanvasTextMessageInner({ botText, userText }: CanvasTextMessageProps) {
       className="p-4 space-y-3"
     >
       {userText && (
-        <div className="text-xs text-muted-foreground/60 border-b border-border/30 pb-2">
+        <div className="text-xs text-muted-foreground-subtle border-b border-border/30 pb-2">
           <span className="font-medium">You:</span> {userText}
         </div>
       )}

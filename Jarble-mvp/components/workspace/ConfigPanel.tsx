@@ -267,7 +267,7 @@ function ConfigChat({ deploymentId }: { deploymentId: string }) {
       {/* Input area */}
       <div className="border-t border-border/40 bg-background/80 backdrop-blur-sm">
         <div className="px-3 pt-2 pb-1">
-          <span className="text-[10px] text-muted-foreground/60">
+          <span className="text-[10px] text-muted-foreground-subtle">
             Ask about config...
           </span>
         </div>
@@ -302,7 +302,7 @@ function ConfigChat({ deploymentId }: { deploymentId: string }) {
           </Button>
         </form>
         <div className="px-3 pb-2">
-          <span className="text-[9px] text-muted-foreground/40">
+          <span className="text-[9px] text-muted-foreground-subtle">
             Press Enter to send
           </span>
         </div>
@@ -438,12 +438,12 @@ function ToolUseIndicator({ block }: { block: Content }) {
       )}
       <span>
         {toolName && (
-          <span className="font-mono text-[10px] text-muted-foreground/80 mr-1.5">
+          <span className="font-mono text-[10px] text-muted-foreground mr-1.5">
             {toolName}
           </span>
         )}
         {statusMessage && (
-          <span className="text-muted-foreground/60">
+          <span className="text-muted-foreground-subtle">
             {statusMessage}
           </span>
         )}

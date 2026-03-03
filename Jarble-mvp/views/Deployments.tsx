@@ -597,7 +597,7 @@ export default function Deployments() {
 
               <button
                 disabled
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-secondary/50 border-border text-muted-foreground/50 cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-secondary/50 border-border text-muted-foreground-subtle cursor-not-allowed"
               >
                 <Share2 className="w-3.5 h-3.5" />
                 Data Sharing: coming soon

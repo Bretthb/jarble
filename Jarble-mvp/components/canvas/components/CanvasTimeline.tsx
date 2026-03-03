@@ -44,7 +44,7 @@ function CanvasTimelineInner({ title, events }: CanvasTimelineProps) {
           {title}
         </motion.h3>
       )}
-      <div className="space-y-0">
+      <div role="list" aria-label={title || "Timeline"} className="space-y-0">
         {events.map((event, i) => {
           const status = event.status || "pending";
           const dotStyle = STATUS_DOT[status] || STATUS_DOT.pending;
@@ -54,6 +54,7 @@ function CanvasTimelineInner({ title, events }: CanvasTimelineProps) {
 
           return (
             <motion.div
+              role="listitem"
               key={`${event.label}-${i}`}
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
@@ -104,7 +105,7 @@ function CanvasTimelineInner({ title, events }: CanvasTimelineProps) {
                   )}
                 </div>
                 {event.description && (
-                  <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
                     {event.description}
                   </p>
                 )}

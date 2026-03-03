@@ -40,7 +40,7 @@ function CanvasSpreadsheetInner({
     : [{ name: "Sheet1" }];
 
   return (
-    <div className="p-4 h-full">
+    <div className="p-4 h-full" role="region" aria-label={title || "Spreadsheet"}>
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>
       )}

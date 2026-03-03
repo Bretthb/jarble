@@ -91,7 +91,7 @@ export default function LayoutEditor({ props, onChange, disabled }: EditorProps)
                     <ChevronDown className="w-3.5 h-3.5" />
                   )}
                   <span className="font-mono text-primary/70">{child.component}</span>
-                  <span className="text-muted-foreground/60">#{i + 1}</span>
+                  <span className="text-muted-foreground-subtle">#{i + 1}</span>
                 </button>
 
                 {confirmRemove === i ? (
@@ -112,7 +112,7 @@ export default function LayoutEditor({ props, onChange, disabled }: EditorProps)
                 ) : (
                   <button
                     onClick={() => setConfirmRemove(i)}
-                    className="p-1.5 mr-1 text-muted-foreground/50 hover:text-red-400 transition-colors"
+                    className="p-1.5 mr-1 text-muted-foreground-subtle hover:text-red-400 transition-colors"
                     title="Remove component"
                     aria-label={`Remove ${child.component} #${i + 1}`}
                   >

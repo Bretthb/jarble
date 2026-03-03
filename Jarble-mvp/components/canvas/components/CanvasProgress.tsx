@@ -38,7 +38,14 @@ function CanvasProgressInner({ label, value, variant = "default" }: CanvasProgre
           <span className="text-sm font-semibold text-muted-foreground">%</span>
         </span>
       </div>
-      <div className="relative h-2.5 rounded-full bg-secondary/60 overflow-hidden">
+      <div
+        role="progressbar"
+        aria-valuenow={clamped}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={label || "Progress"}
+        className="relative h-2.5 rounded-full bg-secondary/60 overflow-hidden"
+      >
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${clamped}%` }}

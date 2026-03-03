@@ -238,9 +238,12 @@ function CanvasChartInner({
   };
 
   const chartHeight = height || 250;
+  const chartDescription = `${humanize(type)} chart${title ? `: ${title}` : ""}${dataKeys.length > 0 ? ` showing ${dataKeys.map(humanize).join(", ")}` : ""}`;
 
   return (
     <motion.div
+      role="img"
+      aria-label={chartDescription}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}

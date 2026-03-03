@@ -40,6 +40,8 @@ function CanvasCodeBlockInner({ code, language, title }: CanvasCodeBlockProps) {
 
   return (
     <motion.div
+      role="region"
+      aria-label={`Code${language ? `: ${language}` : ""}${title ? ` - ${title}` : ""}`}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}

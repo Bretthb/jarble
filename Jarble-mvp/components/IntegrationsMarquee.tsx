@@ -105,7 +105,7 @@ export default function IntegrationsMarquee({ searchQuery = "", transparentBg = 
         {searchQuery && displayIntegrations.length === 0 ? (
           <div className="text-center py-8 px-4">
             <p className="text-muted-foreground text-lg">No integrations found for "{searchQuery}"</p>
-            <p className="text-muted-foreground/70 text-sm mt-2">Try searching for chat, AI, or specific tool names</p>
+            <p className="text-muted-foreground-subtle text-sm mt-2">Try searching for chat, AI, or specific tool names</p>
           </div>
         ) : useGrid ? (
           /* Grid layout for mobile and search results */

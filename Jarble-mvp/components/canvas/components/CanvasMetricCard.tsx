@@ -102,6 +102,8 @@ function CanvasMetricCardInner({
 
   return (
     <motion.div
+      role="article"
+      aria-label={`${label}: ${value}${change ? `, ${change}` : ""}`}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
@@ -118,7 +120,7 @@ function CanvasMetricCardInner({
         {live ? (
           <LiveDot />
         ) : lastUpdated ? (
-          <span className="text-[10px] text-muted-foreground/60">
+          <span className="text-[10px] text-muted-foreground-subtle">
             Snapshot {lastUpdated}
           </span>
         ) : null}
@@ -150,7 +152,7 @@ function CanvasMetricCardInner({
                 {cleanChange || change}
               </span>
               {resolvedChangeLabel && (
-                <span className="text-[10px] text-muted-foreground/70">
+                <span className="text-[10px] text-muted-foreground-subtle">
                   {resolvedChangeLabel}
                 </span>
               )}

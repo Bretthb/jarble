@@ -96,13 +96,14 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
         </div>
       )}
       <div className="flex-1 overflow-auto min-h-0">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm" aria-label={title || "Data table"}>
           {resolvedColumns.length > 0 && (
             <thead className="sticky top-0 z-10">
               <tr className="bg-muted/60">
                 {resolvedColumns.map((col, i) => (
                   <th
                     key={col}
+                    scope="col"
                     className={`px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap border-b border-border ${
                       numericCols[i] ? "text-right" : "text-left"
                     }`}
