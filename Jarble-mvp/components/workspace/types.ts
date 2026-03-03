@@ -3,6 +3,18 @@
 export type LayoutHint = "full-width" | "half" | "third" | "compact" | "auto";
 export type CanvasMode = "dashboard" | "freeform";
 
+/** Tracks fix attempt frequency per card for rate limiting error loops. */
+export interface FixAttemptRecord {
+  count: number;
+  windowStart: number;
+}
+
+/** Max fix attempts before rate-limiting the "Fix Component" button. */
+export const FIX_ATTEMPT_LIMIT = 3;
+
+/** Window (ms) in which fix attempts are counted before resetting. */
+export const FIX_ATTEMPT_WINDOW_MS = 60_000;
+
 export interface CanvasCard {
   id: string;
   /** Registered component name (e.g. "chart", "sandbox", "text_message") */
@@ -38,6 +50,8 @@ export interface CanvasState {
   nextZIndex: number;
   focusedCardId: string | null;
   mode: CanvasMode;
+  /** Per-card fix attempt tracking for error loop rate limiting. */
+  fixAttempts: Record<string, FixAttemptRecord>;
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -68,7 +82,9 @@ export type CanvasAction =
   | { type: "SAVE_CARD"; id: string; savedName: string }
   | { type: "TIDY_LAYOUT"; containerWidth: number }
   | { type: "SET_CANVAS_MODE"; mode: CanvasMode }
-  | { type: "CLEAR_CANVAS" };
+  | { type: "CLEAR_CANVAS" }
+  | { type: "RECORD_FIX_ATTEMPT"; id: string }
+  | { type: "RESET_FIX_ATTEMPTS"; id: string };
 
 // ── Splittable components config ────────────────────────────────────────────
 
@@ -207,4 +223,5 @@ export const INITIAL_CANVAS_STATE: CanvasState = {
   nextZIndex: 1,
   focusedCardId: null,
   mode: "dashboard",
+  fixAttempts: {},
 };

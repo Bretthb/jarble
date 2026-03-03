@@ -136,6 +136,7 @@ export function loadCanvasState(deploymentId: string): CanvasState | null {
       nextZIndex: cards.length + 1,
       focusedCardId: null,
       mode: persisted.mode || "dashboard",
+      fixAttempts: {},
     };
   } catch {
     return null;

@@ -1,5 +1,5 @@
 import type { CanvasState, CanvasAction, CanvasCard } from "./types";
-import { INITIAL_CANVAS_STATE, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE, SPLITTABLE_COMPONENTS } from "./types";
+import { INITIAL_CANVAS_STATE, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE, SPLITTABLE_COMPONENTS, FIX_ATTEMPT_WINDOW_MS } from "./types";
 import { tidyLayout } from "./autoLayout";
 
 export { INITIAL_CANVAS_STATE };
@@ -356,6 +356,27 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
 
     case "CLEAR_CANVAS":
       return { ...INITIAL_CANVAS_STATE, mode: state.mode };
+
+    case "RECORD_FIX_ATTEMPT": {
+      const now = Date.now();
+      const existing = state.fixAttempts[action.id];
+      // Reset window if expired
+      if (existing && (now - existing.windowStart) > FIX_ATTEMPT_WINDOW_MS) {
+        return { ...state, fixAttempts: { ...state.fixAttempts, [action.id]: { count: 1, windowStart: now } } };
+      }
+      return {
+        ...state,
+        fixAttempts: {
+          ...state.fixAttempts,
+          [action.id]: { count: (existing?.count || 0) + 1, windowStart: existing?.windowStart || now },
+        },
+      };
+    }
+
+    case "RESET_FIX_ATTEMPTS": {
+      const { [action.id]: _, ...rest } = state.fixAttempts;
+      return { ...state, fixAttempts: rest };
+    }
 
     default:
       return state;

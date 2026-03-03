@@ -9,6 +9,7 @@
 import { TRUSTED_CDN_ORIGINS } from "@jarble/component-manifest";
 import { sanitizeHtml } from "@/lib/sanitize";
 import type { SandboxDocumentConfig } from "./types";
+import { HEARTBEAT_INTERVAL_MS } from "./types";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -210,12 +211,76 @@ window.addEventListener("message", function(e) {
     window.__JARBLE_PROPS__ = e.data.props || {};
     window.dispatchEvent(new CustomEvent("jarble:props", { detail: e.data.props }));
   }
+  if (e.data && e.data.type === "jarble:storage-response") {
+    var resp = e.data.response;
+    var cb = window.jarble._pendingStorage[resp.id];
+    if (cb) { delete window.jarble._pendingStorage[resp.id]; cb(resp); }
+  }
+  if (e.data && e.data.type === "jarble:event") {
+    var handlers = window.jarble._eventHandlers[e.data.channel];
+    if (handlers) { for (var i = 0; i < handlers.length; i++) { try { handlers[i](e.data.data); } catch(err) { console.error("${logPrefix} Event handler error:", err); } } }
+  }
 });
 // Bridge: send callbacks to parent
 window.jarble = {
   send: function(action, payload) {
     console.log("${logPrefix} Sending action:", action, payload);
     parent.postMessage({ type: "jarble:action", action: action, payload: payload }, "*");
+  },
+  heartbeat: function() {
+    parent.postMessage({ type: "jarble:heartbeat" }, "*");
+  },
+  reportProgress: function(percent) {
+    parent.postMessage({ type: "jarble:progress", percent: percent }, "*");
+  },
+  // Storage proxy — scoped localStorage via parent (since sandbox has opaque origin)
+  _pendingStorage: {},
+  _storageIdCounter: 0,
+  storage: {
+    get: function(key) {
+      return new Promise(function(resolve, reject) {
+        var id = "s" + (++window.jarble._storageIdCounter);
+        var timer = setTimeout(function() { delete window.jarble._pendingStorage[id]; reject(new Error("Storage timeout")); }, 5000);
+        window.jarble._pendingStorage[id] = function(resp) { clearTimeout(timer); if (resp.ok) resolve(resp.value); else reject(new Error(resp.error || "Storage error")); };
+        parent.postMessage({ type: "jarble:storage-request", request: { id: id, op: "get", key: key } }, "*");
+      });
+    },
+    set: function(key, value) {
+      return new Promise(function(resolve, reject) {
+        var id = "s" + (++window.jarble._storageIdCounter);
+        var timer = setTimeout(function() { delete window.jarble._pendingStorage[id]; reject(new Error("Storage timeout")); }, 5000);
+        window.jarble._pendingStorage[id] = function(resp) { clearTimeout(timer); if (resp.ok) resolve(); else reject(new Error(resp.error || "Storage error")); };
+        parent.postMessage({ type: "jarble:storage-request", request: { id: id, op: "set", key: key, value: value } }, "*");
+      });
+    },
+    delete: function(key) {
+      return new Promise(function(resolve, reject) {
+        var id = "s" + (++window.jarble._storageIdCounter);
+        var timer = setTimeout(function() { delete window.jarble._pendingStorage[id]; reject(new Error("Storage timeout")); }, 5000);
+        window.jarble._pendingStorage[id] = function(resp) { clearTimeout(timer); if (resp.ok) resolve(); else reject(new Error(resp.error || "Storage error")); };
+        parent.postMessage({ type: "jarble:storage-request", request: { id: id, op: "delete", key: key } }, "*");
+      });
+    }
+  },
+  // Inter-sandbox event relay
+  _eventHandlers: {},
+  events: {
+    on: function(channel, handler) {
+      if (!window.jarble._eventHandlers[channel]) window.jarble._eventHandlers[channel] = [];
+      window.jarble._eventHandlers[channel].push(handler);
+    },
+    emit: function(channel, data) {
+      parent.postMessage({ type: "jarble:event-emit", channel: channel, data: data }, "*");
+    }
+  },
+  // Canvas control from sandbox
+  canvas: {
+    resize: function(width, height) {
+      parent.postMessage({ type: "jarble:resize-request", width: width, height: height }, "*");
+    },
+    setTitle: function(title) {
+      parent.postMessage({ type: "jarble:set-title", title: title }, "*");
+    }
   }
 };
 // Auto-resize: when the iframe resizes, update ALL canvas drawing buffers
@@ -251,14 +316,10 @@ new ResizeObserver(function(entries) {
     requestAnimationFrame(__jarbleAutoResize);
   }
 }).observe(document.documentElement);
-// Watchdog: report if sandbox runs longer than 30s without completing
-setTimeout(function() {
-  if (document.hidden) return;
-  parent.postMessage({
-    type: "jarble:error",
-    error: { message: "Sandbox execution timeout (30s)", source: "", line: 0, column: 0, stack: "" }
-  }, "*");
-}, 30000);
+// Heartbeat: ping parent every ${HEARTBEAT_INTERVAL_MS}ms so it knows we're alive
+setInterval(function() {
+  window.jarble.heartbeat();
+}, ${HEARTBEAT_INTERVAL_MS});
 // Dynamic library loader — guarantees scripts are fully loaded before user JS runs
 (function() {
   var libs = ${libsJson};
@@ -345,7 +406,13 @@ window.addEventListener("message", function(e) {
       var msgType = e.data.type;
       if (msgType === "jarble:ready" ||
           msgType === "jarble:action" ||
-          msgType === "jarble:error") {
+          msgType === "jarble:error" ||
+          msgType === "jarble:heartbeat" ||
+          msgType === "jarble:progress" ||
+          msgType === "jarble:storage-request" ||
+          msgType === "jarble:event-emit" ||
+          msgType === "jarble:resize-request" ||
+          msgType === "jarble:set-title") {
         console.log("[Jarble:MarketplaceSandbox:Bridge] Relaying", msgType, "to main app");
 
         if (msgType === "jarble:ready") {
