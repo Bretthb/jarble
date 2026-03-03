@@ -415,6 +415,41 @@ export const treeSchema = z.object({
   defaultExpandAll: z.boolean().optional(),
 });
 
+// ── AI Process Components ────────────────────────────────────────────────────
+
+export const reasoningSchema = z.object({
+  title: z.string().optional(),
+  content: z.string(),
+  collapsed: z.boolean().optional(),
+  duration: z.number().optional(),
+  steps: z.array(z.object({
+    label: z.string(),
+    description: z.string().optional(),
+    status: z.enum(["complete", "active", "pending"]).optional(),
+  })).optional(),
+});
+
+export const toolSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  status: z.enum(["running", "complete", "error"]),
+  inputs: z.record(z.string(), z.unknown()).optional(),
+  output: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
+  error: z.string().optional(),
+  duration: z.number().optional(),
+});
+
+export const sourcesSchema = z.object({
+  items: z.array(z.object({
+    title: z.string(),
+    url: z.string().optional(),
+    snippet: z.string().optional(),
+    icon: z.string().optional(),
+    relevance: z.number().min(0).max(1).optional(),
+  })),
+  title: z.string().optional(),
+});
+
 // ── Schema Record ─────────────────────────────────────────────────────────────
 
 /**
@@ -461,4 +496,7 @@ export const COMPONENT_SCHEMAS: Record<string, ZodType> = {
   statistic: statisticSchema,
   tag_cloud: tagCloudSchema,
   tree: treeSchema,
+  reasoning: reasoningSchema,
+  tool: toolSchema,
+  sources: sourcesSchema,
 };

@@ -50,6 +50,9 @@ import { carouselEntry } from "./components/carousel.js";
 import { statisticEntry } from "./components/statistic.js";
 import { tagCloudEntry } from "./components/tag_cloud.js";
 import { treeEntry } from "./components/tree.js";
+import { reasoningEntry } from "./components/reasoning.js";
+import { toolEntry } from "./components/tool.js";
+import { sourcesEntry } from "./components/sources.js";
 
 import type { ComponentManifestEntry } from "./types.js";
 
@@ -100,6 +103,9 @@ export const COMPONENT_MANIFEST: Record<string, ComponentManifestEntry> = {
   statistic: statisticEntry,
   tag_cloud: tagCloudEntry,
   tree: treeEntry,
+  reasoning: reasoningEntry,
+  tool: toolEntry,
+  sources: sourcesEntry,
 };
 
 // ── Derived exports ───────────────────────────────────────────────────────────
@@ -183,4 +189,7 @@ export {
   statisticSchema,
   tagCloudSchema,
   treeSchema,
+  reasoningSchema,
+  toolSchema,
+  sourcesSchema,
 } from "./schemas/index.js";
