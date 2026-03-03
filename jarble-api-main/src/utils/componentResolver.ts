@@ -8,6 +8,9 @@
 
 // Built-in component names — imported from the shared manifest (single source of truth)
 import { COMPONENT_NAME_SET } from "@jarble/component-manifest";
+import { createModuleLogger } from "./logger.js";
+
+const log = createModuleLogger("componentResolver");
 
 export const BUILTIN_COMPONENTS: Set<string> = COMPONENT_NAME_SET;
 
@@ -38,62 +41,86 @@ const MAX_DEPTH = 3;
 
 export function validateComponentName(name: string): string | null {
   if (!NAME_PATTERN.test(name)) {
-    return `Invalid component name "${name}". Must be lowercase, start with a letter, and contain only letters, digits, and underscores (max 64 chars).`;
+    const error = `Invalid component name "${name}". Must be lowercase, start with a letter, and contain only letters, digits, and underscores (max 64 chars).`;
+    log.debug({ name, error }, "validateComponentName: invalid");
+    return error;
   }
   if (BUILTIN_COMPONENTS.has(name)) {
-    return `Cannot override built-in component "${name}".`;
+    const error = `Cannot override built-in component "${name}".`;
+    log.debug({ name, error }, "validateComponentName: invalid");
+    return error;
   }
   return null;
 }
 
 export function validateComponentDefinition(def: unknown): string | null {
   if (typeof def !== "object" || def === null) {
-    return "Component definition must be an object.";
+    const error = "Component definition must be an object.";
+    log.debug({ error }, "validateComponentDefinition: invalid");
+    return error;
   }
 
   const d = def as Record<string, unknown>;
 
   if (typeof d.name !== "string") {
-    return "Component definition must have a string 'name'.";
+    const error = "Component definition must have a string 'name'.";
+    log.debug({ error }, "validateComponentDefinition: invalid");
+    return error;
   }
 
   const nameErr = validateComponentName(d.name);
-  if (nameErr) return nameErr;
+  if (nameErr) return nameErr; // already logged by validateComponentName
 
   if (!Array.isArray(d.layout)) {
-    return "Component definition must have a 'layout' array.";
+    const error = "Component definition must have a 'layout' array.";
+    log.debug({ error }, "validateComponentDefinition: invalid");
+    return error;
   }
 
   if (d.layout.length === 0) {
-    return "Layout array must have at least one child.";
+    const error = "Layout array must have at least one child.";
+    log.debug({ error }, "validateComponentDefinition: invalid");
+    return error;
   }
 
   if (d.layout.length > MAX_CHILDREN) {
-    return `Layout has ${d.layout.length} children, max is ${MAX_CHILDREN}.`;
+    const error = `Layout has ${d.layout.length} children, max is ${MAX_CHILDREN}.`;
+    log.debug({ error }, "validateComponentDefinition: invalid");
+    return error;
   }
 
   // Validate each child
   for (let i = 0; i < d.layout.length; i++) {
     const child = d.layout[i];
     if (typeof child !== "object" || child === null) {
-      return `Layout child ${i} must be an object.`;
+      const error = `Layout child ${i} must be an object.`;
+      log.debug({ error }, "validateComponentDefinition: invalid");
+      return error;
     }
     const c = child as Record<string, unknown>;
     if (typeof c.component !== "string") {
-      return `Layout child ${i} must have a string 'component'.`;
+      const error = `Layout child ${i} must have a string 'component'.`;
+      log.debug({ error }, "validateComponentDefinition: invalid");
+      return error;
     }
     if (!BUILTIN_COMPONENTS.has(c.component)) {
-      return `Layout child ${i} references unknown built-in component "${c.component}". Custom components can only use built-in primitives.`;
+      const error = `Layout child ${i} references unknown built-in component "${c.component}". Custom components can only use built-in primitives.`;
+      log.debug({ error }, "validateComponentDefinition: invalid");
+      return error;
     }
     if (typeof c.props !== "object" || c.props === null) {
-      return `Layout child ${i} must have an object 'props'.`;
+      const error = `Layout child ${i} must have an object 'props'.`;
+      log.debug({ error }, "validateComponentDefinition: invalid");
+      return error;
     }
   }
 
   // Size check
   const json = JSON.stringify(def);
   if (json.length > MAX_DEFINITION_SIZE) {
-    return `Component definition is ${json.length} bytes, max is ${MAX_DEFINITION_SIZE}.`;
+    const error = `Component definition is ${json.length} bytes, max is ${MAX_DEFINITION_SIZE}.`;
+    log.debug({ error }, "validateComponentDefinition: invalid");
+    return error;
   }
 
   return null;
@@ -160,6 +187,7 @@ export function resolveCustomComponent(
   definition: ComponentDefinition,
   props: Record<string, unknown>
 ): ResolvedBlock[] {
+  log.debug({ name: definition.name, propCount: Object.keys(props).length }, "resolveCustomComponent");
   return definition.layout.map((child) => ({
     component: child.component,
     props: substituteValue(child.props, props, 0) as Record<string, unknown>,

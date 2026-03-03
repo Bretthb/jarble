@@ -1,8 +1,10 @@
 import stream from "stream";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
 import { coreApi, execClient } from "./client.js";
 import { NAMESPACE, LEGACY_CONTAINER_NAME, getContainerName, podLabelSelector } from "./constants.js";
 import type { ManagedBy } from "./constants.js";
+
+const log = createModuleLogger("k8s:exec");
 
 /**
  * Execute a command in a pod (no stdin, capture stdout/stderr).
@@ -12,6 +14,7 @@ export async function execInPod(
   command: string[],
   containerName: string = LEGACY_CONTAINER_NAME
 ): Promise<string> {
+  log.debug({ podName, command: command.join(" ") }, "execInPod");
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
 
@@ -20,25 +23,30 @@ export async function execInPod(
   stdout.on("data", (chunk) => { stdoutData += chunk.toString(); });
   stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
 
-  await new Promise<void>((resolve, reject) => {
-    execClient.exec(
-      NAMESPACE,
-      podName,
-      containerName,
-      command,
-      stdout,
-      stderr,
-      null,
-      false,
-      (status) => {
-        if (status.status === "Success") {
-          resolve();
-        } else {
-          reject(new Error(`exec failed: ${status.message || stderrData || "unknown"}`));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      execClient.exec(
+        NAMESPACE,
+        podName,
+        containerName,
+        command,
+        stdout,
+        stderr,
+        null,
+        false,
+        (status) => {
+          if (status.status === "Success") {
+            resolve();
+          } else {
+            reject(new Error(`exec failed: ${status.message || stderrData || "unknown"}`));
+          }
         }
-      }
-    ).catch(reject);
-  });
+      ).catch(reject);
+    });
+  } catch (err) {
+    log.error({ err, podName, command: command.join(" ") }, "execInPod failed");
+    throw err;
+  }
 
   return stdoutData;
 }
@@ -54,6 +62,7 @@ export async function execInPodWithStdin(
   timeoutMs: number = 30000,
   containerName: string = LEGACY_CONTAINER_NAME
 ): Promise<void> {
+  log.debug({ podName, command: command.join(" "), stdinLength: stdinContent.length }, "execInPodWithStdin");
   const stdout = new stream.PassThrough();
   const stderr = new stream.PassThrough();
 
@@ -68,6 +77,7 @@ export async function execInPodWithStdin(
   await new Promise<void>((resolve, reject) => {
     // Add timeout to prevent hanging forever
     const timeout = setTimeout(() => {
+      log.error({ podName, command: command.join(" "), timeoutMs }, "execInPodWithStdin timed out");
       reject(new Error(`execInPodWithStdin timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
@@ -90,6 +100,7 @@ export async function execInPodWithStdin(
       }
     ).catch((err) => {
       clearTimeout(timeout);
+      log.error({ err, podName, command: command.join(" ") }, "execInPodWithStdin failed");
       reject(err);
     });
   });
@@ -126,6 +137,7 @@ export async function streamExecInPod(
   let stderrData = "";
   stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
 
+  log.debug({ podName, command: command.join(" ") }, "streamExecInPod");
   let execWs: any;
   try {
     execWs = await execClient.exec(
@@ -147,6 +159,7 @@ export async function streamExecInPod(
       }
     );
   } catch (err: unknown) {
+    log.error({ err, podName, command: command.join(" ") }, "streamExecInPod failed");
     onExit(false, err instanceof Error ? err.message : "exec failed to start");
     return { abort: () => {} };
   }
@@ -173,6 +186,7 @@ export async function findPodForDeployment(
 ): Promise<string | null> {
   const requireReady = opts?.requireReady ?? true;
   const managedBy = opts?.managedBy ?? "legacy";
+  log.debug({ deploymentId, requireReady, managedBy }, "findPodForDeployment");
   const labelSelector = podLabelSelector(deploymentId, managedBy);
   const targetContainer = getContainerName(managedBy);
 
@@ -185,7 +199,10 @@ export async function findPodForDeployment(
     labelSelector
   );
 
-  if (pods.body.items.length === 0) return null;
+  if (pods.body.items.length === 0) {
+    log.debug({ deploymentId }, "findPodForDeployment: no pods found");
+    return null;
+  }
 
   const pod = pods.body.items[0];
   const podName = pod.metadata?.name;
@@ -198,7 +215,11 @@ export async function findPodForDeployment(
   const isRunning = pod.status?.phase === "Running" &&
     (requireReady ? containerStatus?.ready : true);
 
-  if (!podName || !isRunning) return null;
+  if (!podName || !isRunning) {
+    log.debug({ deploymentId, podName, phase: pod.status?.phase, ready: containerStatus?.ready }, "findPodForDeployment: pod not ready");
+    return null;
+  }
+  log.debug({ podName }, "findPodForDeployment: found");
   return podName;
 }
 

@@ -35,8 +35,11 @@ import type {
   DeploymentFields,
   ParsedDeploymentFields,
 } from "../types.js";
+import { createModuleLogger } from "../../utils/logger.js";
 import { PLATFORM_CREDENTIAL_KEYS, PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
 import { generatePromptReference, COMPONENT_MANIFEST } from "@jarble/component-manifest";
+
+const log = createModuleLogger("runtime:openclaw");
 
 // ── Load MCP server script at module init ────────────────────────────────
 // This script runs on bot pods (invoked via kubectl exec by the API's MCP proxy).
@@ -205,6 +208,7 @@ export const openclawHandler: RuntimeHandler = {
   configFiles,
 
   renderConfigs(deployment: DeploymentFields): ConfigFile[] {
+    log.debug({ deploymentId: deployment.name }, "renderConfigs");
     const files: ConfigFile[] = [];
 
     // Compute container HOME based on management mode (affects absolute paths)
@@ -334,10 +338,12 @@ export const openclawHandler: RuntimeHandler = {
       }
     }
 
+    log.info({ fileCount: files.length }, "renderConfigs complete");
     return files;
   },
 
   parseConfigs(files: ConfigFile[]): ParsedDeploymentFields {
+    log.debug({ fileCount: files.length }, "parseConfigs");
     const result: ParsedDeploymentFields = {};
 
     // Parse soul.md → systemPrompt
@@ -389,8 +395,8 @@ export const openclawHandler: RuntimeHandler = {
             result.platformCredentials = platformCredentials;
           }
         }
-      } catch {
-        // Invalid JSON — skip parsing, don't crash
+      } catch (err) {
+        log.warn({ err }, "parseConfigs: invalid openclaw.json");
       }
     }
 
@@ -398,6 +404,7 @@ export const openclawHandler: RuntimeHandler = {
   },
 
   getSecretEntries(deployment: DeploymentFields): Record<string, string> {
+    log.debug({ provider: deployment.llmProvider }, "getSecretEntries");
     const entries: Record<string, string> = {};
 
     // LLM config — set the correct env var based on provider
@@ -447,6 +454,7 @@ export const openclawHandler: RuntimeHandler = {
       }
     }
 
+    log.debug({ entryCount: Object.keys(entries).length }, "getSecretEntries complete");
     return entries;
   },
 
@@ -454,7 +462,9 @@ export const openclawHandler: RuntimeHandler = {
     // OpenClaw needs LLM configuration when using BYOK mode.
     // "included" mode auto-provisions via OpenRouter — no key needed from user.
     if (input.llmMode === "byok" && !input.llmApiKey) {
-      return "OpenClaw requires an LLM API key when using Bring Your Own Key mode";
+      const error = "OpenClaw requires an LLM API key when using Bring Your Own Key mode";
+      log.warn({ error }, "validateCreate failed");
+      return error;
     }
     return null;
   },

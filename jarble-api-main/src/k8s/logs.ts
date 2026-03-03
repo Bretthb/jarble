@@ -1,8 +1,11 @@
 import * as k8s from "@kubernetes/client-node";
 import stream from "stream";
+import { createModuleLogger } from "../utils/logger.js";
 import { coreApi, kc } from "./client.js";
 import { NAMESPACE, getContainerName, podLabelSelector } from "./constants.js";
 import type { ManagedBy } from "./constants.js";
+
+const log = createModuleLogger("k8s:logs");
 
 // ── Deployment Logs ──────────────────────────────────────────────────
 
@@ -20,6 +23,7 @@ export async function getDeploymentLogs(
   tailLines: number = 200,
   managedBy: ManagedBy = "legacy"
 ): Promise<DeploymentLogsResult> {
+  log.debug({ deploymentId, tailLines }, "getDeploymentLogs");
   const labelSelector = podLabelSelector(deploymentId, managedBy);
   const containerName = getContainerName(managedBy);
 
@@ -54,8 +58,10 @@ export async function getDeploymentLogs(
     undefined      // timestamps
   );
 
+  const result = typeof response.body === "string" ? response.body : "";
+  log.debug({ podName, logLength: result.length }, "getDeploymentLogs complete");
   return {
-    logs: typeof response.body === "string" ? response.body : "",
+    logs: result,
     podName,
   };
 }
@@ -70,6 +76,7 @@ export async function streamDeploymentLogs(
   writable: stream.Writable,
   options: { tailLines?: number; managedBy?: ManagedBy } = {}
 ): Promise<{ podName: string; abort: () => void }> {
+  log.debug({ deploymentId }, "streamDeploymentLogs");
   const managedBy = options.managedBy ?? "legacy";
   const labelSelector = podLabelSelector(deploymentId, managedBy);
   const containerName = getContainerName(managedBy);
@@ -97,15 +104,18 @@ export async function streamDeploymentLogs(
   ) ?? pod.status?.containerStatuses?.[0];
   const isRunning = pod.status?.phase === "Running" && containerStatus?.ready;
   if (!isRunning) {
+    log.warn({ deploymentId, podName, phase: pod.status?.phase }, "streamDeploymentLogs: pod not running");
     throw new Error("Pod is not running");
   }
 
-  const log = new k8s.Log(kc);
-  const request = await log.log(NAMESPACE, podName, containerName, writable, {
+  const k8sLog = new k8s.Log(kc);
+  const request = await k8sLog.log(NAMESPACE, podName, containerName, writable, {
     follow: true,
     tailLines: options.tailLines ?? 100,
     timestamps: true,
   });
+
+  log.info({ podName }, "streamDeploymentLogs: stream started");
 
   return {
     podName,

@@ -8,7 +8,10 @@
  */
 
 import { COMPONENT_NAME_SET } from "@jarble/component-manifest";
+import { createModuleLogger } from "../utils/logger.js";
 import { MARKETPLACE_CATEGORIES } from "./marketplace.types.js";
+
+const log = createModuleLogger("manifest");
 import type { MarketplaceCategory } from "./marketplace.types.js";
 
 // ── Result Type ─────────────────────────────────────────────────────────────
@@ -97,6 +100,7 @@ function tryParseJson(val: unknown): boolean {
  * exampleProps, examplePrompts).
  */
 export function validateManifest(manifest: unknown): ManifestValidationResult {
+  log.debug({ name: (manifest as any)?.name, tier: (manifest as any)?.tier }, "validateManifest");
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -216,8 +220,10 @@ export function validateManifest(manifest: unknown): ManifestValidationResult {
     }
   }
 
+  const valid = errors.length === 0;
   const resolvedTier = VALID_TIERS.has(tier) ? (tier as "template" | "sandbox") : null;
-  return { valid: errors.length === 0, errors, warnings, tier: resolvedTier };
+  log.info({ valid, errorCount: errors.length, warningCount: warnings.length }, "validateManifest complete");
+  return { valid, errors, warnings, tier: resolvedTier };
 }
 
 // ── Template JSON Validation (Tier 1) ───────────────────────────────────────
@@ -362,6 +368,9 @@ export function validateSandboxHtml(html: string): ManifestValidationResult {
     warnings.push("Missing jarble bridge setup: expected window.__JARBLE_PROPS__ reference.");
   }
 
+  if (warnings.length > 0) {
+    log.warn({ warningCount: warnings.length }, "validateSandboxHtml: security flags detected");
+  }
   return { valid: errors.length === 0, errors, warnings, tier: "sandbox" };
 }
 
@@ -400,6 +409,7 @@ export function validateConfigSchema(schema: unknown): { valid: boolean; errors:
 
   const properties = s.properties as Record<string, unknown>;
   const propertyCount = Object.keys(properties).length;
+  log.debug({ propertyCount }, "validateConfigSchema");
 
   if (propertyCount === 0) {
     errors.push(`configSchema.properties must have at least one property.`);
