@@ -136,9 +136,12 @@ export function useStatusStream({
     };
   }, [enabled, isAuthenticated, getAccessTokenSilently]);
 
+  const statusesRef = useRef(statuses);
+  statusesRef.current = statuses;
+
   const getStatus = useCallback(
-    (id: string) => statuses.get(id),
-    [statuses]
+    (id: string) => statusesRef.current.get(id),
+    []
   );
 
   return {

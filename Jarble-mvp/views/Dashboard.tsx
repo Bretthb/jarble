@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useState, useCallback, memo } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StorageMeter, StorageMeterSkeleton } from "@/components/StorageMeter";
@@ -110,6 +110,45 @@ export default function Dashboard() {
       toast.error(error.message || "Failed to export configs");
     },
   });
+
+  // Stable callback references for DeploymentCard memoization
+  const handleDelete = useCallback(
+    (id: string) => deleteDeploymentMutation.mutate({ id }),
+    [deleteDeploymentMutation]
+  );
+  const handleStop = useCallback(
+    (id: string) => stopMutation.mutate({ id }),
+    [stopMutation]
+  );
+  const handleStart = useCallback(
+    (id: string) => startMutation.mutate({ id }),
+    [startMutation]
+  );
+  const handleRestart = useCallback(
+    (id: string) => restartMutation.mutate({ id }),
+    [restartMutation]
+  );
+  const handleExport = useCallback(
+    (id: string) => exportMutation.mutate({ id }),
+    [exportMutation]
+  );
+
+  // Batch storage query — one request for all running deployments instead of N
+  const runningIds = (deploymentsQuery.data ?? [])
+    .filter((d) => {
+      const live = getLiveStatus(d.id)?.status;
+      return (live || d.status) === "running";
+    })
+    .map((d) => d.id);
+
+  const storageBatchQuery = trpc.deployment.getStorageUsageBatch.useQuery(
+    { ids: runningIds },
+    {
+      enabled: runningIds.length > 0,
+      refetchInterval: 60_000,
+      staleTime: 30_000,
+    }
+  );
 
   const [isResendingVerification, setIsResendingVerification] = useState(false);
 
@@ -256,17 +295,19 @@ export default function Dashboard() {
                 key={deployment.id}
                 deployment={deployment}
                 liveStatus={getLiveStatus(deployment.id)?.status}
-                onDelete={(id) => deleteDeploymentMutation.mutate({ id })}
-                onStop={(id) => stopMutation.mutate({ id })}
-                onStart={(id) => startMutation.mutate({ id })}
-                onRestart={(id) => restartMutation.mutate({ id })}
-                onExport={(id) => exportMutation.mutate({ id })}
+                onDelete={handleDelete}
+                onStop={handleStop}
+                onStart={handleStart}
+                onRestart={handleRestart}
+                onExport={handleExport}
                 isToggling={
                   (stopMutation.isPending && stopMutation.variables?.id === deployment.id)
                   || (startMutation.isPending && startMutation.variables?.id === deployment.id)
                   || (restartMutation.isPending && restartMutation.variables?.id === deployment.id)
                 }
                 isExporting={exportMutation.isPending && exportMutation.variables?.id === deployment.id}
+                storageData={storageBatchQuery.data?.[deployment.id] ?? undefined}
+                storageLoading={storageBatchQuery.isLoading}
               />
             ))}
           </div>
@@ -295,7 +336,7 @@ export default function Dashboard() {
   );
 }
 
-function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting }: {
+const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting, storageData, storageLoading }: {
   deployment: {
     id: string;
     name: string;
@@ -318,6 +359,8 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
   onExport: (id: string) => void;
   isToggling: boolean;
   isExporting: boolean;
+  storageData?: { usedGb?: number; totalGb?: number; percentUsed?: number; allocatedGb?: number } | null;
+  storageLoading?: boolean;
 }) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -329,15 +372,6 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
   const isRunning = status === "running";
   const isStopped = status === "stopped";
   const isTransitioning = status === "creating";
-  const storageQuery = trpc.deployment.getStorageUsage.useQuery(
-    { id: deployment.id },
-    {
-      enabled: isRunning,
-      refetchInterval: 60_000, // Refresh every 60s
-      staleTime: 30_000,
-    }
-  );
-
   // Calculate days remaining for free trial
   const daysRemaining = deployment.freeExpiresAt
     ? Math.max(0, Math.ceil((new Date(deployment.freeExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
@@ -397,13 +431,13 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
           {/* Storage Usage (running deployments only) */}
           {isRunning && (
             <div className="mb-3">
-              {storageQuery.isLoading ? (
+              {storageLoading ? (
                 <StorageMeterSkeleton compact />
-              ) : storageQuery.data?.usedGb != null ? (
+              ) : storageData?.usedGb != null ? (
                 <StorageMeter
-                  usedGb={storageQuery.data.usedGb}
-                  totalGb={storageQuery.data.totalGb ?? 0}
-                  percentUsed={storageQuery.data.percentUsed ?? 0}
+                  usedGb={storageData.usedGb}
+                  totalGb={storageData.totalGb ?? 0}
+                  percentUsed={storageData.percentUsed ?? 0}
                   compact
                 />
               ) : null}
@@ -562,4 +596,4 @@ function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onR
       </Card>
     </motion.div>
   );
-}
+});

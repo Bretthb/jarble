@@ -658,6 +658,41 @@ export const deploymentRouter = router({
       };
     }),
 
+  // Batch storage usage for multiple deployments (Dashboard uses this instead of N individual queries)
+  getStorageUsageBatch: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).max(20) }))
+    .query(async ({ ctx, input }) => {
+      if (input.ids.length === 0) return {} as Record<string, { usedGb?: number; totalGb?: number; percentUsed?: number; allocatedGb: number } | null>;
+
+      // Verify ownership of all requested deployments
+      const owned = await ctx.db.query.deployments.findMany({
+        where: and(
+          or(...input.ids.map((id) => eq(deployments.id, id))),
+          eq(deployments.userId, ctx.user.id)
+        ),
+      });
+      const ownedMap = new Map(owned.map((d) => [d.id, d]));
+
+      // Fetch storage in parallel
+      const results = await Promise.allSettled(
+        input.ids
+          .filter((id) => ownedMap.has(id))
+          .map(async (id) => {
+            const usage = await getDeploymentStorageUsage(id);
+            const dep = ownedMap.get(id)!;
+            return [id, { ...usage, allocatedGb: dep.storageMb || 30 }] as const;
+          })
+      );
+
+      const out: Record<string, { usedGb?: number; totalGb?: number; percentUsed?: number; allocatedGb: number } | null> = {};
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          out[r.value[0]] = r.value[1];
+        }
+      }
+      return out;
+    }),
+
   // Get deployment logs from K8s pod
   getLogs: protectedProcedure
     .input(z.object({

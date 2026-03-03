@@ -1,6 +1,6 @@
 'use client';
 import { Auth0Provider as Provider } from '@auth0/auth0-react';
-import { ReactNode, useState, useEffect } from 'react';
+import { ReactNode } from 'react';
 
 // Strip protocol if accidentally included in env var
 const domain = (process.env.NEXT_PUBLIC_AUTH0_DOMAIN ?? '')
@@ -22,16 +22,10 @@ export function Auth0Provider({ children }: { children: ReactNode }) {
     // SSR / build — skip Auth0, just render children
     return <>{children}</>;
   }
-  const [redirectUri, setRedirectUri] = useState('');
-
-  useEffect(() => {
-    setRedirectUri(window.location.origin + '/dashboard');
-  }, []);
-
-  // Don't render until redirect URI is available — the Auth0 SDK creates
-  // its internal client on first mount and won't pick up later changes
-  // to redirect_uri, which causes "Unable to issue redirect" errors.
-  if (!redirectUri) return null;
+  const redirectUri = typeof window !== 'undefined'
+    ? window.location.origin + '/dashboard'
+    : '';
+  if (!redirectUri) return <>{children}</>;
 
   return (
     <Provider
