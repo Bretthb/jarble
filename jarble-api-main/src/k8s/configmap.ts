@@ -46,11 +46,13 @@ export function encodeConfigKey(path: string, managedBy: ManagedBy = "legacy"): 
     return path;
   }
 
-  // Legacy mode: encode absolute paths with abs- prefix
+  // Legacy mode: encode paths for valid ConfigMap keys
+  // K8s keys only allow alphanumeric, '-', '_', '.'
   if (path.startsWith("/")) {
     return "abs-" + path.slice(1).replace(/\//g, "--");
   }
-  return path;
+  // Relative paths with subdirectories (e.g. "mcp/jarble-ui-server.js")
+  return path.replace(/\//g, "--");
 }
 
 /**
@@ -60,7 +62,8 @@ export function decodeConfigKey(key: string): string {
   if (key.startsWith("abs-")) {
     return "/" + key.slice(4).replace(/--/g, "/");
   }
-  return key;
+  // Relative paths: decode "--" back to "/"
+  return key.replace(/--/g, "/");
 }
 
 // ── CRUD ────────────────────────────────────────────────────────────────

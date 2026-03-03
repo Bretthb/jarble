@@ -53,22 +53,22 @@ export async function getDeploymentPodStatus(
       }
     }
 
-    // Too many restarts = failed
+    // Running and ready — takes priority over restart count
+    if (phase === "Running" && containerStatus?.ready) {
+      return {
+        status: "running",
+        phase: "Running",
+        restarts: containerStatus.restartCount,
+      };
+    }
+
+    // Too many restarts and NOT currently running = failed
     if ((containerStatus?.restartCount || 0) >= 5) {
       return {
         status: "failed",
         phase,
         error: "Too many restarts",
         restarts: containerStatus?.restartCount,
-      };
-    }
-
-    // Running and ready
-    if (phase === "Running" && containerStatus?.ready) {
-      return {
-        status: "running",
-        phase: "Running",
-        restarts: containerStatus.restartCount,
       };
     }
 

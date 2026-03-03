@@ -245,7 +245,9 @@ function CanvasRendererInner({
             component={fixed.component}
             onAction={onAction}
           >
-            <Component {...validatedProps} />
+            <div data-component={fixed.component} className="contents">
+              <Component {...validatedProps} />
+            </div>
           </CanvasActionProvider>
         </CanvasErrorBoundary>
       </CanvasDepthContext.Provider>

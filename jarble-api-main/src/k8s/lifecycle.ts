@@ -175,7 +175,7 @@ async function createDeploymentLegacy(
         "key=$(basename \"$f\"); " +
         "case \"$key\" in " +
           "abs-*) target=\"/$(echo \"$key\" | sed 's/^abs-//' | sed 's/--/\\//g')\" ;; " +
-          "*) target=\"/data/config/$key\" ;; " +
+          "*) target=\"/data/config/$(echo \"$key\" | sed 's/--/\\//g')\" ;; " +
         "esac; " +
         "dir=$(dirname \"$target\"); " +
         "mkdir -p \"$dir\"; " +

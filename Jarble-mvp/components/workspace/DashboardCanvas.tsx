@@ -252,6 +252,7 @@ function DashboardCanvasInner({
                 <motion.div
                   key={card.id}
                   layout
+                  data-card-id={card.id}
                   initial={isNew ? { opacity: 0, scale: 0.95, y: 12 } : false}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}

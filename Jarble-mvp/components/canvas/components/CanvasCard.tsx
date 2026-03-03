@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import { motion } from "framer-motion";
+import MarkdownMessage from "@/components/MarkdownMessage";
 
 export interface CanvasCardProps {
   title?: string;
@@ -115,17 +116,17 @@ function CanvasCardInner({
           </span>
         )}
 
-        {/* Body text */}
+        {/* Body text (supports markdown) */}
         {body && (
-          <p className="text-sm leading-relaxed text-foreground/85 whitespace-pre-wrap">
-            {body}
-          </p>
+          <div className="text-sm leading-relaxed text-foreground/85">
+            <MarkdownMessage content={body} />
+          </div>
         )}
 
-        {/* Content (markdown-like block with good typography) */}
+        {/* Content (supports markdown) */}
         {content && (
-          <div className="text-sm leading-[1.7] text-foreground/80 whitespace-pre-wrap break-words [&>*]:mb-2">
-            {content}
+          <div className="text-sm leading-[1.7] text-foreground/80">
+            <MarkdownMessage content={content} />
           </div>
         )}
 

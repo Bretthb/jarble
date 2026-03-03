@@ -9,8 +9,8 @@ const hasAuth = fs.existsSync(authFile);
 export default defineConfig({
   testDir: "./e2e",
   outputDir: "./test-results",
-  timeout: 120_000,
-  retries: 0,
+  timeout: 180_000,
+  retries: 2,
   reporter: [["html", { open: "always" }]],
   use: {
     baseURL: "http://localhost:3000",

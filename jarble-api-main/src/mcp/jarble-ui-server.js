@@ -30,6 +30,7 @@ const MAX_FILE_SIZE = 1_000_000; // 1MB
 
 let BUILTIN_COMPONENTS;
 let BUILTIN_DESCRIPTIONS;
+let BUILTIN_SCHEMAS = {}; // JSON Schema draft-07 per component (loaded from generated manifest)
 
 try {
   // Try to load from generated manifest JSON (created by build step)
@@ -37,6 +38,10 @@ try {
   const manifestData = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
   BUILTIN_COMPONENTS = manifestData.componentNames;
   BUILTIN_DESCRIPTIONS = manifestData.descriptions;
+  if (manifestData.schemas) {
+    BUILTIN_SCHEMAS = manifestData.schemas;
+    console.error(`[MCP] Loaded ${Object.keys(BUILTIN_SCHEMAS).length} component JSON schemas`);
+  }
 } catch {
   // Fallback: inline list for first boot / when JSON not yet generated
   BUILTIN_COMPONENTS = [
@@ -53,6 +58,144 @@ try {
     "tree", "marketplace_sandbox",
   ];
   BUILTIN_DESCRIPTIONS = {};
+}
+
+// ── JSON Schema Validator (zero dependencies) ─────────────────────────
+// Validates values against JSON Schema draft-07 subset produced by zod-to-json-schema.
+// Handles: type checks, required, enum, anyOf, nested objects, arrays, tuples, number ranges.
+// Returns { valid: boolean, errors: string[] }.
+
+const MAX_VALIDATION_ERRORS = 10;
+
+function validateJsonSchema(value, schema, path) {
+  const errors = [];
+  _validate(value, schema, path, errors);
+  return { valid: errors.length === 0, errors: errors.slice(0, MAX_VALIDATION_ERRORS) };
+}
+
+function _validate(value, schema, path, errors) {
+  if (!schema || typeof schema !== "object") return;
+  if (errors.length >= MAX_VALIDATION_ERRORS) return;
+
+  // anyOf — try each sub-schema; pass if at least one matches
+  if (Array.isArray(schema.anyOf)) {
+    const anyErrors = [];
+    for (const sub of schema.anyOf) {
+      const subErrs = [];
+      _validate(value, sub, path, subErrs);
+      if (subErrs.length === 0) return; // one branch matched
+      anyErrors.push(subErrs);
+    }
+    // None matched — report the shortest error list (most likely intended type)
+    const best = anyErrors.reduce((a, b) => a.length <= b.length ? a : b, anyErrors[0]);
+    for (const e of best) errors.push(e);
+    return;
+  }
+
+  // Type check — handles both "type": "string" and "type": ["string", "number"]
+  if (schema.type) {
+    const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+    const actualType = _jsonType(value);
+    if (!types.includes(actualType)) {
+      const expected = types.length === 1 ? types[0] : `one of: ${types.join(", ")}`;
+      errors.push(`${path}: expected ${expected}, got ${actualType}`);
+      return; // skip deeper checks if type is wrong
+    }
+  }
+
+  // Enum validation
+  if (Array.isArray(schema.enum)) {
+    if (!schema.enum.includes(value)) {
+      const allowed = schema.enum.map(v => JSON.stringify(v)).join(", ");
+      errors.push(`${path}: must be one of [${allowed}], got ${JSON.stringify(value)}`);
+    }
+    return;
+  }
+
+  // Number range
+  if (typeof value === "number") {
+    if (schema.minimum !== undefined && value < schema.minimum) {
+      errors.push(`${path}: must be >= ${schema.minimum}, got ${value}`);
+    }
+    if (schema.maximum !== undefined && value > schema.maximum) {
+      errors.push(`${path}: must be <= ${schema.maximum}, got ${value}`);
+    }
+  }
+
+  // Object validation
+  if (schema.type === "object" && typeof value === "object" && value !== null && !Array.isArray(value)) {
+    // Required fields
+    if (Array.isArray(schema.required)) {
+      for (const key of schema.required) {
+        if (!(key in value) || value[key] === undefined) {
+          // Add type hint for required fields
+          const propSchema = schema.properties?.[key];
+          const hint = _typeHint(propSchema);
+          errors.push(`${path}.${key}: required field missing${hint}`);
+        }
+      }
+    }
+    // Validate known properties
+    if (schema.properties) {
+      for (const [key, propSchema] of Object.entries(schema.properties)) {
+        if (key in value && value[key] !== undefined) {
+          _validate(value[key], propSchema, `${path}.${key}`, errors);
+        }
+      }
+    }
+    return;
+  }
+
+  // Array validation
+  if (schema.type === "array" && Array.isArray(value)) {
+    // Tuple validation (minItems === maxItems with array of item schemas)
+    if (Array.isArray(schema.items)) {
+      if (schema.minItems !== undefined && value.length < schema.minItems) {
+        errors.push(`${path}: expected at least ${schema.minItems} items, got ${value.length}`);
+      }
+      if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+        errors.push(`${path}: expected at most ${schema.maxItems} items, got ${value.length}`);
+      }
+      // Validate each tuple position
+      for (let i = 0; i < Math.min(value.length, schema.items.length); i++) {
+        _validate(value[i], schema.items[i], `${path}[${i}]`, errors);
+      }
+      return;
+    }
+    // Regular array items
+    if (schema.items && typeof schema.items === "object") {
+      for (let i = 0; i < value.length; i++) {
+        if (errors.length >= MAX_VALIDATION_ERRORS) break;
+        _validate(value[i], schema.items, `${path}[${i}]`, errors);
+      }
+    }
+    if (schema.minItems !== undefined && value.length < schema.minItems) {
+      errors.push(`${path}: expected at least ${schema.minItems} items, got ${value.length}`);
+    }
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+      errors.push(`${path}: expected at most ${schema.maxItems} items, got ${value.length}`);
+    }
+  }
+}
+
+function _jsonType(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value; // "string", "number", "boolean", "object", "undefined"
+}
+
+function _typeHint(propSchema) {
+  if (!propSchema) return "";
+  if (Array.isArray(propSchema.enum)) {
+    return ` (one of: ${propSchema.enum.join(", ")})`;
+  }
+  if (propSchema.type === "array") return " (array)";
+  if (propSchema.type === "object") return " (object)";
+  if (propSchema.type) {
+    const t = Array.isArray(propSchema.type) ? propSchema.type.join(" | ") : propSchema.type;
+    return ` (${t})`;
+  }
+  return "";
 }
 
 // ── Component resolver ─────────────────────────────────────────────────
@@ -317,12 +460,30 @@ const TOOLS = [
 
 // ── Tool execution ─────────────────────────────────────────────────────
 
+function _formatValidationErrors(component, errors) {
+  const lines = [`Invalid props for "${component}". ${errors.length} error(s):`];
+  for (let i = 0; i < errors.length; i++) {
+    lines.push(`  ${i + 1}. ${errors[i]}`);
+  }
+  lines.push("");
+  lines.push(`Fix the props and call render_ui again. Use component_reference("${component}") for the full schema.`);
+  return lines.join("\n");
+}
+
 function executeRenderUi(args) {
   const { component, props } = args;
   if (!component) return { isError: true, text: "Missing 'component' parameter." };
 
-  // Built-in — emit as jarble_ui fenced block so the frontend renders it
+  // Built-in — validate props against JSON Schema, then emit fenced block
   if (BUILTIN_COMPONENTS.includes(component)) {
+    const schema = BUILTIN_SCHEMAS[component];
+    if (schema && props && typeof props === "object") {
+      const result = validateJsonSchema(props, schema, "props");
+      if (!result.valid) {
+        console.error(`[MCP] render_ui validation failed for "${component}":`, result.errors.length, "errors");
+        return { isError: true, text: _formatValidationErrors(component, result.errors) };
+      }
+    }
     const block = JSON.stringify({ component, props: props || {} });
     return { isError: false, text: "```jarble_ui\n" + block + "\n```" };
   }
@@ -525,7 +686,16 @@ function executeComponentReference(args) {
     if (!COMPONENT_REFERENCE[name]) {
       return { isError: true, text: `Unknown component "${name}". Use list_components to see available components.` };
     }
-    return { isError: false, text: `**${name}** — props: ${COMPONENT_REFERENCE[name]}` };
+    // Return human-readable reference + full JSON Schema if available
+    const lines = [`**${name}** — props: ${COMPONENT_REFERENCE[name]}`];
+    if (BUILTIN_SCHEMAS[name]) {
+      lines.push("");
+      lines.push("**JSON Schema:**");
+      lines.push("```json");
+      lines.push(JSON.stringify(BUILTIN_SCHEMAS[name], null, 2));
+      lines.push("```");
+    }
+    return { isError: false, text: lines.join("\n") };
   }
 
   // Return full reference grouped by category
@@ -563,6 +733,21 @@ function executeUpdateUi(args) {
   if (!props || typeof props !== "object") return { isError: true, text: "Missing or invalid 'props' parameter." };
 
   console.error("[MCP] update_ui:", card_id, "merge:", merge !== false);
+
+  // Validate props if a component is specified (for merge mode, skip required-field checks)
+  const targetComponent = component || null;
+  if (targetComponent && BUILTIN_SCHEMAS[targetComponent]) {
+    const schema = BUILTIN_SCHEMAS[targetComponent];
+    // For merge mode, validate only the provided fields (strip "required" from schema)
+    const effectiveSchema = (merge !== false)
+      ? { ...schema, required: undefined }
+      : schema;
+    const result = validateJsonSchema(props, effectiveSchema, "props");
+    if (!result.valid) {
+      console.error(`[MCP] update_ui validation failed for "${targetComponent}":`, result.errors.length, "errors");
+      return { isError: true, text: _formatValidationErrors(targetComponent, result.errors) };
+    }
+  }
 
   const block = JSON.stringify({
     card_id,

@@ -2,6 +2,8 @@ import type { Page, Locator, TestInfo } from "@playwright/test";
 import * as fs from "fs";
 import * as path from "path";
 
+const FAILURE_LOG = path.join(__dirname, "..", "test-failures.log");
+
 /**
  * Attach console and network loggers to the page.
  * Returns a flush() function — call it in afterEach to write logs as attachments.
@@ -123,5 +125,36 @@ export function getTestConfig(): { deploymentId: string } {
     return JSON.parse(raw);
   } catch {
     return { deploymentId: "" };
+  }
+}
+
+/**
+ * Append a structured failure record to the test-failures.log file.
+ * Call this in afterEach for any failed test to build a structured failure report.
+ */
+export function logTestFailure(
+  testInfo: TestInfo,
+  details: {
+    group: string;
+    scenario: string;
+    component?: string;
+    errorCards?: number;
+    consoleErrors?: string[];
+    screenshot?: string;
+    message?: string;
+  },
+): void {
+  const record = {
+    timestamp: new Date().toISOString(),
+    test: testInfo.title,
+    file: path.basename(testInfo.file),
+    status: testInfo.status,
+    duration: testInfo.duration,
+    ...details,
+  };
+  try {
+    fs.appendFileSync(FAILURE_LOG, JSON.stringify(record) + "\n", "utf-8");
+  } catch {
+    // Non-fatal — log file may not be writable
   }
 }

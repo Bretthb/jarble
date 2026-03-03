@@ -123,14 +123,14 @@ describe("autoFixProps", () => {
   // ── Enum Normalization ──────────────────────────────────────────────────
 
   describe("enum normalization", () => {
-    it('normalizes alert variant "danger" to "error"', () => {
+    it('normalizes alert variant "danger" to "destructive"', () => {
       const result = autoFixProps("alert", { message: "test", variant: "danger" });
-      expect(result.props.variant).toBe("error");
+      expect(result.props.variant).toBe("destructive");
       expect(result.repairs).toContainEqual(
         expect.objectContaining({
           field: "props.variant",
           from: "danger",
-          to: "error",
+          to: "destructive",
         }),
       );
     });
@@ -374,7 +374,7 @@ describe("autoFixProps", () => {
       const repair = result.repairs.find((r) => r.field === "props.variant");
       expect(repair).toBeDefined();
       expect(repair!.from).toBe("danger");
-      expect(repair!.to).toBe("error");
+      expect(repair!.to).toBe("destructive");
     });
 
     it("records correct repair info for component name normalization", () => {

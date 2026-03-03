@@ -66,6 +66,7 @@ const CREATE_TABLES_SQL = `
     status TEXT DEFAULT 'creating' NOT NULL,
     error TEXT,
     messaging_only INTEGER DEFAULT 0 NOT NULL,
+    managed_by TEXT DEFAULT 'legacy' NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );

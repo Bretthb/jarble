@@ -48,7 +48,7 @@ debugRouter.post("/deployment/:id/status", async (req, res) => {
     }
     const { deployments: deploymentsTable } = tables;
     await db.update(deploymentsTable)
-      .set({ status })
+      .set({ status, ...(status === "running" ? { error: null } : {}) })
       .where(eq(deploymentsTable.id, id));
     res.json({ success: true, id, status });
   } catch (err) {

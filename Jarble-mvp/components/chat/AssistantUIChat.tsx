@@ -18,7 +18,7 @@ import {
   useMessage,
   type AssistantRuntime,
 } from "@assistant-ui/react";
-import { Sparkles, SendHorizontal, Loader2, Copy, RotateCcw, Pencil } from "lucide-react";
+import { Sparkles, SendHorizontal, Loader2, Copy, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
 
@@ -85,7 +85,7 @@ function UserBubble() {
   }
 
   return (
-    <MessagePrimitive.Root className="flex gap-3 flex-row-reverse group">
+    <MessagePrimitive.Root className="flex gap-3 flex-row-reverse group" data-testid="user-message">
       {/* Avatar */}
       <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border bg-primary/90 text-primary-foreground border-primary/20">
         <span className="text-[10px] font-semibold">Y</span>
@@ -96,11 +96,11 @@ function UserBubble() {
         <div className="rounded-lg px-4 py-3 bg-primary/90 text-primary-foreground shadow-sm">
           <p className="text-sm">{content}</p>
         </div>
-        {/* Edit action - only shows on hover */}
+        {/* Copy action - only shows on hover */}
         <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-          <ActionBarPrimitive.Edit className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
-            <Pencil className="w-3 h-3" />
-          </ActionBarPrimitive.Edit>
+          <ActionBarPrimitive.Copy className="p-1 rounded hover:bg-secondary/60 text-muted-foreground" copiedDuration={2000}>
+            <Copy className="w-3 h-3" />
+          </ActionBarPrimitive.Copy>
         </div>
       </div>
     </MessagePrimitive.Root>
@@ -120,7 +120,7 @@ function AssistantBubble() {
     : message?.status?.type !== "complete";
 
   return (
-    <MessagePrimitive.Root className="flex gap-3 group">
+    <MessagePrimitive.Root className="flex gap-3 group" data-testid="assistant-message">
       {/* Avatar */}
       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500/20 to-primary/20 border border-primary/10 flex items-center justify-center shrink-0">
         <Sparkles className="w-3.5 h-3.5 text-primary/70" />

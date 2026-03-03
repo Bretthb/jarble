@@ -19,8 +19,8 @@ describe("encodeConfigKey — legacy mode", () => {
     expect(encodeConfigKey("soul.md")).toBe("soul.md");
   });
 
-  it("returns nested relative paths unchanged", () => {
-    expect(encodeConfigKey("mcp/jarble-ui-server.js")).toBe("mcp/jarble-ui-server.js");
+  it("encodes nested relative paths with -- separators", () => {
+    expect(encodeConfigKey("mcp/jarble-ui-server.js")).toBe("mcp--jarble-ui-server.js");
   });
 
   it("encodes absolute paths with abs- prefix and -- separators", () => {
@@ -94,6 +94,10 @@ describe("decodeConfigKey", () => {
 
   it("decodes root-level abs- key", () => {
     expect(decodeConfigKey("abs-config.toml")).toBe("/config.toml");
+  });
+
+  it("decodes relative paths with -- back to /", () => {
+    expect(decodeConfigKey("mcp--jarble-ui-server.js")).toBe("mcp/jarble-ui-server.js");
   });
 });
 

@@ -11,7 +11,22 @@ import {
   type ComponentDefinition,
 } from "../../utils/componentResolver.js";
 import { logger } from "../../utils/logger.js";
+import { COMPONENT_SCHEMAS } from "@jarble/component-manifest";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
+
+function formatZodErrors(component: string, error: { issues: Array<{ path: (string | number)[]; message: string }> }): string {
+  const maxErrors = 10;
+  const issues = error.issues.slice(0, maxErrors);
+  const lines = [`Invalid props for "${component}". ${error.issues.length} error(s):`];
+  for (let i = 0; i < issues.length; i++) {
+    const issue = issues[i];
+    const path = issue.path.length > 0 ? `props.${issue.path.join(".")}` : "props";
+    lines.push(`  ${i + 1}. ${path}: ${issue.message}`);
+  }
+  lines.push("");
+  lines.push(`Fix the props and call render_ui again. Use component_reference("${component}") for the full schema.`);
+  return lines.join("\n");
+}
 
 export const renderUiTool: McpTool = {
   name: "render_ui",
@@ -45,8 +60,22 @@ export const renderUiTool: McpTool = {
       return { success: false, message: "Missing 'component' parameter." };
     }
 
-    // Built-in component — pass through directly
+    // Built-in component — validate props, then pass through
     if (isBuiltinComponent(component)) {
+      const schema = COMPONENT_SCHEMAS[component];
+      if (schema) {
+        const result = schema.safeParse(props);
+        if (!result.success) {
+          logger.info(
+            { component, errorCount: result.error.issues.length },
+            "render_ui: prop validation failed"
+          );
+          return {
+            success: false,
+            message: formatZodErrors(component, result.error),
+          };
+        }
+      }
       return {
         success: true,
         message: `Rendering ${component} component.`,
