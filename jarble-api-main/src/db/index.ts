@@ -83,6 +83,11 @@ type ActiveTables = {
   componentInstalls: typeof mysqlSchema.componentInstalls;
   componentPurchases: typeof mysqlSchema.componentPurchases;
   componentReviews: typeof mysqlSchema.componentReviews;
+  // Package tables
+  marketplacePackages: typeof mysqlSchema.marketplacePackages;
+  packageComponents: typeof mysqlSchema.packageComponents;
+  packageSkills: typeof mysqlSchema.packageSkills;
+  packageInstalls: typeof mysqlSchema.packageInstalls;
 };
 
 function getActiveTables(): ActiveTables {

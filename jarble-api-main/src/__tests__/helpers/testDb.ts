@@ -218,6 +218,52 @@ const CREATE_TABLES_SQL = `
   );
 
   CREATE UNIQUE INDEX IF NOT EXISTS uq_user_component_review ON component_reviews(user_id, component_id);
+
+  CREATE TABLE IF NOT EXISTS marketplace_packages (
+    id TEXT PRIMARY KEY,
+    creator_id TEXT NOT NULL REFERENCES creator_profiles(id),
+    name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    description TEXT,
+    hosting_model TEXT NOT NULL,
+    instruction_snippet TEXT,
+    remote_api_endpoint TEXT,
+    status TEXT DEFAULT 'draft' NOT NULL,
+    pricing_model TEXT DEFAULT 'free' NOT NULL,
+    price_usd_cents INTEGER DEFAULT 0 NOT NULL,
+    total_installs INTEGER DEFAULT 0 NOT NULL,
+    avg_rating TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_creator_package_name ON marketplace_packages(creator_id, name);
+
+  CREATE TABLE IF NOT EXISTS package_components (
+    id TEXT PRIMARY KEY,
+    package_id TEXT NOT NULL REFERENCES marketplace_packages(id) ON DELETE CASCADE,
+    component_id TEXT NOT NULL REFERENCES marketplace_components(id)
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_package_component ON package_components(package_id, component_id);
+
+  CREATE TABLE IF NOT EXISTS package_skills (
+    id TEXT PRIMARY KEY,
+    package_id TEXT NOT NULL REFERENCES marketplace_packages(id) ON DELETE CASCADE,
+    skill_id TEXT NOT NULL REFERENCES skills_catalog(id)
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_package_skill ON package_skills(package_id, skill_id);
+
+  CREATE TABLE IF NOT EXISTS package_installs (
+    id TEXT PRIMARY KEY,
+    package_id TEXT NOT NULL REFERENCES marketplace_packages(id),
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    installed_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_package ON package_installs(deployment_id, package_id);
 `;
 
 export interface TestDbContext {
