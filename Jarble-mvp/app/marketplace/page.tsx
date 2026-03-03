@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Search, SlidersHorizontal, Package, X } from "lucide-react";
+import { Search, SlidersHorizontal, Package, X, Puzzle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,8 +21,11 @@ import {
   EmptyDescription,
   EmptyMedia,
 } from "@/components/ui/empty";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ComponentCard } from "@/components/marketplace/ComponentCard";
 import type { MarketplaceComponentData } from "@/components/marketplace/ComponentCard";
+import { PackageList } from "@/components/marketplace/PackageList";
+import { PackagePublishForm } from "@/components/marketplace/PackagePublishForm";
 import {
   MARKETPLACE_CATEGORIES,
   SORT_OPTIONS,
@@ -140,12 +143,42 @@ export default function MarketplaceBrowsePage() {
         {/* Header */}
         <div className="mb-8">
           <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-            Component Marketplace
+            Marketplace
           </h2>
           <p className="mt-2 text-muted-foreground text-lg">
-            Discover and install community-built UI components for your bots.
+            Discover and install community-built components and packages for your bots.
           </p>
         </div>
+
+        {/* Tabs: Components | Packages | Publish */}
+        <Tabs defaultValue="components" className="mb-8">
+          <TabsList>
+            <TabsTrigger value="components" className="gap-1.5">
+              <Puzzle className="size-4" />
+              Components
+            </TabsTrigger>
+            <TabsTrigger value="packages" className="gap-1.5">
+              <Package className="size-4" />
+              Packages
+            </TabsTrigger>
+            {isAuthenticated && (
+              <TabsTrigger value="publish" className="gap-1.5">
+                Publish
+              </TabsTrigger>
+            )}
+          </TabsList>
+
+          <TabsContent value="packages">
+            <PackageList />
+          </TabsContent>
+
+          {isAuthenticated && (
+            <TabsContent value="publish">
+              <PackagePublishForm />
+            </TabsContent>
+          )}
+
+          <TabsContent value="components">
 
         {/* Search bar */}
         <div className="relative mb-6">
@@ -316,6 +349,9 @@ export default function MarketplaceBrowsePage() {
             )}
           </>
         )}
+
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );

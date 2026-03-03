@@ -8,6 +8,7 @@ import { platformCredentialsRouter } from "./routers/platformCredentials.js";
 import { billingRouter } from "./routers/billing.js";
 import { skillsRouter } from "./routers/skills.js";
 import { marketplaceRouter } from "./routers/marketplace.js";
+import { packagesRouter } from "./routers/packages.js";
 
 export const appRouter = router({
   user: userRouter,

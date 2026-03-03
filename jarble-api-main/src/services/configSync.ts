@@ -46,7 +46,7 @@ import { decryptApiKey, encryptApiKey } from "../utils/encryption.js";
 import { logger } from "../utils/logger.js";
 import { nanoid } from "nanoid";
 
-const { deployments, platformCredentials, deploymentSkills, skillsCatalog } = tables;
+const { deployments, platformCredentials, deploymentSkills, skillsCatalog, packageInstalls, marketplacePackages } = tables;
 
 // ── Per-deployment sync mutex ────────────────────────────────────────────
 // Prevents concurrent syncs for the same deployment from racing.
@@ -104,6 +104,21 @@ async function buildDeploymentFields(
     }
   }
 
+  // Load instruction snippets from installed packages
+  const pkgInstallRows = await db.query.packageInstalls.findMany({
+    where: eq(packageInstalls.deploymentId, deployment.id),
+  });
+
+  const packageSnippets: Array<{ packageName: string; snippet: string }> = [];
+  for (const pkgInstall of pkgInstallRows) {
+    const pkg = await db.query.marketplacePackages.findFirst({
+      where: eq(marketplacePackages.id, pkgInstall.packageId),
+    });
+    if (pkg?.instructionSnippet) {
+      packageSnippets.push({ packageName: pkg.displayName, snippet: pkg.instructionSnippet });
+    }
+  }
+
   return {
     id: deployment.id,
     runtime: deployment.runtime,
@@ -119,6 +134,7 @@ async function buildDeploymentFields(
     messagingOnly: deployment.messagingOnly ?? false,
     managedBy: managedBy ?? deployment.managedBy ?? "legacy",
     skills: skills.length > 0 ? skills : undefined,
+    packageSnippets: packageSnippets.length > 0 ? packageSnippets : undefined,
   };
 }
 

@@ -62,6 +62,8 @@ export interface DeploymentFields {
   managedBy?: "legacy" | "operator";
   /** Installed skills: array of { name, config } from deploymentSkills + skillsCatalog join */
   skills?: Array<{ name: string; config: string }>;
+  /** Instruction snippets from installed packages — appended to soul.md */
+  packageSnippets?: Array<{ packageName: string; snippet: string }>;
 }
 
 /**
