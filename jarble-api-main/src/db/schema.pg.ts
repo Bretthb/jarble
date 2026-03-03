@@ -292,3 +292,28 @@ export const componentReviewsRelations = relations(componentReviews, ({ one }) =
   component: one(marketplaceComponents, { fields: [componentReviews.componentId], references: [marketplaceComponents.id] }),
   user: one(users, { fields: [componentReviews.userId], references: [users.id] }),
 }));
+
+// ── Package Relations ─────────────────────────────────────────────────────
+
+export const marketplacePackagesRelations = relations(marketplacePackages, ({ one, many }) => ({
+  creator: one(creatorProfiles, { fields: [marketplacePackages.creatorId], references: [creatorProfiles.id] }),
+  components: many(packageComponents),
+  skills: many(packageSkills),
+  installs: many(packageInstalls),
+}));
+
+export const packageComponentsRelations = relations(packageComponents, ({ one }) => ({
+  package: one(marketplacePackages, { fields: [packageComponents.packageId], references: [marketplacePackages.id] }),
+  component: one(marketplaceComponents, { fields: [packageComponents.componentId], references: [marketplaceComponents.id] }),
+}));
+
+export const packageSkillsRelations = relations(packageSkills, ({ one }) => ({
+  package: one(marketplacePackages, { fields: [packageSkills.packageId], references: [marketplacePackages.id] }),
+  skill: one(skillsCatalog, { fields: [packageSkills.skillId], references: [skillsCatalog.id] }),
+}));
+
+export const packageInstallsRelations = relations(packageInstalls, ({ one }) => ({
+  package: one(marketplacePackages, { fields: [packageInstalls.packageId], references: [marketplacePackages.id] }),
+  deployment: one(deployments, { fields: [packageInstalls.deploymentId], references: [deployments.id] }),
+  user: one(users, { fields: [packageInstalls.userId], references: [users.id] }),
+}));
