@@ -9,7 +9,8 @@
  */
 
 import { memo, useCallback, useState, useRef, useEffect, type ReactNode, type KeyboardEvent } from "react";
-import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Group, LayoutGrid } from "lucide-react";
+import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Group, LayoutGrid, Pin } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
@@ -475,6 +476,21 @@ function SimpleCanvasGridInner({
                     }`} aria-label={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"} title={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"}>
                     <Bookmark className={`w-3.5 h-3.5 ${card.savedName ? "fill-current" : ""}`} />
                   </button>
+                  {/* Pin / Unpin */}
+                  <button
+                    className="w-7 h-7 rounded-md flex items-center justify-center transition-colors hover:bg-accent text-muted-foreground-subtle hover:text-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      dispatch({
+                        type: card.pinned ? "UNPIN_CARD" : "PIN_CARD",
+                        id: card.id,
+                      });
+                    }}
+                    title={card.pinned ? "Unpin card" : "Pin card"}
+                    aria-label={card.pinned ? "Unpin card" : "Pin card"}
+                  >
+                    <Pin className={cn("w-4 h-4", card.pinned && "fill-current")} />
+                  </button>
                   <button onClick={(e) => { e.stopPropagation(); handleClose(card.id); }}
                     className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:bg-red-500/60 hover:text-white transition-colors"
                     aria-label="Close card" title="Close">
@@ -500,6 +516,22 @@ function SimpleCanvasGridInner({
                   <button onClick={(e) => { e.stopPropagation(); handleSaveConfirm(card); }}
                     className="h-6 px-2 text-xs font-medium rounded bg-amber-500 hover:bg-amber-600 text-white transition-colors">
                     Save
+                  </button>
+                </div>
+              )}
+
+              {/* Props-lost banner — shown for cards whose data was stripped during persistence */}
+              {card.propsLost && (
+                <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs">
+                  <span>Data lost on reload</span>
+                  <button
+                    className="ml-auto text-xs underline hover:no-underline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      dispatch({ type: "REMOVE_CARD", id: card.id });
+                    }}
+                  >
+                    Remove
                   </button>
                 </div>
               )}
