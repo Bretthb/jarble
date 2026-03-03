@@ -8,6 +8,7 @@ import { initTRPC } from "@trpc/server";
 import superjson from "superjson";
 import type { Context } from "../../trpc/context.js";
 import { appRouter } from "../../trpc/index.js";
+import { createRequestLogger } from "../../utils/logger.js";
 
 /**
  * Create a tRPC caller with a mock authenticated context.
@@ -27,6 +28,8 @@ export function createTestCaller(db: any, user: {
   const ctx: Context = {
     user: user as any,
     db: db as any,
+    requestId: "test-request",
+    log: createRequestLogger("test-request"),
   };
 
   return appRouter.createCaller(ctx);
@@ -40,6 +43,8 @@ export function createAnonymousCaller(db: any) {
   const ctx: Context = {
     user: null,
     db: db as any,
+    requestId: "test-request",
+    log: createRequestLogger("test-request"),
   };
 
   return appRouter.createCaller(ctx);

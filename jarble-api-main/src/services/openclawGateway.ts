@@ -15,7 +15,9 @@
 import crypto from "crypto";
 import WebSocket from "ws";
 import { nanoid } from "nanoid";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("gateway");
 import { extractAllUIBlocks, extractUIBlocks, type JarbleUIBlock, type JarbleUIUpdate, type JarbleComponentDef } from "../utils/uiBlockParser.js";
 import { execInPod } from "../k8s/exec.js";
 
@@ -121,7 +123,7 @@ export async function chatViaGateway(
     const timeout = setTimeout(() => {
       if (!finished) {
         finished = true;
-        logger.warn({ wsUrl, timeoutMs, textLength: fullText.length }, "Gateway: response timed out");
+        log.warn({ wsUrl, timeoutMs, textLength: fullText.length }, "Gateway: response timed out");
         ws.close();
         if (fullText) {
           const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
@@ -158,7 +160,7 @@ export async function chatViaGateway(
 
     ws.on("open", () => {
       const connectMs = Date.now() - connectStartMs;
-      logger.info({ wsUrl, connectMs }, "Gateway: WS connected");
+      log.info({ wsUrl, connectMs }, "Gateway: WS connected");
     });
 
     ws.on("message", async (data) => {
@@ -168,7 +170,7 @@ export async function chatViaGateway(
       try {
         msg = JSON.parse(String(data));
       } catch {
-        logger.warn({ wsUrl, rawData: String(data).slice(0, 200) }, "Gateway: failed to parse WS message");
+        log.warn({ wsUrl, rawData: String(data).slice(0, 200) }, "Gateway: failed to parse WS message");
         return;
       }
 
@@ -229,7 +231,7 @@ export async function chatViaGateway(
             });
 
             connected = true;
-            logger.debug({ wsUrl, deviceId: device.deviceId.slice(0, 16) }, "Gateway authenticated with device identity, sending chat");
+            log.debug({ wsUrl, deviceId: device.deviceId.slice(0, 16) }, "Gateway authenticated with device identity, sending chat");
 
             // Send the chat message
             const idempotencyKey = nanoid(12);
@@ -286,7 +288,7 @@ export async function chatViaGateway(
             const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
             // Skip blocks already emitted during streaming deltas (they appear in order)
             const remainingBlocks = uiBlocks.slice(emittedBlockCount);
-            logger.debug({ wsUrl, rawTextLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, updateCount: uiUpdates.length }, "Gateway: response summary");
+            log.debug({ wsUrl, rawTextLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, updateCount: uiUpdates.length }, "Gateway: response summary");
             resolve({ rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs });
           } else if (state === "aborted") {
             finished = true;
@@ -307,10 +309,10 @@ export async function chatViaGateway(
           pending.delete(msg.id);
           if (msg.error || msg.ok === false) {
             const errMsg = msg.error?.message || JSON.stringify(msg.error);
-            logger.debug({ wsUrl, msgId: msg.id, error: msg.error, ok: msg.ok, payload: msg.payload }, "Gateway response error");
+            log.debug({ wsUrl, msgId: msg.id, error: msg.error, ok: msg.ok, payload: msg.payload }, "Gateway response error");
             p.reject(new Error(errMsg));
           } else {
-            logger.debug({ wsUrl, msgId: msg.id, payloadKeys: msg.payload ? Object.keys(msg.payload) : null }, "Gateway response OK");
+            log.debug({ wsUrl, msgId: msg.id, payloadKeys: msg.payload ? Object.keys(msg.payload) : null }, "Gateway response OK");
             p.resolve(msg.payload ?? msg.result);
           }
         }
@@ -387,7 +389,7 @@ export async function chatViaExec(
   message: string,
   onDelta?: (fullText: string) => void,
 ): Promise<GatewayResponse> {
-  logger.info({ podName, messageLen: message.length }, "chatViaExec: falling back to npx openclaw agent");
+  log.info({ podName, messageLen: message.length }, "chatViaExec: falling back to npx openclaw agent");
 
   const output = await execInPod(podName, [
     "npx", "openclaw", "agent",
@@ -421,6 +423,6 @@ export async function chatViaExec(
   onDelta?.(rawText);
 
   const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(rawText);
-  logger.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "chatViaExec: response summary");
+  log.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "chatViaExec: response summary");
   return { rawText, text: cleanText, uiBlocks, uiUpdates, componentDefs };
 }

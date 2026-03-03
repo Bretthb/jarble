@@ -1,4 +1,6 @@
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("k8s:configmap");
 import { coreApi } from "./client.js";
 import { NAMESPACE } from "./constants.js";
 import type { ManagedBy } from "./constants.js";
@@ -92,7 +94,7 @@ export async function createDeploymentConfigMap(
     data,
   });
 
-  logger.info(
+  log.info(
     { deploymentId, fileCount: files.length, keys: Object.keys(data) },
     "ConfigMap created"
   );
@@ -127,7 +129,7 @@ export async function updateDeploymentConfigMap(
         data,
       }
     );
-    logger.info(
+    log.info(
       { deploymentId, fileCount: files.length },
       "ConfigMap updated"
     );
@@ -150,13 +152,13 @@ export async function deleteDeploymentConfigMap(
 ): Promise<void> {
   try {
     await coreApi.deleteNamespacedConfigMap(`config-${deploymentId}`, NAMESPACE);
-    logger.debug({ deploymentId }, "ConfigMap deleted");
+    log.debug({ deploymentId }, "ConfigMap deleted");
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
-      logger.debug({ deploymentId }, "ConfigMap already gone (404)");
+      log.debug({ deploymentId }, "ConfigMap already gone (404)");
     } else {
-      logger.error({ deploymentId, err }, "Failed to delete ConfigMap");
+      log.error({ deploymentId, err }, "Failed to delete ConfigMap");
       throw err;
     }
   }

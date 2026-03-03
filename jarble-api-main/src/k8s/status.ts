@@ -1,5 +1,7 @@
 import stream from "stream";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("k8s:status");
 import { coreApi, execClient } from "./client.js";
 import { NAMESPACE, RUNTIME_PORTS, getContainerName, getPvcMountPath, podLabelSelector } from "./constants.js";
 import type { ManagedBy } from "./constants.js";
@@ -78,7 +80,7 @@ export async function getDeploymentPodStatus(
       phase,
     };
   } catch (err) {
-    logger.error({ deploymentId, err }, "Failed to get pod status");
+    log.error({ deploymentId, err }, "Failed to get pod status");
     return { status: "not_found" };
   }
 }
@@ -161,19 +163,19 @@ export async function getDeploymentStorageUsage(
     });
 
     if (stderrData) {
-      logger.warn({ deploymentId, stderr: stderrData }, "df command stderr");
+      log.warn({ deploymentId, stderr: stderrData }, "df command stderr");
     }
 
     // Parse df output (second line contains the data)
     const lines = stdoutData.trim().split("\n");
     if (lines.length < 2) {
-      logger.warn({ deploymentId, output: stdoutData }, "Unexpected df output");
+      log.warn({ deploymentId, output: stdoutData }, "Unexpected df output");
       return null;
     }
 
     const parts = lines[1].trim().split(/\s+/);
     if (parts.length < 6) {
-      logger.warn({ deploymentId, output: stdoutData }, "Could not parse df output");
+      log.warn({ deploymentId, output: stdoutData }, "Could not parse df output");
       return null;
     }
 
@@ -193,7 +195,7 @@ export async function getDeploymentStorageUsage(
       percentUsed: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 1000) / 10 : 0,
     };
   } catch (err) {
-    logger.error({ deploymentId, err }, "Failed to get storage usage");
+    log.error({ deploymentId, err }, "Failed to get storage usage");
     return null;
   }
 }
@@ -259,7 +261,7 @@ export async function getPodAddress(
           gatewayToken,
         };
       } catch {
-        logger.warn({ proxyUrl }, "getPodAddress: invalid POD_PROXY_URL, using pod IP");
+        log.warn({ proxyUrl }, "getPodAddress: invalid POD_PROXY_URL, using pod IP");
       }
     }
 
@@ -271,7 +273,7 @@ export async function getPodAddress(
 
     return { ip: podIp, port: containerPort, gatewayToken };
   } catch (err) {
-    logger.error({ deploymentId, err }, "getPodAddress failed");
+    log.error({ deploymentId, err }, "getPodAddress failed");
     return null;
   }
 }

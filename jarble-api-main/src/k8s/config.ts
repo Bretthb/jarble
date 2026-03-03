@@ -1,4 +1,6 @@
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("k8s:config");
 import { coreApi } from "./client.js";
 import { NAMESPACE, getPvcMountPath } from "./constants.js";
 import type { ManagedBy } from "./constants.js";
@@ -59,7 +61,7 @@ export async function writeConfigsToPvc(
     const b64 = Buffer.from(file.content).toString("base64");
     await execInPod(podName, ["sh", "-c", `echo '${b64}' | base64 -d > '${filePath}'`], containerName);
 
-    logger.info({ deploymentId, path: file.path }, "Wrote config file to PVC");
+    log.info({ deploymentId, path: file.path }, "Wrote config file to PVC");
   }
 }
 
@@ -123,11 +125,11 @@ export async function readConfigsFromPvc(
             const relativePath = fullPath.replace(new RegExp(`^${pvcMount.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/config/`), "");
             files.push({ path: relativePath, content });
           } catch (err) {
-            logger.warn({ deploymentId, path: fullPath, err }, "Failed to read config file from PVC");
+            log.warn({ deploymentId, path: fullPath, err }, "Failed to read config file from PVC");
           }
         }
       } catch {
-        logger.debug({ deploymentId, path: basePath }, "Config directory not found on PVC");
+        log.debug({ deploymentId, path: basePath }, "Config directory not found on PVC");
       }
     } else {
       const filePath = `${pvcMount}/config/${spec.path}`;
@@ -135,7 +137,7 @@ export async function readConfigsFromPvc(
         const content = await execInPod(podName, ["cat", filePath], containerName);
         files.push({ path: spec.path, content });
       } catch {
-        logger.debug({ deploymentId, path: spec.path }, "Config file not found on PVC");
+        log.debug({ deploymentId, path: spec.path }, "Config file not found on PVC");
       }
     }
   }
@@ -199,7 +201,7 @@ export async function exportDeploymentConfigs(
       const relativePath = fullPath.replace(new RegExp(`^${configPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`), "");
       files.push({ path: relativePath, content });
     } catch (err) {
-      logger.warn({ deploymentId, path: fullPath, err }, "Skipping unreadable config file");
+      log.warn({ deploymentId, path: fullPath, err }, "Skipping unreadable config file");
     }
   }
 
@@ -224,7 +226,7 @@ export async function exportDeploymentConfigs(
   });
 
   const filename = `config-${deploymentId}.zip`;
-  logger.info({ deploymentId, fileCount: files.length, sizeBytes: zipBuffer.length }, "Exported deployment configs");
+  log.info({ deploymentId, fileCount: files.length, sizeBytes: zipBuffer.length }, "Exported deployment configs");
 
   return {
     filename,
@@ -250,14 +252,14 @@ export async function signalProcessRestart(
 ): Promise<boolean> {
   // Operator mode: process restart not supported — fall through to Tier 3
   if (managedBy === "operator") {
-    logger.debug({ deploymentId }, "signalProcessRestart: operator mode, falling back to pod restart");
+    log.debug({ deploymentId }, "signalProcessRestart: operator mode, falling back to pod restart");
     return false;
   }
 
   // 1. Find running pod (don't require readiness — it may be briefly unready during reload)
   const podName = await findPodForDeployment(deploymentId, { requireReady: false });
   if (!podName) {
-    logger.debug({ deploymentId }, "signalProcessRestart: no running pod found");
+    log.debug({ deploymentId }, "signalProcessRestart: no running pod found");
     return false;
   }
 
@@ -266,12 +268,12 @@ export async function signalProcessRestart(
   try {
     pid = (await execInPod(podName, ["cat", "/data/.openclaw.pid"])).trim();
     if (!pid || isNaN(parseInt(pid, 10))) {
-      logger.debug({ deploymentId, pid }, "signalProcessRestart: invalid PID file content");
+      log.debug({ deploymentId, pid }, "signalProcessRestart: invalid PID file content");
       return false;
     }
   } catch {
     // PID file doesn't exist — old image without restart loop support
-    logger.debug({ deploymentId }, "signalProcessRestart: no PID file (old image), falling back");
+    log.debug({ deploymentId }, "signalProcessRestart: no PID file (old image), falling back");
     return false;
   }
 
@@ -280,7 +282,7 @@ export async function signalProcessRestart(
   const envContent = Object.entries(envOverrides)
     .filter(([key]) => {
       if (!SAFE_ENV_KEY.test(key)) {
-        logger.warn({ deploymentId, key }, "signalProcessRestart: skipping invalid env key name");
+        log.warn({ deploymentId, key }, "signalProcessRestart: skipping invalid env key name");
         return false;
       }
       return true;
@@ -297,9 +299,9 @@ export async function signalProcessRestart(
   try {
     await execInPod(podName, ["kill", pid]);
   } catch {
-    logger.debug({ deploymentId, pid }, "signalProcessRestart: kill failed (process may have exited)");
+    log.debug({ deploymentId, pid }, "signalProcessRestart: kill failed (process may have exited)");
   }
 
-  logger.info({ deploymentId, pid, envKeys: Object.keys(envOverrides) }, "signalProcessRestart: reload signaled");
+  log.info({ deploymentId, pid, envKeys: Object.keys(envOverrides) }, "signalProcessRestart: reload signaled");
   return true;
 }

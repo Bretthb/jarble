@@ -21,6 +21,9 @@
 
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import type { Request } from "express";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("rateLimit");
 
 // ─── Key generators ───────────────────────────────────────────────────
 
@@ -74,6 +77,10 @@ export const globalLimiter = rateLimit({
     );
   },
   message: { error: "Too many requests, please try again later." },
+  handler: (req, res, _next, options) => {
+    log.warn({ ip: req.ip, path: req.path }, `Rate limited: ${options.message.error}`);
+    res.status(options.statusCode).json(options.message);
+  },
 });
 
 /**
@@ -87,6 +94,10 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userKeyGenerator,
   message: { error: "Rate limit exceeded. Please slow down." },
+  handler: (req, res, _next, options) => {
+    log.warn({ ip: req.ip, path: req.path }, `Rate limited: ${options.message.error}`);
+    res.status(options.statusCode).json(options.message);
+  },
 });
 
 /**

@@ -3,7 +3,9 @@ import { db, tables } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import { env } from "../utils/env.js";
 import { nanoid } from "nanoid";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("auth");
 
 // Cache for JWKS
 let jwks: jose.JWTVerifyGetKey | null = null;
@@ -84,7 +86,7 @@ export async function getUserFromToken(payload: TokenPayload) {
     }
 
     if (Object.keys(updates).length > 0) {
-      logger.info({ userId: user.id, updates }, "Updating user info from token");
+      log.info({ userId: user.id, updates }, "Updating user info from token");
       await db.update(tables.users)
         .set(updates)
         .where(eq(tables.users.id, user.id));
@@ -116,7 +118,7 @@ export async function getUserFromToken(payload: TokenPayload) {
       // Only allow account linking if BOTH accounts have verified emails
       // This prevents attackers from claiming unverified emails
       if (!emailVerified || !existingByEmail.emailVerified) {
-        logger.warn({
+        log.warn({
           email: payload.email,
           newAuth0Id: payload.sub,
           existingAuth0Id: existingByEmail.auth0Id,
@@ -144,7 +146,7 @@ export async function getUserFromToken(payload: TokenPayload) {
         .set(updates)
         .where(eq(tables.users.id, existingByEmail.id));
 
-      logger.info({
+      log.info({
         userId: existingByEmail.id,
         email: payload.email,
         newAuth0Id: payload.sub,
@@ -170,7 +172,7 @@ export async function getUserFromToken(payload: TokenPayload) {
       emailVerified: emailVerified,
     });
 
-    logger.info({
+    log.info({
       userId,
       auth0Id: payload.sub,
       email: payload.email,
@@ -186,7 +188,7 @@ export async function getUserFromToken(payload: TokenPayload) {
       code === "ER_DUP_ENTRY" ||       // MySQL
       code === "23505";                // Postgres
     if (isConstraintViolation) {
-      logger.info({ auth0Id: payload.sub }, "User creation race condition — re-fetching");
+      log.info({ auth0Id: payload.sub }, "User creation race condition — re-fetching");
       user = await db.query.users.findFirst({
         where: eq(tables.users.auth0Id, payload.sub),
       });

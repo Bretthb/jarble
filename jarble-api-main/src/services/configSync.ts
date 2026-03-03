@@ -43,7 +43,9 @@ import { updateDeploymentConfigMap } from "../k8s/configmap.js";
 import { getHandlerOrNull } from "../runtimes/index.js";
 import type { DeploymentFields } from "../runtimes/types.js";
 import { decryptApiKey, encryptApiKey } from "../utils/encryption.js";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("configSync");
 import { nanoid } from "nanoid";
 
 const { deployments, platformCredentials, deploymentSkills, skillsCatalog, packageInstalls, marketplacePackages } = tables;
@@ -80,7 +82,7 @@ async function buildDeploymentFields(
       const decrypted = decryptApiKey(row.credentials);
       platformCredsMap[row.platformId] = JSON.parse(decrypted);
     } catch (err) {
-      logger.warn(
+      log.warn(
         { deploymentId: deployment.id, platformId: row.platformId, err },
         "configSync: failed to decrypt platform credentials, skipping"
       );
@@ -237,7 +239,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     });
 
     if (!deployment) {
-      logger.warn({ deploymentId }, "configSync→PVC: deployment not found, skipping");
+      log.warn({ deploymentId }, "configSync→PVC: deployment not found, skipping");
       return;
     }
 
@@ -255,12 +257,12 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         const configFiles = runtimeHandler.renderConfigs(fields);
         if (configFiles.length > 0) {
           await updateDeploymentConfigMap(deploymentId, configFiles, managedBy);
-          logger.info({ deploymentId }, "configSync→PVC: updated ConfigMap for creating deployment (init container will apply)");
+          log.info({ deploymentId }, "configSync→PVC: updated ConfigMap for creating deployment (init container will apply)");
         }
       }
       return;
     } else if (deployment.status !== "running") {
-      logger.info(
+      log.info(
         { deploymentId, status: deployment.status },
         "configSync→PVC: deployment not running, skipping (config will apply on next deploy/start)"
       );
@@ -272,22 +274,22 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     // This handles the case where credentials are saved while the pod is still booting.
     let podStatus = await getDeploymentPodStatus(deploymentId, managedBy);
     if (podStatus.status === "creating") {
-      logger.info({ deploymentId }, "configSync→PVC: pod still starting in K8s, waiting for readiness...");
+      log.info({ deploymentId }, "configSync→PVC: pod still starting in K8s, waiting for readiness...");
       for (let i = 0; i < 90; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         podStatus = await getDeploymentPodStatus(deploymentId, managedBy);
         if (podStatus.status === "running") {
-          logger.info({ deploymentId }, "configSync→PVC: pod is now ready");
+          log.info({ deploymentId }, "configSync→PVC: pod is now ready");
           break;
         }
         if (podStatus.status === "failed") {
-          logger.warn({ deploymentId }, "configSync→PVC: pod failed while waiting for readiness, skipping");
+          log.warn({ deploymentId }, "configSync→PVC: pod failed while waiting for readiness, skipping");
           return;
         }
       }
     }
     if (podStatus.status !== "running") {
-      logger.info(
+      log.info(
         { deploymentId, podStatus: podStatus.status },
         "configSync→PVC: pod not ready after waiting, skipping"
       );
@@ -297,7 +299,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     // 4. Get runtime handler
     const runtimeHandler = getHandlerOrNull(deployment.runtime);
     if (!runtimeHandler) {
-      logger.warn(
+      log.warn(
         { deploymentId, runtime: deployment.runtime },
         "configSync→PVC: no runtime handler, skipping"
       );
@@ -318,7 +320,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     // 7. Compare secret entries with current K8s secret to determine sync tier
     const comparison = compareSecrets(currentSecret, secretEntries);
 
-    logger.info(
+    log.info(
       {
         deploymentId,
         configCount: configFiles.length,
@@ -337,7 +339,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       // ── Tier 1: File-only change (zero downtime) ──────────────────────
       // Secrets are unchanged — update the ConfigMap (source of truth for
       // restarts) and write to the running pod's PVC for immediate effect.
-      logger.info({ deploymentId, tier: 1 }, "ConfigSync: starting tier 1 (file-only, zero downtime)");
+      log.info({ deploymentId, tier: 1 }, "ConfigSync: starting tier 1 (file-only, zero downtime)");
       if (configFiles.length > 0) {
         // Always update ConfigMap so the next pod restart gets fresh config
         await updateDeploymentConfigMap(deploymentId, configFiles, managedBy);
@@ -346,16 +348,16 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         try {
           await writeConfigsToPvc(deploymentId, configFiles, managedBy);
         } catch (writeErr) {
-          logger.warn(
+          log.warn(
             { deploymentId, err: writeErr },
             "configSync→PVC: direct PVC write failed (ConfigMap updated, will apply on restart)"
           );
         }
         for (const f of configFiles) {
-          logger.debug({ deploymentId, filePath: f.path, contentLength: f.content.length }, "ConfigSync: writing file to PVC");
+          log.debug({ deploymentId, filePath: f.path, contentLength: f.content.length }, "ConfigSync: writing file to PVC");
         }
         const durationMs = Date.now() - syncStartMs;
-        logger.info(
+        log.info(
           { deploymentId, durationMs, tier: 1, files: configFiles.map((f) => f.path) },
           "ConfigSync: completed (file-only, zero downtime)"
         );
@@ -365,7 +367,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
     if (!comparison.removed) {
       // ── Tier 2: Process restart (env vars added/changed, ~5-10s) ──────
-      logger.info({ deploymentId, tier: 2 }, "ConfigSync: starting tier 2 (process restart)");
+      log.info({ deploymentId, tier: 2 }, "ConfigSync: starting tier 2 (process restart)");
       // Secrets changed but none removed. Try in-container process restart:
       // write .env + .reload marker, kill OpenClaw process, entrypoint loop
       // re-sources .env and restarts the gateway.
@@ -381,7 +383,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         try {
           await writeConfigsToPvc(deploymentId, configFiles, managedBy);
         } catch (writeErr) {
-          logger.warn(
+          log.warn(
             { deploymentId, err: writeErr },
             "configSync→PVC: direct PVC write failed (ConfigMap updated, will apply on restart)"
           );
@@ -389,7 +391,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       }
 
       // Update K8s Secret for persistence (if pod truly restarts later, it gets the new values)
-      logger.info({ deploymentId, keyCount: Object.keys(secretEntries).length }, "ConfigSync: updating K8s secret");
+      log.info({ deploymentId, keyCount: Object.keys(secretEntries).length }, "ConfigSync: updating K8s secret");
       await updateDeploymentSecret(
         deploymentId,
         deployment.userId,
@@ -428,7 +430,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
             .set({ status: "running", error: null })
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
           const durationMs = Date.now() - syncStartMs;
-          logger.info({ deploymentId, durationMs, tier: 2 }, "ConfigSync: completed (process restart)");
+          log.info({ deploymentId, durationMs, tier: 2 }, "ConfigSync: completed (process restart)");
         } else {
           await db.update(deployments)
             .set({
@@ -436,19 +438,19 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
               error: failureReason || "Process did not become ready after reload",
             })
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
-          logger.warn({ deploymentId, failureReason }, "configSync→PVC: process restart failed");
+          log.warn({ deploymentId, failureReason }, "configSync→PVC: process restart failed");
         }
         return;
       }
 
       // Process restart not supported (old image without PID file) — fall through to Tier 3
-      logger.info({ deploymentId }, "configSync→PVC: process restart not available, falling back to pod restart");
+      log.info({ deploymentId }, "configSync→PVC: process restart not available, falling back to pod restart");
       await db.update(deployments)
         .set({ status: "restarting", error: null })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
     } else {
       // ── Tier 3 entry: Secrets removed (need full pod restart) ─────────
-      logger.info({ deploymentId, tier: 3 }, "ConfigSync: starting tier 3 (secrets removed, full pod restart)");
+      log.info({ deploymentId, tier: 3 }, "ConfigSync: starting tier 3 (secrets removed, full pod restart)");
       // Env vars can't be unset via .env sourcing — must recreate the pod
       // so the K8s Secret envFrom produces a clean environment.
 
@@ -463,7 +465,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         try {
           await writeConfigsToPvc(deploymentId, configFiles, managedBy);
         } catch (writeErr) {
-          logger.warn(
+          log.warn(
             { deploymentId, err: writeErr },
             "configSync→PVC: direct PVC write failed (ConfigMap updated, will apply on restart)"
           );
@@ -471,7 +473,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       }
 
       // Update K8s Secret (critical for platform tokens)
-      logger.info({ deploymentId, keyCount: Object.keys(secretEntries).length }, "ConfigSync: updating K8s secret");
+      log.info({ deploymentId, keyCount: Object.keys(secretEntries).length }, "ConfigSync: updating K8s secret");
       await updateDeploymentSecret(
         deploymentId,
         deployment.userId,
@@ -486,7 +488,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     // Status is already "restarting" at this point.
 
     // For operator mode, restartDeployment needs userId + config to recreate the CR
-    logger.info({ deploymentId, managedBy }, "ConfigSync: restarting deployment (full pod restart)");
+    log.info({ deploymentId, managedBy }, "ConfigSync: restarting deployment (full pod restart)");
     await restartDeployment(deploymentId, managedBy, deployment.userId, {
       name: deployment.name,
       runtime: deployment.runtime,
@@ -518,10 +520,10 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       // Cross-provider: MySQL returns [ResultSetHeader], SQLite returns { changes }, PG returns { rowCount }
       const affected = (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 1;
       if (affected === 0) {
-        logger.warn({ deploymentId }, "configSync→PVC: status update skipped — deployment no longer in 'restarting' state");
+        log.warn({ deploymentId }, "configSync→PVC: status update skipped — deployment no longer in 'restarting' state");
       } else {
         const durationMs = Date.now() - syncStartMs;
-        logger.info({ deploymentId, durationMs, tier: 3 }, "ConfigSync: completed (full pod restart)");
+        log.info({ deploymentId, durationMs, tier: 3 }, "ConfigSync: completed (full pod restart)");
       }
     } else {
       const result = await db.update(deployments)
@@ -532,16 +534,16 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
       const affected = (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 1;
       if (affected === 0) {
-        logger.warn({ deploymentId, failureReason }, "configSync→PVC: failure status update skipped — deployment no longer in 'restarting' state");
+        log.warn({ deploymentId, failureReason }, "configSync→PVC: failure status update skipped — deployment no longer in 'restarting' state");
       } else {
-        logger.warn({ deploymentId, failureReason }, "configSync→PVC: pod failed to become ready");
+        log.warn({ deploymentId, failureReason }, "configSync→PVC: pod failed to become ready");
       }
     }
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     const durationMs = Date.now() - syncStartMs;
-    logger.error(
+    log.error(
       { deploymentId, durationMs, error: errorMessage },
       "ConfigSync: failed"
     );
@@ -555,12 +557,12 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         })
         .where(eq(deployments.id, deploymentId));
 
-      logger.info(
+      log.info(
         { deploymentId, previousStatus },
         "configSync→PVC: rolled back DB status"
       );
     } catch (rollbackErr) {
-      logger.error(
+      log.error(
         { deploymentId, rollbackErr },
         "configSync→PVC: failed to rollback DB status"
       );
@@ -592,13 +594,13 @@ export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
     });
 
     if (!deployment) {
-      logger.warn({ deploymentId }, "configSync←PVC: deployment not found, skipping");
+      log.warn({ deploymentId }, "configSync←PVC: deployment not found, skipping");
       return;
     }
 
     // 2. Only sync if deployment is running
     if (deployment.status !== "running") {
-      logger.info(
+      log.info(
         { deploymentId, status: deployment.status },
         "configSync←PVC: deployment not running, skipping"
       );
@@ -610,7 +612,7 @@ export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
     // 3. Get runtime handler
     const runtimeHandler = getHandlerOrNull(deployment.runtime);
     if (!runtimeHandler) {
-      logger.warn(
+      log.warn(
         { deploymentId, runtime: deployment.runtime },
         "configSync←PVC: no runtime handler, skipping"
       );
@@ -621,7 +623,7 @@ export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
     const files = await readConfigsFromPvc(deploymentId, runtimeHandler.configFiles, managedBy);
 
     if (files.length === 0) {
-      logger.debug({ deploymentId }, "configSync←PVC: no config files found on PVC");
+      log.debug({ deploymentId }, "configSync←PVC: no config files found on PVC");
       return;
     }
 
@@ -647,7 +649,7 @@ export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
         .set(updates)
         .where(eq(deployments.id, deploymentId));
 
-      logger.info(
+      log.info(
         { deploymentId, updatedFields: Object.keys(updates) },
         "configSync←PVC: deployments table updated from PVC config"
       );
@@ -658,7 +660,7 @@ export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
       await syncPlatformCredentialsFromPvc(deploymentId, parsed.platformCredentials);
     }
   } catch (err) {
-    logger.error({ deploymentId, err }, "configSync←PVC: failed to sync from PVC");
+    log.error({ deploymentId, err }, "configSync←PVC: failed to sync from PVC");
   }
 }
 
@@ -725,7 +727,7 @@ async function syncPlatformCredentialsFromPvc(
   }
 
   if (upsertCount > 0) {
-    logger.info(
+    log.info(
       { deploymentId, platformIds: Object.keys(parsedCreds), upsertCount },
       "configSync←PVC: platform credentials synced from PVC"
     );
@@ -784,7 +786,7 @@ export async function syncMarketplaceComponent(
     `echo '${fileB64}' | base64 -d > '${basePath}/${fileName}'`,
   ], containerName);
 
-  logger.info(
+  log.info(
     { deploymentId, componentId, tier },
     "syncMarketplaceComponent: wrote component to PVC"
   );
@@ -815,7 +817,7 @@ export async function removeMarketplaceComponent(
 
   await execInPod(podName, ["rm", "-rf", basePath], containerName);
 
-  logger.info(
+  log.info(
     { deploymentId, componentId },
     "removeMarketplaceComponent: removed component from PVC"
   );

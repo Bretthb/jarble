@@ -6,7 +6,9 @@
  *
  * Uses the same provider URLs validated in openrouter.ts:validateProviderKey.
  */
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("llmProxy");
 
 export interface LlmToolCall {
   id: string;
@@ -61,7 +63,7 @@ export async function streamLlmCompletion(opts: StreamLlmOptions): Promise<void>
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") return;
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error({ err, provider, model }, "LLM proxy stream error");
+    log.error({ err, provider, model }, "LLM proxy stream error");
     onError(msg || "LLM streaming failed");
   }
 }

@@ -1,5 +1,7 @@
 import crypto from "crypto";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("k8s:lifecycle");
 import { coreApi, appsApi } from "./client.js";
 import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS } from "./constants.js";
 import type { DeploymentConfig, ManagedBy } from "./constants.js";
@@ -30,7 +32,7 @@ async function createDeploymentOperator(
   config: DeploymentConfig
 ): Promise<void> {
   const createStartMs = Date.now();
-  logger.info({ deploymentId, userId, mode: "operator" }, "K8s: creating deployment (operator)");
+  log.info({ deploymentId, userId, mode: "operator" }, "K8s: creating deployment (operator)");
 
   const gatewayToken = config.gatewayToken || crypto.randomBytes(32).toString("hex");
   let secretCreated = false;
@@ -62,13 +64,13 @@ async function createDeploymentOperator(
       stringData: secretData,
     });
     secretCreated = true;
-    logger.info({ deploymentId, keyCount: Object.keys(secretData).length }, "K8s: created Secret (operator)");
+    log.info({ deploymentId, keyCount: Object.keys(secretData).length }, "K8s: created Secret (operator)");
 
     // 2. Create ConfigMap with flat keys (operator uses these directly)
     if (config.initialConfigs && config.initialConfigs.length > 0) {
       await createDeploymentConfigMap(deploymentId, config.initialConfigs, "operator");
       configMapCreated = true;
-      logger.info({ deploymentId, fileCount: config.initialConfigs.length }, "K8s: created ConfigMap (operator)");
+      log.info({ deploymentId, fileCount: config.initialConfigs.length }, "K8s: created ConfigMap (operator)");
     }
 
     // 3. Create OpenClawInstance CR
@@ -76,22 +78,22 @@ async function createDeploymentOperator(
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    logger.error({ deploymentId, secretCreated, configMapCreated, error: errorMessage }, "K8s: createDeployment (operator) failed, rolling back");
+    log.error({ deploymentId, secretCreated, configMapCreated, error: errorMessage }, "K8s: createDeployment (operator) failed, rolling back");
     try {
       if (configMapCreated) await deleteDeploymentConfigMap(deploymentId);
     } catch (cleanupErr) {
-      logger.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete ConfigMap");
+      log.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete ConfigMap");
     }
     try {
       if (secretCreated) await coreApi.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
     } catch (cleanupErr) {
-      logger.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete Secret");
+      log.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete Secret");
     }
     throw err;
   }
 
   const createDurationMs = Date.now() - createStartMs;
-  logger.info({ deploymentId, durationMs: createDurationMs }, "K8s: deployment created successfully (operator)");
+  log.info({ deploymentId, durationMs: createDurationMs }, "K8s: deployment created successfully (operator)");
 }
 
 async function createDeploymentLegacy(
@@ -100,7 +102,7 @@ async function createDeploymentLegacy(
   config: DeploymentConfig
 ): Promise<void> {
   const createStartMs = Date.now();
-  logger.info({ deploymentId, userId }, "K8s: creating deployment");
+  log.info({ deploymentId, userId }, "K8s: creating deployment");
 
   const containerImage = config.image || DEFAULT_IMAGE;
 
@@ -130,7 +132,7 @@ async function createDeploymentLegacy(
     },
   });
   pvcCreated = true;
-  logger.info({ deploymentId, storageGi }, "K8s: created PVC");
+  log.info({ deploymentId, storageGi }, "K8s: created PVC");
 
   // 2. Create Secret for deployment env vars
   const gatewayToken = config.gatewayToken || crypto.randomBytes(32).toString("hex");
@@ -157,13 +159,13 @@ async function createDeploymentLegacy(
     stringData: secretData,
   });
   secretCreated = true;
-  logger.info({ deploymentId, keyCount: Object.keys(secretData).length }, "K8s: created Secret");
+  log.info({ deploymentId, keyCount: Object.keys(secretData).length }, "K8s: created Secret");
 
   // 3. Create ConfigMap with initial config files
   if (config.initialConfigs && config.initialConfigs.length > 0) {
     await createDeploymentConfigMap(deploymentId, config.initialConfigs);
     configMapCreated = true;
-    logger.info({ deploymentId, fileCount: config.initialConfigs.length }, "K8s: created ConfigMap");
+    log.info({ deploymentId, fileCount: config.initialConfigs.length }, "K8s: created ConfigMap");
   }
 
   // 4. Build the init container script that copies ConfigMap files to PVC.
@@ -292,33 +294,33 @@ async function createDeploymentLegacy(
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    logger.error({ deploymentId, pvcCreated, secretCreated, configMapCreated, error: errorMessage }, "K8s: createDeployment failed, rolling back");
+    log.error({ deploymentId, pvcCreated, secretCreated, configMapCreated, error: errorMessage }, "K8s: createDeployment failed, rolling back");
     try {
       if (configMapCreated) {
         await deleteDeploymentConfigMap(deploymentId);
       }
     } catch (cleanupErr) {
-      logger.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete ConfigMap");
+      log.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete ConfigMap");
     }
     try {
       if (secretCreated) {
         await coreApi.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
       }
     } catch (cleanupErr) {
-      logger.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete secret");
+      log.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete secret");
     }
     try {
       if (pvcCreated) {
         await coreApi.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
       }
     } catch (cleanupErr) {
-      logger.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete PVC");
+      log.warn({ deploymentId, cleanupErr }, "Rollback: failed to delete PVC");
     }
     throw err;
   }
 
   const createDurationMs = Date.now() - createStartMs;
-  logger.info({ deploymentId, durationMs: createDurationMs }, "K8s: deployment created successfully");
+  log.info({ deploymentId, durationMs: createDurationMs }, "K8s: deployment created successfully");
 }
 
 // ── Stop / Start ────────────────────────────────────────────────────────
@@ -329,13 +331,13 @@ async function createDeploymentLegacy(
  */
 export async function stopDeployment(deploymentId: string, managedBy: ManagedBy = "legacy"): Promise<void> {
   if (managedBy === "operator") {
-    logger.info({ deploymentId, mode: "operator" }, "Stopping deployment (deleting CR)");
+    log.info({ deploymentId, mode: "operator" }, "Stopping deployment (deleting CR)");
     await deleteOpenClawInstance(deploymentId);
-    logger.info({ deploymentId }, "Deployment stopped (CR deleted, PVC retained)");
+    log.info({ deploymentId }, "Deployment stopped (CR deleted, PVC retained)");
     return;
   }
 
-  logger.info({ deploymentId }, "Stopping deployment (scaling to 0)");
+  log.info({ deploymentId }, "Stopping deployment (scaling to 0)");
   await appsApi.patchNamespacedDeployment(
     `dep-${deploymentId}`,
     NAMESPACE,
@@ -347,7 +349,7 @@ export async function stopDeployment(deploymentId: string, managedBy: ManagedBy 
     undefined,
     { headers: { "Content-Type": "application/strategic-merge-patch+json" } }
   );
-  logger.info({ deploymentId }, "Deployment stopped");
+  log.info({ deploymentId }, "Deployment stopped");
 }
 
 /**
@@ -366,15 +368,15 @@ export async function startDeployment(
     if (!config || !userId) {
       throw new Error("startDeployment: operator mode requires userId and config to recreate CR");
     }
-    logger.info({ deploymentId, mode: "operator" }, "Starting deployment (recreating CR with existingClaim)");
+    log.info({ deploymentId, mode: "operator" }, "Starting deployment (recreating CR with existingClaim)");
     // Operator-managed PVC is named `dep-{id}-data` by convention
     const pvcName = `dep-${deploymentId}-data`;
     await createOpenClawInstance(deploymentId, userId, config, pvcName);
-    logger.info({ deploymentId }, "Deployment started (CR recreated)");
+    log.info({ deploymentId }, "Deployment started (CR recreated)");
     return;
   }
 
-  logger.info({ deploymentId }, "Starting deployment (scaling to 1)");
+  log.info({ deploymentId }, "Starting deployment (scaling to 1)");
   await appsApi.patchNamespacedDeployment(
     `dep-${deploymentId}`,
     NAMESPACE,
@@ -386,7 +388,7 @@ export async function startDeployment(
     undefined,
     { headers: { "Content-Type": "application/strategic-merge-patch+json" } }
   );
-  logger.info({ deploymentId }, "Deployment started");
+  log.info({ deploymentId }, "Deployment started");
 }
 
 /**
@@ -400,7 +402,7 @@ export async function restartDeployment(
   config?: DeploymentConfig
 ): Promise<void> {
   const restartStartMs = Date.now();
-  logger.info({ deploymentId, mode: managedBy }, "K8s: restarting deployment");
+  log.info({ deploymentId, mode: managedBy }, "K8s: restarting deployment");
 
   await stopDeployment(deploymentId, managedBy);
 
@@ -417,7 +419,7 @@ export async function restartDeployment(
   await startDeployment(deploymentId, managedBy, userId, config);
 
   const restartDurationMs = Date.now() - restartStartMs;
-  logger.info({ deploymentId, durationMs: restartDurationMs }, "K8s: deployment restarted");
+  log.info({ deploymentId, durationMs: restartDurationMs }, "K8s: deployment restarted");
 }
 
 // ── Delete ──────────────────────────────────────────────────────────────
@@ -431,7 +433,7 @@ export async function deleteDeployment(deploymentId: string, managedBy: ManagedB
 
 async function deleteDeploymentOperator(deploymentId: string): Promise<void> {
   const deleteStartMs = Date.now();
-  logger.info({ deploymentId, mode: "operator" }, "K8s: deleteDeployment starting (operator)");
+  log.info({ deploymentId, mode: "operator" }, "K8s: deleteDeployment starting (operator)");
 
   // 1. Delete CR (cascades StatefulSet, Service, PDB, NetworkPolicy)
   await deleteOpenClawInstance(deploymentId);
@@ -449,7 +451,7 @@ async function deleteDeploymentOperator(deploymentId: string): Promise<void> {
   // 3. Delete Secret (not managed by operator)
   try {
     await coreApi.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
-    logger.debug({ deploymentId }, "deleteDeployment (operator): Secret deleted");
+    log.debug({ deploymentId }, "deleteDeployment (operator): Secret deleted");
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode !== 404) throw err;
@@ -461,22 +463,22 @@ async function deleteDeploymentOperator(deploymentId: string): Promise<void> {
   // 5. Delete retained PVC (operator names it `dep-{id}-data`)
   try {
     await coreApi.deleteNamespacedPersistentVolumeClaim(`dep-${deploymentId}-data`, NAMESPACE);
-    logger.debug({ deploymentId }, "deleteDeployment (operator): PVC deleted");
+    log.debug({ deploymentId }, "deleteDeployment (operator): PVC deleted");
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode !== 404) throw err;
   }
 
   const deleteDurationMs = Date.now() - deleteStartMs;
-  logger.info({ deploymentId, durationMs: deleteDurationMs }, "K8s: deleteDeployment completed (operator)");
+  log.info({ deploymentId, durationMs: deleteDurationMs }, "K8s: deleteDeployment completed (operator)");
 }
 
 async function deleteDeploymentLegacy(deploymentId: string): Promise<void> {
   const deleteStartMs = Date.now();
-  logger.info({ deploymentId }, "K8s: deleteDeployment starting");
+  log.info({ deploymentId }, "K8s: deleteDeployment starting");
 
   // Step 1: Scale to 0 so the pod releases the RWO PVC before we delete it.
-  logger.debug({ deploymentId }, "deleteDeployment: scaling to 0 replicas");
+  log.debug({ deploymentId }, "deleteDeployment: scaling to 0 replicas");
   try {
     await appsApi.patchNamespacedDeployment(
       `dep-${deploymentId}`,
@@ -485,16 +487,16 @@ async function deleteDeploymentLegacy(deploymentId: string): Promise<void> {
       undefined, undefined, undefined, undefined, undefined,
       { headers: { "Content-Type": "application/strategic-merge-patch+json" } }
     );
-    logger.debug({ deploymentId }, "deleteDeployment: scaled to 0, waiting for pod termination");
+    log.debug({ deploymentId }, "deleteDeployment: scaled to 0, waiting for pod termination");
 
     const maxWaitMs = 30_000;
     const pollMs = 2_000;
     const start = Date.now();
     while (Date.now() - start < maxWaitMs) {
       const status = await getDeploymentPodStatus(deploymentId);
-      logger.debug({ deploymentId, podStatus: status.status }, "deleteDeployment: polling pod status");
+      log.debug({ deploymentId, podStatus: status.status }, "deleteDeployment: polling pod status");
       if (status.status === "not_found") {
-        logger.debug({ deploymentId }, "deleteDeployment: pod terminated");
+        log.debug({ deploymentId }, "deleteDeployment: pod terminated");
         break;
       }
       await new Promise((r) => setTimeout(r, pollMs));
@@ -502,61 +504,61 @@ async function deleteDeploymentLegacy(deploymentId: string): Promise<void> {
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
-      logger.debug({ deploymentId }, "deleteDeployment: K8s deployment not found (already stopped/never created), skipping scale-down");
+      log.debug({ deploymentId }, "deleteDeployment: K8s deployment not found (already stopped/never created), skipping scale-down");
     } else {
-      logger.warn({ deploymentId, err }, "deleteDeployment: failed to scale down before delete — proceeding anyway");
+      log.warn({ deploymentId, err }, "deleteDeployment: failed to scale down before delete — proceeding anyway");
     }
   }
 
   // Step 3: Delete K8s Deployment
-  logger.debug({ deploymentId }, "deleteDeployment: deleting K8s Deployment");
+  log.debug({ deploymentId }, "deleteDeployment: deleting K8s Deployment");
   try {
     await appsApi.deleteNamespacedDeployment(`dep-${deploymentId}`, NAMESPACE);
-    logger.debug({ deploymentId }, "deleteDeployment: K8s Deployment deleted");
+    log.debug({ deploymentId }, "deleteDeployment: K8s Deployment deleted");
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
-      logger.debug({ deploymentId }, "deleteDeployment: K8s Deployment already gone (404)");
+      log.debug({ deploymentId }, "deleteDeployment: K8s Deployment already gone (404)");
     } else {
-      logger.error({ deploymentId, err }, "deleteDeployment: failed to delete K8s Deployment");
+      log.error({ deploymentId, err }, "deleteDeployment: failed to delete K8s Deployment");
       throw err;
     }
   }
 
   // Step 4: Delete K8s Secret
-  logger.debug({ deploymentId }, "deleteDeployment: deleting K8s Secret");
+  log.debug({ deploymentId }, "deleteDeployment: deleting K8s Secret");
   try {
     await coreApi.deleteNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
-    logger.debug({ deploymentId }, "deleteDeployment: K8s Secret deleted");
+    log.debug({ deploymentId }, "deleteDeployment: K8s Secret deleted");
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
-      logger.debug({ deploymentId }, "deleteDeployment: K8s Secret already gone (404)");
+      log.debug({ deploymentId }, "deleteDeployment: K8s Secret already gone (404)");
     } else {
-      logger.error({ deploymentId, err }, "deleteDeployment: failed to delete K8s Secret");
+      log.error({ deploymentId, err }, "deleteDeployment: failed to delete K8s Secret");
       throw err;
     }
   }
 
   // Step 5: Delete ConfigMap
-  logger.debug({ deploymentId }, "deleteDeployment: deleting K8s ConfigMap");
+  log.debug({ deploymentId }, "deleteDeployment: deleting K8s ConfigMap");
   await deleteDeploymentConfigMap(deploymentId);
 
   // Step 6: Delete PVC (data is gone — intentional)
-  logger.debug({ deploymentId }, "deleteDeployment: deleting K8s PVC");
+  log.debug({ deploymentId }, "deleteDeployment: deleting K8s PVC");
   try {
     await coreApi.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);
-    logger.debug({ deploymentId }, "deleteDeployment: K8s PVC deleted");
+    log.debug({ deploymentId }, "deleteDeployment: K8s PVC deleted");
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
-      logger.debug({ deploymentId }, "deleteDeployment: K8s PVC already gone (404)");
+      log.debug({ deploymentId }, "deleteDeployment: K8s PVC already gone (404)");
     } else {
-      logger.error({ deploymentId, err }, "deleteDeployment: failed to delete K8s PVC");
+      log.error({ deploymentId, err }, "deleteDeployment: failed to delete K8s PVC");
       throw err;
     }
   }
 
   const deleteDurationMs = Date.now() - deleteStartMs;
-  logger.info({ deploymentId, durationMs: deleteDurationMs }, "K8s: deleteDeployment completed, all resources deleted");
+  log.info({ deploymentId, durationMs: deleteDurationMs }, "K8s: deleteDeployment completed, all resources deleted");
 }

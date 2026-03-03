@@ -2,7 +2,9 @@ import { Router } from "express";
 import { timingSafeEqual } from "crypto";
 import { eq } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("webhooks");
 import { env } from "../utils/env.js";
 import { syncConfigsFromPvc } from "../services/configSync.js";
 
@@ -23,13 +25,13 @@ webhooksRouter.post("/auth0/email-verified", async (req, res) => {
   const m2mSecret = env.AUTH0_M2M_SECRET;
 
   if (!m2mSecret) {
-    logger.warn("Auth0 email-verified webhook called but AUTH0_M2M_SECRET is not configured");
+    log.warn("Auth0 email-verified webhook called but AUTH0_M2M_SECRET is not configured");
     res.status(503).json({ error: "Webhook not configured" });
     return;
   }
 
   if (!token || !secureCompare(token, m2mSecret)) {
-    logger.warn("Auth0 email-verified webhook: invalid or missing token");
+    log.warn("Auth0 email-verified webhook: invalid or missing token");
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -47,13 +49,13 @@ webhooksRouter.post("/auth0/email-verified", async (req, res) => {
     });
 
     if (!user) {
-      logger.info({ auth0Id, email }, "Email verified webhook: user not found in DB (not yet provisioned - will sync via JWT claim)");
+      log.info({ auth0Id, email }, "Email verified webhook: user not found in DB (not yet provisioned - will sync via JWT claim)");
       res.json({ received: true, updated: false, reason: "user_not_found" });
       return;
     }
 
     if (user.emailVerified) {
-      logger.info({ userId: user.id }, "Email verified webhook: already verified");
+      log.info({ userId: user.id }, "Email verified webhook: already verified");
       res.json({ received: true, updated: false, reason: "already_verified" });
       return;
     }
@@ -62,10 +64,10 @@ webhooksRouter.post("/auth0/email-verified", async (req, res) => {
       .set({ emailVerified: true })
       .where(eq(tables.users.id, user.id));
 
-    logger.info({ userId: user.id, email: user.email }, "Email verified via Auth0 webhook");
+    log.info({ userId: user.id, email: user.email }, "Email verified via Auth0 webhook");
     res.json({ received: true, updated: true });
   } catch (err) {
-    logger.error({ err, auth0Id }, "Email verification webhook error");
+    log.error({ err, auth0Id }, "Email verification webhook error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -80,7 +82,7 @@ webhooksRouter.post("/config-changed", async (req, res) => {
     // In development without the secret, skip auth (convenience)
     const isDev = process.env.NODE_ENV === "development";
     if (!env.CONFIG_WEBHOOK_SECRET && !isDev) {
-      logger.warn("Config webhook called but CONFIG_WEBHOOK_SECRET is not configured");
+      log.warn("Config webhook called but CONFIG_WEBHOOK_SECRET is not configured");
       res.status(503).json({ error: "Webhook not configured" });
       return;
     }
@@ -115,10 +117,10 @@ webhooksRouter.post("/config-changed", async (req, res) => {
     // Fire-and-forget: read PVC config files and sync to DB
     void syncConfigsFromPvc(deploymentId);
 
-    logger.info({ deploymentId }, "Config change webhook received, syncing from PVC");
+    log.info({ deploymentId }, "Config change webhook received, syncing from PVC");
     res.json({ ok: true });
   } catch (err) {
-    logger.error({ err }, "Config change webhook error");
+    log.error({ err }, "Config change webhook error");
     res.status(500).json({ error: "Internal server error" });
   }
 });

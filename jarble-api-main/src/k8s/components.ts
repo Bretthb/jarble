@@ -1,4 +1,6 @@
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("k8s:components");
 import { findPodForDeployment, execInPod } from "./exec.js";
 import { getContainerName, getPvcMountPath } from "./constants.js";
 import type { ManagedBy } from "./constants.js";
@@ -30,7 +32,7 @@ export async function writeComponentToPvc(
     "sh", "-c",
     `mkdir -p ${pvcMount}/components && echo '${b64}' | base64 -d > '${filePath}'`,
   ], containerName);
-  logger.info({ deploymentId, name }, "Wrote component to PVC");
+  log.info({ deploymentId, name }, "Wrote component to PVC");
 }
 
 /**
@@ -155,7 +157,7 @@ export async function deleteComponentFromPvc(
   const filePath = `${pvcMount}/components/${name}.json`;
   try {
     await execInPod(podName, ["rm", filePath], containerName);
-    logger.info({ deploymentId, name }, "Deleted component from PVC");
+    log.info({ deploymentId, name }, "Deleted component from PVC");
     return true;
   } catch {
     return false;

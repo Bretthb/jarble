@@ -8,6 +8,7 @@ vi.mock("./client.js", () => ({
 // Mock logger to avoid transitive env/db imports
 vi.mock("../utils/logger.js", () => ({
   logger: { info: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
+  createModuleLogger: () => ({ info: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() }),
 }));
 
 import { encodeConfigKey, decodeConfigKey } from "./configmap.js";

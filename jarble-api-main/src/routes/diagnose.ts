@@ -8,7 +8,9 @@ import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("diagnose");
 import {
   getDeploymentPodStatus,
   getDeploymentStorageUsage,
@@ -229,6 +231,6 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
     checks,
   };
 
-  logger.info({ deploymentId, overallHealth, checkCount: checks.length }, "Diagnostics ran");
+  log.info({ deploymentId, overallHealth, checkCount: checks.length }, "Diagnostics ran");
   res.json(result);
 });

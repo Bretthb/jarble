@@ -20,7 +20,9 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createMcpServer, buildToolContext } from "../mcp/mcpServer.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("mcp");
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -47,12 +49,12 @@ const cleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [sessionId, session] of sessions) {
     if (now - session.lastAccessedAt.getTime() > SESSION_TTL_MS) {
-      logger.info(
+      log.info(
         { sessionId, deploymentId: session.deploymentId },
         "MCP session expired, closing transport",
       );
       session.transport.close().catch((err) => {
-        logger.warn({ err, sessionId }, "Error closing expired MCP transport");
+        log.warn({ err, sessionId }, "Error closing expired MCP transport");
       });
       sessions.delete(sessionId);
     }
@@ -99,7 +101,7 @@ async function authenticate(
     }
     return user.id;
   } catch (err) {
-    logger.debug({ err }, "MCP auth: token verification failed");
+    log.debug({ err }, "MCP auth: token verification failed");
     res.status(401).json({
       jsonrpc: "2.0",
       error: { code: -32000, message: "Unauthorized: invalid token" },
@@ -133,7 +135,7 @@ mcpRouter.post("/:deploymentId", async (req: Request, res: Response) => {
     try {
       await session.transport.handleRequest(req, res, req.body);
     } catch (err) {
-      logger.error(
+      log.error(
         { err, sessionId, deploymentId },
         "MCP POST: error handling request on existing session",
       );
@@ -180,7 +182,7 @@ mcpRouter.post("/:deploymentId", async (req: Request, res: Response) => {
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (newSessionId: string) => {
-        logger.info(
+        log.info(
           { sessionId: newSessionId, deploymentId, userId },
           "MCP session initialized",
         );
@@ -199,13 +201,13 @@ mcpRouter.post("/:deploymentId", async (req: Request, res: Response) => {
     transport.onclose = () => {
       const sid = transport.sessionId;
       if (sid && sessions.has(sid)) {
-        logger.info({ sessionId: sid, deploymentId }, "MCP transport closed, removing session");
+        log.info({ sessionId: sid, deploymentId }, "MCP transport closed, removing session");
         sessions.delete(sid);
       }
     };
 
     transport.onerror = (error) => {
-      logger.error(
+      log.error(
         { error: error.message, deploymentId },
         "MCP transport error",
       );
@@ -218,7 +220,7 @@ mcpRouter.post("/:deploymentId", async (req: Request, res: Response) => {
     // 7. Handle the initialization request
     await transport.handleRequest(req, res, req.body);
   } catch (err) {
-    logger.error(
+    log.error(
       { err, deploymentId },
       "MCP POST: error during session initialization",
     );
@@ -260,7 +262,7 @@ mcpRouter.get("/:deploymentId", async (req: Request, res: Response) => {
   try {
     await session.transport.handleRequest(req, res);
   } catch (err) {
-    logger.error(
+    log.error(
       { err, sessionId },
       "MCP GET: error handling SSE stream request",
     );
@@ -293,7 +295,7 @@ mcpRouter.delete("/:deploymentId", async (req: Request, res: Response) => {
 
   const session = sessions.get(sessionId)!;
 
-  logger.info(
+  log.info(
     { sessionId, deploymentId: session.deploymentId },
     "MCP DELETE: closing session",
   );
@@ -301,7 +303,7 @@ mcpRouter.delete("/:deploymentId", async (req: Request, res: Response) => {
   try {
     await session.transport.handleRequest(req, res);
   } catch (err) {
-    logger.error(
+    log.error(
       { err, sessionId },
       "MCP DELETE: error handling session termination",
     );
