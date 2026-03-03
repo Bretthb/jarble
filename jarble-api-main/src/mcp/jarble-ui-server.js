@@ -60,6 +60,32 @@ try {
   BUILTIN_DESCRIPTIONS = {};
 }
 
+// ── Load marketplace component schemas from PVC ──────────────────────
+// At startup, scan /data/marketplace/*/manifest.json for installed marketplace
+// components and merge their schemas into the builtin registries.
+
+const MARKETPLACE_DIR = process.env.JARBLE_MARKETPLACE_DIR || "/data/marketplace";
+try {
+  if (fs.existsSync(MARKETPLACE_DIR)) {
+    for (const dir of fs.readdirSync(MARKETPLACE_DIR)) {
+      const manifestPath = path.join(MARKETPLACE_DIR, dir, "manifest.json");
+      if (fs.existsSync(manifestPath)) {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+        if (manifest.name && manifest.propsSchema) {
+          BUILTIN_SCHEMAS[manifest.name] = manifest.propsSchema;
+          BUILTIN_DESCRIPTIONS[manifest.name] = manifest.description || "";
+          if (!BUILTIN_COMPONENTS.includes(manifest.name)) {
+            BUILTIN_COMPONENTS.push(manifest.name);
+          }
+        }
+      }
+    }
+    console.error(`[MCP] Scanned marketplace dir, ${BUILTIN_COMPONENTS.length} total components`);
+  }
+} catch (e) {
+  console.error("[MCP] Failed to load marketplace schemas:", e.message);
+}
+
 // ── JSON Schema Validator (zero dependencies) ─────────────────────────
 // Validates values against JSON Schema draft-07 subset produced by zod-to-json-schema.
 // Handles: type checks, required, enum, anyOf, nested objects, arrays, tuples, number ranges.
@@ -723,6 +749,10 @@ function executeComponentReference(args) {
     }
     first = false;
   }
+
+  lines.push("");
+  lines.push("---");
+  lines.push("**Tip:** Call `component_reference` with a specific component name (e.g. `{\"component\": \"chart\"}`) to get the full JSON Schema with all accepted props, types, and constraints.");
 
   return { isError: false, text: lines.join("\n") };
 }

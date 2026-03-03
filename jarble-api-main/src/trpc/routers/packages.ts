@@ -10,6 +10,7 @@ import {
   syncMarketplaceComponent,
   syncConfigsToPvc,
 } from "../../services/configSync.js";
+import { validatePropsSchema } from "../../utils/schemaValidation.js";
 
 const {
   deployments,
@@ -294,7 +295,8 @@ export const packagesRouter = router({
             {
               name: comp.name, displayName: comp.displayName,
               description: comp.description, tier: comp.tier,
-              category: comp.category, propsSchema: comp.propsSchema,
+              category: comp.category,
+              propsSchema: comp.propsSchema ? JSON.parse(comp.propsSchema) : null,
               version: latestVersion?.version ?? "1.0.0",
             },
             comp.exampleProps ?? comp.propsSchema ?? "",
@@ -483,6 +485,17 @@ export const packagesRouter = router({
         });
         if (!comp) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `Component ${compId} not found or not published` });
+        }
+        // Validate component has a valid JSON Schema for its props
+        if (comp.propsSchema) {
+          try {
+            validatePropsSchema(comp.propsSchema);
+          } catch (err) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Component "${comp.name}" has invalid propsSchema: ${(err as Error).message}`,
+            });
+          }
         }
       }
 

@@ -10,6 +10,9 @@ import {
   syncMarketplaceComponent,
   removeMarketplaceComponent,
 } from "../../services/configSync.js";
+import { validatePropsSchema } from "../../utils/schemaValidation.js";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import { COMPONENT_SCHEMAS, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 
 const {
   users,
@@ -70,6 +73,7 @@ const browseInput = z.object({
   tags: z.array(z.string()).optional(),
   cursor: z.string().optional(),
   limit: z.number().min(1).max(50).default(20),
+  includeSchemas: z.boolean().default(false),
 });
 
 const componentNameRegex = /^[a-z][a-z0-9_]{0,63}$/;
@@ -201,6 +205,9 @@ export const marketplaceRouter = router({
             id: creatorMap.get(c.creatorId)!.id,
             displayName: creatorMap.get(c.creatorId)!.displayName,
           } : null,
+          ...(input.includeSchemas && c.propsSchema
+            ? { propsSchema: JSON.parse(c.propsSchema) }
+            : {}),
         })),
         nextCursor,
       };
@@ -245,6 +252,7 @@ export const marketplaceRouter = router({
         ...component,
         tags: component.tags ? JSON.parse(component.tags) : [],
         examplePrompts: component.examplePrompts ? JSON.parse(component.examplePrompts) : [],
+        propsSchema: component.propsSchema ? JSON.parse(component.propsSchema) : null,
         creator: creator ? {
           id: creator.id,
           displayName: creator.displayName,
@@ -306,6 +314,35 @@ export const marketplaceRouter = router({
       .map(([category, count]) => ({ category, count }))
       .sort((a, b) => b.count - a.count);
   }),
+
+  builtinSchemas: publicProcedure
+    .input(z.object({ component: z.string().optional() }).optional())
+    .query(({ input }) => {
+      const componentName = input?.component;
+
+      if (componentName) {
+        const zodSchema = COMPONENT_SCHEMAS[componentName];
+        if (!zodSchema) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `Unknown component "${componentName}"` });
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ZodType union is too deep for TS
+        const jsonSchema = zodToJsonSchema(zodSchema as any, { target: "jsonSchema7", $refStrategy: "none" });
+        const { $schema, ...rest } = jsonSchema as Record<string, unknown>;
+        return { [componentName]: rest };
+      }
+
+      const result: Record<string, unknown> = {};
+      for (const [name, zodSchema] of Object.entries(COMPONENT_SCHEMAS)) {
+        if (name === "canvas") continue; // skip alias
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const jsonSchema = zodToJsonSchema(zodSchema as any, { target: "jsonSchema7", $refStrategy: "none" });
+          const { $schema, ...rest } = jsonSchema as Record<string, unknown>;
+          result[name] = rest;
+        } catch { /* skip unconvertible schemas */ }
+      }
+      return result;
+    }),
 
   // ==========================================
   // INSTALLATION (protected)
@@ -431,7 +468,7 @@ export const marketplaceRouter = router({
           description: component.description,
           tier: component.tier,
           category: component.category,
-          propsSchema: component.propsSchema,
+          propsSchema: component.propsSchema ? JSON.parse(component.propsSchema) : null,
           version: installedVersion,
         };
         const templateOrHtml = component.exampleProps ?? component.propsSchema ?? "";
@@ -935,6 +972,9 @@ export const marketplaceRouter = router({
       if (existingName) {
         throw new TRPCError({ code: "CONFLICT", message: "You already have a component with this name" });
       }
+
+      // Validate propsSchema is valid JSON Schema
+      validatePropsSchema(input.propsSchema);
 
       const componentId = generateId("cmp");
 
