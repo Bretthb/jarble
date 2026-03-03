@@ -18,7 +18,9 @@ import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { env } from "../utils/env.js";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("chat");
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { getPodAddress, findPodForDeployment } from "../k8s/index.js";
 import type { ManagedBy } from "../k8s/constants.js";
@@ -111,7 +113,8 @@ async function resolveUIBlocks(
           children,
         },
       });
-    } catch {
+    } catch (err) {
+      log.warn({ deploymentId, component: block.component, error: err instanceof Error ? err.message : String(err) }, "resolveUIBlocks: custom component resolution failed");
       resolved.push(block); // On error, pass through as-is
     }
   }
@@ -134,12 +137,12 @@ tamboAgentRouter.post("/", async (req, res) => {
       if (user) {
         authenticatedUserId = user.id;
       } else {
-        logger.warn("Chat: bearer token valid but user not found in DB");
+        log.warn("Chat: bearer token valid but user not found in DB");
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
     } catch {
-      logger.warn("Chat: invalid or expired bearer token");
+      log.warn("Chat: invalid or expired bearer token");
       res.status(401).json({ error: "Invalid token" });
       return;
     }
@@ -148,7 +151,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     if (secret) {
       const provided = req.headers["x-agent-secret"] as string | undefined;
       if (!provided || !secureCompare(provided, secret)) {
-        logger.warn("Chat: invalid or missing agent secret");
+        log.warn("Chat: invalid or missing agent secret");
         res.status(401).json({ error: "Invalid agent secret" });
         return;
       }
@@ -158,7 +161,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       }
     } else {
       // No secret configured and no JWT — always reject (even in dev mode)
-      logger.warn("Chat: no auth token and no agent secret configured");
+      log.warn("Chat: no auth token and no agent secret configured");
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
@@ -181,7 +184,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   // 3. Extract deployment ID
   const deploymentId = extractDeploymentId(body);
   if (!deploymentId) {
-    logger.warn("Chat: could not extract deploymentId from request body");
+    log.warn("Chat: could not extract deploymentId from request body");
     sendEvent(res, { type: "RUN_STARTED", runId, threadId });
     const errMsgId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: errMsgId, role: "assistant" });
@@ -198,7 +201,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   });
 
   if (!deployment) {
-    logger.warn({ deploymentId }, "Chat: deployment not found");
+    log.warn({ deploymentId }, "Chat: deployment not found");
     sendEvent(res, { type: "RUN_STARTED", runId, threadId });
     const errMsgId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: errMsgId, role: "assistant" });
@@ -211,7 +214,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   // 5. Verify ownership (always enforced regardless of auth method)
   if (deployment.userId !== authenticatedUserId) {
-    logger.warn({ deploymentId, userId: authenticatedUserId }, "Chat: user does not own deployment");
+    log.warn({ deploymentId, userId: authenticatedUserId }, "Chat: user does not own deployment");
     sendEvent(res, { type: "RUN_STARTED", runId, threadId });
     const errMsgId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: errMsgId, role: "assistant" });
@@ -236,15 +239,21 @@ tamboAgentRouter.post("/", async (req, res) => {
         : "")
     : "";
 
-  logger.info({ deploymentId, messageLength: lastUserText.length }, "Chat: request started");
+  log.info({ deploymentId, messageLength: lastUserText.length }, "Chat: request started");
 
   // Send RUN_STARTED
-  sendEvent(res, { type: "RUN_STARTED", runId, threadId });
+  sendEvent(res, {
+    type: "RUN_STARTED",
+    runId,
+    threadId,
+    llmProvider: deployment.llmProvider,
+    llmModel: deployment.llmModel,
+  });
 
   // Handle client disconnect
   const abortController = new AbortController();
   req.on("close", () => {
-    logger.debug({ deploymentId, threadId }, "Chat client disconnected");
+    log.debug({ deploymentId, threadId }, "Chat client disconnected");
     abortController.abort();
   });
 
@@ -294,7 +303,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
     sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
 
-    logger.info(
+    log.info(
       {
         deploymentId,
         rawText: gatewayResult.rawText.slice(0, 500),
@@ -306,7 +315,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     const resolvedBlocks = await resolveUIBlocks(gatewayResult.uiBlocks, deploymentId, managedBy);
     const customCount = resolvedBlocks.filter(b => b.component === "layout" && !gatewayResult.uiBlocks.find(orig => orig.id === b.id && orig.component === "layout")).length;
     if (resolvedBlocks.length > 0) {
-      logger.debug({ deploymentId, blockCount: resolvedBlocks.length, customCount }, "Chat: resolved UI blocks");
+      log.debug({ deploymentId, blockCount: resolvedBlocks.length, customCount }, "Chat: resolved UI blocks");
     }
 
     for (const block of resolvedBlocks) {
@@ -342,7 +351,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       for (const def of gatewayResult.componentDefs) {
         // Save to PVC in the background (fire-and-forget)
         writeComponentToPvc(deploymentId, def.name, def as unknown as Record<string, unknown>, managedBy).catch((err: unknown) => {
-          logger.warn({ deploymentId, name: def.name, error: err instanceof Error ? err.message : String(err) }, "Failed to save component definition to PVC");
+          log.warn({ deploymentId, name: def.name, error: err instanceof Error ? err.message : String(err) }, "Failed to save component definition to PVC");
         });
 
         // Emit event so frontend can register the component immediately
@@ -352,13 +361,13 @@ tamboAgentRouter.post("/", async (req, res) => {
           description: def.description,
           layout: def.layout,
         });
-        logger.info({ deploymentId, name: def.name, childCount: def.layout.length }, "Chat: component defined");
+        log.info({ deploymentId, name: def.name, childCount: def.layout.length }, "Chat: component defined");
       }
     }
 
     const durationMs = Date.now() - requestStartMs;
     const eventCount = resolvedBlocks.length + (gatewayResult.uiUpdates?.length ?? 0);
-    logger.info(
+    log.info(
       { deploymentId, durationMs, blockCount: resolvedBlocks.length, updateCount: gatewayResult.uiUpdates?.length ?? 0, rawTextLength: gatewayResult.rawText.length },
       "Chat: request completed"
     );
@@ -388,14 +397,14 @@ tamboAgentRouter.post("/", async (req, res) => {
   // ── Exec-only path (local dev) ──────────────────────────────────────────────
   if (useExecOnly) {
     try {
-      logger.debug({ deploymentId }, "Local dev: using exec-only path (skipping WS gateway)");
+      log.debug({ deploymentId }, "Local dev: using exec-only path (skipping WS gateway)");
       const result = await tryExec();
       await emitGatewayResult(result);
       return;
     } catch (err: unknown) {
       const e = err instanceof Error ? err : new Error(String(err));
       if (e.name === "AbortError" || abortController.signal.aborted) return;
-      logger.error({ deploymentId, error: e.message }, "Exec-only chat failed");
+      log.error({ deploymentId, error: e.message }, "Exec-only chat failed");
       const classified = classifyError(e.message, { deploymentStatus: deployment.status });
       sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${e.message}` });
       sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
@@ -459,7 +468,7 @@ tamboAgentRouter.post("/", async (req, res) => {
               sendEvent(res, { type: "UI_BLOCK_END", blockId: b.id });
             }
           } catch (err: unknown) {
-            logger.warn({ deploymentId, blockId: block.id, error: err instanceof Error ? err.message : String(err) }, "Chat: failed to emit streamed UI block");
+            log.warn({ deploymentId, blockId: block.id, error: err instanceof Error ? err.message : String(err) }, "Chat: failed to emit streamed UI block");
           }
         },
       );
@@ -475,7 +484,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       // On connection-level errors, fall back to exec through K8s API
       const isConnectionError = /ETIMEDOUT|ECONNREFUSED|ECONNRESET|handshake|closed before auth/i.test(e.message);
       if (isConnectionError && attempt < MAX_ATTEMPTS - 1) {
-        logger.warn({ deploymentId, attempt, error: e.message }, "Gateway WS failed, falling back to exec (npx openclaw agent)");
+        log.warn({ deploymentId, attempt, error: e.message }, "Gateway WS failed, falling back to exec (npx openclaw agent)");
         lastDeltaText = "";
 
         try {
@@ -484,7 +493,7 @@ tamboAgentRouter.post("/", async (req, res) => {
           return;
         } catch (execErr: unknown) {
           const execE = execErr instanceof Error ? execErr : new Error(String(execErr));
-          logger.warn({ deploymentId, error: execE.message }, "Exec fallback also failed");
+          log.warn({ deploymentId, error: execE.message }, "Exec fallback also failed");
           lastError = execE;
         }
         continue;
@@ -494,7 +503,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   }
 
   // All attempts failed
-  logger.error({ deploymentId, error: lastError?.message }, "Gateway proxy error (all attempts failed)");
+  log.error({ deploymentId, error: lastError?.message }, "Gateway proxy error (all attempts failed)");
   const classified = classifyError(lastError?.message ?? "", { deploymentStatus: deployment.status });
   sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${lastError?.message}` });
   sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });

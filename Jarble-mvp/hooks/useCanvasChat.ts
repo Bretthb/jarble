@@ -12,8 +12,10 @@
 
 import { useCallback, useRef, useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { toast } from "sonner";
 import { API_URL } from "@/lib/trpc";
 import type { CanvasAction, CanvasCard, CanvasState, LayoutHint } from "@/components/workspace/types";
+import { MAX_CANVAS_CARDS } from "@/components/workspace/types";
 import { findOpenPosition, getDefaultSize, getContainerSize } from "@/components/workspace/autoLayout";
 import { useComponentCatalog } from "@/components/ComponentCatalogProvider";
 import type { ClassifiedChatError } from "@/components/workspace/ChatErrorCard";
@@ -115,6 +117,8 @@ export function useCanvasChat(
   // a single React re-render per animation frame (~16ms / 60fps)
   const pendingTextRef = useRef<string>("");
   const rafIdRef = useRef<number | null>(null);
+  // Track current run's LLM provider/model from RUN_STARTED event (ref avoids stale closure)
+  const currentLlmRef = useRef<{ provider?: string; model?: string }>({});
 
   // Load chat history from localStorage on mount
   useEffect(() => {
@@ -310,6 +314,13 @@ export function useCanvasChat(
                 console.log(`[Jarble:Chat] SSE event: ${event.type}`);
               }
 
+              if (event.type === "RUN_STARTED") {
+                currentLlmRef.current = {
+                  provider: event.llmProvider,
+                  model: event.llmModel,
+                };
+              }
+
               if (event.type === "UI_BLOCK_START") {
                 pendingBlocks.set(event.blockId, {
                   id: event.blockId,
@@ -334,7 +345,7 @@ export function useCanvasChat(
                   // Pass cardsAddedThisStream so findOpenPosition can see cards
                   // dispatched earlier in this stream but not yet reflected in stateRef
                   // (React batches useReducer updates, so stateRef is stale within a tick)
-                  const card = addComponentCard(block, messageId, stateRef.current, dispatch, cardsAddedThisStream);
+                  const card = addComponentCard(block, messageId, stateRef.current, dispatch, cardsAddedThisStream, currentLlmRef.current);
                   if (card) cardsAddedThisStream.push(card);
                   pendingBlocks.delete(event.blockId);
                   const cardId = `card-${block.id}`;
@@ -454,7 +465,8 @@ function addComponentCard(
   messageId: string,
   state: CanvasState,
   dispatch: React.Dispatch<CanvasAction>,
-  extraCards: CanvasCard[] = []
+  extraCards: CanvasCard[] = [],
+  llmInfo: { provider?: string; model?: string } = {}
 ): CanvasCard {
   const size = getDefaultSize(block.component);
   const container = getContainerSize();
@@ -485,7 +497,13 @@ function addComponentCard(
     sourceMessageId: messageId,
     title: (block.props.title as string) || block.component.replace(/_/g, " "),
     layoutHint: block.layoutHint,
+    llmProvider: llmInfo.provider,
+    llmModel: llmInfo.model,
   };
+
+  if (state.cards.length >= MAX_CANVAS_CARDS) {
+    toast("Oldest card removed to stay within limit", { duration: 3000 });
+  }
 
   dispatch({ type: "ADD_CARD", card });
   return card;

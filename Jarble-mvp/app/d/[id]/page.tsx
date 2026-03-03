@@ -653,6 +653,8 @@ const CardContent = memo(function CardContent({
           editable: card.editable,
           fileId: card.fileId,
           saveMethod: card.saveMethod,
+          llmProvider: card.llmProvider,
+          llmModel: card.llmModel,
         }}
         deploymentId={deploymentId}
         sendMessage={sendMessage}
@@ -671,6 +673,8 @@ const CardContent = memo(function CardContent({
         id: card.id,
         component: card.component,
         props: card.props,
+        llmProvider: card.llmProvider,
+        llmModel: card.llmModel,
       }}
       onAction={handleAction}
     />

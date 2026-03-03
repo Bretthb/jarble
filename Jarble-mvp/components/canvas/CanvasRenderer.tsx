@@ -152,6 +152,10 @@ export interface UIBlock {
   editable?: boolean;
   fileId?: string;
   saveMethod?: "mcp" | "chat";
+  /** LLM provider that generated this block (e.g. "anthropic", "openai") */
+  llmProvider?: string;
+  /** LLM model that generated this block (e.g. "claude-3-opus") */
+  llmModel?: string;
 }
 
 // Depth guard: prevent infinite recursion in nested layouts
@@ -221,6 +225,8 @@ function CanvasRendererInner({
           field: repair.field,
           from: typeof repair.from === "object" ? JSON.stringify(repair.from).slice(0, 100) : String(repair.from),
           to: typeof repair.to === "object" ? JSON.stringify(repair.to).slice(0, 100) : String(repair.to),
+          llmProvider: block.llmProvider,
+          llmModel: block.llmModel,
         },
       });
     }
