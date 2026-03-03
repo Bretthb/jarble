@@ -1,9 +1,12 @@
 import type { ComponentManifestEntry } from "../types.js";
 
+/** Current sandbox bridge API version. */
+export const SANDBOX_SDK_VERSION = "1.0";
+
 export const sandboxEntry: ComponentManifestEntry = {
   name: "sandbox",
   description: "Sandboxed iframe for custom HTML/CSS/JS mini-apps — render anything. Use for charts, 3D, animations, gauges, maps, or any visualization not covered by built-in components.",
-  reference: "`{html, css?, js?, props?: {}, height?, title?, libraries?: string[]}`",
+  reference: "`{html, css?, js?, props?: {}, height?, title?, libraries?: string[], configSchema?: object}`",
   category: "specialized",
   layout: { defaultHint: "full-width", defaultSize: { w: 700, h: 600 } },
   loading: "dynamic",

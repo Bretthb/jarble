@@ -324,6 +324,8 @@ export const sandboxSchema = z.object({
   height: z.number().optional(),
   title: z.string().optional(),
   libraries: z.array(z.string()).optional(),
+  /** JSON Schema for creator-defined config panel (rendered by SandboxConfigPanel). */
+  configSchema: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const marketplaceSandboxSchema = z.object({

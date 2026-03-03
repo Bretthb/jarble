@@ -1,10 +1,11 @@
 "use client";
 
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, useState, useCallback } from "react";
 import { useCanvasAction } from "../CanvasActionContext";
 import { sanitizeHtmlProp, buildDocument } from "../sandbox/sandboxCore";
 import { useSandboxBridge } from "../sandbox/useSandboxBridge";
 import { SandboxShell } from "../sandbox/SandboxControls";
+import { SandboxConfigPanel } from "../sandbox/SandboxConfigPanel";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -17,6 +18,8 @@ export interface CanvasSandboxProps {
   title?: string;
   /** CDN libraries to load (e.g. ["https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"]) */
   libraries?: string[];
+  /** JSON Schema for creator-defined config panel. */
+  configSchema?: Record<string, unknown>;
 }
 
 function CanvasSandboxInner({
@@ -26,10 +29,22 @@ function CanvasSandboxInner({
   props,
   title,
   libraries,
+  configSchema,
 }: CanvasSandboxProps) {
   // Note: height prop is ignored - sandbox fills its parent container
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { dispatch } = useCanvasAction();
+
+  // Config panel state — values from configSchema override sandbox props
+  const [configValues, setConfigValues] = useState<Record<string, unknown>>({});
+  const handleConfigChange = useCallback((values: Record<string, unknown>) => {
+    setConfigValues(values);
+  }, []);
+
+  // Merge user config values into props (config overrides base props)
+  const mergedProps = configSchema
+    ? { ...(props || {}), ...configValues }
+    : props;
 
   // Sanitize: extract any <script>/<style>/structural tags from html prop
   const sanitized = sanitizeHtmlProp(html, js, libraries);
@@ -43,7 +58,7 @@ function CanvasSandboxInner({
 
   const { stopped, handleStop, resetReady } = useSandboxBridge({
     iframeRef,
-    props,
+    props: mergedProps,
     title,
     componentName: "sandbox",
     dispatch,
@@ -64,6 +79,15 @@ function CanvasSandboxInner({
         allow="autoplay; fullscreen"
         style={{ flex: 1, width: "100%", minHeight: 0, border: "none", borderRadius: 8, background: "transparent" }}
       />
+      {configSchema && (
+        <div style={{ flexShrink: 0, marginTop: 4 }}>
+          <SandboxConfigPanel
+            configSchema={configSchema}
+            values={configValues}
+            onChange={handleConfigChange}
+          />
+        </div>
+      )}
     </SandboxShell>
   );
 }

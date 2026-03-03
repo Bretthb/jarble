@@ -34,7 +34,7 @@ import { buttonGroupEntry } from "./components/button_group.js";
 import { formEntry } from "./components/form.js";
 import { codeEditorEntry } from "./components/code_editor.js";
 import { spreadsheetEntry } from "./components/spreadsheet.js";
-import { sandboxEntry } from "./components/sandbox.js";
+import { sandboxEntry, SANDBOX_SDK_VERSION } from "./components/sandbox.js";
 import { marketplaceSandboxEntry } from "./components/marketplace_sandbox.js";
 import { videoEntry } from "./components/video.js";
 import { audioEntry } from "./components/audio.js";
@@ -141,6 +141,7 @@ export { generateMcpReference, getComponentReference, getComponentDescriptions }
 export { deriveComponentNames, deriveComponentNameSet } from "./derive/nameList.js";
 export type { ComponentManifestEntry, LayoutHintType, ComponentCategory, LoadingStrategy } from "./types.js";
 export { TRUSTED_CDN_ORIGINS } from "./security.js";
+export { SANDBOX_SDK_VERSION } from "./components/sandbox.js";
 
 // Re-export individual schemas for direct imports
 export {

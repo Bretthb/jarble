@@ -198,6 +198,24 @@ export function validateManifest(manifest: unknown): ManifestValidationResult {
     }
   }
 
+  // 12. configSchema validation (sandbox tier only)
+  if ("configSchema" in m && m.configSchema !== undefined) {
+    if (tier !== "sandbox") {
+      errors.push(`Field "configSchema" is only allowed for sandbox tier components.`);
+    } else {
+      const configResult = validateConfigSchema(m.configSchema);
+      errors.push(...configResult.errors.map((e) => `configSchema: ${e}`));
+      warnings.push(...configResult.warnings.map((w) => `configSchema: ${w}`));
+    }
+  }
+
+  // 13. sdkVersion — optional, must be a valid version string if present
+  if ("sdkVersion" in m && m.sdkVersion !== undefined) {
+    if (typeof m.sdkVersion !== "string" || !/^\d+\.\d+$/.test(m.sdkVersion)) {
+      errors.push(`Field "sdkVersion" must be a version string (e.g., "1.0").`);
+    }
+  }
+
   const resolvedTier = VALID_TIERS.has(tier) ? (tier as "template" | "sandbox") : null;
   return { valid: errors.length === 0, errors, warnings, tier: resolvedTier };
 }
@@ -345,4 +363,79 @@ export function validateSandboxHtml(html: string): ManifestValidationResult {
   }
 
   return { valid: errors.length === 0, errors, warnings, tier: "sandbox" };
+}
+
+// ── Config Schema Validation ─────────────────────────────────────────────────
+
+/** Valid JSON Schema types for config panel fields. */
+const VALID_JSON_SCHEMA_TYPES = new Set(["string", "number", "integer", "boolean", "array", "object"]);
+
+/**
+ * Validate a sandbox configSchema (JSON Schema format).
+ *
+ * Ensures the schema is a valid JSON Schema object with supported field types
+ * for rendering in SandboxConfigPanel. Returns warnings for advanced features
+ * that the config panel may not fully support.
+ */
+export function validateConfigSchema(schema: unknown): { valid: boolean; errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (!isPlainObject(schema)) {
+    return { valid: false, errors: ["configSchema must be a JSON object."], warnings: [] };
+  }
+
+  const s = schema as Record<string, unknown>;
+
+  // Must be type "object" at root level
+  if (s.type !== "object") {
+    errors.push(`configSchema root must have type "object", got "${String(s.type || "undefined")}".`);
+  }
+
+  // Must have properties
+  if (!isPlainObject(s.properties)) {
+    errors.push(`configSchema must have a "properties" object.`);
+    return { valid: errors.length === 0, errors, warnings };
+  }
+
+  const properties = s.properties as Record<string, unknown>;
+  const propertyCount = Object.keys(properties).length;
+
+  if (propertyCount === 0) {
+    errors.push(`configSchema.properties must have at least one property.`);
+  }
+
+  if (propertyCount > 50) {
+    errors.push(`configSchema.properties has ${propertyCount} fields, max is 50.`);
+  }
+
+  // Validate each property definition
+  for (const [key, value] of Object.entries(properties)) {
+    if (!isPlainObject(value)) {
+      errors.push(`configSchema.properties["${key}"] must be an object.`);
+      continue;
+    }
+
+    const prop = value as Record<string, unknown>;
+
+    // Must have a type
+    if (typeof prop.type !== "string") {
+      errors.push(`configSchema.properties["${key}"] must have a string "type" field.`);
+      continue;
+    }
+
+    if (!VALID_JSON_SCHEMA_TYPES.has(prop.type)) {
+      errors.push(`configSchema.properties["${key}"] has unsupported type "${prop.type}".`);
+    }
+
+    // Warn about advanced features the config panel renders as plain inputs
+    if (prop.type === "object") {
+      warnings.push(`configSchema.properties["${key}"] has type "object" — rendered as JSON textarea.`);
+    }
+    if (prop.type === "array") {
+      warnings.push(`configSchema.properties["${key}"] has type "array" — rendered as JSON textarea.`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors, warnings };
 }
