@@ -40,7 +40,7 @@ npm run dev          # Start with file watching (tsx watch)
 npm run dev:test     # Start with SQLite (USE_SQLITE=true) for local dev
 npm run typecheck    # TypeScript type-check
 npm run lint         # ESLint
-npm run test         # Run Vitest unit tests (406 tests)
+npm run test         # Run Vitest unit tests (453 tests)
 npm run test:coverage # Run tests with v8 coverage report
 npm run db:push      # Push schema to database (MySQL/SQLite)
 npm run db:studio    # Open Drizzle Studio
@@ -66,7 +66,7 @@ E2E auth setup requires `e2e/.env.test` with Auth0 ROPC credentials (see `e2e/.e
 
 ## Test Suite
 
-**633 tests across 27 files** (406 backend + 227 frontend), all Vitest.
+**680 tests across 29 files** (453 backend + 227 frontend), all Vitest.
 
 ### Backend Test Structure (jarble-api-main/src/)
 ```
@@ -158,7 +158,7 @@ cd Jarble-mvp && npm run dev
 - **Container Image**: `ghcr.io/jarble-ai/openclaw:latest` (Node.js 22, OpenClaw runtime)
 
 ### tRPC Router Structure
-The API exposes 8 routers with 67+ procedures at `/trpc`:
+The API exposes 9 routers with 73+ procedures at `/trpc`:
 - `user` - Profile management, auth state
 - `deployment` - CRUD, lifecycle (start/stop/restart), K8s operations
 - `runtimeCatalog` - Available bot runtimes
@@ -167,6 +167,7 @@ The API exposes 8 routers with 67+ procedures at `/trpc`:
 - `platformCredentials` - Encrypted messaging platform credentials, pairing flows
 - `template` - Bot configuration templates
 - `marketplace` - Component marketplace: browse, install, publish, review, creator tools, admin moderation
+- `packages` - Package marketplace: browse, install/uninstall, publish, list by creator (bundles of components + skills + instructions)
 
 ### Frontend-Backend Communication
 - **tRPC + React Query**: Type-safe API calls with automatic caching
@@ -189,6 +190,10 @@ Core tables in `jarble-api-main/src/db/schema.ts` (SQLite variant in `schema.sql
 - `componentPurchases` - Purchase records
 - `componentReviews` - Ratings and reviews
 - `marketplaceCreators` - Creator profiles
+- `marketplacePackages` - Packages bundling components + skills + instructions (two hosting models: self-hosted, remote)
+- `packageComponents` - Many-to-many linking packages to components
+- `packageSkills` - Many-to-many linking packages to skills
+- `packageInstalls` - Package→deployment installations
 
 SQLite dev DB is file-based at `jarble-api-main/local.db` (persists across tsx watch restarts). Seed data (test user, runtime catalog, skills) created on startup via `db/init.ts`.
 
@@ -240,8 +245,9 @@ Each deployment creates 4 K8s resources in namespace `jarble`:
 ├── components/           # Custom component definitions (JSON, written by define_component MCP tool)
 ├── config/               # Jarble platform-managed configs (written by configSync)
 │   ├── openclaw.json     # Channel config rendered from DB
-│   └── soul.md           # System prompt from DB
+│   └── soul.md           # System prompt from DB (+ package instruction snippets)
 ├── files/                # Saved canvas component data (written by save_canvas_file MCP tool)
+├── skills/               # Installed skill configs (written by configSync from deploymentSkills)
 ├── logs/                 # Application logs
 └── runtime/              # npm-installed OpenClaw package (node_modules)
 ```
@@ -269,15 +275,19 @@ TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN
 ```
 
 ### ConfigSync Pipeline (`jarble-api-main/src/services/configSync.ts`)
-Triggered fire-and-forget by credential save/delete mutations:
+Triggered fire-and-forget by credential save/delete mutations and package install/uninstall:
 ```
-DB → buildDeploymentFields() → renderConfigs() + getSecretEntries()
+DB → buildDeploymentFields()     # loads platform creds, skills, package snippets
+  → renderConfigs()              # soul.md (+ package snippets), openclaw.json, skills/*.json
+  → getSecretEntries()           # LLM keys, platform tokens
   → writeConfigsToPvc()          # exec into pod, write files via stdin
   → updateDeploymentSecret()     # replace K8s Secret
   → restartDeployment()          # scale 0→1
   → poll for readiness           # 30 × 2s = 60s max
   → update DB status             # "running" or "failed"
 ```
+
+`buildDeploymentFields()` now also loads installed skills (from `deploymentSkills` + `skillsCatalog`) and package instruction snippets (from `packageInstalls` + `marketplacePackages`). Skills render as `/data/skills/{name}.json`. Package instruction snippets are appended to soul.md as `## Package: {name}` sections.
 
 ### Runtime Handler Pattern (`jarble-api-main/src/runtimes/handlers/`)
 Each runtime implements `RuntimeHandler`:
@@ -327,12 +337,17 @@ UI components render in a **simple responsive CSS grid** (not react-grid-layout)
 - **Split**: Multi-item components (stat_grid, key_value, descriptions) can split into individual cards
 - **Merge**: Compatible cards show a merge button to combine items
 - No visible wrappers — components render without borders/padding (styling removed from all components)
+- **Keyboard navigation**: Roving tabindex with arrow keys between cards, Enter/Space to activate, Tab to controls, Escape to grid level (`role="grid"` / `role="gridcell"`)
+- **Touch targets**: All card action buttons are 28px (WCAG 2.2 AA compliant), controls always partially visible (40% opacity, full on hover/focus)
+- **Drag accessibility**: `aria-grabbed`, `aria-dropeffect="move"`, `aria-live="polite"` announcements
 
 **Canvas reducer actions** (`canvasReducer.ts`):
 - `ADD_CARD`, `REMOVE_CARD`, `MOVE_CARD`, `RESIZE_CARD`
 - `SPLIT_CARD` — Splits multi-item components into individual cards
 - `MERGE_CARDS` — Combines items from two compatible cards
 - `REORDER_CARDS` — Drag-to-reorder support
+- `RECORD_FIX_ATTEMPT` — Tracks sandbox fix attempts per card (rate limiting)
+- `RESET_FIX_ATTEMPTS` — Clears fix attempt counter for a card
 
 **Splittable components** (configured in `types.ts:SPLITTABLE_COMPONENTS`):
 - `stat_grid` → splits into `statistic` cards
@@ -348,7 +363,20 @@ Bot renders UI via `render_ui` MCP tool → `jarble_ui` fenced blocks → fronte
 
 **Rendering pipeline**: Props are first run through `autoFixProps` (20 repair rules, 30+ component name aliases), then validated via Zod schemas, then rendered with an error boundary. Repair actions are tracked via Sentry breadcrumbs.
 
-**Sandbox** (`CanvasSandbox.tsx`): Secure iframe for arbitrary HTML/CSS/JS with Three.js, D3, etc. Uses `sandbox="allow-scripts allow-popups"` (no same-origin). Parent/iframe bridge via `window.__JARBLE_PROPS__` and `jarble.send()`. CSP is tightened to 10 trusted CDN origins (not wildcards). 30s watchdog timer kills runaway scripts. Server-side library URL validation against CDN allowlist in `uiBlockParser.ts`.
+**Sandbox** (`CanvasSandbox.tsx`): Secure iframe for arbitrary HTML/CSS/JS with Three.js, D3, etc. Uses `sandbox="allow-scripts allow-popups"` (no same-origin). Shared core modules in `components/canvas/sandbox/`:
+- `sandboxCore.ts` — `buildDocument()`, CSP construction, library injection, `sanitizeHtmlProp()`
+- `useSandboxBridge.ts` — React hook for postMessage bridge, heartbeat monitoring, storage/events relay
+- `SandboxControls.tsx` — Shared stop/restart/error UI
+- `SandboxConfigPanel.tsx` — Renders JSON Schema `configSchema` as a form for user-configurable sandboxes
+- `types.ts` — Message types, constants (`HEARTBEAT_INTERVAL_MS`, `FIX_ATTEMPT_LIMIT`)
+
+**Sandbox watchdog**: Heartbeat-based (not flat timeout). Iframe auto-pings every 5s; parent kills after 15s silence (3 missed heartbeats). Animations keep heartbeat alive since `setInterval` fires regardless of user JS.
+
+**Bridge API** (`window.jarble.*`): `jarble.send(action, payload)`, `jarble.theme`, `jarble.storage.get/set/delete` (scoped localStorage, 1MB quota), `jarble.events.on/emit` (inter-component pub/sub), `jarble.canvas.resize(w,h)`, `jarble.canvas.setTitle(t)`, `jarble.heartbeat()`, `jarble.config`, `jarble.reportProgress(pct)`. SDK version: `jarble.sdkVersion = "1.0"`.
+
+**Error rate limiting**: Max 3 "Fix Component" attempts per card per 60s window. After limit, shows "Sandbox timed out — click to retry" instead of auto-sending to bot.
+
+**CDN allowlist**: 10 trusted origins centralized in `shared/component-manifest/security.ts` (`TRUSTED_CDN_ORIGINS`), imported by both frontend `sandboxCore.ts` and backend `uiBlockParser.ts`. Server-side library URL validation before they reach the client.
 
 ### Adding a New Canvas Component
 1. Create `Jarble-mvp/components/canvas/components/Canvas{Name}.tsx` — **no wrapper styling** (use `p-3 h-full`)
@@ -459,13 +487,15 @@ Available when running locally:
 | `db/init.ts` | Seed data for local dev |
 | `utils/encryption.ts` | AES-256-GCM encrypt/decrypt for credentials |
 | `trpc/routers/marketplace.ts` | Marketplace CRUD, install/uninstall, publish, review, admin |
-| `services/manifestValidator.ts` | Component manifest validation (11 rules) |
+| `trpc/routers/packages.ts` | Package marketplace: list, get, install, uninstall, publish, listByCreator |
+| `services/manifestValidator.ts` | Component manifest validation (13 rules, includes configSchema + sdkVersion) |
 | `services/marketplace.types.ts` | Marketplace type definitions |
 
 ### Shared (shared/)
 | File | Purpose |
 |------|---------|
 | `component-manifest/index.ts` | Component manifest — schemas, metadata, derive functions |
+| `component-manifest/security.ts` | CDN allowlist (`TRUSTED_CDN_ORIGINS`) — shared by frontend + backend |
 
 ### Scripts (scripts/)
 | File | Purpose |
@@ -481,8 +511,13 @@ Available when running locally:
 | `components/workspace/types.ts` | CanvasCard, CanvasAction types, SPLITTABLE_COMPONENTS config |
 | `components/chat/AssistantUIChat.tsx` | Thread-based chat via assistant-ui (replaced StreamingBotMessage) |
 | `components/canvas/registry.ts` | 37 components with Zod schemas (imports from @jarble/component-manifest) |
-| `components/canvas/CanvasRenderer.tsx` | Validates props via Zod, renders with error boundary |
-| `components/canvas/components/CanvasSandbox.tsx` | Secure iframe for arbitrary HTML/CSS/JS |
+| `components/canvas/CanvasRenderer.tsx` | Validates props via Zod, renders with error boundary, sandbox fix rate limiting |
+| `components/canvas/components/CanvasSandbox.tsx` | Thin wrapper using shared sandbox modules |
+| `components/canvas/sandbox/sandboxCore.ts` | Shared `buildDocument()`, CSP, library injection, `sanitizeHtmlProp()` |
+| `components/canvas/sandbox/useSandboxBridge.ts` | Shared hook: postMessage bridge, heartbeat, storage/events relay |
+| `components/canvas/sandbox/SandboxControls.tsx` | Shared stop/restart/error UI |
+| `components/canvas/sandbox/SandboxConfigPanel.tsx` | JSON Schema config panel for sandbox components |
+| `components/canvas/sandbox/types.ts` | Sandbox message types, constants |
 | `views/OnboardingWizard.tsx` | Multi-step deployment wizard |
 | `views/DeploymentConfiguration.tsx` | Post-deploy config sidebar |
 | `lib/trpc.ts` | tRPC client setup with Auth0 headers |
@@ -490,7 +525,11 @@ Available when running locally:
 | `lib/sanitize.ts` | HTML sanitization via DOMPurify |
 | `lib/posthog.ts` | PostHog analytics integration |
 | `lib/assistantRuntime.ts` | assistant-ui ExternalStoreRuntime config |
-| `components/marketplace/` | Marketplace UI components (6 files) |
+| `components/marketplace/` | Marketplace UI components (10 files — 6 component + 4 package) |
+| `components/marketplace/PackageCard.tsx` | Package card for browse grid |
+| `components/marketplace/PackageDetail.tsx` | Full package detail view (components, skills, instructions) |
+| `components/marketplace/PackageList.tsx` | Package browse/search page with filters |
+| `components/marketplace/PackagePublishForm.tsx` | Creator package composition wizard |
 
 ## Component Manifest (`shared/component-manifest/`)
 
@@ -509,13 +548,15 @@ Single source of truth for all 37 component definitions (+ 1 alias: `canvas` →
 - `DEFAULT_CARD_SIZES` — Default card dimensions derived from manifest layout hints
 - `COMPONENT_SCHEMAS` — All Zod schemas indexed by name
 - `MANIFEST_SPLITTABLE` — Splittable component config derived from manifest
+- `TRUSTED_CDN_ORIGINS` — 10 trusted CDN origins for sandbox CSP (from `security.ts`)
+- `SANDBOX_SDK_VERSION` — Current sandbox SDK version ("1.0")
 
 **Derive functions**:
 - `generatePromptReference()` — Generates component reference text for soul.md prompts
 - `generateMcpReference()` / `getComponentReference()` — MCP tool reference generation
 - `getComponentDescriptions()` — Human-readable component descriptions
 
-Each component entry in `shared/component-manifest/components/{name}.ts` defines: name, description, category, Zod schema, layout hints (defaultSize, minSize, layoutHint), loading strategy, aliases, and optional splittable config.
+Each component entry in `shared/component-manifest/components/{name}.ts` defines: name, description, category, Zod schema, layout hints (defaultSize, minSize, layoutHint), loading strategy, aliases, optional splittable config, and optional `configSchema` (JSON Schema for user-configurable sandbox components).
 
 ## AutoFix Prop Repair
 
@@ -533,9 +574,10 @@ Each component entry in `shared/component-manifest/components/{name}.ts` defines
 
 ## Marketplace System
 
-Component marketplace for discovering, installing, and publishing custom UI components.
+Component and package marketplace for discovering, installing, and publishing custom UI components and bundled packages.
 
-**Database tables** (6 new):
+### Component Marketplace
+**Database tables** (6):
 - `marketplaceComponents` — Published components (manifest, code, author, pricing, status)
 - `componentVersions` — Version history
 - `componentInstalls` — Deployment→component installations
@@ -551,16 +593,38 @@ Component marketplace for discovering, installing, and publishing custom UI comp
 
 **MCP server integration**: Bots can discover and use marketplace components via the MCP tools.
 
-**Manifest validator** (`services/manifestValidator.ts`): 11 validation rules for component manifests.
+**Manifest validator** (`services/manifestValidator.ts`): 13 validation rules for component manifests (includes configSchema and sdkVersion validation).
+
+### Package Marketplace
+Packages bundle **components + skills + bot instructions** into a single installable unit.
+
+**Database tables** (4):
+- `marketplacePackages` — Published packages (name, hosting model, instruction snippet, pricing, status)
+- `packageComponents` — Many-to-many linking packages to components
+- `packageSkills` — Many-to-many linking packages to skills
+- `packageInstalls` — Package→deployment installations
+
+**Two hosting models**:
+- **Self-hosted** (`hostingModel: "package"`) — Buyer downloads everything, runs on their own pod
+- **Remote/Hosted** (`hostingModel: "hosted"`) — Creator hosts APIs, buyer gets frontend components + skill definitions pointing to creator's API
+
+**tRPC packages router** (`trpc/routers/packages.ts`): 6 procedures — `list`, `get`, `install` (atomic: components + skills + instruction snippet + single PVC sync), `uninstall`, `publish`, `listByCreator`.
+
+**Install flow**: Creates `packageInstalls` + `componentInstalls` + `deploymentSkills` records, appends `instructionSnippet` to soul.md (as `## Package: {name}` section), triggers single `syncConfigsToPvc()`.
+
+**Skills pipeline**: Installed skills are rendered to `/data/skills/{name}.json` on the pod by `openclaw.ts:renderConfigs()`. ConfigSync loads skills from `deploymentSkills` + `skillsCatalog` join.
+
+**Frontend UI** (`components/marketplace/`): `PackageCard.tsx`, `PackageDetail.tsx`, `PackageList.tsx`, `PackagePublishForm.tsx`. Integrated as "Packages" tab on the marketplace page alongside "Components" and "Publish" tabs.
 
 ## Security
 
 ### Sandbox Security
-- **CSP**: Tightened from wildcards to 10 trusted CDN origins
+- **CSP**: Tightened to 10 trusted CDN origins, centralized in `shared/component-manifest/security.ts`
 - **CSP violation monitoring**: Tracked via Sentry breadcrumbs
-- **Server-side library URL validation**: `uiBlockParser.ts` validates library URLs against a CDN allowlist before they reach the client
+- **Server-side library URL validation**: `uiBlockParser.ts` validates library URLs against CDN allowlist (`TRUSTED_CDN_ORIGINS`) before they reach the client
 - **HTML sanitization**: DOMPurify via `lib/sanitize.ts` sanitizes HTML content
-- **30s watchdog timer**: Kills runaway scripts in sandbox iframes
+- **Heartbeat watchdog**: Kills sandboxes after 15s silence (3 missed heartbeats at 5s intervals)
+- **Error rate limiting**: Max 3 auto-fix attempts per card per 60s window prevents infinite fix loops
 
 ### Response Headers
 - `X-Content-Type-Options: nosniff`
@@ -571,6 +635,20 @@ Component marketplace for discovering, installing, and publishing custom UI comp
 - Sentry error tracking (`sentry.client.config.ts`, `sentry.server.config.ts`)
 - PostHog analytics (`lib/posthog.ts`)
 - AutoFix rule frequency tracking via Sentry breadcrumbs
+
+## Accessibility
+
+### Card Infrastructure (SimpleCanvasGrid + DashboardCanvas)
+- **Keyboard navigation**: Roving tabindex — arrow keys move between cards, Enter/Space activates, Tab moves to controls, Escape returns to grid. `role="grid"` on container, `role="gridcell"` on cards.
+- **Touch targets**: All card action buttons 28px (`w-7 h-7`), meets WCAG 2.2 Level AA 24px minimum. Resize handle 20px with `role="slider"` and `aria-label`.
+- **Always-visible controls**: Card controls at 40% opacity always (`opacity-40`), full on hover or keyboard focus (`group-hover:opacity-100 group-focus-within:opacity-100`).
+- **Drag accessibility**: `aria-grabbed` on draggable cards, `aria-dropeffect="move"` on drop targets, `aria-live="polite"` region for reorder announcements.
+
+### Component ARIA Roles (29 components)
+All canvas components have semantic ARIA: `role="list"` + `role="listitem"` (stat_grid, timeline, list, steps, image_gallery, tag_cloud), `role="img"` (chart), `role="alert"` (alert), `role="progressbar"` (progress), `role="toolbar"` (button_group), `role="region"` (code_block, carousel, map, code_editor, spreadsheet), `role="article"` (card, metric_card), `role="status"` (result), `role="tree"` + `role="treeitem"` (tree), `dl/dt/dd` semantics (key_value, descriptions), `htmlFor` + `aria-required` (form). Radix-based components (tabs, accordion) verified with `aria-label` on root.
+
+### Color Contrast
+CSS custom property `--muted-foreground-subtle` provides WCAG AA compliant (4.5:1) muted text. Light: `#737373` (4.73:1), Dark: `#918c85` (~4.6:1). Tailwind token: `text-muted-foreground-subtle`. All `/40`, `/50`, `/60` opacity modifiers on text replaced across 24 files. Decorative icons and placeholder text intentionally exempt (WCAG AA allows).
 
 ## Infrastructure Notes
 
