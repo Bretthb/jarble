@@ -102,6 +102,8 @@ function CanvasMetricCardInner({
 
   return (
     <motion.div
+      role="article"
+      aria-label={`${label}: ${value}${change ? `, ${change}` : ""}`}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}

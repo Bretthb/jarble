@@ -55,7 +55,7 @@ function CanvasTabsInner({ tabs, defaultTab = 0 }: CanvasTabsProps) {
       transition={{ duration: 0.3 }}
       className="p-4 h-full"
     >
-      <Tabs defaultValue={defaultValue} onValueChange={handleTabChange}>
+      <Tabs defaultValue={defaultValue} onValueChange={handleTabChange} aria-label="Content tabs">
         <TabsList>
           {tabs.map((tab, i) => (
             <TabsTrigger key={`${tab.label}-${i}`} value={`tab-${i}`}>

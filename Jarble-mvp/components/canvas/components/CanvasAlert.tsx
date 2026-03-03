@@ -83,6 +83,8 @@ function CanvasAlertInner({ title, message, variant }: CanvasAlertProps) {
 
   return (
     <motion.div
+      role="alert"
+      aria-live="polite"
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}

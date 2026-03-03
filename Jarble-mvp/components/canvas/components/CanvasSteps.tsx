@@ -24,6 +24,8 @@ function CanvasStepsInner({
       className="p-4 h-full"
     >
       <div
+        role="list"
+        aria-label="Steps"
         className={
           isVertical
             ? "flex flex-col gap-0"

@@ -68,6 +68,8 @@ function CanvasLayoutInner({
 
   return (
     <div
+      role="region"
+      aria-label="Layout"
       className={`${layoutClass} h-full min-h-0`}
       style={{ gap }}
     >

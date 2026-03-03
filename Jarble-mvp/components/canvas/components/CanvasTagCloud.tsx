@@ -51,7 +51,7 @@ function CanvasTagCloudInner({ tags, title }: CanvasTagCloudProps) {
           {title}
         </h3>
       )}
-      <div className="flex flex-wrap gap-2">
+      <div role="list" aria-label={title || "Tags"} className="flex flex-wrap gap-2">
         {tags.map((tag, i) => {
           const color = tag.color || COLORS[i % COLORS.length];
           const rgb = hexToRgb(color);

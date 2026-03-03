@@ -28,6 +28,8 @@ function CanvasHeaderInner({ title, subtitle, level = 2, divider = false }: Canv
       className="p-4 space-y-1"
     >
       <h3
+        role="heading"
+        aria-level={level}
         className={`${headingStyle} ${
           isH1
             ? "bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent"

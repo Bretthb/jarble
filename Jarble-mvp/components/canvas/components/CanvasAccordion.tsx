@@ -77,11 +77,11 @@ function CanvasAccordionInner({ items, type = "multiple" }: CanvasAccordionProps
       className="p-4 h-full"
     >
       {type === "single" ? (
-        <Accordion type="single" defaultValue={defaultOpen[0]} collapsible>
+        <Accordion type="single" defaultValue={defaultOpen[0]} collapsible aria-label="Expandable sections">
           <AccordionItems items={items} />
         </Accordion>
       ) : (
-        <Accordion type="multiple" defaultValue={defaultOpen}>
+        <Accordion type="multiple" defaultValue={defaultOpen} aria-label="Expandable sections">
           <AccordionItems items={items} />
         </Accordion>
       )}

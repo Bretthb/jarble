@@ -43,7 +43,7 @@ function TreeNodeComponent({
   const isExpanded = expandedKeys.has(node.key);
 
   return (
-    <div>
+    <div role="treeitem" aria-expanded={hasChildren ? isExpanded : undefined}>
       <div
         className="flex items-center gap-1 py-1 hover:bg-muted/50 rounded-sm cursor-default"
         style={{ paddingLeft: `${level * 20}px` }}
@@ -66,7 +66,7 @@ function TreeNodeComponent({
         <span className="text-sm text-foreground">{node.title}</span>
       </div>
       {hasChildren && isExpanded && (
-        <div>
+        <div role="group">
           {node.children!.map((child) => (
             <TreeNodeComponent
               key={child.key}
@@ -115,7 +115,7 @@ function CanvasTreeInner({
           {title}
         </h3>
       )}
-      <div>
+      <div role="tree" aria-label={title || "Tree"}>
         {data.map((node) => (
           <TreeNodeComponent
             key={node.key}

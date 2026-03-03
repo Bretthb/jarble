@@ -89,12 +89,14 @@ function CanvasStatGridInner({
       )}
 
       {/* Stats grid */}
-      <div className="grid grid-cols-2 gap-3">
+      <div role="list" aria-label="Statistics" className="grid grid-cols-2 gap-3">
         {stats.map((stat, i) => {
           const trend = getTrend(stat.change);
 
           return (
             <motion.div
+              role="listitem"
+              aria-label={`${stat.label}: ${stat.value}${stat.change ? `, ${stat.change}` : ""}`}
               key={`${stat.label}-${i}`}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
