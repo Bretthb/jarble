@@ -46,7 +46,7 @@ import { decryptApiKey, encryptApiKey } from "../utils/encryption.js";
 import { logger } from "../utils/logger.js";
 import { nanoid } from "nanoid";
 
-const { deployments, platformCredentials } = tables;
+const { deployments, platformCredentials, deploymentSkills, skillsCatalog } = tables;
 
 // ── Per-deployment sync mutex ────────────────────────────────────────────
 // Prevents concurrent syncs for the same deployment from racing.
@@ -87,6 +87,23 @@ async function buildDeploymentFields(
     }
   }
 
+  // Load installed skills for this deployment
+  const skillRows = await db.query.deploymentSkills.findMany({
+    where: eq(deploymentSkills.deploymentId, deployment.id),
+  });
+
+  const skills: Array<{ name: string; config: string }> = [];
+  if (skillRows.length > 0) {
+    for (const row of skillRows) {
+      const skill = await db.query.skillsCatalog.findFirst({
+        where: eq(skillsCatalog.id, row.skillId),
+      });
+      if (skill) {
+        skills.push({ name: skill.name, config: skill.config });
+      }
+    }
+  }
+
   return {
     id: deployment.id,
     runtime: deployment.runtime,
@@ -101,6 +118,7 @@ async function buildDeploymentFields(
     gatewayToken,
     messagingOnly: deployment.messagingOnly ?? false,
     managedBy: managedBy ?? deployment.managedBy ?? "legacy",
+    skills: skills.length > 0 ? skills : undefined,
   };
 }
 

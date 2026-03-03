@@ -68,9 +68,11 @@ describe("openclawHandler metadata", () => {
   });
 
   it("declares config file specs", () => {
-    expect(openclawHandler.configFiles).toHaveLength(2);
+    expect(openclawHandler.configFiles).toHaveLength(3);
     expect(openclawHandler.configFiles[0].path).toBe("soul.md");
     expect(openclawHandler.configFiles[1].path).toBe("openclaw.json");
+    expect(openclawHandler.configFiles[2].path).toBe("skills/*");
+    expect(openclawHandler.configFiles[2].isGlob).toBe(true);
   });
 });
 
@@ -294,6 +296,44 @@ describe("openclawHandler.renderConfigs", () => {
     const soulMd = files.find((f) => f.path === "soul.md")!;
     expect(soulMd.content).toContain("You are a messaging bot");
     expect(soulMd.content).not.toContain("Jarble UI (dashboard only)");
+  });
+
+  it("renders skill config files when skills are present", () => {
+    const deployment = makeDeployment({
+      skills: [
+        { name: "Web Search", config: '{"tool":"browser","params":{"engine":"google"}}' },
+        { name: "Weather", config: '{"tool":"weather","params":{"provider":"openweather"}}' },
+      ],
+    });
+    const files = openclawHandler.renderConfigs(deployment);
+
+    const skillFiles = files.filter((f) => f.path.startsWith("skills/"));
+    expect(skillFiles).toHaveLength(2);
+    expect(skillFiles[0].path).toBe("skills/web-search.json");
+    expect(skillFiles[0].content).toBe('{"tool":"browser","params":{"engine":"google"}}');
+    expect(skillFiles[1].path).toBe("skills/weather.json");
+    expect(skillFiles[1].content).toBe('{"tool":"weather","params":{"provider":"openweather"}}');
+  });
+
+  it("does not render skill files when no skills installed", () => {
+    const deployment = makeDeployment({ skills: undefined });
+    const files = openclawHandler.renderConfigs(deployment);
+
+    const skillFiles = files.filter((f) => f.path.startsWith("skills/"));
+    expect(skillFiles).toHaveLength(0);
+  });
+
+  it("sanitizes skill names for filenames", () => {
+    const deployment = makeDeployment({
+      skills: [
+        { name: "My Custom Skill!", config: '{}' },
+      ],
+    });
+    const files = openclawHandler.renderConfigs(deployment);
+
+    const skillFile = files.find((f) => f.path.startsWith("skills/"));
+    expect(skillFile).toBeDefined();
+    expect(skillFile!.path).toBe("skills/my-custom-skill-.json");
   });
 });
 
