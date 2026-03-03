@@ -20,6 +20,7 @@ export const appRouter = router({
   billing: billingRouter,
   skills: skillsRouter,
   marketplace: marketplaceRouter,
+  packages: packagesRouter,
 });
 
 // Export type for frontend
