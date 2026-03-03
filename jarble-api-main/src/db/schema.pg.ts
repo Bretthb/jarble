@@ -224,6 +224,55 @@ export const componentReviews = pgTable("component_reviews", {
   userComponentReviewIdx: uniqueIndex("uq_user_component_review").on(table.userId, table.componentId),
 }));
 
+
+// ── Package Tables ────────────────────────────────────────────────────────
+
+export const marketplacePackages = pgTable("marketplace_packages", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pkg")),
+  creatorId: varchar("creator_id", { length: 255 }).notNull().references(() => creatorProfiles.id),
+  name: varchar("name", { length: 100 }).notNull(),
+  displayName: varchar("display_name", { length: 255 }).notNull(),
+  description: text("description"),
+  hostingModel: varchar("hosting_model", { length: 20 }).notNull(),
+  instructionSnippet: text("instruction_snippet"),
+  remoteApiEndpoint: varchar("remote_api_endpoint", { length: 500 }),
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
+  pricingModel: varchar("pricing_model", { length: 20 }).notNull().default("free"),
+  priceUsdCents: integer("price_usd_cents").notNull().default(0),
+  totalInstalls: integer("total_installs").notNull().default(0),
+  avgRating: varchar("avg_rating", { length: 10 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  creatorPackageNameIdx: uniqueIndex("uq_creator_package_name").on(table.creatorId, table.name),
+}));
+
+export const packageComponents = pgTable("package_components", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pkc")),
+  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplacePackages.id, { onDelete: "cascade" }),
+  componentId: varchar("component_id", { length: 255 }).notNull().references(() => marketplaceComponents.id),
+}, (table) => ({
+  packageComponentIdx: uniqueIndex("uq_package_component").on(table.packageId, table.componentId),
+}));
+
+export const packageSkills = pgTable("package_skills", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pks")),
+  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplacePackages.id, { onDelete: "cascade" }),
+  skillId: varchar("skill_id", { length: 255 }).notNull().references(() => skillsCatalog.id),
+}, (table) => ({
+  packageSkillIdx: uniqueIndex("uq_package_skill").on(table.packageId, table.skillId),
+}));
+
+export const packageInstalls = pgTable("package_installs", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pki")),
+  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplacePackages.id),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  installedAt: timestamp("installed_at").defaultNow().notNull(),
+}, (table) => ({
+  deploymentPackageIdx: uniqueIndex("uq_deployment_package").on(table.deploymentId, table.packageId),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many, one }) => ({
   deployments: many(deployments),
