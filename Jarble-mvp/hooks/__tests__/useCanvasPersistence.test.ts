@@ -120,7 +120,7 @@ describe("loadCanvasState", () => {
     expect(loadCanvasState("dep-bad")).toBeNull();
   });
 
-  it("filters out sandbox cards that have no persisted props", () => {
+  it("marks sandbox cards with empty props as propsLost", () => {
     const sandboxCard = makeCard({
       id: "s1",
       component: "sandbox",
@@ -142,9 +142,14 @@ describe("loadCanvasState", () => {
 
     const result = loadCanvasState("dep-filter");
     expect(result).not.toBeNull();
-    // Sandbox card with empty props should be filtered out
-    expect(result!.cards).toHaveLength(1);
-    expect(result!.cards[0].id).toBe("r1");
+    // Both cards should be present
+    expect(result!.cards).toHaveLength(2);
+    // Sandbox card should have propsLost flag
+    expect(result!.cards[0].id).toBe("s1");
+    expect(result!.cards[0].propsLost).toBe(true);
+    // Regular card should not
+    expect(result!.cards[1].id).toBe("r1");
+    expect(result!.cards[1].propsLost).toBeUndefined();
   });
 
   it("always restores editable cards even without props", () => {
