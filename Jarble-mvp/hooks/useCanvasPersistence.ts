@@ -113,19 +113,24 @@ export function loadCanvasState(deploymentId: string): CanvasState | null {
       return null;
     }
 
-    // Filter out cards that require props we didn't persist
-    const validCards = persisted.cards.filter((pc) => {
-      // Always restore editable cards (they have persisted props or can load from PVC)
-      if (pc.editable) return true;
-      // Skip components that need props but don't have them
-      if (SKIP_PROPS_COMPONENTS.has(pc.component) && (!pc.props || Object.keys(pc.props).length === 0)) {
-        if (process.env.NODE_ENV === "development") console.log(`[Canvas] Skipping restoration of ${pc.component} card - props not persisted`);
-        return false;
-      }
-      return true;
-    });
+    const cards = persisted.cards.map((pc) => {
+      const card = deserializeCard(pc);
 
-    const cards = validCards.map(deserializeCard);
+      // Detect if props were lost during persistence
+      const propsLost =
+        !pc.editable &&
+        SKIP_PROPS_COMPONENTS.has(pc.component) &&
+        (!pc.props || Object.keys(pc.props).length === 0);
+
+      if (propsLost) {
+        card.propsLost = true;
+        if (process.env.NODE_ENV === "development") {
+          console.log(`[Canvas] Restored ${pc.component} card with propsLost flag — props not persisted`);
+        }
+      }
+
+      return card;
+    });
     // Assign z-indexes in order
     cards.forEach((c, i) => { c.zIndex = i + 1; });
 
