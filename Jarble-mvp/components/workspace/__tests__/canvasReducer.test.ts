@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { canvasReducer, INITIAL_CANVAS_STATE } from "../canvasReducer";
 import type { CanvasState, CanvasCard, CanvasAction } from "../types";
+import { MAX_CANVAS_CARDS } from "../types";
 
 // Suppress development console.log noise from reducer
 vi.spyOn(console, "log").mockImplementation(() => {});
@@ -565,6 +566,74 @@ describe("canvasReducer", () => {
       expect(result.mode).toBe("freeform");
       expect(result.zoom).toBe(1); // reset to default
       expect(result.focusedCardId).toBeNull();
+    });
+  });
+
+  // ── PIN_CARD ─────────────────────────────────────────────────────────────
+  describe("PIN_CARD", () => {
+    it("sets pinned to true on the target card", () => {
+      const state = stateWith([makeCard({ id: "a" })]);
+      const result = canvasReducer(state, { type: "PIN_CARD", id: "a" });
+      expect(result.cards[0].pinned).toBe(true);
+    });
+
+    it("does nothing if card not found", () => {
+      const state = stateWith([makeCard({ id: "a" })]);
+      const result = canvasReducer(state, { type: "PIN_CARD", id: "nope" });
+      expect(result.cards[0].pinned).toBeUndefined();
+    });
+  });
+
+  // ── UNPIN_CARD ───────────────────────────────────────────────────────────
+  describe("UNPIN_CARD", () => {
+    it("sets pinned to false on the target card", () => {
+      const state = stateWith([makeCard({ id: "a", pinned: true })]);
+      const result = canvasReducer(state, { type: "UNPIN_CARD", id: "a" });
+      expect(result.cards[0].pinned).toBe(false);
+    });
+  });
+
+  // ── ADD_CARD eviction ───────────────────────────────────────────────────
+  describe("ADD_CARD eviction", () => {
+    it("evicts oldest unpinned card when at limit", () => {
+      const cards = Array.from({ length: MAX_CANVAS_CARDS }, (_, i) =>
+        makeCard({ id: `card-${i}`, createdAt: 1000 + i })
+      );
+      const state = stateWith(cards, { nextZIndex: MAX_CANVAS_CARDS + 1 });
+      const newCard = makeCard({ id: "overflow" });
+      const result = canvasReducer(state, { type: "ADD_CARD", card: newCard });
+      expect(result.cards).toHaveLength(MAX_CANVAS_CARDS);
+      expect(result.cards.find((c) => c.id === "card-0")).toBeUndefined();
+      expect(result.cards.find((c) => c.id === "overflow")).toBeDefined();
+    });
+
+    it("evicts oldest unpinned card, skipping pinned cards", () => {
+      const cards = Array.from({ length: MAX_CANVAS_CARDS }, (_, i) =>
+        makeCard({ id: `card-${i}`, createdAt: 1000 + i, pinned: i === 0 })
+      );
+      const state = stateWith(cards, { nextZIndex: MAX_CANVAS_CARDS + 1 });
+      const newCard = makeCard({ id: "overflow" });
+      const result = canvasReducer(state, { type: "ADD_CARD", card: newCard });
+      expect(result.cards).toHaveLength(MAX_CANVAS_CARDS);
+      expect(result.cards.find((c) => c.id === "card-0")).toBeDefined();
+      expect(result.cards.find((c) => c.id === "card-1")).toBeUndefined();
+    });
+
+    it("rejects add when all cards are pinned and at limit", () => {
+      const cards = Array.from({ length: MAX_CANVAS_CARDS }, (_, i) =>
+        makeCard({ id: `card-${i}`, pinned: true })
+      );
+      const state = stateWith(cards, { nextZIndex: MAX_CANVAS_CARDS + 1 });
+      const newCard = makeCard({ id: "overflow" });
+      const result = canvasReducer(state, { type: "ADD_CARD", card: newCard });
+      expect(result.cards).toHaveLength(MAX_CANVAS_CARDS);
+      expect(result.cards.find((c) => c.id === "overflow")).toBeUndefined();
+    });
+
+    it("does not evict when under the limit", () => {
+      const state = stateWith([makeCard({ id: "a" })]);
+      const result = canvasReducer(state, { type: "ADD_CARD", card: makeCard({ id: "b" }) });
+      expect(result.cards).toHaveLength(2);
     });
   });
 

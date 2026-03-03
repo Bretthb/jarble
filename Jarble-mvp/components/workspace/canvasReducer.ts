@@ -1,5 +1,5 @@
 import type { CanvasState, CanvasAction, CanvasCard } from "./types";
-import { INITIAL_CANVAS_STATE, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE, SPLITTABLE_COMPONENTS, FIX_ATTEMPT_WINDOW_MS } from "./types";
+import { INITIAL_CANVAS_STATE, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE, SPLITTABLE_COMPONENTS, FIX_ATTEMPT_WINDOW_MS, MAX_CANVAS_CARDS } from "./types";
 import { tidyLayout } from "./autoLayout";
 
 export { INITIAL_CANVAS_STATE };
@@ -11,9 +11,15 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
 
   switch (action.type) {
     case "ADD_CARD": {
+      let cards = state.cards;
+      if (cards.length >= MAX_CANVAS_CARDS) {
+        const oldestUnpinnedIdx = cards.findIndex((c) => !c.pinned);
+        if (oldestUnpinnedIdx === -1) return state;
+        cards = cards.filter((_, i) => i !== oldestUnpinnedIdx);
+      }
       const newState = {
         ...state,
-        cards: [...state.cards, { ...action.card, zIndex: state.nextZIndex }],
+        cards: [...cards, { ...action.card, zIndex: state.nextZIndex }],
         nextZIndex: state.nextZIndex + 1,
       };
       if (process.env.NODE_ENV === "development") console.log(`[Jarble:Reducer] ADD_CARD -> ${newState.cards.length} cards`);
@@ -377,6 +383,21 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       const { [action.id]: _, ...rest } = state.fixAttempts;
       return { ...state, fixAttempts: rest };
     }
+
+    case "PIN_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, pinned: true } : c
+        ),
+      };
+    case "UNPIN_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, pinned: false } : c
+        ),
+      };
 
     default:
       return state;
