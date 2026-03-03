@@ -108,7 +108,7 @@ export default function WizardLoader({
         </AnimatePresence>
 
         {subMessage && (
-          <p className="text-muted-foreground/60 text-xs mt-1.5">{subMessage}</p>
+          <p className="text-muted-foreground-subtle text-xs mt-1.5">{subMessage}</p>
         )}
       </div>
 
@@ -123,7 +123,7 @@ export default function WizardLoader({
               transition={{ duration: 0.5 }}
             />
           </div>
-          <p className="text-[11px] text-muted-foreground/60 text-center mt-1.5">{Math.round(progress)}%</p>
+          <p className="text-[11px] text-muted-foreground-subtle text-center mt-1.5">{Math.round(progress)}%</p>
         </div>
       )}
     </motion.div>

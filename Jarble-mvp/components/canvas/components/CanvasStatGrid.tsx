@@ -75,7 +75,7 @@ function CanvasStatGridInner({
       {(live || lastUpdated) && (
         <div className="flex items-center justify-end gap-2 mb-2">
           {lastUpdated && (
-            <span className="text-[10px] text-muted-foreground/70 font-mono tracking-tight">
+            <span className="text-[10px] text-muted-foreground-subtle font-mono tracking-tight">
               {lastUpdated}
             </span>
           )}

@@ -236,8 +236,8 @@ function DashboardCanvasInner({
           </div>
           <div className="text-center space-y-1">
             <p className="text-sm font-medium text-foreground/70">Canvas</p>
-            <p className="text-xs text-muted-foreground/60">Components will appear here when the bot renders them.</p>
-            <p className="text-xs text-muted-foreground/60">Or load saved components from your <strong>Library</strong> above.</p>
+            <p className="text-xs text-muted-foreground-subtle">Components will appear here when the bot renders them.</p>
+            <p className="text-xs text-muted-foreground-subtle">Or load saved components from your <strong>Library</strong> above.</p>
           </div>
         </div>
       </div>
@@ -332,7 +332,7 @@ function DashboardCanvasInner({
                   <div className="shrink-0 flex items-center justify-between px-2 py-0.5 opacity-40 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity absolute top-0 left-0 right-0 z-20 bg-background/80 backdrop-blur-sm">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <GripVertical className="w-3 h-3 text-muted-foreground/40 shrink-0" />
-                      <span className="text-[10px] text-muted-foreground/60 truncate">
+                      <span className="text-[10px] text-muted-foreground-subtle truncate">
                         {card.title || card.component.replace(/_/g, " ")}
                       </span>
                       {card.savedName && (

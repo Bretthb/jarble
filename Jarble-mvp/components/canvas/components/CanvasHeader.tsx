@@ -39,7 +39,7 @@ function CanvasHeaderInner({ title, subtitle, level = 2, divider = false }: Canv
         {title}
       </h3>
       {subtitle && (
-        <p className="text-xs text-muted-foreground/80 leading-relaxed">{subtitle}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">{subtitle}</p>
       )}
       {(divider || isH1) && (
         <div className="h-0.5 w-12 rounded-full bg-gradient-to-r from-primary/60 to-transparent mt-1" />

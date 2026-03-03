@@ -85,7 +85,7 @@ function CanvasListInner({ title, items, ordered = false }: CanvasListProps) {
                 )}
               </div>
               {item.description && (
-                <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">{item.description}</p>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{item.description}</p>
               )}
             </div>
           </motion.li>

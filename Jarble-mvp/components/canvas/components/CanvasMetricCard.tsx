@@ -120,7 +120,7 @@ function CanvasMetricCardInner({
         {live ? (
           <LiveDot />
         ) : lastUpdated ? (
-          <span className="text-[10px] text-muted-foreground/60">
+          <span className="text-[10px] text-muted-foreground-subtle">
             Snapshot {lastUpdated}
           </span>
         ) : null}
@@ -152,7 +152,7 @@ function CanvasMetricCardInner({
                 {cleanChange || change}
               </span>
               {resolvedChangeLabel && (
-                <span className="text-[10px] text-muted-foreground/70">
+                <span className="text-[10px] text-muted-foreground-subtle">
                   {resolvedChangeLabel}
                 </span>
               )}

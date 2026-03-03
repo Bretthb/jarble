@@ -307,7 +307,7 @@ export default function Pricing() {
 
               <ul className="space-y-3 mb-6">
                 <li className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
+                  <span className="text-muted-foreground-subtle mt-0.5">&#10003;</span>
                   <span>No API key needed</span>
                 </li>
                 <li className="flex items-start gap-2 text-sm text-muted-foreground">

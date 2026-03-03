@@ -415,7 +415,7 @@ export default function OnboardingWizard() {
                       ? "bg-primary text-primary-foreground"
                       : isCompleted
                       ? "bg-secondary text-foreground hover:bg-secondary/80 cursor-pointer"
-                      : "text-muted-foreground/50 cursor-not-allowed"
+                      : "text-muted-foreground-subtle cursor-not-allowed"
                   }`}
                 >
                   {isCompleted ? (

@@ -414,7 +414,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
               </div>
               <div className="text-center space-y-1">
                 <p className="text-sm font-medium text-foreground/70">Start a conversation</p>
-                <p className="text-xs text-muted-foreground/60">
+                <p className="text-xs text-muted-foreground-subtle">
                   Send a message to interact with your bot
                 </p>
               </div>

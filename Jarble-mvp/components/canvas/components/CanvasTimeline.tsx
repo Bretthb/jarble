@@ -105,7 +105,7 @@ function CanvasTimelineInner({ title, events }: CanvasTimelineProps) {
                   )}
                 </div>
                 {event.description && (
-                  <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
                     {event.description}
                   </p>
                 )}

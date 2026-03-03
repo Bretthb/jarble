@@ -148,7 +148,7 @@ function CanvasToolbarInner({
         </>
       )}
 
-      <span className="text-[10px] text-muted-foreground/50 ml-auto">
+      <span className="text-[10px] text-muted-foreground-subtle ml-auto">
         {cards.length} component{cards.length !== 1 ? "s" : ""}
       </span>
     </div>
