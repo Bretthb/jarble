@@ -15,6 +15,7 @@
 
 import { nanoid } from "nanoid";
 import { logger } from "./logger.js";
+import { TRUSTED_CDN_ORIGINS as TRUSTED_CDN_ORIGINS_ARRAY } from "@jarble/component-manifest";
 
 export type LayoutHint = "full-width" | "half" | "third" | "compact" | "auto";
 
@@ -46,20 +47,9 @@ const MAX_BLOCK_SIZE = 100_000;
 
 /**
  * Allowlist of trusted CDN origins for sandbox library URLs.
- * Must match the frontend TRUSTED_CDN_ORIGINS in CanvasSandbox.tsx exactly.
+ * Imported from @jarble/component-manifest (single source of truth).
  */
-export const TRUSTED_CDN_ORIGINS = new Set([
-  "https://cdn.jsdelivr.net",
-  "https://cdnjs.cloudflare.com",
-  "https://unpkg.com",
-  "https://cdn.tailwindcss.com",
-  "https://esm.sh",
-  "https://threejs.org",
-  "https://d3js.org",
-  "https://cdn.plot.ly",
-  "https://fonts.googleapis.com",
-  "https://fonts.gstatic.com",
-]);
+export const TRUSTED_CDN_ORIGINS = new Set(TRUSTED_CDN_ORIGINS_ARRAY);
 
 /**
  * Validate that a library URL is from a trusted CDN origin.

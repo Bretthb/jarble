@@ -140,6 +140,7 @@ export { generatePromptReference } from "./derive/promptText.js";
 export { generateMcpReference, getComponentReference, getComponentDescriptions } from "./derive/mcpReference.js";
 export { deriveComponentNames, deriveComponentNameSet } from "./derive/nameList.js";
 export type { ComponentManifestEntry, LayoutHintType, ComponentCategory, LoadingStrategy } from "./types.js";
+export { TRUSTED_CDN_ORIGINS } from "./security.js";
 
 // Re-export individual schemas for direct imports
 export {
