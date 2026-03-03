@@ -1,21 +1,44 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { Context } from "./context.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("trpc:middleware");
 
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
 });
 
-export const router = t.router;
-export const publicProcedure = t.procedure;
+const loggingMiddleware = t.middleware(async ({ ctx, next, path, type }) => {
+  log.debug({ path, type, requestId: ctx.requestId }, "procedure start");
+  const start = Date.now();
 
-// Protected procedure - requires authenticated user
-export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
+  const result = await next();
+
+  const durationMs = Date.now() - start;
+
+  if (result.ok) {
+    log.debug({ path, type, durationMs, requestId: ctx.requestId, ok: result.ok }, "procedure end");
+  } else {
+    log.error({ path, type, durationMs, requestId: ctx.requestId, ok: result.ok, error: result.error }, "procedure end");
+  }
+
+  return result;
+});
+
+const authMiddleware = t.middleware(({ ctx, next, path }) => {
   if (!ctx.user) {
-    throw new TRPCError({ 
+    log.warn({ requestId: ctx.requestId, path }, "unauthorized access attempt");
+    throw new TRPCError({
       code: "UNAUTHORIZED",
       message: "You must be logged in to access this resource"
     });
   }
   return next({ ctx: { ...ctx, user: ctx.user } });
 });
+
+export const router = t.router;
+export const publicProcedure = t.procedure.use(loggingMiddleware);
+
+// Protected procedure - requires authenticated user
+export const protectedProcedure = t.procedure.use(loggingMiddleware).use(authMiddleware);

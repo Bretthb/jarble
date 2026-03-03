@@ -12,6 +12,8 @@ import { startStorageEnforcement } from "./services/storageEnforcement.js";
 import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement.js";
 import { startStatusReconciler } from "./services/statusReconciler.js";
 import { globalLimiter, authLimiter } from "./middleware/rateLimit.js";
+import { requestIdMiddleware } from "./middleware/requestId.js";
+import { requestLoggingMiddleware } from "./middleware/requestLogging.js";
 
 // Route modules
 import { stripeWebhookHandler, stripeRouter } from "./routes/stripe.js";
@@ -67,6 +69,10 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), strip
 // ─── JSON parsing (after webhook route) ───
 app.use(express.json());
 
+// ─── Request ID + logging middleware ───
+app.use(requestIdMiddleware);
+app.use(requestLoggingMiddleware);
+
 // ─── Route modules ───
 app.use("/api/stripe", stripeRouter);
 app.use("/api", webhooksRouter);
@@ -91,10 +97,26 @@ app.get("/health", (_req, res) => {
 app.use("/trpc", authLimiter, createExpressMiddleware({
   router: appRouter,
   createContext,
-  onError: ({ error, path }) => {
-    logger.error({ error: error.message, path }, "tRPC error");
+  onError: ({ error, path, ctx }) => {
+    logger.error({
+      error: error.message,
+      code: error.code,
+      path,
+      requestId: (ctx as any)?.requestId,
+      userId: (ctx as any)?.user?.id,
+      ...(env.NODE_ENV === "development" ? { stack: error.stack } : {}),
+    }, "tRPC error");
   }
 }));
+
+// Global error handler — catches unhandled sync errors in Express routes
+app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const log = req.log || logger;
+  log.error({ err: err.message, stack: err.stack, method: req.method, url: req.originalUrl }, "Unhandled error");
+  if (!res.headersSent) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // Start server
 async function start() {
