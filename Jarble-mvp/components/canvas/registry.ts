@@ -53,6 +53,9 @@ import {
   statisticSchema,
   tagCloudSchema,
   treeSchema,
+  reasoningSchema,
+  toolSchema,
+  sourcesSchema,
 } from "@jarble/component-manifest";
 
 // Re-export schemas for consumers that import them directly from registry.ts
@@ -95,6 +98,9 @@ export {
   statisticSchema,
   tagCloudSchema,
   treeSchema,
+  reasoningSchema,
+  toolSchema,
+  sourcesSchema,
 };
 
 // ── Lightweight components — static imports ──────────────────────────────────
@@ -122,6 +128,9 @@ import CanvasAudio from "./components/CanvasAudio";
 import CanvasAvatar from "./components/CanvasAvatar";
 import CanvasBlockquote from "./components/CanvasBlockquote";
 import CanvasTextMessage from "./components/CanvasTextMessage";
+import CanvasReasoning from "./components/CanvasReasoning";
+import CanvasTool from "./components/CanvasTool";
+import CanvasSources from "./components/CanvasSources";
 
 // ── Heavy components — lazy-loaded (ssr: false) ─────────────────────────────
 
@@ -203,4 +212,7 @@ export const CANVAS_COMPONENTS: Record<string, CanvasComponentEntry> = {
   statistic: { component: CanvasStatistic, propsSchema: statisticSchema },
   tag_cloud: { component: CanvasTagCloud, propsSchema: tagCloudSchema },
   tree: { component: CanvasTree, propsSchema: treeSchema },
+  reasoning: { component: CanvasReasoning, propsSchema: reasoningSchema },
+  tool: { component: CanvasTool, propsSchema: toolSchema },
+  sources: { component: CanvasSources, propsSchema: sourcesSchema },
 };
