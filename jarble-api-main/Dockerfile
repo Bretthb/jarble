@@ -3,13 +3,16 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Install dependencies
-COPY package*.json ./
-RUN npm ci
+COPY jarble-api-main/package*.json ./jarble-api-main/
+RUN cd jarble-api-main && npm ci
+
+# Copy shared package (resolved via tsconfig paths)
+COPY shared/ ./shared/
 
 # Copy source and build
-COPY tsconfig.json ./
-COPY src/ ./src/
-RUN npm run build
+COPY jarble-api-main/tsconfig.json ./jarble-api-main/
+COPY jarble-api-main/src/ ./jarble-api-main/src/
+RUN cd jarble-api-main && npm run build
 
 # Production image
 FROM node:22-alpine
@@ -17,16 +20,21 @@ FROM node:22-alpine
 WORKDIR /app
 
 # Copy built files and production deps
-COPY package*.json ./
-RUN npm ci --only=production
+COPY jarble-api-main/package*.json ./
+RUN npm ci --omit=dev
 
-COPY --from=builder /app/dist ./dist
+# Copy compiled output preserving directory structure
+# tsc outputs to dist/jarble-api-main/src/ and dist/shared/ (rootDir is monorepo root)
+COPY --from=builder /app/jarble-api-main/dist ./dist
 
 # Migration artifacts (drizzle-orm migrator reads these at runtime)
-COPY drizzle-pg/ ./drizzle-pg/
+COPY jarble-api-main/drizzle-pg/ ./drizzle-pg/
+
+# MCP server (not compiled by tsc — runs as plain JS)
+COPY jarble-api-main/src/mcp/jarble-ui-server.js ./dist/jarble-api-main/src/mcp/jarble-ui-server.js
 
 # Entrypoint: migrate → seed → start
-COPY entrypoint.sh ./entrypoint.sh
+COPY jarble-api-main/entrypoint.sh ./entrypoint.sh
 RUN chmod +x entrypoint.sh
 
 # Health check

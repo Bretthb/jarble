@@ -2,10 +2,10 @@
 set -e
 
 echo "[entrypoint] Running migrations..."
-node dist/db/migrate.pg.js
+node dist/jarble-api-main/src/db/migrate.pg.js
 
 echo "[entrypoint] Seeding runtime catalog..."
-node dist/db/seed.pg.js
+node dist/jarble-api-main/src/db/seed.pg.js
 
 echo "[entrypoint] Starting API server..."
-exec node dist/index.js
+exec node dist/jarble-api-main/src/index.js
