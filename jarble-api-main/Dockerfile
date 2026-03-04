@@ -27,6 +27,10 @@ RUN npm ci --omit=dev
 # tsc outputs to dist/jarble-api-main/src/ and dist/shared/ (rootDir is monorepo root)
 COPY --from=builder /app/jarble-api-main/dist ./dist
 
+# Resolve @jarble/component-manifest path alias at runtime
+# tsc compiles shared/ to dist/shared/ but Node.js needs a real module path
+RUN mkdir -p node_modules/@jarble && ln -s /app/dist/shared/component-manifest node_modules/@jarble/component-manifest
+
 # Migration artifacts (drizzle-orm migrator reads these at runtime)
 COPY jarble-api-main/drizzle-pg/ ./drizzle-pg/
 

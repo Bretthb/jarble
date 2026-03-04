@@ -168,7 +168,7 @@ resource "hcloud_server" "master" {
       --tls-san "${var.cluster_name}-master" \
       --tls-san "$(curl -s http://169.254.169.254/hetzner/v1/metadata/public-ipv4)" \
       --node-ip "10.0.1.10" \
-      --flannel-iface "ens10" \
+      --flannel-iface "enp7s0" \
       --disable "servicelb" \
       --write-kubeconfig-mode "0644"
 
@@ -270,7 +270,7 @@ resource "hcloud_server" "agent" {
       --server "https://10.0.1.10:6443" \
       --token "${local.k3s_token}" \
       --node-ip "10.0.1.${20 + count.index}" \
-      --flannel-iface "ens10"
+      --flannel-iface "enp7s0"
 
     echo "K3s agent setup complete" > /var/log/k3s-setup.log
   EOF
