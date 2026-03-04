@@ -11,6 +11,7 @@ import { useCanvasChat } from "@/hooks/useCanvasChat";
 import { useJarbleRuntime } from "@/lib/assistantRuntime";
 import AssistantUIChat from "@/components/chat/AssistantUIChat";
 import { useCanvasPersistence } from "@/hooks/useCanvasPersistence";
+import { useArtifactSync } from "@/hooks/useArtifactSync";
 import { canvasReducer, INITIAL_CANVAS_STATE } from "@/components/workspace/canvasReducer";
 import SimpleCanvasGrid from "@/components/workspace/SimpleCanvasGrid";
 import DashboardCanvas from "@/components/workspace/DashboardCanvas";
@@ -272,6 +273,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
   const { sendMessage, isStreaming, streamingCardIds, messages, streamingText, lastChatError, lastUserMessage, clearChatError } = useCanvasChat(deploymentId, state, dispatch);
   const runtime = useJarbleRuntime({ messages, streamingText, isStreaming, sendMessage });
   useCanvasPersistence(deploymentId, state, dispatch);
+  useArtifactSync(deploymentId, state, dispatch);
   const { result: diagnosis, isLoading: isDiagnosing, runDiagnosis } = useDiagnose(deploymentId);
   const [input, setInput] = useState("");
   const [showCanvas, setShowCanvas] = useState(true);

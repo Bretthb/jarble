@@ -406,6 +406,17 @@ export function useCanvasChat(
                     cardIds,
                   });
                 }
+                if (event.name === "jarble.artifact.updated" && event.value) {
+                  const { id, component, props } = event.value;
+                  isDev && console.log(`[Jarble:Chat] Artifact updated (AG-UI): ${id}`);
+                  dispatch({
+                    type: "UPDATE_CARD_PROPS",
+                    id,
+                    props,
+                    merge: true,
+                    component,
+                  });
+                }
               }
 
               // Break both the for loop and the outer while loop cleanly
