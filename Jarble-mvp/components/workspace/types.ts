@@ -52,6 +52,8 @@ export interface CanvasCard {
   llmProvider?: string;
   /** LLM model that generated this card (e.g. "claude-3-opus") */
   llmModel?: string;
+  /** Dashboard group this card belongs to */
+  groupId?: string;
 }
 
 export interface CanvasState {
@@ -63,6 +65,8 @@ export interface CanvasState {
   mode: CanvasMode;
   /** Per-card fix attempt tracking for error loop rate limiting. */
   fixAttempts: Record<string, FixAttemptRecord>;
+  /** Dashboard groups: groupId -> metadata */
+  dashboardGroups: Record<string, { title: string; cardIds: string[] }>;
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -97,7 +101,9 @@ export type CanvasAction =
   | { type: "RECORD_FIX_ATTEMPT"; id: string }
   | { type: "RESET_FIX_ATTEMPTS"; id: string }
   | { type: "PIN_CARD"; id: string }
-  | { type: "UNPIN_CARD"; id: string };
+  | { type: "UNPIN_CARD"; id: string }
+  | { type: "CREATE_DASHBOARD_GROUP"; groupId: string; title: string; cardIds: string[] }
+  | { type: "UNGROUP_DASHBOARD"; groupId: string };
 
 // ── Splittable components config ────────────────────────────────────────────
 
@@ -237,4 +243,5 @@ export const INITIAL_CANVAS_STATE: CanvasState = {
   focusedCardId: null,
   mode: "dashboard",
   fixAttempts: {},
+  dashboardGroups: {},
 };

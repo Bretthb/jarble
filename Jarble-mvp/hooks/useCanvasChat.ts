@@ -79,6 +79,8 @@ interface UIBlockPending {
   fileId?: string;
   saveMethod?: "mcp" | "chat";
   layoutHint?: LayoutHint;
+  dashboardId?: string;
+  dashboardTitle?: string;
 }
 
 /** Regex to strip ```jarble_ui ... ```, ```jarble_ui_update ... ```, and ```jarble_ui_define ... ``` fenced blocks from displayed text */
@@ -333,6 +335,8 @@ export function useCanvasChat(
                   ...(event.fileId ? { fileId: event.fileId } : {}),
                   ...(event.saveMethod ? { saveMethod: event.saveMethod } : {}),
                   ...(event.layoutHint ? { layoutHint: event.layoutHint } : {}),
+                  ...(event.dashboardId ? { dashboardId: event.dashboardId } : {}),
+                  ...(event.dashboardTitle ? { dashboardTitle: event.dashboardTitle } : {}),
                 });
                 setStreamingCardIds((prev) => new Set(prev).add(`card-${blockId}`));
               }
@@ -391,6 +395,16 @@ export function useCanvasChat(
                 if (event.name === "jarble.chat.error" && event.value?.error) {
                   isDev && console.log(`[Jarble:Chat] CHAT_ERROR (AG-UI): ${event.value.error.code}`);
                   setLastChatError(event.value.error as ClassifiedChatError);
+                }
+                if (event.name === "jarble.dashboard.created" && event.value) {
+                  const { dashboardId, title, cardIds } = event.value;
+                  isDev && console.log(`[Jarble:Chat] Dashboard created: "${title}" (${cardIds.length} cards)`);
+                  dispatch({
+                    type: "CREATE_DASHBOARD_GROUP",
+                    groupId: dashboardId,
+                    title,
+                    cardIds,
+                  });
                 }
               }
 
@@ -506,6 +520,7 @@ function addComponentCard(
     layoutHint: block.layoutHint,
     llmProvider: llmInfo.provider,
     llmModel: llmInfo.model,
+    groupId: block.dashboardId || undefined,
   };
 
   if (state.cards.length >= MAX_CANVAS_CARDS) {

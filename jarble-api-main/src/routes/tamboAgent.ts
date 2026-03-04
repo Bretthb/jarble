@@ -42,6 +42,7 @@ import {
   CUSTOM_CARD_UPDATE,
   CUSTOM_COMPONENT_DEFINED,
   CUSTOM_CHAT_ERROR,
+  CUSTOM_DASHBOARD_CREATED,
 } from "../utils/eventTypes.js";
 
 export const tamboAgentRouter = Router();
@@ -339,6 +340,8 @@ tamboAgentRouter.post("/", async (req, res) => {
         ...(block.fileId ? { fileId: block.fileId } : {}),
         ...(block.saveMethod ? { saveMethod: block.saveMethod } : {}),
         ...(block.layoutHint ? { layoutHint: block.layoutHint } : {}),
+        ...(block.dashboardId ? { dashboardId: block.dashboardId } : {}),
+        ...(block.dashboardTitle ? { dashboardTitle: block.dashboardTitle } : {}),
       });
       sendEvent(res, {
         type: TOOL_CALL_ARGS,
@@ -346,6 +349,23 @@ tamboAgentRouter.post("/", async (req, res) => {
         delta: JSON.stringify(block.props),
       });
       sendEvent(res, { type: TOOL_CALL_END, toolCallId });
+    }
+
+    // Emit dashboard grouping events
+    const dashboardGroups = new Map<string, { title: string; cardIds: string[] }>();
+    for (const block of resolvedBlocks) {
+      if (block.dashboardId) {
+        const group = dashboardGroups.get(block.dashboardId) || { title: block.dashboardTitle || "Dashboard", cardIds: [] };
+        group.cardIds.push(`card-${block.id}`);
+        dashboardGroups.set(block.dashboardId, group);
+      }
+    }
+    for (const [dashboardId, group] of dashboardGroups) {
+      sendEvent(res, {
+        type: CUSTOM,
+        name: CUSTOM_DASHBOARD_CREATED,
+        value: { dashboardId, title: group.title, cardIds: group.cardIds },
+      });
     }
 
     // Emit card updates as AG-UI CUSTOM events
@@ -485,6 +505,8 @@ tamboAgentRouter.post("/", async (req, res) => {
                 ...(b.fileId ? { fileId: b.fileId } : {}),
                 ...(b.saveMethod ? { saveMethod: b.saveMethod } : {}),
                 ...(b.layoutHint ? { layoutHint: b.layoutHint } : {}),
+                ...(b.dashboardId ? { dashboardId: b.dashboardId } : {}),
+                ...(b.dashboardTitle ? { dashboardTitle: b.dashboardTitle } : {}),
               });
               sendEvent(res, {
                 type: TOOL_CALL_ARGS,

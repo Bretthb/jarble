@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
-import type { CanvasCard, CanvasAction } from "./types";
+import type { CanvasCard, CanvasAction, CanvasState } from "./types";
 import { canSplitCard } from "./types";
 import ComponentGallery from "./ComponentGallery";
 import CanvasToolbar from "./CanvasToolbar";
@@ -31,6 +31,7 @@ interface SimpleCanvasGridProps {
   streamingCardIds: Set<string>;
   deploymentId: string;
   onHide?: () => void;
+  dashboardGroups: CanvasState["dashboardGroups"];
 }
 
 function SimpleCanvasGridInner({
@@ -41,6 +42,7 @@ function SimpleCanvasGridInner({
   streamingCardIds,
   deploymentId,
   onHide,
+  dashboardGroups,
 }: SimpleCanvasGridProps) {
   const { getAccessTokenSilently } = useAuth0();
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -362,6 +364,37 @@ function SimpleCanvasGridInner({
       >
         {/* Spacer to make the canvas scrollable beyond the last card */}
         <div style={{ width: Math.max(1200, ...cards.map(c => c.position.x + c.size.width + 100)), height: Math.max(800, ...cards.map(c => c.position.y + c.size.height + 100)) }} />
+
+        {/* Dashboard group frames — rendered behind cards */}
+        {Object.entries(dashboardGroups).map(([groupId, meta]) => {
+          const groupCards = meta.cardIds
+            .map(id => cards.find(c => c.id === id))
+            .filter((c): c is CanvasCard => !!c && !c.minimized);
+          if (groupCards.length === 0) return null;
+          const PAD = 12;
+          const TITLE_H = 28;
+          const minX = Math.min(...groupCards.map(c => c.position.x)) - PAD;
+          const minY = Math.min(...groupCards.map(c => c.position.y)) - PAD - TITLE_H;
+          const maxX = Math.max(...groupCards.map(c => c.position.x + c.size.width)) + PAD;
+          const maxY = Math.max(...groupCards.map(c => c.position.y + c.size.height)) + PAD;
+          return (
+            <div
+              key={`group-${groupId}`}
+              className="absolute border border-border/40 rounded-lg overflow-hidden pointer-events-none"
+              style={{ left: minX, top: minY, width: maxX - minX, height: maxY - minY, zIndex: 0 }}
+            >
+              <div className="flex items-center justify-between px-3 py-1 bg-muted/30 border-b border-border/30 pointer-events-auto">
+                <span className="text-xs font-medium text-foreground/80">{meta.title}</span>
+                <button
+                  onClick={() => dispatch({ type: "UNGROUP_DASHBOARD", groupId })}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Ungroup
+                </button>
+              </div>
+            </div>
+          );
+        })}
 
         <AnimatePresence>
         {cards.filter(c => !c.minimized).map((card) => {

@@ -550,6 +550,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
               streamingCardIds={streamingCardIds}
               deploymentId={deploymentId}
               onHide={() => setShowCanvas(false)}
+              dashboardGroups={state.dashboardGroups}
             />
           )}
         </div>

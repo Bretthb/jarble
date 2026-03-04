@@ -487,6 +487,31 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "create_dashboard",
+    description: "Render a multi-component dashboard. Emits multiple UI components as a visual group with a shared title. Use when the user asks for a dashboard, overview, or summary with multiple data views. Max 8 components.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Dashboard title displayed above the grouped components" },
+        components: {
+          type: "array",
+          description: "Array of components to render in the dashboard",
+          items: {
+            type: "object",
+            properties: {
+              component: { type: "string", description: "Component name (e.g. 'chart', 'stat_grid', 'data_table')" },
+              props: { type: "object", description: "Props for the component" },
+            },
+            required: ["component", "props"],
+          },
+          minItems: 1,
+          maxItems: 8,
+        },
+      },
+      required: ["title", "components"],
+    },
+  },
 ];
 
 // ── Tool execution ─────────────────────────────────────────────────────
@@ -531,6 +556,70 @@ function executeRenderUi(args) {
     props: { title: def.description || undefined, children },
   });
   return { isError: false, text: "```jarble_ui\n" + layoutBlock + "\n```" };
+}
+
+function executeCreateDashboard(args) {
+  const { title, components } = args;
+  if (!title || !Array.isArray(components) || components.length === 0) {
+    return { isError: true, text: "Missing 'title' or 'components' array." };
+  }
+  if (components.length > 8) {
+    return { isError: true, text: "Maximum 8 components per dashboard." };
+  }
+
+  const dashboardId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const blocks = [];
+  const errors = [];
+
+  for (let i = 0; i < components.length; i++) {
+    const { component, props } = components[i];
+    if (!component) {
+      errors.push(`Component ${i + 1}: missing 'component' name.`);
+      continue;
+    }
+
+    if (BUILTIN_COMPONENTS.includes(component)) {
+      const schema = BUILTIN_SCHEMAS[component];
+      if (schema && props && typeof props === "object") {
+        const result = validateJsonSchema(props, schema, "props");
+        if (!result.valid) {
+          errors.push(`Component ${i + 1} ("${component}"): ${result.errors[0]}`);
+          continue;
+        }
+      }
+      blocks.push(JSON.stringify({
+        component,
+        props: props || {},
+        dashboardId,
+        dashboardTitle: title,
+      }));
+    } else {
+      const def = readComponent(component);
+      if (!def) {
+        errors.push(`Component ${i + 1}: "${component}" not found.`);
+        continue;
+      }
+      const children = resolveCustom(def, props || {});
+      blocks.push(JSON.stringify({
+        component: "layout",
+        props: { title: def.description || undefined, children },
+        dashboardId,
+        dashboardTitle: title,
+      }));
+    }
+  }
+
+  if (blocks.length === 0) {
+    return { isError: true, text: "All components failed validation:\n" + errors.join("\n") };
+  }
+
+  let output = blocks.map(b => "```jarble_ui\n" + b + "\n```").join("\n\n");
+  if (errors.length > 0) {
+    output += "\n\nNote: " + errors.length + " component(s) skipped due to errors:\n" + errors.join("\n");
+  }
+
+  console.error(`[MCP] create_dashboard: "${title}" with ${blocks.length} components (dashboardId=${dashboardId})`);
+  return { isError: false, text: output };
 }
 
 function executeDefineComponent(args) {
@@ -1471,6 +1560,7 @@ async function executeTool(name, args) {
     case "recall_memory": return executeRecallMemory(args || {});
     case "list_memories": return executeListMemories(args || {});
     case "forget_memory": return executeForgetMemory(args || {});
+    case "create_dashboard": return executeCreateDashboard(args || {});
     default:
       // Per-component tools: show_chart, show_data_table, etc.
       // The tool's arguments ARE the props directly (not wrapped in {component, props}).

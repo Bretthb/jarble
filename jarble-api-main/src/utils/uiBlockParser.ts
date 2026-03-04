@@ -29,6 +29,8 @@ export interface JarbleUIBlock {
   fileId?: string;
   saveMethod?: "mcp" | "chat";
   layoutHint?: LayoutHint;
+  dashboardId?: string;
+  dashboardTitle?: string;
 }
 
 export interface JarbleUIUpdate {
@@ -273,6 +275,8 @@ export function extractUIBlocks(text: string): {
         ...(typeof parsed.layout_hint === "string" && VALID_LAYOUT_HINTS.has(parsed.layout_hint)
           ? { layoutHint: parsed.layout_hint as LayoutHint }
           : {}),
+        ...(typeof parsed.dashboardId === "string" ? { dashboardId: parsed.dashboardId } : {}),
+        ...(typeof parsed.dashboardTitle === "string" ? { dashboardTitle: parsed.dashboardTitle } : {}),
       });
       validBlocks.push(block);
     } catch {

@@ -404,6 +404,34 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
         ),
       };
 
+    case "CREATE_DASHBOARD_GROUP": {
+      const { groupId, title, cardIds } = action;
+      const newCards = state.cards.map((c) =>
+        cardIds.includes(c.id) ? { ...c, groupId } : c
+      );
+      return {
+        ...state,
+        cards: newCards,
+        dashboardGroups: {
+          ...state.dashboardGroups,
+          [groupId]: { title, cardIds },
+        },
+      };
+    }
+
+    case "UNGROUP_DASHBOARD": {
+      const { groupId } = action;
+      const newCards = state.cards.map((c) =>
+        c.groupId === groupId ? { ...c, groupId: undefined } : c
+      );
+      const { [groupId]: _, ...remainingGroups } = state.dashboardGroups;
+      return {
+        ...state,
+        cards: newCards,
+        dashboardGroups: remainingGroups,
+      };
+    }
+
     default:
       return state;
   }
