@@ -132,7 +132,10 @@
     "typescript": "5.9.3",
     "vitest": "^2.1.4"
   },
-  "overrides": {
-    "nanoid": "3.3.7"
+  "packageManager": "pnpm@10.4.1",
+  "pnpm": {
+    "overrides": {
+      "tailwindcss>nanoid": "3.3.7"
+    }
   }
 }
