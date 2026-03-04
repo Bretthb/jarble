@@ -3,7 +3,7 @@
  * manifest integrity, and migration from old file format.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -521,5 +521,123 @@ describe("migrateOldFiles", () => {
 
     const count = migrateOldFiles(filesDir, workspaceDir);
     expect(count).toBe(1);
+  });
+});
+
+// ─── Corrupted Manifest Recovery ─────────────────────────────────────────────
+
+describe("corrupted manifest recovery", () => {
+  it("rebuilds manifest from artifact files when manifest is corrupted", () => {
+    // Save some artifacts normally
+    saveArtifact(workspaceDir, makeInput({ id: "art-1", title: "First" }));
+    saveArtifact(workspaceDir, makeInput({ id: "art-2", title: "Second" }));
+
+    // Corrupt the manifest
+    writeFileSync(join(workspaceDir, "manifest.json"), "CORRUPTED!", "utf-8");
+
+    // Operations should still work — manifest rebuilt from disk
+    const list = listArtifacts(workspaceDir);
+    expect(list).toHaveLength(2);
+    const ids = list.map(a => a.id).sort();
+    expect(ids).toEqual(["art-1", "art-2"]);
+  });
+
+  it("recovers gracefully when manifest is empty file", () => {
+    saveArtifact(workspaceDir, makeInput({ id: "art-1" }));
+    writeFileSync(join(workspaceDir, "manifest.json"), "", "utf-8");
+
+    const list = listArtifacts(workspaceDir);
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe("art-1");
+  });
+
+  it("skips corrupted artifact files during rebuild", () => {
+    saveArtifact(workspaceDir, makeInput({ id: "good-1", title: "Good" }));
+    // Write a corrupted artifact file
+    writeFileSync(
+      join(workspaceDir, "artifacts", "bad-1.json"),
+      "NOT VALID JSON",
+      "utf-8"
+    );
+    // Corrupt manifest to force rebuild
+    writeFileSync(join(workspaceDir, "manifest.json"), "{bad", "utf-8");
+
+    const list = listArtifacts(workspaceDir);
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe("good-1");
+  });
+
+  it("ignores .tmp files during manifest rebuild", () => {
+    saveArtifact(workspaceDir, makeInput({ id: "art-1" }));
+    // Write a leftover .tmp file in artifacts dir
+    writeFileSync(
+      join(workspaceDir, "artifacts", "leftover.json.tmp"),
+      JSON.stringify({ id: "leftover", component: "card", title: "tmp", createdAt: "", updatedAt: "", pinned: false, props: {}, source: "bot", dataSource: null }),
+      "utf-8"
+    );
+    // Corrupt manifest to force rebuild
+    writeFileSync(join(workspaceDir, "manifest.json"), "CORRUPT", "utf-8");
+
+    const list = listArtifacts(workspaceDir);
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe("art-1");
+  });
+});
+
+// ─── DataSource Validation ───────────────────────────────────────────────────
+
+describe("dataSource validation", () => {
+  it("rejects pollInterval below 5 seconds", () => {
+    expect(() =>
+      saveArtifact(workspaceDir, makeInput({
+        dataSource: { type: "file", path: "/data/feed.json", pollInterval: 2 }
+      }))
+    ).toThrow("pollInterval must be between 5 and 3600");
+  });
+
+  it("rejects pollInterval above 3600 seconds", () => {
+    expect(() =>
+      saveArtifact(workspaceDir, makeInput({
+        dataSource: { type: "file", path: "/data/feed.json", pollInterval: 5000 }
+      }))
+    ).toThrow("pollInterval must be between 5 and 3600");
+  });
+
+  it("accepts pollInterval at boundaries (5 and 3600)", () => {
+    const min = saveArtifact(workspaceDir, makeInput({
+      id: "ds-min",
+      dataSource: { type: "file", path: "/data/a.json", pollInterval: 5 }
+    }));
+    expect(min.dataSource!.pollInterval).toBe(5);
+
+    const max = saveArtifact(workspaceDir, makeInput({
+      id: "ds-max",
+      dataSource: { type: "file", path: "/data/b.json", pollInterval: 3600 }
+    }));
+    expect(max.dataSource!.pollInterval).toBe(3600);
+  });
+
+  it("rejects file type without path", () => {
+    expect(() =>
+      saveArtifact(workspaceDir, makeInput({
+        dataSource: { type: "file" }
+      }))
+    ).toThrow('requires a "path" field');
+  });
+
+  it("rejects skill type without skill name", () => {
+    expect(() =>
+      saveArtifact(workspaceDir, makeInput({
+        dataSource: { type: "skill" }
+      }))
+    ).toThrow('requires a "skill" field');
+  });
+
+  it("accepts valid dataSource with no pollInterval", () => {
+    const result = saveArtifact(workspaceDir, makeInput({
+      dataSource: { type: "file", path: "/data/feed.json" }
+    }));
+    expect(result.dataSource!.type).toBe("file");
+    expect(result.dataSource!.pollInterval).toBeUndefined();
   });
 });

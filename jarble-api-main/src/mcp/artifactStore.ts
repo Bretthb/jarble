@@ -12,7 +12,7 @@
  *       └── {id}.json           # Full Artifact object
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readdirSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readdirSync, renameSync } from "fs";
 import { join } from "path";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -114,18 +114,63 @@ function ensureWorkspace(workspaceDir: string): void {
   }
 }
 
+function rebuildManifest(workspaceDir: string): Manifest {
+  const artDir = artifactsDir(workspaceDir);
+  const artifacts: ArtifactMeta[] = [];
+
+  if (existsSync(artDir)) {
+    const files = readdirSync(artDir).filter(f => f.endsWith(".json") && !f.endsWith(".tmp"));
+    for (const file of files) {
+      try {
+        const raw = readFileSync(join(artDir, file), "utf-8");
+        const artifact = JSON.parse(raw) as Artifact;
+        if (artifact.id && artifact.component) {
+          artifacts.push(metaFromArtifact(artifact));
+        }
+      } catch {
+        // Skip corrupted artifact files
+      }
+    }
+  }
+
+  const manifest: Manifest = { version: MANIFEST_VERSION, artifacts };
+  writeManifest(workspaceDir, manifest);
+  return manifest;
+}
+
 function readManifest(workspaceDir: string): Manifest {
   ensureWorkspace(workspaceDir);
-  const raw = readFileSync(manifestPath(workspaceDir), "utf-8");
-  return JSON.parse(raw) as Manifest;
+  try {
+    const raw = readFileSync(manifestPath(workspaceDir), "utf-8");
+    return JSON.parse(raw) as Manifest;
+  } catch {
+    return rebuildManifest(workspaceDir);
+  }
 }
 
 function writeManifest(workspaceDir: string, manifest: Manifest): void {
-  writeFileSync(
-    manifestPath(workspaceDir),
-    JSON.stringify(manifest, null, 2),
-    "utf-8"
-  );
+  const mPath = manifestPath(workspaceDir);
+  const tmpPath = mPath + ".tmp";
+  writeFileSync(tmpPath, JSON.stringify(manifest, null, 2), "utf-8");
+  renameSync(tmpPath, mPath);
+}
+
+function validateDataSource(ds: Artifact["dataSource"]): void {
+  if (!ds) return;
+
+  if (ds.pollInterval !== undefined) {
+    if (ds.pollInterval < 5 || ds.pollInterval > 3600) {
+      throw new Error(`pollInterval must be between 5 and 3600 seconds, got ${ds.pollInterval}`);
+    }
+  }
+
+  if (ds.type === "file" && !ds.path) {
+    throw new Error('dataSource type "file" requires a "path" field');
+  }
+
+  if (ds.type === "skill" && !ds.skill) {
+    throw new Error('dataSource type "skill" requires a "skill" field');
+  }
 }
 
 // ─── CRUD Operations ────────────────────────────────────────────────────────
@@ -183,6 +228,9 @@ export function saveArtifact(
     dataSource: input.dataSource !== undefined ? input.dataSource : (existing?.dataSource ?? null),
   };
 
+  // Validate dataSource before writing
+  validateDataSource(artifact.dataSource);
+
   // Validate size before writing
   const serialized = JSON.stringify(artifact, null, 2);
   const byteLength = Buffer.byteLength(serialized, "utf-8");
@@ -192,8 +240,10 @@ export function saveArtifact(
     );
   }
 
-  // Write artifact file
-  writeFileSync(filePath, serialized, "utf-8");
+  // Write artifact file (atomic: write to .tmp then rename)
+  const tmpFilePath = filePath + ".tmp";
+  writeFileSync(tmpFilePath, serialized, "utf-8");
+  renameSync(tmpFilePath, filePath);
 
   // Update manifest
   const meta = metaFromArtifact(artifact);
