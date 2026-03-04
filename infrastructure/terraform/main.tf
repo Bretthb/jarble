@@ -306,7 +306,7 @@ resource "hcloud_volume_attachment" "longhorn" {
 resource "hcloud_primary_ip" "ingress" {
   name          = "${var.cluster_name}-ingress-ip"
   type          = "ipv4"
-  datacenter    = "${var.location}-dc1"
+  location      = var.location
   assignee_type = "server"
   auto_delete   = false
 }
