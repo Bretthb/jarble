@@ -18,9 +18,59 @@ const path = require("path");
 
 const COMPONENTS_DIR = process.env.JARBLE_COMPONENTS_DIR || "/data/components";
 const FILES_DIR = process.env.JARBLE_FILES_DIR || "/data/files";
+const WORKSPACE_DIR = process.env.JARBLE_WORKSPACE_DIR || "/data/workspace";
 const PROTOCOL_VERSION = "2024-11-05";
 
 const FILE_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
+// ── Migrate old /data/files/ to /data/workspace/artifacts/ ──────────
+// One-time migration on first run after upgrade.
+try {
+  if (fs.existsSync(FILES_DIR)) {
+    const wsManifestPath = path.join(WORKSPACE_DIR, "manifest.json");
+    // Only migrate if workspace doesn't exist yet (first run)
+    if (!fs.existsSync(wsManifestPath)) {
+      const files = fs.readdirSync(FILES_DIR).filter(f => f.endsWith(".json"));
+      if (files.length > 0) {
+        // Ensure workspace dirs exist
+        fs.mkdirSync(path.join(WORKSPACE_DIR, "artifacts"), { recursive: true });
+        let migrated = 0;
+        const manifestArtifacts = [];
+        for (const file of files) {
+          try {
+            const raw = fs.readFileSync(path.join(FILES_DIR, file), "utf-8");
+            const old = JSON.parse(raw);
+            if (!old.component || typeof old.props !== "object" || old.props === null) continue;
+            const rawId = file.replace(/\.json$/, "");
+            const id = rawId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+            if (!id) continue;
+            const now = new Date().toISOString();
+            const artifact = {
+              id,
+              component: old.component,
+              props: old.props,
+              title: old.name || old.description || id,
+              createdAt: old.savedAt || now,
+              updatedAt: now,
+              pinned: false,
+              source: "bot",
+              dataSource: null,
+            };
+            const serialized = JSON.stringify(artifact, null, 2);
+            if (Buffer.byteLength(serialized, "utf-8") > 1_000_000) continue;
+            fs.writeFileSync(path.join(WORKSPACE_DIR, "artifacts", `${id}.json`), serialized, "utf-8");
+            manifestArtifacts.push({ id, component: artifact.component, title: artifact.title, createdAt: artifact.createdAt, updatedAt: artifact.updatedAt, pinned: false });
+            migrated++;
+          } catch { /* skip malformed */ }
+        }
+        fs.writeFileSync(wsManifestPath, JSON.stringify({ version: 1, artifacts: manifestArtifacts }, null, 2), "utf-8");
+        if (migrated > 0) console.error(`[MCP] Migrated ${migrated} old canvas files to workspace artifacts`);
+      }
+    }
+  }
+} catch (e) {
+  console.error("[MCP] Migration failed:", e.message);
+}
 const MAX_FILE_SIZE = 1_000_000; // 1MB
 
 // ── Built-in components ────────────────────────────────────────────────
@@ -415,6 +465,64 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  // ── Artifact workspace tools (replace old canvas file tools) ────────
+  {
+    name: "save_artifact",
+    description: "Save or update a UI artifact in the workspace. Artifacts persist across sessions and can be restored on the user's canvas. Use this instead of save_canvas_file.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Unique artifact ID (alphanumeric, hyphens, underscores, max 64 chars)" },
+        component: { type: "string", description: "Component type (e.g. 'spreadsheet', 'chart', 'data_table')" },
+        props: { type: "object", description: "Full component props" },
+        title: { type: "string", description: "Human-readable title" },
+        pinned: { type: "boolean", description: "If true, auto-restores on session start. Default: false" },
+        dataSource: {
+          type: "object",
+          description: "Optional live data configuration for auto-updating artifacts",
+          properties: {
+            type: { type: "string", enum: ["file", "skill"] },
+            path: { type: "string", description: "PVC file path (required for type: file)" },
+            skill: { type: "string", description: "Skill name (required for type: skill)" },
+            args: { type: "object", description: "Arguments for skill execution" },
+            pollInterval: { type: "number", description: "Seconds between updates (min 5, max 3600)" },
+            transform: { type: "string", description: "Dot-path to extract data from response" },
+          },
+        },
+      },
+      required: ["id", "component", "props", "title"],
+    },
+  },
+  {
+    name: "load_artifact",
+    description: "Load a saved artifact from the workspace by ID. Returns full artifact data including props.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Artifact ID to load" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "list_artifacts",
+    description: "List all saved artifacts in the workspace. Returns metadata (no props) sorted by most recently updated. Use this at session start to see what the user has saved.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_artifact",
+    description: "Delete an artifact from the workspace by ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Artifact ID to delete" },
+      },
+      required: ["id"],
+    },
+  },
   {
     name: "component_reference",
     description: "Get detailed prop schema and usage for UI components. Call with a specific component name to get its props, or without a name to get the full reference for all built-in components. ALWAYS call this before rendering a component if you are unsure of its props.",
@@ -659,6 +767,8 @@ function executeListComponents() {
   return { isError: false, text: lines.join("\n") };
 }
 
+// Legacy canvas file handlers — kept for reference. New code uses executeSaveArtifact etc.
+// Old tools (save_canvas_file, etc.) now redirect through artifact system in executeTool().
 function executeSaveCanvasFile(args) {
   const { fileId, component, props, name, description, tags } = args;
   if (!fileId || !component || !props) return { isError: true, text: "Missing required fields: fileId, component, props." };
@@ -768,6 +878,184 @@ function executeDeleteCanvasFile(args) {
   } catch (err) {
     return { isError: true, text: `Failed to delete: ${err.message}` };
   }
+}
+
+// ── Artifact workspace (persistent UI components) ─────────────────────
+// Artifacts stored at /data/workspace/manifest.json + /data/workspace/artifacts/*.json
+// Replaces old /data/files/ system. Supports pinning, live data sources, etc.
+
+const ARTIFACT_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+const MAX_ARTIFACT_SIZE = 1_000_000; // 1MB
+
+function ensureArtifactWorkspace() {
+  const artDir = path.join(WORKSPACE_DIR, "artifacts");
+  if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
+  if (!fs.existsSync(artDir)) fs.mkdirSync(artDir, { recursive: true });
+  const mPath = path.join(WORKSPACE_DIR, "manifest.json");
+  if (!fs.existsSync(mPath)) {
+    fs.writeFileSync(mPath, JSON.stringify({ version: 1, artifacts: [] }, null, 2), "utf-8");
+  }
+}
+
+function readArtifactManifest() {
+  ensureArtifactWorkspace();
+  const mPath = path.join(WORKSPACE_DIR, "manifest.json");
+  try {
+    return JSON.parse(fs.readFileSync(mPath, "utf-8"));
+  } catch {
+    // Corrupted manifest — rebuild from artifact files
+    return rebuildArtifactManifest();
+  }
+}
+
+function rebuildArtifactManifest() {
+  const artDir = path.join(WORKSPACE_DIR, "artifacts");
+  const artifacts = [];
+  if (fs.existsSync(artDir)) {
+    for (const file of fs.readdirSync(artDir).filter(f => f.endsWith(".json") && !f.endsWith(".tmp"))) {
+      try {
+        const raw = fs.readFileSync(path.join(artDir, file), "utf-8");
+        const a = JSON.parse(raw);
+        if (a.id && a.component) {
+          artifacts.push({ id: a.id, component: a.component, title: a.title, createdAt: a.createdAt, updatedAt: a.updatedAt, pinned: !!a.pinned });
+        }
+      } catch { /* skip corrupted */ }
+    }
+  }
+  const manifest = { version: 1, artifacts };
+  writeArtifactManifest(manifest);
+  return manifest;
+}
+
+function writeArtifactManifest(manifest) {
+  const mPath = path.join(WORKSPACE_DIR, "manifest.json");
+  const tmpPath = mPath + ".tmp";
+  fs.writeFileSync(tmpPath, JSON.stringify(manifest, null, 2), "utf-8");
+  fs.renameSync(tmpPath, mPath);
+}
+
+function validateArtifactDataSource(ds) {
+  if (!ds) return;
+  if (ds.pollInterval !== undefined && (ds.pollInterval < 5 || ds.pollInterval > 3600)) {
+    throw new Error(`pollInterval must be between 5 and 3600 seconds, got ${ds.pollInterval}`);
+  }
+  if (ds.type === "file" && !ds.path) throw new Error('dataSource type "file" requires a "path" field');
+  if (ds.type === "skill" && !ds.skill) throw new Error('dataSource type "skill" requires a "skill" field');
+}
+
+function executeSaveArtifact(args) {
+  const { id, component, props, title, pinned, dataSource } = args;
+  if (!id || !component || !props || !title) return { isError: true, text: "Missing required fields: id, component, props, title." };
+  if (!ARTIFACT_ID_RE.test(id)) return { isError: true, text: `Invalid artifact ID "${id}". Must match /^[a-zA-Z0-9_-]{1,64}$/.` };
+
+  try {
+    validateArtifactDataSource(dataSource);
+  } catch (err) {
+    return { isError: true, text: err.message };
+  }
+
+  ensureArtifactWorkspace();
+  const now = new Date().toISOString();
+  const manifest = readArtifactManifest();
+  const existingIdx = manifest.artifacts.findIndex(a => a.id === id);
+
+  // Load existing for update semantics
+  let existing = null;
+  const filePath = path.join(WORKSPACE_DIR, "artifacts", `${id}.json`);
+  if (existingIdx !== -1 && fs.existsSync(filePath)) {
+    try { existing = JSON.parse(fs.readFileSync(filePath, "utf-8")); } catch { /* treat as new */ }
+  }
+
+  const artifact = {
+    id,
+    component,
+    props,
+    title,
+    createdAt: existing ? existing.createdAt : now,
+    updatedAt: now,
+    pinned: pinned !== undefined ? pinned : (existing ? !!existing.pinned : false),
+    source: "bot",
+    dataSource: dataSource !== undefined ? dataSource : (existing ? existing.dataSource : null),
+  };
+
+  const serialized = JSON.stringify(artifact, null, 2);
+  if (Buffer.byteLength(serialized, "utf-8") > MAX_ARTIFACT_SIZE) {
+    return { isError: true, text: `Artifact "${id}" exceeds 1 MB limit.` };
+  }
+
+  // Atomic write: artifact file
+  const tmpFilePath = filePath + ".tmp";
+  fs.writeFileSync(tmpFilePath, serialized, "utf-8");
+  fs.renameSync(tmpFilePath, filePath);
+
+  // Update manifest
+  const meta = { id, component, title, createdAt: artifact.createdAt, updatedAt: artifact.updatedAt, pinned: artifact.pinned };
+  if (existingIdx !== -1) {
+    manifest.artifacts[existingIdx] = meta;
+  } else {
+    manifest.artifacts.push(meta);
+  }
+  writeArtifactManifest(manifest);
+
+  console.error("[MCP] Artifact saved:", id, component);
+  return { isError: false, text: `Saved artifact "${title}" (${id}) — ${artifact.pinned ? "pinned" : "not pinned"}` };
+}
+
+function executeLoadArtifact(args) {
+  const { id } = args;
+  if (!id) return { isError: true, text: "Missing artifact ID." };
+  if (!ARTIFACT_ID_RE.test(id)) return { isError: true, text: `Invalid artifact ID "${id}".` };
+
+  ensureArtifactWorkspace();
+  const filePath = path.join(WORKSPACE_DIR, "artifacts", `${id}.json`);
+  if (!fs.existsSync(filePath)) return { isError: true, text: `Artifact "${id}" not found.` };
+
+  try {
+    const content = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    return { isError: false, text: JSON.stringify(content, null, 2) };
+  } catch (err) {
+    return { isError: true, text: `Failed to read artifact: ${err.message}` };
+  }
+}
+
+function executeListArtifacts() {
+  const manifest = readArtifactManifest();
+  const sorted = [...manifest.artifacts].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  if (sorted.length === 0) {
+    return { isError: false, text: "No saved artifacts in workspace." };
+  }
+
+  const lines = [`**${sorted.length} artifact(s) in workspace:**`, ""];
+  for (const a of sorted) {
+    let line = `- **${a.title}** (\`${a.id}\`) — ${a.component}`;
+    if (a.pinned) line += " [pinned]";
+    if (a.updatedAt) line += ` _(updated ${a.updatedAt.split("T")[0]})_`;
+    lines.push(line);
+  }
+  lines.push("", "Use `load_artifact` with an ID to recall, then `render_ui` to display.");
+  return { isError: false, text: lines.join("\n") };
+}
+
+function executeDeleteArtifact(args) {
+  const { id } = args;
+  if (!id || !ARTIFACT_ID_RE.test(id)) return { isError: true, text: "Invalid or missing artifact ID." };
+
+  ensureArtifactWorkspace();
+  const manifest = readArtifactManifest();
+  const idx = manifest.artifacts.findIndex(a => a.id === id);
+
+  const filePath = path.join(WORKSPACE_DIR, "artifacts", `${id}.json`);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+  if (idx !== -1) {
+    manifest.artifacts.splice(idx, 1);
+    writeArtifactManifest(manifest);
+    console.error("[MCP] Artifact deleted:", id);
+    return { isError: false, text: `Deleted artifact "${id}" from workspace.` };
+  }
+
+  return { isError: false, text: `Artifact "${id}" was not in the manifest (may have already been removed).` };
 }
 
 // ── Component reference (detailed prop schemas) ────────────────────────
@@ -1550,10 +1838,21 @@ async function executeTool(name, args) {
     case "render_ui": return executeRenderUi(args || {});
     case "define_component": return executeDefineComponent(args || {});
     case "list_components": return executeListComponents();
-    case "save_canvas_file": return executeSaveCanvasFile(args || {});
-    case "load_canvas_file": return executeLoadCanvasFile(args || {});
-    case "list_canvas_files": return executeListCanvasFiles(args || {});
-    case "delete_canvas_file": return executeDeleteCanvasFile(args || {});
+    // New artifact tools
+    case "save_artifact": return executeSaveArtifact(args || {});
+    case "load_artifact": return executeLoadArtifact(args || {});
+    case "list_artifacts": return executeListArtifacts();
+    case "delete_artifact": return executeDeleteArtifact(args || {});
+    // Legacy canvas file tools — redirect to artifact system
+    case "save_canvas_file": return executeSaveArtifact({
+      id: (args || {}).fileId,
+      component: (args || {}).component,
+      props: (args || {}).props,
+      title: (args || {}).name || (args || {}).fileId,
+    });
+    case "load_canvas_file": return executeLoadArtifact({ id: (args || {}).fileId });
+    case "list_canvas_files": return executeListArtifacts();
+    case "delete_canvas_file": return executeDeleteArtifact({ id: (args || {}).fileId });
     case "component_reference": return executeComponentReference(args || {});
     case "update_ui": return executeUpdateUi(args || {});
     case "store_memory": return executeStoreMemory(args || {});
