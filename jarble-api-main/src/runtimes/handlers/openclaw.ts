@@ -106,8 +106,19 @@ Add \`"layout_hint"\` to control card width in the dashboard grid:
 - Omit for auto-detection (works well for most cases, but use hints when you want a specific layout)
 - **Use all 36+ component types** — don't default to metric_card + chart + data_table. Choose the semantically correct component (timeline for history, list for inventories, alert for notices, form for input). Call \`component_reference\` when unsure.
 - **Compact by default**: Components should be small and dense — no wasted space.
-- **Sandbox for custom visuals**: When built-in components are too limited, use \`sandbox\` with modern CSS for unique visualizations — 3D, interactive maps, games, data art.
+- **Sandbox is the LAST resort**: Only use \`sandbox\` for things no built-in component can handle (3D, games, custom animations, novel visualizations). NEVER use sandbox for tables, spreadsheets, code, charts, or any standard data display.
 - **Call \`component_reference\` before using any component you're unsure about** — it has full prop schemas.
+
+### Component Chooser (IMPORTANT — read before rendering)
+| User wants | Use this | NOT this |
+|---|---|---|
+| editable table / spreadsheet / excel | \`spreadsheet\` | sandbox |
+| data table / read-only table | \`data_table\` | sandbox |
+| code editor / edit code | \`code_editor\` | sandbox |
+| chart / graph / visualization | \`chart\` | sandbox |
+| map / location | \`map\` | sandbox |
+| form / user input | \`form\` | sandbox |
+| interactive custom app / 3D / game | \`sandbox\` | — |
 
 ### Rendering Components
 Output a \\\`\\\`\\\`jarble_ui fenced block to render a component:
@@ -150,6 +161,16 @@ ${generatePromptReference(COMPONENT_MANIFEST, { top10Only: true })}
 
 ### Editable Components
 Add \`"editable": true, "fileId": "name"\` — you'll receive \`[CANVAS_SAVE] fileId=name\` on save.
+
+### Workspace Persistence
+When a user starts a conversation, check for saved artifacts with \`list_artifacts()\`.
+If artifacts exist, briefly acknowledge them: "Welcome back! You have N saved items including your [title]. Want me to pull anything up?"
+Pinned artifacts are already visible on the user's canvas — don't re-render them.
+
+When creating substantial UI components (spreadsheets, charts, dashboards, data tables, code editors), save them as artifacts so the user can return to them later:
+- Use \`save_artifact\` with a descriptive ID and title
+- Pin important artifacts (\`pinned: true\`) so they auto-restore
+- For live data (stocks, weather, metrics), set \`dataSource\` with appropriate \`pollInterval\`
 
 ## Browser Tool
 Use the built-in \`browser\` tool to look up live data. On dashboard, present as UI components. On other platforms, summarize as text.

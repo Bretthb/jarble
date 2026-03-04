@@ -43,6 +43,7 @@ import {
   CUSTOM_COMPONENT_DEFINED,
   CUSTOM_CHAT_ERROR,
   CUSTOM_DASHBOARD_CREATED,
+  CUSTOM_ARTIFACT_UPDATED,
 } from "../utils/eventTypes.js";
 
 export const tamboAgentRouter = Router();
@@ -378,6 +379,16 @@ tamboAgentRouter.post("/", async (req, res) => {
             cardId: update.cardId,
             props: update.props,
             merge: update.merge,
+            ...(update.component ? { component: update.component } : {}),
+          },
+        });
+        // Also emit artifact updated for live data subscriptions
+        sendEvent(res, {
+          type: CUSTOM,
+          name: CUSTOM_ARTIFACT_UPDATED,
+          value: {
+            id: update.cardId,
+            props: update.props,
             ...(update.component ? { component: update.component } : {}),
           },
         });

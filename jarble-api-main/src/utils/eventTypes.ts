@@ -29,3 +29,4 @@ export const CUSTOM_CARD_UPDATE = "jarble.card.update";
 export const CUSTOM_COMPONENT_DEFINED = "jarble.component.defined";
 export const CUSTOM_CHAT_ERROR = "jarble.chat.error";
 export const CUSTOM_DASHBOARD_CREATED = "jarble.dashboard.created";
+export const CUSTOM_ARTIFACT_UPDATED = "jarble.artifact.updated";
