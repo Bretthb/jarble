@@ -44,8 +44,8 @@ output "ssh_master" {
 output "dns_records" {
   description = "DNS records to create"
   value = {
-    "api.${var.domain}"    = hcloud_server.master.ipv4_address
-    "*.${var.domain}"      = hcloud_server.master.ipv4_address
+    "api.${var.domain}" = hcloud_server.master.ipv4_address
+    "*.${var.domain}"   = hcloud_server.master.ipv4_address
   }
 }
 

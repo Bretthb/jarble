@@ -59,57 +59,57 @@ resource "hcloud_firewall" "cluster" {
 
   # SSH
   rule {
-    direction = "in"
-    protocol  = "tcp"
-    port      = "22"
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "22"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
 
   # HTTP
   rule {
-    direction = "in"
-    protocol  = "tcp"
-    port      = "80"
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "80"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
 
   # HTTPS
   rule {
-    direction = "in"
-    protocol  = "tcp"
-    port      = "443"
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "443"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
 
   # K3s API server (restrict to your IP in production)
   rule {
-    direction = "in"
-    protocol  = "tcp"
-    port      = "6443"
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "6443"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
 
   # K3s inter-node communication (internal network only)
   rule {
-    direction = "in"
-    protocol  = "tcp"
-    port      = "10250"
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "10250"
     source_ips = ["10.0.0.0/16"]
   }
 
   # Flannel VXLAN
   rule {
-    direction = "in"
-    protocol  = "udp"
-    port      = "8472"
+    direction  = "in"
+    protocol   = "udp"
+    port       = "8472"
     source_ips = ["10.0.0.0/16"]
   }
 
   # etcd (K3s embedded)
   rule {
-    direction = "in"
-    protocol  = "tcp"
-    port      = "2379-2380"
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "2379-2380"
     source_ips = ["10.0.0.0/16"]
   }
 }
