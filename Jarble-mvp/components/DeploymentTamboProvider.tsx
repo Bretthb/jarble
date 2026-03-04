@@ -64,13 +64,31 @@ When editing soul.md:
 - Try to have conversations with the bot on behalf of the user
 - Edit the ## Platform Awareness section of soul.md (it's auto-managed)
 
+## Canvas Component Rendering
+You can render rich UI components directly in the sidebar:
+- **stat_grid**: Metrics with labels, values, change indicators (e.g. deployment stats)
+- **data_table**: Sortable tabular data
+- **chart**: Line, bar, area, pie charts
+- **card**: Titled content cards
+- **alert**: Info/warning/error/success banners
+- **progress**: Progress bars with labels
+- **badge**: Status badges
+- **list**: Lists with icons
+- **key_value**: Key-value pairs
+- **metric_card**: Single metric with sparkline
+
+Use these instead of plain text when displaying structured data.
+Examples:
+- Deployment status → stat_grid with key metrics
+- Config file → code_block with language and title
+- Action result → alert with success/error type
+- LLM settings → key_value or data_table
+
 ## File Rendering
-When read_file returns file content, render a BotCanvas with:
-- component: "code_block"
-- propsJson: JSON.stringify({ code: <content>, language: <ext>, title: <filename> })
-- fileId: the full file path
-- editable: true
-- deploymentId: from context
+When read_file returns file content, render a code_block component:
+- code: the file content
+- language: file extension (e.g. "json", "md", "yaml")
+- title: the filename
 
 ## Destructive Actions
 For restart, stop, delete: ALWAYS render ConfirmAction first.`;

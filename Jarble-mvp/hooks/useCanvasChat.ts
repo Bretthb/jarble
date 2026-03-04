@@ -321,33 +321,39 @@ export function useCanvasChat(
                 };
               }
 
-              if (event.type === "UI_BLOCK_START") {
-                pendingBlocks.set(event.blockId, {
-                  id: event.blockId,
-                  component: event.component,
+              // ── AG-UI TOOL_CALL events (new — component rendering as tool calls) ──
+              if (event.type === "TOOL_CALL_START" && event.toolCallName?.startsWith("show_")) {
+                const component = event.toolCallName.slice(5); // "show_chart" -> "chart"
+                const blockId = event.toolCallId;
+                pendingBlocks.set(blockId, {
+                  id: blockId,
+                  component,
                   props: {},
                   ...(event.editable ? { editable: true } : {}),
                   ...(event.fileId ? { fileId: event.fileId } : {}),
                   ...(event.saveMethod ? { saveMethod: event.saveMethod } : {}),
                   ...(event.layoutHint ? { layoutHint: event.layoutHint } : {}),
                 });
-                setStreamingCardIds((prev) => new Set(prev).add(`card-${event.blockId}`));
+                setStreamingCardIds((prev) => new Set(prev).add(`card-${blockId}`));
               }
 
-              if (event.type === "UI_BLOCK_PROPS") {
-                const block = pendingBlocks.get(event.blockId);
-                if (block) block.props = event.props;
+              if (event.type === "TOOL_CALL_ARGS" && event.toolCallId) {
+                const block = pendingBlocks.get(event.toolCallId);
+                if (block && event.delta) {
+                  try {
+                    block.props = JSON.parse(event.delta);
+                  } catch {
+                    isDev && console.warn(`[Jarble:Chat] Failed to parse TOOL_CALL_ARGS delta`);
+                  }
+                }
               }
 
-              if (event.type === "UI_BLOCK_END") {
-                const block = pendingBlocks.get(event.blockId);
+              if (event.type === "TOOL_CALL_END" && event.toolCallId) {
+                const block = pendingBlocks.get(event.toolCallId);
                 if (block) {
-                  // Pass cardsAddedThisStream so findOpenPosition can see cards
-                  // dispatched earlier in this stream but not yet reflected in stateRef
-                  // (React batches useReducer updates, so stateRef is stale within a tick)
                   const card = addComponentCard(block, messageId, stateRef.current, dispatch, cardsAddedThisStream, currentLlmRef.current);
                   if (card) cardsAddedThisStream.push(card);
-                  pendingBlocks.delete(event.blockId);
+                  pendingBlocks.delete(event.toolCallId);
                   const cardId = `card-${block.id}`;
                   isDev && console.log(`[Jarble:Chat] Card created: ${cardId} (${block.component})`);
                   const timer = setTimeout(() => {
@@ -361,30 +367,31 @@ export function useCanvasChat(
                 }
               }
 
-              if (event.type === "UI_BLOCK_UPDATE") {
-                const { cardId, props, merge, component } = event;
-                isDev && console.log(`[Jarble:Chat] Card updated: ${cardId} (merge=${merge ?? true})`);
-                dispatch({
-                  type: "UPDATE_CARD_PROPS",
-                  id: cardId,
-                  props: props ?? {},
-                  merge: merge ?? true,
-                  component,
-                });
-              }
-
-              if (event.type === "COMPONENT_DEFINED") {
-                isDev && console.log(`[Jarble:Chat] Component defined: ${event.name} (${event.layout?.length ?? 0} children)`);
-                registerComponent({
-                  name: event.name,
-                  description: event.description,
-                  layout: event.layout ?? [],
-                });
-              }
-
-              if (event.type === "CHAT_ERROR" && event.error) {
-                isDev && console.log(`[Jarble:Chat] CHAT_ERROR: ${event.error.code} — ${event.error.message}`);
-                setLastChatError(event.error as ClassifiedChatError);
+              // ── AG-UI CUSTOM events ──
+              if (event.type === "CUSTOM") {
+                if (event.name === "jarble.card.update" && event.value) {
+                  const { cardId, props, merge, component } = event.value;
+                  isDev && console.log(`[Jarble:Chat] Card updated (AG-UI): ${cardId} (merge=${merge ?? true})`);
+                  dispatch({
+                    type: "UPDATE_CARD_PROPS",
+                    id: cardId,
+                    props: props ?? {},
+                    merge: merge ?? true,
+                    component,
+                  });
+                }
+                if (event.name === "jarble.component.defined" && event.value) {
+                  isDev && console.log(`[Jarble:Chat] Component defined (AG-UI): ${event.value.name}`);
+                  registerComponent({
+                    name: event.value.name,
+                    description: event.value.description,
+                    layout: event.value.layout ?? [],
+                  });
+                }
+                if (event.name === "jarble.chat.error" && event.value?.error) {
+                  isDev && console.log(`[Jarble:Chat] CHAT_ERROR (AG-UI): ${event.value.error.code}`);
+                  setLastChatError(event.value.error as ClassifiedChatError);
+                }
               }
 
               // Break both the for loop and the outer while loop cleanly

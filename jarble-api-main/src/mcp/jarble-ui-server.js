@@ -31,6 +31,7 @@ const MAX_FILE_SIZE = 1_000_000; // 1MB
 let BUILTIN_COMPONENTS;
 let BUILTIN_DESCRIPTIONS;
 let BUILTIN_SCHEMAS = {}; // JSON Schema draft-07 per component (loaded from generated manifest)
+let PER_COMPONENT_TOOLS = []; // Per-component MCP tools (show_chart, show_data_table, etc.)
 
 try {
   // Try to load from generated manifest JSON (created by build step)
@@ -41,6 +42,10 @@ try {
   if (manifestData.schemas) {
     BUILTIN_SCHEMAS = manifestData.schemas;
     console.error(`[MCP] Loaded ${Object.keys(BUILTIN_SCHEMAS).length} component JSON schemas`);
+  }
+  if (Array.isArray(manifestData.tools)) {
+    PER_COMPONENT_TOOLS = manifestData.tools;
+    console.error(`[MCP] Loaded ${PER_COMPONENT_TOOLS.length} per-component tools`);
   }
 } catch {
   // Fallback: inline list for first boot / when JSON not yet generated
@@ -1466,7 +1471,14 @@ async function executeTool(name, args) {
     case "recall_memory": return executeRecallMemory(args || {});
     case "list_memories": return executeListMemories(args || {});
     case "forget_memory": return executeForgetMemory(args || {});
-    default: return null;
+    default:
+      // Per-component tools: show_chart, show_data_table, etc.
+      // The tool's arguments ARE the props directly (not wrapped in {component, props}).
+      if (name.startsWith("show_")) {
+        const component = name.slice(5); // "show_chart" -> "chart"
+        return executeRenderUi({ component, props: args || {} });
+      }
+      return null;
   }
 }
 
@@ -1493,12 +1505,12 @@ async function handleMessage(msg) {
     return null;
   }
 
-  // List tools
+  // List tools — includes core TOOLS + per-component show_* tools
   if (method === "tools/list") {
     return {
       jsonrpc: "2.0",
       id,
-      result: { tools: TOOLS },
+      result: { tools: [...TOOLS, ...PER_COMPONENT_TOOLS] },
     };
   }
 

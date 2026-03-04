@@ -95,12 +95,31 @@ async function main() {
     }
   }
 
+  // Build per-component MCP tool definitions (show_chart, show_data_table, etc.)
+  // Each tool takes the component's props directly as arguments (not wrapped in {component, props}).
+  const tools: Array<{
+    name: string;
+    description: string;
+    inputSchema: unknown;
+  }> = [];
+
+  for (const name of componentNames) {
+    const schema = schemas[name];
+    if (!schema) continue;
+    tools.push({
+      name: `show_${name}`,
+      description: descriptions[name] || `Render a ${name.replace(/_/g, " ")} component on the canvas.`,
+      inputSchema: schema,
+    });
+  }
+
   const output = {
     _generated: new Date().toISOString(),
     _description: "Auto-generated from @jarble/component-manifest. Do not edit manually.",
     componentNames,
     descriptions,
     schemas,
+    tools,
   };
 
   const outDir = join(__dirname, "..", "shared", "component-manifest", "generated");
@@ -112,6 +131,7 @@ async function main() {
   console.log(`[generate-mcp-manifest] Wrote ${outPath}`);
   console.log(`  ${componentNames.length} components`);
   console.log(`  ${Object.keys(schemas).length} JSON schemas`);
+  console.log(`  ${tools.length} per-component MCP tools`);
 }
 
 main().catch((err) => {

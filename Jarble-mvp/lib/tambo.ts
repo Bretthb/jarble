@@ -2,7 +2,7 @@
  * Tambo component + tool registration.
  *
  * Exports:
- *   tamboComponents — array of TamboComponent for the TamboProvider
+ *   tamboComponents — infrastructure + all canvas components for TamboProvider
  *   createTamboTools — factory returning deployment-scoped infrastructure tools
  */
 import { z } from "zod";
@@ -13,15 +13,12 @@ import type { TamboComponent } from "@tambo-ai/react";
 import LogViewer from "@/components/tambo/LogViewer";
 import ConfirmAction from "@/components/tambo/ConfirmAction";
 
-// ── Bot Canvas Wrapper (renders UI blocks from MCP render_ui tool) ──────────
-
-import BotCanvas from "@/components/tambo/BotCanvas";
-
 export { createTamboTools } from "./tambo-tools";
 
-export const tamboComponents: TamboComponent[] = [
-  // ── Infrastructure Components (2) — for when the bot can't help itself ─
+import { tamboCanvasComponents } from "./tambo-canvas-registry";
 
+/** Infrastructure components for the config sidebar agent */
+const tamboInfraComponents: TamboComponent[] = [
   {
     name: "LogViewer",
     description:
@@ -48,26 +45,12 @@ export const tamboComponents: TamboComponent[] = [
       deploymentId: z.string().describe("The deployment ID"),
     }),
   },
+];
 
-  // ── Bot Canvas Wrapper — editable bot-rendered blocks ──────────────────
-
-  {
-    name: "BotCanvas",
-    description:
-      "ALWAYS render this component when the chat_with_bot tool returns uiBlocks in its data. Render ONE BotCanvas per uiBlock. This renders rich visual components (charts, tables, cards, stat grids, timelines, etc.) that the bot created. Extract blockId, component, and props from each uiBlock entry and pass them as shown in the schema.",
-    component: BotCanvas,
-    propsSchema: z.object({
-      blockId: z.string().describe("The block ID from uiBlocks[].blockId"),
-      component: z.string().describe("The component name from uiBlocks[].component (e.g. 'card', 'stat_grid', 'chart')"),
-      propsJson: z.string().describe("JSON.stringify(uiBlocks[].props) — the component props as a JSON string"),
-      editable: z.boolean().optional().describe("uiBlocks[].editable — defaults to true"),
-      fileId: z.string().optional().describe("uiBlocks[].fileId — for file-backed editable components"),
-      saveMethod: z.enum(["mcp", "chat"]).optional().describe("uiBlocks[].saveMethod — how edits are saved"),
-      deploymentId: z.string().describe("The deployment ID from context"),
-    }),
-  },
-
-  // Canvas primitives (DataTable, StatGrid, Card, etc.) are intentionally NOT
-  // registered here. Bot data is rendered via MCP render_ui tool or as markdown
-  // in the text response.
+/** All Tambo components: infrastructure + all 40 canvas components.
+ *  Canvas components are registered so the config sidebar agent can render
+ *  charts, tables, stat_grids etc. directly without the BotCanvas wrapper. */
+export const tamboComponents: TamboComponent[] = [
+  ...tamboInfraComponents,
+  ...tamboCanvasComponents,
 ];

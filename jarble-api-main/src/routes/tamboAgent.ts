@@ -34,6 +34,15 @@ import {
   type ComponentDefinition,
 } from "../utils/componentResolver.js";
 import { classifyError } from "../utils/chatErrors.js";
+import {
+  TOOL_CALL_START,
+  TOOL_CALL_ARGS,
+  TOOL_CALL_END,
+  CUSTOM,
+  CUSTOM_CARD_UPDATE,
+  CUSTOM_COMPONENT_DEFINED,
+  CUSTOM_CHAT_ERROR,
+} from "../utils/eventTypes.js";
 
 export const tamboAgentRouter = Router();
 
@@ -277,7 +286,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
     sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Your bot is currently ${deployment.status}. It needs to be running to chat. You can start it using the Start button.` });
     sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-    sendEvent(res, { type: "CHAT_ERROR", error: classified });
+    sendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
     sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
     res.end();
     return;
@@ -319,29 +328,38 @@ tamboAgentRouter.post("/", async (req, res) => {
     }
 
     for (const block of resolvedBlocks) {
+      // AG-UI standard: component rendering = tool call
+      const toolCallId = block.id;
       sendEvent(res, {
-        type: "UI_BLOCK_START",
-        blockId: block.id,
-        component: block.component,
-        messageId,
+        type: TOOL_CALL_START,
+        toolCallId,
+        toolCallName: `show_${block.component}`,
+        parentMessageId: messageId,
         ...(block.editable ? { editable: true } : {}),
         ...(block.fileId ? { fileId: block.fileId } : {}),
         ...(block.saveMethod ? { saveMethod: block.saveMethod } : {}),
         ...(block.layoutHint ? { layoutHint: block.layoutHint } : {}),
       });
-      sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: block.id, props: block.props });
-      sendEvent(res, { type: "UI_BLOCK_END", blockId: block.id });
+      sendEvent(res, {
+        type: TOOL_CALL_ARGS,
+        toolCallId,
+        delta: JSON.stringify(block.props),
+      });
+      sendEvent(res, { type: TOOL_CALL_END, toolCallId });
     }
 
-    // Emit UI_BLOCK_UPDATE events for in-place card updates
+    // Emit card updates as AG-UI CUSTOM events
     if (gatewayResult.uiUpdates) {
       for (const update of gatewayResult.uiUpdates) {
         sendEvent(res, {
-          type: "UI_BLOCK_UPDATE",
-          cardId: update.cardId,
-          props: update.props,
-          merge: update.merge,
-          ...(update.component ? { component: update.component } : {}),
+          type: CUSTOM,
+          name: CUSTOM_CARD_UPDATE,
+          value: {
+            cardId: update.cardId,
+            props: update.props,
+            merge: update.merge,
+            ...(update.component ? { component: update.component } : {}),
+          },
         });
       }
     }
@@ -354,12 +372,14 @@ tamboAgentRouter.post("/", async (req, res) => {
           log.warn({ deploymentId, name: def.name, error: err instanceof Error ? err.message : String(err) }, "Failed to save component definition to PVC");
         });
 
-        // Emit event so frontend can register the component immediately
         sendEvent(res, {
-          type: "COMPONENT_DEFINED",
-          name: def.name,
-          description: def.description,
-          layout: def.layout,
+          type: CUSTOM,
+          name: CUSTOM_COMPONENT_DEFINED,
+          value: {
+            name: def.name,
+            description: def.description,
+            layout: def.layout,
+          },
         });
         log.info({ deploymentId, name: def.name, childCount: def.layout.length }, "Chat: component defined");
       }
@@ -408,7 +428,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       const classified = classifyError(e.message, { deploymentStatus: deployment.status });
       sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${e.message}` });
       sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-      sendEvent(res, { type: "CHAT_ERROR", error: classified });
+      sendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
       sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
       res.end();
       return;
@@ -427,7 +447,7 @@ tamboAgentRouter.post("/", async (req, res) => {
         const classified = classifyError("No pod found", { deploymentStatus: deployment.status });
         sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "No running pod found for this deployment. Try restarting the bot." });
         sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-        sendEvent(res, { type: "CHAT_ERROR", error: classified });
+        sendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
         sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
         res.end();
         return;
@@ -454,18 +474,24 @@ tamboAgentRouter.post("/", async (req, res) => {
           try {
             const resolved = await resolveUIBlocks([block], deploymentId, managedBy);
             for (const b of resolved) {
+              // AG-UI TOOL_CALL events
+              const toolCallId = b.id;
               sendEvent(res, {
-                type: "UI_BLOCK_START",
-                blockId: b.id,
-                component: b.component,
-                messageId,
+                type: TOOL_CALL_START,
+                toolCallId,
+                toolCallName: `show_${b.component}`,
+                parentMessageId: messageId,
                 ...(b.editable ? { editable: true } : {}),
                 ...(b.fileId ? { fileId: b.fileId } : {}),
                 ...(b.saveMethod ? { saveMethod: b.saveMethod } : {}),
                 ...(b.layoutHint ? { layoutHint: b.layoutHint } : {}),
               });
-              sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: b.id, props: b.props });
-              sendEvent(res, { type: "UI_BLOCK_END", blockId: b.id });
+              sendEvent(res, {
+                type: TOOL_CALL_ARGS,
+                toolCallId,
+                delta: JSON.stringify(b.props),
+              });
+              sendEvent(res, { type: TOOL_CALL_END, toolCallId });
             }
           } catch (err: unknown) {
             log.warn({ deploymentId, blockId: block.id, error: err instanceof Error ? err.message : String(err) }, "Chat: failed to emit streamed UI block");
@@ -507,7 +533,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   const classified = classifyError(lastError?.message ?? "", { deploymentStatus: deployment.status });
   sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${lastError?.message}` });
   sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-  sendEvent(res, { type: "CHAT_ERROR", error: classified });
+  sendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
   sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
   res.end();
 });

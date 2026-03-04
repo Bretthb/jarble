@@ -11,6 +11,11 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
 
   switch (action.type) {
     case "ADD_CARD": {
+      // Reject duplicate card IDs
+      if (state.cards.some((c) => c.id === action.card.id)) {
+        if (process.env.NODE_ENV === "development") console.warn(`[Jarble:Reducer] ADD_CARD skipped duplicate: ${action.card.id}`);
+        return state;
+      }
       let cards = state.cards;
       if (cards.length >= MAX_CANVAS_CARDS) {
         const oldestUnpinnedIdx = cards.findIndex((c) => !c.pinned);
