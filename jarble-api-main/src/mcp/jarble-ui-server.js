@@ -430,41 +430,9 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
-  {
-    name: "save_canvas_file",
-    description: "Save canvas component data to a file on the bot's filesystem. Used when the user saves a component to their personal library or edits an editable component. Returns the saved metadata for confirmation.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        fileId: { type: "string", description: "File identifier (alphanumeric, hyphens, underscores, max 64 chars)" },
-        component: { type: "string", description: "Component type (e.g. data_table, card)" },
-        props: { type: "object", description: "Component props to persist" },
-        name: { type: "string", description: "Human-readable display name (e.g. 'Q4 Revenue Dashboard')" },
-        description: { type: "string", description: "Brief description of what this component shows" },
-        tags: { type: "array", items: { type: "string" }, description: "Tags for categorization (e.g. ['finance', 'dashboard'])" },
-      },
-      required: ["fileId", "component", "props"],
-    },
-  },
-  {
-    name: "load_canvas_file",
-    description: "Load previously saved canvas component data from a file.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        fileId: { type: "string", description: "File identifier to load" },
-      },
-      required: ["fileId"],
-    },
-  },
-  {
-    name: "list_canvas_files",
-    description: "List all saved canvas files in /data/files/ with their metadata (name, description, component type, tags, saved date). Use this when the user asks to see their saved components.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-    },
-  },
+  // Legacy canvas file tools removed from TOOLS array — replaced by artifact tools above.
+  // The old tool names (save_canvas_file, load_canvas_file, list_canvas_files, delete_canvas_file)
+  // are still handled as aliases in executeTool() for backward compatibility.
   // ── Artifact workspace tools (replace old canvas file tools) ────────
   {
     name: "save_artifact",
@@ -936,8 +904,14 @@ function writeArtifactManifest(manifest) {
 
 function validateArtifactDataSource(ds) {
   if (!ds) return;
-  if (ds.pollInterval !== undefined && (ds.pollInterval < 5 || ds.pollInterval > 3600)) {
-    throw new Error(`pollInterval must be between 5 and 3600 seconds, got ${ds.pollInterval}`);
+  if (ds.type !== undefined && ds.type !== "file" && ds.type !== "skill") {
+    throw new Error(`dataSource type must be "file" or "skill", got "${ds.type}"`);
+  }
+  if (ds.pollInterval !== undefined) {
+    const val = Number(ds.pollInterval);
+    if (!Number.isFinite(val) || val < 5 || val > 3600) {
+      throw new Error(`pollInterval must be a number between 5 and 3600 seconds, got ${ds.pollInterval}`);
+    }
   }
   if (ds.type === "file" && !ds.path) throw new Error('dataSource type "file" requires a "path" field');
   if (ds.type === "skill" && !ds.skill) throw new Error('dataSource type "skill" requires a "skill" field');
