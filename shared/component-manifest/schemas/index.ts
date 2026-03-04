@@ -252,6 +252,13 @@ export const videoSchema = z.object({
   muted: z.boolean().optional(),
 });
 
+export const embedSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  height: z.number().optional(),
+  provider: z.string().optional(),
+});
+
 export const audioSchema = z.object({
   src: z.string().optional(),
   url: z.string().optional(), // alias for src
@@ -482,6 +489,7 @@ export const COMPONENT_SCHEMAS: Record<string, ZodType> = {
   sandbox: sandboxSchema,
   marketplace_sandbox: marketplaceSandboxSchema,
   video: videoSchema,
+  embed: embedSchema,
   canvas: sandboxSchema, // alias: LLMs often say "canvas" when they mean "sandbox"
   audio: audioSchema,
   avatar: avatarSchema,

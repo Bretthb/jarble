@@ -37,6 +37,7 @@ import { spreadsheetEntry } from "./components/spreadsheet.js";
 import { sandboxEntry, SANDBOX_SDK_VERSION } from "./components/sandbox.js";
 import { marketplaceSandboxEntry } from "./components/marketplace_sandbox.js";
 import { videoEntry } from "./components/video.js";
+import { embedEntry } from "./components/embed.js";
 import { audioEntry } from "./components/audio.js";
 import { avatarEntry } from "./components/avatar.js";
 import { blockquoteEntry } from "./components/blockquote.js";
@@ -88,6 +89,7 @@ export const COMPONENT_MANIFEST: Record<string, ComponentManifestEntry> = {
   sandbox: sandboxEntry,
   marketplace_sandbox: marketplaceSandboxEntry,
   video: videoEntry,
+  embed: embedEntry,
   // Alias: LLMs often say "canvas" when they mean "sandbox"
   canvas: { ...sandboxEntry, name: "canvas", aliases: [] },
   audio: audioEntry,
@@ -146,7 +148,7 @@ export { generatePromptReference } from "./derive/promptText.js";
 export { generateMcpReference, getComponentReference, getComponentDescriptions } from "./derive/mcpReference.js";
 export { deriveComponentNames, deriveComponentNameSet } from "./derive/nameList.js";
 export type { ComponentManifestEntry, LayoutHintType, ComponentCategory, LoadingStrategy } from "./types.js";
-export { TRUSTED_CDN_ORIGINS } from "./security.js";
+export { TRUSTED_CDN_ORIGINS, TRUSTED_EMBED_ORIGINS } from "./security.js";
 export { SANDBOX_SDK_VERSION } from "./components/sandbox.js";
 
 // Re-export individual schemas for direct imports
@@ -176,6 +178,7 @@ export {
   sandboxSchema,
   marketplaceSandboxSchema,
   videoSchema,
+  embedSchema,
   audioSchema,
   avatarSchema,
   blockquoteSchema,

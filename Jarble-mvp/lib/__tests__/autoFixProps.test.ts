@@ -410,6 +410,45 @@ describe("autoFixProps", () => {
     });
   });
 
+  // ── Spreadsheet Fixes ────────────────────────────────────────────────
+
+  describe("spreadsheet array-to-records", () => {
+    it("converts 2D array with header row to records", () => {
+      const result = autoFixProps("spreadsheet", {
+        data: [
+          ["Name", "Age", "Dept"],
+          ["Alice", 30, "Eng"],
+          ["Bob", 25, "Mkt"],
+        ],
+      });
+      expect(result.props.data).toEqual([
+        { Name: "Alice", Age: 30, Dept: "Eng" },
+        { Name: "Bob", Age: 25, Dept: "Mkt" },
+      ]);
+      expect(result.repairs.some((r) => r.rule === "spreadsheet-array-to-records")).toBe(true);
+    });
+
+    it("generates column letters when first row is not all strings", () => {
+      const result = autoFixProps("spreadsheet", {
+        data: [
+          [1, 2, 3],
+          [4, 5, 6],
+        ],
+      });
+      expect(result.props.data).toEqual([
+        { A: 1, B: 2, C: 3 },
+        { A: 4, B: 5, C: 6 },
+      ]);
+    });
+
+    it("leaves array-of-objects unchanged", () => {
+      const data = [{ Name: "Alice" }, { Name: "Bob" }];
+      const result = autoFixProps("spreadsheet", { data });
+      expect(result.props.data).toEqual(data);
+      expect(result.repairs.some((r) => r.rule === "spreadsheet-array-to-records")).toBe(false);
+    });
+  });
+
   // ── Return Shape ──────────────────────────────────────────────────────
 
   describe("return shape", () => {
@@ -427,6 +466,37 @@ describe("autoFixProps", () => {
       const result = autoFixProps("card", { title: "test" });
       expect(result.props).toEqual(expect.any(Object));
       expect(Array.isArray(result.props)).toBe(false);
+    });
+  });
+
+  // ── Embed Aliases ──────────────────────────────────────────────────
+
+  describe("embed aliases", () => {
+    it('normalizes "widget" to "embed"', () => {
+      const result = autoFixProps("widget", { url: "https://example.com" });
+      expect(result.component).toBe("embed");
+    });
+
+    it('normalizes "iframe" to "embed"', () => {
+      const result = autoFixProps("iframe", { url: "https://example.com" });
+      expect(result.component).toBe("embed");
+    });
+
+    it('normalizes "Embed" (PascalCase) to "embed"', () => {
+      const result = autoFixProps("Embed", { url: "https://example.com" });
+      expect(result.component).toBe("embed");
+    });
+
+    it('normalizes "web_embed" to "embed"', () => {
+      const result = autoFixProps("web_embed", { url: "https://example.com" });
+      expect(result.component).toBe("embed");
+    });
+
+    it('leaves "embed" unchanged', () => {
+      const result = autoFixProps("embed", { url: "https://example.com" });
+      expect(result.component).toBe("embed");
+      const nameRepairs = result.repairs.filter((r) => r.field === "component");
+      expect(nameRepairs).toHaveLength(0);
     });
   });
 });

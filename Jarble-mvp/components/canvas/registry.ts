@@ -40,6 +40,7 @@ import {
   sandboxSchema,
   marketplaceSandboxSchema,
   videoSchema,
+  embedSchema,
   audioSchema,
   avatarSchema,
   blockquoteSchema,
@@ -85,6 +86,7 @@ export {
   sandboxSchema,
   marketplaceSandboxSchema,
   videoSchema,
+  embedSchema,
   audioSchema,
   avatarSchema,
   blockquoteSchema,
@@ -140,6 +142,7 @@ const CanvasSpreadsheet = dynamic(() => import("./components/CanvasSpreadsheet")
 const CanvasSandbox = dynamic(() => import("./components/CanvasSandbox"), { ssr: false });
 const MarketplaceSandbox = dynamic(() => import("./components/MarketplaceSandbox"), { ssr: false });
 const CanvasVideo = dynamic(() => import("./components/CanvasVideo"), { ssr: false });
+const CanvasEmbed = dynamic(() => import("./components/CanvasEmbed"), { ssr: false });
 const CanvasMap = dynamic(() => import("./components/CanvasMap"), { ssr: false });
 const CanvasImageGallery = dynamic(() => import("./components/CanvasImageGallery"), { ssr: false });
 
@@ -196,6 +199,7 @@ export const CANVAS_COMPONENTS: Record<string, CanvasComponentEntry> = {
   sandbox: { component: CanvasSandbox, propsSchema: sandboxSchema },
   marketplace_sandbox: { component: MarketplaceSandbox, propsSchema: marketplaceSandboxSchema },
   video: { component: CanvasVideo, propsSchema: videoSchema },
+  embed: { component: CanvasEmbed, propsSchema: embedSchema },
   // Alias: LLMs often say "canvas" when they mean "sandbox"
   canvas: { component: CanvasSandbox, propsSchema: sandboxSchema },
   // ── Newly registered components ────────────────────────────────────────────

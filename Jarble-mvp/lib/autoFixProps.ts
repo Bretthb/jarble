@@ -75,6 +75,13 @@ export const COMPONENT_NAME_MAP: Record<string, string> = {
   stepper: "steps",
   tree_view: "tree",
   status: "result",
+  // Embed aliases
+  widget: "embed",
+  iframe: "embed",
+  web_embed: "embed",
+  Widget: "embed",
+  Embed: "embed",
+  WebEmbed: "embed",
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -428,6 +435,7 @@ const ARRAY_FIELDS: Record<string, string[]> = {
   steps: ["items"],
   tag_cloud: ["tags"],
   tree: ["data"],
+  spreadsheet: ["data"],
   button_group: ["buttons"],
   image_gallery: ["images"],
 };
@@ -751,6 +759,35 @@ function applyStructuralFixes(
         tab.content = undefined;
         recordRepair(repairs, "tabs-content-to-children", `props.tabs[${i}].content`, "[array]", "[children]");
       }
+    }
+  }
+
+  // Rule 31: spreadsheet-array-to-records — convert 2D array data to array of records
+  if (component === "spreadsheet" && Array.isArray(props.data) && props.data.length > 0) {
+    const first = props.data[0];
+    if (Array.isArray(first)) {
+      // 2D array detected — convert to array of records
+      const rows = props.data as unknown[][];
+      // If first row is all strings, treat as header row
+      const firstAllStrings = rows[0].every((v: unknown) => typeof v === "string");
+      let headers: string[];
+      let dataRows: unknown[][];
+      if (firstAllStrings && rows.length > 1) {
+        headers = rows[0] as string[];
+        dataRows = rows.slice(1);
+      } else {
+        // Generate column headers (A, B, C, ...)
+        headers = first.map((_: unknown, i: number) => String.fromCharCode(65 + (i % 26)));
+        dataRows = rows;
+      }
+      props.data = dataRows.map((row: unknown[]) => {
+        const obj: Record<string, unknown> = {};
+        for (let i = 0; i < headers.length; i++) {
+          obj[headers[i]] = i < row.length ? row[i] : "";
+        }
+        return obj;
+      });
+      recordRepair(repairs, "spreadsheet-array-to-records", "props.data", "[2D array]", "[records]");
     }
   }
 

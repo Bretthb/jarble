@@ -1,5 +1,5 @@
 {
-  "_generated": "2026-03-04T16:14:30.433Z",
+  "_generated": "2026-03-04T19:58:08.198Z",
   "_description": "Auto-generated from @jarble/component-manifest. Do not edit manually.",
   "componentNames": [
     "card",
@@ -27,6 +27,7 @@
     "sandbox",
     "marketplace_sandbox",
     "video",
+    "embed",
     "audio",
     "avatar",
     "blockquote",
@@ -70,6 +71,7 @@
     "sandbox": "Sandboxed iframe for custom HTML/CSS/JS mini-apps — render anything. Use for charts, 3D, animations, gauges, maps, or any visualization not covered by built-in components.",
     "marketplace_sandbox": "Double-iframe sandboxed container for marketplace (user-submitted) components. Provides an extra layer of isolation beyond the standard sandbox — inner iframe runs with opaque origin inside an outer about:blank iframe.",
     "video": "Video/livestream player — supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct URLs. Use for livestreams (NASA ISS, Twitch channels, YouTube Live).",
+    "embed": "Third-party widget embed — renders Google Maps, TradingView, Spotify, CodePen, Figma, social posts, and more as interactive iframes",
     "audio": "HTML5 audio player with controls",
     "avatar": "User avatar with image or initials fallback",
     "blockquote": "Styled quote block with attribution",
@@ -1052,6 +1054,27 @@
         },
         "muted": {
           "type": "boolean"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": true
+    },
+    "embed": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "height": {
+          "type": "number"
+        },
+        "provider": {
+          "type": "string"
         }
       },
       "required": [
@@ -2752,6 +2775,31 @@
           },
           "muted": {
             "type": "boolean"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "show_embed",
+      "description": "Third-party widget embed — renders Google Maps, TradingView, Spotify, CodePen, Figma, social posts, and more as interactive iframes",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "height": {
+            "type": "number"
+          },
+          "provider": {
+            "type": "string"
           }
         },
         "required": [
