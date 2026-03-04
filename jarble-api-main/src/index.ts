@@ -22,6 +22,7 @@ import { sseRouter } from "./routes/sse.js";
 import { debugRouter } from "./routes/debug.js";
 import { tamboAgentRouter } from "./routes/tamboAgent.js";
 import { canvasFilesRouter } from "./routes/canvasFiles.js";
+import { artifactRouter } from "./routes/artifact.js";
 import { mcpRouter } from "./routes/mcp.js";
 import { diagnoseRouter } from "./routes/diagnose.js";
 
@@ -79,6 +80,7 @@ app.use("/api", webhooksRouter);
 app.use("/api/deployments", sseRouter);
 app.use("/api/tambo-agent", tamboAgentRouter);
 app.use("/api/deployments", canvasFilesRouter);
+app.use("/api/deployments", artifactRouter);
 app.use("/api/mcp", mcpRouter);
 app.use("/api/deployments", diagnoseRouter);
 
