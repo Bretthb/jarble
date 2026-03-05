@@ -237,6 +237,9 @@ export const marketplacePackages = mysqlTable("marketplace_packages", {
   hostingModel: varchar("hosting_model", { length: 20 }).notNull(),
   instructionSnippet: text("instruction_snippet"),
   remoteApiEndpoint: varchar("remote_api_endpoint", { length: 500 }),
+  remoteApiConfig: text("remote_api_config"),       // JSON PackageCard for remote/hybrid
+  remoteHealth: varchar("remote_health", { length: 20 }).default("unknown"), // healthy | degraded | offline | unknown
+  remoteLastCheck: timestamp("remote_last_check"),
   status: varchar("status", { length: 20 }).notNull().default("draft"),
   pricingModel: varchar("pricing_model", { length: 20 }).notNull().default("free"),
   priceUsdCents: int("price_usd_cents").notNull().default(0),
@@ -272,6 +275,22 @@ export const packageInstalls = mysqlTable("package_installs", {
   installedAt: timestamp("installed_at").defaultNow().notNull(),
 }, (table) => ({
   deploymentPackageIdx: uniqueIndex("uq_deployment_package").on(table.deploymentId, table.packageId),
+}));
+
+// Stores HMAC signing secrets and handshake state for remote/hybrid package installs
+export const packageCredentials = mysqlTable("package_credentials", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pkc")),
+  packageInstallId: varchar("package_install_id", { length: 255 }).notNull().references(() => packageInstalls.id, { onDelete: "cascade" }),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplacePackages.id),
+  signingSecret: text("signing_secret").notNull(), // Encrypted HMAC-SHA256 signing secret
+  handshakeStatus: varchar("handshake_status", { length: 20 }).notNull().default("pending"), // "pending" | "completed" | "failed"
+  handshakeError: text("handshake_error"),
+  remoteInstallId: varchar("remote_install_id", { length: 255 }), // ID returned by creator's endpoint
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  deploymentPackageCredIdx: uniqueIndex("uq_deployment_package_cred").on(table.deploymentId, table.packageId),
 }));
 
 // Relations
@@ -366,4 +385,26 @@ export const packageInstallsRelations = relations(packageInstalls, ({ one }) => 
   package: one(marketplacePackages, { fields: [packageInstalls.packageId], references: [marketplacePackages.id] }),
   deployment: one(deployments, { fields: [packageInstalls.deploymentId], references: [deployments.id] }),
   user: one(users, { fields: [packageInstalls.userId], references: [users.id] }),
+}));
+
+export const packageCredentialsRelations = relations(packageCredentials, ({ one }) => ({
+  packageInstall: one(packageInstalls, { fields: [packageCredentials.packageInstallId], references: [packageInstalls.id] }),
+  deployment: one(deployments, { fields: [packageCredentials.deploymentId], references: [deployments.id] }),
+  package: one(marketplacePackages, { fields: [packageCredentials.packageId], references: [marketplacePackages.id] }),
+}));
+
+// Tracks per-skill request counts per billing cycle for metered usage
+export const packageUsage = mysqlTable("package_usage", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pku")),
+  packageInstallId: varchar("package_install_id", { length: 255 }).notNull().references(() => packageInstalls.id, { onDelete: "cascade" }),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull(),
+  packageId: varchar("package_id", { length: 255 }).notNull(),
+  skillName: varchar("skill_name", { length: 100 }).notNull(),
+  requestCount: int("request_count").notNull().default(0),
+  billingCycleStart: varchar("billing_cycle_start", { length: 10 }).notNull(),
+  recordedAt: timestamp("recorded_at").defaultNow().notNull(),
+});
+
+export const packageUsageRelations = relations(packageUsage, ({ one }) => ({
+  packageInstall: one(packageInstalls, { fields: [packageUsage.packageInstallId], references: [packageInstalls.id] }),
 }));

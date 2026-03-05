@@ -239,6 +239,9 @@ export const marketplacePackages = sqliteTable("marketplace_packages", {
   hostingModel: text("hosting_model").notNull(),
   instructionSnippet: text("instruction_snippet"),
   remoteApiEndpoint: text("remote_api_endpoint"),
+  remoteApiConfig: text("remote_api_config"),       // JSON PackageCard for remote/hybrid
+  remoteHealth: text("remote_health").default("unknown"), // healthy | degraded | offline | unknown
+  remoteLastCheck: text("remote_last_check"),
   status: text("status").notNull().default("draft"),
   pricingModel: text("pricing_model").notNull().default("free"),
   priceUsdCents: integer("price_usd_cents").notNull().default(0),
@@ -274,6 +277,22 @@ export const packageInstalls = sqliteTable("package_installs", {
   installedAt: text("installed_at").notNull().$defaultFn(now),
 }, (table) => ({
   deploymentPackageIdx: uniqueIndex("uq_deployment_package").on(table.deploymentId, table.packageId),
+}));
+
+// Stores HMAC signing secrets and handshake state for remote/hybrid package installs
+export const packageCredentials = sqliteTable("package_credentials", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pkc")),
+  packageInstallId: text("package_install_id").notNull().references(() => packageInstalls.id, { onDelete: "cascade" }),
+  deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  packageId: text("package_id").notNull().references(() => marketplacePackages.id),
+  signingSecret: text("signing_secret").notNull(), // Encrypted HMAC-SHA256 signing secret
+  handshakeStatus: text("handshake_status").notNull().default("pending"), // "pending" | "completed" | "failed"
+  handshakeError: text("handshake_error"),
+  remoteInstallId: text("remote_install_id"), // ID returned by creator's endpoint
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+}, (table) => ({
+  deploymentPackageCredIdx: uniqueIndex("uq_deployment_package_cred").on(table.deploymentId, table.packageId),
 }));
 
 // Relations
@@ -368,4 +387,26 @@ export const packageInstallsRelations = relations(packageInstalls, ({ one }) => 
   package: one(marketplacePackages, { fields: [packageInstalls.packageId], references: [marketplacePackages.id] }),
   deployment: one(deployments, { fields: [packageInstalls.deploymentId], references: [deployments.id] }),
   user: one(users, { fields: [packageInstalls.userId], references: [users.id] }),
+}));
+
+export const packageCredentialsRelations = relations(packageCredentials, ({ one }) => ({
+  packageInstall: one(packageInstalls, { fields: [packageCredentials.packageInstallId], references: [packageInstalls.id] }),
+  deployment: one(deployments, { fields: [packageCredentials.deploymentId], references: [deployments.id] }),
+  package: one(marketplacePackages, { fields: [packageCredentials.packageId], references: [marketplacePackages.id] }),
+}));
+
+// Tracks per-skill request counts per billing cycle for metered usage
+export const packageUsage = sqliteTable("package_usage", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pku")),
+  packageInstallId: text("package_install_id").notNull().references(() => packageInstalls.id, { onDelete: "cascade" }),
+  deploymentId: text("deployment_id").notNull(),
+  packageId: text("package_id").notNull(),
+  skillName: text("skill_name").notNull(),
+  requestCount: integer("request_count").notNull().default(0),
+  billingCycleStart: text("billing_cycle_start").notNull(), // ISO date, first of month
+  recordedAt: text("recorded_at").notNull().$defaultFn(now),
+});
+
+export const packageUsageRelations = relations(packageUsage, ({ one }) => ({
+  packageInstall: one(packageInstalls, { fields: [packageUsage.packageInstallId], references: [packageInstalls.id] }),
 }));

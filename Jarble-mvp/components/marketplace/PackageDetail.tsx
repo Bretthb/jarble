@@ -49,6 +49,20 @@ const HOSTING_LABELS: Record<string, string> = {
   hybrid: "Hybrid",
 };
 
+const HEALTH_DOT_STYLES: Record<string, string> = {
+  healthy: "bg-emerald-500",
+  degraded: "bg-amber-500",
+  offline: "bg-red-500",
+  unknown: "bg-gray-400",
+};
+
+const HEALTH_LABELS: Record<string, string> = {
+  healthy: "Healthy",
+  degraded: "Degraded",
+  offline: "Offline",
+  unknown: "Unknown",
+};
+
 interface PackageComponent {
   id: string;
   name: string;
@@ -114,6 +128,10 @@ export function PackageDetail({ packageId }: PackageDetailProps) {
 
   const hostingStyle = pkg ? (HOSTING_STYLES[pkg.hostingModel] ?? "bg-secondary text-secondary-foreground border-border") : "";
   const hostingLabel = pkg ? (HOSTING_LABELS[pkg.hostingModel] ?? pkg.hostingModel) : "";
+  const isRemoteOrHybrid = pkg ? (pkg.hostingModel === "remote" || pkg.hostingModel === "hybrid") : false;
+  const healthStatus = (pkg as any)?.remoteHealth ?? "unknown";
+  const healthDot = HEALTH_DOT_STYLES[healthStatus] ?? HEALTH_DOT_STYLES.unknown;
+  const healthLabel = HEALTH_LABELS[healthStatus] ?? "Unknown";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -195,6 +213,13 @@ export function PackageDetail({ packageId }: PackageDetailProps) {
                     variant="outline"
                     className={cn("text-xs gap-1", hostingStyle)}
                   >
+                    {isRemoteOrHybrid && (
+                      <span
+                        className={cn("inline-block size-2 rounded-full shrink-0", healthDot)}
+                        title={healthLabel}
+                        aria-label={`Health: ${healthLabel}`}
+                      />
+                    )}
                     {hostingLabel}
                   </Badge>
                 </div>
@@ -421,10 +446,31 @@ export function PackageDetail({ packageId }: PackageDetailProps) {
                             variant="outline"
                             className={cn("text-[11px] gap-1", hostingStyle)}
                           >
+                            {isRemoteOrHybrid && (
+                              <span
+                                className={cn("inline-block size-1.5 rounded-full shrink-0", healthDot)}
+                                aria-hidden="true"
+                              />
+                            )}
                             {hostingLabel}
                           </Badge>
                         </dd>
                       </div>
+
+                      {isRemoteOrHybrid && (
+                        <div className="flex items-center justify-between">
+                          <dt className="text-muted-foreground flex items-center gap-1.5">
+                            <span
+                              className={cn("inline-block size-2 rounded-full", healthDot)}
+                              aria-hidden="true"
+                            />
+                            API Health
+                          </dt>
+                          <dd className="text-xs font-medium">
+                            {healthLabel}
+                          </dd>
+                        </div>
+                      )}
 
                       <div className="flex items-center justify-between">
                         <dt className="text-muted-foreground flex items-center gap-1.5">

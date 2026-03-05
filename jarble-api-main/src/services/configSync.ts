@@ -106,18 +106,55 @@ async function buildDeploymentFields(
     }
   }
 
-  // Load instruction snippets from installed packages
+  // Load instruction snippets from installed packages.
+  // For remote/hybrid packages, also collect remoteSkillConfigs so skill JSON
+  // files on the PVC can be stamped with the correct proxy URL.
   const pkgInstallRows = await db.query.packageInstalls.findMany({
     where: eq(packageInstalls.deploymentId, deployment.id),
   });
 
   const packageSnippets: Array<{ packageName: string; snippet: string }> = [];
+  const remoteSkillConfigs: Array<{ packageId: string; skillName: string; proxyUrl: string }> = [];
+
   for (const pkgInstall of pkgInstallRows) {
     const pkg = await db.query.marketplacePackages.findFirst({
       where: eq(marketplacePackages.id, pkgInstall.packageId),
     });
-    if (pkg?.instructionSnippet) {
+    if (!pkg) continue;
+
+    if (pkg.instructionSnippet) {
       packageSnippets.push({ packageName: pkg.displayName, snippet: pkg.instructionSnippet });
+    }
+
+    // For remote/hybrid packages with a remoteApiConfig, derive proxyUrl per skill.
+    // The proxy URL routes skill calls through the Jarble API, which signs requests
+    // with the stored HMAC secret before forwarding to the creator's endpoint.
+    if (
+      (pkg.hostingModel === "remote" || pkg.hostingModel === "hybrid") &&
+      pkg.remoteApiEndpoint &&
+      pkg.remoteApiConfig
+    ) {
+      try {
+        const card = JSON.parse(pkg.remoteApiConfig) as { skills?: Array<{ name: string }> };
+        const apiBase = process.env.API_BASE_URL ?? "http://localhost:3001";
+
+        if (Array.isArray(card.skills)) {
+          for (const skill of card.skills) {
+            if (typeof skill.name === "string" && skill.name) {
+              remoteSkillConfigs.push({
+                packageId: pkg.id,
+                skillName: skill.name,
+                proxyUrl: `${apiBase}/api/packages/proxy/${deployment.id}/${pkg.id}/${skill.name}`,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        log.warn(
+          { deploymentId: deployment.id, packageId: pkg.id, err },
+          "configSync: failed to parse remoteApiConfig for remote skill proxy URLs, skipping"
+        );
+      }
     }
   }
 
@@ -137,6 +174,7 @@ async function buildDeploymentFields(
     managedBy: managedBy ?? deployment.managedBy ?? "legacy",
     skills: skills.length > 0 ? skills : undefined,
     packageSnippets: packageSnippets.length > 0 ? packageSnippets : undefined,
+    remoteSkillConfigs: remoteSkillConfigs.length > 0 ? remoteSkillConfigs : undefined,
   };
 }
 

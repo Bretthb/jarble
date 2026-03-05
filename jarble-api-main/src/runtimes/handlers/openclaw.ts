@@ -348,13 +348,36 @@ export const openclawHandler: RuntimeHandler = {
     }
 
     // Render installed skills as individual JSON files under /data/skills/
+    // For remote/hybrid package skills, inject a `proxyUrl` field so OpenClaw
+    // routes tool calls through the Jarble API proxy rather than calling the
+    // creator's endpoint directly (the proxy handles HMAC signing + rate limits).
     if (deployment.skills && deployment.skills.length > 0) {
       for (const skill of deployment.skills) {
         // Sanitize skill name for use as filename (lowercase, alphanumeric + hyphens)
         const safeName = skill.name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+
+        // Check if there is a remote proxy config for this skill name
+        const remoteConfig = deployment.remoteSkillConfigs?.find(
+          (rc) => rc.skillName === skill.name
+        );
+
+        let skillContent = skill.config;
+        if (remoteConfig) {
+          try {
+            const skillJson = JSON.parse(skill.config);
+            skillJson.proxyUrl = remoteConfig.proxyUrl;
+            skillContent = JSON.stringify(skillJson);
+          } catch (err) {
+            log.warn(
+              { skillName: skill.name, proxyUrl: remoteConfig.proxyUrl, err },
+              "renderConfigs: failed to inject proxyUrl into skill config (non-fatal, using original)"
+            );
+          }
+        }
+
         files.push({
           path: `skills/${safeName}.json`,
-          content: skill.config,
+          content: skillContent,
         });
       }
     }

@@ -226,6 +226,9 @@ const CREATE_TABLES_SQL = `
     hosting_model TEXT NOT NULL,
     instruction_snippet TEXT,
     remote_api_endpoint TEXT,
+    remote_api_config TEXT,
+    remote_health TEXT DEFAULT 'unknown',
+    remote_last_check TEXT,
     status TEXT DEFAULT 'draft' NOT NULL,
     pricing_model TEXT DEFAULT 'free' NOT NULL,
     price_usd_cents INTEGER DEFAULT 0 NOT NULL,
@@ -262,6 +265,32 @@ const CREATE_TABLES_SQL = `
   );
 
   CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_package ON package_installs(deployment_id, package_id);
+
+  CREATE TABLE IF NOT EXISTS package_credentials (
+    id TEXT PRIMARY KEY,
+    package_install_id TEXT NOT NULL REFERENCES package_installs(id) ON DELETE CASCADE,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    package_id TEXT NOT NULL REFERENCES marketplace_packages(id),
+    signing_secret TEXT NOT NULL,
+    handshake_status TEXT DEFAULT 'pending' NOT NULL,
+    handshake_error TEXT,
+    remote_install_id TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_package_cred ON package_credentials(deployment_id, package_id);
+
+  CREATE TABLE IF NOT EXISTS package_usage (
+    id TEXT PRIMARY KEY,
+    package_install_id TEXT NOT NULL REFERENCES package_installs(id) ON DELETE CASCADE,
+    deployment_id TEXT NOT NULL,
+    package_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    request_count INTEGER DEFAULT 0 NOT NULL,
+    billing_cycle_start TEXT NOT NULL,
+    recorded_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
 `;
 
 export async function initDatabase() {

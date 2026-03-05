@@ -18,6 +18,7 @@ export interface PackageCardData {
   priceUsdCents: number | null;
   totalInstalls: number | null;
   avgRating: number | null;
+  remoteHealth?: string | null; // "healthy" | "degraded" | "offline" | "unknown"
   componentCount: number;
   skillCount: number;
   creator: { id: string; displayName: string } | null;
@@ -55,10 +56,28 @@ const HOSTING_LABELS: Record<string, string> = {
   hybrid: "Hybrid",
 };
 
+const HEALTH_DOT_STYLES: Record<string, string> = {
+  healthy: "bg-emerald-500",
+  degraded: "bg-amber-500",
+  offline: "bg-red-500",
+  unknown: "bg-gray-400",
+};
+
+const HEALTH_LABELS: Record<string, string> = {
+  healthy: "Healthy",
+  degraded: "Degraded",
+  offline: "Offline",
+  unknown: "Unknown",
+};
+
 export function PackageCard({ pkg, className }: PackageCardProps) {
   const price = formatPrice(pkg.pricingModel, pkg.priceUsdCents ?? 0);
   const hostingStyle = HOSTING_STYLES[pkg.hostingModel] ?? "bg-secondary text-secondary-foreground border-border";
   const hostingLabel = HOSTING_LABELS[pkg.hostingModel] ?? pkg.hostingModel;
+  const isRemoteOrHybrid = pkg.hostingModel === "remote" || pkg.hostingModel === "hybrid";
+  const healthStatus = pkg.remoteHealth ?? "unknown";
+  const healthDot = HEALTH_DOT_STYLES[healthStatus] ?? HEALTH_DOT_STYLES.unknown;
+  const healthLabel = HEALTH_LABELS[healthStatus] ?? "Unknown";
 
   return (
     <Link href={`/marketplace/packages/${pkg.id}`} className="block group">
@@ -104,6 +123,13 @@ export function PackageCard({ pkg, className }: PackageCardProps) {
               variant="outline"
               className={cn("text-[11px] gap-1", hostingStyle)}
             >
+              {isRemoteOrHybrid && (
+                <span
+                  className={cn("inline-block size-1.5 rounded-full shrink-0", healthDot)}
+                  title={healthLabel}
+                  aria-label={`Health: ${healthLabel}`}
+                />
+              )}
               {hostingLabel}
             </Badge>
           </div>

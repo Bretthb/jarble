@@ -64,6 +64,16 @@ export interface DeploymentFields {
   skills?: Array<{ name: string; config: string }>;
   /** Instruction snippets from installed packages — appended to soul.md */
   packageSnippets?: Array<{ packageName: string; snippet: string }>;
+  /**
+   * Remote skill proxy configs from remote/hybrid package installs.
+   * Each entry describes a skill that should route through the Jarble proxy
+   * rather than calling the skill's default endpoint directly.
+   */
+  remoteSkillConfigs?: Array<{
+    packageId: string;
+    skillName: string;
+    proxyUrl: string;
+  }>;
 }
 
 /**

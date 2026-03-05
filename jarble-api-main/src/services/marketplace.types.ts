@@ -6,6 +6,20 @@
  * configSync marketplace extension, and future marketplace API routes.
  */
 
+// Re-export PackageCard schemas and types from the dedicated module
+export {
+  packageCardSchema,
+  packageCardSkillSchema,
+  packageCardAuthSchema,
+  packageCardRateLimitsSchema,
+} from "./packageCard.js";
+export type {
+  PackageCard,
+  PackageCardSkill,
+  PackageCardAuth,
+  PackageCardRateLimits,
+} from "./packageCard.js";
+
 // ── Categories ──────────────────────────────────────────────────────────────
 
 export const MARKETPLACE_CATEGORIES = [
