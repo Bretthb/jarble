@@ -24,7 +24,7 @@
  *   void syncConfigsFromPvc(deploymentId);
  */
 
-import { db, tables, dbDate } from "../db/index.js";
+import { db, tables, dbDate, getRowsAffected } from "../db/index.js";
 import { eq, and } from "drizzle-orm";
 import {
   writeConfigsToPvc,
@@ -469,8 +469,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       const result = await db.update(deployments)
         .set({ status: "running", error: null })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
-      // Cross-provider: MySQL returns [ResultSetHeader], SQLite returns { changes }, PG returns { rowCount }
-      const affected = (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 1;
+      const affected = getRowsAffected(result);
       if (affected === 0) {
         logger.warn({ deploymentId }, "configSync→PVC: status update skipped — deployment no longer in 'restarting' state");
       } else {
@@ -484,7 +483,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
           error: failureReason || "Pod did not become ready after config sync",
         })
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
-      const affected = (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 1;
+      const affected = getRowsAffected(result);
       if (affected === 0) {
         logger.warn({ deploymentId, failureReason }, "configSync→PVC: failure status update skipped — deployment no longer in 'restarting' state");
       } else {

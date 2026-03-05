@@ -98,6 +98,18 @@ function getActiveTables(): ActiveTables {
 export const tables = getActiveTables();
 
 /**
+ * Extract rows affected from a Drizzle update/delete result.
+ * Drizzle returns different shapes per DB driver:
+ *   - PostgreSQL (pg): { rowCount: N }
+ *   - SQLite (better-sqlite3): { changes: N }
+ *   - MySQL (mysql2): [{ affectedRows: N }]
+ */
+export function getRowsAffected(result: unknown): number {
+  const r = result as any;
+  return r?.rowCount ?? r?.changes ?? r?.rowsAffected ?? r?.[0]?.rowCount ?? r?.[0]?.affectedRows ?? 0;
+}
+
+/**
  * Create a date value compatible with the active DB provider.
  * MySQL timestamp columns expect Date objects; SQLite text columns need ISO strings.
  * Use this when setting date values in `.set()` or `.values()` calls.

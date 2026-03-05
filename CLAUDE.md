@@ -60,7 +60,7 @@ cd Jarble-mvp && npm run dev
 - **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind v4, shadcn/ui, Framer Motion, @xyflow/react (node graph), recharts, Monaco Editor, Leaflet, @assistant-ui/react (chat framework), @sentry/nextjs (error monitoring), posthog-js (analytics), DOMPurify (HTML sanitization)
 - **API**: Express, tRPC, SuperJSON, Drizzle ORM
 - **MCP**: Custom stdio MCP server (`jarble-ui-server.js`) running inside bot pods — exposes `render_ui`, `define_component`, `list_components`, `component_reference` tools
-- **Database**: MySQL (prod), PostgreSQL (alt), SQLite (dev with USE_SQLITE=true)
+- **Database**: PostgreSQL via Neon (prod), SQLite (dev with USE_SQLITE=true)
 - **Auth**: Auth0 (JWT + JWKS verification)
 - **Payments**: Stripe (dynamic pricing via price_data)
 - **Infrastructure**: Hetzner Cloud, Terraform, K3s, Longhorn storage
@@ -300,7 +300,7 @@ const liveStatus = getStatus(deployment.id);
 
 ### API (jarble-api-main/.env)
 ```
-DATABASE_URL=mysql://...        # Required for prod
+DATABASE_URL=postgresql://...   # Required for prod (Neon PostgreSQL)
 USE_SQLITE=true                 # Use file-based SQLite for local dev (local.db)
 AUTH0_DOMAIN=xxx.auth0.com
 AUTH0_AUDIENCE=https://api.jarble.ai
@@ -308,7 +308,7 @@ STRIPE_SECRET_KEY=sk_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_MANAGEMENT_KEY=...   # For included credits provisioning
-ENCRYPTION_KEY=...              # AES-256-GCM key for platform credentials
+API_KEY_ENCRYPTION_KEY=...      # AES-256-GCM key for platform credentials
 ```
 
 ### Frontend (Jarble-mvp/.env.local)
@@ -473,6 +473,40 @@ Component marketplace for discovering, installing, and publishing custom UI comp
 
 ## Infrastructure Notes
 
+### Production Cluster (Hetzner Cloud)
+- **Master**: 178.156.222.218 (jarble-master, 10.0.1.10)
+- **Agent 1**: 178.156.243.110 (jarble-agent-1, 10.0.1.20)
+- **Agent 2**: 178.156.230.13 (jarble-agent-2, 10.0.1.21)
+- **K3s**: v1.29.2, flannel with `enp7s0` interface (NOT `ens10`)
+- **Kubeconfig**: `C:\Users\tanne\kubeconfig.yaml` — must `export KUBECONFIG=...` before every kubectl command
+- **Ingress**: Traefik with hostPort on master (80/443), nodeSelector for master node
+- **Storage**: Longhorn v1.6.0
+- **TLS**: cert-manager + Let's Encrypt (ClusterIssuer `letsencrypt-prod`)
+- **DNS**: `api.jarble.ai` → master IP (Cloudflare, no proxy)
+- **Frontend**: Vercel at `jarble.ai`, repo `Jarble-AI/jarble`, root dir `Jarble-mvp`, branch `main`
+- **Database**: Neon PostgreSQL (production)
+- **Container Registry**: `ghcr.io/jarble-ai/api:latest` (private, classic PAT required for pull secret)
+
+### Deploying Updates
+```bash
+# API: Push to GitHub → Actions builds image → restart pods
+export KUBECONFIG="C:\Users\tanne\kubeconfig.yaml"
+kubectl rollout restart deployment/jarble-api -n jarble
+
+# Frontend: Push to main → Vercel auto-deploys
+# For env var changes: update in Vercel dashboard + redeploy (NEXT_PUBLIC_* vars are baked at build time)
+```
+
+### Running SQL in Production
+Debug endpoints (`/debug/*`) are disabled in production. Use `node` inside an API pod:
+```bash
+kubectl exec -n jarble <pod> -- node -e "
+const pg = require('pg');
+const c = new pg.Client(process.env.DATABASE_URL);
+c.connect().then(() => c.query('YOUR SQL')).then(r => { console.log(JSON.stringify(r.rows,null,2)); return c.end(); });
+"
+```
+
 ### Pod Security (Implemented)
 - ✅ Non-root containers, service account disabled, all capabilities dropped
 - ✅ NetworkPolicy restricts egress (allows LLM APIs, messaging platforms, DNS)
@@ -482,9 +516,30 @@ Component marketplace for discovering, installing, and publishing custom UI comp
 ### Known Issues
 - **npm cache corruption**: `ENOTEMPTY` errors on PVC. Fix: clear `/data/.npm` and delete pod
 - **Telegram 409 conflict**: Two pods with same bot token. Scale down stale deployments
+- **Deployment stuck at "creating"**: Race condition in deploy procedure. Fix: reset status to `pending` via SQL (see Running SQL above)
+- **Hetzner NIC name**: Flannel must use `enp7s0`, not `ens10`. Check `/etc/systemd/system/k3s*.service` if nodes don't register
+- **GHCR auth**: Only classic PATs (`ghp_*`) work for container registry. Fine-grained PATs (`github_pat_*`) return 403
+- **`@jarble/component-manifest` in Docker**: TypeScript path alias requires runtime symlink in Dockerfile
+
+## CI/CD
+
+### GitHub Actions (`.github/workflows/`)
+- **`build-api-image.yml`** — Builds + pushes `ghcr.io/jarble-ai/api:latest` on push to `main` (when `jarble-api-main/` or `shared/` changes). Manual dispatch available.
+- **`build-runtime-images.yml`** — Builds runtime container images
+- **`terraform.yml`** — Plan on PR, apply on merge to main (with approval gate). Manual dispatch for plan-only/apply/destroy.
+
+**Note**: There is no CD step to restart K8s pods after image build. Currently requires manual `kubectl rollout restart`.
 
 ## Claude Agents
 
-Pre-configured agents in `.claude/agents/`:
-- `code-reviewer` - General code review
-- `docs-updater` - Documentation maintenance
+Pre-configured agents in `.claude/agents/` (20 agents):
+
+**Core debugging**: `jarble-api-debugger`, `nextjs-frontend-debugger`, `k8s-pod-lifecycle-debugger`, `sse-stream-debugger`, `auth0-debugger`, `stripe-webhook-debugger`
+
+**Building**: `canvas-component-builder`, `runtime-handler`, `mcp-server`, `test-writer`, `drizzle-db-schema`
+
+**Review**: `code-reviewer`, `design-system-reviewer`, `performance-bundle-analyzer`, `tambo-integration-reviewer`
+
+**Infrastructure**: `terraform-infra`, `infra-ops`, `backend-deployer`, `production-pm`
+
+**Maintenance**: `docs-updater`

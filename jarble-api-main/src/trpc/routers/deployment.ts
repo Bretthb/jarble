@@ -1,7 +1,7 @@
 import { z } from "zod";
 import crypto from "crypto";
 import { router, protectedProcedure } from "../middleware.js";
-import { tables, dbDate, type DbClient } from "../../db/index.js";
+import { tables, dbDate, getRowsAffected, type DbClient } from "../../db/index.js";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc } from "../../k8s/index.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
@@ -282,7 +282,7 @@ export const deploymentRouter = router({
           or(eq(users.freeDeploymentUsed, false), isNull(users.freeDeploymentUsed))
         ));
 
-      const claimRows = (claimResult as any)?.rowsAffected ?? (claimResult as any)?.changes ?? (claimResult as any)?.[0]?.affectedRows ?? 0;
+      const claimRows = getRowsAffected(claimResult);
       const isFree = claimRows > 0;
       const freeExpiresAt = isFree ? dbDate(freeTrialExpiryDate) : null;
 
@@ -512,8 +512,8 @@ export const deploymentRouter = router({
           )
         ));
 
-      // Check if update affected any rows (Drizzle returns different shapes per DB)
-      const rowsAffected = (result as any)?.rowsAffected ?? (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 0;
+      // Check if update affected any rows
+      const rowsAffected = getRowsAffected(result);
 
       if (rowsAffected === 0) {
         // Either deployment doesn't exist, user doesn't own it, or it's already deploying
@@ -1342,11 +1342,11 @@ export const deploymentRouter = router({
       // Explicitly clean up child rows — SQLite doesn't enforce FK cascades by default
       const credResult = await ctx.db.delete(platformCredentials)
         .where(eq(platformCredentials.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id, rows: (credResult as any)?.changes ?? (credResult as any)?.rowsAffected ?? "?" }, "delete: platform_credentials removed");
+      logger.debug({ deploymentId: input.id, rows: getRowsAffected(credResult) }, "delete: platform_credentials removed");
 
       const skillsResult = await ctx.db.delete(deploymentSkills)
         .where(eq(deploymentSkills.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id, rows: (skillsResult as any)?.changes ?? (skillsResult as any)?.rowsAffected ?? "?" }, "delete: deployment_skills removed");
+      logger.debug({ deploymentId: input.id, rows: getRowsAffected(skillsResult) }, "delete: deployment_skills removed");
 
       await ctx.db.delete(deployments)
         .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
