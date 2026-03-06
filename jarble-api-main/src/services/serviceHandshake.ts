@@ -1,6 +1,6 @@
 /**
- * Package install handshake — performs the HTTP handshake with a remote
- * package creator's API endpoint during installation.
+ * Service install handshake — performs the HTTP handshake with a remote
+ * service creator's API endpoint during installation.
  *
  * The handshake POSTs an install request with the buyer's deployment ID
  * and an HMAC signing secret. The creator's endpoint responds with
@@ -9,11 +9,11 @@
 import crypto from "crypto";
 import { createModuleLogger } from "../utils/logger.js";
 
-const log = createModuleLogger("packageHandshake");
+const log = createModuleLogger("serviceHandshake");
 
 export interface HandshakeRequest {
   endpoint: string;
-  packageId: string;
+  serviceId: string;
   deploymentId: string;
   signingSecret: string;
 }
@@ -28,7 +28,7 @@ export interface HandshakeResponse {
  *
  * Sends a JSON body with:
  *   - action: "install"
- *   - packageId: the package being installed
+ *   - serviceId: the service being installed
  *   - deploymentId: the buyer's deployment
  *   - timestamp: ISO 8601 timestamp
  *   - signature: HMAC-SHA256(body, signingSecret)
@@ -40,11 +40,11 @@ export interface HandshakeResponse {
 export async function performInstallHandshake(
   request: HandshakeRequest,
 ): Promise<HandshakeResponse> {
-  const { endpoint, packageId, deploymentId, signingSecret } = request;
+  const { endpoint, serviceId, deploymentId, signingSecret } = request;
 
   const body = JSON.stringify({
     action: "install",
-    packageId,
+    serviceId,
     deploymentId,
     timestamp: new Date().toISOString(),
   });
@@ -55,7 +55,7 @@ export async function performInstallHandshake(
     .update(body)
     .digest("hex");
 
-  log.info({ endpoint, packageId, deploymentId }, "Performing install handshake");
+  log.info({ endpoint, serviceId, deploymentId }, "Performing install handshake");
 
   const response = await fetch(endpoint, {
     method: "POST",

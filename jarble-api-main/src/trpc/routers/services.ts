@@ -11,12 +11,12 @@ import {
   syncConfigsToPvc,
 } from "../../services/configSync.js";
 import { validatePropsSchema } from "../../utils/schemaValidation.js";
-import { packageCardSchema, type PackageCard } from "../../services/packageCard.js";
+import { serviceCardSchema, type ServiceCard } from "../../services/serviceCard.js";
 import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { generateSigningSecret, signRequest } from "../../utils/hmac.js";
-import { performInstallHandshake } from "../../services/packageHandshake.js";
+import { performInstallHandshake } from "../../services/serviceHandshake.js";
 
-const logger = createModuleLogger("packages");
+const logger = createModuleLogger("services");
 
 const {
   deployments,
@@ -26,15 +26,15 @@ const {
   componentInstalls,
   skillsCatalog,
   deploymentSkills,
-  marketplacePackages,
-  packageComponents,
-  packageSkills,
-  packageInstalls,
-  packageCredentials,
-  packageUsage,
+  marketplaceServices,
+  serviceComponents,
+  serviceSkills,
+  serviceInstalls,
+  serviceCredentials,
+  serviceUsage,
 } = tables;
 
-type PackageRow = InferSelectModel<typeof marketplacePackages>;
+type ServiceRow = InferSelectModel<typeof marketplaceServices>;
 
 function generateId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
@@ -58,12 +58,33 @@ function assertAdmin(userId: string): void {
 }
 
 /**
+ * Build a component definition in define_component format from a marketplace
+ * component row. Used when syncing components to pod PVC.
+ */
+function buildComponentDefinition(comp: { name: string; description: string; botDescription: string | null; tier: string; exampleProps: string | null }): Record<string, unknown> | null {
+  if (!comp.exampleProps) return null;
+  try {
+    const parsed = JSON.parse(comp.exampleProps);
+    if (comp.tier === "template" && Array.isArray(parsed.layout)) {
+      return { name: comp.name, description: comp.botDescription || comp.description, layout: parsed.layout };
+    }
+    if (comp.tier === "sandbox" && typeof parsed.html === "string") {
+      return {
+        name: comp.name, description: comp.botDescription || comp.description,
+        layout: [{ component: "sandbox", props: { html: parsed.html, css: parsed.css || "", js: parsed.js || "", title: "{{title}}", libraries: parsed.libraries || [] } }],
+      };
+    }
+  } catch { /* non-fatal */ }
+  return null;
+}
+
+/**
  * Send a signed webhook to a creator's API endpoint.
  *
  * Signs the JSON body using HMAC-SHA256 (via `signRequest`) and includes
  * the standard `X-Jarble-Signature` / `X-Jarble-Timestamp` headers.
  *
- * @param endpoint - Creator API base URL (from PackageCard).
+ * @param endpoint - Creator API base URL (from ServiceCard).
  * @param path     - Webhook path to append, e.g. "/jarble/uninstall".
  * @param body     - JSON-serializable payload.
  * @param secret   - Plaintext HMAC-SHA256 signing secret.
@@ -93,7 +114,7 @@ async function sendSignedWebhook(
   });
 }
 
-export const packagesRouter = router({
+export const servicesRouter = router({
   list: publicProcedure
     .input(z.object({
       search: z.string().optional(),
@@ -103,8 +124,8 @@ export const packagesRouter = router({
       limit: z.number().min(1).max(50).default(20),
     }).optional())
     .query(async ({ ctx, input }) => {
-      const allPackages = await ctx.db.query.marketplacePackages.findMany({
-        where: eq(marketplacePackages.status, "published"),
+      const allPackages = await ctx.db.query.marketplaceServices.findMany({
+        where: eq(marketplaceServices.status, "published"),
       });
 
       let filtered = [...allPackages];
@@ -139,11 +160,11 @@ export const packagesRouter = router({
 
       const items = [];
       for (const pkg of page) {
-        const compCount = (await ctx.db.query.packageComponents.findMany({
-          where: eq(packageComponents.packageId, pkg.id),
+        const compCount = (await ctx.db.query.serviceComponents.findMany({
+          where: eq(serviceComponents.packageId, pkg.id),
         })).length;
-        const skillCount = (await ctx.db.query.packageSkills.findMany({
-          where: eq(packageSkills.packageId, pkg.id),
+        const skillCount = (await ctx.db.query.serviceSkills.findMany({
+          where: eq(serviceSkills.packageId, pkg.id),
         })).length;
         const creator = await ctx.db.query.creatorProfiles.findFirst({
           where: eq(creatorProfiles.id, pkg.creatorId),
@@ -164,17 +185,17 @@ export const packagesRouter = router({
     }),
 
   get: publicProcedure
-    .input(z.object({ packageId: z.string() }))
+    .input(z.object({ serviceId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const pkg = await ctx.db.query.marketplacePackages.findFirst({
-        where: eq(marketplacePackages.id, input.packageId),
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
       });
       if (!pkg) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Package not found" });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service not found" });
       }
 
-      const pkgComps = await ctx.db.query.packageComponents.findMany({
-        where: eq(packageComponents.packageId, pkg.id),
+      const pkgComps = await ctx.db.query.serviceComponents.findMany({
+        where: eq(serviceComponents.packageId, pkg.id),
       });
       const components = [];
       for (const pc of pkgComps) {
@@ -189,8 +210,8 @@ export const packagesRouter = router({
         }
       }
 
-      const pkgSkills = await ctx.db.query.packageSkills.findMany({
-        where: eq(packageSkills.packageId, pkg.id),
+      const pkgSkills = await ctx.db.query.serviceSkills.findMany({
+        where: eq(serviceSkills.packageId, pkg.id),
       });
       const skills = [];
       for (const ps of pkgSkills) {
@@ -213,7 +234,7 @@ export const packagesRouter = router({
     }),
 
   install: protectedProcedure
-    .input(z.object({ packageId: z.string(), deploymentId: z.string() }))
+    .input(z.object({ serviceId: z.string(), deploymentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
         where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
@@ -222,38 +243,38 @@ export const packagesRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      const pkg = await ctx.db.query.marketplacePackages.findFirst({
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
         where: and(
-          eq(marketplacePackages.id, input.packageId),
-          eq(marketplacePackages.status, "published"),
+          eq(marketplaceServices.id, input.serviceId),
+          eq(marketplaceServices.status, "published"),
         ),
       });
       if (!pkg) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Package not found or not published" });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service not found or not published" });
       }
 
-      const existingInstall = await ctx.db.query.packageInstalls.findFirst({
+      const existingInstall = await ctx.db.query.serviceInstalls.findFirst({
         where: and(
-          eq(packageInstalls.packageId, input.packageId),
-          eq(packageInstalls.deploymentId, input.deploymentId),
+          eq(serviceInstalls.packageId, input.serviceId),
+          eq(serviceInstalls.deploymentId, input.deploymentId),
         ),
       });
       if (existingInstall) {
-        throw new TRPCError({ code: "CONFLICT", message: "Package is already installed on this deployment" });
+        throw new TRPCError({ code: "CONFLICT", message: "Service is already installed on this deployment" });
       }
 
-      const pkgComps = await ctx.db.query.packageComponents.findMany({
-        where: eq(packageComponents.packageId, pkg.id),
+      const pkgComps = await ctx.db.query.serviceComponents.findMany({
+        where: eq(serviceComponents.packageId, pkg.id),
       });
-      const pkgSkillRows = await ctx.db.query.packageSkills.findMany({
-        where: eq(packageSkills.packageId, pkg.id),
+      const pkgSkillRows = await ctx.db.query.serviceSkills.findMany({
+        where: eq(serviceSkills.packageId, pkg.id),
       });
 
       // Create package install record
       const installId = generateId("pki");
-      await ctx.db.insert(packageInstalls).values({
+      await ctx.db.insert(serviceInstalls).values({
         id: installId,
-        packageId: input.packageId,
+        packageId: input.serviceId,
         deploymentId: input.deploymentId,
         userId: ctx.user.id,
         installedAt: dbDate(),
@@ -319,35 +340,35 @@ export const packagesRouter = router({
 
       // Increment package install count
       await ctx.db
-        .update(marketplacePackages)
-        .set({ totalInstalls: sql`${marketplacePackages.totalInstalls} + 1` as any })
-        .where(eq(marketplacePackages.id, input.packageId));
+        .update(marketplaceServices)
+        .set({ totalInstalls: sql`${marketplaceServices.totalInstalls} + 1` as any })
+        .where(eq(marketplaceServices.id, input.serviceId));
 
       logger.info({
-        packageId: input.packageId,
+        packageId: input.serviceId,
         deploymentId: input.deploymentId,
         userId: ctx.user.id,
         installedComponents: installedComponents.length,
         installedSkills: installedSkills.length,
-      }, "Package installed");
+      }, "Service installed");
 
       // ── Remote/Hybrid package handshake ──────────────────────────────────
-      // For remote or hybrid packages, parse the PackageCard, generate an HMAC
+      // For remote or hybrid packages, parse the ServiceCard, generate an HMAC
       // signing secret, store encrypted credentials, and perform the install
       // handshake with the creator's API endpoint.
       let handshakeStatus: "completed" | "failed" | "skipped" = "skipped";
       const isRemote = pkg.hostingModel === "remote" || pkg.hostingModel === "hybrid";
 
       if (isRemote) {
-        // Parse and validate the PackageCard from the stored JSON
-        let card: PackageCard | null = null;
+        // Parse and validate the ServiceCard from the stored JSON
+        let card: ServiceCard | null = null;
         const rawConfig = (pkg as Record<string, unknown>).remoteApiConfig as string | null;
         if (rawConfig) {
-          const parsed = packageCardSchema.safeParse(JSON.parse(rawConfig));
+          const parsed = serviceCardSchema.safeParse(JSON.parse(rawConfig));
           if (parsed.success) {
             card = parsed.data;
           } else {
-            logger.warn({ packageId: input.packageId, errors: parsed.error.issues },
+            logger.warn({ packageId: input.serviceId, errors: parsed.error.issues },
               "packages.install: invalid remoteApiConfig (non-fatal)");
           }
         }
@@ -358,11 +379,11 @@ export const packagesRouter = router({
 
           // Store encrypted credentials
           const credId = generateId("pkc");
-          await ctx.db.insert(packageCredentials).values({
+          await ctx.db.insert(serviceCredentials).values({
             id: credId,
             packageInstallId: installId,
             deploymentId: input.deploymentId,
-            packageId: input.packageId,
+            packageId: input.serviceId,
             signingSecret: encryptApiKey(signingSecret),
             handshakeStatus: "pending",
             createdAt: dbDate(),
@@ -374,35 +395,35 @@ export const packagesRouter = router({
             try {
               const result = await performInstallHandshake({
                 endpoint: card!.endpoint,
-                packageId: input.packageId,
+                serviceId: input.serviceId,
                 deploymentId: input.deploymentId,
                 signingSecret,
               });
 
               await ctx.db
-                .update(packageCredentials)
+                .update(serviceCredentials)
                 .set({
                   handshakeStatus: "completed",
                   remoteInstallId: result.remoteInstallId ?? null,
                   updatedAt: dbDate(),
                 } as any)
-                .where(eq(packageCredentials.id, credId));
+                .where(eq(serviceCredentials.id, credId));
 
               handshakeStatus = "completed";
-              logger.info({ packageId: input.packageId, credId }, "Remote handshake completed");
+              logger.info({ packageId: input.serviceId, credId }, "Remote handshake completed");
             } catch (err) {
               const errorMsg = err instanceof Error ? err.message : "Unknown error";
               await ctx.db
-                .update(packageCredentials)
+                .update(serviceCredentials)
                 .set({
                   handshakeStatus: "failed",
                   handshakeError: errorMsg.slice(0, 500),
                   updatedAt: dbDate(),
                 } as any)
-                .where(eq(packageCredentials.id, credId));
+                .where(eq(serviceCredentials.id, credId));
 
               handshakeStatus = "failed";
-              logger.warn({ packageId: input.packageId, credId, err },
+              logger.warn({ packageId: input.serviceId, credId, err },
                 "packages.install: remote handshake failed (non-fatal)");
             }
           })();
@@ -428,6 +449,7 @@ export const packagesRouter = router({
 
           void syncMarketplaceComponent(
             input.deploymentId, compId,
+            comp.name,
             {
               name: comp.name, displayName: comp.displayName,
               description: comp.description, tier: comp.tier,
@@ -435,7 +457,7 @@ export const packagesRouter = router({
               propsSchema: comp.propsSchema ? JSON.parse(comp.propsSchema) : null,
               version: latestVersion?.version ?? "1.0.0",
             },
-            comp.exampleProps ?? comp.propsSchema ?? "",
+            buildComponentDefinition(comp),
             comp.tier as "template" | "sandbox",
           ).catch((err) =>
             logger.error({ err, componentId: compId, deploymentId: input.deploymentId },
@@ -459,7 +481,7 @@ export const packagesRouter = router({
     }),
 
   uninstall: protectedProcedure
-    .input(z.object({ packageId: z.string(), deploymentId: z.string() }))
+    .input(z.object({ serviceId: z.string(), deploymentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
         where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
@@ -468,21 +490,21 @@ export const packagesRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      const install = await ctx.db.query.packageInstalls.findFirst({
+      const install = await ctx.db.query.serviceInstalls.findFirst({
         where: and(
-          eq(packageInstalls.packageId, input.packageId),
-          eq(packageInstalls.deploymentId, input.deploymentId),
+          eq(serviceInstalls.packageId, input.serviceId),
+          eq(serviceInstalls.deploymentId, input.deploymentId),
         ),
       });
       if (!install) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Package is not installed on this deployment" });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service is not installed on this deployment" });
       }
 
-      const pkgComps = await ctx.db.query.packageComponents.findMany({
-        where: eq(packageComponents.packageId, input.packageId),
+      const pkgComps = await ctx.db.query.serviceComponents.findMany({
+        where: eq(serviceComponents.packageId, input.serviceId),
       });
-      const pkgSkillRows = await ctx.db.query.packageSkills.findMany({
-        where: eq(packageSkills.packageId, input.packageId),
+      const pkgSkillRows = await ctx.db.query.serviceSkills.findMany({
+        where: eq(serviceSkills.packageId, input.serviceId),
       });
 
       let removedComponents = 0;
@@ -524,28 +546,28 @@ export const packagesRouter = router({
       // ── Remote/Hybrid uninstall webhook ──────────────────────────────────
       // For remote/hybrid packages, notify the creator's API BEFORE deleting
       // the credentials (we need the signing secret to authenticate the request).
-      const pkg = await ctx.db.query.marketplacePackages.findFirst({
-        where: eq(marketplacePackages.id, input.packageId),
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
       });
       const isRemote = pkg?.hostingModel === "remote" || pkg?.hostingModel === "hybrid";
 
       if (isRemote && pkg) {
-        const cred = await ctx.db.query.packageCredentials.findFirst({
+        const cred = await ctx.db.query.serviceCredentials.findFirst({
           where: and(
-            eq(packageCredentials.deploymentId, input.deploymentId),
-            eq(packageCredentials.packageId, input.packageId),
+            eq(serviceCredentials.deploymentId, input.deploymentId),
+            eq(serviceCredentials.packageId, input.serviceId),
           ),
         });
 
         if (cred) {
-          // Parse the PackageCard to get the endpoint
+          // Parse the ServiceCard to get the endpoint
           const rawConfig = (pkg as Record<string, unknown>).remoteApiConfig as string | null;
           if (rawConfig) {
-            const parsed = packageCardSchema.safeParse(JSON.parse(rawConfig));
+            const parsed = serviceCardSchema.safeParse(JSON.parse(rawConfig));
             if (parsed.success) {
               const uninstallBody = {
                 action: "uninstall" as const,
-                packageId: input.packageId,
+                serviceId: input.serviceId,
                 deploymentId: input.deploymentId,
                 timestamp: new Date().toISOString(),
               };
@@ -560,19 +582,19 @@ export const packagesRouter = router({
                 );
                 if (!res.ok) {
                   logger.warn(
-                    { packageId: input.packageId, status: res.status },
+                    { packageId: input.serviceId, status: res.status },
                     "Creator uninstall webhook returned non-OK (proceeding with uninstall)",
                   );
                 } else {
                   logger.info(
-                    { packageId: input.packageId, deploymentId: input.deploymentId },
+                    { packageId: input.serviceId, deploymentId: input.deploymentId },
                     "Creator uninstall webhook acknowledged",
                   );
                 }
               } catch (err) {
                 // Fire-and-forget: don't fail the uninstall if the webhook fails
                 logger.warn(
-                  { packageId: input.packageId, deploymentId: input.deploymentId, err },
+                  { packageId: input.serviceId, deploymentId: input.deploymentId, err },
                   "Creator uninstall webhook failed (proceeding with uninstall)",
                 );
               }
@@ -580,24 +602,24 @@ export const packagesRouter = router({
           }
 
           // Delete the credentials AFTER sending the webhook
-          await ctx.db.delete(packageCredentials)
-            .where(eq(packageCredentials.id, cred.id));
+          await ctx.db.delete(serviceCredentials)
+            .where(eq(serviceCredentials.id, cred.id));
         }
       }
 
-      await ctx.db.delete(packageInstalls)
+      await ctx.db.delete(serviceInstalls)
         .where(and(
-          eq(packageInstalls.packageId, input.packageId),
-          eq(packageInstalls.deploymentId, input.deploymentId),
+          eq(serviceInstalls.packageId, input.serviceId),
+          eq(serviceInstalls.deploymentId, input.deploymentId),
         ));
 
       logger.info({
-        packageId: input.packageId,
+        packageId: input.serviceId,
         deploymentId: input.deploymentId,
         userId: ctx.user.id,
         removedComponents,
         removedSkills,
-      }, "Package uninstalled");
+      }, "Service uninstalled");
 
       // Always sync configs on uninstall — removes package snippet from soul.md
       // and cleans up skill config files from PVC
@@ -621,14 +643,14 @@ export const packagesRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      const installs = await ctx.db.query.packageInstalls.findMany({
-        where: eq(packageInstalls.deploymentId, input.deploymentId),
+      const installs = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.deploymentId, input.deploymentId),
       });
 
       const results = [];
       for (const inst of installs) {
-        const pkg = await ctx.db.query.marketplacePackages.findFirst({
-          where: eq(marketplacePackages.id, inst.packageId),
+        const pkg = await ctx.db.query.marketplaceServices.findFirst({
+          where: eq(marketplaceServices.id, inst.packageId),
         });
         if (!pkg) continue;
         results.push({
@@ -645,13 +667,13 @@ export const packagesRouter = router({
 
   publish: protectedProcedure
     .input(z.object({
-      name: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/, "Package name must be lowercase alphanumeric with hyphens"),
+      name: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/, "Service name must be lowercase alphanumeric with hyphens"),
       displayName: z.string().min(1).max(255),
       description: z.string().max(2000).optional(),
       hostingModel: z.enum(["self_hosted", "remote", "hybrid"]),
       instructionSnippet: z.string().max(5000).optional(),
       remoteApiEndpoint: z.string().url().max(500).optional(),
-      remoteApiConfig: z.string().optional(), // JSON string of PackageCard (required for remote/hybrid)
+      remoteApiConfig: z.string().optional(), // JSON string of ServiceCard (required for remote/hybrid)
       pricingModel: z.enum(["free", "paid", "freemium"]).default("free"),
       priceUsdCents: z.number().int().min(0).default(0),
       componentIds: z.array(z.string()).default([]),
@@ -664,18 +686,18 @@ export const packagesRouter = router({
       if (!profile) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "You must create a creator profile before publishing packages",
+          message: "You must create a creator profile before publishing services",
         });
       }
 
-      const existing = await ctx.db.query.marketplacePackages.findFirst({
+      const existing = await ctx.db.query.marketplaceServices.findFirst({
         where: and(
-          eq(marketplacePackages.creatorId, profile.id),
-          eq(marketplacePackages.name, input.name),
+          eq(marketplaceServices.creatorId, profile.id),
+          eq(marketplaceServices.name, input.name),
         ),
       });
       if (existing) {
-        throw new TRPCError({ code: "CONFLICT", message: "You already have a package with this name" });
+        throw new TRPCError({ code: "CONFLICT", message: "You already have a service with this name" });
       }
 
       for (const compId of input.componentIds) {
@@ -713,7 +735,7 @@ export const packagesRouter = router({
       if (input.componentIds.length === 0 && input.skillIds.length === 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Package must contain at least one component or skill",
+          message: "Service must contain at least one component or skill",
         });
       }
 
@@ -723,18 +745,18 @@ export const packagesRouter = router({
         input.remoteApiConfig
       ) {
         try {
-          packageCardSchema.parse(JSON.parse(input.remoteApiConfig));
+          serviceCardSchema.parse(JSON.parse(input.remoteApiConfig));
         } catch (err) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: `Invalid PackageCard config: ${err instanceof Error ? err.message : "parse error"}`,
+            message: `Invalid ServiceCard config: ${err instanceof Error ? err.message : "parse error"}`,
           });
         }
       }
 
-      const packageId = generateId("pkg");
-      await ctx.db.insert(marketplacePackages).values({
-        id: packageId,
+      const serviceId = generateId("pkg");
+      await ctx.db.insert(marketplaceServices).values({
+        id: serviceId,
         creatorId: profile.id,
         name: input.name,
         displayName: input.displayName,
@@ -751,34 +773,34 @@ export const packagesRouter = router({
       });
 
       for (const compId of input.componentIds) {
-        await ctx.db.insert(packageComponents).values({
-          id: generateId("pkc"), packageId, componentId: compId,
+        await ctx.db.insert(serviceComponents).values({
+          id: generateId("pkc"), packageId: serviceId, componentId: compId,
         });
       }
 
       for (const skillId of input.skillIds) {
-        await ctx.db.insert(packageSkills).values({
-          id: generateId("pks"), packageId, skillId,
+        await ctx.db.insert(serviceSkills).values({
+          id: generateId("pks"), packageId: serviceId, skillId,
         });
       }
 
       logger.info({
-        packageId, name: input.name,
+        serviceId, name: input.name,
         components: input.componentIds.length,
         skills: input.skillIds.length,
         userId: ctx.user.id,
-      }, "Package submitted for review");
+      }, "Service submitted for review");
 
-      return { packageId };
+      return { serviceId };
     }),
 
   listByCreator: publicProcedure
     .input(z.object({ creatorId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const packages = await ctx.db.query.marketplacePackages.findMany({
+      const packages = await ctx.db.query.marketplaceServices.findMany({
         where: and(
-          eq(marketplacePackages.creatorId, input.creatorId),
-          eq(marketplacePackages.status, "published"),
+          eq(marketplaceServices.creatorId, input.creatorId),
+          eq(marketplaceServices.status, "published"),
         ),
       });
 
@@ -793,8 +815,8 @@ export const packagesRouter = router({
 
   // ── Package Status & Upgrade ─────────────────────────────────────────────
 
-  getPackageStatus: protectedProcedure
-    .input(z.object({ packageId: z.string(), deploymentId: z.string() }))
+  getServiceStatus: protectedProcedure
+    .input(z.object({ serviceId: z.string(), deploymentId: z.string() }))
     .query(async ({ ctx, input }) => {
       // 1. Verify deployment ownership
       const deployment = await ctx.db.query.deployments.findFirst({
@@ -804,11 +826,11 @@ export const packagesRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      // 2. Look up packageInstalls for this deployment+package
-      const install = await ctx.db.query.packageInstalls.findFirst({
+      // 2. Look up serviceInstalls for this deployment+package
+      const install = await ctx.db.query.serviceInstalls.findFirst({
         where: and(
-          eq(packageInstalls.packageId, input.packageId),
-          eq(packageInstalls.deploymentId, input.deploymentId),
+          eq(serviceInstalls.packageId, input.serviceId),
+          eq(serviceInstalls.deploymentId, input.deploymentId),
         ),
       });
       if (!install) {
@@ -816,24 +838,24 @@ export const packagesRouter = router({
       }
 
       // 3. Look up the package itself
-      const pkg = await ctx.db.query.marketplacePackages.findFirst({
-        where: eq(marketplacePackages.id, input.packageId),
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
       });
       if (!pkg) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Package not found" });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service not found" });
       }
 
-      // 4. Look up packageCredentials (if remote/hybrid)
-      const creds = await ctx.db.query.packageCredentials.findFirst({
+      // 4. Look up serviceCredentials (if remote/hybrid)
+      const creds = await ctx.db.query.serviceCredentials.findFirst({
         where: and(
-          eq(packageCredentials.packageId, input.packageId),
-          eq(packageCredentials.deploymentId, input.deploymentId),
+          eq(serviceCredentials.packageId, input.serviceId),
+          eq(serviceCredentials.deploymentId, input.deploymentId),
         ),
       });
 
       // 5. Look up which components are in the package and how many are installed
-      const pkgComps = await ctx.db.query.packageComponents.findMany({
-        where: eq(packageComponents.packageId, input.packageId),
+      const pkgComps = await ctx.db.query.serviceComponents.findMany({
+        where: eq(serviceComponents.packageId, input.serviceId),
       });
       let installedComponentCount = 0;
       for (const pc of pkgComps) {
@@ -847,8 +869,8 @@ export const packagesRouter = router({
       }
 
       // 6. Look up which skills are in the package and how many are installed
-      const pkgSkillRows = await ctx.db.query.packageSkills.findMany({
-        where: eq(packageSkills.packageId, input.packageId),
+      const pkgSkillRows = await ctx.db.query.serviceSkills.findMany({
+        where: eq(serviceSkills.packageId, input.serviceId),
       });
       let installedSkillCount = 0;
       for (const ps of pkgSkillRows) {
@@ -901,23 +923,23 @@ export const packagesRouter = router({
       }
 
       // 2. Get all installed packages for this deployment
-      const installs = await ctx.db.query.packageInstalls.findMany({
-        where: eq(packageInstalls.deploymentId, input.deploymentId),
+      const installs = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.deploymentId, input.deploymentId),
       });
 
       const updates: Array<{
-        packageId: string;
-        packageName: string;
+        serviceId: string;
+        serviceName: string;
         displayName: string;
         installedAt: string | Date;
-        packageUpdatedAt: string | Date;
+        serviceUpdatedAt: string | Date;
         newComponents: number;
         newSkills: number;
       }> = [];
 
       for (const inst of installs) {
-        const pkg = await ctx.db.query.marketplacePackages.findFirst({
-          where: eq(marketplacePackages.id, inst.packageId),
+        const pkg = await ctx.db.query.marketplaceServices.findFirst({
+          where: eq(marketplaceServices.id, inst.packageId),
         });
         if (!pkg) continue;
 
@@ -928,8 +950,8 @@ export const packagesRouter = router({
           new Date(pkgUpdatedAt).getTime() > new Date(installedAt).getTime();
 
         // 4. Check for new components added since install (not yet installed on this deployment)
-        const pkgComps = await ctx.db.query.packageComponents.findMany({
-          where: eq(packageComponents.packageId, pkg.id),
+        const pkgComps = await ctx.db.query.serviceComponents.findMany({
+          where: eq(serviceComponents.packageId, pkg.id),
         });
         let newComponents = 0;
         for (const pc of pkgComps) {
@@ -943,8 +965,8 @@ export const packagesRouter = router({
         }
 
         // 5. Check for new skills added since install (not yet installed on this deployment)
-        const pkgSkillRows = await ctx.db.query.packageSkills.findMany({
-          where: eq(packageSkills.packageId, pkg.id),
+        const pkgSkillRows = await ctx.db.query.serviceSkills.findMany({
+          where: eq(serviceSkills.packageId, pkg.id),
         });
         let newSkills = 0;
         for (const ps of pkgSkillRows) {
@@ -960,11 +982,11 @@ export const packagesRouter = router({
         // Only include if there is actually something to update
         if (packageWasUpdated || newComponents > 0 || newSkills > 0) {
           updates.push({
-            packageId: pkg.id,
-            packageName: pkg.name,
+            serviceId: pkg.id,
+            serviceName: pkg.name,
             displayName: pkg.displayName,
             installedAt,
-            packageUpdatedAt: pkgUpdatedAt,
+            serviceUpdatedAt: pkgUpdatedAt,
             newComponents,
             newSkills,
           });
@@ -974,8 +996,8 @@ export const packagesRouter = router({
       return { updates };
     }),
 
-  upgradePackage: protectedProcedure
-    .input(z.object({ packageId: z.string(), deploymentId: z.string() }))
+  upgradeService: protectedProcedure
+    .input(z.object({ serviceId: z.string(), deploymentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       // 1. Verify deployment ownership
       const deployment = await ctx.db.query.deployments.findFirst({
@@ -986,32 +1008,32 @@ export const packagesRouter = router({
       }
 
       // 2. Verify the package is installed
-      const install = await ctx.db.query.packageInstalls.findFirst({
+      const install = await ctx.db.query.serviceInstalls.findFirst({
         where: and(
-          eq(packageInstalls.packageId, input.packageId),
-          eq(packageInstalls.deploymentId, input.deploymentId),
+          eq(serviceInstalls.packageId, input.serviceId),
+          eq(serviceInstalls.deploymentId, input.deploymentId),
         ),
       });
       if (!install) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "Package is not installed on this deployment",
+          message: "Service is not installed on this deployment",
         });
       }
 
-      const pkg = await ctx.db.query.marketplacePackages.findFirst({
-        where: eq(marketplacePackages.id, input.packageId),
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
       });
       if (!pkg) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Package not found" });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service not found" });
       }
 
       // 3. Get current package components and skills
-      const pkgComps = await ctx.db.query.packageComponents.findMany({
-        where: eq(packageComponents.packageId, pkg.id),
+      const pkgComps = await ctx.db.query.serviceComponents.findMany({
+        where: eq(serviceComponents.packageId, pkg.id),
       });
-      const pkgSkillRows = await ctx.db.query.packageSkills.findMany({
-        where: eq(packageSkills.packageId, pkg.id),
+      const pkgSkillRows = await ctx.db.query.serviceSkills.findMany({
+        where: eq(serviceSkills.packageId, pkg.id),
       });
 
       // 4. Install missing components (same logic as install but skip existing)
@@ -1072,26 +1094,26 @@ export const packagesRouter = router({
         newlyInstalledSkills.push(ps.skillId);
       }
 
-      // 6. Update packageInstalls.installedAt to now (marks as "up to date")
+      // 6. Update serviceInstalls.installedAt to now (marks as "up to date")
       await ctx.db
-        .update(packageInstalls)
+        .update(serviceInstalls)
         .set({ installedAt: dbDate() } as any)
         .where(
           and(
-            eq(packageInstalls.packageId, input.packageId),
-            eq(packageInstalls.deploymentId, input.deploymentId),
+            eq(serviceInstalls.packageId, input.serviceId),
+            eq(serviceInstalls.deploymentId, input.deploymentId),
           ),
         );
 
       logger.info(
         {
-          packageId: input.packageId,
+          packageId: input.serviceId,
           deploymentId: input.deploymentId,
           userId: ctx.user.id,
           newComponents: newlyInstalledComponents.length,
           newSkills: newlyInstalledSkills.length,
         },
-        "Package upgraded",
+        "Service upgraded",
       );
 
       // 7. Sync components + configs to pod if running
@@ -1112,6 +1134,7 @@ export const packagesRouter = router({
           void syncMarketplaceComponent(
             input.deploymentId,
             compId,
+            comp.name,
             {
               name: comp.name,
               displayName: comp.displayName,
@@ -1121,7 +1144,7 @@ export const packagesRouter = router({
               propsSchema: comp.propsSchema ? JSON.parse(comp.propsSchema) : null,
               version: latestVersion?.version ?? "1.0.0",
             },
-            comp.exampleProps ?? comp.propsSchema ?? "",
+            buildComponentDefinition(comp),
             comp.tier as "template" | "sandbox",
           ).catch((err) =>
             logger.error(
@@ -1152,11 +1175,11 @@ export const packagesRouter = router({
   // ── Creator Dashboard ────────────────────────────────────────────────────
 
   creatorInstalls: protectedProcedure
-    .input(z.object({ packageId: z.string() }))
+    .input(z.object({ serviceId: z.string() }))
     .query(async ({ ctx, input }) => {
       // Verify the caller owns this package (is the creator)
-      const pkg = await ctx.db.query.marketplacePackages.findFirst({
-        where: eq(marketplacePackages.id, input.packageId),
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
       });
       if (!pkg) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -1164,12 +1187,12 @@ export const packagesRouter = router({
         where: eq(creatorProfiles.userId, ctx.user.id),
       });
       if (!creator || creator.id !== pkg.creatorId) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Not the package creator" });
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not the service creator" });
       }
 
       // Return install list with deployment IDs and timestamps
-      const installs = await ctx.db.query.packageInstalls.findMany({
-        where: eq(packageInstalls.packageId, input.packageId),
+      const installs = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.packageId, input.serviceId),
       });
 
       return {
@@ -1183,11 +1206,11 @@ export const packagesRouter = router({
     }),
 
   creatorUsage: protectedProcedure
-    .input(z.object({ packageId: z.string() }))
+    .input(z.object({ serviceId: z.string() }))
     .query(async ({ ctx, input }) => {
       // Verify ownership
-      const pkg = await ctx.db.query.marketplacePackages.findFirst({
-        where: eq(marketplacePackages.id, input.packageId),
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
       });
       if (!pkg) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -1195,12 +1218,12 @@ export const packagesRouter = router({
         where: eq(creatorProfiles.userId, ctx.user.id),
       });
       if (!creator || creator.id !== pkg.creatorId) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Not the package creator" });
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not the service creator" });
       }
 
       // Query package_usage for this package
-      const usage = await (ctx.db.query as any).packageUsage?.findMany?.({
-        where: eq(packageUsage.packageId, input.packageId),
+      const usage = await (ctx.db.query as any).serviceUsage?.findMany?.({
+        where: eq(serviceUsage.packageId, input.serviceId),
       }) ?? [];
 
       // Aggregate by billing cycle
@@ -1218,7 +1241,7 @@ export const packagesRouter = router({
   // ── Key Rotation ────────────────────────────────────────────────────────
 
   rotateSigningSecret: protectedProcedure
-    .input(z.object({ packageId: z.string(), deploymentId: z.string() }))
+    .input(z.object({ serviceId: z.string(), deploymentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       // 1. Verify deployment ownership
       const deployment = await ctx.db.query.deployments.findFirst({
@@ -1228,17 +1251,17 @@ export const packagesRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      // 2. Look up packageCredentials for this deployment+package
-      const cred = await ctx.db.query.packageCredentials.findFirst({
+      // 2. Look up serviceCredentials for this deployment+package
+      const cred = await ctx.db.query.serviceCredentials.findFirst({
         where: and(
-          eq(packageCredentials.deploymentId, input.deploymentId),
-          eq(packageCredentials.packageId, input.packageId),
+          eq(serviceCredentials.deploymentId, input.deploymentId),
+          eq(serviceCredentials.packageId, input.serviceId),
         ),
       });
       if (!cred) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "No credentials found for this package installation",
+          message: "No credentials found for this service installation",
         });
       }
 
@@ -1250,32 +1273,32 @@ export const packagesRouter = router({
 
       // 5. Encrypt and update the credentials row with the new secret
       await ctx.db
-        .update(packageCredentials)
+        .update(serviceCredentials)
         .set({
           signingSecret: encryptApiKey(newSecret),
           updatedAt: dbDate(),
         } as any)
-        .where(eq(packageCredentials.id, cred.id));
+        .where(eq(serviceCredentials.id, cred.id));
 
       logger.info(
-        { packageId: input.packageId, deploymentId: input.deploymentId, credId: cred.id },
+        { packageId: input.serviceId, deploymentId: input.deploymentId, credId: cred.id },
         "Signing secret rotated",
       );
 
       // 6. Notify the creator's API via POST {endpoint}/jarble/rotate
       //    Sign with the OLD secret so the creator can verify the request.
-      const pkg = await ctx.db.query.marketplacePackages.findFirst({
-        where: eq(marketplacePackages.id, input.packageId),
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
       });
 
       if (pkg) {
         const rawConfig = (pkg as Record<string, unknown>).remoteApiConfig as string | null;
         if (rawConfig) {
-          const parsed = packageCardSchema.safeParse(JSON.parse(rawConfig));
+          const parsed = serviceCardSchema.safeParse(JSON.parse(rawConfig));
           if (parsed.success) {
             const rotateBody = {
               action: "rotate" as const,
-              packageId: input.packageId,
+              serviceId: input.serviceId,
               deploymentId: input.deploymentId,
               signingSecret: newSecret,
               timestamp: new Date().toISOString(),
@@ -1290,12 +1313,12 @@ export const packagesRouter = router({
             ).then((res) => {
               if (!res.ok) {
                 logger.warn(
-                  { packageId: input.packageId, status: res.status },
+                  { packageId: input.serviceId, status: res.status },
                   "Creator rotate webhook returned non-OK (local secret already updated)",
                 );
               } else {
                 logger.info(
-                  { packageId: input.packageId },
+                  { packageId: input.serviceId },
                   "Creator rotate webhook acknowledged",
                 );
               }
@@ -1303,7 +1326,7 @@ export const packagesRouter = router({
               // If the creator's endpoint is down, the local credential is still updated.
               // The creator will need to use an out-of-band mechanism to resync.
               logger.warn(
-                { packageId: input.packageId, err },
+                { packageId: input.serviceId, err },
                 "Creator rotate webhook failed (local secret already updated)",
               );
             });
@@ -1330,8 +1353,8 @@ export const packagesRouter = router({
 
       const statusFilter = input?.status ?? "pending_review";
 
-      const packages = await ctx.db.query.marketplacePackages.findMany({
-        where: eq(marketplacePackages.status, statusFilter),
+      const packages = await ctx.db.query.marketplaceServices.findMany({
+        where: eq(marketplaceServices.status, statusFilter),
       });
 
       return packages.map((p) => ({
@@ -1350,32 +1373,32 @@ export const packagesRouter = router({
     }),
 
   adminApprove: protectedProcedure
-    .input(z.object({ packageId: z.string() }))
+    .input(z.object({ serviceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       assertAdmin(ctx.user.id);
 
-      const pkg = await ctx.db.query.marketplacePackages.findFirst({
-        where: eq(marketplacePackages.id, input.packageId),
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
       });
       if (!pkg) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Package not found" });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service not found" });
       }
 
       await ctx.db
-        .update(marketplacePackages)
+        .update(marketplaceServices)
         .set({
           status: "published",
           updatedAt: dbDate(),
         } as any)
-        .where(eq(marketplacePackages.id, input.packageId));
+        .where(eq(marketplaceServices.id, input.serviceId));
 
       logger.info(
         {
-          packageId: input.packageId,
+          packageId: input.serviceId,
           adminUserId: ctx.user.id,
           previousStatus: pkg.status,
         },
-        "Package approved by admin",
+        "Service approved by admin",
       );
 
       return { success: true as const };
@@ -1384,38 +1407,91 @@ export const packagesRouter = router({
   adminReject: protectedProcedure
     .input(
       z.object({
-        packageId: z.string(),
+        serviceId: z.string(),
         reason: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       assertAdmin(ctx.user.id);
 
-      const pkg = await ctx.db.query.marketplacePackages.findFirst({
-        where: eq(marketplacePackages.id, input.packageId),
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
       });
       if (!pkg) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Package not found" });
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service not found" });
       }
 
       await ctx.db
-        .update(marketplacePackages)
+        .update(marketplaceServices)
         .set({
           status: "rejected",
           updatedAt: dbDate(),
         } as any)
-        .where(eq(marketplacePackages.id, input.packageId));
+        .where(eq(marketplaceServices.id, input.serviceId));
 
       logger.info(
         {
-          packageId: input.packageId,
+          packageId: input.serviceId,
           adminUserId: ctx.user.id,
           previousStatus: pkg.status,
           reason: input.reason ?? null,
         },
-        "Package rejected by admin",
+        "Service rejected by admin",
       );
 
       return { success: true as const };
+    }),
+
+  // ── Deployment Component/Skill Browsing ───────────────────────────────────
+
+  listDeploymentComponents: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      const installs = await ctx.db.query.componentInstalls.findMany({
+        where: eq(componentInstalls.deploymentId, input.deploymentId),
+        with: { component: true },
+      });
+
+      return installs
+        .filter((i) => i.component?.status === "published")
+        .map((i) => ({
+          id: i.component!.id,
+          name: i.component!.name,
+          displayName: i.component!.displayName,
+          description: i.component!.description,
+          category: i.component!.category,
+          tier: i.component!.tier,
+        }));
+    }),
+
+  listDeploymentSkills: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      const installs = await ctx.db.query.deploymentSkills.findMany({
+        where: eq(deploymentSkills.deploymentId, input.deploymentId),
+        with: { skill: true },
+      });
+
+      return installs.map((i) => ({
+        id: i.skill.id,
+        name: i.skill.name,
+        description: i.skill.description,
+        category: i.skill.runtime,
+        isOfficial: i.skill.isOfficial,
+      }));
     }),
 });

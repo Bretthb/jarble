@@ -74,6 +74,15 @@ export interface DeploymentFields {
     skillName: string;
     proxyUrl: string;
   }>;
+  /** Installed marketplace components — included in soul.md so the bot knows what's available */
+  installedComponents?: Array<{
+    name: string;
+    displayName: string;
+    description: string;
+    botDescription: string | null;
+    tier: string;
+    category: string;
+  }>;
 }
 
 /**

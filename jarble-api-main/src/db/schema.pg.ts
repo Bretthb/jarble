@@ -227,7 +227,7 @@ export const componentReviews = pgTable("component_reviews", {
 
 // ── Package Tables ────────────────────────────────────────────────────────
 
-export const marketplacePackages = pgTable("marketplace_packages", {
+export const marketplaceServices = pgTable("marketplace_packages", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pkg")),
   creatorId: varchar("creator_id", { length: 255 }).notNull().references(() => creatorProfiles.id),
   name: varchar("name", { length: 100 }).notNull(),
@@ -250,25 +250,25 @@ export const marketplacePackages = pgTable("marketplace_packages", {
   creatorPackageNameIdx: uniqueIndex("uq_creator_package_name").on(table.creatorId, table.name),
 }));
 
-export const packageComponents = pgTable("package_components", {
+export const serviceComponents = pgTable("package_components", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pkc")),
-  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplacePackages.id, { onDelete: "cascade" }),
+  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplaceServices.id, { onDelete: "cascade" }),
   componentId: varchar("component_id", { length: 255 }).notNull().references(() => marketplaceComponents.id),
 }, (table) => ({
   packageComponentIdx: uniqueIndex("uq_package_component").on(table.packageId, table.componentId),
 }));
 
-export const packageSkills = pgTable("package_skills", {
+export const serviceSkills = pgTable("package_skills", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pks")),
-  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplacePackages.id, { onDelete: "cascade" }),
+  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplaceServices.id, { onDelete: "cascade" }),
   skillId: varchar("skill_id", { length: 255 }).notNull().references(() => skillsCatalog.id),
 }, (table) => ({
   packageSkillIdx: uniqueIndex("uq_package_skill").on(table.packageId, table.skillId),
 }));
 
-export const packageInstalls = pgTable("package_installs", {
+export const serviceInstalls = pgTable("package_installs", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pki")),
-  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplacePackages.id),
+  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplaceServices.id),
   deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
   userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
   installedAt: timestamp("installed_at").defaultNow().notNull(),
@@ -277,11 +277,11 @@ export const packageInstalls = pgTable("package_installs", {
 }));
 
 // Stores HMAC signing secrets and handshake state for remote/hybrid package installs
-export const packageCredentials = pgTable("package_credentials", {
+export const serviceCredentials = pgTable("package_credentials", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pkc")),
-  packageInstallId: varchar("package_install_id", { length: 255 }).notNull().references(() => packageInstalls.id, { onDelete: "cascade" }),
+  packageInstallId: varchar("package_install_id", { length: 255 }).notNull().references(() => serviceInstalls.id, { onDelete: "cascade" }),
   deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
-  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplacePackages.id),
+  packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplaceServices.id),
   signingSecret: text("signing_secret").notNull(), // Encrypted HMAC-SHA256 signing secret
   handshakeStatus: varchar("handshake_status", { length: 20 }).notNull().default("pending"), // "pending" | "completed" | "failed"
   handshakeError: text("handshake_error"),
@@ -363,39 +363,39 @@ export const componentReviewsRelations = relations(componentReviews, ({ one }) =
 
 // ── Package Relations ─────────────────────────────────────────────────────
 
-export const marketplacePackagesRelations = relations(marketplacePackages, ({ one, many }) => ({
-  creator: one(creatorProfiles, { fields: [marketplacePackages.creatorId], references: [creatorProfiles.id] }),
-  components: many(packageComponents),
-  skills: many(packageSkills),
-  installs: many(packageInstalls),
+export const marketplaceServicesRelations = relations(marketplaceServices, ({ one, many }) => ({
+  creator: one(creatorProfiles, { fields: [marketplaceServices.creatorId], references: [creatorProfiles.id] }),
+  components: many(serviceComponents),
+  skills: many(serviceSkills),
+  installs: many(serviceInstalls),
 }));
 
-export const packageComponentsRelations = relations(packageComponents, ({ one }) => ({
-  package: one(marketplacePackages, { fields: [packageComponents.packageId], references: [marketplacePackages.id] }),
-  component: one(marketplaceComponents, { fields: [packageComponents.componentId], references: [marketplaceComponents.id] }),
+export const serviceComponentsRelations = relations(serviceComponents, ({ one }) => ({
+  package: one(marketplaceServices, { fields: [serviceComponents.packageId], references: [marketplaceServices.id] }),
+  component: one(marketplaceComponents, { fields: [serviceComponents.componentId], references: [marketplaceComponents.id] }),
 }));
 
-export const packageSkillsRelations = relations(packageSkills, ({ one }) => ({
-  package: one(marketplacePackages, { fields: [packageSkills.packageId], references: [marketplacePackages.id] }),
-  skill: one(skillsCatalog, { fields: [packageSkills.skillId], references: [skillsCatalog.id] }),
+export const serviceSkillsRelations = relations(serviceSkills, ({ one }) => ({
+  package: one(marketplaceServices, { fields: [serviceSkills.packageId], references: [marketplaceServices.id] }),
+  skill: one(skillsCatalog, { fields: [serviceSkills.skillId], references: [skillsCatalog.id] }),
 }));
 
-export const packageInstallsRelations = relations(packageInstalls, ({ one }) => ({
-  package: one(marketplacePackages, { fields: [packageInstalls.packageId], references: [marketplacePackages.id] }),
-  deployment: one(deployments, { fields: [packageInstalls.deploymentId], references: [deployments.id] }),
-  user: one(users, { fields: [packageInstalls.userId], references: [users.id] }),
+export const serviceInstallsRelations = relations(serviceInstalls, ({ one }) => ({
+  package: one(marketplaceServices, { fields: [serviceInstalls.packageId], references: [marketplaceServices.id] }),
+  deployment: one(deployments, { fields: [serviceInstalls.deploymentId], references: [deployments.id] }),
+  user: one(users, { fields: [serviceInstalls.userId], references: [users.id] }),
 }));
 
-export const packageCredentialsRelations = relations(packageCredentials, ({ one }) => ({
-  packageInstall: one(packageInstalls, { fields: [packageCredentials.packageInstallId], references: [packageInstalls.id] }),
-  deployment: one(deployments, { fields: [packageCredentials.deploymentId], references: [deployments.id] }),
-  package: one(marketplacePackages, { fields: [packageCredentials.packageId], references: [marketplacePackages.id] }),
+export const serviceCredentialsRelations = relations(serviceCredentials, ({ one }) => ({
+  packageInstall: one(serviceInstalls, { fields: [serviceCredentials.packageInstallId], references: [serviceInstalls.id] }),
+  deployment: one(deployments, { fields: [serviceCredentials.deploymentId], references: [deployments.id] }),
+  package: one(marketplaceServices, { fields: [serviceCredentials.packageId], references: [marketplaceServices.id] }),
 }));
 
 // Tracks per-skill request counts per billing cycle for metered usage
-export const packageUsage = pgTable("package_usage", {
+export const serviceUsage = pgTable("package_usage", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("pku")),
-  packageInstallId: varchar("package_install_id", { length: 255 }).notNull().references(() => packageInstalls.id, { onDelete: "cascade" }),
+  packageInstallId: varchar("package_install_id", { length: 255 }).notNull().references(() => serviceInstalls.id, { onDelete: "cascade" }),
   deploymentId: varchar("deployment_id", { length: 255 }).notNull(),
   packageId: varchar("package_id", { length: 255 }).notNull(),
   skillName: varchar("skill_name", { length: 100 }).notNull(),
@@ -404,6 +404,6 @@ export const packageUsage = pgTable("package_usage", {
   recordedAt: timestamp("recorded_at").defaultNow().notNull(),
 });
 
-export const packageUsageRelations = relations(packageUsage, ({ one }) => ({
-  packageInstall: one(packageInstalls, { fields: [packageUsage.packageInstallId], references: [packageInstalls.id] }),
+export const serviceUsageRelations = relations(serviceUsage, ({ one }) => ({
+  packageInstall: one(serviceInstalls, { fields: [serviceUsage.packageInstallId], references: [serviceInstalls.id] }),
 }));

@@ -23,6 +23,8 @@ interface CanvasToolbarProps {
   onToggleGridSnap?: () => void;
   /** Freeform-only: tidy layout trigger */
   onOrganize?: () => void;
+  /** Incremented each time an unsave happens — triggers gallery refetch */
+  refetchTrigger?: number;
 }
 
 function CanvasToolbarInner({
@@ -34,6 +36,7 @@ function CanvasToolbarInner({
   gridSnap,
   onToggleGridSnap,
   onOrganize,
+  refetchTrigger,
 }: CanvasToolbarProps) {
   const selectedCards = cards.filter((c) => c.selected);
   const selectedCount = selectedCards.length;
@@ -120,7 +123,7 @@ function CanvasToolbarInner({
         </button>
       )}
 
-      <ComponentGallery deploymentId={deploymentId} cards={cards} dispatch={dispatch} />
+      <ComponentGallery deploymentId={deploymentId} cards={cards} dispatch={dispatch} refetchTrigger={refetchTrigger} />
 
       {/* Multi-select group action */}
       {selectedCount >= 2 && (

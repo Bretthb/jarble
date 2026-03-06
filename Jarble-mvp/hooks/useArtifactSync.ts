@@ -145,6 +145,14 @@ export function useArtifactSync(
       if (!isArtifactWorthy(card.component)) continue;
 
       const propsHash = JSON.stringify(card.props);
+
+      // Cards loaded from gallery already exist on the pod — record their props
+      // hash (so we don't re-sync after unsave) but don't sync them
+      if (card.fileId) {
+        prevPropsRef.current.set(card.id, propsHash);
+        continue;
+      }
+
       const prev = prevPropsRef.current.get(card.id);
       if (prev === propsHash) continue;
 

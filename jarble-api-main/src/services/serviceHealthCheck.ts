@@ -1,7 +1,7 @@
 /**
- * Package Health Check Service
+ * Service Health Check Service
  *
- * Periodically pings the health endpoints of remote/hybrid packages
+ * Periodically pings the health endpoints of remote/hybrid services
  * and updates their remoteHealth + remoteLastCheck fields in the DB.
  *
  * Health statuses:
@@ -17,56 +17,56 @@ import { logger } from "../utils/logger.js";
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
- * Start the periodic package health check service.
+ * Start the periodic service health check service.
  * Runs immediately on startup, then every `intervalMs` (default 5 minutes).
  */
-export function startPackageHealthCheck(intervalMs = 5 * 60 * 1000): void {
+export function startServiceHealthCheck(intervalMs = 5 * 60 * 1000): void {
   if (healthCheckInterval) return;
 
-  logger.info({ intervalMs }, "Starting package health check service");
+  logger.info({ intervalMs }, "Starting service health check service");
 
   // Run immediately, then on interval
-  void checkAllPackages();
-  healthCheckInterval = setInterval(() => void checkAllPackages(), intervalMs);
+  void checkAllServices();
+  healthCheckInterval = setInterval(() => void checkAllServices(), intervalMs);
 }
 
 /**
  * Stop the periodic health check service.
  */
-export function stopPackageHealthCheck(): void {
+export function stopServiceHealthCheck(): void {
   if (healthCheckInterval) {
     clearInterval(healthCheckInterval);
     healthCheckInterval = null;
   }
 }
 
-async function checkAllPackages(): Promise<void> {
+async function checkAllServices(): Promise<void> {
   try {
-    const packages = await db.query.marketplacePackages.findMany({
-      where: sql`${tables.marketplacePackages.status} = 'published' AND ${tables.marketplacePackages.hostingModel} IN ('remote', 'hybrid')`,
+    const services = await db.query.marketplaceServices.findMany({
+      where: sql`${tables.marketplaceServices.status} = 'published' AND ${tables.marketplaceServices.hostingModel} IN ('remote', 'hybrid')`,
     });
 
-    for (const pkg of packages) {
-      await checkPackageHealth(pkg);
+    for (const svc of services) {
+      await checkServiceHealth(svc);
     }
 
-    if (packages.length > 0) {
-      logger.info({ count: packages.length }, "Package health check completed");
+    if (services.length > 0) {
+      logger.info({ count: services.length }, "Service health check completed");
     }
   } catch (err) {
-    logger.error({ err }, "Package health check failed");
+    logger.error({ err }, "Service health check failed");
   }
 }
 
-async function checkPackageHealth(pkg: any): Promise<void> {
+async function checkServiceHealth(svc: any): Promise<void> {
   let healthUrl: string | undefined;
 
   try {
-    if (pkg.remoteApiConfig) {
-      const config = JSON.parse(pkg.remoteApiConfig);
+    if (svc.remoteApiConfig) {
+      const config = JSON.parse(svc.remoteApiConfig);
       healthUrl = config.healthEndpoint || `${config.endpoint}/health`;
-    } else if (pkg.remoteApiEndpoint) {
-      healthUrl = `${pkg.remoteApiEndpoint}/health`;
+    } else if (svc.remoteApiEndpoint) {
+      healthUrl = `${svc.remoteApiEndpoint}/health`;
     }
   } catch {
     // Invalid config JSON — skip
@@ -89,17 +89,17 @@ async function checkPackageHealth(pkg: any): Promise<void> {
   }
 
   await db
-    .update(tables.marketplacePackages)
+    .update(tables.marketplaceServices)
     .set({
       remoteHealth: health,
       remoteLastCheck: dbDate(),
     } as any)
-    .where(eq(tables.marketplacePackages.id, pkg.id));
+    .where(eq(tables.marketplaceServices.id, svc.id));
 
   if (health !== "healthy") {
     logger.warn(
-      { packageId: pkg.id, health, healthUrl },
-      "Package health check: not healthy",
+      { serviceId: svc.id, health, healthUrl },
+      "Service health check: not healthy",
     );
   }
 }

@@ -120,7 +120,7 @@ describe("loadCanvasState", () => {
     expect(loadCanvasState("dep-bad")).toBeNull();
   });
 
-  it("marks sandbox cards with empty props as propsLost", () => {
+  it("marks sandbox cards with propsInIDB as propsLost until hydration", () => {
     const sandboxCard = makeCard({
       id: "s1",
       component: "sandbox",
@@ -133,8 +133,9 @@ describe("loadCanvasState", () => {
     });
 
     const persisted = makePersistedState([sandboxCard, regularCard]);
-    // Manually set sandbox card props to empty to simulate missing props
-    persisted.cards[0].props = {};
+    // Simulate serialized sandbox card with propsInIDB marker (large props stored in IndexedDB)
+    persisted.cards[0].props = undefined as unknown as Record<string, unknown>;
+    (persisted.cards[0] as Record<string, unknown>).propsInIDB = true;
     localStorage.setItem(
       `${STORAGE_PREFIX}dep-filter`,
       JSON.stringify(persisted),
@@ -144,7 +145,7 @@ describe("loadCanvasState", () => {
     expect(result).not.toBeNull();
     // Both cards should be present
     expect(result!.cards).toHaveLength(2);
-    // Sandbox card should have propsLost flag
+    // Sandbox card should have propsLost flag (pending IndexedDB hydration)
     expect(result!.cards[0].id).toBe("s1");
     expect(result!.cards[0].propsLost).toBe(true);
     // Regular card should not

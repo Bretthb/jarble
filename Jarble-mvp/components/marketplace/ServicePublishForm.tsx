@@ -31,8 +31,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc";
+import DeploymentPicker from "@/components/marketplace/DeploymentPicker";
+import DeploymentComponentBrowser from "@/components/marketplace/DeploymentComponentBrowser";
+import DeploymentSkillBrowser from "@/components/marketplace/DeploymentSkillBrowser";
 
-export function PackagePublishForm() {
+export function ServicePublishForm() {
   const { isAuthenticated, loginWithRedirect, isLoading: authLoading } = useAuth0();
 
   const [name, setName] = useState("");
@@ -44,7 +47,10 @@ export function PackagePublishForm() {
   const [pricingModel, setPricingModel] = useState<"free" | "paid" | "freemium">("free");
   const [priceUsdCents, setPriceUsdCents] = useState(0);
 
-  // Component and skill IDs (manually entered for now)
+  // Source deployment for browsing installed components/skills
+  const [selectedDeploymentId, setSelectedDeploymentId] = useState<string | null>(null);
+
+  // Component and skill IDs
   const [componentIdInput, setComponentIdInput] = useState("");
   const [componentIds, setComponentIds] = useState<string[]>([]);
   const [skillIdInput, setSkillIdInput] = useState("");
@@ -52,7 +58,7 @@ export function PackagePublishForm() {
 
   const [submitted, setSubmitted] = useState(false);
 
-  const publishMutation = trpc.packages.publish.useMutation();
+  const publishMutation = trpc.services.publish.useMutation();
 
   const addComponentId = () => {
     const id = componentIdInput.trim();
@@ -76,6 +82,12 @@ export function PackagePublishForm() {
 
   const removeSkillId = (id: string) => {
     setSkillIds(skillIds.filter((s) => s !== id));
+  };
+
+  const handleDeploymentChange = (deploymentId: string) => {
+    setSelectedDeploymentId(deploymentId);
+    setComponentIds([]);
+    setSkillIds([]);
   };
 
   const handleSubmit = async () => {
@@ -110,7 +122,7 @@ export function PackagePublishForm() {
         <CardContent className="pt-8 pb-8 flex flex-col items-center gap-4">
           <Package className="size-12 text-muted-foreground" />
           <p className="text-muted-foreground text-center">
-            Sign in to publish packages to the marketplace.
+            Sign in to publish services to the marketplace.
           </p>
           <Button onClick={() => loginWithRedirect()}>
             <LogIn className="size-4 mr-2" />
@@ -126,9 +138,9 @@ export function PackagePublishForm() {
       <Card className="max-w-2xl mx-auto border border-border">
         <CardContent className="pt-8 pb-8 flex flex-col items-center gap-4">
           <CheckCircle2 className="size-12 text-emerald-600 dark:text-emerald-400" />
-          <h3 className="text-xl font-semibold">Package Submitted</h3>
+          <h3 className="text-xl font-semibold">Service Submitted</h3>
           <p className="text-muted-foreground text-center max-w-md">
-            Your package has been submitted for review. It will appear in the
+            Your service has been submitted for review. It will appear in the
             marketplace once approved by the moderation team.
           </p>
           <Button
@@ -145,6 +157,7 @@ export function PackagePublishForm() {
               setPricingModel("free");
               setPriceUsdCents(0);
               setHostingModel("self_hosted");
+              setSelectedDeploymentId(null);
             }}
           >
             Publish another
@@ -159,20 +172,20 @@ export function PackagePublishForm() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Package className="size-5" />
-          Publish a Package
+          Publish a Service
         </CardTitle>
         <CardDescription>
           Bundle components and skills together for one-click installation.
-          Packages are submitted for review before appearing in the marketplace.
+          Services are submitted for review before appearing in the marketplace.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Name (slug) */}
         <div className="space-y-2">
-          <Label htmlFor="pkg-name">Package Name (slug)</Label>
+          <Label htmlFor="pkg-name">Service Name (slug)</Label>
           <Input
             id="pkg-name"
-            placeholder="my-analytics-package"
+            placeholder="my-analytics-service"
             value={name}
             onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
             maxLength={100}
@@ -187,7 +200,7 @@ export function PackagePublishForm() {
           <Label htmlFor="pkg-display-name">Display Name</Label>
           <Input
             id="pkg-display-name"
-            placeholder="My Analytics Package"
+            placeholder="My Analytics Service"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             maxLength={255}
@@ -221,7 +234,7 @@ export function PackagePublishForm() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="self_hosted">Self-hosted (runs on buyer&apos;s pod)</SelectItem>
-              <SelectItem value="remote">Hosted (runs on your server)</SelectItem>
+              <SelectItem value="remote">Cloud (runs on your server)</SelectItem>
               <SelectItem value="hybrid">Hybrid (both options)</SelectItem>
             </SelectContent>
           </Select>
@@ -233,7 +246,7 @@ export function PackagePublishForm() {
             <Label htmlFor="pkg-endpoint">Remote API Endpoint</Label>
             <Input
               id="pkg-endpoint"
-              placeholder="https://api.example.com/v1/package"
+              placeholder="https://api.example.com/v1/service"
               type="url"
               value={remoteApiEndpoint}
               onChange={(e) => setRemoteApiEndpoint(e.target.value)}
@@ -241,6 +254,20 @@ export function PackagePublishForm() {
             />
           </div>
         )}
+
+        <Separator />
+
+        {/* Source Deployment */}
+        <div className="space-y-2">
+          <Label>Source Deployment</Label>
+          <DeploymentPicker
+            selectedId={selectedDeploymentId}
+            onSelect={handleDeploymentChange}
+          />
+          <p className="text-xs text-muted-foreground">
+            Select a running deployment to browse its installed components and skills.
+          </p>
+        </div>
 
         <Separator />
 
@@ -257,7 +284,7 @@ export function PackagePublishForm() {
           />
           <p className="text-xs text-muted-foreground">
             This text is appended to the bot&apos;s system prompt when installed.
-            Use it to teach the bot how to use your package&apos;s components/skills.
+            Use it to teach the bot how to use your service&apos;s components/skills.
           </p>
         </div>
 
@@ -266,62 +293,93 @@ export function PackagePublishForm() {
         {/* Components */}
         <div className="space-y-2">
           <Label>Components</Label>
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder="Component ID"
-              value={componentIdInput}
-              onChange={(e) => setComponentIdInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addComponentId())}
+          {selectedDeploymentId ? (
+            <DeploymentComponentBrowser
+              deploymentId={selectedDeploymentId}
+              selectedIds={componentIds}
+              onSelectionChange={setComponentIds}
             />
-            <Button type="button" variant="outline" size="icon" onClick={addComponentId}>
-              <Plus className="size-4" />
-            </Button>
-          </div>
-          {componentIds.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {componentIds.map((id) => (
-                <Badge key={id} variant="secondary" className="gap-1 pr-1">
-                  <span className="font-mono text-xs truncate max-w-[140px]">{id}</span>
-                  <button
-                    onClick={() => removeComponentId(id)}
-                    className="ml-1 hover:text-destructive transition-colors"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </Badge>
-              ))}
-            </div>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground mb-2">
+                Select a deployment above to browse components, or add IDs manually.
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Component ID"
+                  value={componentIdInput}
+                  onChange={(e) => setComponentIdInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addComponentId())}
+                />
+                <Button type="button" variant="outline" size="icon" onClick={addComponentId}>
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+              {componentIds.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {componentIds.map((id) => (
+                    <Badge key={id} variant="secondary" className="gap-1 pr-1">
+                      <span className="font-mono text-xs truncate max-w-[140px]">{id}</span>
+                      <button
+                        onClick={() => removeComponentId(id)}
+                        className="ml-1 hover:text-destructive transition-colors"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
 
         {/* Skills */}
         <div className="space-y-2">
           <Label>Skills</Label>
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder="Skill ID"
-              value={skillIdInput}
-              onChange={(e) => setSkillIdInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addSkillId())}
+          {selectedDeploymentId ? (
+            <DeploymentSkillBrowser
+              deploymentId={selectedDeploymentId}
+              selectedIds={skillIds}
+              onSelectionChange={setSkillIds}
             />
-            <Button type="button" variant="outline" size="icon" onClick={addSkillId}>
-              <Plus className="size-4" />
-            </Button>
-          </div>
-          {skillIds.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {skillIds.map((id) => (
-                <Badge key={id} variant="secondary" className="gap-1 pr-1">
-                  <span className="font-mono text-xs truncate max-w-[140px]">{id}</span>
-                  <button
-                    onClick={() => removeSkillId(id)}
-                    className="ml-1 hover:text-destructive transition-colors"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </Badge>
-              ))}
-            </div>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground mb-2">
+                Select a deployment above to browse skills, or add IDs manually.
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Skill ID"
+                  value={skillIdInput}
+                  onChange={(e) => setSkillIdInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addSkillId())}
+                />
+                <Button type="button" variant="outline" size="icon" onClick={addSkillId}>
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+              {skillIds.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {skillIds.map((id) => (
+                    <Badge key={id} variant="secondary" className="gap-1 pr-1">
+                      <span className="font-mono text-xs truncate max-w-[140px]">{id}</span>
+                      <button
+                        onClick={() => removeSkillId(id)}
+                        className="ml-1 hover:text-destructive transition-colors"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {hostingModel === "remote" && (
+            <p className="text-xs text-muted-foreground">
+              For cloud-hosted services, component selection is optional &mdash; your remote API provides the functionality.
+            </p>
           )}
         </div>
 

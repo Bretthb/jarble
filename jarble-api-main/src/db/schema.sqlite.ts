@@ -230,7 +230,7 @@ export const componentReviews = sqliteTable("component_reviews", {
 
 // ── Package Tables ────────────────────────────────────────────────────────
 
-export const marketplacePackages = sqliteTable("marketplace_packages", {
+export const marketplaceServices = sqliteTable("marketplace_packages", {
   id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pkg")),
   creatorId: text("creator_id").notNull().references(() => creatorProfiles.id),
   name: text("name").notNull(),
@@ -253,25 +253,25 @@ export const marketplacePackages = sqliteTable("marketplace_packages", {
   creatorPackageNameIdx: uniqueIndex("uq_creator_package_name").on(table.creatorId, table.name),
 }));
 
-export const packageComponents = sqliteTable("package_components", {
+export const serviceComponents = sqliteTable("package_components", {
   id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pkc")),
-  packageId: text("package_id").notNull().references(() => marketplacePackages.id, { onDelete: "cascade" }),
+  packageId: text("package_id").notNull().references(() => marketplaceServices.id, { onDelete: "cascade" }),
   componentId: text("component_id").notNull().references(() => marketplaceComponents.id),
 }, (table) => ({
   packageComponentIdx: uniqueIndex("uq_package_component").on(table.packageId, table.componentId),
 }));
 
-export const packageSkills = sqliteTable("package_skills", {
+export const serviceSkills = sqliteTable("package_skills", {
   id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pks")),
-  packageId: text("package_id").notNull().references(() => marketplacePackages.id, { onDelete: "cascade" }),
+  packageId: text("package_id").notNull().references(() => marketplaceServices.id, { onDelete: "cascade" }),
   skillId: text("skill_id").notNull().references(() => skillsCatalog.id),
 }, (table) => ({
   packageSkillIdx: uniqueIndex("uq_package_skill").on(table.packageId, table.skillId),
 }));
 
-export const packageInstalls = sqliteTable("package_installs", {
+export const serviceInstalls = sqliteTable("package_installs", {
   id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pki")),
-  packageId: text("package_id").notNull().references(() => marketplacePackages.id),
+  packageId: text("package_id").notNull().references(() => marketplaceServices.id),
   deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
   userId: text("user_id").notNull().references(() => users.id),
   installedAt: text("installed_at").notNull().$defaultFn(now),
@@ -280,11 +280,11 @@ export const packageInstalls = sqliteTable("package_installs", {
 }));
 
 // Stores HMAC signing secrets and handshake state for remote/hybrid package installs
-export const packageCredentials = sqliteTable("package_credentials", {
+export const serviceCredentials = sqliteTable("package_credentials", {
   id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pkc")),
-  packageInstallId: text("package_install_id").notNull().references(() => packageInstalls.id, { onDelete: "cascade" }),
+  packageInstallId: text("package_install_id").notNull().references(() => serviceInstalls.id, { onDelete: "cascade" }),
   deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
-  packageId: text("package_id").notNull().references(() => marketplacePackages.id),
+  packageId: text("package_id").notNull().references(() => marketplaceServices.id),
   signingSecret: text("signing_secret").notNull(), // Encrypted HMAC-SHA256 signing secret
   handshakeStatus: text("handshake_status").notNull().default("pending"), // "pending" | "completed" | "failed"
   handshakeError: text("handshake_error"),
@@ -366,39 +366,39 @@ export const componentReviewsRelations = relations(componentReviews, ({ one }) =
 
 // ── Package Relations ─────────────────────────────────────────────────────
 
-export const marketplacePackagesRelations = relations(marketplacePackages, ({ one, many }) => ({
-  creator: one(creatorProfiles, { fields: [marketplacePackages.creatorId], references: [creatorProfiles.id] }),
-  components: many(packageComponents),
-  skills: many(packageSkills),
-  installs: many(packageInstalls),
+export const marketplaceServicesRelations = relations(marketplaceServices, ({ one, many }) => ({
+  creator: one(creatorProfiles, { fields: [marketplaceServices.creatorId], references: [creatorProfiles.id] }),
+  components: many(serviceComponents),
+  skills: many(serviceSkills),
+  installs: many(serviceInstalls),
 }));
 
-export const packageComponentsRelations = relations(packageComponents, ({ one }) => ({
-  package: one(marketplacePackages, { fields: [packageComponents.packageId], references: [marketplacePackages.id] }),
-  component: one(marketplaceComponents, { fields: [packageComponents.componentId], references: [marketplaceComponents.id] }),
+export const serviceComponentsRelations = relations(serviceComponents, ({ one }) => ({
+  package: one(marketplaceServices, { fields: [serviceComponents.packageId], references: [marketplaceServices.id] }),
+  component: one(marketplaceComponents, { fields: [serviceComponents.componentId], references: [marketplaceComponents.id] }),
 }));
 
-export const packageSkillsRelations = relations(packageSkills, ({ one }) => ({
-  package: one(marketplacePackages, { fields: [packageSkills.packageId], references: [marketplacePackages.id] }),
-  skill: one(skillsCatalog, { fields: [packageSkills.skillId], references: [skillsCatalog.id] }),
+export const serviceSkillsRelations = relations(serviceSkills, ({ one }) => ({
+  package: one(marketplaceServices, { fields: [serviceSkills.packageId], references: [marketplaceServices.id] }),
+  skill: one(skillsCatalog, { fields: [serviceSkills.skillId], references: [skillsCatalog.id] }),
 }));
 
-export const packageInstallsRelations = relations(packageInstalls, ({ one }) => ({
-  package: one(marketplacePackages, { fields: [packageInstalls.packageId], references: [marketplacePackages.id] }),
-  deployment: one(deployments, { fields: [packageInstalls.deploymentId], references: [deployments.id] }),
-  user: one(users, { fields: [packageInstalls.userId], references: [users.id] }),
+export const serviceInstallsRelations = relations(serviceInstalls, ({ one }) => ({
+  package: one(marketplaceServices, { fields: [serviceInstalls.packageId], references: [marketplaceServices.id] }),
+  deployment: one(deployments, { fields: [serviceInstalls.deploymentId], references: [deployments.id] }),
+  user: one(users, { fields: [serviceInstalls.userId], references: [users.id] }),
 }));
 
-export const packageCredentialsRelations = relations(packageCredentials, ({ one }) => ({
-  packageInstall: one(packageInstalls, { fields: [packageCredentials.packageInstallId], references: [packageInstalls.id] }),
-  deployment: one(deployments, { fields: [packageCredentials.deploymentId], references: [deployments.id] }),
-  package: one(marketplacePackages, { fields: [packageCredentials.packageId], references: [marketplacePackages.id] }),
+export const serviceCredentialsRelations = relations(serviceCredentials, ({ one }) => ({
+  packageInstall: one(serviceInstalls, { fields: [serviceCredentials.packageInstallId], references: [serviceInstalls.id] }),
+  deployment: one(deployments, { fields: [serviceCredentials.deploymentId], references: [deployments.id] }),
+  package: one(marketplaceServices, { fields: [serviceCredentials.packageId], references: [marketplaceServices.id] }),
 }));
 
 // Tracks per-skill request counts per billing cycle for metered usage
-export const packageUsage = sqliteTable("package_usage", {
+export const serviceUsage = sqliteTable("package_usage", {
   id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("pku")),
-  packageInstallId: text("package_install_id").notNull().references(() => packageInstalls.id, { onDelete: "cascade" }),
+  packageInstallId: text("package_install_id").notNull().references(() => serviceInstalls.id, { onDelete: "cascade" }),
   deploymentId: text("deployment_id").notNull(),
   packageId: text("package_id").notNull(),
   skillName: text("skill_name").notNull(),
@@ -407,6 +407,6 @@ export const packageUsage = sqliteTable("package_usage", {
   recordedAt: text("recorded_at").notNull().$defaultFn(now),
 });
 
-export const packageUsageRelations = relations(packageUsage, ({ one }) => ({
-  packageInstall: one(packageInstalls, { fields: [packageUsage.packageInstallId], references: [packageInstalls.id] }),
+export const serviceUsageRelations = relations(serviceUsage, ({ one }) => ({
+  packageInstall: one(serviceInstalls, { fields: [serviceUsage.packageInstallId], references: [serviceInstalls.id] }),
 }));

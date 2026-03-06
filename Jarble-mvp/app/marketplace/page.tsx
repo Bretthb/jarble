@@ -24,8 +24,8 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ComponentCard } from "@/components/marketplace/ComponentCard";
 import type { MarketplaceComponentData } from "@/components/marketplace/ComponentCard";
-import { PackageList } from "@/components/marketplace/PackageList";
-import { PackagePublishForm } from "@/components/marketplace/PackagePublishForm";
+import { ServiceList } from "@/components/marketplace/ServiceList";
+import { ServicePublishForm } from "@/components/marketplace/ServicePublishForm";
 import {
   MARKETPLACE_CATEGORIES,
   SORT_OPTIONS,
@@ -146,20 +146,20 @@ export default function MarketplaceBrowsePage() {
             Marketplace
           </h2>
           <p className="mt-2 text-muted-foreground text-lg">
-            Discover and install community-built components and packages for your bots.
+            Discover and install community-built components and services for your bots.
           </p>
         </div>
 
-        {/* Tabs: Components | Packages | Publish */}
+        {/* Tabs: Components | Services | Publish */}
         <Tabs defaultValue="components" className="mb-8">
           <TabsList>
             <TabsTrigger value="components" className="gap-1.5">
               <Puzzle className="size-4" />
               Components
             </TabsTrigger>
-            <TabsTrigger value="packages" className="gap-1.5">
+            <TabsTrigger value="services" className="gap-1.5">
               <Package className="size-4" />
-              Packages
+              Services
             </TabsTrigger>
             {isAuthenticated && (
               <TabsTrigger value="publish" className="gap-1.5">
@@ -168,13 +168,13 @@ export default function MarketplaceBrowsePage() {
             )}
           </TabsList>
 
-          <TabsContent value="packages">
-            <PackageList />
+          <TabsContent value="services">
+            <ServiceList />
           </TabsContent>
 
           {isAuthenticated && (
             <TabsContent value="publish">
-              <PackagePublishForm />
+              <ServicePublishForm />
             </TabsContent>
           )}
 

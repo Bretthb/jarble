@@ -1,5 +1,5 @@
 /**
- * Lightweight JSON Schema validation for PackageCard skill input/output schemas.
+ * Lightweight JSON Schema validation for ServiceCard skill input/output schemas.
  *
  * Supports a useful subset of JSON Schema draft-07:
  *   - Type checking: string, number, integer, boolean, object, array, null

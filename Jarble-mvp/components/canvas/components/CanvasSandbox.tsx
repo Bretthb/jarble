@@ -46,11 +46,11 @@ function CanvasSandboxInner({
     ? { ...(props || {}), ...configValues }
     : props;
 
-  // Sanitize: extract any <script>/<style>/structural tags from html prop
-  const sanitized = sanitizeHtmlProp(html, js, libraries);
+  // Sanitize: extract <script>/<style>/<link> tags from html prop into proper fields
+  const sanitized = sanitizeHtmlProp(html, js, libraries, "[Jarble:Sandbox]", css);
 
   // Build srcdoc string — changes when content changes
-  const srcdoc = buildDocument(sanitized.html, css, sanitized.js, sanitized.libraries, {
+  const srcdoc = buildDocument(sanitized.html, sanitized.css, sanitized.js, sanitized.libraries, {
     logPrefix: "[Jarble:Sandbox]",
   });
 

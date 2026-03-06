@@ -83,23 +83,23 @@ type ActiveTables = {
   componentInstalls: typeof mysqlSchema.componentInstalls;
   componentPurchases: typeof mysqlSchema.componentPurchases;
   componentReviews: typeof mysqlSchema.componentReviews;
-  // Package tables
-  marketplacePackages: typeof mysqlSchema.marketplacePackages;
-  packageComponents: typeof mysqlSchema.packageComponents;
-  packageSkills: typeof mysqlSchema.packageSkills;
-  packageInstalls: typeof mysqlSchema.packageInstalls;
-  packageCredentials: typeof mysqlSchema.packageCredentials;
-  packageUsage: typeof mysqlSchema.packageUsage;
+  // Service tables
+  marketplaceServices: typeof mysqlSchema.marketplaceServices;
+  serviceComponents: typeof mysqlSchema.serviceComponents;
+  serviceSkills: typeof mysqlSchema.serviceSkills;
+  serviceInstalls: typeof mysqlSchema.serviceInstalls;
+  serviceCredentials: typeof mysqlSchema.serviceCredentials;
+  serviceUsage: typeof mysqlSchema.serviceUsage;
 };
 
 function getActiveTables(): ActiveTables {
   if (DB_PROVIDER === "sqlite") {
-    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, runtimeCatalog: sqliteSchema.runtimeCatalog, platformCredentials: sqliteSchema.platformCredentials, processedWebhookEvents: sqliteSchema.processedWebhookEvents, skillsCatalog: sqliteSchema.skillsCatalog, deploymentSkills: sqliteSchema.deploymentSkills, creatorProfiles: sqliteSchema.creatorProfiles, marketplaceComponents: sqliteSchema.marketplaceComponents, componentVersions: sqliteSchema.componentVersions, componentInstalls: sqliteSchema.componentInstalls, componentPurchases: sqliteSchema.componentPurchases, componentReviews: sqliteSchema.componentReviews, marketplacePackages: sqliteSchema.marketplacePackages, packageComponents: sqliteSchema.packageComponents, packageSkills: sqliteSchema.packageSkills, packageInstalls: sqliteSchema.packageInstalls, packageCredentials: sqliteSchema.packageCredentials, packageUsage: sqliteSchema.packageUsage } as unknown as ActiveTables;
+    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, runtimeCatalog: sqliteSchema.runtimeCatalog, platformCredentials: sqliteSchema.platformCredentials, processedWebhookEvents: sqliteSchema.processedWebhookEvents, skillsCatalog: sqliteSchema.skillsCatalog, deploymentSkills: sqliteSchema.deploymentSkills, creatorProfiles: sqliteSchema.creatorProfiles, marketplaceComponents: sqliteSchema.marketplaceComponents, componentVersions: sqliteSchema.componentVersions, componentInstalls: sqliteSchema.componentInstalls, componentPurchases: sqliteSchema.componentPurchases, componentReviews: sqliteSchema.componentReviews, marketplaceServices: sqliteSchema.marketplaceServices, serviceComponents: sqliteSchema.serviceComponents, serviceSkills: sqliteSchema.serviceSkills, serviceInstalls: sqliteSchema.serviceInstalls, serviceCredentials: sqliteSchema.serviceCredentials, serviceUsage: sqliteSchema.serviceUsage } as unknown as ActiveTables;
   }
   if (DB_PROVIDER === "postgres") {
-    return { users: pgSchema.users, deployments: pgSchema.deployments, runtimeCatalog: pgSchema.runtimeCatalog, platformCredentials: pgSchema.platformCredentials, processedWebhookEvents: pgSchema.processedWebhookEvents, skillsCatalog: pgSchema.skillsCatalog, deploymentSkills: pgSchema.deploymentSkills, creatorProfiles: pgSchema.creatorProfiles, marketplaceComponents: pgSchema.marketplaceComponents, componentVersions: pgSchema.componentVersions, componentInstalls: pgSchema.componentInstalls, componentPurchases: pgSchema.componentPurchases, componentReviews: pgSchema.componentReviews, marketplacePackages: pgSchema.marketplacePackages, packageComponents: pgSchema.packageComponents, packageSkills: pgSchema.packageSkills, packageInstalls: pgSchema.packageInstalls, packageCredentials: pgSchema.packageCredentials, packageUsage: pgSchema.packageUsage } as unknown as ActiveTables;
+    return { users: pgSchema.users, deployments: pgSchema.deployments, runtimeCatalog: pgSchema.runtimeCatalog, platformCredentials: pgSchema.platformCredentials, processedWebhookEvents: pgSchema.processedWebhookEvents, skillsCatalog: pgSchema.skillsCatalog, deploymentSkills: pgSchema.deploymentSkills, creatorProfiles: pgSchema.creatorProfiles, marketplaceComponents: pgSchema.marketplaceComponents, componentVersions: pgSchema.componentVersions, componentInstalls: pgSchema.componentInstalls, componentPurchases: pgSchema.componentPurchases, componentReviews: pgSchema.componentReviews, marketplaceServices: pgSchema.marketplaceServices, serviceComponents: pgSchema.serviceComponents, serviceSkills: pgSchema.serviceSkills, serviceInstalls: pgSchema.serviceInstalls, serviceCredentials: pgSchema.serviceCredentials, serviceUsage: pgSchema.serviceUsage } as unknown as ActiveTables;
   }
-  return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, runtimeCatalog: mysqlSchema.runtimeCatalog, platformCredentials: mysqlSchema.platformCredentials, processedWebhookEvents: mysqlSchema.processedWebhookEvents, skillsCatalog: mysqlSchema.skillsCatalog, deploymentSkills: mysqlSchema.deploymentSkills, creatorProfiles: mysqlSchema.creatorProfiles, marketplaceComponents: mysqlSchema.marketplaceComponents, componentVersions: mysqlSchema.componentVersions, componentInstalls: mysqlSchema.componentInstalls, componentPurchases: mysqlSchema.componentPurchases, componentReviews: mysqlSchema.componentReviews, marketplacePackages: mysqlSchema.marketplacePackages, packageComponents: mysqlSchema.packageComponents, packageSkills: mysqlSchema.packageSkills, packageInstalls: mysqlSchema.packageInstalls, packageCredentials: mysqlSchema.packageCredentials, packageUsage: mysqlSchema.packageUsage };
+  return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, runtimeCatalog: mysqlSchema.runtimeCatalog, platformCredentials: mysqlSchema.platformCredentials, processedWebhookEvents: mysqlSchema.processedWebhookEvents, skillsCatalog: mysqlSchema.skillsCatalog, deploymentSkills: mysqlSchema.deploymentSkills, creatorProfiles: mysqlSchema.creatorProfiles, marketplaceComponents: mysqlSchema.marketplaceComponents, componentVersions: mysqlSchema.componentVersions, componentInstalls: mysqlSchema.componentInstalls, componentPurchases: mysqlSchema.componentPurchases, componentReviews: mysqlSchema.componentReviews, marketplaceServices: mysqlSchema.marketplaceServices, serviceComponents: mysqlSchema.serviceComponents, serviceSkills: mysqlSchema.serviceSkills, serviceInstalls: mysqlSchema.serviceInstalls, serviceCredentials: mysqlSchema.serviceCredentials, serviceUsage: mysqlSchema.serviceUsage };
 }
 
 export const tables = getActiveTables();

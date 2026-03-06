@@ -39,13 +39,13 @@ function MarketplaceSandboxInner({
   const [badgeDismissed, setBadgeDismissed] = useState(false);
   const { dispatch } = useCanvasAction();
 
-  // Sanitize: extract any <script>/<style>/structural tags from html prop
-  const sanitized = sanitizeHtmlProp(html, js, libraries, "[Jarble:MarketplaceSandbox]");
+  // Sanitize: extract <script>/<style>/<link> tags from html prop into proper fields
+  const sanitized = sanitizeHtmlProp(html, js, libraries, "[Jarble:MarketplaceSandbox]", css);
 
   // Build the inner document (component content)
   const innerSrcdoc = buildDocument(
     sanitized.html,
-    css,
+    sanitized.css,
     sanitized.js,
     sanitized.libraries,
     { logPrefix: "[Jarble:MarketplaceSandbox:Inner]" },

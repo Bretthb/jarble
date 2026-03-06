@@ -265,6 +265,7 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
           return {
             ...c,
             props: newProps,
+            propsLost: undefined,
             ...(action.component ? { component: action.component } : {}),
           };
         }),
@@ -349,7 +350,15 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       return {
         ...state,
         cards: state.cards.map((c) =>
-          c.id === action.id ? { ...c, savedName: action.savedName } : c
+          c.id === action.id ? { ...c, savedName: action.savedName, fileId: action.fileId } : c
+        ),
+      };
+
+    case "UNSAVE_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, savedName: undefined, fileId: undefined } : c
         ),
       };
 

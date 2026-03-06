@@ -94,7 +94,8 @@ export type CanvasAction =
   | { type: "UPDATE_CARD_PROPS"; id: string; props: Record<string, unknown>; merge: boolean; component?: string }
   | { type: "SELECT_CARD"; id: string }
   | { type: "DESELECT_CARD" }
-  | { type: "SAVE_CARD"; id: string; savedName: string }
+  | { type: "SAVE_CARD"; id: string; savedName: string; fileId: string }
+  | { type: "UNSAVE_CARD"; id: string }
   | { type: "TIDY_LAYOUT"; containerWidth: number }
   | { type: "SET_CANVAS_MODE"; mode: CanvasMode }
   | { type: "CLEAR_CANVAS" }

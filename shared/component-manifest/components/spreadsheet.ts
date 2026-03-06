@@ -12,4 +12,5 @@ export const spreadsheetEntry: ComponentManifestEntry = {
   tags: ["data", "spreadsheet", "editable", "grid"],
   builtin: true,
   renderOrder: 10,
+  promptGuidance: "Use for editable tabular data (Excel-like). For read-only tables, use data_table instead. NEVER use sandbox to build a spreadsheet.",
 };

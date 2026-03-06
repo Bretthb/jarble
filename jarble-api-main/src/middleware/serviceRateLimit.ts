@@ -1,12 +1,12 @@
 /**
- * Per-Package Rate Limiting — Package Proxy Middleware
+ * Per-Service Rate Limiting — Service Proxy Middleware
  *
- * Enforces the rate limits declared in a PackageCard's `rateLimits` field:
+ * Enforces the rate limits declared in a ServiceCard's `rateLimits` field:
  *   - requestsPerMinute: fixed 1-minute window
  *   - requestsPerDay: fixed 24-hour window
  *
- * Limits are keyed by `${deploymentId}:${packageId}` so each buyer deployment
- * gets its own quota per package. This matches the PackageCard semantics where
+ * Limits are keyed by `${deploymentId}:${serviceId}` so each buyer deployment
+ * gets its own quota per service. This matches the ServiceCard semantics where
  * the creator declares limits per-consumer, not globally.
  *
  * Implementation: Fixed-window counters stored in a Map. Window boundaries are
@@ -17,9 +17,9 @@
  */
 
 import { createModuleLogger } from "../utils/logger.js";
-import type { PackageCardRateLimits } from "../services/packageCard.js";
+import type { ServiceCardRateLimits } from "../services/serviceCard.js";
 
-const log = createModuleLogger("package-rate-limit");
+const log = createModuleLogger("service-rate-limit");
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -64,10 +64,10 @@ const STALE_THRESHOLD_MS = 2 * DAY_MS;
 const counters = new Map<string, RateLimitEntry>();
 
 /**
- * Build the rate limit key from deployment + package IDs.
+ * Build the rate limit key from deployment + service IDs.
  */
-function makeKey(deploymentId: string, packageId: string): string {
-  return `${deploymentId}:${packageId}`;
+function makeKey(deploymentId: string, serviceId: string): string {
+  return `${deploymentId}:${serviceId}`;
 }
 
 /**
@@ -96,7 +96,7 @@ function startCleanupTimer(): void {
       }
     }
     if (evicted > 0) {
-      log.debug({ evicted, remaining: counters.size }, "Package rate limit: cleanup sweep");
+      log.debug({ evicted, remaining: counters.size }, "Service rate limit: cleanup sweep");
     }
   }, CLEANUP_INTERVAL_MS);
   // Don't block process exit
@@ -109,7 +109,7 @@ startCleanupTimer();
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Check whether a request is allowed under the package's rate limits.
+ * Check whether a request is allowed under the service's rate limits.
  *
  * If `rateLimits` is undefined or both limits are undefined, the request
  * is always allowed (no rate limit configured by the creator).
@@ -118,15 +118,15 @@ startCleanupTimer();
  * If denied, the counter is NOT incremented (the request didn't happen).
  *
  * @param deploymentId - The buyer's deployment ID.
- * @param packageId    - The package ID.
- * @param rateLimits   - The rate limits from the PackageCard (may be undefined).
+ * @param serviceId    - The service ID.
+ * @param rateLimits   - The rate limits from the ServiceCard (may be undefined).
  * @param now          - Current timestamp (for testing; defaults to Date.now()).
  * @returns Whether the request is allowed, and retry info if denied.
  */
-export function checkPackageRateLimit(
+export function checkServiceRateLimit(
   deploymentId: string,
-  packageId: string,
-  rateLimits: PackageCardRateLimits | undefined,
+  serviceId: string,
+  rateLimits: ServiceCardRateLimits | undefined,
   now: number = Date.now(),
 ): RateLimitResult {
   // No rate limits configured — always allow.
@@ -141,7 +141,7 @@ export function checkPackageRateLimit(
     return { allowed: true };
   }
 
-  const key = makeKey(deploymentId, packageId);
+  const key = makeKey(deploymentId, serviceId);
   let entry = counters.get(key);
 
   const minuteWindowStart = getWindowStart(now, MINUTE_MS);
@@ -168,8 +168,8 @@ export function checkPackageRateLimit(
     const retryAfterMs = (minuteWindowStart + MINUTE_MS) - now;
     const retryAfterSeconds = Math.ceil(retryAfterMs / 1000);
     log.warn(
-      { deploymentId, packageId, count: entry.minute.count, limit: requestsPerMinute },
-      "Package rate limit: per-minute limit exceeded",
+      { deploymentId, serviceId, count: entry.minute.count, limit: requestsPerMinute },
+      "Service rate limit: per-minute limit exceeded",
     );
     return {
       allowed: false,
@@ -185,8 +185,8 @@ export function checkPackageRateLimit(
     const retryAfterMs = (dayWindowStart + DAY_MS) - now;
     const retryAfterSeconds = Math.ceil(retryAfterMs / 1000);
     log.warn(
-      { deploymentId, packageId, count: entry.day.count, limit: requestsPerDay },
-      "Package rate limit: per-day limit exceeded",
+      { deploymentId, serviceId, count: entry.day.count, limit: requestsPerDay },
+      "Service rate limit: per-day limit exceeded",
     );
     return {
       allowed: false,
@@ -205,15 +205,15 @@ export function checkPackageRateLimit(
 }
 
 /**
- * Get the current rate limit counters for a deployment+package pair.
+ * Get the current rate limit counters for a deployment+service pair.
  *
  * Useful for diagnostics and the `/debug` endpoints.
  */
 export function getRateLimitStatus(
   deploymentId: string,
-  packageId: string,
+  serviceId: string,
 ): { minuteCount: number; dayCount: number } | null {
-  const entry = counters.get(makeKey(deploymentId, packageId));
+  const entry = counters.get(makeKey(deploymentId, serviceId));
   if (!entry) return null;
   return {
     minuteCount: entry.minute.count,
@@ -222,19 +222,27 @@ export function getRateLimitStatus(
 }
 
 /**
- * Reset rate limit state for a deployment+package pair.
+ * Reset rate limit state for a deployment+service pair.
  * Useful for admin actions and tests.
  */
-export function resetPackageRateLimit(
+export function resetServiceRateLimit(
   deploymentId: string,
-  packageId: string,
+  serviceId: string,
 ): void {
-  counters.delete(makeKey(deploymentId, packageId));
+  counters.delete(makeKey(deploymentId, serviceId));
 }
 
 /**
  * Clear all rate limit state. Primarily used in tests.
  */
-export function resetAllPackageRateLimits(): void {
+export function resetAllServiceRateLimits(): void {
   counters.clear();
 }
+
+// ── Backward-compatible aliases ─────────────────────────────────────────────
+/** @deprecated Use checkServiceRateLimit */
+export const checkPackageRateLimit = checkServiceRateLimit;
+/** @deprecated Use resetServiceRateLimit */
+export const resetPackageRateLimit = resetServiceRateLimit;
+/** @deprecated Use resetAllServiceRateLimits */
+export const resetAllPackageRateLimits = resetAllServiceRateLimits;

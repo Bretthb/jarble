@@ -6,19 +6,29 @@
  * configSync marketplace extension, and future marketplace API routes.
  */
 
-// Re-export PackageCard schemas and types from the dedicated module
+// Re-export ServiceCard schemas and types from the dedicated module
 export {
+  serviceCardSchema,
+  serviceCardSkillSchema,
+  serviceCardAuthSchema,
+  serviceCardRateLimitsSchema,
+  // Backward-compatible aliases
   packageCardSchema,
   packageCardSkillSchema,
   packageCardAuthSchema,
   packageCardRateLimitsSchema,
-} from "./packageCard.js";
+} from "./serviceCard.js";
 export type {
+  ServiceCard,
+  ServiceCardSkill,
+  ServiceCardAuth,
+  ServiceCardRateLimits,
+  // Backward-compatible aliases
   PackageCard,
   PackageCardSkill,
   PackageCardAuth,
   PackageCardRateLimits,
-} from "./packageCard.js";
+} from "./serviceCard.js";
 
 // ── Categories ──────────────────────────────────────────────────────────────
 

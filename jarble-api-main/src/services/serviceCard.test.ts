@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
-  packageCardSchema,
-  packageCardSkillSchema,
-  packageCardAuthSchema,
-  packageCardRateLimitsSchema,
-} from "./packageCard.js";
+  serviceCardSchema,
+  serviceCardSkillSchema,
+  serviceCardAuthSchema,
+  serviceCardRateLimitsSchema,
+} from "./serviceCard.js";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -37,16 +37,16 @@ const VALID_CARD = {
   version: "1.0.0",
 };
 
-// ── PackageCard Schema ──────────────────────────────────────────────────────
+// ── ServiceCard Schema ──────────────────────────────────────────────────────
 
-describe("PackageCard Schema", () => {
-  it("accepts a valid full package card", () => {
-    const result = packageCardSchema.safeParse(VALID_CARD);
+describe("ServiceCard Schema", () => {
+  it("accepts a valid full service card", () => {
+    const result = serviceCardSchema.safeParse(VALID_CARD);
     expect(result.success).toBe(true);
   });
 
   it("accepts minimal card (no healthEndpoint, no rateLimits)", () => {
-    const result = packageCardSchema.safeParse({
+    const result = serviceCardSchema.safeParse({
       endpoint: "https://api.example.com",
       auth: { type: "bearer" },
       skills: [VALID_SKILL],
@@ -57,12 +57,12 @@ describe("PackageCard Schema", () => {
 
   it("rejects missing endpoint", () => {
     const { endpoint, ...rest } = VALID_CARD;
-    const result = packageCardSchema.safeParse(rest);
+    const result = serviceCardSchema.safeParse(rest);
     expect(result.success).toBe(false);
   });
 
   it("rejects non-URL endpoint", () => {
-    const result = packageCardSchema.safeParse({
+    const result = serviceCardSchema.safeParse({
       ...VALID_CARD,
       endpoint: "not-a-url",
     });
@@ -70,7 +70,7 @@ describe("PackageCard Schema", () => {
   });
 
   it("rejects non-URL healthEndpoint", () => {
-    const result = packageCardSchema.safeParse({
+    const result = serviceCardSchema.safeParse({
       ...VALID_CARD,
       healthEndpoint: "not a url at all",
     });
@@ -79,12 +79,12 @@ describe("PackageCard Schema", () => {
 
   it("rejects missing auth", () => {
     const { auth, ...rest } = VALID_CARD;
-    const result = packageCardSchema.safeParse(rest);
+    const result = serviceCardSchema.safeParse(rest);
     expect(result.success).toBe(false);
   });
 
   it("rejects empty skills array", () => {
-    const result = packageCardSchema.safeParse({
+    const result = serviceCardSchema.safeParse({
       ...VALID_CARD,
       skills: [],
     });
@@ -93,12 +93,12 @@ describe("PackageCard Schema", () => {
 
   it("rejects missing version", () => {
     const { version, ...rest } = VALID_CARD;
-    const result = packageCardSchema.safeParse(rest);
+    const result = serviceCardSchema.safeParse(rest);
     expect(result.success).toBe(false);
   });
 
   it("rejects non-semver version", () => {
-    const result = packageCardSchema.safeParse({
+    const result = serviceCardSchema.safeParse({
       ...VALID_CARD,
       version: "v1.0",
     });
@@ -106,7 +106,7 @@ describe("PackageCard Schema", () => {
   });
 
   it("rejects version with prefix", () => {
-    const result = packageCardSchema.safeParse({
+    const result = serviceCardSchema.safeParse({
       ...VALID_CARD,
       version: "v1.0.0",
     });
@@ -114,7 +114,7 @@ describe("PackageCard Schema", () => {
   });
 
   it("accepts version with patch number", () => {
-    const result = packageCardSchema.safeParse({
+    const result = serviceCardSchema.safeParse({
       ...VALID_CARD,
       version: "2.1.3",
     });
@@ -124,20 +124,20 @@ describe("PackageCard Schema", () => {
 
 // ── Skill Schema ────────────────────────────────────────────────────────────
 
-describe("PackageCard Skill Schema", () => {
+describe("ServiceCard Skill Schema", () => {
   it("accepts valid skill with input and output schemas", () => {
-    const result = packageCardSkillSchema.safeParse(VALID_SKILL);
+    const result = serviceCardSkillSchema.safeParse(VALID_SKILL);
     expect(result.success).toBe(true);
   });
 
   it("accepts skill without outputSchema", () => {
     const { outputSchema, ...rest } = VALID_SKILL;
-    const result = packageCardSkillSchema.safeParse(rest);
+    const result = serviceCardSkillSchema.safeParse(rest);
     expect(result.success).toBe(true);
   });
 
   it("rejects empty name", () => {
-    const result = packageCardSkillSchema.safeParse({
+    const result = serviceCardSkillSchema.safeParse({
       ...VALID_SKILL,
       name: "",
     });
@@ -145,7 +145,7 @@ describe("PackageCard Skill Schema", () => {
   });
 
   it("rejects name with uppercase", () => {
-    const result = packageCardSkillSchema.safeParse({
+    const result = serviceCardSkillSchema.safeParse({
       ...VALID_SKILL,
       name: "Get_Weather",
     });
@@ -153,7 +153,7 @@ describe("PackageCard Skill Schema", () => {
   });
 
   it("rejects name starting with a digit", () => {
-    const result = packageCardSkillSchema.safeParse({
+    const result = serviceCardSkillSchema.safeParse({
       ...VALID_SKILL,
       name: "1_weather",
     });
@@ -161,7 +161,7 @@ describe("PackageCard Skill Schema", () => {
   });
 
   it("rejects name with hyphens", () => {
-    const result = packageCardSkillSchema.safeParse({
+    const result = serviceCardSkillSchema.safeParse({
       ...VALID_SKILL,
       name: "get-weather",
     });
@@ -169,7 +169,7 @@ describe("PackageCard Skill Schema", () => {
   });
 
   it("accepts name with underscores", () => {
-    const result = packageCardSkillSchema.safeParse({
+    const result = serviceCardSkillSchema.safeParse({
       ...VALID_SKILL,
       name: "get_current_weather",
     });
@@ -177,7 +177,7 @@ describe("PackageCard Skill Schema", () => {
   });
 
   it("rejects empty description", () => {
-    const result = packageCardSkillSchema.safeParse({
+    const result = serviceCardSkillSchema.safeParse({
       ...VALID_SKILL,
       description: "",
     });
@@ -185,7 +185,7 @@ describe("PackageCard Skill Schema", () => {
   });
 
   it("rejects inputSchema without type: object", () => {
-    const result = packageCardSkillSchema.safeParse({
+    const result = serviceCardSkillSchema.safeParse({
       ...VALID_SKILL,
       inputSchema: { type: "array", items: { type: "string" } },
     });
@@ -193,7 +193,7 @@ describe("PackageCard Skill Schema", () => {
   });
 
   it("rejects inputSchema without properties", () => {
-    const result = packageCardSkillSchema.safeParse({
+    const result = serviceCardSkillSchema.safeParse({
       ...VALID_SKILL,
       inputSchema: { type: "object" },
     });
@@ -201,7 +201,7 @@ describe("PackageCard Skill Schema", () => {
   });
 
   it("accepts inputSchema with extra JSON Schema fields (passthrough)", () => {
-    const result = packageCardSkillSchema.safeParse({
+    const result = serviceCardSkillSchema.safeParse({
       ...VALID_SKILL,
       inputSchema: {
         type: "object",
@@ -216,9 +216,9 @@ describe("PackageCard Skill Schema", () => {
 
 // ── Auth Schema ─────────────────────────────────────────────────────────────
 
-describe("PackageCard Auth Schema", () => {
+describe("ServiceCard Auth Schema", () => {
   it("accepts api_key with default headerName", () => {
-    const result = packageCardAuthSchema.safeParse({ type: "api_key" });
+    const result = serviceCardAuthSchema.safeParse({ type: "api_key" });
     expect(result.success).toBe(true);
     if (result.success && result.data.type === "api_key") {
       expect(result.data.headerName).toBe("X-API-Key");
@@ -226,7 +226,7 @@ describe("PackageCard Auth Schema", () => {
   });
 
   it("accepts api_key with custom headerName", () => {
-    const result = packageCardAuthSchema.safeParse({
+    const result = serviceCardAuthSchema.safeParse({
       type: "api_key",
       headerName: "X-Custom-Key",
     });
@@ -237,7 +237,7 @@ describe("PackageCard Auth Schema", () => {
   });
 
   it("accepts bearer with default headerName", () => {
-    const result = packageCardAuthSchema.safeParse({ type: "bearer" });
+    const result = serviceCardAuthSchema.safeParse({ type: "bearer" });
     expect(result.success).toBe(true);
     if (result.success && result.data.type === "bearer") {
       expect(result.data.type).toBe("bearer");
@@ -246,7 +246,7 @@ describe("PackageCard Auth Schema", () => {
   });
 
   it("accepts oauth2_client_credentials with tokenEndpoint", () => {
-    const result = packageCardAuthSchema.safeParse({
+    const result = serviceCardAuthSchema.safeParse({
       type: "oauth2_client_credentials",
       tokenEndpoint: "https://auth.example.com/oauth/token",
       scopes: ["read", "write"],
@@ -258,7 +258,7 @@ describe("PackageCard Auth Schema", () => {
   });
 
   it("accepts oauth2 with empty scopes default", () => {
-    const result = packageCardAuthSchema.safeParse({
+    const result = serviceCardAuthSchema.safeParse({
       type: "oauth2_client_credentials",
       tokenEndpoint: "https://auth.example.com/token",
     });
@@ -269,14 +269,14 @@ describe("PackageCard Auth Schema", () => {
   });
 
   it("rejects oauth2 without tokenEndpoint", () => {
-    const result = packageCardAuthSchema.safeParse({
+    const result = serviceCardAuthSchema.safeParse({
       type: "oauth2_client_credentials",
     });
     expect(result.success).toBe(false);
   });
 
   it("rejects oauth2 with non-URL tokenEndpoint", () => {
-    const result = packageCardAuthSchema.safeParse({
+    const result = serviceCardAuthSchema.safeParse({
       type: "oauth2_client_credentials",
       tokenEndpoint: "not-a-url",
     });
@@ -284,7 +284,7 @@ describe("PackageCard Auth Schema", () => {
   });
 
   it("rejects unknown auth type", () => {
-    const result = packageCardAuthSchema.safeParse({
+    const result = serviceCardAuthSchema.safeParse({
       type: "basic",
     });
     expect(result.success).toBe(false);
@@ -293,9 +293,9 @@ describe("PackageCard Auth Schema", () => {
 
 // ── Rate Limits Schema ──────────────────────────────────────────────────────
 
-describe("PackageCard RateLimits Schema", () => {
+describe("ServiceCard RateLimits Schema", () => {
   it("accepts both limits", () => {
-    const result = packageCardRateLimitsSchema.safeParse({
+    const result = serviceCardRateLimitsSchema.safeParse({
       requestsPerMinute: 60,
       requestsPerDay: 10000,
     });
@@ -303,54 +303,54 @@ describe("PackageCard RateLimits Schema", () => {
   });
 
   it("accepts only requestsPerMinute", () => {
-    const result = packageCardRateLimitsSchema.safeParse({
+    const result = serviceCardRateLimitsSchema.safeParse({
       requestsPerMinute: 100,
     });
     expect(result.success).toBe(true);
   });
 
   it("accepts only requestsPerDay", () => {
-    const result = packageCardRateLimitsSchema.safeParse({
+    const result = serviceCardRateLimitsSchema.safeParse({
       requestsPerDay: 5000,
     });
     expect(result.success).toBe(true);
   });
 
   it("accepts empty object (both optional)", () => {
-    const result = packageCardRateLimitsSchema.safeParse({});
+    const result = serviceCardRateLimitsSchema.safeParse({});
     expect(result.success).toBe(true);
   });
 
   it("rejects zero requestsPerMinute", () => {
-    const result = packageCardRateLimitsSchema.safeParse({
+    const result = serviceCardRateLimitsSchema.safeParse({
       requestsPerMinute: 0,
     });
     expect(result.success).toBe(false);
   });
 
   it("rejects negative requestsPerDay", () => {
-    const result = packageCardRateLimitsSchema.safeParse({
+    const result = serviceCardRateLimitsSchema.safeParse({
       requestsPerDay: -1,
     });
     expect(result.success).toBe(false);
   });
 
   it("rejects non-integer requestsPerMinute", () => {
-    const result = packageCardRateLimitsSchema.safeParse({
+    const result = serviceCardRateLimitsSchema.safeParse({
       requestsPerMinute: 60.5,
     });
     expect(result.success).toBe(false);
   });
 
   it("rejects requestsPerMinute above max", () => {
-    const result = packageCardRateLimitsSchema.safeParse({
+    const result = serviceCardRateLimitsSchema.safeParse({
       requestsPerMinute: 10001,
     });
     expect(result.success).toBe(false);
   });
 
   it("rejects requestsPerDay above max", () => {
-    const result = packageCardRateLimitsSchema.safeParse({
+    const result = serviceCardRateLimitsSchema.safeParse({
       requestsPerDay: 1000001,
     });
     expect(result.success).toBe(false);

@@ -1,10 +1,10 @@
 /**
- * PackageCard — Structured descriptor for remote/hybrid marketplace packages.
+ * ServiceCard — Structured descriptor for remote/hybrid marketplace services.
  *
- * When a creator publishes a remote package, they provide a PackageCard that
+ * When a creator publishes a remote service, they provide a ServiceCard that
  * describes their API endpoint, authentication requirements, exposed skills
  * (MCP-compatible tool definitions), and rate limits. Stored as JSON in
- * `marketplacePackages.remoteApiConfig`.
+ * `marketplaceServices.remoteApiConfig`.
  *
  * Inspired by:
  * - A2A Agent Card (`/.well-known/agent.json`)
@@ -31,7 +31,7 @@ const jsonSchemaSchema = z
 
 // ── Skill Definition ────────────────────────────────────────────────────────
 
-export const packageCardSkillSchema = z.object({
+export const serviceCardSkillSchema = z.object({
   /** Skill tool name, e.g. "get_weather". Must be a valid MCP tool name. */
   name: z
     .string()
@@ -54,7 +54,7 @@ export const packageCardSkillSchema = z.object({
 
 // ── Auth Configuration ──────────────────────────────────────────────────────
 
-export const packageCardAuthSchema = z.discriminatedUnion("type", [
+export const serviceCardAuthSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("api_key"),
     /** Header name for the API key. Defaults to "X-API-Key". */
@@ -76,16 +76,16 @@ export const packageCardAuthSchema = z.discriminatedUnion("type", [
 
 // ── Rate Limits ─────────────────────────────────────────────────────────────
 
-export const packageCardRateLimitsSchema = z.object({
+export const serviceCardRateLimitsSchema = z.object({
   /** Max requests per minute the creator's API accepts. */
   requestsPerMinute: z.number().int().positive().max(10_000).optional(),
   /** Max requests per day the creator's API accepts. */
   requestsPerDay: z.number().int().positive().max(1_000_000).optional(),
 });
 
-// ── PackageCard (top-level) ─────────────────────────────────────────────────
+// ── ServiceCard (top-level) ─────────────────────────────────────────────────
 
-export const packageCardSchema = z.object({
+export const serviceCardSchema = z.object({
   /** Creator's API base URL (HTTPS required in production). */
   endpoint: z.string().url(),
 
@@ -93,15 +93,15 @@ export const packageCardSchema = z.object({
   healthEndpoint: z.string().url().optional(),
 
   /** Auth configuration that the creator's API expects from the Jarble proxy. */
-  auth: packageCardAuthSchema,
+  auth: serviceCardAuthSchema,
 
-  /** Skills (MCP-compatible tool definitions) the package exposes. At least one required. */
-  skills: z.array(packageCardSkillSchema).min(1).max(50),
+  /** Skills (MCP-compatible tool definitions) the service exposes. At least one required. */
+  skills: z.array(serviceCardSkillSchema).min(1).max(50),
 
   /** Rate limits the creator enforces. */
-  rateLimits: packageCardRateLimitsSchema.optional(),
+  rateLimits: serviceCardRateLimitsSchema.optional(),
 
-  /** Package card version (semver). */
+  /** Service card version (semver). */
   version: z
     .string()
     .regex(
@@ -112,7 +112,26 @@ export const packageCardSchema = z.object({
 
 // ── Exported Types ──────────────────────────────────────────────────────────
 
-export type PackageCard = z.infer<typeof packageCardSchema>;
-export type PackageCardSkill = z.infer<typeof packageCardSkillSchema>;
-export type PackageCardAuth = z.infer<typeof packageCardAuthSchema>;
-export type PackageCardRateLimits = z.infer<typeof packageCardRateLimitsSchema>;
+export type ServiceCard = z.infer<typeof serviceCardSchema>;
+export type ServiceCardSkill = z.infer<typeof serviceCardSkillSchema>;
+export type ServiceCardAuth = z.infer<typeof serviceCardAuthSchema>;
+export type ServiceCardRateLimits = z.infer<typeof serviceCardRateLimitsSchema>;
+
+// ── Backward-compatible aliases ─────────────────────────────────────────────
+// Keep old names available for any code that hasn't been updated yet.
+/** @deprecated Use serviceCardSchema */
+export const packageCardSchema = serviceCardSchema;
+/** @deprecated Use serviceCardSkillSchema */
+export const packageCardSkillSchema = serviceCardSkillSchema;
+/** @deprecated Use serviceCardAuthSchema */
+export const packageCardAuthSchema = serviceCardAuthSchema;
+/** @deprecated Use serviceCardRateLimitsSchema */
+export const packageCardRateLimitsSchema = serviceCardRateLimitsSchema;
+/** @deprecated Use ServiceCard */
+export type PackageCard = ServiceCard;
+/** @deprecated Use ServiceCardSkill */
+export type PackageCardSkill = ServiceCardSkill;
+/** @deprecated Use ServiceCardAuth */
+export type PackageCardAuth = ServiceCardAuth;
+/** @deprecated Use ServiceCardRateLimits */
+export type PackageCardRateLimits = ServiceCardRateLimits;

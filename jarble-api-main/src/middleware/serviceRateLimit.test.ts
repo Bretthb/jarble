@@ -1,26 +1,26 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
-  checkPackageRateLimit,
+  checkServiceRateLimit,
   getRateLimitStatus,
-  resetPackageRateLimit,
-  resetAllPackageRateLimits,
-} from "./packageRateLimit.js";
+  resetServiceRateLimit,
+  resetAllServiceRateLimits,
+} from "./serviceRateLimit.js";
 
-describe("packageRateLimit", () => {
+describe("serviceRateLimit", () => {
   beforeEach(() => {
-    resetAllPackageRateLimits();
+    resetAllServiceRateLimits();
   });
 
   // ── No rate limits ───────────────────────────────────────────────────────
 
   describe("no rate limits configured", () => {
     it("always allows when rateLimits is undefined", () => {
-      const result = checkPackageRateLimit("dep-1", "pkg-1", undefined);
+      const result = checkServiceRateLimit("dep-1", "pkg-1", undefined);
       expect(result.allowed).toBe(true);
     });
 
     it("always allows when both limits are undefined", () => {
-      const result = checkPackageRateLimit("dep-1", "pkg-1", {});
+      const result = checkServiceRateLimit("dep-1", "pkg-1", {});
       expect(result.allowed).toBe(true);
     });
   });
@@ -33,7 +33,7 @@ describe("packageRateLimit", () => {
     it("allows requests under the limit", () => {
       const now = 1000 * 60 * 10; // aligned to a minute boundary
       for (let i = 0; i < 3; i++) {
-        const result = checkPackageRateLimit("dep-1", "pkg-1", limits, now);
+        const result = checkServiceRateLimit("dep-1", "pkg-1", limits, now);
         expect(result.allowed).toBe(true);
       }
     });
@@ -42,10 +42,10 @@ describe("packageRateLimit", () => {
       const now = 1000 * 60 * 10;
       // Use up all 3 allowed requests
       for (let i = 0; i < 3; i++) {
-        checkPackageRateLimit("dep-1", "pkg-1", limits, now);
+        checkServiceRateLimit("dep-1", "pkg-1", limits, now);
       }
 
-      const result = checkPackageRateLimit("dep-1", "pkg-1", limits, now);
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, now);
       expect(result.allowed).toBe(false);
       if (!result.allowed) {
         expect(result.limitType).toBe("minute");
@@ -63,12 +63,12 @@ describe("packageRateLimit", () => {
 
       // Fill up window 1
       for (let i = 0; i < 3; i++) {
-        checkPackageRateLimit("dep-1", "pkg-1", limits, window1);
+        checkServiceRateLimit("dep-1", "pkg-1", limits, window1);
       }
-      expect(checkPackageRateLimit("dep-1", "pkg-1", limits, window1).allowed).toBe(false);
+      expect(checkServiceRateLimit("dep-1", "pkg-1", limits, window1).allowed).toBe(false);
 
       // New window — allowed again
-      const result = checkPackageRateLimit("dep-1", "pkg-1", limits, window2);
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, window2);
       expect(result.allowed).toBe(true);
     });
   });
@@ -81,7 +81,7 @@ describe("packageRateLimit", () => {
     it("allows requests under the daily limit", () => {
       const now = 1000 * 60 * 60 * 24 * 10; // aligned to a day boundary
       for (let i = 0; i < 5; i++) {
-        const result = checkPackageRateLimit("dep-1", "pkg-1", limits, now);
+        const result = checkServiceRateLimit("dep-1", "pkg-1", limits, now);
         expect(result.allowed).toBe(true);
       }
     });
@@ -89,10 +89,10 @@ describe("packageRateLimit", () => {
     it("blocks after daily limit exceeded", () => {
       const now = 1000 * 60 * 60 * 24 * 10;
       for (let i = 0; i < 5; i++) {
-        checkPackageRateLimit("dep-1", "pkg-1", limits, now);
+        checkServiceRateLimit("dep-1", "pkg-1", limits, now);
       }
 
-      const result = checkPackageRateLimit("dep-1", "pkg-1", limits, now);
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, now);
       expect(result.allowed).toBe(false);
       if (!result.allowed) {
         expect(result.limitType).toBe("day");
@@ -106,11 +106,11 @@ describe("packageRateLimit", () => {
       const day2 = dayMs * 11;
 
       for (let i = 0; i < 5; i++) {
-        checkPackageRateLimit("dep-1", "pkg-1", limits, day1);
+        checkServiceRateLimit("dep-1", "pkg-1", limits, day1);
       }
-      expect(checkPackageRateLimit("dep-1", "pkg-1", limits, day1).allowed).toBe(false);
+      expect(checkServiceRateLimit("dep-1", "pkg-1", limits, day1).allowed).toBe(false);
 
-      const result = checkPackageRateLimit("dep-1", "pkg-1", limits, day2);
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, day2);
       expect(result.allowed).toBe(true);
     });
   });
@@ -122,10 +122,10 @@ describe("packageRateLimit", () => {
 
     it("per-minute limit takes priority when hit first", () => {
       const now = 1000 * 60 * 10;
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
 
-      const result = checkPackageRateLimit("dep-1", "pkg-1", limits, now);
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, now);
       expect(result.allowed).toBe(false);
       if (!result.allowed) {
         expect(result.limitType).toBe("minute");
@@ -136,20 +136,20 @@ describe("packageRateLimit", () => {
       const minuteMs = 60 * 1000;
       // Window 1: 2 requests
       const w1 = minuteMs * 10;
-      checkPackageRateLimit("dep-1", "pkg-1", limits, w1);
-      checkPackageRateLimit("dep-1", "pkg-1", limits, w1);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, w1);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, w1);
 
       // Window 2: 2 requests
       const w2 = minuteMs * 11;
-      checkPackageRateLimit("dep-1", "pkg-1", limits, w2);
-      checkPackageRateLimit("dep-1", "pkg-1", limits, w2);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, w2);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, w2);
 
       // Window 3: 1 request (total = 5, hits day limit)
       const w3 = minuteMs * 12;
-      checkPackageRateLimit("dep-1", "pkg-1", limits, w3);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, w3);
 
       // 6th request — day limit reached
-      const result = checkPackageRateLimit("dep-1", "pkg-1", limits, w3);
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, w3);
       expect(result.allowed).toBe(false);
       if (!result.allowed) {
         expect(result.limitType).toBe("day");
@@ -157,29 +157,29 @@ describe("packageRateLimit", () => {
     });
   });
 
-  // ── Per-deployment+package isolation ──────────────────────────────────────
+  // ── Per-deployment+service isolation ──────────────────────────────────────
 
   describe("isolation", () => {
     const limits = { requestsPerMinute: 2 };
 
     it("different deployments have separate counters", () => {
       const now = 1000 * 60 * 10;
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
-      expect(checkPackageRateLimit("dep-1", "pkg-1", limits, now).allowed).toBe(false);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      expect(checkServiceRateLimit("dep-1", "pkg-1", limits, now).allowed).toBe(false);
 
-      // Different deployment, same package — should be allowed
-      expect(checkPackageRateLimit("dep-2", "pkg-1", limits, now).allowed).toBe(true);
+      // Different deployment, same service — should be allowed
+      expect(checkServiceRateLimit("dep-2", "pkg-1", limits, now).allowed).toBe(true);
     });
 
-    it("different packages have separate counters", () => {
+    it("different services have separate counters", () => {
       const now = 1000 * 60 * 10;
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
-      expect(checkPackageRateLimit("dep-1", "pkg-1", limits, now).allowed).toBe(false);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      expect(checkServiceRateLimit("dep-1", "pkg-1", limits, now).allowed).toBe(false);
 
-      // Same deployment, different package — should be allowed
-      expect(checkPackageRateLimit("dep-1", "pkg-2", limits, now).allowed).toBe(true);
+      // Same deployment, different service — should be allowed
+      expect(checkServiceRateLimit("dep-1", "pkg-2", limits, now).allowed).toBe(true);
     });
   });
 
@@ -190,13 +190,13 @@ describe("packageRateLimit", () => {
       const limits = { requestsPerMinute: 2 };
       const now = 1000 * 60 * 10;
 
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
 
       // This should be blocked (at 2/2)
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
 
       // Counter should still be 2, not 5
       const status = getRateLimitStatus("dep-1", "pkg-1");
@@ -208,28 +208,28 @@ describe("packageRateLimit", () => {
   // ── getRateLimitStatus ───────────────────────────────────────────────────
 
   describe("getRateLimitStatus", () => {
-    it("returns null for unknown deployment+package", () => {
+    it("returns null for unknown deployment+service", () => {
       expect(getRateLimitStatus("unknown", "unknown")).toBeNull();
     });
 
     it("returns current counts", () => {
       const now = 1000 * 60 * 10;
-      checkPackageRateLimit("dep-1", "pkg-1", { requestsPerMinute: 10, requestsPerDay: 100 }, now);
-      checkPackageRateLimit("dep-1", "pkg-1", { requestsPerMinute: 10, requestsPerDay: 100 }, now);
+      checkServiceRateLimit("dep-1", "pkg-1", { requestsPerMinute: 10, requestsPerDay: 100 }, now);
+      checkServiceRateLimit("dep-1", "pkg-1", { requestsPerMinute: 10, requestsPerDay: 100 }, now);
 
       const status = getRateLimitStatus("dep-1", "pkg-1");
       expect(status).toEqual({ minuteCount: 2, dayCount: 2 });
     });
   });
 
-  // ── resetPackageRateLimit ────────────────────────────────────────────────
+  // ── resetServiceRateLimit ────────────────────────────────────────────────
 
-  describe("resetPackageRateLimit", () => {
-    it("clears a specific deployment+package counter", () => {
+  describe("resetServiceRateLimit", () => {
+    it("clears a specific deployment+service counter", () => {
       const now = 1000 * 60 * 10;
-      checkPackageRateLimit("dep-1", "pkg-1", { requestsPerMinute: 10 }, now);
+      checkServiceRateLimit("dep-1", "pkg-1", { requestsPerMinute: 10 }, now);
 
-      resetPackageRateLimit("dep-1", "pkg-1");
+      resetServiceRateLimit("dep-1", "pkg-1");
       expect(getRateLimitStatus("dep-1", "pkg-1")).toBeNull();
     });
   });
@@ -242,8 +242,8 @@ describe("packageRateLimit", () => {
       const minuteMs = 60 * 1000;
       const now = minuteMs * 10 + minuteMs - 100; // 100ms before window end
 
-      checkPackageRateLimit("dep-1", "pkg-1", limits, now);
-      const result = checkPackageRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, now);
 
       expect(result.allowed).toBe(false);
       if (!result.allowed) {

@@ -1,11 +1,11 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { PackageDetail } from "@/components/marketplace/PackageDetail";
+import { ServiceDetail } from "@/components/marketplace/ServiceDetail";
 
-export default function PackageDetailPage() {
+export default function ServiceDetailPage() {
   const params = useParams();
   const id = params.id as string;
 
-  return <PackageDetail packageId={id} />;
+  return <ServiceDetail serviceId={id} />;
 }

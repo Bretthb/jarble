@@ -7,16 +7,18 @@
 
 import type { ComponentManifestEntry } from "../types.js";
 
-/** The top 10 components to include inline in the prompt */
+/** The top 12 components to include inline in the prompt */
 const TOP_10_NAMES = [
   "chart",
   "data_table",
+  "spreadsheet",
   "card",
   "metric_card",
   "stat_grid",
   "list",
   "alert",
   "code_block",
+  "code_editor",
   "layout",
   "sandbox",
 ];

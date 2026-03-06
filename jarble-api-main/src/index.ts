@@ -11,7 +11,7 @@ import { isStripeConfigured } from "./services/stripe.js";
 import { startStorageEnforcement } from "./services/storageEnforcement.js";
 import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement.js";
 import { startStatusReconciler } from "./services/statusReconciler.js";
-import { startPackageHealthCheck } from "./services/packageHealthCheck.js";
+import { startServiceHealthCheck } from "./services/serviceHealthCheck.js";
 import { globalLimiter, authLimiter } from "./middleware/rateLimit.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { requestLoggingMiddleware } from "./middleware/requestLogging.js";
@@ -26,7 +26,7 @@ import { canvasFilesRouter } from "./routes/canvasFiles.js";
 import { artifactRouter } from "./routes/artifact.js";
 import { mcpRouter } from "./routes/mcp.js";
 import { diagnoseRouter } from "./routes/diagnose.js";
-import { packageProxyRouter } from "./routes/packageProxy.js";
+import { serviceProxyRouter } from "./routes/serviceProxy.js";
 
 const app = express();
 
@@ -85,7 +85,7 @@ app.use("/api/deployments", canvasFilesRouter);
 app.use("/api/deployments", artifactRouter);
 app.use("/api/mcp", mcpRouter);
 app.use("/api/deployments", diagnoseRouter);
-app.use("/api/packages", packageProxyRouter);
+app.use("/api/services", serviceProxyRouter);
 
 // Debug endpoints — dev only
 if (env.NODE_ENV === "development") {
@@ -132,7 +132,7 @@ async function start() {
   startStorageEnforcement();
   startSubscriptionEnforcement();
   startStatusReconciler();  // Syncs DB status with K8s reality (fixes "stuck at creating")
-  startPackageHealthCheck();  // Pings remote/hybrid package health endpoints every 5 min
+  startServiceHealthCheck();  // Pings remote/hybrid service health endpoints every 5 min
 
   const PORT = env.PORT;
   app.listen(PORT, () => {

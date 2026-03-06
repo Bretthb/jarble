@@ -45,7 +45,7 @@ const HOSTING_STYLES: Record<string, string> = {
 
 const HOSTING_LABELS: Record<string, string> = {
   self_hosted: "Self-hosted",
-  remote: "Hosted",
+  remote: "Cloud",
   hybrid: "Hybrid",
 };
 
@@ -63,7 +63,7 @@ const HEALTH_LABELS: Record<string, string> = {
   unknown: "Unknown",
 };
 
-interface PackageComponent {
+interface ServiceComponent {
   id: string;
   name: string;
   displayName: string;
@@ -72,39 +72,39 @@ interface PackageComponent {
   category: string | null;
 }
 
-interface PackageSkill {
+interface ServiceSkill {
   id: string;
   name: string;
   description: string | null;
 }
 
-interface PackageDetailProps {
-  packageId: string;
+interface ServiceDetailProps {
+  serviceId: string;
 }
 
-export function PackageDetail({ packageId }: PackageDetailProps) {
+export function ServiceDetail({ serviceId }: ServiceDetailProps) {
   const { isAuthenticated, loginWithRedirect, isLoading: authLoading } = useAuth0();
 
   const [selectedDeployment, setSelectedDeployment] = useState<string | null>(null);
   const [installState, setInstallState] = useState<"idle" | "installing" | "installed">("idle");
 
-  const packageQuery = trpc.packages.get.useQuery(
-    { packageId },
-    { enabled: !!packageId }
-  );
+  const serviceQuery = trpc.services.get.useQuery(
+    { serviceId },
+    { enabled: !!serviceId }
+);
 
-  const installMutation = trpc.packages.install.useMutation();
-  const uninstallMutation = trpc.packages.uninstall.useMutation();
+  const installMutation = trpc.services.install.useMutation();
+  const uninstallMutation = trpc.services.uninstall.useMutation();
 
-  const pkg = packageQuery.data;
-  const isLoading = packageQuery.isLoading;
+  const pkg = serviceQuery.data;
+  const isLoading = serviceQuery.isLoading;
 
   const handleInstall = async () => {
     if (!selectedDeployment) return;
     setInstallState("installing");
     try {
       await installMutation.mutateAsync({
-        packageId,
+        serviceId,
         deploymentId: selectedDeployment,
       });
       setInstallState("installed");
@@ -117,7 +117,7 @@ export function PackageDetail({ packageId }: PackageDetailProps) {
     if (!selectedDeployment) return;
     try {
       await uninstallMutation.mutateAsync({
-        packageId,
+        serviceId,
         deploymentId: selectedDeployment,
       });
       setInstallState("idle");
@@ -190,12 +190,12 @@ export function PackageDetail({ packageId }: PackageDetailProps) {
         </Link>
 
         {isLoading ? (
-          <PackageDetailSkeleton />
+          <ServiceDetailSkeleton />
         ) : !pkg ? (
-          <PackageNotFound />
+          <ServiceNotFound />
         ) : (
           <>
-            {/* Package header */}
+            {/* Service header */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-8">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3 flex-wrap">
@@ -207,7 +207,7 @@ export function PackageDetail({ packageId }: PackageDetailProps) {
                     className={cn("text-xs gap-1", "bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 border-indigo-500/20")}
                   >
                     <Package className="size-3" />
-                    Package
+                    Service
                   </Badge>
                   <Badge
                     variant="outline"
@@ -259,7 +259,7 @@ export function PackageDetail({ packageId }: PackageDetailProps) {
                       Included Components ({pkg.components.length})
                     </h3>
                     <div className="space-y-2">
-                      {pkg.components.map((comp: PackageComponent) => (
+                      {pkg.components.map((comp: ServiceComponent) => (
                         <div
                           key={comp.id}
                           className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3"
@@ -296,7 +296,7 @@ export function PackageDetail({ packageId }: PackageDetailProps) {
                       Included Skills ({pkg.skills.length})
                     </h3>
                     <div className="space-y-2">
-                      {pkg.skills.map((skill: PackageSkill) => (
+                      {pkg.skills.map((skill: ServiceSkill) => (
                         <div
                           key={skill.id}
                           className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3"
@@ -388,7 +388,7 @@ export function PackageDetail({ packageId }: PackageDetailProps) {
                           ) : (
                             <>
                               <Download className="size-4 mr-2" />
-                              Install Package
+                              Install Service
                             </>
                           )}
                         </Button>
@@ -429,7 +429,7 @@ export function PackageDetail({ packageId }: PackageDetailProps) {
                   </Card>
                 )}
 
-                {/* Package info card */}
+                {/* Service info card */}
                 <Card className="border border-border">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-semibold">Details</CardTitle>
@@ -513,7 +513,7 @@ export function PackageDetail({ packageId }: PackageDetailProps) {
 
 // -- Skeleton ---------------------------------------------------------------
 
-function PackageDetailSkeleton() {
+function ServiceDetailSkeleton() {
   return (
     <div className="space-y-8">
       <div className="space-y-3">
@@ -548,16 +548,16 @@ function PackageDetailSkeleton() {
 
 // -- Not Found --------------------------------------------------------------
 
-function PackageNotFound() {
+function ServiceNotFound() {
   return (
     <Empty className="py-20 border border-dashed border-border rounded-xl">
       <EmptyMedia variant="icon">
         <Package />
       </EmptyMedia>
       <EmptyHeader>
-        <EmptyTitle>Package not found</EmptyTitle>
+        <EmptyTitle>Service not found</EmptyTitle>
         <EmptyDescription>
-          This package may have been removed or does not exist.
+          This service may have been removed or does not exist.
         </EmptyDescription>
       </EmptyHeader>
       <Button variant="outline" size="sm" asChild>

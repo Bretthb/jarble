@@ -1,11 +1,11 @@
 /**
- * Integration tests for packages admin moderation procedures.
+ * Integration tests for services admin moderation procedures.
  *
  * Tests adminList, adminApprove, adminReject — both success (admin user)
  * and rejection (non-admin user) paths.
  *
  * Uses real in-memory SQLite with mocked K8s, Stripe, configSync, and OpenRouter.
- * Admin user ID "admin-user-001" is present in the ADMIN_USER_IDS set in packages.ts.
+ * Admin user ID "admin-user-001" is present in the ADMIN_USER_IDS set in services.ts.
  */
 import { describe, it, expect, afterAll, vi, beforeEach } from "vitest";
 import { createTestDb, type TestDbContext } from "../helpers/testDb.js";
@@ -55,7 +55,7 @@ vi.mock("../../utils/openrouter.js", () => ({
   updateOpenRouterKeyLimit: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock("../../services/packageHandshake.js", () => ({
+vi.mock("../../services/serviceHandshake.js", () => ({
   performInstallHandshake: vi.fn().mockResolvedValue({
     remoteInstallId: "remote-inst-001",
   }),
@@ -80,7 +80,7 @@ vi.mock("../../utils/env.js", () => ({
 
 let ctx: TestDbContext;
 
-/** The admin user ID that is present in ADMIN_USER_IDS in packages.ts. */
+/** The admin user ID that is present in ADMIN_USER_IDS in services.ts. */
 const ADMIN_USER_ID = "admin-user-001";
 const ADMIN_AUTH0_ID = "auth0|admin-001";
 
@@ -140,7 +140,7 @@ function seedCreatorProfile(userId?: string) {
   return id;
 }
 
-function seedPackage(
+function seedService(
   creatorProfileId: string,
   overrides?: {
     name?: string;
@@ -156,22 +156,22 @@ function seedPackage(
     `INSERT INTO marketplace_packages
        (id, creator_id, name, display_name, description, hosting_model, status, pricing_model, total_installs)
      VALUES
-       ('${id}', '${creatorProfileId}', '${name}', 'Display ${name}', 'A test package', '${hosting}', '${status}', 'free', 0)`,
+       ('${id}', '${creatorProfileId}', '${name}', 'Display ${name}', 'A test service', '${hosting}', '${status}', 'free', 0)`,
   );
   return id;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("packages.adminList", () => {
-  it("returns pending_review packages by default", async () => {
+describe("services.adminList", () => {
+  it("returns pending_review services by default", async () => {
     const cpId = seedCreatorProfile();
-    const pkg1 = seedPackage(cpId, { name: "pending-one", status: "pending_review" });
-    const pkg2 = seedPackage(cpId, { name: "pending-two", status: "pending_review" });
-    seedPackage(cpId, { name: "published-one", status: "published" });
+    const pkg1 = seedService(cpId, { name: "pending-one", status: "pending_review" });
+    const pkg2 = seedService(cpId, { name: "pending-two", status: "pending_review" });
+    seedService(cpId, { name: "published-one", status: "published" });
 
     const caller = adminCaller();
-    const result = await caller.packages.adminList();
+    const result = await caller.services.adminList();
 
     expect(result).toHaveLength(2);
     const names = result.map((p: any) => p.name).sort();
@@ -180,37 +180,37 @@ describe("packages.adminList", () => {
 
   it("filters by status when specified", async () => {
     const cpId = seedCreatorProfile();
-    seedPackage(cpId, { name: "pkg-pending", status: "pending_review" });
-    seedPackage(cpId, { name: "pkg-rejected", status: "rejected" });
-    seedPackage(cpId, { name: "pkg-draft", status: "draft" });
+    seedService(cpId, { name: "pkg-pending", status: "pending_review" });
+    seedService(cpId, { name: "pkg-rejected", status: "rejected" });
+    seedService(cpId, { name: "pkg-draft", status: "draft" });
 
     const caller = adminCaller();
 
-    const rejectedResult = await caller.packages.adminList({ status: "rejected" });
+    const rejectedResult = await caller.services.adminList({ status: "rejected" });
     expect(rejectedResult).toHaveLength(1);
     expect(rejectedResult[0].name).toBe("pkg-rejected");
 
-    const draftResult = await caller.packages.adminList({ status: "draft" });
+    const draftResult = await caller.services.adminList({ status: "draft" });
     expect(draftResult).toHaveLength(1);
     expect(draftResult[0].name).toBe("pkg-draft");
   });
 
   it("rejects non-admin users with FORBIDDEN", async () => {
     const caller = regularCaller();
-    await expect(caller.packages.adminList()).rejects.toThrow("Admin access required");
+    await expect(caller.services.adminList()).rejects.toThrow("Admin access required");
   });
 
   it("rejects anonymous users", async () => {
     const caller = createAnonymousCaller(ctx.db);
-    await expect(caller.packages.adminList()).rejects.toThrow();
+    await expect(caller.services.adminList()).rejects.toThrow();
   });
 
-  it("returns all expected fields per package", async () => {
+  it("returns all expected fields per service", async () => {
     const cpId = seedCreatorProfile();
-    seedPackage(cpId, { name: "detailed-pkg", status: "pending_review" });
+    seedService(cpId, { name: "detailed-pkg", status: "pending_review" });
 
     const caller = adminCaller();
-    const result = await caller.packages.adminList();
+    const result = await caller.services.adminList();
 
     expect(result).toHaveLength(1);
     const pkg = result[0];
@@ -227,13 +227,13 @@ describe("packages.adminList", () => {
   });
 });
 
-describe("packages.adminApprove", () => {
-  it("sets package status to published", async () => {
+describe("services.adminApprove", () => {
+  it("sets service status to published", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "to-approve", status: "pending_review" });
+    const pkgId = seedService(cpId, { name: "to-approve", status: "pending_review" });
 
     const caller = adminCaller();
-    const result = await caller.packages.adminApprove({ packageId: pkgId });
+    const result = await caller.services.adminApprove({ serviceId: pkgId });
 
     expect(result).toEqual({ success: true });
 
@@ -242,12 +242,12 @@ describe("packages.adminApprove", () => {
     expect(row.status).toBe("published");
   });
 
-  it("can approve a rejected package", async () => {
+  it("can approve a rejected service", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "re-approve", status: "rejected" });
+    const pkgId = seedService(cpId, { name: "re-approve", status: "rejected" });
 
     const caller = adminCaller();
-    const result = await caller.packages.adminApprove({ packageId: pkgId });
+    const result = await caller.services.adminApprove({ serviceId: pkgId });
     expect(result).toEqual({ success: true });
 
     const row = ctx.raw.prepare("SELECT status FROM marketplace_packages WHERE id = ?").get(pkgId) as any;
@@ -256,13 +256,13 @@ describe("packages.adminApprove", () => {
 
   it("updates the updatedAt timestamp", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "timestamp-test", status: "pending_review" });
+    const pkgId = seedService(cpId, { name: "timestamp-test", status: "pending_review" });
 
     // Get the original timestamp
     const before = ctx.raw.prepare("SELECT updated_at FROM marketplace_packages WHERE id = ?").get(pkgId) as any;
 
     const caller = adminCaller();
-    await caller.packages.adminApprove({ packageId: pkgId });
+    await caller.services.adminApprove({ serviceId: pkgId });
 
     const after = ctx.raw.prepare("SELECT updated_at FROM marketplace_packages WHERE id = ?").get(pkgId) as any;
     // The updatedAt should be updated (may or may not differ if test runs instantly,
@@ -272,10 +272,10 @@ describe("packages.adminApprove", () => {
 
   it("rejects non-admin users with FORBIDDEN", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "blocked-approve", status: "pending_review" });
+    const pkgId = seedService(cpId, { name: "blocked-approve", status: "pending_review" });
 
     const caller = regularCaller();
-    await expect(caller.packages.adminApprove({ packageId: pkgId })).rejects.toThrow(
+    await expect(caller.services.adminApprove({ serviceId: pkgId })).rejects.toThrow(
       "Admin access required",
     );
 
@@ -284,22 +284,22 @@ describe("packages.adminApprove", () => {
     expect(row.status).toBe("pending_review");
   });
 
-  it("throws NOT_FOUND for a nonexistent package", async () => {
+  it("throws NOT_FOUND for a nonexistent service", async () => {
     const caller = adminCaller();
     await expect(
-      caller.packages.adminApprove({ packageId: "pkg_nonexistent" }),
-    ).rejects.toThrow("Package not found");
+      caller.services.adminApprove({ serviceId: "pkg_nonexistent" }),
+    ).rejects.toThrow("Service not found");
   });
 });
 
-describe("packages.adminReject", () => {
-  it("sets package status to rejected", async () => {
+describe("services.adminReject", () => {
+  it("sets service status to rejected", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "to-reject", status: "pending_review" });
+    const pkgId = seedService(cpId, { name: "to-reject", status: "pending_review" });
 
     const caller = adminCaller();
-    const result = await caller.packages.adminReject({
-      packageId: pkgId,
+    const result = await caller.services.adminReject({
+      serviceId: pkgId,
       reason: "Violates content policy",
     });
 
@@ -312,10 +312,10 @@ describe("packages.adminReject", () => {
 
   it("works without a reason", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "reject-no-reason", status: "pending_review" });
+    const pkgId = seedService(cpId, { name: "reject-no-reason", status: "pending_review" });
 
     const caller = adminCaller();
-    const result = await caller.packages.adminReject({ packageId: pkgId });
+    const result = await caller.services.adminReject({ serviceId: pkgId });
 
     expect(result).toEqual({ success: true });
 
@@ -325,10 +325,10 @@ describe("packages.adminReject", () => {
 
   it("updates the updatedAt timestamp", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "reject-ts-test", status: "pending_review" });
+    const pkgId = seedService(cpId, { name: "reject-ts-test", status: "pending_review" });
 
     const caller = adminCaller();
-    await caller.packages.adminReject({ packageId: pkgId, reason: "Low quality" });
+    await caller.services.adminReject({ serviceId: pkgId, reason: "Low quality" });
 
     const row = ctx.raw.prepare("SELECT updated_at FROM marketplace_packages WHERE id = ?").get(pkgId) as any;
     expect(row.updated_at).toBeDefined();
@@ -336,11 +336,11 @@ describe("packages.adminReject", () => {
 
   it("rejects non-admin users with FORBIDDEN", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "blocked-reject", status: "pending_review" });
+    const pkgId = seedService(cpId, { name: "blocked-reject", status: "pending_review" });
 
     const caller = regularCaller();
     await expect(
-      caller.packages.adminReject({ packageId: pkgId, reason: "test" }),
+      caller.services.adminReject({ serviceId: pkgId, reason: "test" }),
     ).rejects.toThrow("Admin access required");
 
     // Verify status was NOT changed
@@ -348,20 +348,20 @@ describe("packages.adminReject", () => {
     expect(row.status).toBe("pending_review");
   });
 
-  it("throws NOT_FOUND for a nonexistent package", async () => {
+  it("throws NOT_FOUND for a nonexistent service", async () => {
     const caller = adminCaller();
     await expect(
-      caller.packages.adminReject({ packageId: "pkg_nonexistent", reason: "test" }),
-    ).rejects.toThrow("Package not found");
+      caller.services.adminReject({ serviceId: "pkg_nonexistent", reason: "test" }),
+    ).rejects.toThrow("Service not found");
   });
 
-  it("can reject an already-published package", async () => {
+  it("can reject an already-published service", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "published-to-reject", status: "published" });
+    const pkgId = seedService(cpId, { name: "published-to-reject", status: "published" });
 
     const caller = adminCaller();
-    const result = await caller.packages.adminReject({
-      packageId: pkgId,
+    const result = await caller.services.adminReject({
+      serviceId: pkgId,
       reason: "Policy violation discovered",
     });
 

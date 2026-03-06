@@ -9,7 +9,7 @@
  */
 
 import { memo, useCallback, useState, useRef, useEffect, type ReactNode, type KeyboardEvent } from "react";
-import { X, GripVertical, MousePointerClick, Bookmark, Loader2, Check, SplitSquareHorizontal, Grid3X3 } from "lucide-react";
+import { X, MousePointerClick, Bookmark, Loader2, Check, SplitSquareHorizontal, Grid3X3 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
@@ -93,6 +93,7 @@ function DashboardCanvasInner({
 }: DashboardCanvasProps) {
   const { getAccessTokenSilently } = useAuth0();
   const containerRef = useRef<HTMLDivElement>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
   const [columns, setColumns] = useState(3);
 
   // ── Responsive column count via ResizeObserver ──────────────────────
@@ -124,6 +125,7 @@ function DashboardCanvasInner({
   const [saveStatus, setSaveStatus] = useState<{ cardId: string; status: "saving" | "saved" | "error"; message?: string } | null>(null);
   const saveInputRef = useRef<HTMLInputElement>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [unsavingCardId, setUnsavingCardId] = useState<string | null>(null);
 
   // ── Keyboard navigation state ────────────────────────────────────
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -145,7 +147,13 @@ function DashboardCanvasInner({
   const handleSplit = useCallback((card: CanvasCard) => dispatch({ type: "SPLIT_CARD", id: card.id }), [dispatch]);
 
   const handleSaveClick = useCallback((card: CanvasCard) => {
+    if (card.savedName) {
+      setUnsavingCardId(prev => prev === card.id ? null : card.id);
+      setSavingCardId(null); setSaveNameInput("");
+      return;
+    }
     if (savingCardId === card.id) { setSavingCardId(null); setSaveNameInput(""); return; }
+    setUnsavingCardId(null);
     setSaveNameInput(card.title || card.component.replace(/_/g, " "));
     setSavingCardId(card.id);
   }, [savingCardId]);
@@ -166,7 +174,7 @@ function DashboardCanvasInner({
       if (!res.ok) throw new Error("Save failed");
       const data = await res.json();
       if (data.result?.isError) throw new Error(data.result.text || "Save failed");
-      dispatch({ type: "SAVE_CARD", id: card.id, savedName: name });
+      dispatch({ type: "SAVE_CARD", id: card.id, savedName: name, fileId });
       setSaveStatus({ cardId: card.id, status: "saved" });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Save failed";
@@ -175,6 +183,33 @@ function DashboardCanvasInner({
       errorTimerRef.current = setTimeout(() => setSaveStatus(null), 3000);
     }
   }, [saveNameInput, getAccessTokenSilently, deploymentId, dispatch]);
+
+  const handleUnsave = useCallback(async (card: CanvasCard) => {
+    const fileId = card.fileId || (card.savedName || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 64);
+    if (!fileId) return;
+    setUnsavingCardId(null);
+    setSaveStatus({ cardId: card.id, status: "saving" });
+    try {
+      const token = await getAccessTokenSilently();
+      const res = await fetch(`${API_URL}/api/deployments/${deploymentId}/mcp/invoke`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tool: "delete_canvas_file", args: { fileId } }),
+      });
+      if (!res.ok) throw new Error("Delete failed");
+      const data = await res.json();
+      if (data.result?.isError) throw new Error(data.result.text || "Delete failed on pod");
+      dispatch({ type: "UNSAVE_CARD", id: card.id });
+      setRefetchTrigger((n) => n + 1);
+      setSaveStatus(null);
+    } catch (err: unknown) {
+      console.error("[Jarble:Unsave] Failed:", err);
+      const message = err instanceof Error ? err.message : "Remove failed";
+      setSaveStatus({ cardId: card.id, status: "error", message });
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+      errorTimerRef.current = setTimeout(() => setSaveStatus(null), 3000);
+    }
+  }, [getAccessTokenSilently, deploymentId, dispatch]);
 
   // ── Sort cards by type priority for dashboard flow ─────────────────
   const sortedCards = [...cards]
@@ -229,6 +264,7 @@ function DashboardCanvasInner({
           deploymentId={deploymentId}
           mode="dashboard"
           onHide={onHide}
+          refetchTrigger={refetchTrigger}
         />
         <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
           <div className="w-12 h-12 rounded-xl bg-secondary/50 border border-border/40 flex items-center justify-center">
@@ -263,6 +299,7 @@ function DashboardCanvasInner({
         deploymentId={deploymentId}
         mode="dashboard"
         onHide={onHide}
+        refetchTrigger={refetchTrigger}
       />
 
       {/* Aria live region for announcements */}
@@ -317,7 +354,7 @@ function DashboardCanvasInner({
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
                   transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
-                  style={{ gridColumn: `span ${span}`, alignSelf: "start" }}
+                  style={{ gridColumn: `span ${span}`, alignSelf: "start", height: "fit-content" }}
                   className={`group rounded-lg overflow-hidden flex flex-col relative transition-shadow ${
                     card.selected
                       ? "ring-2 ring-blue-500 shadow-md shadow-blue-500/20"
@@ -328,13 +365,10 @@ function DashboardCanvasInner({
                           : "hover:ring-1 hover:ring-border/50"
                   }`}
                 >
-                  {/* Card header — always partially visible, full on hover/focus */}
-                  <div className="shrink-0 flex items-center justify-between px-2 py-0.5 opacity-40 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity absolute top-0 left-0 right-0 z-20 bg-background/80 backdrop-blur-sm">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <GripVertical className="w-3 h-3 text-muted-foreground/40 shrink-0" />
-                      <span className="text-[10px] text-muted-foreground-subtle truncate">
-                        {card.title || card.component.replace(/_/g, " ")}
-                      </span>
+                  {/* Card header — icons only, hidden until hover/focus */}
+                  <div className="shrink-0 flex items-center justify-end px-1 py-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto transition-opacity absolute top-0 left-0 right-0 z-20">
+                    {/* Saved badge + save status (left-aligned, only when present) */}
+                    <div className="flex items-center gap-1 mr-auto">
                       {card.savedName && (
                         <span className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-amber-500/15 border border-amber-500/30">
                           <Bookmark className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
@@ -353,9 +387,7 @@ function DashboardCanvasInner({
                       )}
                     </div>
 
-                    <div className={`flex items-center gap-0.5 shrink-0 transition-opacity ${
-                      card.selected ? "opacity-100" : "opacity-40 group-hover:opacity-100 group-focus-within:opacity-100"
-                    }`}>
+                    <div className="flex items-center gap-0.5 shrink-0">
                       <button onClick={(e) => { e.stopPropagation(); handleSelect(card); }}
                         className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
                           card.selected ? "bg-blue-500 text-white" : "hover:bg-blue-500/60 text-muted-foreground hover:text-white"
@@ -404,11 +436,29 @@ function DashboardCanvasInner({
                     </div>
                   )}
 
+                  {/* Unsave confirmation */}
+                  {unsavingCardId === card.id && (
+                    <div className="absolute top-6 left-0 right-0 z-20 flex items-center gap-1.5 px-2 py-1 bg-background/90 backdrop-blur-sm border-b border-border/20"
+                      onPointerDown={(e) => e.stopPropagation()}>
+                      <span className="text-xs text-foreground truncate">Remove from library?</span>
+                      <button onClick={(e) => { e.stopPropagation(); handleUnsave(card); }}
+                        className="h-6 px-2 text-xs font-medium rounded bg-red-500 hover:bg-red-600 text-white transition-colors shrink-0">
+                        Yes
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); setUnsavingCardId(null); }}
+                        className="h-6 px-2 text-xs font-medium rounded bg-secondary hover:bg-secondary/80 text-foreground transition-colors shrink-0">
+                        No
+                      </button>
+                    </div>
+                  )}
+
                   {/* Card content */}
                   <div
                     className={`overflow-auto rounded-lg ${isImmersive ? "flex-1 min-h-0" : ""}`}
                     style={isImmersive
-                      ? { minHeight: preferredH, height: preferredH }
+                      ? card.component === "sandbox"
+                        ? { aspectRatio: "4 / 3", minHeight: 300, maxHeight: 700 }
+                        : { minHeight: preferredH, height: preferredH }
                       : { maxHeight: maxH }
                     }
                   >

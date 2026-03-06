@@ -32,9 +32,11 @@ export function sanitizeHtmlProp(
   existingJs: string | undefined,
   existingLibs: string[] | undefined,
   logPrefix = "[Jarble:Sandbox]",
-): { html: string; js: string; libraries: string[] } {
+  existingCss?: string | undefined,
+): { html: string; js: string; css: string; libraries: string[] } {
   let cleanHtml = html;
   const extractedJs: string[] = [];
+  const extractedCss: string[] = [];
   const extractedLibs: string[] = [...(existingLibs || [])];
 
   // Extract <script src="..."> tags -> libraries
@@ -60,8 +62,37 @@ export function sanitizeHtmlProp(
     },
   );
 
-  // Extract <style>...</style> (handled by css prop but sometimes in html)
-  cleanHtml = cleanHtml.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, "");
+  // Extract <style>...</style> -> css (LLMs frequently put styles in html prop)
+  cleanHtml = cleanHtml.replace(
+    /<style[^>]*>([\s\S]*?)<\/style>/gi,
+    (_match, cssContent) => {
+      const trimmed = (cssContent as string).trim();
+      if (trimmed) {
+        isDev && console.log(`${logPrefix} Extracted <style> from html ->`, trimmed.length, "chars");
+        extractedCss.push(trimmed);
+      }
+      return "";
+    },
+  );
+
+  // Extract <link rel="stylesheet" href="..."> -> CSS @import rules
+  cleanHtml = cleanHtml.replace(
+    /<link\s+[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*\/?>/gi,
+    (_match, url) => {
+      isDev && console.log(`${logPrefix} Extracted <link stylesheet> from html ->`, url);
+      extractedCss.push(`@import url("${url}");`);
+      return "";
+    },
+  );
+  // Also match href-first order: <link href="..." rel="stylesheet">
+  cleanHtml = cleanHtml.replace(
+    /<link\s+[^>]*href=["']([^"']+)["'][^>]*rel=["']stylesheet["'][^>]*\/?>/gi,
+    (_match, url) => {
+      isDev && console.log(`${logPrefix} Extracted <link stylesheet> from html ->`, url);
+      extractedCss.push(`@import url("${url}");`);
+      return "";
+    },
+  );
 
   // Strip structural tags
   cleanHtml = cleanHtml
@@ -70,25 +101,28 @@ export function sanitizeHtmlProp(
     .replace(/<\/?head[^>]*>/gi, "")
     .replace(/<\/?body[^>]*>/gi, "")
     .replace(/<meta[^>]*>/gi, "")
+    .replace(/<link[^>]*>/gi, "") // Strip remaining <link> tags (non-stylesheet)
     .trim();
 
   // Combine JS: existing js prop takes priority, extracted JS appended
   const allJs = [existingJs, ...extractedJs].filter(Boolean).join("\n");
 
-  if (extractedJs.length > 0 || extractedLibs.length > (existingLibs?.length || 0)) {
+  // Combine CSS: extracted CSS first (so existing css prop can override)
+  const allCss = [...extractedCss, existingCss].filter(Boolean).join("\n");
+
+  if (extractedJs.length > 0 || extractedLibs.length > (existingLibs?.length || 0) || extractedCss.length > 0) {
     isDev && console.log(
       `${logPrefix} Sanitized html prop — extracted`,
-      extractedJs.length,
-      "script blocks,",
-      extractedLibs.length - (existingLibs?.length || 0),
-      "library URLs",
+      extractedJs.length, "script blocks,",
+      extractedCss.length, "style blocks,",
+      extractedLibs.length - (existingLibs?.length || 0), "library URLs",
     );
   }
 
   // Additional XSS sanitization via DOMPurify
   cleanHtml = sanitizeHtml(cleanHtml);
 
-  return { html: cleanHtml, js: allJs, libraries: extractedLibs };
+  return { html: cleanHtml, js: allJs, css: allCss, libraries: extractedLibs };
 }
 
 /**
@@ -320,24 +354,37 @@ new ResizeObserver(function(entries) {
 setInterval(function() {
   window.jarble.heartbeat();
 }, ${HEARTBEAT_INTERVAL_MS});
-// Dynamic library loader — guarantees scripts are fully loaded before user JS runs
+// Dynamic library loader — loads scripts SEQUENTIALLY to preserve dependency order,
+// then executes user JS at GLOBAL scope (not in a function) so const/let/var
+// declarations are accessible to auto-resize and other global code.
 (function() {
   var libs = ${libsJson};
-  var loaded = 0;
+  var idx = 0;
   console.log("${logPrefix} Loading " + libs.length + " libraries:", libs);
   function onReady() {
     console.log("${logPrefix} All libraries loaded, executing user JS (" + ${JSON.stringify(escapedJs.length)} + " chars)");
     parent.postMessage({ type: "jarble:ready" }, "*");
-    try { ${escapedJs} } catch(e) { console.error("${logPrefix} User JS error:", e); window.onerror(e.message, "", 0, 0, e); }
+    // Execute user JS at global scope via script tag injection.
+    // This ensures const/let/var declarations are globally accessible
+    // (e.g. Three.js renderer/camera for auto-resize).
+    // Errors are caught by window.onerror handler above.
+    if (${JSON.stringify(escapedJs.length)} > 0) {
+      var s = document.createElement("script");
+      s.textContent = ${JSON.stringify(escapedJs)};
+      document.body.appendChild(s);
+    }
   }
-  if (libs.length === 0) { console.log("${logPrefix} No libraries, running immediately"); return onReady(); }
-  libs.forEach(function(url) {
+  function loadNext() {
+    if (idx >= libs.length) { return onReady(); }
+    var url = libs[idx++];
     var s = document.createElement("script");
     s.src = url;
-    s.onload = function() { console.log("${logPrefix} Loaded:", url); if (++loaded >= libs.length) onReady(); };
-    s.onerror = function() { console.error("${logPrefix} FAILED to load:", url); if (++loaded >= libs.length) onReady(); };
+    s.onload = function() { console.log("${logPrefix} Loaded:", url); loadNext(); };
+    s.onerror = function() { console.error("${logPrefix} FAILED to load:", url); loadNext(); };
     document.head.appendChild(s);
-  });
+  }
+  if (libs.length === 0) { console.log("${logPrefix} No libraries, running immediately"); return onReady(); }
+  loadNext();
 })();
 <\/script>
 </body>

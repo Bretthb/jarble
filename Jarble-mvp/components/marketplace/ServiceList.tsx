@@ -19,13 +19,13 @@ import {
   EmptyDescription,
   EmptyMedia,
 } from "@/components/ui/empty";
-import { PackageCard } from "./PackageCard";
-import type { PackageCardData } from "./PackageCard";
+import { ServiceCard } from "./ServiceCard";
+import type { ServiceCardData } from "./ServiceCard";
 import { trpc } from "@/lib/trpc";
 
 const PAGE_SIZE = 20;
 
-export function PackageList() {
+export function ServiceList() {
   const [search, setSearch] = useState("");
   const [hostingModel, setHostingModel] = useState("all");
   const [pricing, setPricing] = useState("all");
@@ -34,7 +34,7 @@ export function PackageList() {
   const cursorHistory = useRef<(string | undefined)[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
 
-  const packagesQuery = trpc.packages.list.useQuery({
+  const servicesQuery = trpc.services.list.useQuery({
     search: search || undefined,
     hostingModel: hostingModel === "all" ? undefined : (hostingModel as "self_hosted" | "remote" | "hybrid"),
     pricingModel: pricing === "all" ? undefined : (pricing as "free" | "paid" | "freemium"),
@@ -42,11 +42,11 @@ export function PackageList() {
     limit: PAGE_SIZE,
   });
 
-  const packages: PackageCardData[] | undefined = packagesQuery.data?.items;
-  const nextCursor = packagesQuery.data?.nextCursor;
-  const isLoading = packagesQuery.isLoading;
-  const hasData = packages !== undefined;
-  const isEmpty = hasData && packages.length === 0;
+  const services: ServiceCardData[] | undefined = servicesQuery.data?.items;
+  const nextCursor = servicesQuery.data?.nextCursor;
+  const isLoading = servicesQuery.isLoading;
+  const hasData = services !== undefined;
+  const isEmpty = hasData && services.length === 0;
   const hasActiveFilters = hostingModel !== "all" || pricing !== "all" || search !== "";
 
   const resetPagination = useCallback(() => {
@@ -68,7 +68,7 @@ export function PackageList() {
       <div className="relative mb-6">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
         <Input
-          placeholder="Search packages..."
+          placeholder="Search services..."
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -110,7 +110,7 @@ export function PackageList() {
           <SelectContent>
             <SelectItem value="all">All Hosting</SelectItem>
             <SelectItem value="self_hosted">Self-hosted</SelectItem>
-            <SelectItem value="remote">Hosted</SelectItem>
+            <SelectItem value="remote">Cloud</SelectItem>
             <SelectItem value="hybrid">Hybrid</SelectItem>
           </SelectContent>
         </Select>
@@ -148,13 +148,13 @@ export function PackageList() {
         )}
       </div>
 
-      {/* Package grid */}
+      {/* Service grid */}
       {isLoading ? (
-        <PackageGridSkeleton />
+        <ServiceGridSkeleton />
       ) : !hasData ? (
-        <PackageEmptyState type="error" />
+        <ServiceEmptyState type="error" />
       ) : isEmpty ? (
-        <PackageEmptyState
+        <ServiceEmptyState
           type="no-results"
           hasFilters={hasActiveFilters}
           onClearFilters={clearFilters}
@@ -162,8 +162,8 @@ export function PackageList() {
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {packages.map((pkg) => (
-              <PackageCard key={pkg.id} pkg={pkg} />
+            {services.map((pkg) => (
+              <ServiceCard key={pkg.id} pkg={pkg} />
             ))}
           </div>
 
@@ -207,7 +207,7 @@ export function PackageList() {
 
 // -- Skeleton ---------------------------------------------------------------
 
-function PackageGridSkeleton() {
+function ServiceGridSkeleton() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {Array.from({ length: 6 }, (_, i) => (
@@ -237,7 +237,7 @@ function PackageGridSkeleton() {
 
 // -- Empty states -----------------------------------------------------------
 
-function PackageEmptyState({
+function ServiceEmptyState({
   type,
   hasFilters,
   onClearFilters,
@@ -253,9 +253,9 @@ function PackageEmptyState({
           <Package />
         </EmptyMedia>
         <EmptyHeader>
-          <EmptyTitle>Unable to load packages</EmptyTitle>
+          <EmptyTitle>Unable to load services</EmptyTitle>
           <EmptyDescription>
-            Something went wrong loading the package list. Please try again later.
+            Something went wrong loading the service list. Please try again later.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -268,11 +268,11 @@ function PackageEmptyState({
         <Search />
       </EmptyMedia>
       <EmptyHeader>
-        <EmptyTitle>No packages found</EmptyTitle>
+        <EmptyTitle>No services found</EmptyTitle>
         <EmptyDescription>
           {hasFilters
             ? "Try adjusting your filters or search query."
-            : "No packages are available yet. Check back soon!"}
+            : "No services are available yet. Check back soon!"}
         </EmptyDescription>
       </EmptyHeader>
       {hasFilters && onClearFilters && (

@@ -1,18 +1,18 @@
 /**
- * Package Proxy Route
+ * Service Proxy Route
  *
  * Proxies skill-call requests from buyer pods to creator remote APIs.
  * Adds HMAC-SHA256 signatures and auth headers before forwarding.
  *
- * Route: POST /api/packages/proxy/:deploymentId/:packageId/:skillName
+ * Route: POST /api/services/proxy/:deploymentId/:serviceId/:skillName
  *
  * Request lifecycle:
- *   1. Look up packageCredentials row for deploymentId + packageId
- *   2. Look up the package's remoteApiConfig (PackageCard JSON)
- *   3. Parse and validate the PackageCard
+ *   1. Look up serviceCredentials row for deploymentId + serviceId
+ *   2. Look up the service's remoteApiConfig (ServiceCard JSON)
+ *   3. Parse and validate the ServiceCard
  *   4. Find the matching skill definition by name
- *   5. *** Rate limit check (per-deployment+package, from PackageCard) ***
- *   6. *** Circuit breaker check (per-package, tracks consecutive failures) ***
+ *   5. *** Rate limit check (per-deployment+service, from ServiceCard) ***
+ *   6. *** Circuit breaker check (per-service, tracks consecutive failures) ***
  *   7. *** Input schema validation (req.body vs skill.inputSchema) ***
  *   8. Decrypt the HMAC signing secret
  *   9. Build outbound request with auth + HMAC headers
@@ -28,100 +28,100 @@ import { db, tables } from "../db/index.js";
 import { decryptApiKey } from "../utils/encryption.js";
 import { signRequest } from "../utils/hmac.js";
 import { createModuleLogger } from "../utils/logger.js";
-import { packageCardSchema } from "../services/packageCard.js";
+import { serviceCardSchema } from "../services/serviceCard.js";
 import { validateJsonSchema } from "../utils/jsonSchemaValidation.js";
-import { checkPackageRateLimit } from "../middleware/packageRateLimit.js";
+import { checkServiceRateLimit } from "../middleware/serviceRateLimit.js";
 import { canRequest, recordSuccess, recordFailure } from "../services/circuitBreaker.js";
 
 import type { JsonSchemaObject } from "../utils/jsonSchemaValidation.js";
 
-const log = createModuleLogger("package-proxy");
+const log = createModuleLogger("service-proxy");
 
 const MAX_RESPONSE_BYTES = 1 * 1024 * 1024; // 1 MB
 const REQUEST_TIMEOUT_MS = 30_000; // 30 seconds
 
-export const packageProxyRouter = Router();
+export const serviceProxyRouter = Router();
 
-packageProxyRouter.post(
-  "/proxy/:deploymentId/:packageId/:skillName",
+serviceProxyRouter.post(
+  "/proxy/:deploymentId/:serviceId/:skillName",
   async (req, res) => {
-    const { deploymentId, packageId, skillName } = req.params;
+    const { deploymentId, serviceId, skillName } = req.params;
 
-    log.info({ deploymentId, packageId, skillName }, "Package proxy: incoming request");
+    log.info({ deploymentId, serviceId, skillName }, "Service proxy: incoming request");
 
-    // ── 1. Look up packageCredentials ─────────────────────────────────────────
-    const creds = await db.query.packageCredentials.findFirst({
+    // ── 1. Look up serviceCredentials ─────────────────────────────────────────
+    const creds = await db.query.serviceCredentials.findFirst({
       where: and(
-        eq(tables.packageCredentials.deploymentId, deploymentId),
-        eq(tables.packageCredentials.packageId, packageId),
+        eq(tables.serviceCredentials.deploymentId, deploymentId),
+        eq(tables.serviceCredentials.packageId, serviceId),
       ),
     });
 
     if (!creds) {
-      log.warn({ deploymentId, packageId }, "Package proxy: credentials not found");
-      res.status(404).json({ error: "Package credentials not found for this deployment" });
+      log.warn({ deploymentId, serviceId }, "Service proxy: credentials not found");
+      res.status(404).json({ error: "Service credentials not found for this deployment" });
       return;
     }
 
-    // ── 2. Look up package remoteApiConfig ────────────────────────────────────
-    const pkg = await db.query.marketplacePackages.findFirst({
-      where: eq(tables.marketplacePackages.id, packageId),
+    // ── 2. Look up service remoteApiConfig ────────────────────────────────────
+    const svc = await db.query.marketplaceServices.findFirst({
+      where: eq(tables.marketplaceServices.id, serviceId),
     });
 
-    if (!pkg) {
-      log.warn({ packageId }, "Package proxy: package not found");
-      res.status(404).json({ error: "Package not found" });
+    if (!svc) {
+      log.warn({ serviceId }, "Service proxy: service not found");
+      res.status(404).json({ error: "Service not found" });
       return;
     }
 
-    if (!pkg.remoteApiConfig) {
-      log.warn({ packageId }, "Package proxy: package has no remoteApiConfig");
-      res.status(404).json({ error: "Package has no remote API configuration" });
+    if (!svc.remoteApiConfig) {
+      log.warn({ serviceId }, "Service proxy: service has no remoteApiConfig");
+      res.status(404).json({ error: "Service has no remote API configuration" });
       return;
     }
 
-    // ── 3. Parse and validate the PackageCard ─────────────────────────────────
-    let packageCard;
+    // ── 3. Parse and validate the ServiceCard ─────────────────────────────────
+    let serviceCard;
     try {
-      const raw = JSON.parse(pkg.remoteApiConfig);
-      const result = packageCardSchema.safeParse(raw);
+      const raw = JSON.parse(svc.remoteApiConfig);
+      const result = serviceCardSchema.safeParse(raw);
       if (!result.success) {
-        log.warn({ packageId, issues: result.error.issues }, "Package proxy: invalid PackageCard");
-        res.status(502).json({ error: "Invalid package card configuration" });
+        log.warn({ serviceId, issues: result.error.issues }, "Service proxy: invalid ServiceCard");
+        res.status(502).json({ error: "Invalid service card configuration" });
         return;
       }
-      packageCard = result.data;
+      serviceCard = result.data;
     } catch (err) {
-      log.warn({ packageId, err }, "Package proxy: failed to parse remoteApiConfig");
-      res.status(502).json({ error: "Malformed package card configuration" });
+      log.warn({ serviceId, err }, "Service proxy: failed to parse remoteApiConfig");
+      res.status(502).json({ error: "Malformed service card configuration" });
       return;
     }
 
     // ── 4. Find the matching skill by name ────────────────────────────────────
-    const skill = packageCard.skills.find((s) => s.name === skillName);
+    const skill = serviceCard.skills.find((s) => s.name === skillName);
     if (!skill) {
-      log.warn({ packageId, skillName }, "Package proxy: skill not found in package card");
-      res.status(404).json({ error: `Skill "${skillName}" not found in package` });
+      log.warn({ serviceId, skillName }, "Service proxy: skill not found in service card");
+      res.status(404).json({ error: `Skill "${skillName}" not found in service` });
       return;
     }
 
     // ── 5. Rate limit check ───────────────────────────────────────────────────
-    const rateLimitResult = checkPackageRateLimit(
+    const rateLimitResult = checkServiceRateLimit(
       deploymentId,
-      packageId,
-      packageCard.rateLimits,
+      serviceId,
+      serviceCard.rateLimits,
     );
     if (!rateLimitResult.allowed) {
       log.warn(
         {
           deploymentId,
-          packageId,
+          serviceId,
           skillName,
           limitType: rateLimitResult.limitType,
           limit: rateLimitResult.limit,
           current: rateLimitResult.current,
         },
-        "Package proxy: rate limit exceeded",
+        "Service proxy: rate limit exceeded",
       );
       res
         .status(429)
@@ -134,11 +134,11 @@ packageProxyRouter.post(
     }
 
     // ── 6. Circuit breaker check ──────────────────────────────────────────────
-    const circuitResult = canRequest(packageId);
+    const circuitResult = canRequest(serviceId);
     if (!circuitResult.allowed) {
       log.warn(
-        { deploymentId, packageId, skillName, retryAfterMs: circuitResult.retryAfterMs },
-        "Package proxy: circuit breaker OPEN",
+        { deploymentId, serviceId, skillName, retryAfterMs: circuitResult.retryAfterMs },
+        "Service proxy: circuit breaker OPEN",
       );
       const retryAfterSeconds = Math.ceil(circuitResult.retryAfterMs / 1000);
       res
@@ -158,8 +158,8 @@ packageProxyRouter.post(
     );
     if (!inputValidation.valid) {
       log.warn(
-        { deploymentId, packageId, skillName, errors: inputValidation.errors },
-        "Package proxy: input schema validation failed",
+        { deploymentId, serviceId, skillName, errors: inputValidation.errors },
+        "Service proxy: input schema validation failed",
       );
       res.status(400).json({
         error: "Input validation failed",
@@ -173,13 +173,13 @@ packageProxyRouter.post(
     try {
       signingSecret = decryptApiKey(creds.signingSecret);
     } catch (err) {
-      log.error({ deploymentId, packageId, err }, "Package proxy: failed to decrypt signing secret");
+      log.error({ deploymentId, serviceId, err }, "Service proxy: failed to decrypt signing secret");
       res.status(500).json({ error: "Internal configuration error" });
       return;
     }
 
     // ── 9. Build the outbound request ─────────────────────────────────────────
-    const targetUrl = `${packageCard.endpoint}/skills/${skillName}`;
+    const targetUrl = `${serviceCard.endpoint}/skills/${skillName}`;
     const bodyJson = JSON.stringify(req.body ?? {});
     const timestamp = Date.now();
 
@@ -193,8 +193,8 @@ packageProxyRouter.post(
       "X-Jarble-Deployment-Id": deploymentId,
     };
 
-    // Add auth headers based on the PackageCard auth config
-    const auth = packageCard.auth;
+    // Add auth headers based on the ServiceCard auth config
+    const auth = serviceCard.auth;
     if (auth.type === "api_key") {
       // API key auth: use the signing secret as the key value
       // The creator generates a separate API key during handshake; for MVP
@@ -223,13 +223,13 @@ packageProxyRouter.post(
       const e = err instanceof Error ? err : new Error(String(err));
 
       // Record failure for circuit breaker
-      recordFailure(packageId);
+      recordFailure(serviceId);
 
       if (e.name === "AbortError") {
-        log.warn({ deploymentId, packageId, skillName, targetUrl }, "Package proxy: upstream request timed out");
+        log.warn({ deploymentId, serviceId, skillName, targetUrl }, "Service proxy: upstream request timed out");
         res.status(504).json({ error: "Upstream API timed out" });
       } else {
-        log.error({ deploymentId, packageId, skillName, targetUrl, err: e.message }, "Package proxy: upstream fetch failed");
+        log.error({ deploymentId, serviceId, skillName, targetUrl, err: e.message }, "Service proxy: upstream fetch failed");
         res.status(502).json({ error: "Failed to reach creator API" });
       }
       return;
@@ -239,15 +239,15 @@ packageProxyRouter.post(
 
     // ── 11. Circuit breaker: record success/failure based on HTTP status ─────
     if (upstreamRes.status >= 500) {
-      recordFailure(packageId);
+      recordFailure(serviceId);
     } else {
-      recordSuccess(packageId);
+      recordSuccess(serviceId);
     }
 
     // ── 12. Enforce 1 MB response size limit ────────────────────────────────
     const contentLength = upstreamRes.headers.get("content-length");
     if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BYTES) {
-      log.warn({ deploymentId, packageId, skillName, contentLength }, "Package proxy: response too large");
+      log.warn({ deploymentId, serviceId, skillName, contentLength }, "Service proxy: response too large");
       res.status(502).json({ error: "Creator API response exceeds size limit" });
       return;
     }
@@ -270,7 +270,7 @@ packageProxyRouter.post(
             totalBytes += value.byteLength;
             if (totalBytes > MAX_RESPONSE_BYTES) {
               reader.cancel();
-              log.warn({ deploymentId, packageId, skillName }, "Package proxy: response body exceeded 1MB limit during streaming");
+              log.warn({ deploymentId, serviceId, skillName }, "Service proxy: response body exceeded 1MB limit during streaming");
               res.status(502).json({ error: "Creator API response exceeds size limit" });
               return;
             }
@@ -281,7 +281,7 @@ packageProxyRouter.post(
         responseBody = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString("utf8");
       }
     } catch (err) {
-      log.error({ deploymentId, packageId, skillName, err }, "Package proxy: failed to read upstream response body");
+      log.error({ deploymentId, serviceId, skillName, err }, "Service proxy: failed to read upstream response body");
       res.status(502).json({ error: "Failed to read creator API response" });
       return;
     }
@@ -301,11 +301,11 @@ packageProxyRouter.post(
           log.warn(
             {
               deploymentId,
-              packageId,
+              serviceId,
               skillName,
               errors: outputValidation.errors,
             },
-            "Package proxy: output schema validation mismatch (non-blocking)",
+            "Service proxy: output schema validation mismatch (non-blocking)",
           );
           responseHeaders["X-Jarble-Schema-Warning"] = "output schema mismatch";
         }
@@ -313,8 +313,8 @@ packageProxyRouter.post(
         // Response body is not JSON — can't validate, just warn
         if (upstreamContentType.includes("application/json")) {
           log.warn(
-            { deploymentId, packageId, skillName },
-            "Package proxy: response claims JSON content-type but body is not valid JSON",
+            { deploymentId, serviceId, skillName },
+            "Service proxy: response claims JSON content-type but body is not valid JSON",
           );
           responseHeaders["X-Jarble-Schema-Warning"] = "response is not valid JSON";
         }
@@ -325,12 +325,12 @@ packageProxyRouter.post(
     log.info(
       {
         deploymentId,
-        packageId,
+        serviceId,
         skillName,
         status: upstreamRes.status,
         responseBytes: responseBody.length,
       },
-      "Package proxy: request completed",
+      "Service proxy: request completed",
     );
 
     res
@@ -340,45 +340,45 @@ packageProxyRouter.post(
       .send(responseBody);
 
     // Fire-and-forget usage recording
-    void recordUsage(deploymentId, packageId, skillName).catch(() => {});
+    void recordUsage(deploymentId, serviceId, skillName).catch(() => {});
   },
 );
 
 /**
- * Record a single request against the package_usage table.
- * Upserts per deployment+package+skill+billingCycle.
+ * Record a single request against the service_usage table.
+ * Upserts per deployment+service+skill+billingCycle.
  */
-async function recordUsage(deploymentId: string, packageId: string, skillName: string): Promise<void> {
+async function recordUsage(deploymentId: string, serviceId: string, skillName: string): Promise<void> {
   const now = new Date();
   const billingCycleStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
   // Try to find existing record for this billing cycle
-  const existing = await (db.query as any).packageUsage?.findFirst?.({
+  const existing = await (db.query as any).serviceUsage?.findFirst?.({
     where: and(
-      eq(tables.packageUsage.deploymentId, deploymentId),
-      eq(tables.packageUsage.packageId, packageId),
-      eq(tables.packageUsage.skillName, skillName),
-      eq(tables.packageUsage.billingCycleStart, billingCycleStart),
+      eq(tables.serviceUsage.deploymentId, deploymentId),
+      eq(tables.serviceUsage.packageId, serviceId),
+      eq(tables.serviceUsage.skillName, skillName),
+      eq(tables.serviceUsage.billingCycleStart, billingCycleStart),
     ),
   });
 
   if (existing) {
-    await db.update(tables.packageUsage)
-      .set({ requestCount: sql`${tables.packageUsage.requestCount} + 1` as any })
-      .where(eq(tables.packageUsage.id, existing.id));
+    await db.update(tables.serviceUsage)
+      .set({ requestCount: sql`${tables.serviceUsage.requestCount} + 1` as any })
+      .where(eq(tables.serviceUsage.id, existing.id));
   } else {
-    // Need to find the packageInstallId
-    const install = await (db.query as any).packageInstalls?.findFirst?.({
+    // Need to find the serviceInstallId
+    const install = await (db.query as any).serviceInstalls?.findFirst?.({
       where: and(
-        eq(tables.packageInstalls.deploymentId, deploymentId),
-        eq(tables.packageInstalls.packageId, packageId),
+        eq(tables.serviceInstalls.deploymentId, deploymentId),
+        eq(tables.serviceInstalls.packageId, serviceId),
       ),
     });
     if (install) {
-      await db.insert(tables.packageUsage).values({
+      await db.insert(tables.serviceUsage).values({
         packageInstallId: install.id,
         deploymentId,
-        packageId,
+        packageId: serviceId,
         skillName,
         requestCount: 1,
         billingCycleStart,

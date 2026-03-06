@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { Download, User, Package, Puzzle, Wrench } from "lucide-react";
 import { StarRating } from "./StarRating";
 
-export interface PackageCardData {
+export interface ServiceCardData {
   id: string;
   name: string;
   displayName: string;
@@ -25,8 +25,8 @@ export interface PackageCardData {
   createdAt: string;
 }
 
-interface PackageCardProps {
-  pkg: PackageCardData;
+interface ServiceCardProps {
+  pkg: ServiceCardData;
   className?: string;
 }
 
@@ -52,7 +52,7 @@ const HOSTING_STYLES: Record<string, string> = {
 
 const HOSTING_LABELS: Record<string, string> = {
   self_hosted: "Self-hosted",
-  remote: "Hosted",
+  remote: "Cloud",
   hybrid: "Hybrid",
 };
 
@@ -70,7 +70,7 @@ const HEALTH_LABELS: Record<string, string> = {
   unknown: "Unknown",
 };
 
-export function PackageCard({ pkg, className }: PackageCardProps) {
+export function ServiceCard({ pkg, className }: ServiceCardProps) {
   const price = formatPrice(pkg.pricingModel, pkg.priceUsdCents ?? 0);
   const hostingStyle = HOSTING_STYLES[pkg.hostingModel] ?? "bg-secondary text-secondary-foreground border-border";
   const hostingLabel = HOSTING_LABELS[pkg.hostingModel] ?? pkg.hostingModel;
@@ -80,7 +80,7 @@ export function PackageCard({ pkg, className }: PackageCardProps) {
   const healthLabel = HEALTH_LABELS[healthStatus] ?? "Unknown";
 
   return (
-    <Link href={`/marketplace/packages/${pkg.id}`} className="block group">
+    <Link href={`/marketplace/services/${pkg.id}`} className="block group">
       <Card
         className={cn(
           "border border-border bg-card hover:border-primary/30 hover:shadow-md transition-all duration-200 h-full",
@@ -117,7 +117,7 @@ export function PackageCard({ pkg, className }: PackageCardProps) {
               className={cn("text-[11px] gap-1", "bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 border-indigo-500/20")}
             >
               <Package className="size-3" />
-              Package
+              Service
             </Badge>
             <Badge
               variant="outline"

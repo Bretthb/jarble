@@ -150,6 +150,7 @@ export { deriveComponentNames, deriveComponentNameSet } from "./derive/nameList.
 export type { ComponentManifestEntry, LayoutHintType, ComponentCategory, LoadingStrategy } from "./types.js";
 export { TRUSTED_CDN_ORIGINS, TRUSTED_EMBED_ORIGINS } from "./security.js";
 export { SANDBOX_SDK_VERSION } from "./components/sandbox.js";
+export { BOT_SKILLS } from "./skills/index.js";
 
 // Re-export individual schemas for direct imports
 export {

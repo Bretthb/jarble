@@ -1,5 +1,5 @@
 /**
- * Integration tests for the packages tRPC router.
+ * Integration tests for the services tRPC router.
  *
  * Tests list, get, install, uninstall, listInstalled, publish, listByCreator.
  * Uses real in-memory SQLite with mocked K8s, Stripe, configSync, and OpenRouter.
@@ -60,7 +60,7 @@ const mockPerformInstallHandshake = vi.fn().mockResolvedValue({
   proxyUrl: "https://api.example.com/proxy",
 });
 
-vi.mock("../../services/packageHandshake.js", () => ({
+vi.mock("../../services/serviceHandshake.js", () => ({
   performInstallHandshake: (...args: any[]) => mockPerformInstallHandshake(...args),
 }));
 
@@ -153,7 +153,7 @@ function seedDeployment(status?: string) {
   return id;
 }
 
-function seedPackage(
+function seedService(
   creatorProfileId: string,
   overrides?: {
     name?: string;
@@ -176,22 +176,22 @@ function seedPackage(
   const endpoint = overrides?.remoteApiEndpoint ?? null;
   const config = overrides?.remoteApiConfig ?? null;
   ctx.raw.exec(
-    `INSERT INTO marketplace_packages (id, creator_id, name, display_name, description, hosting_model, status, pricing_model, total_installs, instruction_snippet, remote_api_endpoint, remote_api_config) VALUES ('${id}', '${creatorProfileId}', '${name}', 'Display ${name}', 'A test package', '${hosting}', '${status}', '${pricing}', ${installs}, ${snippet ? `'${snippet}'` : "NULL"}, ${endpoint ? `'${endpoint}'` : "NULL"}, ${config ? `'${config.replace(/'/g, "''")}'` : "NULL"})`
+    `INSERT INTO marketplace_packages (id, creator_id, name, display_name, description, hosting_model, status, pricing_model, total_installs, instruction_snippet, remote_api_endpoint, remote_api_config) VALUES ('${id}', '${creatorProfileId}', '${name}', 'Display ${name}', 'A test service', '${hosting}', '${status}', '${pricing}', ${installs}, ${snippet ? `'${snippet}'` : "NULL"}, ${endpoint ? `'${endpoint}'` : "NULL"}, ${config ? `'${config.replace(/'/g, "''")}'` : "NULL"})`
   );
   return id;
 }
 
-function linkComponentToPackage(packageId: string, componentId: string) {
+function linkComponentToService(serviceId: string, componentId: string) {
   const id = `pkc_${uid()}`;
   ctx.raw.exec(
-    `INSERT INTO package_components (id, package_id, component_id) VALUES ('${id}', '${packageId}', '${componentId}')`
+    `INSERT INTO package_components (id, package_id, component_id) VALUES ('${id}', '${serviceId}', '${componentId}')`
   );
 }
 
-function linkSkillToPackage(packageId: string, skillId: string) {
+function linkSkillToService(serviceId: string, skillId: string) {
   const id = `pks_${uid()}`;
   ctx.raw.exec(
-    `INSERT INTO package_skills (id, package_id, skill_id) VALUES ('${id}', '${packageId}', '${skillId}')`
+    `INSERT INTO package_skills (id, package_id, skill_id) VALUES ('${id}', '${serviceId}', '${skillId}')`
   );
 }
 
@@ -204,10 +204,10 @@ function seedSecondUser() {
   return { userId, auth0Id };
 }
 
-function installPackageDirectly(packageId: string, deploymentId: string) {
+function installServiceDirectly(serviceId: string, deploymentId: string) {
   const id = `pki_${uid()}`;
   ctx.raw.exec(
-    `INSERT INTO package_installs (id, package_id, deployment_id, user_id, installed_at) VALUES ('${id}', '${packageId}', '${deploymentId}', '${ctx.testUserId}', datetime('now'))`
+    `INSERT INTO package_installs (id, package_id, deployment_id, user_id, installed_at) VALUES ('${id}', '${serviceId}', '${deploymentId}', '${ctx.testUserId}', datetime('now'))`
   );
   return id;
 }
@@ -228,8 +228,8 @@ function installSkillDirectly(skillId: string, deploymentId: string) {
   return id;
 }
 
-/** Build a valid PackageCard JSON string for remote package tests. */
-function buildPackageCardJson(overrides?: { endpoint?: string }): string {
+/** Build a valid ServiceCard JSON string for remote service tests. */
+function buildServiceCardJson(overrides?: { endpoint?: string }): string {
   return JSON.stringify({
     endpoint: overrides?.endpoint ?? "https://api.creator.example.com/v1",
     healthEndpoint: "https://api.creator.example.com/health",
@@ -252,22 +252,22 @@ function buildPackageCardJson(overrides?: { endpoint?: string }): string {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("packages.list", () => {
-  it("returns empty when no published packages", async () => {
+describe("services.list", () => {
+  it("returns empty when no published services", async () => {
     const caller = authedCaller();
-    const result = await caller.packages.list();
+    const result = await caller.services.list();
     expect(result.items).toEqual([]);
     expect(result.nextCursor).toBeUndefined();
   });
 
-  it("returns published packages sorted by totalInstalls desc", async () => {
+  it("returns published services sorted by totalInstalls desc", async () => {
     const cpId = seedCreatorProfile();
-    const pkg1 = seedPackage(cpId, { name: "alpha", totalInstalls: 5 });
-    const pkg2 = seedPackage(cpId, { name: "beta", totalInstalls: 20 });
-    const pkg3 = seedPackage(cpId, { name: "gamma", totalInstalls: 10 });
+    const pkg1 = seedService(cpId, { name: "alpha", totalInstalls: 5 });
+    const pkg2 = seedService(cpId, { name: "beta", totalInstalls: 20 });
+    const pkg3 = seedService(cpId, { name: "gamma", totalInstalls: 10 });
 
     const caller = authedCaller();
-    const result = await caller.packages.list();
+    const result = await caller.services.list();
 
     expect(result.items).toHaveLength(3);
     expect(result.items[0].name).toBe("beta");
@@ -277,11 +277,11 @@ describe("packages.list", () => {
 
   it("filters by hostingModel", async () => {
     const cpId = seedCreatorProfile();
-    seedPackage(cpId, { name: "self-pkg", hostingModel: "self_hosted" });
-    seedPackage(cpId, { name: "remote-pkg", hostingModel: "remote" });
+    seedService(cpId, { name: "self-pkg", hostingModel: "self_hosted" });
+    seedService(cpId, { name: "remote-pkg", hostingModel: "remote" });
 
     const caller = authedCaller();
-    const result = await caller.packages.list({ hostingModel: "remote" });
+    const result = await caller.services.list({ hostingModel: "remote" });
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0].name).toBe("remote-pkg");
@@ -289,11 +289,11 @@ describe("packages.list", () => {
 
   it("filters by pricingModel", async () => {
     const cpId = seedCreatorProfile();
-    seedPackage(cpId, { name: "free-pkg", pricingModel: "free" });
-    seedPackage(cpId, { name: "paid-pkg", pricingModel: "paid" });
+    seedService(cpId, { name: "free-pkg", pricingModel: "free" });
+    seedService(cpId, { name: "paid-pkg", pricingModel: "paid" });
 
     const caller = authedCaller();
-    const result = await caller.packages.list({ pricingModel: "paid" });
+    const result = await caller.services.list({ pricingModel: "paid" });
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0].name).toBe("paid-pkg");
@@ -301,11 +301,11 @@ describe("packages.list", () => {
 
   it("filters by search term matching name", async () => {
     const cpId = seedCreatorProfile();
-    seedPackage(cpId, { name: "weather-tools" });
-    seedPackage(cpId, { name: "chart-bundle" });
+    seedService(cpId, { name: "weather-tools" });
+    seedService(cpId, { name: "chart-bundle" });
 
     const caller = authedCaller();
-    const result = await caller.packages.list({ search: "weather" });
+    const result = await caller.services.list({ search: "weather" });
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0].name).toBe("weather-tools");
@@ -313,36 +313,36 @@ describe("packages.list", () => {
 
   it("cursor-based pagination works", async () => {
     const cpId = seedCreatorProfile();
-    // Create 3 packages, all with same installs so sorted by name
-    seedPackage(cpId, { name: "aaa-pkg", totalInstalls: 0 });
-    seedPackage(cpId, { name: "bbb-pkg", totalInstalls: 0 });
-    seedPackage(cpId, { name: "ccc-pkg", totalInstalls: 0 });
+    // Create 3 services, all with same installs so sorted by name
+    seedService(cpId, { name: "aaa-pkg", totalInstalls: 0 });
+    seedService(cpId, { name: "bbb-pkg", totalInstalls: 0 });
+    seedService(cpId, { name: "ccc-pkg", totalInstalls: 0 });
 
     const caller = authedCaller();
 
     // Get first page of 2
-    const page1 = await caller.packages.list({ limit: 2 });
+    const page1 = await caller.services.list({ limit: 2 });
     expect(page1.items).toHaveLength(2);
     expect(page1.nextCursor).toBeDefined();
 
     // Get second page using cursor
-    const page2 = await caller.packages.list({ limit: 2, cursor: page1.nextCursor });
+    const page2 = await caller.services.list({ limit: 2, cursor: page1.nextCursor });
     expect(page2.items).toHaveLength(1);
     expect(page2.nextCursor).toBeUndefined();
 
-    // All 3 packages covered across pages
+    // All 3 services covered across pages
     const allNames = [...page1.items, ...page2.items].map((p) => p.name);
     expect(allNames).toHaveLength(3);
   });
 
-  it("excludes non-published packages (draft, pending_review)", async () => {
+  it("excludes non-published services (draft, pending_review)", async () => {
     const cpId = seedCreatorProfile();
-    seedPackage(cpId, { name: "draft-pkg", status: "draft" });
-    seedPackage(cpId, { name: "pending-pkg", status: "pending_review" });
-    seedPackage(cpId, { name: "published-pkg", status: "published" });
+    seedService(cpId, { name: "draft-pkg", status: "draft" });
+    seedService(cpId, { name: "pending-pkg", status: "pending_review" });
+    seedService(cpId, { name: "published-pkg", status: "published" });
 
     const caller = authedCaller();
-    const result = await caller.packages.list();
+    const result = await caller.services.list();
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0].name).toBe("published-pkg");
@@ -350,16 +350,16 @@ describe("packages.list", () => {
 
   it("returns componentCount and skillCount", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "full-pkg" });
+    const pkgId = seedService(cpId, { name: "full-pkg" });
     const comp1 = seedComponent(ctx.testUserId);
     const comp2 = seedComponent(ctx.testUserId);
     const skill1 = seedSkill();
-    linkComponentToPackage(pkgId, comp1);
-    linkComponentToPackage(pkgId, comp2);
-    linkSkillToPackage(pkgId, skill1);
+    linkComponentToService(pkgId, comp1);
+    linkComponentToService(pkgId, comp2);
+    linkSkillToService(pkgId, skill1);
 
     const caller = authedCaller();
-    const result = await caller.packages.list();
+    const result = await caller.services.list();
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0].componentCount).toBe(2);
@@ -367,17 +367,17 @@ describe("packages.list", () => {
   });
 });
 
-describe("packages.get", () => {
-  it("returns full package with components and skills arrays", async () => {
+describe("services.get", () => {
+  it("returns full service with components and skills arrays", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "full-pkg" });
+    const pkgId = seedService(cpId, { name: "full-pkg" });
     const comp = seedComponent(ctx.testUserId, { name: "my-comp" });
     const skill = seedSkill();
-    linkComponentToPackage(pkgId, comp);
-    linkSkillToPackage(pkgId, skill);
+    linkComponentToService(pkgId, comp);
+    linkSkillToService(pkgId, skill);
 
     const caller = authedCaller();
-    const result = await caller.packages.get({ packageId: pkgId });
+    const result = await caller.services.get({ serviceId: pkgId });
 
     expect(result.name).toBe("full-pkg");
     expect(result.components).toHaveLength(1);
@@ -387,58 +387,58 @@ describe("packages.get", () => {
 
   it("returns creator info", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "creator-pkg" });
+    const pkgId = seedService(cpId, { name: "creator-pkg" });
 
     const caller = authedCaller();
-    const result = await caller.packages.get({ packageId: pkgId });
+    const result = await caller.services.get({ serviceId: pkgId });
 
     expect(result.creator).toBeTruthy();
     expect(result.creator!.displayName).toBe("Test Creator");
     expect(result.creator!.bio).toBe("A bio");
   });
 
-  it("throws NOT_FOUND for nonexistent packageId", async () => {
+  it("throws NOT_FOUND for nonexistent serviceId", async () => {
     const caller = authedCaller();
-    await expect(caller.packages.get({ packageId: "nonexistent" })).rejects.toThrow("Package not found");
+    await expect(caller.services.get({ serviceId: "nonexistent" })).rejects.toThrow("Service not found");
   });
 
   it("includes instructionSnippet", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "snippet-pkg", instructionSnippet: "Use this tool to search" });
+    const pkgId = seedService(cpId, { name: "snippet-pkg", instructionSnippet: "Use this tool to search" });
 
     const caller = authedCaller();
-    const result = await caller.packages.get({ packageId: pkgId });
+    const result = await caller.services.get({ serviceId: pkgId });
 
     expect(result.instructionSnippet).toBe("Use this tool to search");
   });
 
   it("returns all linked components regardless of status", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "mixed-pkg" });
+    const pkgId = seedService(cpId, { name: "mixed-pkg" });
     const publishedComp = seedComponent(ctx.testUserId, { name: "published-comp", status: "published" });
     const draftComp = seedComponent(ctx.testUserId, { name: "draft-comp", status: "draft" });
-    linkComponentToPackage(pkgId, publishedComp);
-    linkComponentToPackage(pkgId, draftComp);
+    linkComponentToService(pkgId, publishedComp);
+    linkComponentToService(pkgId, draftComp);
 
     const caller = authedCaller();
-    const result = await caller.packages.get({ packageId: pkgId });
+    const result = await caller.services.get({ serviceId: pkgId });
 
     // get() fetches by ID without filtering by status, so both are returned
     expect(result.components).toHaveLength(2);
   });
 });
 
-describe("packages.install", () => {
-  it("creates packageInstalls record", async () => {
+describe("services.install", () => {
+  it("creates serviceInstalls record", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
-    const pkgId = seedPackage(cpId, { name: "install-pkg" });
-    linkComponentToPackage(pkgId, comp);
+    const pkgId = seedService(cpId, { name: "install-pkg" });
+    linkComponentToService(pkgId, comp);
 
     const caller = authedCaller();
-    const result = await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
 
@@ -448,19 +448,19 @@ describe("packages.install", () => {
     expect(row).toBeTruthy();
   });
 
-  it("creates componentInstalls for each package component", async () => {
+  it("creates componentInstalls for each service component", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp1 = seedComponent(ctx.testUserId);
     const comp2 = seedComponent(ctx.testUserId);
     seedVersion(comp1);
     seedVersion(comp2);
-    const pkgId = seedPackage(cpId, { name: "multi-comp-pkg" });
-    linkComponentToPackage(pkgId, comp1);
-    linkComponentToPackage(pkgId, comp2);
+    const pkgId = seedService(cpId, { name: "multi-comp-pkg" });
+    linkComponentToService(pkgId, comp1);
+    linkComponentToService(pkgId, comp2);
 
     const caller = authedCaller();
-    const result = await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.installedComponents).toBe(2);
 
@@ -470,20 +470,20 @@ describe("packages.install", () => {
     expect(installs).toHaveLength(2);
   });
 
-  it("creates deploymentSkills for each package skill", async () => {
+  it("creates deploymentSkills for each service skill", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const skill1 = seedSkill();
     const skill2 = seedSkill();
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
-    const pkgId = seedPackage(cpId, { name: "skill-pkg" });
-    linkComponentToPackage(pkgId, comp);
-    linkSkillToPackage(pkgId, skill1);
-    linkSkillToPackage(pkgId, skill2);
+    const pkgId = seedService(cpId, { name: "skill-pkg" });
+    linkComponentToService(pkgId, comp);
+    linkSkillToService(pkgId, skill1);
+    linkSkillToService(pkgId, skill2);
 
     const caller = authedCaller();
-    const result = await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.installedSkills).toBe(2);
 
@@ -493,16 +493,16 @@ describe("packages.install", () => {
     expect(skills).toHaveLength(2);
   });
 
-  it("increments totalInstalls on package", async () => {
+  it("increments totalInstalls on service", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
-    const pkgId = seedPackage(cpId, { name: "counter-pkg", totalInstalls: 5 });
-    linkComponentToPackage(pkgId, comp);
+    const pkgId = seedService(cpId, { name: "counter-pkg", totalInstalls: 5 });
+    linkComponentToService(pkgId, comp);
 
     const caller = authedCaller();
-    await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     const pkg = ctx.raw
       .prepare("SELECT total_installs FROM marketplace_packages WHERE id = ?")
@@ -517,11 +517,11 @@ describe("packages.install", () => {
     const verId = seedVersion(comp);
     // Pre-install the component
     installComponentDirectly(comp, verId, depId);
-    const pkgId = seedPackage(cpId, { name: "skip-comp-pkg" });
-    linkComponentToPackage(pkgId, comp);
+    const pkgId = seedService(cpId, { name: "skip-comp-pkg" });
+    linkComponentToService(pkgId, comp);
 
     const caller = authedCaller();
-    const result = await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.installedComponents).toBe(0);
 
@@ -540,12 +540,12 @@ describe("packages.install", () => {
     seedVersion(comp);
     // Pre-install the skill
     installSkillDirectly(skill, depId);
-    const pkgId = seedPackage(cpId, { name: "skip-skill-pkg" });
-    linkComponentToPackage(pkgId, comp);
-    linkSkillToPackage(pkgId, skill);
+    const pkgId = seedService(cpId, { name: "skip-skill-pkg" });
+    linkComponentToService(pkgId, comp);
+    linkSkillToService(pkgId, skill);
 
     const caller = authedCaller();
-    const result = await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.installedSkills).toBe(0);
   });
@@ -560,25 +560,25 @@ describe("packages.install", () => {
     );
     const comp = seedComponent(userId);
     seedVersion(comp);
-    const pkgId = seedPackage(cpId, { name: "no-access-pkg" });
-    linkComponentToPackage(pkgId, comp);
+    const pkgId = seedService(cpId, { name: "no-access-pkg" });
+    linkComponentToService(pkgId, comp);
 
     // Caller is test user, not the second user
     const caller = authedCaller();
     await expect(
-      caller.packages.install({ packageId: pkgId, deploymentId: depId })
+      caller.services.install({ serviceId: pkgId, deploymentId: depId })
     ).rejects.toThrow("Deployment not found");
   });
 
-  it("throws NOT_FOUND for unpublished package", async () => {
+  it("throws NOT_FOUND for unpublished service", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
-    const pkgId = seedPackage(cpId, { name: "draft-pkg", status: "draft" });
+    const pkgId = seedService(cpId, { name: "draft-pkg", status: "draft" });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.install({ packageId: pkgId, deploymentId: depId })
-    ).rejects.toThrow("Package not found or not published");
+      caller.services.install({ serviceId: pkgId, deploymentId: depId })
+    ).rejects.toThrow("Service not found or not published");
   });
 
   it("throws CONFLICT when already installed", async () => {
@@ -586,16 +586,16 @@ describe("packages.install", () => {
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
-    const pkgId = seedPackage(cpId, { name: "conflict-pkg" });
-    linkComponentToPackage(pkgId, comp);
+    const pkgId = seedService(cpId, { name: "conflict-pkg" });
+    linkComponentToService(pkgId, comp);
 
-    // Pre-install the package
-    installPackageDirectly(pkgId, depId);
+    // Pre-install the service
+    installServiceDirectly(pkgId, depId);
 
     const caller = authedCaller();
     await expect(
-      caller.packages.install({ packageId: pkgId, deploymentId: depId })
-    ).rejects.toThrow("Package is already installed");
+      caller.services.install({ serviceId: pkgId, deploymentId: depId })
+    ).rejects.toThrow("Service is already installed");
   });
 
   it("skips components with no versions", async () => {
@@ -605,39 +605,39 @@ describe("packages.install", () => {
     const compNoVersion = seedComponent(ctx.testUserId);
     seedVersion(compWithVersion);
     // compNoVersion has no versions
-    const pkgId = seedPackage(cpId, { name: "partial-ver-pkg" });
-    linkComponentToPackage(pkgId, compWithVersion);
-    linkComponentToPackage(pkgId, compNoVersion);
+    const pkgId = seedService(cpId, { name: "partial-ver-pkg" });
+    linkComponentToService(pkgId, compWithVersion);
+    linkComponentToService(pkgId, compNoVersion);
 
     const caller = authedCaller();
-    const result = await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     // Only the component with a version is installed
     expect(result.installedComponents).toBe(1);
   });
 
-  // ── Remote/Hybrid package install ──────────────────────────────────────
+  // ── Remote/Hybrid service install ──────────────────────────────────────
 
-  it("creates packageCredentials for remote package with valid remoteApiConfig", async () => {
+  it("creates serviceCredentials for remote service with valid remoteApiConfig", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
-    const cardJson = buildPackageCardJson();
-    const pkgId = seedPackage(cpId, {
+    const cardJson = buildServiceCardJson();
+    const pkgId = seedService(cpId, {
       name: "remote-install-pkg",
       hostingModel: "remote",
       remoteApiEndpoint: "https://api.creator.example.com/v1",
       remoteApiConfig: cardJson,
     });
-    linkComponentToPackage(pkgId, comp);
+    linkComponentToService(pkgId, comp);
 
     const caller = authedCaller();
-    const result = await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
 
-    // Verify packageCredentials record was created
+    // Verify serviceCredentials record was created
     const cred = ctx.raw
       .prepare("SELECT * FROM package_credentials WHERE package_id = ? AND deployment_id = ?")
       .get(pkgId, depId) as any;
@@ -649,48 +649,48 @@ describe("packages.install", () => {
     expect(cred.signing_secret).toMatch(/^plain:/);
   });
 
-  it("fires performInstallHandshake for remote package", async () => {
+  it("fires performInstallHandshake for remote service", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
-    const cardJson = buildPackageCardJson({ endpoint: "https://remote.api.test/v1" });
-    const pkgId = seedPackage(cpId, {
+    const cardJson = buildServiceCardJson({ endpoint: "https://remote.api.test/v1" });
+    const pkgId = seedService(cpId, {
       name: "handshake-pkg",
       hostingModel: "remote",
       remoteApiConfig: cardJson,
     });
-    linkComponentToPackage(pkgId, comp);
+    linkComponentToService(pkgId, comp);
 
     const caller = authedCaller();
-    await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     // Handshake is fire-and-forget but should have been called
     expect(mockPerformInstallHandshake).toHaveBeenCalledWith(
       expect.objectContaining({
         endpoint: "https://remote.api.test/v1",
-        packageId: pkgId,
+        serviceId: pkgId,
         deploymentId: depId,
         signingSecret: expect.any(String),
       }),
     );
   });
 
-  it("creates packageCredentials for hybrid package", async () => {
+  it("creates serviceCredentials for hybrid service", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
-    const cardJson = buildPackageCardJson();
-    const pkgId = seedPackage(cpId, {
+    const cardJson = buildServiceCardJson();
+    const pkgId = seedService(cpId, {
       name: "hybrid-install-pkg",
       hostingModel: "hybrid",
       remoteApiConfig: cardJson,
     });
-    linkComponentToPackage(pkgId, comp);
+    linkComponentToService(pkgId, comp);
 
     const caller = authedCaller();
-    const result = await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
 
@@ -701,19 +701,19 @@ describe("packages.install", () => {
     expect(mockPerformInstallHandshake).toHaveBeenCalled();
   });
 
-  it("skips handshake for self_hosted package (no credentials created)", async () => {
+  it("skips handshake for self_hosted service (no credentials created)", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
-    const pkgId = seedPackage(cpId, {
+    const pkgId = seedService(cpId, {
       name: "self-hosted-pkg",
       hostingModel: "self_hosted",
     });
-    linkComponentToPackage(pkgId, comp);
+    linkComponentToService(pkgId, comp);
 
     const caller = authedCaller();
-    const result = await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
     expect(result.handshakeStatus).toBe("skipped");
@@ -725,20 +725,20 @@ describe("packages.install", () => {
     expect(mockPerformInstallHandshake).not.toHaveBeenCalled();
   });
 
-  it("skips credentials when remote package has no remoteApiConfig", async () => {
+  it("skips credentials when remote service has no remoteApiConfig", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
-    const pkgId = seedPackage(cpId, {
+    const pkgId = seedService(cpId, {
       name: "remote-no-config-pkg",
       hostingModel: "remote",
       // No remoteApiConfig
     });
-    linkComponentToPackage(pkgId, comp);
+    linkComponentToService(pkgId, comp);
 
     const caller = authedCaller();
-    const result = await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
     expect(result.handshakeStatus).toBe("skipped");
@@ -755,15 +755,15 @@ describe("packages.install", () => {
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
     // Invalid PackageCard: missing required fields (endpoint, auth, skills, version)
-    const pkgId = seedPackage(cpId, {
+    const pkgId = seedService(cpId, {
       name: "bad-config-pkg",
       hostingModel: "remote",
       remoteApiConfig: JSON.stringify({ invalid: true }),
     });
-    linkComponentToPackage(pkgId, comp);
+    linkComponentToService(pkgId, comp);
 
     const caller = authedCaller();
-    const result = await caller.packages.install({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.install({ serviceId: pkgId, deploymentId: depId });
 
     // Should succeed (non-fatal) but skip handshake
     expect(result.success).toBe(true);
@@ -776,24 +776,24 @@ describe("packages.install", () => {
   });
 });
 
-describe("packages.uninstall", () => {
-  it("removes packageInstalls, componentInstalls, deploymentSkills", async () => {
+describe("services.uninstall", () => {
+  it("removes serviceInstalls, componentInstalls, deploymentSkills", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     const verId = seedVersion(comp);
     const skill = seedSkill();
-    const pkgId = seedPackage(cpId, { name: "uninstall-pkg" });
-    linkComponentToPackage(pkgId, comp);
-    linkSkillToPackage(pkgId, skill);
+    const pkgId = seedService(cpId, { name: "uninstall-pkg" });
+    linkComponentToService(pkgId, comp);
+    linkSkillToService(pkgId, skill);
 
     // Manually install everything
-    installPackageDirectly(pkgId, depId);
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp, verId, depId);
     installSkillDirectly(skill, depId);
 
     const caller = authedCaller();
-    const result = await caller.packages.uninstall({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.uninstall({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
     expect(result.removedComponents).toBe(1);
@@ -824,18 +824,18 @@ describe("packages.uninstall", () => {
     const ver1 = seedVersion(comp1);
     const ver2 = seedVersion(comp2);
     const skill = seedSkill();
-    const pkgId = seedPackage(cpId, { name: "count-pkg" });
-    linkComponentToPackage(pkgId, comp1);
-    linkComponentToPackage(pkgId, comp2);
-    linkSkillToPackage(pkgId, skill);
+    const pkgId = seedService(cpId, { name: "count-pkg" });
+    linkComponentToService(pkgId, comp1);
+    linkComponentToService(pkgId, comp2);
+    linkSkillToService(pkgId, skill);
 
-    installPackageDirectly(pkgId, depId);
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp1, ver1, depId);
     installComponentDirectly(comp2, ver2, depId);
     installSkillDirectly(skill, depId);
 
     const caller = authedCaller();
-    const result = await caller.packages.uninstall({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.uninstall({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.removedComponents).toBe(2);
     expect(result.removedSkills).toBe(1);
@@ -848,36 +848,36 @@ describe("packages.uninstall", () => {
     ctx.raw.exec(
       `INSERT INTO deployments (id, user_id, name, runtime, status) VALUES ('${depId}', '${userId}', 'Other Bot', 'openclaw', 'running')`
     );
-    const pkgId = seedPackage(cpId, { name: "other-pkg" });
+    const pkgId = seedService(cpId, { name: "other-pkg" });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.uninstall({ packageId: pkgId, deploymentId: depId })
+      caller.services.uninstall({ serviceId: pkgId, deploymentId: depId })
     ).rejects.toThrow("Deployment not found");
   });
 
-  it("throws NOT_FOUND when package not installed", async () => {
+  it("throws NOT_FOUND when service not installed", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
-    const pkgId = seedPackage(cpId, { name: "not-installed-pkg" });
+    const pkgId = seedService(cpId, { name: "not-installed-pkg" });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.uninstall({ packageId: pkgId, deploymentId: depId })
-    ).rejects.toThrow("Package is not installed");
+      caller.services.uninstall({ serviceId: pkgId, deploymentId: depId })
+    ).rejects.toThrow("Service is not installed");
   });
 
-  it("works when package has no components/skills to remove", async () => {
+  it("works when service has no components/skills to remove", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
-    const pkgId = seedPackage(cpId, { name: "empty-removal-pkg" });
-    linkComponentToPackage(pkgId, comp);
+    const pkgId = seedService(cpId, { name: "empty-removal-pkg" });
+    linkComponentToService(pkgId, comp);
     // Package is installed but component was never installed (e.g., had no version)
-    installPackageDirectly(pkgId, depId);
+    installServiceDirectly(pkgId, depId);
 
     const caller = authedCaller();
-    const result = await caller.packages.uninstall({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.uninstall({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
     expect(result.removedComponents).toBe(0);
@@ -889,29 +889,29 @@ describe("packages.uninstall", () => {
     const depId = seedDeployment("running");
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
-    const pkgId = seedPackage(cpId, { name: "sync-pkg" });
-    linkComponentToPackage(pkgId, comp);
-    installPackageDirectly(pkgId, depId);
+    const pkgId = seedService(cpId, { name: "sync-pkg" });
+    linkComponentToService(pkgId, comp);
+    installServiceDirectly(pkgId, depId);
 
     const caller = authedCaller();
-    await caller.packages.uninstall({ packageId: pkgId, deploymentId: depId });
+    await caller.services.uninstall({ serviceId: pkgId, deploymentId: depId });
 
     expect(mockSyncConfigsToPvc).toHaveBeenCalledWith(depId);
   });
 });
 
-describe("packages.listInstalled", () => {
-  it("returns installed packages with details", async () => {
+describe("services.listInstalled", () => {
+  it("returns installed services with details", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     seedVersion(comp);
-    const pkgId = seedPackage(cpId, { name: "installed-pkg" });
-    linkComponentToPackage(pkgId, comp);
-    installPackageDirectly(pkgId, depId);
+    const pkgId = seedService(cpId, { name: "installed-pkg" });
+    linkComponentToService(pkgId, comp);
+    installServiceDirectly(pkgId, depId);
 
     const caller = authedCaller();
-    const result = await caller.packages.listInstalled({ deploymentId: depId });
+    const result = await caller.services.listInstalled({ deploymentId: depId });
 
     expect(result).toHaveLength(1);
     expect(result[0].package.name).toBe("installed-pkg");
@@ -924,7 +924,7 @@ describe("packages.listInstalled", () => {
     const depId = seedDeployment();
 
     const caller = authedCaller();
-    const result = await caller.packages.listInstalled({ deploymentId: depId });
+    const result = await caller.services.listInstalled({ deploymentId: depId });
 
     expect(result).toEqual([]);
   });
@@ -938,41 +938,41 @@ describe("packages.listInstalled", () => {
 
     const caller = authedCaller();
     await expect(
-      caller.packages.listInstalled({ deploymentId: depId })
+      caller.services.listInstalled({ deploymentId: depId })
     ).rejects.toThrow("Deployment not found");
   });
 });
 
-describe("packages.publish", () => {
-  it("creates package in pending_review status", async () => {
+describe("services.publish", () => {
+  it("creates service in pending_review status", async () => {
     const cpId = seedCreatorProfile();
     const comp = seedComponent(ctx.testUserId, { name: "pub-comp" });
     seedVersion(comp);
 
     const caller = authedCaller();
-    const result = await caller.packages.publish({
-      name: "my-package",
+    const result = await caller.services.publish({
+      name: "my-service",
       displayName: "My Package",
       hostingModel: "self_hosted",
       componentIds: [comp],
     });
 
-    expect(result.packageId).toBeTruthy();
+    expect(result.serviceId).toBeTruthy();
 
     const pkg = ctx.raw
       .prepare("SELECT * FROM marketplace_packages WHERE id = ?")
-      .get(result.packageId) as any;
+      .get(result.serviceId) as any;
     expect(pkg.status).toBe("pending_review");
-    expect(pkg.name).toBe("my-package");
+    expect(pkg.name).toBe("my-service");
   });
 
-  it("creates packageComponents join records", async () => {
+  it("creates serviceComponents join records", async () => {
     const cpId = seedCreatorProfile();
     const comp1 = seedComponent(ctx.testUserId, { name: "join-comp-1" });
     const comp2 = seedComponent(ctx.testUserId, { name: "join-comp-2" });
 
     const caller = authedCaller();
-    const result = await caller.packages.publish({
+    const result = await caller.services.publish({
       name: "join-pkg",
       displayName: "Join Package",
       hostingModel: "self_hosted",
@@ -981,17 +981,17 @@ describe("packages.publish", () => {
 
     const joins = ctx.raw
       .prepare("SELECT * FROM package_components WHERE package_id = ?")
-      .all(result.packageId);
+      .all(result.serviceId);
     expect(joins).toHaveLength(2);
   });
 
-  it("creates packageSkills join records", async () => {
+  it("creates serviceSkills join records", async () => {
     const cpId = seedCreatorProfile();
     const skill = seedSkill();
     const comp = seedComponent(ctx.testUserId, { name: "skill-join-comp" });
 
     const caller = authedCaller();
-    const result = await caller.packages.publish({
+    const result = await caller.services.publish({
       name: "skill-join-pkg",
       displayName: "Skill Join Package",
       hostingModel: "self_hosted",
@@ -1001,7 +1001,7 @@ describe("packages.publish", () => {
 
     const joins = ctx.raw
       .prepare("SELECT * FROM package_skills WHERE package_id = ?")
-      .all(result.packageId);
+      .all(result.serviceId);
     expect(joins).toHaveLength(1);
   });
 
@@ -1011,7 +1011,7 @@ describe("packages.publish", () => {
 
     const caller = authedCaller();
     await expect(
-      caller.packages.publish({
+      caller.services.publish({
         name: "no-profile-pkg",
         displayName: "No Profile",
         hostingModel: "self_hosted",
@@ -1023,18 +1023,18 @@ describe("packages.publish", () => {
   it("throws CONFLICT for duplicate name", async () => {
     const cpId = seedCreatorProfile();
     const comp = seedComponent(ctx.testUserId, { name: "dup-comp" });
-    // Pre-seed a package with same name under same creator
-    seedPackage(cpId, { name: "dup-name" });
+    // Pre-seed a service with same name under same creator
+    seedService(cpId, { name: "dup-name" });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.publish({
+      caller.services.publish({
         name: "dup-name",
         displayName: "Duplicate",
         hostingModel: "self_hosted",
         componentIds: [comp],
       })
-    ).rejects.toThrow("already have a package with this name");
+    ).rejects.toThrow("already have a service with this name");
   });
 
   it("throws BAD_REQUEST for invalid component ID", async () => {
@@ -1042,7 +1042,7 @@ describe("packages.publish", () => {
 
     const caller = authedCaller();
     await expect(
-      caller.packages.publish({
+      caller.services.publish({
         name: "bad-comp-pkg",
         displayName: "Bad Component",
         hostingModel: "self_hosted",
@@ -1057,7 +1057,7 @@ describe("packages.publish", () => {
 
     const caller = authedCaller();
     await expect(
-      caller.packages.publish({
+      caller.services.publish({
         name: "bad-skill-pkg",
         displayName: "Bad Skill",
         hostingModel: "self_hosted",
@@ -1072,7 +1072,7 @@ describe("packages.publish", () => {
 
     const caller = authedCaller();
     await expect(
-      caller.packages.publish({
+      caller.services.publish({
         name: "empty-pkg",
         displayName: "Empty Package",
         hostingModel: "self_hosted",
@@ -1090,7 +1090,7 @@ describe("packages.publish", () => {
 
     // Invalid: uppercase
     await expect(
-      caller.packages.publish({
+      caller.services.publish({
         name: "My-Package",
         displayName: "Invalid",
         hostingModel: "self_hosted",
@@ -1100,8 +1100,8 @@ describe("packages.publish", () => {
 
     // Invalid: spaces
     await expect(
-      caller.packages.publish({
-        name: "my package",
+      caller.services.publish({
+        name: "my service",
         displayName: "Invalid",
         hostingModel: "self_hosted",
         componentIds: [comp],
@@ -1110,8 +1110,8 @@ describe("packages.publish", () => {
 
     // Invalid: underscores
     await expect(
-      caller.packages.publish({
-        name: "my_package",
+      caller.services.publish({
+        name: "my_service",
         displayName: "Invalid",
         hostingModel: "self_hosted",
         componentIds: [comp],
@@ -1124,7 +1124,7 @@ describe("packages.publish", () => {
     const comp = seedComponent(ctx.testUserId, { name: "remote-comp" });
 
     const caller = authedCaller();
-    const result = await caller.packages.publish({
+    const result = await caller.services.publish({
       name: "remote-pkg",
       displayName: "Remote Package",
       hostingModel: "remote",
@@ -1134,32 +1134,32 @@ describe("packages.publish", () => {
 
     const pkg = ctx.raw
       .prepare("SELECT * FROM marketplace_packages WHERE id = ?")
-      .get(result.packageId) as any;
+      .get(result.serviceId) as any;
     expect(pkg.hosting_model).toBe("remote");
     expect(pkg.remote_api_endpoint).toBe("https://api.example.com/v1");
   });
 });
 
-describe("packages.listByCreator", () => {
-  it("returns published packages for creator", async () => {
+describe("services.listByCreator", () => {
+  it("returns published services for creator", async () => {
     const cpId = seedCreatorProfile();
-    seedPackage(cpId, { name: "creator-pkg-1" });
-    seedPackage(cpId, { name: "creator-pkg-2" });
+    seedService(cpId, { name: "creator-pkg-1" });
+    seedService(cpId, { name: "creator-pkg-2" });
 
     const caller = authedCaller();
-    const result = await caller.packages.listByCreator({ creatorId: cpId });
+    const result = await caller.services.listByCreator({ creatorId: cpId });
 
     expect(result).toHaveLength(2);
   });
 
   it("excludes non-published", async () => {
     const cpId = seedCreatorProfile();
-    seedPackage(cpId, { name: "published-one", status: "published" });
-    seedPackage(cpId, { name: "draft-one", status: "draft" });
-    seedPackage(cpId, { name: "pending-one", status: "pending_review" });
+    seedService(cpId, { name: "published-one", status: "published" });
+    seedService(cpId, { name: "draft-one", status: "draft" });
+    seedService(cpId, { name: "pending-one", status: "pending_review" });
 
     const caller = authedCaller();
-    const result = await caller.packages.listByCreator({ creatorId: cpId });
+    const result = await caller.services.listByCreator({ creatorId: cpId });
 
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe("published-one");
@@ -1167,20 +1167,20 @@ describe("packages.listByCreator", () => {
 
   it("returns empty for nonexistent creator", async () => {
     const caller = authedCaller();
-    const result = await caller.packages.listByCreator({ creatorId: "nonexistent-creator" });
+    const result = await caller.services.listByCreator({ creatorId: "nonexistent-creator" });
 
     expect(result).toEqual([]);
   });
 });
 
-describe("packages.publish — remoteApiConfig validation", () => {
-  it("stores remoteApiConfig as JSON string for remote package", async () => {
+describe("services.publish — remoteApiConfig validation", () => {
+  it("stores remoteApiConfig as JSON string for remote service", async () => {
     seedCreatorProfile();
     const comp = seedComponent(ctx.testUserId, { name: "remote-cfg-comp" });
-    const cardJson = buildPackageCardJson();
+    const cardJson = buildServiceCardJson();
 
     const caller = authedCaller();
-    const result = await caller.packages.publish({
+    const result = await caller.services.publish({
       name: "remote-with-card",
       displayName: "Remote With Card",
       hostingModel: "remote",
@@ -1191,7 +1191,7 @@ describe("packages.publish — remoteApiConfig validation", () => {
 
     const pkg = ctx.raw
       .prepare("SELECT * FROM marketplace_packages WHERE id = ?")
-      .get(result.packageId) as any;
+      .get(result.serviceId) as any;
     expect(pkg.remote_api_config).toBeTruthy();
     const parsed = JSON.parse(pkg.remote_api_config);
     expect(parsed.endpoint).toBe("https://api.creator.example.com/v1");
@@ -1199,58 +1199,58 @@ describe("packages.publish — remoteApiConfig validation", () => {
     expect(parsed.version).toBe("1.0.0");
   });
 
-  it("throws BAD_REQUEST for invalid PackageCard JSON in remote package", async () => {
+  it("throws BAD_REQUEST for invalid ServiceCard JSON in remote service", async () => {
     seedCreatorProfile();
     const comp = seedComponent(ctx.testUserId, { name: "invalid-card-comp" });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.publish({
+      caller.services.publish({
         name: "bad-card-pkg",
         displayName: "Bad Card",
         hostingModel: "remote",
         remoteApiConfig: JSON.stringify({ endpoint: "not-a-url" }),
         componentIds: [comp],
       })
-    ).rejects.toThrow("Invalid PackageCard config");
+    ).rejects.toThrow("Invalid ServiceCard config");
   });
 
-  it("allows remote package without remoteApiConfig (optional during publish)", async () => {
+  it("allows remote service without remoteApiConfig (optional during publish)", async () => {
     seedCreatorProfile();
     const comp = seedComponent(ctx.testUserId, { name: "no-card-comp" });
 
     const caller = authedCaller();
-    const result = await caller.packages.publish({
+    const result = await caller.services.publish({
       name: "remote-no-card",
       displayName: "Remote No Card",
       hostingModel: "remote",
       componentIds: [comp],
     });
 
-    expect(result.packageId).toBeTruthy();
+    expect(result.serviceId).toBeTruthy();
 
     const pkg = ctx.raw
       .prepare("SELECT * FROM marketplace_packages WHERE id = ?")
-      .get(result.packageId) as any;
+      .get(result.serviceId) as any;
     expect(pkg.remote_api_config).toBeNull();
   });
 });
 
 // ── Creator Dashboard Procedures ────────────────────────────────────────────
 
-describe("packages.creatorInstalls", () => {
-  it("returns install list for the package creator", async () => {
+describe("services.creatorInstalls", () => {
+  it("returns install list for the service creator", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "creator-installs-pkg" });
+    const pkgId = seedService(cpId, { name: "creator-installs-pkg" });
 
-    // Seed two deployments and install the package on both
+    // Seed two deployments and install the service on both
     const dep1 = seedDeployment();
     const dep2 = seedDeployment();
-    installPackageDirectly(pkgId, dep1);
-    installPackageDirectly(pkgId, dep2);
+    installServiceDirectly(pkgId, dep1);
+    installServiceDirectly(pkgId, dep2);
 
     const caller = authedCaller();
-    const result = await caller.packages.creatorInstalls({ packageId: pkgId });
+    const result = await caller.services.creatorInstalls({ serviceId: pkgId });
 
     expect(result.totalInstalls).toBe(2);
     expect(result.installs).toHaveLength(2);
@@ -1259,12 +1259,12 @@ describe("packages.creatorInstalls", () => {
     expect(result.installs[0].id).toBeTruthy();
   });
 
-  it("returns empty installs when package has no installations", async () => {
+  it("returns empty installs when service has no installations", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "no-installs-pkg" });
+    const pkgId = seedService(cpId, { name: "no-installs-pkg" });
 
     const caller = authedCaller();
-    const result = await caller.packages.creatorInstalls({ packageId: pkgId });
+    const result = await caller.services.creatorInstalls({ serviceId: pkgId });
 
     expect(result.totalInstalls).toBe(0);
     expect(result.installs).toEqual([]);
@@ -1274,47 +1274,47 @@ describe("packages.creatorInstalls", () => {
     // Create a second user who is the creator
     const { userId: creatorUserId, auth0Id: creatorAuth0Id } = seedSecondUser();
     const cpId = seedCreatorProfile(creatorUserId);
-    const pkgId = seedPackage(cpId, { name: "forbidden-installs-pkg" });
+    const pkgId = seedService(cpId, { name: "forbidden-installs-pkg" });
 
     // Call as the test user (not the creator)
     const caller = authedCaller();
     await expect(
-      caller.packages.creatorInstalls({ packageId: pkgId })
-    ).rejects.toThrow("Not the package creator");
+      caller.services.creatorInstalls({ serviceId: pkgId })
+    ).rejects.toThrow("Not the service creator");
   });
 
   it("throws FORBIDDEN when user has no creator profile at all", async () => {
     // Create a second user who is the creator
     const { userId: creatorUserId } = seedSecondUser();
     const cpId = seedCreatorProfile(creatorUserId);
-    const pkgId = seedPackage(cpId, { name: "no-profile-installs-pkg" });
+    const pkgId = seedService(cpId, { name: "no-profile-installs-pkg" });
 
     // Test user has no creator profile
     const caller = authedCaller();
     await expect(
-      caller.packages.creatorInstalls({ packageId: pkgId })
-    ).rejects.toThrow("Not the package creator");
+      caller.services.creatorInstalls({ serviceId: pkgId })
+    ).rejects.toThrow("Not the service creator");
   });
 
-  it("throws NOT_FOUND if the package does not exist", async () => {
+  it("throws NOT_FOUND if the service does not exist", async () => {
     seedCreatorProfile();
     const caller = authedCaller();
     await expect(
-      caller.packages.creatorInstalls({ packageId: "nonexistent-pkg" })
+      caller.services.creatorInstalls({ serviceId: "nonexistent-pkg" })
     ).rejects.toThrow("NOT_FOUND");
   });
 
   it("returns installs with correct deployment IDs", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "dep-id-verify-pkg" });
+    const pkgId = seedService(cpId, { name: "dep-id-verify-pkg" });
 
     const dep1 = seedDeployment();
     const dep2 = seedDeployment();
-    installPackageDirectly(pkgId, dep1);
-    installPackageDirectly(pkgId, dep2);
+    installServiceDirectly(pkgId, dep1);
+    installServiceDirectly(pkgId, dep2);
 
     const caller = authedCaller();
-    const result = await caller.packages.creatorInstalls({ packageId: pkgId });
+    const result = await caller.services.creatorInstalls({ serviceId: pkgId });
 
     const deploymentIds = result.installs.map((i: any) => i.deploymentId);
     expect(deploymentIds).toContain(dep1);
@@ -1322,12 +1322,12 @@ describe("packages.creatorInstalls", () => {
   });
 });
 
-describe("packages.creatorUsage", () => {
+describe("services.creatorUsage", () => {
   it("returns usage aggregated by billing month", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "usage-pkg" });
+    const pkgId = seedService(cpId, { name: "usage-pkg" });
     const depId = seedDeployment();
-    const installId = installPackageDirectly(pkgId, depId);
+    const installId = installServiceDirectly(pkgId, depId);
 
     // Seed usage records
     ctx.raw.exec(
@@ -1344,7 +1344,7 @@ describe("packages.creatorUsage", () => {
     );
 
     const caller = authedCaller();
-    const result = await caller.packages.creatorUsage({ packageId: pkgId });
+    const result = await caller.services.creatorUsage({ serviceId: pkgId });
 
     expect(result.totalRequests).toBe(425);
     expect(result.byMonth["2026-01-01"]).toBe(225); // 150 + 75
@@ -1353,10 +1353,10 @@ describe("packages.creatorUsage", () => {
 
   it("returns zero usage when no records exist", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "zero-usage-pkg" });
+    const pkgId = seedService(cpId, { name: "zero-usage-pkg" });
 
     const caller = authedCaller();
-    const result = await caller.packages.creatorUsage({ packageId: pkgId });
+    const result = await caller.services.creatorUsage({ serviceId: pkgId });
 
     expect(result.totalRequests).toBe(0);
     expect(result.byMonth).toEqual({});
@@ -1365,29 +1365,29 @@ describe("packages.creatorUsage", () => {
   it("throws FORBIDDEN if not the creator", async () => {
     const { userId: creatorUserId } = seedSecondUser();
     const cpId = seedCreatorProfile(creatorUserId);
-    const pkgId = seedPackage(cpId, { name: "forbidden-usage-pkg" });
+    const pkgId = seedService(cpId, { name: "forbidden-usage-pkg" });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.creatorUsage({ packageId: pkgId })
-    ).rejects.toThrow("Not the package creator");
+      caller.services.creatorUsage({ serviceId: pkgId })
+    ).rejects.toThrow("Not the service creator");
   });
 
-  it("throws NOT_FOUND if package missing", async () => {
+  it("throws NOT_FOUND if service missing", async () => {
     seedCreatorProfile();
     const caller = authedCaller();
     await expect(
-      caller.packages.creatorUsage({ packageId: "nonexistent-pkg" })
+      caller.services.creatorUsage({ serviceId: "nonexistent-pkg" })
     ).rejects.toThrow("NOT_FOUND");
   });
 
   it("aggregates usage across multiple deployments for same billing cycle", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "multi-dep-usage-pkg" });
+    const pkgId = seedService(cpId, { name: "multi-dep-usage-pkg" });
     const dep1 = seedDeployment();
     const dep2 = seedDeployment();
-    const install1 = installPackageDirectly(pkgId, dep1);
-    const install2 = installPackageDirectly(pkgId, dep2);
+    const install1 = installServiceDirectly(pkgId, dep1);
+    const install2 = installServiceDirectly(pkgId, dep2);
 
     ctx.raw.exec(
       `INSERT INTO package_usage (id, package_install_id, deployment_id, package_id, skill_name, request_count, billing_cycle_start)
@@ -1399,42 +1399,42 @@ describe("packages.creatorUsage", () => {
     );
 
     const caller = authedCaller();
-    const result = await caller.packages.creatorUsage({ packageId: pkgId });
+    const result = await caller.services.creatorUsage({ serviceId: pkgId });
 
     expect(result.totalRequests).toBe(150);
     expect(result.byMonth["2026-03-01"]).toBe(150);
   });
 });
 
-describe("packages.adminList", () => {
+describe("services.adminList", () => {
   it("throws FORBIDDEN for non-admin user", async () => {
     const caller = authedCaller();
     await expect(
-      caller.packages.adminList()
+      caller.services.adminList()
     ).rejects.toThrow("Admin access required");
   });
 });
 
-describe("packages.adminApprove", () => {
+describe("services.adminApprove", () => {
   it("throws FORBIDDEN for non-admin user", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "approve-target", status: "pending_review" });
+    const pkgId = seedService(cpId, { name: "approve-target", status: "pending_review" });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.adminApprove({ packageId: pkgId })
+      caller.services.adminApprove({ serviceId: pkgId })
     ).rejects.toThrow("Admin access required");
   });
 });
 
-describe("packages.adminReject", () => {
+describe("services.adminReject", () => {
   it("throws FORBIDDEN for non-admin user", async () => {
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: "reject-target", status: "pending_review" });
+    const pkgId = seedService(cpId, { name: "reject-target", status: "pending_review" });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.adminReject({ packageId: pkgId, reason: "Policy violation" })
+      caller.services.adminReject({ serviceId: pkgId, reason: "Policy violation" })
     ).rejects.toThrow("Admin access required");
   });
 });
@@ -1442,7 +1442,7 @@ describe("packages.adminReject", () => {
 // ── Phase 4: rotateSigningSecret, enhanced uninstall, getPackageStatus, checkForUpdates, upgradePackage ──
 
 /**
- * Helper: seed a fully-installed remote package with packageCredentials.
+ * Helper: seed a fully-installed remote service with serviceCredentials.
  * Returns { pkgId, depId, credId, installId, signingSecret }.
  */
 function seedInstalledRemotePackage(overrides?: {
@@ -1455,19 +1455,19 @@ function seedInstalledRemotePackage(overrides?: {
   seedVersion(comp);
 
   const endpoint = overrides?.endpoint ?? "https://api.creator.example.com/v1";
-  const cardJson = buildPackageCardJson({ endpoint });
+  const cardJson = buildServiceCardJson({ endpoint });
   const hosting = overrides?.hostingModel ?? "remote";
 
-  const pkgId = seedPackage(cpId, {
+  const pkgId = seedService(cpId, {
     name: `remote-pkg-${uid()}`,
     hostingModel: hosting,
     remoteApiEndpoint: endpoint,
     remoteApiConfig: cardJson,
   });
-  linkComponentToPackage(pkgId, comp);
+  linkComponentToService(pkgId, comp);
 
-  // Install the package
-  const installId = installPackageDirectly(pkgId, depId);
+  // Install the service
+  const installId = installServiceDirectly(pkgId, depId);
 
   // Install the component
   const verId = ctx.raw
@@ -1475,7 +1475,7 @@ function seedInstalledRemotePackage(overrides?: {
     .get(comp) as any;
   installComponentDirectly(comp, verId.id, depId);
 
-  // Create packageCredentials with a known signing secret
+  // Create serviceCredentials with a known signing secret
   const signingSecret = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
   const credId = `pkc_${uid()}`;
   const now = new Date().toISOString().replace("T", " ").replace("Z", "");
@@ -1486,7 +1486,7 @@ function seedInstalledRemotePackage(overrides?: {
   return { pkgId, depId, credId, installId, signingSecret, cpId, comp };
 }
 
-describe("packages.rotateSigningSecret", () => {
+describe("services.rotateSigningSecret", () => {
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => {
@@ -1504,7 +1504,7 @@ describe("packages.rotateSigningSecret", () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response("OK", { status: 200 }));
 
     const caller = authedCaller();
-    const result = await caller.packages.rotateSigningSecret({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.rotateSigningSecret({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
 
@@ -1524,7 +1524,7 @@ describe("packages.rotateSigningSecret", () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response("OK", { status: 200 }));
 
     const caller = authedCaller();
-    await caller.packages.rotateSigningSecret({ packageId: pkgId, deploymentId: depId });
+    await caller.services.rotateSigningSecret({ serviceId: pkgId, deploymentId: depId });
 
     const cred = ctx.raw
       .prepare("SELECT * FROM package_credentials WHERE id = ?")
@@ -1540,7 +1540,7 @@ describe("packages.rotateSigningSecret", () => {
 
     const caller = authedCaller();
     await expect(
-      caller.packages.rotateSigningSecret({ packageId: pkgId, deploymentId: "nonexistent-dep" })
+      caller.services.rotateSigningSecret({ serviceId: pkgId, deploymentId: "nonexistent-dep" })
     ).rejects.toThrow("Deployment not found");
   });
 
@@ -1554,19 +1554,19 @@ describe("packages.rotateSigningSecret", () => {
 
     const caller = authedCaller();
     await expect(
-      caller.packages.rotateSigningSecret({ packageId: pkgId, deploymentId: otherDepId })
+      caller.services.rotateSigningSecret({ serviceId: pkgId, deploymentId: otherDepId })
     ).rejects.toThrow("Deployment not found");
   });
 
-  it("throws NOT_FOUND if no packageCredentials found for this deployment+package", async () => {
+  it("throws NOT_FOUND if no serviceCredentials found for this deployment+service", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
-    const pkgId = seedPackage(cpId, { name: `no-cred-pkg-${uid()}` });
+    const pkgId = seedService(cpId, { name: `no-cred-pkg-${uid()}` });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.rotateSigningSecret({ packageId: pkgId, deploymentId: depId })
-    ).rejects.toThrow("No credentials found for this package installation");
+      caller.services.rotateSigningSecret({ serviceId: pkgId, deploymentId: depId })
+    ).rejects.toThrow("No credentials found for this service installation");
   });
 
   it("fires webhook to creator endpoint with OLD secret for signing", async () => {
@@ -1578,7 +1578,7 @@ describe("packages.rotateSigningSecret", () => {
     globalThis.fetch = mockFetch;
 
     const caller = authedCaller();
-    await caller.packages.rotateSigningSecret({ packageId: pkgId, deploymentId: depId });
+    await caller.services.rotateSigningSecret({ serviceId: pkgId, deploymentId: depId });
 
     // The webhook is fire-and-forget via void, but the mock resolves immediately
     // so by the time we check it should have been called.
@@ -1596,7 +1596,7 @@ describe("packages.rotateSigningSecret", () => {
     // Verify the body contains the new signing secret
     const body = JSON.parse(options.body);
     expect(body.action).toBe("rotate");
-    expect(body.packageId).toBe(pkgId);
+    expect(body.serviceId).toBe(pkgId);
     expect(body.deploymentId).toBe(depId);
     expect(body.signingSecret).toBeTruthy();
     // The body's signingSecret is the NEW secret (sent so creator can update their side)
@@ -1618,7 +1618,7 @@ describe("packages.rotateSigningSecret", () => {
 
     const caller = authedCaller();
     // Should NOT throw — rotation still succeeds locally
-    const result = await caller.packages.rotateSigningSecret({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.rotateSigningSecret({ serviceId: pkgId, deploymentId: depId });
     expect(result.success).toBe(true);
 
     // Verify the secret was still updated locally
@@ -1634,14 +1634,14 @@ describe("packages.rotateSigningSecret", () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response("Not Found", { status: 404 }));
 
     const caller = authedCaller();
-    const result = await caller.packages.rotateSigningSecret({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.rotateSigningSecret({ serviceId: pkgId, deploymentId: depId });
     expect(result.success).toBe(true);
   });
 });
 
 // ── Enhanced uninstall with webhook ──────────────────────────────────────────
 
-describe("packages.uninstall — remote webhook", () => {
+describe("services.uninstall — remote webhook", () => {
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => {
@@ -1652,14 +1652,14 @@ describe("packages.uninstall — remote webhook", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("sends uninstall webhook to creator endpoint for remote package", async () => {
+  it("sends uninstall webhook to creator endpoint for remote service", async () => {
     const { pkgId, depId } = seedInstalledRemotePackage({ hostingModel: "remote" });
 
     const mockFetch = vi.fn().mockResolvedValue(new Response("OK", { status: 200 }));
     globalThis.fetch = mockFetch;
 
     const caller = authedCaller();
-    await caller.packages.uninstall({ packageId: pkgId, deploymentId: depId });
+    await caller.services.uninstall({ serviceId: pkgId, deploymentId: depId });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url, options] = mockFetch.mock.calls[0];
@@ -1668,32 +1668,32 @@ describe("packages.uninstall — remote webhook", () => {
 
     const body = JSON.parse(options.body);
     expect(body.action).toBe("uninstall");
-    expect(body.packageId).toBe(pkgId);
+    expect(body.serviceId).toBe(pkgId);
     expect(body.deploymentId).toBe(depId);
     expect(body.timestamp).toBeTruthy();
   });
 
-  it("sends uninstall webhook for hybrid package", async () => {
+  it("sends uninstall webhook for hybrid service", async () => {
     const { pkgId, depId } = seedInstalledRemotePackage({ hostingModel: "hybrid" });
 
     const mockFetch = vi.fn().mockResolvedValue(new Response("OK", { status: 200 }));
     globalThis.fetch = mockFetch;
 
     const caller = authedCaller();
-    await caller.packages.uninstall({ packageId: pkgId, deploymentId: depId });
+    await caller.services.uninstall({ serviceId: pkgId, deploymentId: depId });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url] = mockFetch.mock.calls[0];
     expect(url).toContain("/jarble/uninstall");
   });
 
-  it("deletes packageCredentials row after uninstall", async () => {
+  it("deletes serviceCredentials row after uninstall", async () => {
     const { pkgId, depId, credId } = seedInstalledRemotePackage();
 
     globalThis.fetch = vi.fn().mockResolvedValue(new Response("OK", { status: 200 }));
 
     const caller = authedCaller();
-    await caller.packages.uninstall({ packageId: pkgId, deploymentId: depId });
+    await caller.services.uninstall({ serviceId: pkgId, deploymentId: depId });
 
     const cred = ctx.raw
       .prepare("SELECT * FROM package_credentials WHERE id = ?")
@@ -1708,7 +1708,7 @@ describe("packages.uninstall — remote webhook", () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
 
     const caller = authedCaller();
-    const result = await caller.packages.uninstall({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.uninstall({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
 
@@ -1719,27 +1719,27 @@ describe("packages.uninstall — remote webhook", () => {
     expect(install).toBeUndefined();
   });
 
-  it("self-hosted packages do not trigger webhook on uninstall", async () => {
+  it("self-hosted services do not trigger webhook on uninstall", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     const verId = seedVersion(comp);
-    const pkgId = seedPackage(cpId, {
+    const pkgId = seedService(cpId, {
       name: `self-hosted-uninstall-${uid()}`,
       hostingModel: "self_hosted",
     });
-    linkComponentToPackage(pkgId, comp);
-    installPackageDirectly(pkgId, depId);
+    linkComponentToService(pkgId, comp);
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp, verId, depId);
 
     const mockFetch = vi.fn().mockResolvedValue(new Response("OK", { status: 200 }));
     globalThis.fetch = mockFetch;
 
     const caller = authedCaller();
-    const result = await caller.packages.uninstall({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.uninstall({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
-    // No webhook should have been sent for self-hosted packages
+    // No webhook should have been sent for self-hosted services
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -1752,7 +1752,7 @@ describe("packages.uninstall — remote webhook", () => {
     globalThis.fetch = mockFetch;
 
     const caller = authedCaller();
-    await caller.packages.uninstall({ packageId: pkgId, deploymentId: depId });
+    await caller.services.uninstall({ serviceId: pkgId, deploymentId: depId });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [, options] = mockFetch.mock.calls[0];
@@ -1765,14 +1765,14 @@ describe("packages.uninstall — remote webhook", () => {
 
 // ── getPackageStatus ─────────────────────────────────────────────────────────
 
-describe("packages.getPackageStatus", () => {
-  it("returns { installed: false } when package is not installed on deployment", async () => {
+describe("services.getServiceStatus", () => {
+  it("returns { installed: false } when service is not installed on deployment", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
-    const pkgId = seedPackage(cpId, { name: `status-not-installed-${uid()}` });
+    const pkgId = seedService(cpId, { name: `status-not-installed-${uid()}` });
 
     const caller = authedCaller();
-    const result = await caller.packages.getPackageStatus({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.getServiceStatus({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.installed).toBe(false);
   });
@@ -1785,19 +1785,19 @@ describe("packages.getPackageStatus", () => {
     const ver1 = seedVersion(comp1);
     const ver2 = seedVersion(comp2);
     const skill = seedSkill();
-    const pkgId = seedPackage(cpId, { name: `status-full-${uid()}` });
-    linkComponentToPackage(pkgId, comp1);
-    linkComponentToPackage(pkgId, comp2);
-    linkSkillToPackage(pkgId, skill);
+    const pkgId = seedService(cpId, { name: `status-full-${uid()}` });
+    linkComponentToService(pkgId, comp1);
+    linkComponentToService(pkgId, comp2);
+    linkSkillToService(pkgId, skill);
 
-    // Install the package and its components/skills
-    installPackageDirectly(pkgId, depId);
+    // Install the service and its components/skills
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp1, ver1, depId);
     installComponentDirectly(comp2, ver2, depId);
     installSkillDirectly(skill, depId);
 
     const caller = authedCaller();
-    const result = await caller.packages.getPackageStatus({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.getServiceStatus({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.installed).toBe(true);
     expect(result.installedAt).toBeTruthy();
@@ -1819,24 +1819,24 @@ describe("packages.getPackageStatus", () => {
     const ver1 = seedVersion(comp1);
     seedVersion(comp2); // version exists but component not installed
     const skill = seedSkill();
-    const pkgId = seedPackage(cpId, { name: `status-partial-${uid()}` });
-    linkComponentToPackage(pkgId, comp1);
-    linkComponentToPackage(pkgId, comp2);
-    linkSkillToPackage(pkgId, skill);
+    const pkgId = seedService(cpId, { name: `status-partial-${uid()}` });
+    linkComponentToService(pkgId, comp1);
+    linkComponentToService(pkgId, comp2);
+    linkSkillToService(pkgId, skill);
 
-    // Install package but only one component and no skills
-    installPackageDirectly(pkgId, depId);
+    // Install service but only one component and no skills
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp1, ver1, depId);
 
     const caller = authedCaller();
-    const result = await caller.packages.getPackageStatus({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.getServiceStatus({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.installed).toBe(true);
     expect(result.components).toEqual({ total: 2, installed: 1 });
     expect(result.skills).toEqual({ total: 1, installed: 0 });
   });
 
-  it("returns handshake status for remote/hybrid packages", async () => {
+  it("returns handshake status for remote/hybrid services", async () => {
     const { pkgId, depId } = seedInstalledRemotePackage({ hostingModel: "remote" });
 
     // Mock fetch in case rotateSigningSecret or other procedures fire it
@@ -1844,7 +1844,7 @@ describe("packages.getPackageStatus", () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response("OK", { status: 200 }));
 
     const caller = authedCaller();
-    const result = await caller.packages.getPackageStatus({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.getServiceStatus({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.installed).toBe(true);
     expect(result.handshake).toBeTruthy();
@@ -1854,21 +1854,21 @@ describe("packages.getPackageStatus", () => {
     globalThis.fetch = origFetch;
   });
 
-  it("returns null handshake for self-hosted packages (no credentials)", async () => {
+  it("returns null handshake for self-hosted services (no credentials)", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     const verId = seedVersion(comp);
-    const pkgId = seedPackage(cpId, {
+    const pkgId = seedService(cpId, {
       name: `status-self-hosted-${uid()}`,
       hostingModel: "self_hosted",
     });
-    linkComponentToPackage(pkgId, comp);
-    installPackageDirectly(pkgId, depId);
+    linkComponentToService(pkgId, comp);
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp, verId, depId);
 
     const caller = authedCaller();
-    const result = await caller.packages.getPackageStatus({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.getServiceStatus({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.installed).toBe(true);
     expect(result.handshake).toBeNull();
@@ -1881,112 +1881,112 @@ describe("packages.getPackageStatus", () => {
     ctx.raw.exec(
       `INSERT INTO deployments (id, user_id, name, runtime, status) VALUES ('${otherDepId}', '${userId}', 'Other Bot', 'openclaw', 'running')`
     );
-    const pkgId = seedPackage(cpId, { name: `status-not-owned-${uid()}` });
+    const pkgId = seedService(cpId, { name: `status-not-owned-${uid()}` });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.getPackageStatus({ packageId: pkgId, deploymentId: otherDepId })
+      caller.services.getServiceStatus({ serviceId: pkgId, deploymentId: otherDepId })
     ).rejects.toThrow("Deployment not found");
   });
 });
 
 // ── checkForUpdates ──────────────────────────────────────────────────────────
 
-describe("packages.checkForUpdates", () => {
-  it("returns empty updates array when all packages are up to date", async () => {
+describe("services.checkForUpdates", () => {
+  it("returns empty updates array when all services are up to date", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     const verId = seedVersion(comp);
-    const pkgId = seedPackage(cpId, { name: `uptodate-${uid()}` });
-    linkComponentToPackage(pkgId, comp);
-    installPackageDirectly(pkgId, depId);
+    const pkgId = seedService(cpId, { name: `uptodate-${uid()}` });
+    linkComponentToService(pkgId, comp);
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp, verId, depId);
 
     const caller = authedCaller();
-    const result = await caller.packages.checkForUpdates({ deploymentId: depId });
+    const result = await caller.services.checkForUpdates({ deploymentId: depId });
 
     expect(result.updates).toEqual([]);
   });
 
-  it("returns package in updates when package.updatedAt > install.installedAt", async () => {
+  it("returns service in updates when service.updatedAt > install.installedAt", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     const verId = seedVersion(comp);
-    const pkgId = seedPackage(cpId, { name: `updated-pkg-${uid()}` });
-    linkComponentToPackage(pkgId, comp);
+    const pkgId = seedService(cpId, { name: `updated-pkg-${uid()}` });
+    linkComponentToService(pkgId, comp);
 
-    // Install the package with an old timestamp
+    // Install the service with an old timestamp
     const installId = `pki_${uid()}`;
     ctx.raw.exec(
       `INSERT INTO package_installs (id, package_id, deployment_id, user_id, installed_at) VALUES ('${installId}', '${pkgId}', '${depId}', '${ctx.testUserId}', '2025-01-01 00:00:00')`
     );
     installComponentDirectly(comp, verId, depId);
 
-    // Update the package's updatedAt to a more recent time
+    // Update the service's updatedAt to a more recent time
     ctx.raw.exec(
       `UPDATE marketplace_packages SET updated_at = '2026-06-01 00:00:00' WHERE id = '${pkgId}'`
     );
 
     const caller = authedCaller();
-    const result = await caller.packages.checkForUpdates({ deploymentId: depId });
+    const result = await caller.services.checkForUpdates({ deploymentId: depId });
 
     expect(result.updates).toHaveLength(1);
-    expect(result.updates[0].packageId).toBe(pkgId);
+    expect(result.updates[0].serviceId).toBe(pkgId);
     expect(result.updates[0].newComponents).toBe(0);
     expect(result.updates[0].newSkills).toBe(0);
   });
 
-  it("returns package in updates when new components were added after install", async () => {
+  it("returns service in updates when new components were added after install", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp1 = seedComponent(ctx.testUserId);
     const ver1 = seedVersion(comp1);
-    const pkgId = seedPackage(cpId, { name: `new-comp-${uid()}` });
-    linkComponentToPackage(pkgId, comp1);
+    const pkgId = seedService(cpId, { name: `new-comp-${uid()}` });
+    linkComponentToService(pkgId, comp1);
 
-    // Install the package with only comp1
-    installPackageDirectly(pkgId, depId);
+    // Install the service with only comp1
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp1, ver1, depId);
 
-    // Creator adds a new component to the package AFTER install
+    // Creator adds a new component to the service AFTER install
     const comp2 = seedComponent(ctx.testUserId);
     seedVersion(comp2);
-    linkComponentToPackage(pkgId, comp2);
+    linkComponentToService(pkgId, comp2);
 
     const caller = authedCaller();
-    const result = await caller.packages.checkForUpdates({ deploymentId: depId });
+    const result = await caller.services.checkForUpdates({ deploymentId: depId });
 
     expect(result.updates).toHaveLength(1);
-    expect(result.updates[0].packageId).toBe(pkgId);
+    expect(result.updates[0].serviceId).toBe(pkgId);
     expect(result.updates[0].newComponents).toBe(1);
   });
 
-  it("returns package in updates when new skills were added after install", async () => {
+  it("returns service in updates when new skills were added after install", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     const verId = seedVersion(comp);
     const skill1 = seedSkill();
-    const pkgId = seedPackage(cpId, { name: `new-skill-${uid()}` });
-    linkComponentToPackage(pkgId, comp);
-    linkSkillToPackage(pkgId, skill1);
+    const pkgId = seedService(cpId, { name: `new-skill-${uid()}` });
+    linkComponentToService(pkgId, comp);
+    linkSkillToService(pkgId, skill1);
 
-    // Install the package with skill1
-    installPackageDirectly(pkgId, depId);
+    // Install the service with skill1
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp, verId, depId);
     installSkillDirectly(skill1, depId);
 
-    // Creator adds a new skill to the package AFTER install
+    // Creator adds a new skill to the service AFTER install
     const skill2 = seedSkill();
-    linkSkillToPackage(pkgId, skill2);
+    linkSkillToService(pkgId, skill2);
 
     const caller = authedCaller();
-    const result = await caller.packages.checkForUpdates({ deploymentId: depId });
+    const result = await caller.services.checkForUpdates({ deploymentId: depId });
 
     expect(result.updates).toHaveLength(1);
-    expect(result.updates[0].packageId).toBe(pkgId);
+    expect(result.updates[0].serviceId).toBe(pkgId);
     expect(result.updates[0].newSkills).toBe(1);
   });
 
@@ -1999,41 +1999,41 @@ describe("packages.checkForUpdates", () => {
 
     const caller = authedCaller();
     await expect(
-      caller.packages.checkForUpdates({ deploymentId: otherDepId })
+      caller.services.checkForUpdates({ deploymentId: otherDepId })
     ).rejects.toThrow("Deployment not found");
   });
 
-  it("returns empty updates when deployment has no installed packages", async () => {
+  it("returns empty updates when deployment has no installed services", async () => {
     const depId = seedDeployment();
 
     const caller = authedCaller();
-    const result = await caller.packages.checkForUpdates({ deploymentId: depId });
+    const result = await caller.services.checkForUpdates({ deploymentId: depId });
 
     expect(result.updates).toEqual([]);
   });
 
-  it("does not include packages with no actual changes", async () => {
+  it("does not include services with no actual changes", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     const verId = seedVersion(comp);
     const skill = seedSkill();
-    const pkgId = seedPackage(cpId, { name: `no-change-${uid()}` });
-    linkComponentToPackage(pkgId, comp);
-    linkSkillToPackage(pkgId, skill);
+    const pkgId = seedService(cpId, { name: `no-change-${uid()}` });
+    linkComponentToService(pkgId, comp);
+    linkSkillToService(pkgId, skill);
 
     // Install everything at current time
-    installPackageDirectly(pkgId, depId);
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp, verId, depId);
     installSkillDirectly(skill, depId);
 
-    // Ensure updatedAt <= installedAt (package was NOT modified after install)
+    // Ensure updatedAt <= installedAt (service was NOT modified after install)
     ctx.raw.exec(
       `UPDATE marketplace_packages SET updated_at = '2020-01-01 00:00:00' WHERE id = '${pkgId}'`
     );
 
     const caller = authedCaller();
-    const result = await caller.packages.checkForUpdates({ deploymentId: depId });
+    const result = await caller.services.checkForUpdates({ deploymentId: depId });
 
     expect(result.updates).toEqual([]);
   });
@@ -2041,26 +2041,26 @@ describe("packages.checkForUpdates", () => {
 
 // ── upgradePackage ───────────────────────────────────────────────────────────
 
-describe("packages.upgradePackage", () => {
+describe("services.upgradeService", () => {
   it("installs newly added components that were not in the original install", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp1 = seedComponent(ctx.testUserId);
     const ver1 = seedVersion(comp1);
-    const pkgId = seedPackage(cpId, { name: `upgrade-comp-${uid()}` });
-    linkComponentToPackage(pkgId, comp1);
+    const pkgId = seedService(cpId, { name: `upgrade-comp-${uid()}` });
+    linkComponentToService(pkgId, comp1);
 
     // Original install: only comp1
-    installPackageDirectly(pkgId, depId);
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp1, ver1, depId);
 
-    // Creator adds comp2 to the package
+    // Creator adds comp2 to the service
     const comp2 = seedComponent(ctx.testUserId);
     seedVersion(comp2);
-    linkComponentToPackage(pkgId, comp2);
+    linkComponentToService(pkgId, comp2);
 
     const caller = authedCaller();
-    const result = await caller.packages.upgradePackage({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.upgradeService({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
     expect(result.newlyInstalledComponents).toBe(1);
@@ -2079,21 +2079,21 @@ describe("packages.upgradePackage", () => {
     const comp = seedComponent(ctx.testUserId);
     const verId = seedVersion(comp);
     const skill1 = seedSkill();
-    const pkgId = seedPackage(cpId, { name: `upgrade-skill-${uid()}` });
-    linkComponentToPackage(pkgId, comp);
-    linkSkillToPackage(pkgId, skill1);
+    const pkgId = seedService(cpId, { name: `upgrade-skill-${uid()}` });
+    linkComponentToService(pkgId, comp);
+    linkSkillToService(pkgId, skill1);
 
     // Original install: comp + skill1
-    installPackageDirectly(pkgId, depId);
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp, verId, depId);
     installSkillDirectly(skill1, depId);
 
-    // Creator adds skill2 to the package
+    // Creator adds skill2 to the service
     const skill2 = seedSkill();
-    linkSkillToPackage(pkgId, skill2);
+    linkSkillToService(pkgId, skill2);
 
     const caller = authedCaller();
-    const result = await caller.packages.upgradePackage({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.upgradeService({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
     expect(result.newlyInstalledComponents).toBe(0);
@@ -2106,13 +2106,13 @@ describe("packages.upgradePackage", () => {
     expect(skill2Install).toBeTruthy();
   });
 
-  it("updates installedAt on packageInstalls to mark as up-to-date", async () => {
+  it("updates installedAt on serviceInstalls to mark as up-to-date", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
     const comp = seedComponent(ctx.testUserId);
     const verId = seedVersion(comp);
-    const pkgId = seedPackage(cpId, { name: `upgrade-timestamp-${uid()}` });
-    linkComponentToPackage(pkgId, comp);
+    const pkgId = seedService(cpId, { name: `upgrade-timestamp-${uid()}` });
+    linkComponentToService(pkgId, comp);
 
     // Install with an old timestamp
     const installId = `pki_${uid()}`;
@@ -2122,7 +2122,7 @@ describe("packages.upgradePackage", () => {
     installComponentDirectly(comp, verId, depId);
 
     const caller = authedCaller();
-    await caller.packages.upgradePackage({ packageId: pkgId, deploymentId: depId });
+    await caller.services.upgradeService({ serviceId: pkgId, deploymentId: depId });
 
     // Verify the installedAt was updated to a newer time
     const install = ctx.raw
@@ -2135,15 +2135,15 @@ describe("packages.upgradePackage", () => {
     );
   });
 
-  it("throws NOT_FOUND if package not installed on this deployment", async () => {
+  it("throws NOT_FOUND if service not installed on this deployment", async () => {
     const cpId = seedCreatorProfile();
     const depId = seedDeployment();
-    const pkgId = seedPackage(cpId, { name: `upgrade-not-installed-${uid()}` });
+    const pkgId = seedService(cpId, { name: `upgrade-not-installed-${uid()}` });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.upgradePackage({ packageId: pkgId, deploymentId: depId })
-    ).rejects.toThrow("Package is not installed on this deployment");
+      caller.services.upgradeService({ serviceId: pkgId, deploymentId: depId })
+    ).rejects.toThrow("Service is not installed on this deployment");
   });
 
   it("throws NOT_FOUND if deployment not owned by user", async () => {
@@ -2153,11 +2153,11 @@ describe("packages.upgradePackage", () => {
     ctx.raw.exec(
       `INSERT INTO deployments (id, user_id, name, runtime, status) VALUES ('${otherDepId}', '${userId}', 'Other Bot', 'openclaw', 'running')`
     );
-    const pkgId = seedPackage(cpId, { name: `upgrade-not-owned-${uid()}` });
+    const pkgId = seedService(cpId, { name: `upgrade-not-owned-${uid()}` });
 
     const caller = authedCaller();
     await expect(
-      caller.packages.upgradePackage({ packageId: pkgId, deploymentId: otherDepId })
+      caller.services.upgradeService({ serviceId: pkgId, deploymentId: otherDepId })
     ).rejects.toThrow("Deployment not found");
   });
 
@@ -2168,17 +2168,17 @@ describe("packages.upgradePackage", () => {
     const comp2 = seedComponent(ctx.testUserId);
     const ver1 = seedVersion(comp1);
     const ver2 = seedVersion(comp2);
-    const pkgId = seedPackage(cpId, { name: `upgrade-skip-${uid()}` });
-    linkComponentToPackage(pkgId, comp1);
-    linkComponentToPackage(pkgId, comp2);
+    const pkgId = seedService(cpId, { name: `upgrade-skip-${uid()}` });
+    linkComponentToService(pkgId, comp1);
+    linkComponentToService(pkgId, comp2);
 
-    // Install package with both components already installed
-    installPackageDirectly(pkgId, depId);
+    // Install service with both components already installed
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp1, ver1, depId);
     installComponentDirectly(comp2, ver2, depId);
 
     const caller = authedCaller();
-    const result = await caller.packages.upgradePackage({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.upgradeService({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
     expect(result.newlyInstalledComponents).toBe(0);
@@ -2191,17 +2191,17 @@ describe("packages.upgradePackage", () => {
     const comp = seedComponent(ctx.testUserId);
     const verId = seedVersion(comp);
     const skill = seedSkill();
-    const pkgId = seedPackage(cpId, { name: `upgrade-skip-skill-${uid()}` });
-    linkComponentToPackage(pkgId, comp);
-    linkSkillToPackage(pkgId, skill);
+    const pkgId = seedService(cpId, { name: `upgrade-skip-skill-${uid()}` });
+    linkComponentToService(pkgId, comp);
+    linkSkillToService(pkgId, skill);
 
-    // Install package with skill already installed
-    installPackageDirectly(pkgId, depId);
+    // Install service with skill already installed
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp, verId, depId);
     installSkillDirectly(skill, depId);
 
     const caller = authedCaller();
-    const result = await caller.packages.upgradePackage({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.upgradeService({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
     expect(result.newlyInstalledSkills).toBe(0);
@@ -2212,11 +2212,11 @@ describe("packages.upgradePackage", () => {
     const depId = seedDeployment();
     const comp1 = seedComponent(ctx.testUserId);
     const ver1 = seedVersion(comp1);
-    const pkgId = seedPackage(cpId, { name: `upgrade-counter-${uid()}` });
-    linkComponentToPackage(pkgId, comp1);
+    const pkgId = seedService(cpId, { name: `upgrade-counter-${uid()}` });
+    linkComponentToService(pkgId, comp1);
 
     // Install without components
-    installPackageDirectly(pkgId, depId);
+    installServiceDirectly(pkgId, depId);
 
     // Get initial total_installs
     const before = ctx.raw
@@ -2225,7 +2225,7 @@ describe("packages.upgradePackage", () => {
     const initialCount = before.total_installs;
 
     const caller = authedCaller();
-    await caller.packages.upgradePackage({ packageId: pkgId, deploymentId: depId });
+    await caller.services.upgradeService({ serviceId: pkgId, deploymentId: depId });
 
     const after = ctx.raw
       .prepare("SELECT total_installs FROM marketplace_components WHERE id = ?")
@@ -2238,25 +2238,129 @@ describe("packages.upgradePackage", () => {
     const depId = seedDeployment();
     const comp1 = seedComponent(ctx.testUserId);
     const ver1 = seedVersion(comp1);
-    const pkgId = seedPackage(cpId, { name: `upgrade-both-${uid()}` });
-    linkComponentToPackage(pkgId, comp1);
+    const pkgId = seedService(cpId, { name: `upgrade-both-${uid()}` });
+    linkComponentToService(pkgId, comp1);
 
     // Initial install with comp1 only
-    installPackageDirectly(pkgId, depId);
+    installServiceDirectly(pkgId, depId);
     installComponentDirectly(comp1, ver1, depId);
 
     // Creator adds new component + new skill after install
     const comp2 = seedComponent(ctx.testUserId);
     seedVersion(comp2);
-    linkComponentToPackage(pkgId, comp2);
+    linkComponentToService(pkgId, comp2);
     const skill = seedSkill();
-    linkSkillToPackage(pkgId, skill);
+    linkSkillToService(pkgId, skill);
 
     const caller = authedCaller();
-    const result = await caller.packages.upgradePackage({ packageId: pkgId, deploymentId: depId });
+    const result = await caller.services.upgradeService({ serviceId: pkgId, deploymentId: depId });
 
     expect(result.success).toBe(true);
     expect(result.newlyInstalledComponents).toBe(1);
     expect(result.newlyInstalledSkills).toBe(1);
+  });
+});
+
+// ── listDeploymentComponents ──────────────────────────────────────────────────
+
+describe("services.listDeploymentComponents", () => {
+  it("returns empty array when no components installed", async () => {
+    const depId = seedDeployment();
+    const caller = authedCaller();
+    const result = await caller.services.listDeploymentComponents({ deploymentId: depId });
+    expect(result).toEqual([]);
+  });
+
+  it("returns installed published components with correct fields", async () => {
+    const depId = seedDeployment();
+    const compId = seedComponent(ctx.testUserId, { name: "my-comp", status: "published" });
+    const verId = seedVersion(compId);
+    installComponentDirectly(compId, verId, depId);
+
+    const caller = authedCaller();
+    const result = await caller.services.listDeploymentComponents({ deploymentId: depId });
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: compId,
+      name: "my-comp",
+      displayName: expect.any(String),
+      description: expect.any(String),
+      category: "display",
+      tier: "template",
+    });
+  });
+
+  it("filters out unpublished components", async () => {
+    const depId = seedDeployment();
+    const publishedComp = seedComponent(ctx.testUserId, { status: "published" });
+    const draftComp = seedComponent(ctx.testUserId, { status: "draft" });
+    const pubVer = seedVersion(publishedComp);
+    const draftVer = seedVersion(draftComp);
+    installComponentDirectly(publishedComp, pubVer, depId);
+    installComponentDirectly(draftComp, draftVer, depId);
+
+    const caller = authedCaller();
+    const result = await caller.services.listDeploymentComponents({ deploymentId: depId });
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(publishedComp);
+  });
+
+  it("rejects NOT_FOUND for other user's deployment", async () => {
+    const { userId, auth0Id } = seedSecondUser();
+    const depId = seedDeployment(); // owned by test user
+    const caller = authedCaller({ userId, auth0Id });
+    await expect(
+      caller.services.listDeploymentComponents({ deploymentId: depId }),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it("rejects NOT_FOUND for nonexistent deployment", async () => {
+    const caller = authedCaller();
+    await expect(
+      caller.services.listDeploymentComponents({ deploymentId: "nonexistent" }),
+    ).rejects.toThrow(/not found/i);
+  });
+});
+
+// ── listDeploymentSkills ──────────────────────────────────────────────────────
+
+describe("services.listDeploymentSkills", () => {
+  it("returns empty array when no skills installed", async () => {
+    const depId = seedDeployment();
+    const caller = authedCaller();
+    const result = await caller.services.listDeploymentSkills({ deploymentId: depId });
+    expect(result).toEqual([]);
+  });
+
+  it("returns installed skills with correct fields", async () => {
+    const depId = seedDeployment();
+    const skillId = seedSkill();
+    installSkillDirectly(skillId, depId);
+
+    const caller = authedCaller();
+    const result = await caller.services.listDeploymentSkills({ deploymentId: depId });
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: skillId,
+      name: expect.stringContaining("web-search"),
+      description: "Search the web",
+      isOfficial: false,
+    });
+  });
+
+  it("rejects NOT_FOUND for other user's deployment", async () => {
+    const { userId, auth0Id } = seedSecondUser();
+    const depId = seedDeployment(); // owned by test user
+    const caller = authedCaller({ userId, auth0Id });
+    await expect(
+      caller.services.listDeploymentSkills({ deploymentId: depId }),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it("rejects NOT_FOUND for nonexistent deployment", async () => {
+    const caller = authedCaller();
+    await expect(
+      caller.services.listDeploymentSkills({ deploymentId: "nonexistent" }),
+    ).rejects.toThrow(/not found/i);
   });
 });

@@ -29,30 +29,28 @@ interface SandboxControlBarProps {
   onToggle: () => void;
 }
 
-/** Minimal control bar with stop/restart button. */
+/** Minimal control button — absolutely positioned bottom-right over sandbox content. */
 export const SandboxControlBar = memo(function SandboxControlBar({
   stopped,
   onToggle,
 }: SandboxControlBarProps) {
   return (
-    <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0, marginBottom: 4 }}>
-      <button
-        onClick={onToggle}
-        className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/50"
-      >
-        {stopped ? (
-          <>
-            <PlayIcon />
-            Restart
-          </>
-        ) : (
-          <>
-            <StopIcon />
-            Stop
-          </>
-        )}
-      </button>
-    </div>
+    <button
+      onClick={onToggle}
+      className="absolute bottom-2 right-2 z-30 flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors bg-background/80 backdrop-blur-sm border border-border/40 text-muted-foreground hover:text-foreground hover:bg-background shadow-sm"
+    >
+      {stopped ? (
+        <>
+          <PlayIcon />
+          Restart
+        </>
+      ) : (
+        <>
+          <StopIcon />
+          Stop
+        </>
+      )}
+    </button>
   );
 });
 
@@ -84,9 +82,9 @@ export const SandboxShell = memo(function SandboxShell({
   children,
 }: SandboxShellProps) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", minHeight: 0 }}>
-      <SandboxControlBar stopped={stopped} onToggle={onToggle} />
+    <div style={{ position: "relative", display: "flex", flexDirection: "column", width: "100%", height: "100%", minHeight: 0 }}>
       {stopped ? <SandboxStoppedOverlay /> : children}
+      <SandboxControlBar stopped={stopped} onToggle={onToggle} />
     </div>
   );
 });

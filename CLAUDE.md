@@ -28,7 +28,7 @@ npm run dev          # Start dev server on :3000
 npm run build        # Production build
 npm run check        # TypeScript type-check (tsc --noEmit)
 npm run format       # Prettier format
-npm run test         # Run Vitest unit tests (227 tests)
+npm run test         # Run Vitest unit tests (367 tests)
 npm run test:coverage # Run tests with v8 coverage report
 npx vitest run path/to/file.test.ts   # Run a single unit test file
 npm run check:manifest   # Verify manifest ↔ component sync
@@ -66,7 +66,7 @@ E2E auth setup requires `e2e/.env.test` with Auth0 ROPC credentials (see `e2e/.e
 
 ## Test Suite
 
-**680 tests across 29 files** (453 backend + 227 frontend), all Vitest.
+**820 tests across 30 files** (453 backend + 367 frontend), all Vitest.
 
 ### Backend Test Structure (jarble-api-main/src/)
 ```
@@ -99,6 +99,7 @@ E2E auth setup requires `e2e/.env.test` with Auth0 ROPC credentials (see `e2e/.e
 ├── components/workspace/__tests__/autoLayout       # Grid layout logic (35 tests)
 ├── components/canvas/__tests__/canvasComponents    # Renderer + registry (23 tests)
 ├── components/canvas/__tests__/sandbox-csp         # Sandbox CSP security (5 tests)
+├── components/canvas/__tests__/sandboxCore         # Sandbox core: sanitize, build, escape (48 tests)
 ├── hooks/__tests__/useStatusStream                 # SSE status stream (9 tests)
 ├── hooks/__tests__/useCanvasPersistence            # Canvas localStorage (9 tests)
 └── hooks/__tests__/useMobile                       # Mobile detection (5 tests)
@@ -167,7 +168,7 @@ The API exposes 9 routers with 73+ procedures at `/trpc`:
 - `platformCredentials` - Encrypted messaging platform credentials, pairing flows
 - `template` - Bot configuration templates
 - `marketplace` - Component marketplace: browse, install, publish, review, creator tools, admin moderation
-- `packages` - Package marketplace: browse, install/uninstall, publish, list by creator (bundles of components + skills + instructions)
+- `services` - Service marketplace: browse, install/uninstall, publish, list by creator (bundles of components + skills + instructions)
 
 ### Frontend-Backend Communication
 - **tRPC + React Query**: Type-safe API calls with automatic caching
@@ -190,10 +191,10 @@ Core tables in `jarble-api-main/src/db/schema.ts` (SQLite variant in `schema.sql
 - `componentPurchases` - Purchase records
 - `componentReviews` - Ratings and reviews
 - `marketplaceCreators` - Creator profiles
-- `marketplacePackages` - Packages bundling components + skills + instructions (two hosting models: self-hosted, remote)
-- `packageComponents` - Many-to-many linking packages to components
-- `packageSkills` - Many-to-many linking packages to skills
-- `packageInstalls` - Package→deployment installations
+- `marketplaceServices` - Services bundling components + skills + instructions (two hosting models: self-hosted, remote)
+- `serviceComponents` - Many-to-many linking services to components
+- `serviceSkills` - Many-to-many linking services to skills
+- `serviceInstalls` - Service→deployment installations
 
 SQLite dev DB is file-based at `jarble-api-main/local.db` (persists across tsx watch restarts). Seed data (test user, runtime catalog, skills) created on startup via `db/init.ts`.
 
@@ -245,7 +246,8 @@ Each deployment creates 4 K8s resources in namespace `jarble`:
 ├── components/           # Custom component definitions (JSON, written by define_component MCP tool)
 ├── config/               # Jarble platform-managed configs (written by configSync)
 │   ├── openclaw.json     # Channel config rendered from DB
-│   └── soul.md           # System prompt from DB (+ package instruction snippets)
+│   ├── soul.md           # System prompt from DB (+ service instruction snippets)
+│   └── platform-skills.json  # Cached platform skills (fetched from API on boot)
 ├── files/                # Saved canvas component data (written by save_canvas_file MCP tool)
 ├── skills/               # Installed skill configs (written by configSync from deploymentSkills)
 ├── logs/                 # Application logs
@@ -275,10 +277,10 @@ TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN
 ```
 
 ### ConfigSync Pipeline (`jarble-api-main/src/services/configSync.ts`)
-Triggered fire-and-forget by credential save/delete mutations and package install/uninstall:
+Triggered fire-and-forget by credential save/delete mutations and service install/uninstall:
 ```
-DB → buildDeploymentFields()     # loads platform creds, skills, package snippets
-  → renderConfigs()              # soul.md (+ package snippets), openclaw.json, skills/*.json
+DB → buildDeploymentFields()     # loads platform creds, skills, service snippets
+  → renderConfigs()              # soul.md (+ service snippets), openclaw.json, skills/*.json
   → getSecretEntries()           # LLM keys, platform tokens
   → writeConfigsToPvc()          # exec into pod, write files via stdin
   → updateDeploymentSecret()     # replace K8s Secret
@@ -287,7 +289,20 @@ DB → buildDeploymentFields()     # loads platform creds, skills, package snipp
   → update DB status             # "running" or "failed"
 ```
 
-`buildDeploymentFields()` now also loads installed skills (from `deploymentSkills` + `skillsCatalog`) and package instruction snippets (from `packageInstalls` + `marketplacePackages`). Skills render as `/data/skills/{name}.json`. Package instruction snippets are appended to soul.md as `## Package: {name}` sections.
+`buildDeploymentFields()` now also loads installed skills (from `deploymentSkills` + `skillsCatalog`) and service instruction snippets (from `serviceInstalls` + `marketplaceServices`). Skills render as `/data/skills/{name}.json`. Service instruction snippets are appended to soul.md as `## Service: {name}` sections.
+
+### Dynamic Skill Loading
+Pods fetch latest platform skills from the API on boot, without needing container image rebuilds:
+```
+Pod Boot Flow:
+1. MCP server starts with baked-in BOT_SKILLS (hardcoded fallback)
+2. After 3s delay, fetch GET /debug/platform-skills from API
+3. If success: merge fetched skills over baked-in, cache to PVC
+4. If API unreachable: load from PVC cache (/data/config/platform-skills.json)
+5. If no cache: use baked-in defaults
+```
+
+**Update flow**: Edit skills in `jarble-ui-server.js` → redeploy API → pods fetch latest on next restart. `platformSkills.ts` extracts `BOT_SKILLS` from the MCP server file at runtime using brace-depth parsing + `new Function()` eval (single source of truth).
 
 ### Runtime Handler Pattern (`jarble-api-main/src/runtimes/handlers/`)
 Each runtime implements `RuntimeHandler`:
@@ -364,7 +379,7 @@ Bot renders UI via `render_ui` MCP tool → `jarble_ui` fenced blocks → fronte
 **Rendering pipeline**: Props are first run through `autoFixProps` (20 repair rules, 30+ component name aliases), then validated via Zod schemas, then rendered with an error boundary. Repair actions are tracked via Sentry breadcrumbs.
 
 **Sandbox** (`CanvasSandbox.tsx`): Secure iframe for arbitrary HTML/CSS/JS with Three.js, D3, etc. Uses `sandbox="allow-scripts allow-popups"` (no same-origin). Shared core modules in `components/canvas/sandbox/`:
-- `sandboxCore.ts` — `buildDocument()`, CSP construction, library injection, `sanitizeHtmlProp()`
+- `sandboxCore.ts` — `buildDocument()`, CSP construction, library injection, `sanitizeHtmlProp()` (extracts `<style>`, `<link rel="stylesheet">`, `<script>` from html prop; libraries load sequentially; user JS runs at global scope via script injection)
 - `useSandboxBridge.ts` — React hook for postMessage bridge, heartbeat monitoring, storage/events relay
 - `SandboxControls.tsx` — Shared stop/restart/error UI
 - `SandboxConfigPanel.tsx` — Renders JSON Schema `configSchema` as a form for user-configurable sandboxes
@@ -462,6 +477,7 @@ Available when running locally:
 - `GET /debug/db` — Dump all tables (users, deployments, runtimeCatalog, platformCredentials, etc.)
 - `POST /debug/deployment/:id/status` — Force deployment status (`{ "status": "running" }`)
 - `GET /debug/deployment/:id/pod-status` — Check K8s pod status for a deployment
+- `GET /debug/platform-skills` — Serve platform skills extracted from `jarble-ui-server.js` (consumed by pods on boot)
 
 ## Key Files Reference
 
@@ -487,9 +503,10 @@ Available when running locally:
 | `db/init.ts` | Seed data for local dev |
 | `utils/encryption.ts` | AES-256-GCM encrypt/decrypt for credentials |
 | `trpc/routers/marketplace.ts` | Marketplace CRUD, install/uninstall, publish, review, admin |
-| `trpc/routers/packages.ts` | Package marketplace: list, get, install, uninstall, publish, listByCreator |
+| `trpc/routers/services.ts` | Service marketplace: list, get, install, uninstall, publish, listByCreator |
 | `services/manifestValidator.ts` | Component manifest validation (13 rules, includes configSchema + sdkVersion) |
 | `services/marketplace.types.ts` | Marketplace type definitions |
+| `skills/platformSkills.ts` | Extracts BOT_SKILLS from MCP server file, serves via debug endpoint |
 
 ### Shared (shared/)
 | File | Purpose |
@@ -525,11 +542,11 @@ Available when running locally:
 | `lib/sanitize.ts` | HTML sanitization via DOMPurify |
 | `lib/posthog.ts` | PostHog analytics integration |
 | `lib/assistantRuntime.ts` | assistant-ui ExternalStoreRuntime config |
-| `components/marketplace/` | Marketplace UI components (10 files — 6 component + 4 package) |
-| `components/marketplace/PackageCard.tsx` | Package card for browse grid |
-| `components/marketplace/PackageDetail.tsx` | Full package detail view (components, skills, instructions) |
-| `components/marketplace/PackageList.tsx` | Package browse/search page with filters |
-| `components/marketplace/PackagePublishForm.tsx` | Creator package composition wizard |
+| `components/marketplace/` | Marketplace UI components (10 files — 6 component + 4 service) |
+| `components/marketplace/ServiceCard.tsx` | Service card for browse grid |
+| `components/marketplace/ServiceDetail.tsx` | Full service detail view (components, skills, instructions) |
+| `components/marketplace/ServiceList.tsx` | Service browse/search page with filters |
+| `components/marketplace/ServicePublishForm.tsx` | Creator service composition wizard |
 
 ## Component Manifest (`shared/component-manifest/`)
 
@@ -574,7 +591,7 @@ Each component entry in `shared/component-manifest/components/{name}.ts` defines
 
 ## Marketplace System
 
-Component and package marketplace for discovering, installing, and publishing custom UI components and bundled packages.
+Component and service marketplace for discovering, installing, and publishing custom UI components and bundled services.
 
 ### Component Marketplace
 **Database tables** (6):
@@ -595,26 +612,26 @@ Component and package marketplace for discovering, installing, and publishing cu
 
 **Manifest validator** (`services/manifestValidator.ts`): 13 validation rules for component manifests (includes configSchema and sdkVersion validation).
 
-### Package Marketplace
-Packages bundle **components + skills + bot instructions** into a single installable unit.
+### Service Marketplace
+Services bundle **components + skills + bot instructions** into a single installable unit.
 
 **Database tables** (4):
-- `marketplacePackages` — Published packages (name, hosting model, instruction snippet, pricing, status)
-- `packageComponents` — Many-to-many linking packages to components
-- `packageSkills` — Many-to-many linking packages to skills
-- `packageInstalls` — Package→deployment installations
+- `marketplaceServices` — Published services (name, hosting model, instruction snippet, pricing, status)
+- `serviceComponents` — Many-to-many linking services to components
+- `serviceSkills` — Many-to-many linking services to skills
+- `serviceInstalls` — Service→deployment installations
 
 **Two hosting models**:
 - **Self-hosted** (`hostingModel: "package"`) — Buyer downloads everything, runs on their own pod
 - **Remote/Hosted** (`hostingModel: "hosted"`) — Creator hosts APIs, buyer gets frontend components + skill definitions pointing to creator's API
 
-**tRPC packages router** (`trpc/routers/packages.ts`): 6 procedures — `list`, `get`, `install` (atomic: components + skills + instruction snippet + single PVC sync), `uninstall`, `publish`, `listByCreator`.
+**tRPC services router** (`trpc/routers/services.ts`): 6 procedures — `list`, `get`, `install` (atomic: components + skills + instruction snippet + single PVC sync), `uninstall`, `publish`, `listByCreator`.
 
-**Install flow**: Creates `packageInstalls` + `componentInstalls` + `deploymentSkills` records, appends `instructionSnippet` to soul.md (as `## Package: {name}` section), triggers single `syncConfigsToPvc()`.
+**Install flow**: Creates `serviceInstalls` + `componentInstalls` + `deploymentSkills` records, appends `instructionSnippet` to soul.md (as `## Service: {name}` section), triggers single `syncConfigsToPvc()`.
 
 **Skills pipeline**: Installed skills are rendered to `/data/skills/{name}.json` on the pod by `openclaw.ts:renderConfigs()`. ConfigSync loads skills from `deploymentSkills` + `skillsCatalog` join.
 
-**Frontend UI** (`components/marketplace/`): `PackageCard.tsx`, `PackageDetail.tsx`, `PackageList.tsx`, `PackagePublishForm.tsx`. Integrated as "Packages" tab on the marketplace page alongside "Components" and "Publish" tabs.
+**Frontend UI** (`components/marketplace/`): `ServiceCard.tsx`, `ServiceDetail.tsx`, `ServiceList.tsx`, `ServicePublishForm.tsx`. Integrated as "Services" tab on the marketplace page alongside "Components" and "Publish" tabs.
 
 ## Security
 

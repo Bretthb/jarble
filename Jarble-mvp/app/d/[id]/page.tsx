@@ -17,11 +17,12 @@ import SimpleCanvasGrid from "@/components/workspace/SimpleCanvasGrid";
 import DashboardCanvas from "@/components/workspace/DashboardCanvas";
 import EssentialControls from "@/components/workspace/EssentialControls";
 import ConfigPanel from "@/components/workspace/ConfigPanel";
+import MarketplacePanel from "@/components/workspace/MarketplacePanel";
 import CanvasRenderer from "@/components/canvas/CanvasRenderer";
 import EditableCanvas from "@/components/canvas/EditableCanvas";
 import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, SendHorizontal, Settings, MessageSquare, Layout, X } from "lucide-react";
+import { ArrowLeft, Loader2, SendHorizontal, Settings, Store, MessageSquare, Layout, X } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, memo } from "react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -213,6 +214,7 @@ function WorkspacePage({
 }) {
   const router = useRouter();
   const [configOpen, setConfigOpen] = useState(false);
+  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
 
   return (
     <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden">
@@ -238,6 +240,15 @@ function WorkspacePage({
             <EssentialControls deploymentId={deploymentId} status={liveStatus} />
             <div className="w-px h-5 bg-border/60" />
             <Button
+              variant={marketplaceOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setMarketplaceOpen((v) => !v)}
+              className="h-8 w-8 p-0"
+              title="Marketplace"
+            >
+              <Store className="w-4 h-4" />
+            </Button>
+            <Button
               variant={configOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setConfigOpen((v) => !v)}
@@ -251,7 +262,7 @@ function WorkspacePage({
         </div>
       </header>
 
-      {/* Main area: optional config panel + canvas */}
+      {/* Main area: optional config panel + canvas + optional marketplace panel */}
       <div className="flex-1 flex overflow-hidden">
         {configOpen && (
           <ConfigPanel
@@ -260,6 +271,12 @@ function WorkspacePage({
           />
         )}
         <CanvasWorkspace deploymentId={deploymentId} />
+        {marketplaceOpen && (
+          <MarketplacePanel
+            deploymentId={deploymentId}
+            onClose={() => setMarketplaceOpen(false)}
+          />
+        )}
       </div>
     </div>
   );
@@ -445,7 +462,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
               onStartBot={lastChatError.canStart ? () => {
                 startMutation.mutate({ id: deploymentId }, {
                   onSuccess: () => clearChatError(),
-                  onError: (err) => console.error("[Jarble:Chat] Start bot failed:", err.message),
+                  onError: (err: Error) => console.error("[Jarble:Chat] Start bot failed:", err.message),
                 });
               } : undefined}
               onDiagnose={runDiagnosis}

@@ -1,11 +1,11 @@
 /**
- * Integration tests for the package proxy route.
+ * Integration tests for the service proxy route.
  *
  * Tests the Express route handler by mounting on a temporary Express server
  * and using Node's built-in fetch. All external dependencies (DB, encryption,
  * HMAC, logger) are mocked.
  *
- * Route: POST /proxy/:deploymentId/:packageId/:skillName
+ * Route: POST /proxy/:deploymentId/:serviceId/:skillName
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
@@ -14,10 +14,10 @@ import http from "http";
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 // DB mock
-const mockFindFirstPackageCreds = vi.fn();
-const mockFindFirstPackage = vi.fn();
-const mockFindFirstPackageUsage = vi.fn();
-const mockFindFirstPackageInstalls = vi.fn();
+const mockFindFirstServiceCreds = vi.fn();
+const mockFindFirstService = vi.fn();
+const mockFindFirstServiceUsage = vi.fn();
+const mockFindFirstServiceInstalls = vi.fn();
 const mockUpdateUsage = vi.fn().mockReturnThis();
 const mockSetUsage = vi.fn().mockReturnThis();
 const mockWhereUsage = vi.fn().mockResolvedValue(undefined);
@@ -27,10 +27,10 @@ const mockValuesUsage = vi.fn().mockResolvedValue(undefined);
 vi.mock("../../db/index.js", () => ({
   db: {
     query: {
-      packageCredentials: { findFirst: (...args: any[]) => mockFindFirstPackageCreds(...args) },
-      marketplacePackages: { findFirst: (...args: any[]) => mockFindFirstPackage(...args) },
-      packageUsage: { findFirst: (...args: any[]) => mockFindFirstPackageUsage(...args) },
-      packageInstalls: { findFirst: (...args: any[]) => mockFindFirstPackageInstalls(...args) },
+      serviceCredentials: { findFirst: (...args: any[]) => mockFindFirstServiceCreds(...args) },
+      marketplaceServices: { findFirst: (...args: any[]) => mockFindFirstService(...args) },
+      serviceUsage: { findFirst: (...args: any[]) => mockFindFirstServiceUsage(...args) },
+      serviceInstalls: { findFirst: (...args: any[]) => mockFindFirstServiceInstalls(...args) },
     },
     update: (...args: any[]) => {
       mockUpdateUsage(...args);
@@ -42,14 +42,14 @@ vi.mock("../../db/index.js", () => ({
     },
   },
   tables: {
-    packageCredentials: {
+    serviceCredentials: {
       deploymentId: "deploymentId",
       packageId: "packageId",
     },
-    marketplacePackages: {
+    marketplaceServices: {
       id: "id",
     },
-    packageUsage: {
+    serviceUsage: {
       id: "id",
       deploymentId: "deploymentId",
       packageId: "packageId",
@@ -57,7 +57,7 @@ vi.mock("../../db/index.js", () => ({
       billingCycleStart: "billingCycleStart",
       requestCount: "requestCount",
     },
-    packageInstalls: {
+    serviceInstalls: {
       deploymentId: "deploymentId",
       packageId: "packageId",
     },
@@ -92,9 +92,9 @@ vi.mock("../../utils/logger.js", () => ({
   }),
 }));
 
-import { resetAllPackageRateLimits } from "../../middleware/packageRateLimit.js";
+import { resetAllServiceRateLimits } from "../../middleware/serviceRateLimit.js";
 import { resetAllCircuits } from "../../services/circuitBreaker.js";
-import { packageProxyRouter } from "../packageProxy.js";
+import { serviceProxyRouter } from "../serviceProxy.js";
 import { signRequest } from "../../utils/hmac.js";
 
 // ── Test server setup ────────────────────────────────────────────────────────
@@ -105,7 +105,7 @@ let baseUrl: string;
 function createTestApp() {
   const app = express();
   app.use(express.json());
-  app.use("/api/packages", packageProxyRouter);
+  app.use("/api/services", serviceProxyRouter);
   return app;
 }
 
@@ -120,7 +120,7 @@ function startServer(app: express.Application): Promise<string> {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Build a valid PackageCard config JSON string. */
+/** Build a valid ServiceCard config JSON string. */
 function buildRemoteApiConfig(overrides?: {
   endpoint?: string;
   authType?: "api_key" | "bearer";
@@ -172,14 +172,14 @@ function setupValidMocks(overrides?: {
 }) {
   const signingSecret = "plain:test-signing-secret-hex-value-1234";
 
-  mockFindFirstPackageCreds.mockResolvedValue({
+  mockFindFirstServiceCreds.mockResolvedValue({
     id: "pkc_001",
     deploymentId: "dep-001",
-    packageId: "pkg-001",
+    serviceId: "pkg-001",
     signingSecret,
   });
 
-  mockFindFirstPackage.mockResolvedValue({
+  mockFindFirstService.mockResolvedValue({
     id: "pkg-001",
     remoteApiConfig: buildRemoteApiConfig(overrides),
   });
@@ -189,13 +189,13 @@ function setupValidMocks(overrides?: {
 
 // ── Suite ────────────────────────────────────────────────────────────────────
 
-describe("Package Proxy Route", () => {
+describe("Service Proxy Route", () => {
   // We intercept global fetch for upstream requests. Save the original.
   const originalFetch = globalThis.fetch;
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    resetAllPackageRateLimits();
+    resetAllServiceRateLimits();
     resetAllCircuits();
     baseUrl = await startServer(createTestApp());
   });
@@ -208,11 +208,11 @@ describe("Package Proxy Route", () => {
     });
   });
 
-  it("returns 404 when packageCredentials not found for deployment+package", async () => {
-    mockFindFirstPackageCreds.mockResolvedValue(null);
+  it("returns 404 when serviceCredentials not found for deployment+service", async () => {
+    mockFindFirstServiceCreds.mockResolvedValue(null);
 
     const res = await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -225,18 +225,18 @@ describe("Package Proxy Route", () => {
     expect(data.error).toContain("credentials not found");
   });
 
-  it("returns 404 when package has no remoteApiConfig", async () => {
-    mockFindFirstPackageCreds.mockResolvedValue({
+  it("returns 404 when service has no remoteApiConfig", async () => {
+    mockFindFirstServiceCreds.mockResolvedValue({
       id: "pkc_001",
       signingSecret: "plain:secret",
     });
-    mockFindFirstPackage.mockResolvedValue({
+    mockFindFirstService.mockResolvedValue({
       id: "pkg-001",
       remoteApiConfig: null,
     });
 
     const res = await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -249,11 +249,11 @@ describe("Package Proxy Route", () => {
     expect(data.error).toContain("no remote API configuration");
   });
 
-  it("returns 404 when skill name not found in PackageCard", async () => {
+  it("returns 404 when skill name not found in ServiceCard", async () => {
     setupValidMocks();
 
     const res = await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/nonexistent_skill`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/nonexistent_skill`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -295,7 +295,7 @@ describe("Package Proxy Route", () => {
     }) as any;
 
     const res = await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -327,7 +327,7 @@ describe("Package Proxy Route", () => {
     }) as any;
 
     const res = await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -359,7 +359,7 @@ describe("Package Proxy Route", () => {
     }) as any;
 
     const res = await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -395,7 +395,7 @@ describe("Package Proxy Route", () => {
     }) as any;
 
     await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -428,7 +428,7 @@ describe("Package Proxy Route", () => {
     }) as any;
 
     await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -473,7 +473,7 @@ describe("Package Proxy Route", () => {
     }) as any;
 
     await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -498,7 +498,7 @@ describe("Package Proxy Route", () => {
     }) as any;
 
     const res = await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -512,17 +512,17 @@ describe("Package Proxy Route", () => {
   });
 
   it("returns 502 when remoteApiConfig is invalid JSON", async () => {
-    mockFindFirstPackageCreds.mockResolvedValue({
+    mockFindFirstServiceCreds.mockResolvedValue({
       id: "pkc_001",
       signingSecret: "plain:secret",
     });
-    mockFindFirstPackage.mockResolvedValue({
+    mockFindFirstService.mockResolvedValue({
       id: "pkg-001",
       remoteApiConfig: "not valid json {{{",
     });
 
     const res = await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -532,18 +532,18 @@ describe("Package Proxy Route", () => {
 
     expect(res.status).toBe(502);
     const data = (await res.json()) as { error: string };
-    expect(data.error).toContain("Malformed package card");
+    expect(data.error).toContain("Malformed service card");
   });
 
-  it("returns 404 when package record itself is not found", async () => {
-    mockFindFirstPackageCreds.mockResolvedValue({
+  it("returns 404 when service record itself is not found", async () => {
+    mockFindFirstServiceCreds.mockResolvedValue({
       id: "pkc_001",
       signingSecret: "plain:secret",
     });
-    mockFindFirstPackage.mockResolvedValue(null);
+    mockFindFirstService.mockResolvedValue(null);
 
     const res = await originalFetch(
-      `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+      `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -553,7 +553,7 @@ describe("Package Proxy Route", () => {
 
     expect(res.status).toBe(404);
     const data = (await res.json()) as { error: string };
-    expect(data.error).toContain("Package not found");
+    expect(data.error).toContain("Service not found");
   });
 
   // ── Usage Recording ────────────────────────────────────────────────────────
@@ -564,11 +564,11 @@ describe("Package Proxy Route", () => {
       setupValidMocks({ endpoint });
 
       // recordUsage: no existing usage row, but there IS an install row
-      mockFindFirstPackageUsage.mockResolvedValue(null);
-      mockFindFirstPackageInstalls.mockResolvedValue({
+      mockFindFirstServiceUsage.mockResolvedValue(null);
+      mockFindFirstServiceInstalls.mockResolvedValue({
         id: "pki_001",
         deploymentId: "dep-001",
-        packageId: "pkg-001",
+        serviceId: "pkg-001",
       });
 
       // Mock the outbound fetch to the creator API
@@ -584,7 +584,7 @@ describe("Package Proxy Route", () => {
       }) as any;
 
       const res = await originalFetch(
-        `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -615,7 +615,7 @@ describe("Package Proxy Route", () => {
       setupValidMocks({ endpoint });
 
       // recordUsage: there IS an existing usage row for this cycle
-      mockFindFirstPackageUsage.mockResolvedValue({
+      mockFindFirstServiceUsage.mockResolvedValue({
         id: "pu_existing",
         requestCount: 42,
         billingCycleStart: "2026-03-01",
@@ -633,7 +633,7 @@ describe("Package Proxy Route", () => {
       }) as any;
 
       const res = await originalFetch(
-        `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -659,7 +659,7 @@ describe("Package Proxy Route", () => {
       setupValidMocks();
 
       const res = await originalFetch(
-        `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -679,7 +679,7 @@ describe("Package Proxy Route", () => {
       setupValidMocks();
 
       const res = await originalFetch(
-        `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -709,7 +709,7 @@ describe("Package Proxy Route", () => {
       }) as any;
 
       const res = await originalFetch(
-        `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -763,7 +763,7 @@ describe("Package Proxy Route", () => {
       }) as any;
 
       const res = await originalFetch(
-        `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -812,7 +812,7 @@ describe("Package Proxy Route", () => {
       }) as any;
 
       const res = await originalFetch(
-        `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -831,16 +831,16 @@ describe("Package Proxy Route", () => {
     it("returns 429 when per-minute rate limit is exceeded", async () => {
       const endpoint = "https://api.creator.example.com/v1";
 
-      // Use a package with strict rate limits
+      // Use a service with strict rate limits
       const signingSecret = "plain:test-signing-secret-hex-value-1234";
-      mockFindFirstPackageCreds.mockResolvedValue({
+      mockFindFirstServiceCreds.mockResolvedValue({
         id: "pkc_001",
         deploymentId: "dep-001",
-        packageId: "pkg-001",
+        serviceId: "pkg-001",
         signingSecret,
       });
 
-      const packageCardWithLimits = {
+      const serviceCardWithLimits = {
         endpoint,
         auth: { type: "api_key", headerName: "X-API-Key" },
         skills: [
@@ -858,9 +858,9 @@ describe("Package Proxy Route", () => {
         version: "1.0.0",
       };
 
-      mockFindFirstPackage.mockResolvedValue({
+      mockFindFirstService.mockResolvedValue({
         id: "pkg-001",
-        remoteApiConfig: JSON.stringify(packageCardWithLimits),
+        remoteApiConfig: JSON.stringify(serviceCardWithLimits),
       });
 
       globalThis.fetch = vi.fn(async (url: any, options: any) => {
@@ -877,7 +877,7 @@ describe("Package Proxy Route", () => {
       // First 2 requests should succeed
       for (let i = 0; i < 2; i++) {
         const res = await originalFetch(
-          `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+          `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -889,7 +889,7 @@ describe("Package Proxy Route", () => {
 
       // 3rd request should be rate limited
       const res = await originalFetch(
-        `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -926,7 +926,7 @@ describe("Package Proxy Route", () => {
       // Make 5 requests (FAILURE_THRESHOLD = 5) to trip the circuit
       for (let i = 0; i < 5; i++) {
         await originalFetch(
-          `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+          `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -937,7 +937,7 @@ describe("Package Proxy Route", () => {
 
       // Next request should be blocked by circuit breaker (503)
       const res = await originalFetch(
-        `${baseUrl}/api/packages/proxy/dep-001/pkg-001/get_weather`,
+        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

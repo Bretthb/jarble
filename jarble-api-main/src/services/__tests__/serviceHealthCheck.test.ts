@@ -1,7 +1,7 @@
 /**
- * Unit tests for the Package Health Check service.
+ * Unit tests for the Service Health Check service.
  *
- * Tests the periodic health-check loop that pings remote/hybrid package
+ * Tests the periodic health-check loop that pings remote/hybrid service
  * endpoints and updates DB health status accordingly.
  *
  * All external dependencies (db, tables, dbDate, logger, fetch) are mocked.
@@ -18,7 +18,7 @@ const mockWhere = vi.fn().mockResolvedValue(undefined);
 vi.mock("../../db/index.js", () => ({
   db: {
     query: {
-      marketplacePackages: {
+      marketplaceServices: {
         findMany: (...args: any[]) => mockFindMany(...args),
       },
     },
@@ -28,7 +28,7 @@ vi.mock("../../db/index.js", () => ({
     },
   },
   tables: {
-    marketplacePackages: {
+    marketplaceServices: {
       id: "id",
       status: "status",
       hostingModel: "hostingModel",
@@ -51,9 +51,9 @@ vi.mock("../../utils/logger.js", () => ({
 // ── Import under test (after mocks) ─────────────────────────────────────────
 
 import {
-  startPackageHealthCheck,
-  stopPackageHealthCheck,
-} from "../packageHealthCheck.js";
+  startServiceHealthCheck,
+  stopServiceHealthCheck,
+} from "../serviceHealthCheck.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,26 +68,26 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Response | Prom
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("Package Health Check Service", () => {
+describe("Service Health Check Service", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     mockFindMany.mockResolvedValue([]);
     // Ensure we start clean (no leftover interval)
-    stopPackageHealthCheck();
+    stopServiceHealthCheck();
   });
 
   afterEach(() => {
-    stopPackageHealthCheck();
+    stopServiceHealthCheck();
     globalThis.fetch = originalFetch;
     vi.useRealTimers();
   });
 
-  // ── startPackageHealthCheck / stopPackageHealthCheck ──────────────────────
+  // ── startServiceHealthCheck / stopServiceHealthCheck ──────────────────────
 
-  describe("startPackageHealthCheck", () => {
-    it("runs checkAllPackages immediately on start", async () => {
-      startPackageHealthCheck(60_000);
+  describe("startServiceHealthCheck", () => {
+    it("runs checkAllServices immediately on start", async () => {
+      startServiceHealthCheck(60_000);
 
       // Flush the immediate void call
       await vi.advanceTimersByTimeAsync(0);
@@ -95,8 +95,8 @@ describe("Package Health Check Service", () => {
       expect(mockFindMany).toHaveBeenCalledTimes(1);
     });
 
-    it("runs checkAllPackages on each interval tick", async () => {
-      startPackageHealthCheck(10_000);
+    it("runs checkAllServices on each interval tick", async () => {
+      startServiceHealthCheck(10_000);
 
       await vi.advanceTimersByTimeAsync(0); // immediate
       expect(mockFindMany).toHaveBeenCalledTimes(1);
@@ -109,8 +109,8 @@ describe("Package Health Check Service", () => {
     });
 
     it("is idempotent (calling twice does not create duplicate intervals)", async () => {
-      startPackageHealthCheck(10_000);
-      startPackageHealthCheck(10_000); // second call is no-op
+      startServiceHealthCheck(10_000);
+      startServiceHealthCheck(10_000); // second call is no-op
 
       await vi.advanceTimersByTimeAsync(0);
       // Only one immediate call, not two
@@ -122,14 +122,14 @@ describe("Package Health Check Service", () => {
     });
   });
 
-  describe("stopPackageHealthCheck", () => {
+  describe("stopServiceHealthCheck", () => {
     it("stops the interval so no more ticks fire", async () => {
-      startPackageHealthCheck(10_000);
+      startServiceHealthCheck(10_000);
 
       await vi.advanceTimersByTimeAsync(0); // immediate
       expect(mockFindMany).toHaveBeenCalledTimes(1);
 
-      stopPackageHealthCheck();
+      stopServiceHealthCheck();
 
       await vi.advanceTimersByTimeAsync(30_000); // well past next tick
       // No additional calls after stop
@@ -138,27 +138,27 @@ describe("Package Health Check Service", () => {
 
     it("is safe to call when not started", () => {
       // Should not throw
-      expect(() => stopPackageHealthCheck()).not.toThrow();
+      expect(() => stopServiceHealthCheck()).not.toThrow();
     });
 
     it("allows restart after stop", async () => {
-      startPackageHealthCheck(10_000);
+      startServiceHealthCheck(10_000);
       await vi.advanceTimersByTimeAsync(0);
       expect(mockFindMany).toHaveBeenCalledTimes(1);
 
-      stopPackageHealthCheck();
+      stopServiceHealthCheck();
 
-      startPackageHealthCheck(10_000);
+      startServiceHealthCheck(10_000);
       await vi.advanceTimersByTimeAsync(0);
       expect(mockFindMany).toHaveBeenCalledTimes(2);
     });
   });
 
-  // ── checkAllPackages (tested via startPackageHealthCheck) ────────────────
+  // ── checkAllServices (tested via startServiceHealthCheck) ────────────────
 
-  describe("checkAllPackages", () => {
-    it("queries only published remote/hybrid packages", async () => {
-      startPackageHealthCheck(60_000);
+  describe("checkAllServices", () => {
+    it("queries only published remote/hybrid services", async () => {
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(mockFindMany).toHaveBeenCalledWith(
@@ -171,7 +171,7 @@ describe("Package Health Check Service", () => {
     it("does not crash when db query throws", async () => {
       mockFindMany.mockRejectedValueOnce(new Error("DB connection lost"));
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       // Should not throw, just log error
       await vi.advanceTimersByTimeAsync(0);
 
@@ -184,9 +184,9 @@ describe("Package Health Check Service", () => {
     });
   });
 
-  // ── checkPackageHealth ─────────────────────────────────────────────────────
+  // ── checkServiceHealth ─────────────────────────────────────────────────────
 
-  describe("checkPackageHealth (via checkAllPackages)", () => {
+  describe("checkServiceHealth (via checkAllServices)", () => {
     it("returns 'healthy' when health endpoint returns 200", async () => {
       const pkg = {
         id: "pkg-001",
@@ -202,7 +202,7 @@ describe("Package Health Check Service", () => {
 
       mockFetch(() => new Response("OK", { status: 200 }));
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(mockSet).toHaveBeenCalledWith(
@@ -227,7 +227,7 @@ describe("Package Health Check Service", () => {
 
       mockFetch(() => new Response("Service Unavailable", { status: 503 }));
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(mockSet).toHaveBeenCalledWith(
@@ -254,7 +254,7 @@ describe("Package Health Check Service", () => {
         throw new Error("ECONNREFUSED");
       });
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(mockSet).toHaveBeenCalledWith(
@@ -283,7 +283,7 @@ describe("Package Health Check Service", () => {
         throw err;
       });
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(mockSet).toHaveBeenCalledWith(
@@ -312,7 +312,7 @@ describe("Package Health Check Service", () => {
         return new Response("OK", { status: 200 });
       });
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(fetchedUrls).toContain("https://status.creator.test/ping");
@@ -337,7 +337,7 @@ describe("Package Health Check Service", () => {
         return new Response("OK", { status: 200 });
       });
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(fetchedUrls).toContain("https://api.creator.test/v1/health");
@@ -357,13 +357,13 @@ describe("Package Health Check Service", () => {
         return new Response("OK", { status: 200 });
       });
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(fetchedUrls).toContain("https://fallback.creator.test/api/health");
     });
 
-    it("skips packages with no endpoint at all", async () => {
+    it("skips services with no endpoint at all", async () => {
       const pkg = {
         id: "pkg-008",
         remoteApiConfig: null,
@@ -373,7 +373,7 @@ describe("Package Health Check Service", () => {
 
       mockFetch(() => new Response("OK", { status: 200 }));
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       // fetch should not have been called
@@ -382,7 +382,7 @@ describe("Package Health Check Service", () => {
       expect(mockUpdate).not.toHaveBeenCalled();
     });
 
-    it("skips packages with invalid remoteApiConfig JSON", async () => {
+    it("skips services with invalid remoteApiConfig JSON", async () => {
       const pkg = {
         id: "pkg-009",
         remoteApiConfig: "not valid json {{{",
@@ -392,14 +392,14 @@ describe("Package Health Check Service", () => {
 
       mockFetch(() => new Response("OK", { status: 200 }));
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       // fetch should not have been called since JSON parse fails and no fallback
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
-    it("checks multiple packages sequentially", async () => {
+    it("checks multiple services sequentially", async () => {
       const pkg1 = {
         id: "pkg-multi-1",
         remoteApiConfig: JSON.stringify({
@@ -428,18 +428,18 @@ describe("Package Health Check Service", () => {
         return new Response("OK", { status: 200 });
       });
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(fetchedUrls).toHaveLength(2);
       expect(fetchedUrls).toContain("https://api1.test/health");
       expect(fetchedUrls).toContain("https://api2.test/health");
 
-      // Both packages should have their health updated
+      // Both services should have their health updated
       expect(mockSet).toHaveBeenCalledTimes(2);
     });
 
-    it("logs a warning when package is not healthy", async () => {
+    it("logs a warning when service is not healthy", async () => {
       const pkg = {
         id: "pkg-warn",
         remoteApiConfig: JSON.stringify({
@@ -454,13 +454,13 @@ describe("Package Health Check Service", () => {
 
       mockFetch(() => new Response("Error", { status: 500 }));
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       const { logger } = await import("../../utils/logger.js");
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({
-          packageId: "pkg-warn",
+          serviceId: "pkg-warn",
           health: "degraded",
         }),
         expect.stringContaining("not healthy"),
@@ -481,7 +481,7 @@ describe("Package Health Check Service", () => {
 
       mockFetch(() => new Response("OK", { status: 200 }));
 
-      startPackageHealthCheck(60_000);
+      startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(mockSet).toHaveBeenCalledWith(

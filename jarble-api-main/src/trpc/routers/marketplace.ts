@@ -471,12 +471,51 @@ export const marketplaceRouter = router({
           propsSchema: component.propsSchema ? JSON.parse(component.propsSchema) : null,
           version: installedVersion,
         };
-        const templateOrHtml = component.exampleProps ?? component.propsSchema ?? "";
+
+        // Build the component definition in define_component format so the MCP
+        // server's custom component resolution can handle it transparently.
+        // exampleProps stores the layout template for template-tier components,
+        // or gets wrapped in a sandbox for sandbox-tier components.
+        let componentDefinition: Record<string, unknown> | null = null;
+        try {
+          if (component.exampleProps) {
+            const parsed = JSON.parse(component.exampleProps);
+            if (component.tier === "template" && Array.isArray(parsed.layout)) {
+              // Template tier: exampleProps is a full define_component definition
+              componentDefinition = {
+                name: component.name,
+                description: component.botDescription || component.description,
+                layout: parsed.layout,
+              };
+            } else if (component.tier === "sandbox" && typeof parsed.html === "string") {
+              // Sandbox tier: wrap HTML in a sandbox component
+              componentDefinition = {
+                name: component.name,
+                description: component.botDescription || component.description,
+                layout: [{
+                  component: "sandbox",
+                  props: {
+                    html: parsed.html,
+                    css: parsed.css || "",
+                    js: parsed.js || "",
+                    title: "{{title}}",
+                    libraries: parsed.libraries || [],
+                  },
+                }],
+              };
+            }
+          }
+        } catch (parseErr) {
+          logger.warn({ err: parseErr, componentId: input.componentId },
+            "marketplace.install: failed to parse component definition from exampleProps");
+        }
+
         void syncMarketplaceComponent(
           input.deploymentId,
           input.componentId,
+          component.name,
           manifest,
-          templateOrHtml,
+          componentDefinition,
           component.tier as "template" | "sandbox",
         ).catch((err) =>
           logger.error({ err, componentId: input.componentId, deploymentId: input.deploymentId },
@@ -512,6 +551,11 @@ export const marketplaceRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Component is not installed on this deployment" });
       }
 
+      // Look up the component name for PVC cleanup
+      const component = await ctx.db.query.marketplaceComponents.findFirst({
+        where: eq(marketplaceComponents.id, input.componentId),
+      });
+
       await ctx.db.delete(componentInstalls)
         .where(and(
           eq(componentInstalls.componentId, input.componentId),
@@ -529,6 +573,7 @@ export const marketplaceRouter = router({
         void removeMarketplaceComponent(
           input.deploymentId,
           input.componentId,
+          component?.name ?? null,
         ).catch((err) =>
           logger.error({ err, componentId: input.componentId, deploymentId: input.deploymentId },
             "marketplace.uninstall: failed to remove component from pod (non-fatal)")
@@ -656,12 +701,39 @@ export const marketplaceRouter = router({
             propsSchema: component.propsSchema,
             version: version.version,
           };
-          const templateOrHtml = component.exampleProps ?? component.propsSchema ?? "";
+
+          // Build component definition (same logic as install)
+          let componentDefinition: Record<string, unknown> | null = null;
+          try {
+            if (component.exampleProps) {
+              const parsed = JSON.parse(component.exampleProps);
+              if (component.tier === "template" && Array.isArray(parsed.layout)) {
+                componentDefinition = {
+                  name: component.name,
+                  description: component.botDescription || component.description,
+                  layout: parsed.layout,
+                };
+              } else if (component.tier === "sandbox" && typeof parsed.html === "string") {
+                componentDefinition = {
+                  name: component.name,
+                  description: component.botDescription || component.description,
+                  layout: [{
+                    component: "sandbox",
+                    props: { html: parsed.html, css: parsed.css || "", js: parsed.js || "", title: "{{title}}", libraries: parsed.libraries || [] },
+                  }],
+                };
+              }
+            }
+          } catch {
+            // Non-fatal
+          }
+
           void syncMarketplaceComponent(
             input.deploymentId,
             input.componentId,
+            component.name,
             manifest,
-            templateOrHtml,
+            componentDefinition,
             component.tier as "template" | "sandbox",
           ).catch((err) =>
             logger.error({ err, componentId: input.componentId, deploymentId: input.deploymentId },

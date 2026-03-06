@@ -692,8 +692,9 @@ describe("marketplace.install", () => {
     expect(mockSyncMarketplaceComponent).toHaveBeenCalledWith(
       depId,
       compId,
-      expect.any(Object),
-      expect.any(String),
+      expect.any(String),  // componentName
+      expect.any(Object),  // manifest
+      null,                // componentDefinition (null when no exampleProps)
       "template"
     );
   });
@@ -754,7 +755,7 @@ describe("marketplace.uninstall", () => {
     await caller.marketplace.uninstall({ componentId: compId, deploymentId: depId });
 
     await new Promise((r) => setTimeout(r, 10));
-    expect(mockRemoveMarketplaceComponent).toHaveBeenCalledWith(depId, compId);
+    expect(mockRemoveMarketplaceComponent).toHaveBeenCalledWith(depId, compId, expect.any(String));
   });
 });
 
