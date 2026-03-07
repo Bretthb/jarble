@@ -21,7 +21,7 @@ import { env } from "../utils/env.js";
 import { logger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { getPodAddress, findPodForDeployment } from "../k8s/index.js";
-import { chatViaGateway, chatViaExec, type GatewayResponse } from "../services/openclawGateway.js";
+import { chatViaGateway, chatViaHttp, chatViaExec, type GatewayResponse } from "../services/openclawGateway.js";
 import { extractUIBlocks, type JarbleUIBlock, type JarbleComponentDef } from "../utils/uiBlockParser.js";
 import { readComponentFromPvc, writeComponentToPvc } from "../k8s/index.js";
 import {
@@ -420,45 +420,52 @@ tamboAgentRouter.post("/", async (req, res) => {
         return;
       }
 
-      const gatewayResult = await chatViaGateway(
-        {
-          ip: podAddr.ip,
-          port: podAddr.port,
-          gatewayToken: podAddr.gatewayToken,
-          sessionKey,
-        },
-        lastUserText,
-        (fullTextSoFar) => {
-          if (fullTextSoFar.length > lastDeltaText.length) {
-            const newPart = fullTextSoFar.slice(lastDeltaText.length);
-            sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: newPart });
-            lastDeltaText = fullTextSoFar;
+      const gwOpts = {
+        ip: podAddr.ip,
+        port: podAddr.port,
+        gatewayToken: podAddr.gatewayToken,
+        sessionKey,
+      };
+      const onFullTextDelta = (fullTextSoFar: string) => {
+        if (fullTextSoFar.length > lastDeltaText.length) {
+          const newPart = fullTextSoFar.slice(lastDeltaText.length);
+          sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: newPart });
+          lastDeltaText = fullTextSoFar;
+        }
+      };
+      const onBlock = async (block: JarbleUIBlock) => {
+        try {
+          const resolved = await resolveUIBlocks([block], deploymentId);
+          for (const b of resolved) {
+            sendEvent(res, {
+              type: "UI_BLOCK_START",
+              blockId: b.id,
+              component: b.component,
+              messageId,
+              ...(b.editable ? { editable: true } : {}),
+              ...(b.fileId ? { fileId: b.fileId } : {}),
+              ...(b.saveMethod ? { saveMethod: b.saveMethod } : {}),
+              ...(b.layoutHint ? { layoutHint: b.layoutHint } : {}),
+            });
+            sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: b.id, props: b.props });
+            sendEvent(res, { type: "UI_BLOCK_END", blockId: b.id });
           }
-        },
-        abortController.signal,
-        // Emit UI blocks as soon as they're detected during streaming (before response finishes)
-        async (block) => {
-          try {
-            const resolved = await resolveUIBlocks([block], deploymentId);
-            for (const b of resolved) {
-              sendEvent(res, {
-                type: "UI_BLOCK_START",
-                blockId: b.id,
-                component: b.component,
-                messageId,
-                ...(b.editable ? { editable: true } : {}),
-                ...(b.fileId ? { fileId: b.fileId } : {}),
-                ...(b.saveMethod ? { saveMethod: b.saveMethod } : {}),
-                ...(b.layoutHint ? { layoutHint: b.layoutHint } : {}),
-              });
-              sendEvent(res, { type: "UI_BLOCK_PROPS", blockId: b.id, props: b.props });
-              sendEvent(res, { type: "UI_BLOCK_END", blockId: b.id });
-            }
-          } catch (err: unknown) {
-            logger.warn({ deploymentId, blockId: block.id, error: err instanceof Error ? err.message : String(err) }, "Chat: failed to emit streamed UI block");
-          }
-        },
-      );
+        } catch (err: unknown) {
+          logger.warn({ deploymentId, blockId: block.id, error: err instanceof Error ? err.message : String(err) }, "Chat: failed to emit streamed UI block");
+        }
+      };
+
+      // Try HTTP chat completions first (no device pairing needed),
+      // fall back to WS gateway if HTTP fails.
+      let gatewayResult: GatewayResponse;
+      try {
+        gatewayResult = await chatViaHttp(gwOpts, lastUserText, onFullTextDelta, abortController.signal, onBlock);
+      } catch (httpErr: unknown) {
+        const httpE = httpErr instanceof Error ? httpErr : new Error(String(httpErr));
+        logger.warn({ deploymentId, error: httpE.message }, "HTTP chat failed, trying WS gateway");
+        lastDeltaText = "";
+        gatewayResult = await chatViaGateway(gwOpts, lastUserText, onFullTextDelta, abortController.signal, onBlock);
+      }
 
       await emitGatewayResult(gatewayResult);
       return;

@@ -370,6 +370,103 @@ function extractText(message: unknown): string {
   return "";
 }
 
+// ── HTTP Chat Completions ────────────────────────────────────────────────────
+
+/**
+ * Chat via the OpenClaw HTTP chat completions endpoint.
+ *
+ * Uses the OpenAI-compatible `/v1/chat/completions` endpoint exposed by the
+ * gateway. This bypasses WS device pairing entirely — only the gateway auth
+ * token is needed. Supports SSE streaming for incremental text delivery.
+ */
+export async function chatViaHttp(
+  opts: GatewayOptions,
+  message: string,
+  onDelta?: (fullText: string) => void,
+  signal?: AbortSignal,
+  onBlockDetected?: (block: JarbleUIBlock) => void,
+): Promise<GatewayResponse> {
+  const { ip, port, gatewayToken, sessionKey } = opts;
+  const url = `http://${ip}:${port}/v1/chat/completions`;
+
+  logger.info({ url, messageLen: message.length, sessionKey }, "chatViaHttp: sending request");
+
+  const body = JSON.stringify({
+    model: "default",
+    messages: [{ role: "user", content: message }],
+    stream: true,
+    // Pass session key as metadata so conversations persist
+    ...(sessionKey ? { user: sessionKey } : {}),
+  });
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${gatewayToken}`,
+    },
+    body,
+    signal,
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`HTTP chat failed: ${response.status} ${errText.slice(0, 200)}`);
+  }
+
+  if (!response.body) {
+    throw new Error("HTTP chat: no response body");
+  }
+
+  let fullText = "";
+  let emittedBlockCount = 0;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // Process SSE lines
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6).trim();
+      if (data === "[DONE]") continue;
+
+      try {
+        const chunk = JSON.parse(data);
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) {
+          fullText += delta;
+          onDelta?.(fullText);
+
+          // Incremental UI block detection
+          if (onBlockDetected) {
+            const { uiBlocks } = extractUIBlocks(fullText);
+            for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
+              onBlockDetected(uiBlocks[idx]);
+            }
+            emittedBlockCount = uiBlocks.length;
+          }
+        }
+      } catch {
+        // Skip unparseable chunks
+      }
+    }
+  }
+
+  const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
+  const remainingBlocks = uiBlocks.slice(emittedBlockCount);
+  logger.info({ url, rawTextLength: fullText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "chatViaHttp: response summary");
+  return { rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs };
+}
+
 // ── Exec-based HTTP fallback ─────────────────────────────────────────────────
 
 /**
