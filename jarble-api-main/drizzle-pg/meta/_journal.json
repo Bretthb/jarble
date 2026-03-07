@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1771283874817,
-      "tag": "0000_lowly_spectrum",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1771373805773,
-      "tag": "0001_messy_killmonger",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1771428947406,
-      "tag": "0002_conscious_psynapse",
+      "when": 1772865337876,
+      "tag": "0000_thankful_secret_warriors",
       "breakpoints": true
     }
   ]
