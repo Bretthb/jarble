@@ -30,6 +30,7 @@ import {
   type ComponentDefinition,
 } from "../utils/componentResolver.js";
 import { classifyError } from "../utils/chatErrors.js";
+import { JARBLE_UI_PROMPT } from "../runtimes/handlers/openclaw.js";
 
 export const tamboAgentRouter = Router();
 
@@ -677,7 +678,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       // fall back to WS gateway if HTTP fails.
       let gatewayResult: GatewayResponse;
       try {
-        gatewayResult = await chatViaHttp(gwOpts, lastUserText, onFullTextDelta, abortController.signal, onBlock, onThinking);
+        gatewayResult = await chatViaHttp(gwOpts, lastUserText, onFullTextDelta, abortController.signal, onBlock, onThinking, JARBLE_UI_PROMPT);
       } catch (httpErr: unknown) {
         const httpE = httpErr instanceof Error ? httpErr : new Error(String(httpErr));
         logger.warn({ deploymentId, error: httpE.message }, "HTTP chat failed, trying WS gateway");

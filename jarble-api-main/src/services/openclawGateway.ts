@@ -388,6 +388,8 @@ export async function chatViaHttp(
   signal?: AbortSignal,
   onBlockDetected?: (block: JarbleUIBlock) => void,
   onThinking?: (fullThinkingText: string) => void,
+  /** Optional system message injected by the API (platform instructions, guardrails) */
+  systemMessage?: string,
 ): Promise<GatewayResponse> {
   const { ip, port, gatewayToken, sessionKey } = opts;
   const url = `http://${ip}:${port}/v1/chat/completions`;
@@ -395,9 +397,17 @@ export async function chatViaHttp(
 
   logger.info({ url, messageLen: message.length, sessionKey, streaming: !streamingDisabled }, "chatViaHttp: sending request");
 
+  // Build messages array — inject platform system message before user message
+  // so guardrails/UI instructions are always the latest from the running API code.
+  const messages: Array<{ role: string; content: string }> = [];
+  if (systemMessage) {
+    messages.push({ role: "system", content: systemMessage });
+  }
+  messages.push({ role: "user", content: message });
+
   const body = JSON.stringify({
     model: "default",
-    messages: [{ role: "user", content: message }],
+    messages,
     stream: !streamingDisabled,
     // Pass session key as metadata so conversations persist
     ...(sessionKey ? { user: sessionKey } : {}),
