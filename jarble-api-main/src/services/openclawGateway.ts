@@ -394,7 +394,7 @@ export async function chatViaHttp(
   const body = JSON.stringify({
     model: "default",
     messages: [{ role: "user", content: message }],
-    stream: true,
+    stream: false,
     // Pass session key as metadata so conversations persist
     ...(sessionKey ? { user: sessionKey } : {}),
   });
@@ -414,57 +414,25 @@ export async function chatViaHttp(
     throw new Error(`HTTP chat failed: ${response.status} ${errText.slice(0, 200)}`);
   }
 
-  if (!response.body) {
-    throw new Error("HTTP chat: no response body");
+  const json = await response.json() as any;
+  const fullText = json.choices?.[0]?.message?.content || "";
+
+  if (!fullText) {
+    logger.warn({ url, json }, "chatViaHttp: empty response from bot");
   }
 
-  let fullText = "";
-  let emittedBlockCount = 0;
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    // Process SSE lines
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || ""; // Keep incomplete line in buffer
-
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const data = line.slice(6).trim();
-      if (data === "[DONE]") continue;
-
-      try {
-        const chunk = JSON.parse(data);
-        const delta = chunk.choices?.[0]?.delta?.content;
-        if (delta) {
-          fullText += delta;
-          onDelta?.(fullText);
-
-          // Incremental UI block detection
-          if (onBlockDetected) {
-            const { uiBlocks } = extractUIBlocks(fullText);
-            for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
-              onBlockDetected(uiBlocks[idx]);
-            }
-            emittedBlockCount = uiBlocks.length;
-          }
-        }
-      } catch {
-        // Skip unparseable chunks
-      }
-    }
-  }
+  // Deliver the complete text at once
+  onDelta?.(fullText);
 
   const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
-  const remainingBlocks = uiBlocks.slice(emittedBlockCount);
+  // Emit all blocks via callback
+  if (onBlockDetected) {
+    for (const block of uiBlocks) {
+      onBlockDetected(block);
+    }
+  }
   logger.info({ url, rawTextLength: fullText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "chatViaHttp: response summary");
-  return { rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs };
+  return { rawText: fullText, text: cleanText, uiBlocks: [], uiUpdates, componentDefs };
 }
 
 // ── Exec-based HTTP fallback ─────────────────────────────────────────────────
