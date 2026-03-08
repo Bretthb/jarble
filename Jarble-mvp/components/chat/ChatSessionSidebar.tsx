@@ -71,15 +71,7 @@ export function ChatSessionSidebar({
   const grouped = groupSessionsByDate(sessions);
 
   if (!isOpen) {
-    return (
-      <button
-        onClick={onToggle}
-        className="absolute left-2 top-2 z-10 p-1.5 rounded-md bg-secondary/80 border border-border/40 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-        title="Show chat history"
-      >
-        <MessageSquare className="w-4 h-4" />
-      </button>
-    );
+    return null;
   }
 
   return (

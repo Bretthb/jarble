@@ -105,6 +105,7 @@ function WorkspacePage({
 }) {
   const router = useRouter();
   const [configOpen, setConfigOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   return (
     <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden">
@@ -130,6 +131,15 @@ function WorkspacePage({
             <EssentialControls deploymentId={deploymentId} status={liveStatus} />
             <div className="w-px h-5 bg-border/60" />
             <Button
+              variant={sidebarOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setSidebarOpen((v) => !v)}
+              className="h-8 w-8 p-0"
+              title="Chat history"
+            >
+              <MessageSquare className="w-4 h-4" />
+            </Button>
+            <Button
               variant={configOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setConfigOpen((v) => !v)}
@@ -151,7 +161,11 @@ function WorkspacePage({
             onClose={() => setConfigOpen(false)}
           />
         )}
-        <ChatPanel deploymentId={deploymentId} />
+        <ChatPanel
+          deploymentId={deploymentId}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        />
       </div>
     </div>
   );
@@ -159,7 +173,15 @@ function WorkspacePage({
 
 // ── Chat Panel (full-width, centered) ─────────────────────────────────────────
 
-function ChatPanel({ deploymentId }: { deploymentId: string }) {
+function ChatPanel({
+  deploymentId,
+  sidebarOpen,
+  onToggleSidebar,
+}: {
+  deploymentId: string;
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
+}) {
   const startMutation = trpc.deployment.start.useMutation();
   const { messages, isStreaming, sendMessage, loadMessages, clearMessages } = useDirectChat(deploymentId);
   const {
@@ -170,7 +192,6 @@ function ChatPanel({ deploymentId }: { deploymentId: string }) {
     startNewChat,
     refreshSessions,
   } = useChatSessions(deploymentId);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
@@ -254,7 +275,7 @@ function ChatPanel({ deploymentId }: { deploymentId: string }) {
         onNewChat={handleNewChat}
         isLoading={sessionsLoading}
         isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen((v) => !v)}
+        onToggle={onToggleSidebar}
       />
 
       {/* Chat area */}
