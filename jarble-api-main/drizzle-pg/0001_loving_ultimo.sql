@@ -1,0 +1,1 @@
+ALTER TABLE "deployments" ALTER COLUMN "llm_api_key" SET DATA TYPE text;
