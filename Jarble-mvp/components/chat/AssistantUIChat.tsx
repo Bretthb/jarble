@@ -18,9 +18,10 @@ import {
   useMessage,
   type AssistantRuntime,
 } from "@assistant-ui/react";
-import { Sparkles, SendHorizontal, Loader2, Copy, RotateCcw, Pencil } from "lucide-react";
+import { Sparkles, SendHorizontal, Loader2, Copy, RotateCcw, Pencil, Brain, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
+import { AnimatePresence, motion } from "framer-motion";
 
 // ── Thread Component ────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ function UserBubble() {
 
 // ── Typewriter Hook ─────────────────────────────────────────────────────────
 
-function useTypewriter(text: string, speed = 12) {
+function useTypewriter(text: string, speed = 4) {
   const [displayed, setDisplayed] = useState("");
   const prevTextRef = useRef("");
 
@@ -131,8 +132,8 @@ function useTypewriter(text: string, speed = 12) {
         setDisplayed(text);
         return;
       }
-      // Advance by a few chars per tick for snappy feel
-      const step = Math.min(3, text.length - i);
+      // Advance by several chars per tick — with real streaming, LLM pace provides natural typewriter
+      const step = Math.min(8, text.length - i);
       i += step;
       setDisplayed(text.slice(0, i));
     }, speed);
@@ -144,10 +145,61 @@ function useTypewriter(text: string, speed = 12) {
   return { displayed, isAnimating };
 }
 
+// ── Thinking Section ─────────────────────────────────────────────────────────
+
+interface ThinkingSectionProps {
+  text: string;
+  isStreaming: boolean;
+}
+
+function ThinkingSection({ text, isStreaming }: ThinkingSectionProps) {
+  // Auto-expand while streaming, allow manual toggle after
+  const [isExpanded, setIsExpanded] = useState(true);
+  const wasStreamingRef = useRef(isStreaming);
+
+  useEffect(() => {
+    // Auto-collapse when streaming finishes
+    if (wasStreamingRef.current && !isStreaming) {
+      setIsExpanded(false);
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  return (
+    <div className="w-full mb-1">
+      <button
+        onClick={() => setIsExpanded((prev) => !prev)}
+        className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-secondary/40 transition-colors text-xs text-muted-foreground"
+      >
+        <Brain className={cn("w-3 h-3", isStreaming && "animate-pulse text-violet-400")} />
+        <span>{isStreaming ? "Thinking..." : "Thought process"}</span>
+        <ChevronDown className={cn("w-3 h-3 transition-transform", isExpanded && "rotate-180")} />
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-1 px-3 py-2 rounded-md bg-secondary/15 border border-border/30 max-h-48 overflow-y-auto">
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{text}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // ── Assistant Message Bubble ────────────────────────────────────────────────
 
 function AssistantBubble() {
   const message = useMessage();
+  const reasoningParts = message?.content?.filter((p): p is { type: "reasoning"; text: string } => p.type === "reasoning") || [];
   const content = message?.content
     ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => p.text)
@@ -156,6 +208,7 @@ function AssistantBubble() {
     ? false
     : message?.status?.type !== "complete";
 
+  const thinkingText = reasoningParts.map((p) => p.text).join("");
   const { displayed, isAnimating } = useTypewriter(content);
   const showCursor = isInProgress || isAnimating;
 
@@ -168,13 +221,18 @@ function AssistantBubble() {
 
       {/* Content + actions */}
       <div className="flex flex-col gap-0.5 items-start flex-1 max-w-[80%]">
+        {/* Thinking section — collapsible */}
+        {thinkingText && (
+          <ThinkingSection text={thinkingText} isStreaming={isInProgress} />
+        )}
+
         <div
           className={cn(
             "rounded-lg px-4 py-3 bg-secondary/30",
-            isInProgress && !isAnimating && "animate-[shimmer_2s_ease-in-out_infinite]",
+            isInProgress && !isAnimating && !content && "animate-[shimmer_2s_ease-in-out_infinite]",
           )}
           style={
-            isInProgress && !isAnimating
+            isInProgress && !isAnimating && !content
               ? {
                   backgroundSize: "200% 100%",
                   backgroundImage:

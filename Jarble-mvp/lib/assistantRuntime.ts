@@ -23,14 +23,17 @@ interface JarbleRuntimeOptions {
 }
 
 function convertMessage(msg: ChatMessage): ThreadMessageLike {
+  const content: Array<{ type: "text"; text: string } | { type: "reasoning"; text: string }> = [];
+
+  // Add reasoning part before text if present
+  if (msg.thinkingText) {
+    content.push({ type: "reasoning" as const, text: msg.thinkingText });
+  }
+  content.push({ type: "text" as const, text: msg.displayText || msg.content });
+
   return {
     role: msg.role,
-    content: [
-      {
-        type: "text" as const,
-        text: msg.displayText || msg.content,
-      },
-    ],
+    content,
     id: msg.id,
     createdAt: new Date(msg.createdAt),
     // Action relay messages are shown as compact user messages

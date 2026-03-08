@@ -30,6 +30,8 @@ export interface ChatMessage {
   displayText?: string;
   /** If true, this message is an action relay — styled more compactly in chat */
   isActionRelay?: boolean;
+  /** Accumulated thinking/reasoning text from the LLM */
+  thinkingText?: string;
 }
 
 const CHAT_STORAGE_PREFIX = "jarble-chat-";

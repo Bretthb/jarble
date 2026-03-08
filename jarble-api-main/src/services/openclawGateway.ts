@@ -88,6 +88,8 @@ export interface GatewayResponse {
   uiUpdates: JarbleUIUpdate[];
   /** Custom component definitions to register */
   componentDefs: JarbleComponentDef[];
+  /** Accumulated thinking/reasoning text from the LLM (if supported) */
+  thinkingText?: string;
 }
 
 export async function chatViaGateway(
@@ -385,16 +387,18 @@ export async function chatViaHttp(
   onDelta?: (fullText: string) => void,
   signal?: AbortSignal,
   onBlockDetected?: (block: JarbleUIBlock) => void,
+  onThinking?: (fullThinkingText: string) => void,
 ): Promise<GatewayResponse> {
   const { ip, port, gatewayToken, sessionKey } = opts;
   const url = `http://${ip}:${port}/v1/chat/completions`;
+  const streamingDisabled = process.env.DISABLE_HTTP_STREAMING === "true";
 
-  logger.info({ url, messageLen: message.length, sessionKey }, "chatViaHttp: sending request");
+  logger.info({ url, messageLen: message.length, sessionKey, streaming: !streamingDisabled }, "chatViaHttp: sending request");
 
   const body = JSON.stringify({
     model: "default",
     messages: [{ role: "user", content: message }],
-    stream: false,
+    stream: !streamingDisabled,
     // Pass session key as metadata so conversations persist
     ...(sessionKey ? { user: sessionKey } : {}),
   });
@@ -414,25 +418,111 @@ export async function chatViaHttp(
     throw new Error(`HTTP chat failed: ${response.status} ${errText.slice(0, 200)}`);
   }
 
-  const json = await response.json() as any;
-  const fullText = json.choices?.[0]?.message?.content || "";
+  // ── Non-streaming fallback ──────────────────────────────────────────────────
+  if (streamingDisabled) {
+    const json = await response.json() as any;
+    const fullText = json.choices?.[0]?.message?.content || "";
+    const thinkingText = json.choices?.[0]?.message?.reasoning_content
+                      || json.choices?.[0]?.message?.reasoning || "";
 
-  if (!fullText) {
-    logger.warn({ url, json }, "chatViaHttp: empty response from bot");
+    if (!fullText) {
+      logger.warn({ url, json }, "chatViaHttp: empty response from bot");
+    }
+
+    onDelta?.(fullText);
+    if (thinkingText) onThinking?.(thinkingText);
+
+    const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
+    if (onBlockDetected) {
+      for (const block of uiBlocks) {
+        onBlockDetected(block);
+      }
+    }
+    logger.info({ url, rawTextLength: fullText.length, blockCount: uiBlocks.length }, "chatViaHttp: non-streaming response");
+    return { rawText: fullText, text: cleanText, uiBlocks: [], uiUpdates, componentDefs, thinkingText: thinkingText || undefined };
   }
 
-  // Deliver the complete text at once
-  onDelta?.(fullText);
+  // ── Streaming SSE reader ────────────────────────────────────────────────────
+  if (!response.body) {
+    throw new Error("HTTP chat: response body is null (streaming not supported?)");
+  }
+
+  const reader = (response.body as any).getReader() as ReadableStreamDefaultReader<Uint8Array>;
+  const decoder = new TextDecoder();
+  let sseBuffer = "";
+  let fullText = "";
+  let thinkingText = "";
+  let emittedBlockCount = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      sseBuffer += decoder.decode(value, { stream: true });
+      const lines = sseBuffer.split("\n");
+      sseBuffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        if (trimmed === "data: [DONE]") continue;
+
+        let chunk: any;
+        try {
+          chunk = JSON.parse(trimmed.slice(6));
+        } catch {
+          logger.debug({ line: trimmed.slice(0, 200) }, "chatViaHttp: failed to parse SSE chunk");
+          continue;
+        }
+
+        const choice = chunk.choices?.[0];
+        if (!choice) continue;
+
+        // Text content delta
+        const delta = choice.delta?.content || "";
+        if (delta) {
+          fullText += delta;
+          onDelta?.(fullText);
+        }
+
+        // Thinking/reasoning delta (OpenAI/OpenRouter format)
+        const reasoningDelta = choice.delta?.reasoning_content
+                            || choice.delta?.reasoning || "";
+        if (reasoningDelta) {
+          thinkingText += reasoningDelta;
+          onThinking?.(thinkingText);
+        }
+
+        // Incremental UI block detection
+        if (onBlockDetected && fullText) {
+          const { uiBlocks } = extractUIBlocks(fullText);
+          for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
+            onBlockDetected(uiBlocks[idx]);
+          }
+          emittedBlockCount = uiBlocks.length;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!fullText) {
+    logger.warn({ url }, "chatViaHttp: empty streaming response from bot");
+  }
 
   const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
-  // Emit all blocks via callback
+  // Only emit blocks not already emitted during streaming
+  const remainingBlocks = uiBlocks.slice(emittedBlockCount);
   if (onBlockDetected) {
-    for (const block of uiBlocks) {
+    for (const block of remainingBlocks) {
       onBlockDetected(block);
     }
   }
-  logger.info({ url, rawTextLength: fullText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "chatViaHttp: response summary");
-  return { rawText: fullText, text: cleanText, uiBlocks: [], uiUpdates, componentDefs };
+
+  logger.info({ url, rawTextLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, hasThinking: !!thinkingText }, "chatViaHttp: streaming response summary");
+  return { rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs, thinkingText: thinkingText || undefined };
 }
 
 // ── Exec-based HTTP fallback ─────────────────────────────────────────────────

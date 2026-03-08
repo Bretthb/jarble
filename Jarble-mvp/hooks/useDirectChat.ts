@@ -31,6 +31,8 @@ export interface DirectChatMessage {
   displayText?: string;
   /** If true, this message is an action relay — styled more compactly in chat */
   isActionRelay?: boolean;
+  /** Accumulated thinking/reasoning text from the LLM */
+  thinkingText?: string;
 }
 
 /** Regex to strip ```jarble_ui ... ``` and ```jarble_ui_update ... ``` fenced blocks from displayed text */
@@ -121,6 +123,38 @@ export function useDirectChat(deploymentId: string) {
         let buffer = "";
         const pendingBlocks = new Map<string, UIBlock>();
 
+        // rAF-based throttling for text deltas to prevent excessive re-renders
+        let pendingTextDelta = "";
+        let pendingThinkingDelta = "";
+        let rafHandle = 0;
+
+        const flushTextDeltas = () => {
+          const textBatch = pendingTextDelta;
+          const thinkingBatch = pendingThinkingDelta;
+          pendingTextDelta = "";
+          pendingThinkingDelta = "";
+          rafHandle = 0;
+
+          if (textBatch || thinkingBatch) {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantId) return m;
+                return {
+                  ...m,
+                  ...(textBatch ? { content: m.content + textBatch } : {}),
+                  ...(thinkingBatch ? { thinkingText: (m.thinkingText || "") + thinkingBatch } : {}),
+                };
+              })
+            );
+          }
+        };
+
+        const scheduleFlush = () => {
+          if (!rafHandle) {
+            rafHandle = requestAnimationFrame(flushTextDeltas);
+          }
+        };
+
         outer: while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -142,12 +176,12 @@ export function useDirectChat(deploymentId: string) {
                 if (isDev && textContentCount % 5 === 0) {
                   console.log(`[Jarble:DirectChat] SSE event: TEXT_MESSAGE_CONTENT (x${textContentCount})`);
                 }
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId ? { ...m, content: m.content + event.delta } : m
-                  )
-                );
-              } else if (isDev && event.type !== "TEXT_MESSAGE_CONTENT") {
+                pendingTextDelta += event.delta;
+                scheduleFlush();
+              } else if (event.type === "THINKING_CONTENT" && event.delta) {
+                pendingThinkingDelta += event.delta;
+                scheduleFlush();
+              } else if (isDev && event.type !== "TEXT_MESSAGE_CONTENT" && event.type !== "THINKING_CONTENT") {
                 console.log(`[Jarble:DirectChat] SSE event: ${event.type}`);
               }
 
@@ -214,6 +248,10 @@ export function useDirectChat(deploymentId: string) {
             }
           }
         }
+
+        // Flush any remaining buffered deltas
+        if (rafHandle) cancelAnimationFrame(rafHandle);
+        if (pendingTextDelta || pendingThinkingDelta) flushTextDeltas();
 
         isDev && console.log(`[Jarble:DirectChat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
       } catch (err: unknown) {

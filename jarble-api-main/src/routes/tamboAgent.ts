@@ -273,8 +273,9 @@ tamboAgentRouter.post("/", async (req, res) => {
   const messageId = nanoid();
   sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
 
-  // Track the last delta text to compute incremental deltas for SSE
+  // Track the last delta text and thinking text to compute incremental deltas for SSE
   let lastDeltaText = "";
+  let lastThinkingText = "";
   const sessionKey = `jarble-web-${authenticatedUserId || "anon"}`;
 
   // In local dev (USE_SQLITE), pod IPs are unreachable from the host — skip
@@ -433,6 +434,13 @@ tamboAgentRouter.post("/", async (req, res) => {
           lastDeltaText = fullTextSoFar;
         }
       };
+      const onThinking = (fullThinkingText: string) => {
+        if (fullThinkingText.length > lastThinkingText.length) {
+          const newPart = fullThinkingText.slice(lastThinkingText.length);
+          sendEvent(res, { type: "THINKING_CONTENT", messageId, delta: newPart });
+          lastThinkingText = fullThinkingText;
+        }
+      };
       const onBlock = async (block: JarbleUIBlock) => {
         try {
           const resolved = await resolveUIBlocks([block], deploymentId);
@@ -459,7 +467,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       // fall back to WS gateway if HTTP fails.
       let gatewayResult: GatewayResponse;
       try {
-        gatewayResult = await chatViaHttp(gwOpts, lastUserText, onFullTextDelta, abortController.signal, onBlock);
+        gatewayResult = await chatViaHttp(gwOpts, lastUserText, onFullTextDelta, abortController.signal, onBlock, onThinking);
       } catch (httpErr: unknown) {
         const httpE = httpErr instanceof Error ? httpErr : new Error(String(httpErr));
         logger.warn({ deploymentId, error: httpE.message }, "HTTP chat failed, trying WS gateway");
