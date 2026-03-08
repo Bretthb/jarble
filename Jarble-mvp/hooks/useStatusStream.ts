@@ -9,6 +9,12 @@ export interface DeploymentStatus {
   status: string;
   restarts?: number;
   error?: string;
+  nodeName?: string | null;
+  cpuUsageMillicores?: number | null;
+  cpuLimitMillicores?: number | null;
+  memoryUsageMb?: number | null;
+  memoryLimitMb?: number | null;
+  uptimeSeconds?: number | null;
 }
 
 interface UseStatusStreamOptions {

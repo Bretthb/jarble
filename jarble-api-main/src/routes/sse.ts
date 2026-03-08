@@ -10,6 +10,7 @@ import { syncConfigsToPvc } from "../services/configSync.js";
 import {
   streamDeploymentLogs,
   getDeploymentPodStatus,
+  getDeploymentMetrics,
   findPodForDeployment,
   streamExecInPod,
 } from "../k8s/index.js";
@@ -366,7 +367,10 @@ sseRouter.get("/status/stream", async (req, res) => {
         const isTransitional = ["creating", "restarting", "stopping"].includes(dbStatus);
         if (!isTransitional && (dbStatus === "running" || dbStatus === "failed")) {
           try {
-            const podStatus = await getDeploymentPodStatus(dep.id);
+            const [podStatus, metrics] = await Promise.all([
+              getDeploymentPodStatus(dep.id),
+              dbStatus === "running" ? getDeploymentMetrics(dep.id) : Promise.resolve(null),
+            ]);
 
             if (podStatus.status !== dbStatus
                 && (podStatus.status === "running" || podStatus.status === "failed")) {
@@ -390,6 +394,12 @@ sseRouter.get("/status/stream", async (req, res) => {
               status: podStatus.status,
               restarts: podStatus.restarts,
               error: podStatus.error,
+              nodeName: metrics?.nodeName ?? null,
+              cpuUsageMillicores: metrics?.cpuUsageMillicores ?? null,
+              cpuLimitMillicores: metrics?.cpuLimitMillicores ?? null,
+              memoryUsageMb: metrics?.memoryUsageMb ?? null,
+              memoryLimitMb: metrics?.memoryLimitMb ?? null,
+              uptimeSeconds: metrics?.uptimeSeconds ?? null,
             };
           } catch {
             return { deploymentId: dep.id, status: dbStatus };

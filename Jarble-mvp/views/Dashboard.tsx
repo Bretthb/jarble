@@ -27,7 +27,8 @@ import { useState, useCallback, memo } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StorageMeter, StorageMeterSkeleton } from "@/components/StorageMeter";
-import { useStatusStream } from "@/hooks/useStatusStream";
+import { ResourceMetrics } from "@/components/ResourceMetrics";
+import { useStatusStream, type DeploymentStatus } from "@/hooks/useStatusStream";
 
 function base64ToBlob(b64: string, mime = "application/zip"): Blob {
   const bytes = atob(b64);
@@ -294,7 +295,7 @@ export default function Dashboard() {
               <DeploymentCard
                 key={deployment.id}
                 deployment={deployment}
-                liveStatus={getLiveStatus(deployment.id)?.status}
+                liveStatusData={getLiveStatus(deployment.id)}
                 onDelete={handleDelete}
                 onStop={handleStop}
                 onStart={handleStart}
@@ -336,7 +337,7 @@ export default function Dashboard() {
   );
 }
 
-const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatus, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting, storageData, storageLoading }: {
+const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting, storageData, storageLoading }: {
   deployment: {
     id: string;
     name: string;
@@ -351,7 +352,7 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatus, on
     cancelledAt?: string | null;
     cancelAtPeriodEnd?: string | null;
   };
-  liveStatus?: string;
+  liveStatusData?: DeploymentStatus;
   onDelete: (id: string) => void;
   onStop: (id: string) => void;
   onStart: (id: string) => void;
@@ -366,7 +367,7 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatus, on
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Use live SSE status if available, fall back to DB status
-  const status = liveStatus || deployment.status;
+  const status = liveStatusData?.status || deployment.status;
 
   // Query storage usage (only for running deployments)
   const isRunning = status === "running";
@@ -441,6 +442,21 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatus, on
                   compact
                 />
               ) : null}
+            </div>
+          )}
+
+          {/* Resource Metrics (running deployments only) */}
+          {isRunning && liveStatusData && (
+            <div className="mb-3">
+              <ResourceMetrics
+                nodeName={liveStatusData.nodeName}
+                cpuUsageMillicores={liveStatusData.cpuUsageMillicores}
+                cpuLimitMillicores={liveStatusData.cpuLimitMillicores}
+                memoryUsageMb={liveStatusData.memoryUsageMb}
+                memoryLimitMb={liveStatusData.memoryLimitMb}
+                uptimeSeconds={liveStatusData.uptimeSeconds}
+                restarts={liveStatusData.restarts}
+              />
             </div>
           )}
 
