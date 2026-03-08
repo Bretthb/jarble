@@ -151,7 +151,7 @@ export async function createDeployment(
               name: "gateway",
             }],
             resources: {
-              requests: { cpu: cpuMillicores, memory: memoryMi, "ephemeral-storage": "100Mi" },
+              requests: { cpu: "100m", memory: "256Mi", "ephemeral-storage": "100Mi" },
               limits: { cpu: cpuMillicores, memory: memoryMi, "ephemeral-storage": "1Gi" },
             },
             securityContext: {

@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import ChatErrorCard from "@/components/workspace/ChatErrorCard";
 import { useDiagnose } from "@/hooks/useDiagnose";
+import { ChatSessionSidebar } from "@/components/chat/ChatSessionSidebar";
+import { useChatSessions } from "@/hooks/useChatSessions";
 
 // ── Example prompts for empty state ──────────────────────────────────────────
 
@@ -159,7 +161,29 @@ function WorkspacePage({
 
 function ChatPanel({ deploymentId }: { deploymentId: string }) {
   const startMutation = trpc.deployment.start.useMutation();
-  const { messages, isStreaming, sendMessage } = useDirectChat(deploymentId);
+  const { messages, isStreaming, sendMessage, loadMessages, clearMessages } = useDirectChat(deploymentId);
+  const {
+    sessions,
+    isLoading: sessionsLoading,
+    activeSessionId,
+    loadSession,
+    startNewChat,
+    refreshSessions,
+  } = useChatSessions(deploymentId);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const handleSelectSession = useCallback(
+    async (sessionId: string) => {
+      const msgs = await loadSession(sessionId);
+      loadMessages(msgs);
+    },
+    [loadSession, loadMessages]
+  );
+
+  const handleNewChat = useCallback(() => {
+    startNewChat();
+    clearMessages();
+  }, [startNewChat, clearMessages]);
   // Adapt DirectChatMessage to the ChatMessage shape expected by useJarbleRuntime
   const adaptedMessages = messages.map((m) => ({
     ...m,
@@ -193,8 +217,10 @@ function ChatPanel({ deploymentId }: { deploymentId: string }) {
       }
       await sendMessage(text);
       textareaRef.current?.focus();
+      // Refresh sessions list after message exchange so new sessions appear
+      refreshSessions();
     },
-    [input, isStreaming, sendMessage]
+    [input, isStreaming, sendMessage, refreshSessions]
   );
 
   const handleKeyDown = useCallback(
@@ -209,16 +235,30 @@ function ChatPanel({ deploymentId }: { deploymentId: string }) {
 
   // Handle example prompt click
   const handleExamplePrompt = useCallback(
-    (prompt: string) => {
+    async (prompt: string) => {
       if (isStreaming) return;
       setInput("");
-      sendMessage(prompt);
+      await sendMessage(prompt);
+      refreshSessions();
     },
-    [isStreaming, sendMessage]
+    [isStreaming, sendMessage, refreshSessions]
   );
 
   return (
-    <div className="flex-1 flex flex-col max-w-3xl mx-auto border-x border-border/40 bg-background">
+    <div className="flex-1 flex h-full relative">
+      {/* Session sidebar */}
+      <ChatSessionSidebar
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelectSession={handleSelectSession}
+        onNewChat={handleNewChat}
+        isLoading={sessionsLoading}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen((v) => !v)}
+      />
+
+      {/* Chat area */}
+      <div className="flex-1 flex flex-col max-w-3xl mx-auto border-x border-border/40 bg-background">
       {/* Chat messages via assistant-ui */}
       <AssistantUIChat
         runtime={runtime}
@@ -283,6 +323,7 @@ function ChatPanel({ deploymentId }: { deploymentId: string }) {
           </Button>
         </form>
       </div>
+    </div>
     </div>
   );
 }

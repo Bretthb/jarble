@@ -36,8 +36,14 @@ function formatUptime(seconds: number): string {
   return `${minutes}m`;
 }
 
+const NODE_LABELS: Record<string, string> = {
+  "jarble-master": "Server 1",
+  "jarble-agent-1": "Server 2",
+  "jarble-agent-2": "Server 3",
+};
+
 function formatNodeName(name: string): string {
-  return name.replace(/^jarble-/, "");
+  return NODE_LABELS[name] ?? name;
 }
 
 export function ResourceMetrics({

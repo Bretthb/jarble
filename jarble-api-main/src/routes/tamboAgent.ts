@@ -20,7 +20,7 @@ import { db, tables } from "../db/index.js";
 import { env } from "../utils/env.js";
 import { logger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
-import { getPodAddress, findPodForDeployment } from "../k8s/index.js";
+import { getPodAddress, findPodForDeployment, execInPod } from "../k8s/index.js";
 import { chatViaGateway, chatViaHttp, chatViaExec, type GatewayResponse } from "../services/openclawGateway.js";
 import { extractUIBlocks, type JarbleUIBlock, type JarbleComponentDef } from "../utils/uiBlockParser.js";
 import { readComponentFromPvc, writeComponentToPvc } from "../k8s/index.js";
@@ -114,6 +114,216 @@ async function resolveUIBlocks(
   }
   return resolved;
 }
+
+// ─── Chat History Endpoints ─────────────────────────────────────────────────
+
+const SESSIONS_DIR = "/data/.openclaw/.openclaw/agents/main/sessions";
+
+/**
+ * List chat sessions for a deployment.
+ * Reads the session JSONL files from the pod's PVC.
+ */
+tamboAgentRouter.get("/sessions/:deploymentId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!token) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const payload = await verifyToken(token);
+    const user = await getUserFromToken(payload);
+    if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const { deploymentId } = req.params;
+    const deployment = await db.query.deployments.findFirst({
+      where: eq(tables.deployments.id, deploymentId),
+    });
+    if (!deployment || deployment.userId !== user.id) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+
+    const podName = await findPodForDeployment(deploymentId);
+    if (!podName) {
+      res.json({ sessions: [] });
+      return;
+    }
+
+    // List session JSONL files and read first user message from each for title
+    let fileList: string;
+    try {
+      fileList = await execInPod(podName, ["sh", "-c", `ls -1 ${SESSIONS_DIR}/*.jsonl 2>/dev/null || true`]);
+    } catch {
+      res.json({ sessions: [] });
+      return;
+    }
+
+    const files = fileList.trim().split("\n").filter((f) => f.endsWith(".jsonl"));
+    if (files.length === 0) {
+      res.json({ sessions: [] });
+      return;
+    }
+
+    // For each session file, read first few lines to extract metadata + first user message
+    const sessions = await Promise.all(files.map(async (filePath) => {
+      try {
+        const head = await execInPod(podName, ["sh", "-c", `head -20 "${filePath}"`]);
+        const lines = head.trim().split("\n");
+
+        let sessionId = "";
+        let createdAt = "";
+        let firstUserMessage = "";
+        let messageCount = 0;
+
+        for (const line of lines) {
+          try {
+            const entry = JSON.parse(line);
+            if (entry.type === "session") {
+              sessionId = entry.id;
+              createdAt = entry.timestamp;
+            }
+            if (entry.type === "message" && entry.message?.role === "user" && !firstUserMessage) {
+              const content = entry.message.content;
+              firstUserMessage = typeof content === "string"
+                ? content
+                : Array.isArray(content)
+                  ? content.filter((p: any) => p.type === "text").map((p: any) => p.text).join("")
+                  : "";
+            }
+          } catch { /* skip unparseable lines */ }
+        }
+
+        // Count total messages (wc -l is fast even for large files)
+        try {
+          const wcOut = await execInPod(podName, ["sh", "-c", `grep -c '"type":"message"' "${filePath}" 2>/dev/null || echo 0`]);
+          messageCount = parseInt(wcOut.trim(), 10) || 0;
+        } catch { /* ignore */ }
+
+        if (!sessionId) return null;
+
+        // Auto-title: first 60 chars of first user message, stripped of [CANVAS_STATE] blocks
+        let title = firstUserMessage
+          .replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]\s*/g, "")
+          .replace(/\[EDITING [^\]]+\]\s*/g, "")
+          .trim();
+        if (title.length > 60) title = title.slice(0, 57) + "...";
+        if (!title) title = "New conversation";
+
+        return { sessionId, title, createdAt, messageCount };
+      } catch {
+        return null;
+      }
+    }));
+
+    // Filter nulls and sort newest first
+    const valid = sessions
+      .filter((s): s is NonNullable<typeof s> => s !== null)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    res.json({ sessions: valid });
+  } catch (err) {
+    logger.error({ err }, "Failed to list chat sessions");
+    res.status(500).json({ error: "Failed to list sessions" });
+  }
+});
+
+/**
+ * Load messages for a specific chat session.
+ * Reads the session JSONL file and extracts user/assistant messages.
+ */
+tamboAgentRouter.get("/sessions/:deploymentId/:sessionId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!token) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const payload = await verifyToken(token);
+    const user = await getUserFromToken(payload);
+    if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const { deploymentId, sessionId } = req.params;
+    const deployment = await db.query.deployments.findFirst({
+      where: eq(tables.deployments.id, deploymentId),
+    });
+    if (!deployment || deployment.userId !== user.id) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+
+    const podName = await findPodForDeployment(deploymentId);
+    if (!podName) {
+      res.status(400).json({ error: "Pod not running" });
+      return;
+    }
+
+    // Read the session JSONL file
+    const filePath = `${SESSIONS_DIR}/${sessionId}.jsonl`;
+    let content: string;
+    try {
+      content = await execInPod(podName, ["sh", "-c", `cat "${filePath}"`]);
+    } catch {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+
+    const lines = content.trim().split("\n");
+    const messages: Array<{
+      id: string;
+      role: "user" | "assistant";
+      content: string;
+      thinkingText?: string;
+      createdAt: string;
+    }> = [];
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type !== "message") continue;
+
+        const msg = entry.message;
+        if (!msg || (msg.role !== "user" && msg.role !== "assistant")) continue;
+
+        let content = "";
+        let thinkingText = "";
+
+        if (typeof msg.content === "string") {
+          content = msg.content;
+        } else if (Array.isArray(msg.content)) {
+          for (const part of msg.content) {
+            if (part.type === "text") content += part.text;
+            if (part.type === "thinking") thinkingText += part.thinking;
+          }
+        }
+
+        // Strip jarble_ui fenced blocks from assistant messages
+        if (msg.role === "assistant") {
+          content = content.replace(/```jarble_ui(?:_update|_define)?\s*\n[\s\S]*?```/g, "").replace(/\n{3,}/g, "\n\n").trim();
+        }
+        // Strip [CANVAS_STATE] blocks from user messages
+        if (msg.role === "user") {
+          content = content
+            .replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]\s*/g, "")
+            .replace(/\[EDITING [^\]]+\]\s*/g, "")
+            .trim();
+        }
+
+        if (!content) continue;
+
+        messages.push({
+          id: entry.id,
+          role: msg.role,
+          content,
+          ...(thinkingText ? { thinkingText } : {}),
+          createdAt: entry.timestamp,
+        });
+      } catch { /* skip unparseable lines */ }
+    }
+
+    res.json({ messages });
+  } catch (err) {
+    logger.error({ err }, "Failed to load chat session");
+    res.status(500).json({ error: "Failed to load session" });
+  }
+});
 
 // ─── Main Chat Endpoint ─────────────────────────────────────────────────────
 

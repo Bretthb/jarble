@@ -278,5 +278,9 @@ export function useDirectChat(deploymentId: string) {
 
   const clearMessages = useCallback(() => setMessages([]), []);
 
-  return { messages, isStreaming, sendMessage, clearMessages };
+  const loadMessages = useCallback((msgs: DirectChatMessage[]) => {
+    setMessages(msgs);
+  }, []);
+
+  return { messages, isStreaming, sendMessage, clearMessages, loadMessages };
 }
