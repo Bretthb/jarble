@@ -8,7 +8,7 @@
  * keyboard navigation, auto-scroll, and full ARIA accessibility for free.
  */
 
-import { memo, type ReactNode } from "react";
+import { memo, useState, useEffect, useRef, type ReactNode } from "react";
 import {
   AssistantRuntimeProvider,
   ThreadPrimitive,
@@ -107,6 +107,43 @@ function UserBubble() {
   );
 }
 
+// ── Typewriter Hook ─────────────────────────────────────────────────────────
+
+function useTypewriter(text: string, speed = 12) {
+  const [displayed, setDisplayed] = useState("");
+  const prevTextRef = useRef("");
+
+  useEffect(() => {
+    // If text changed (new message), animate from where we left off
+    if (text === prevTextRef.current) return;
+
+    const startFrom = text.startsWith(prevTextRef.current)
+      ? prevTextRef.current.length
+      : 0;
+
+    if (startFrom === 0) setDisplayed("");
+
+    let i = startFrom;
+    const timer = setInterval(() => {
+      if (i >= text.length) {
+        clearInterval(timer);
+        prevTextRef.current = text;
+        setDisplayed(text);
+        return;
+      }
+      // Advance by a few chars per tick for snappy feel
+      const step = Math.min(3, text.length - i);
+      i += step;
+      setDisplayed(text.slice(0, i));
+    }, speed);
+
+    return () => clearInterval(timer);
+  }, [text, speed]);
+
+  const isAnimating = displayed.length < text.length;
+  return { displayed, isAnimating };
+}
+
 // ── Assistant Message Bubble ────────────────────────────────────────────────
 
 function AssistantBubble() {
@@ -118,6 +155,9 @@ function AssistantBubble() {
   const isInProgress = message?.status?.type === "requires-action" || message?.status?.type === "incomplete"
     ? false
     : message?.status?.type !== "complete";
+
+  const { displayed, isAnimating } = useTypewriter(content);
+  const showCursor = isInProgress || isAnimating;
 
   return (
     <MessagePrimitive.Root className="flex gap-3 group">
@@ -131,10 +171,10 @@ function AssistantBubble() {
         <div
           className={cn(
             "rounded-lg px-4 py-3 bg-secondary/30",
-            isInProgress && "animate-[shimmer_2s_ease-in-out_infinite]",
+            isInProgress && !isAnimating && "animate-[shimmer_2s_ease-in-out_infinite]",
           )}
           style={
-            isInProgress
+            isInProgress && !isAnimating
               ? {
                   backgroundSize: "200% 100%",
                   backgroundImage:
@@ -143,20 +183,22 @@ function AssistantBubble() {
               : undefined
           }
         >
-          <MarkdownMessage content={content} />
-          {isInProgress && (
+          <MarkdownMessage content={displayed} />
+          {showCursor && (
             <span className="inline-block w-2 h-4 bg-primary/60 animate-pulse ml-1 align-middle" />
           )}
         </div>
-        {/* Copy + Regenerate - only shows on hover */}
-        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-          <ActionBarPrimitive.Copy className="p-1 rounded hover:bg-secondary/60 text-muted-foreground" copiedDuration={2000}>
-            <Copy className="w-3 h-3" />
-          </ActionBarPrimitive.Copy>
-          <ActionBarPrimitive.Reload className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
-            <RotateCcw className="w-3 h-3" />
-          </ActionBarPrimitive.Reload>
-        </div>
+        {/* Copy + Regenerate - only shows on hover, after animation */}
+        {!isAnimating && (
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+            <ActionBarPrimitive.Copy className="p-1 rounded hover:bg-secondary/60 text-muted-foreground" copiedDuration={2000}>
+              <Copy className="w-3 h-3" />
+            </ActionBarPrimitive.Copy>
+            <ActionBarPrimitive.Reload className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
+              <RotateCcw className="w-3 h-3" />
+            </ActionBarPrimitive.Reload>
+          </div>
+        )}
       </div>
     </MessagePrimitive.Root>
   );
