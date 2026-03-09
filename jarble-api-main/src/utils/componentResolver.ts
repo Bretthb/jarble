@@ -179,19 +179,55 @@ function substituteValue(
   return value;
 }
 
+/** Max total resolved blocks from a single custom component expansion */
+const MAX_EXPANDED = 50;
+
+/** Max serialized size (in bytes) of resolved props after substitution — prevents memory bombs */
+const MAX_RESOLVED_PROPS_SIZE = 256 * 1024; // 256KB
+
 /**
  * Resolve a custom component definition by substituting props into the layout template.
  * Returns an array of resolved blocks (built-in primitives with concrete props).
+ *
+ * Enforces expansion limits to prevent unbounded resource usage from malicious
+ * or buggy custom component definitions.
  */
 export function resolveCustomComponent(
   definition: ComponentDefinition,
   props: Record<string, unknown>
 ): ResolvedBlock[] {
   log.debug({ name: definition.name, propCount: Object.keys(props).length }, "resolveCustomComponent");
-  return definition.layout.map((child) => ({
+
+  const expanded = definition.layout.map((child) => ({
     component: child.component,
     props: substituteValue(child.props, props, 0) as Record<string, unknown>,
   }));
+
+  // Guard: limit total expanded children
+  if (expanded.length > MAX_EXPANDED) {
+    log.warn(
+      { name: definition.name, expandedCount: expanded.length, max: MAX_EXPANDED },
+      "Custom component expanded to too many children, truncating"
+    );
+    return expanded.slice(0, MAX_EXPANDED);
+  }
+
+  // Guard: limit total resolved props size to prevent memory bombs
+  try {
+    const totalSize = JSON.stringify(expanded).length;
+    if (totalSize > MAX_RESOLVED_PROPS_SIZE) {
+      log.warn(
+        { name: definition.name, totalSize, max: MAX_RESOLVED_PROPS_SIZE },
+        "Custom component resolved props too large, returning empty"
+      );
+      return [];
+    }
+  } catch {
+    log.warn({ name: definition.name }, "Failed to measure resolved props size (non-serializable)");
+    return [];
+  }
+
+  return expanded;
 }
 
 /**

@@ -13,6 +13,17 @@ import { HEARTBEAT_INTERVAL_MS } from "./types";
 
 const isDev = process.env.NODE_ENV === "development";
 
+/** Check if a URL origin is in the trusted CDN allowlist. */
+function isUrlTrustedCdn(url: string): boolean {
+  if (!url.startsWith("https://")) return false;
+  try {
+    const parsed = new URL(url);
+    return TRUSTED_CDN_ORIGINS.includes(parsed.origin);
+  } catch {
+    return false;
+  }
+}
+
 /** Escape a string for safe use inside an HTML attribute (double-quoted). */
 export function escapeAttr(s: string): string {
   return s
@@ -39,12 +50,16 @@ export function sanitizeHtmlProp(
   const extractedCss: string[] = [];
   const extractedLibs: string[] = [...(existingLibs || [])];
 
-  // Extract <script src="..."> tags -> libraries
+  // Extract <script src="..."> tags -> libraries (only from trusted CDNs)
   cleanHtml = cleanHtml.replace(
     /<script\s+[^>]*src=["']([^"']+)["'][^>]*>\s*<\/script>/gi,
     (_match, url) => {
-      isDev && console.log(`${logPrefix} Extracted <script src> from html ->`, url);
-      if (!extractedLibs.includes(url)) extractedLibs.push(url);
+      if (isUrlTrustedCdn(url)) {
+        isDev && console.log(`${logPrefix} Extracted <script src> from html ->`, url);
+        if (!extractedLibs.includes(url)) extractedLibs.push(url);
+      } else {
+        isDev && console.warn(`${logPrefix} Rejected untrusted script URL:`, url);
+      }
       return "";
     },
   );
@@ -76,11 +91,16 @@ export function sanitizeHtmlProp(
   );
 
   // Extract <link rel="stylesheet" href="..."> -> CSS @import rules
+  // Only allow stylesheets from trusted CDN origins (defense-in-depth)
   cleanHtml = cleanHtml.replace(
     /<link\s+[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*\/?>/gi,
     (_match, url) => {
-      isDev && console.log(`${logPrefix} Extracted <link stylesheet> from html ->`, url);
-      extractedCss.push(`@import url("${url}");`);
+      if (isUrlTrustedCdn(url)) {
+        isDev && console.log(`${logPrefix} Extracted <link stylesheet> from html ->`, url);
+        extractedCss.push(`@import url("${url}");`);
+      } else {
+        isDev && console.warn(`${logPrefix} Rejected untrusted stylesheet URL:`, url);
+      }
       return "";
     },
   );
@@ -88,8 +108,12 @@ export function sanitizeHtmlProp(
   cleanHtml = cleanHtml.replace(
     /<link\s+[^>]*href=["']([^"']+)["'][^>]*rel=["']stylesheet["'][^>]*\/?>/gi,
     (_match, url) => {
-      isDev && console.log(`${logPrefix} Extracted <link stylesheet> from html ->`, url);
-      extractedCss.push(`@import url("${url}");`);
+      if (isUrlTrustedCdn(url)) {
+        isDev && console.log(`${logPrefix} Extracted <link stylesheet> from html ->`, url);
+        extractedCss.push(`@import url("${url}");`);
+      } else {
+        isDev && console.warn(`${logPrefix} Rejected untrusted stylesheet URL:`, url);
+      }
       return "";
     },
   );
@@ -143,7 +167,17 @@ export function buildDocument(
   const { logPrefix } = config;
 
   // Sanitize and JSON-encode library URLs for dynamic loading
-  const safeLibs = (libraries || []).filter((url) => /^https?:\/\//.test(url));
+  // Defense-in-depth: validate against CDN allowlist on the client side too
+  // (server-side validation in uiBlockParser.ts is the primary gate)
+  const safeLibs = (libraries || []).filter((url) => {
+    if (!/^https:\/\//.test(url)) return false;
+    try {
+      const parsed = new URL(url);
+      return TRUSTED_CDN_ORIGINS.includes(parsed.origin);
+    } catch {
+      return false;
+    }
+  });
   const libsJson = JSON.stringify(safeLibs);
 
   const cdnOrigins = TRUSTED_CDN_ORIGINS.join(" ");

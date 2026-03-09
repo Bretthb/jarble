@@ -560,10 +560,15 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       gatewayToken: currentSecret?.OPENCLAW_GATEWAY_TOKEN,
     });
 
-    // Poll for readiness (90 × 2s = 3 min max)
+    // Poll for readiness with adaptive intervals:
+    //   - First 20s: poll every 1s (warm boots with .initialized are ready in ~15s)
+    //   - 20s-60s: poll every 2s
+    //   - 60s-180s: poll every 3s (cold boot npm install takes 2-3 min)
     let ready = false;
     let failureReason = "";
-    for (let i = 0; i < 90; i++) {
+    const pollStartMs = Date.now();
+    const maxPollMs = 180_000; // 3 min max
+    while (Date.now() - pollStartMs < maxPollMs) {
       const status = await getDeploymentPodStatus(deploymentId, managedBy);
       if (status.status === "running") {
         ready = true;
@@ -573,7 +578,9 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         failureReason = status.error || "Pod failed to start";
         break;
       }
-      await new Promise((r) => setTimeout(r, 2000));
+      const elapsedMs = Date.now() - pollStartMs;
+      const pollMs = elapsedMs < 20_000 ? 1000 : elapsedMs < 60_000 ? 2000 : 3000;
+      await new Promise((r) => setTimeout(r, pollMs));
     }
 
     if (ready) {

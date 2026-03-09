@@ -15,7 +15,6 @@ import {
   waitForComponentType,
   clickCanvasButton,
   clearCanvasState,
-  logTestFailure as canvasLogFailure,
 } from "./helpers/canvas";
 import { BUTTON_INTERACTION_PROMPTS } from "./helpers/prompts";
 

@@ -60,6 +60,9 @@ export default function Home() {
             <Link href="/marketplace" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
               Marketplace
             </Link>
+            <Link href="/docs" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
+              Docs
+            </Link>
             {isAuthenticated ? (
               <>
                 <Link href="/dashboard" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
@@ -244,7 +247,7 @@ export default function Home() {
             <nav className="flex flex-wrap justify-center gap-x-8 gap-y-2">
               <Link href="/about" className="text-muted-foreground hover:text-primary transition-colors">About</Link>
               <Link href="/pricing" className="text-muted-foreground hover:text-primary transition-colors">Pricing</Link>
-              <span className="text-muted-foreground-subtle cursor-default" title="Coming soon">Documentation</span>
+              <Link href="/docs" className="text-muted-foreground hover:text-primary transition-colors">Documentation</Link>
               <span className="text-muted-foreground/50 cursor-default" title="Coming soon">API Reference</span>
               <span className="text-muted-foreground/50 cursor-default" title="Coming soon">Terms of Service</span>
               <span className="text-muted-foreground/50 cursor-default" title="Coming soon">Privacy Policy</span>

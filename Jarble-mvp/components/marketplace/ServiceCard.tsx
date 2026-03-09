@@ -17,12 +17,12 @@ export interface ServiceCardData {
   pricingModel: string;
   priceUsdCents: number | null;
   totalInstalls: number | null;
-  avgRating: number | null;
+  avgRating: string | number | null;
   remoteHealth?: string | null; // "healthy" | "degraded" | "offline" | "unknown"
   componentCount: number;
   skillCount: number;
   creator: { id: string; displayName: string } | null;
-  createdAt: string;
+  createdAt: Date | string;
 }
 
 interface ServiceCardProps {
@@ -154,7 +154,7 @@ export function ServiceCard({ pkg, className }: ServiceCardProps) {
         <CardFooter className="pt-0 pb-4 flex items-center justify-between text-xs text-muted-foreground">
           {/* Rating + installs */}
           <div className="flex items-center gap-3">
-            <StarRating rating={(pkg.avgRating ?? 0) / 100} count={0} />
+            <StarRating rating={Number(pkg.avgRating ?? 0) / 100} count={0} />
             <span className="flex items-center gap-1">
               <Download className="size-3" />
               {formatInstalls(pkg.totalInstalls ?? 0)}

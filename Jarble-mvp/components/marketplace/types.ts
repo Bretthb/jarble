@@ -56,10 +56,10 @@ export interface MarketplaceReview {
   rating: number;
   title: string | null;
   body: string | null;
-  createdAt: string;
+  createdAt: Date | string;
   user: {
     id: string;
-    name: string;
+    name: string | null;
   } | null;
 }
 

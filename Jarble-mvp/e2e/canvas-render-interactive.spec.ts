@@ -14,7 +14,6 @@ import {
   assertNoErrorCards,
   waitForComponentType,
   clearCanvasState,
-  logTestFailure as canvasLogFailure,
 } from "./helpers/canvas";
 import { INTERACTIVE_RENDER_PROMPTS } from "./helpers/prompts";
 

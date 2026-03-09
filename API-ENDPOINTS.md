@@ -1,7 +1,7 @@
 # Jarble API Endpoints Reference
 
-> Complete reference for every API endpoint in the Jarble platform. Covers all 67 tRPC procedures and 19 REST endpoints.
-> Last updated: February 28, 2026 (Session 16)
+> Complete reference for every API endpoint in the Jarble platform. Covers all 81 tRPC procedures and 25 REST endpoints.
+> Last updated: March 9, 2026 (Session 17)
 
 ---
 
@@ -20,6 +20,7 @@
    - [Template Router](#template-router-1-procedure)
    - [Skills Router](#skills-router-4-procedures)
    - [Marketplace Router](#marketplace-router-22-procedures)
+   - [Services Router](#services-router-6-procedures)
 5. [REST Endpoints](#5-rest-endpoints)
    - [Webhooks](#webhooks)
    - [Payment Routes](#payment-routes)
@@ -166,6 +167,7 @@ graph TD
     TRPC --> TEMPLATE["template<br/>1 procedure"]
     TRPC --> SKILLS["skills<br/>4 procedures"]
     TRPC --> MARKETPLACE["marketplace<br/>22 procedures"]
+    TRPC --> SERVICES["services<br/>6 procedures"]
 
     DEPLOYMENT --> DB[("Database")]
     DEPLOYMENT --> K8S["K8s Cluster"]
@@ -177,6 +179,8 @@ graph TD
     SKILLS --> DB
     MARKETPLACE --> DB
     MARKETPLACE --> MFVAL["Manifest Validator"]
+    SERVICES --> DB
+    SERVICES --> SVCPROXY["Service Proxy<br/>(HMAC + Circuit Breaker)"]
 ```
 
 ---
@@ -534,6 +538,75 @@ graph TD
 
 ---
 
+### Services Router (6 procedures)
+
+The services marketplace enables users to install pre-built bundles of components, skills, and bot instruction snippets. Two hosting models: **Package** (self-hosted, buyer runs on their own pod) and **Hosted/Remote** (creator hosts APIs, buyer gets proxy access via ServiceCard).
+
+```mermaid
+graph TD
+    subgraph Browse["Browse (public)"]
+        SV1["list<br/>query | paginated + filtered"]
+        SV2["get<br/>query | full detail + components + skills"]
+        SV6["listByCreator<br/>query | creator's own services"]
+    end
+
+    subgraph Install["Install/Manage (protected)"]
+        SV3["install<br/>mutation | atomic: records + soul.md + PVC sync"]
+        SV4["uninstall<br/>mutation | remove components + skills + snippet"]
+    end
+
+    subgraph Creator["Creator (protected)"]
+        SV5["publish<br/>mutation | create or update a service listing"]
+    end
+```
+
+| Procedure | Type | Auth | Description |
+|---|---|---|---|
+| `services.list` | query | public | Paginated service browser with category/hostingModel/search filters |
+| `services.get` | query | public | Full service detail with components, skills, creator profile |
+| `services.install` | mutation | protected | Atomic install: creates `serviceInstalls` + `componentInstalls` + `deploymentSkills` records, appends `instructionSnippet` to soul.md, triggers single `syncConfigsToPvc()`. For hosted services: calls install handshake POST to creator API + stores encrypted per-install HMAC signing secret |
+| `services.uninstall` | mutation | protected | Removes `serviceInstalls`, `componentInstalls`, `deploymentSkills` records and strips instruction snippet from soul.md. Triggers `syncConfigsToPvc()` |
+| `services.publish` | mutation | protected | Create or update a service listing with component/skill associations and ServiceCard JSON |
+| `services.listByCreator` | query | public | All services published by a given creator profile |
+
+#### ServiceCard (Hosted Services)
+
+For hosted services (`hostingModel: "hosted"`), the publisher provides a **ServiceCard** JSON blob describing their remote API:
+
+```typescript
+{
+  remoteApiEndpoint: string          // Creator's API base URL
+  authType: "hmac" | "bearer"        // Authentication method
+  skills: [
+    {
+      name: string                   // Skill identifier (routes proxy requests)
+      description: string
+      inputSchema?: object           // JSON Schema for input validation
+      outputSchema?: object          // JSON Schema for output validation (warn-only)
+    }
+  ]
+  rateLimits?: {
+    requestsPerMinute?: number       // Per-deployment+service rate limit
+    requestsPerDay?: number
+  }
+  health?: {
+    endpoint: string                 // GET endpoint for health checks
+    intervalMinutes?: number
+  }
+}
+```
+
+Buyer pods never call creator APIs directly — all requests go through `POST /api/services/proxy/:deploymentId/:serviceId/:skillName`, which:
+1. Looks up `serviceCredentials` (per-install HMAC signing secret)
+2. Validates input against the skill's `inputSchema`
+3. Checks per-deployment+service rate limit (from ServiceCard)
+4. Checks circuit breaker (open after 5 consecutive failures, 60s reset)
+5. Adds `Authorization` and `X-Jarble-Signature` (HMAC-SHA256) headers
+6. Forwards request body to creator API
+7. Validates response against `outputSchema` (warn-only)
+
+---
+
 ## 5. REST Endpoints
 
 REST endpoints handle use cases that don't fit tRPC: webhooks (external POST), SSE streaming (long-lived connections), and file uploads.
@@ -567,7 +640,7 @@ sequenceDiagram
 | POST | `/api/stripe/webhook` | Stripe signature (`stripe-signature` header) | Exempt | Handles 4 event types: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. **Idempotent** — deduplicates via `processedWebhookEvents` table |
 | POST | `/api/auth0/email-verified` | M2M Bearer secret (`AUTH0_M2M_SECRET`) | Exempt | Auth0 Post Login Action webhook. Updates `emailVerified` flag in DB |
 | POST | `/api/config-changed` | deploymentId in body | Global | Called by pod file-watcher when PVC config files change. Triggers reverse sync (PVC → DB) |
-| POST | `/api/tambo-agent` | JWT Bearer | 120 req/min | Chat endpoint. Streams bot response as SSE with text deltas and `jarble_ui` UI block events. Proxies to pod via OpenClaw gateway |
+| POST | `/api/tambo-agent` | JWT Bearer | 120 req/min | Chat endpoint. Streams bot response as SSE with text deltas and `jarble_ui` UI block events. Proxies to pod via OpenClaw gateway. `sendEvent` is wrapped in try/catch — non-serializable data sends a fallback error event instead of crashing the stream |
 
 ---
 
@@ -657,6 +730,23 @@ sequenceDiagram
 
 ---
 
+### Artifact Workspace
+
+The bot pods maintain a `/data/workspace/` directory with a `manifest.json` (array of artifact metadata) and per-artifact `{id}.json` files. These endpoints exec into the pod to read/write those files, following the same auth + ownership pattern as other pod-exec routes.
+
+| Method | Path | Auth | Rate Limit | Description |
+|---|---|---|---|---|
+| GET | `/api/deployments/:id/artifact/list` | JWT Bearer | global | List all artifact metadata from pod workspace manifest |
+| GET | `/api/deployments/:id/artifact/:artifactId` | JWT Bearer | global | Fetch a single artifact JSON from pod workspace |
+| POST | `/api/deployments/:id/artifact/sync` | JWT Bearer | 1 req/s per deployment | Upsert an artifact (create or update) in pod workspace. Rate-limited to prevent excessive exec calls |
+| DELETE | `/api/deployments/:id/artifact/:artifactId` | JWT Bearer | global | Delete an artifact from pod workspace and remove from manifest |
+
+### Service Proxy
+
+| Method | Path | Auth | Rate Limit | Description |
+|---|---|---|---|---|
+| POST | `/api/services/proxy/:deploymentId/:serviceId/:skillName` | JWT Bearer | Per ServiceCard limits | Proxies skill-call requests from buyer deployments to creator remote APIs. Validates `deploymentId` ownership, checks circuit breaker, validates input against skill schema, adds HMAC-SHA256 signature, forwards to creator API. Max response: 1 MB, timeout: 30s |
+
 ### Diagnostic & MCP
 
 | Method | Path | Auth | Description |
@@ -683,15 +773,17 @@ sequenceDiagram
 
 | Category | Count | Auth | Rate Limit | Streaming |
 |----------|-------|------|-----------|-----------|
-| tRPC Queries | 31 | public/protected | 120 req/min | No |
-| tRPC Mutations | 36 | protected | 120 req/min | No |
+| tRPC Queries | 35 | public/protected | 120 req/min | No |
+| tRPC Mutations | 46 | protected | 120 req/min | No |
 | REST Webhooks | 3 | signature/M2M/deploymentId | global/exempt | No |
 | REST Payment | 2 | JWT Bearer | 10 req/min | No |
 | REST Chat | 1 | JWT Bearer | 120 req/min | Yes |
+| REST Artifact | 4 | JWT Bearer | global/1/s | No |
+| REST Service Proxy | 1 | JWT Bearer | Per ServiceCard | No |
 | SSE Streams | 3 | JWT (header or query) | 120 req/min | Yes |
 | MCP Endpoints | 5 | JWT Bearer | global | Mixed |
 | Health/Debug | 5 | none | exempt | No |
-| **Total** | **86** | -- | -- | -- |
+| **Total** | **105** | -- | -- | -- |
 
 ### Quick Reference by Router
 
@@ -706,9 +798,10 @@ sequenceDiagram
 | `template` | 1 | 0 | 1 |
 | `skills` | 2 | 2 | 4 |
 | `marketplace` | 11 | 11 | 22 |
-| **tRPC Total** | **36** | **39** | **75** |
-| REST endpoints | -- | -- | **11** |
-| **Grand Total** | -- | -- | **86** |
+| `services` | 3 | 3 | 6 |
+| **tRPC Total** | **39** | **42** | **81** |
+| REST endpoints | -- | -- | **24** |
+| **Grand Total** | -- | -- | **105** |
 
 ### Key Files
 
@@ -741,6 +834,15 @@ sequenceDiagram
 | `jarble-api-main/src/trpc/routers/runtimeCatalog.ts` | 4 procedures (runtime listing) |
 | `jarble-api-main/src/trpc/routers/skills.ts` | 4 procedures (skills catalog, install/uninstall) |
 | `jarble-api-main/src/trpc/routers/marketplace.ts` | 22 procedures (browse, install, review, creator, admin) |
+| `jarble-api-main/src/trpc/routers/services.ts` | 6 procedures (service marketplace: list, get, install, uninstall, publish, listByCreator) |
 | `jarble-api-main/src/trpc/routers/template.ts` | 1 procedure (bot templates) |
+| `jarble-api-main/src/routes/artifact.ts` | GET/POST/DELETE /api/deployments/:id/artifact/* (workspace artifact sync) |
+| `jarble-api-main/src/routes/serviceProxy.ts` | POST /api/services/proxy/:deploymentId/:serviceId/:skillName (HMAC-signed skill proxy) |
+| `jarble-api-main/src/services/serviceCard.ts` | ServiceCard Zod schema for creator API descriptor |
+| `jarble-api-main/src/services/circuitBreaker.ts` | Per-service circuit breaker (5 failures → open, 60s reset) |
+| `jarble-api-main/src/services/serviceHealthCheck.ts` | Background health pinger for remote services (5-min cycle) |
+| `jarble-api-main/src/utils/hmac.ts` | HMAC-SHA256 request signing (generateSigningSecret, signRequest) |
+| `jarble-api-main/src/utils/jsonSchemaValidation.ts` | JSON Schema validator for service skill input/output |
+| `jarble-api-main/src/middleware/serviceRateLimit.ts` | Per-deployment+service rate limiter (from ServiceCard limits) |
 | `shared/component-manifest/index.ts` | COMPONENT_MANIFEST + derived exports — consumed by all layers |
 | `scripts/check-manifest.ts` | CI check verifying manifest ↔ registry sync |

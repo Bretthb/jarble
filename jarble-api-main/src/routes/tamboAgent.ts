@@ -56,8 +56,27 @@ function secureCompare(a: string, b: string): boolean {
 }
 
 function sendEvent(res: any, event: Record<string, unknown>) {
-  if (!res.writableEnded) {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  if (res.writableEnded) return;
+  try {
+    const json = JSON.stringify(event);
+    res.write(`data: ${json}\n\n`);
+  } catch (err) {
+    log.error(
+      { eventType: event.type, error: err instanceof Error ? err.message : String(err) },
+      "Failed to stringify SSE event"
+    );
+    // Send a minimal error event so the frontend knows something went wrong
+    try {
+      res.write(
+        `data: ${JSON.stringify({
+          type: "CUSTOM",
+          name: "jarble.sse.error",
+          value: { message: "Failed to serialize event data" },
+        })}\n\n`
+      );
+    } catch {
+      // Connection is doomed — nothing more we can do
+    }
   }
 }
 
@@ -457,7 +476,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       if (e.name === "AbortError" || abortController.signal.aborted) return;
       log.error({ deploymentId, error: e.message }, "Exec-only chat failed");
       const classified = classifyError(e.message, { deploymentStatus: deployment.status });
-      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${e.message}` });
+      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot. ${classified.suggestion}` });
       sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
       sendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
       sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
@@ -564,7 +583,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   // All attempts failed
   log.error({ deploymentId, error: lastError?.message }, "Gateway proxy error (all attempts failed)");
   const classified = classifyError(lastError?.message ?? "", { deploymentStatus: deployment.status });
-  sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot: ${lastError?.message}` });
+  sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot. ${classified.suggestion}` });
   sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
   sendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
   sendEvent(res, { type: "RUN_FINISHED", runId, threadId });

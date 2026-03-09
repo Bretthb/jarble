@@ -30,6 +30,10 @@
     "test:e2e:canvas:edit": "playwright test canvas-edit-persist.spec.ts",
     "test:e2e:canvas:edge": "playwright test canvas-edge-cases.spec.ts canvas-schema-validation.spec.ts",
     "test:e2e:canvas:media": "playwright test canvas-media.spec.ts",
+    "test:e2e:chat:live": "playwright test chat-live.spec.ts",
+    "test:e2e:artifact": "playwright test artifact-workspace.spec.ts",
+    "test:e2e:marketplace": "playwright test marketplace.spec.ts marketplace-*.spec.ts",
+    "test:e2e:dashboard": "playwright test dashboard.spec.ts",
     "check:manifest": "npx tsx ../scripts/check-manifest.ts",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "db:seed": "npx tsx drizzle/seed.ts"

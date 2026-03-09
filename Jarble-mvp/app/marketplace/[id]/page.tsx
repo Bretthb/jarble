@@ -259,7 +259,7 @@ export default function MarketplaceDetailPage() {
                     </p>
                   ) : (
                     <div className="space-y-4">
-                      {reviews.map((review: { id: string; rating: number; title: string | null; body: string | null; createdAt: string; user: { id: string; name: string } | null }) => (
+                      {reviews.map((review) => (
                         <ReviewCard key={review.id} review={review} />
                       ))}
                     </div>

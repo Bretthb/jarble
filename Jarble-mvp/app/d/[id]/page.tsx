@@ -462,7 +462,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
               onStartBot={lastChatError.canStart ? () => {
                 startMutation.mutate({ id: deploymentId }, {
                   onSuccess: () => clearChatError(),
-                  onError: (err: Error) => console.error("[Jarble:Chat] Start bot failed:", err.message),
+                  onError: (err) => console.error("[Jarble:Chat] Start bot failed:", err.message),
                 });
               } : undefined}
               onDiagnose={runDiagnosis}

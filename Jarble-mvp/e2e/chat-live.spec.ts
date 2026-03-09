@@ -530,14 +530,18 @@ test.describe("Chat page — edge cases", () => {
     await waitForBotReady(page, 30_000);
 
     const textarea = page.locator("textarea");
-    const initialHeight = await textarea.evaluate((el) => el.offsetHeight);
+    const initialHeight = await textarea.evaluate(
+      (el) => el.getBoundingClientRect().height,
+    );
 
     // Type a long multi-line message
     const longMessage = Array(6).fill("This is a line of text for testing auto-resize behavior.").join("\n");
     await textarea.fill(longMessage);
 
     // Textarea should have grown taller
-    const newHeight = await textarea.evaluate((el) => el.offsetHeight);
+    const newHeight = await textarea.evaluate(
+      (el) => el.getBoundingClientRect().height,
+    );
     expect(newHeight).toBeGreaterThan(initialHeight);
   });
 
@@ -551,7 +555,9 @@ test.describe("Chat page — edge cases", () => {
     await textarea.fill(veryLong);
 
     // Textarea should not exceed 150px (max-height set in style)
-    const height = await textarea.evaluate((el) => el.offsetHeight);
+    const height = await textarea.evaluate(
+      (el) => el.getBoundingClientRect().height,
+    );
     expect(height).toBeLessThanOrEqual(155); // small tolerance for borders
   });
 
@@ -591,7 +597,7 @@ test.describe("Chat page — edge cases", () => {
     // The chat viewport should be scrollable
     const viewport = page.locator('[class*="overflow-y-auto"]').first();
     const isScrollable = await viewport.evaluate(
-      (el) => el.scrollHeight > el.clientHeight,
+      (el) => el.scrollHeight > (el as HTMLElement).clientHeight,
     );
     expect.soft(isScrollable, "Chat viewport should be scrollable with long content").toBe(true);
 

@@ -96,10 +96,10 @@ describe("sanitizeHtml", () => {
       globalThis.window = origWindow;
     });
 
-    it("returns input unchanged on server (no sanitization)", () => {
+    it("strips HTML tags on server as safe fallback", () => {
       const dirty = '<script>alert("xss")</script><p>Hello</p>';
       const result = sanitizeHtml(dirty);
-      expect(result).toBe(dirty);
+      expect(result).toBe('alert("xss")Hello');
     });
   });
 });

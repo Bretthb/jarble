@@ -270,6 +270,9 @@ export function useCanvasChat(
         const decoder = new TextDecoder();
         let buffer = "";
         const pendingBlocks = new Map<string, UIBlockPending>();
+        // Track when each block's TOOL_CALL_START arrived — used to detect orphaned blocks
+        const blockStartTimes = new Map<string, number>();
+        const BLOCK_TIMEOUT_MS = 10_000; // 10 seconds — generous for slow LLM responses
         // Track cards added during this stream so findOpenPosition can see them
         // even before React re-renders and updates stateRef.current.cards.
         const cardsAddedThisStream: CanvasCard[] = [];
@@ -327,6 +330,7 @@ export function useCanvasChat(
               if (event.type === "TOOL_CALL_START" && event.toolCallName?.startsWith("show_")) {
                 const component = event.toolCallName.slice(5); // "show_chart" -> "chart"
                 const blockId = event.toolCallId;
+                blockStartTimes.set(blockId, Date.now());
                 pendingBlocks.set(blockId, {
                   id: blockId,
                   component,
@@ -355,6 +359,7 @@ export function useCanvasChat(
               if (event.type === "TOOL_CALL_END" && event.toolCallId) {
                 const block = pendingBlocks.get(event.toolCallId);
                 if (block) {
+                  blockStartTimes.delete(event.toolCallId);
                   const card = addComponentCard(block, messageId, stateRef.current, dispatch, cardsAddedThisStream, currentLlmRef.current);
                   if (card) cardsAddedThisStream.push(card);
                   pendingBlocks.delete(event.toolCallId);
@@ -417,6 +422,9 @@ export function useCanvasChat(
                     component,
                   });
                 }
+                if (event.name === "jarble.sse.error" && event.value) {
+                  console.error(`[Jarble:Chat] SSE serialization error from server: ${event.value.message}`);
+                }
               }
 
               // Break both the for loop and the outer while loop cleanly
@@ -428,6 +436,28 @@ export function useCanvasChat(
         }
 
         isDev && console.log(`[Jarble:Chat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
+
+        // Clean up orphaned pending blocks — these had TOOL_CALL_START but never got TOOL_CALL_END
+        if (pendingBlocks.size > 0) {
+          const now = Date.now();
+          for (const [blockId, block] of pendingBlocks) {
+            const startTime = blockStartTimes.get(blockId) ?? now;
+            const elapsed = now - startTime;
+            console.warn(
+              `[Jarble:Chat] Orphaned block "${blockId}" (${block.component}) — ` +
+              `TOOL_CALL_START received ${elapsed}ms ago but TOOL_CALL_END never arrived. ` +
+              `Discarding to prevent memory leak.`
+            );
+            // Clean up the streaming animation for this card
+            setStreamingCardIds((prev) => {
+              const next = new Set(prev);
+              next.delete(`card-${blockId}`);
+              return next;
+            });
+          }
+          pendingBlocks.clear();
+          blockStartTimes.clear();
+        }
 
         // Cancel any pending rAF and flush the final text immediately
         if (rafIdRef.current !== null) {

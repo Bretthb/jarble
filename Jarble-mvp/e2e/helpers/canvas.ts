@@ -1,9 +1,5 @@
 import type { Page, TestInfo } from "@playwright/test";
 import { expect } from "@playwright/test";
-import * as fs from "fs";
-import * as path from "path";
-
-const FAILURE_LOG = path.join(__dirname, "..", "test-failures.log");
 
 // ---------------------------------------------------------------------------
 // Core: send a prompt and wait for bot response + canvas cards
@@ -305,37 +301,7 @@ export async function switchToDashboardMode(page: Page): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Failure logging
-// ---------------------------------------------------------------------------
-
-/** Append a structured failure record to the test-failures.log file. */
-export function logTestFailure(
-  testInfo: TestInfo,
-  details: {
-    group: string;
-    scenario: string;
-    component?: string;
-    errorCards?: number;
-    consoleErrors?: string[];
-    screenshot?: string;
-    message?: string;
-  },
-): void {
-  const record = {
-    timestamp: new Date().toISOString(),
-    test: testInfo.title,
-    file: testInfo.file,
-    status: testInfo.status,
-    duration: testInfo.duration,
-    ...details,
-  };
-  try {
-    fs.appendFileSync(FAILURE_LOG, JSON.stringify(record) + "\n", "utf-8");
-  } catch {
-    // Non-fatal — log file may not be writable
-  }
-}
+// NOTE: logTestFailure is defined in helpers/logging.ts — import it from there.
 
 // ---------------------------------------------------------------------------
 // Page setup helper (common beforeEach pattern)

@@ -239,7 +239,7 @@ The API is an **Express.js** server with **tRPC** for structured endpoints and p
 
 ### Two Types of Endpoints
 
-**1. tRPC Procedures** (75 total across 9 routers)
+**1. tRPC Procedures** (81 total across 10 routers)
 Structured, typed function calls. Protected by JWT auth. Used for all normal CRUD operations.
 
 ```
@@ -251,12 +251,16 @@ trpc.openrouter.provisionKey    → Get a new LLM API key
 trpc.marketplace.browse         → Browse marketplace components
 trpc.marketplace.install        → Install a component on a deployment
 trpc.skills.listCatalog         → List available skills
+trpc.services.list              → Browse service marketplace
+trpc.services.install           → Install a service bundle on a deployment
 ```
 
-**2. REST Endpoints** (11 total)
+**2. REST Endpoints** (24 total)
 Plain HTTP routes for things that can't use tRPC:
 - **Webhooks** (Stripe, Auth0, config-changed) — external services POST to us
 - **SSE Streams** (logs, status, WhatsApp QR, chat) — long-lived connections that push data
+- **Artifact endpoints** (workspace artifact sync) — exec into pod to read/write workspace JSON
+- **Service proxy** (HMAC-signed skill routing) — forwards buyer skill calls to creator remote APIs
 - **MCP endpoints** (Streamable HTTP + proxy) — for external MCP clients
 - **Diagnostic endpoint** — structured health checks for a deployment
 - **Health check** — for Kubernetes to know we're alive
@@ -264,7 +268,7 @@ Plain HTTP routes for things that can't use tRPC:
 
 ### Background Services
 
-Two enforcement services start automatically at API boot (skipped in dev/SQLite mode):
+Four background services start automatically at API boot (skipped in dev/SQLite mode):
 
 **Subscription Enforcement** (every 5 minutes):
 - Stops free-trial bots past their expiration date
@@ -277,6 +281,14 @@ Two enforcement services start automatically at API boot (skipped in dev/SQLite 
 - Checks disk usage (`df /data`) inside each running pod
 - Stops pods exceeding their storage quota (>= 100%)
 - Clears storage errors when usage drops below limit
+
+**Status Reconciler** (every 30 seconds):
+- Reconciles DB deployment status with actual K8s pod status
+- Fixes deployments stuck at "creating" (e.g., after API restart mid-deploy)
+
+**Service Health Check** (every 5 minutes):
+- Pings the health endpoint of each published hosted/remote service
+- Updates service availability status in DB (marks degraded services)
 
 ### Hardware-Based Pricing
 
@@ -335,6 +347,7 @@ graph TD
     ROUTER -->|"template.*"| TMPL["template.ts<br/>1 procedure"]
     ROUTER -->|"skills.*"| SKILLS["skills.ts<br/>4 procedures"]
     ROUTER -->|"marketplace.*"| MKT["marketplace.ts<br/>22 procedures"]
+    ROUTER -->|"services.*"| SVC["services.ts<br/>6 procedures"]
 
     DEPLOY --> DB[("Database")]
     DEPLOY --> K8S["K8s Cluster"]
@@ -354,6 +367,7 @@ src/trpc/routers/
   ├── runtimeCatalog.ts      ← 4 procedures (list available runtimes)
   ├── skills.ts              ← 4 procedures (skills catalog, install/uninstall)
   ├── marketplace.ts         ← 22 procedures (browse, install, review, creator, admin)
+  ├── services.ts            ← 6 procedures (service marketplace: list, get, install, uninstall, publish, listByCreator)
   └── template.ts            ← 1 procedure (bot templates)
 ```
 
@@ -430,6 +444,26 @@ The building manager's job:
 - If an apartment floods, move the tenant to a new one (auto-restart on crash)
 - Keep the lights on (health checks)
 - Manage storage lockers (persistent volumes)
+
+### Pod Performance Tuning
+
+Several optimizations have been made to reduce deployment startup time and improve readiness detection:
+
+| Tuning | Old | New | Saving |
+|---|---|---|---|
+| validate-config init container | Present (pulled full OpenClaw image) | Removed | 10-30s cold boot |
+| PVC config writes | N sequential exec calls | 1 batched shell script | ~4s → 300ms |
+| Readiness poll interval | Flat 2s | Adaptive: 1s/2s/3s tiers | Faster detection |
+| Readiness `initialDelaySeconds` | 20s | 10s | 10s saved per deploy |
+| Readiness `periodSeconds` | 10s | 5s | Faster "running" detection |
+| Liveness `initialDelaySeconds` | 60s | 90s | Prevents cold-boot kills |
+| `terminationGracePeriodSeconds` | 30s | 10s | Faster pod replacement |
+| CPU request | Equal to limit | 50% of limit (min 250m) | Burst during npm install |
+
+The adaptive readiness polling tiers in `configSync.ts`:
+- **0-20s**: 1s intervals (warm boots with `.initialized` finish in ~15s)
+- **20-60s**: 2s intervals
+- **60-180s**: 3s intervals (cold boot npm install can take 2-3 min)
 
 ### The Three K8s Resources We Create Per Deployment
 
@@ -1083,6 +1117,18 @@ graph LR
     style SYNC_PULL fill:#3b82f6,color:#fff
 ```
 
+### Tiered Sync Strategy
+
+Not every config change requires a full pod restart. `syncConfigsToPvc()` uses a **tiered approach** to minimize downtime:
+
+| Tier | Trigger | What Happens | Downtime |
+|---|---|---|---|
+| **Tier 1** | System prompt, skills changes only | Write files to PVC, no restart | 0s |
+| **Tier 2** | LLM keys, platform tokens changed | Signal entrypoint to hot-restart gateway process | ~5-10s |
+| **Tier 3** | Secrets removed or Tier 2 not supported | Full pod restart (scale 0→1) | ~30-60s |
+
+All config files are written in a **single batched exec call** (one WebSocket round-trip per sync, regardless of how many files change). This reduced write latency from ~4s to ~300ms.
+
 ### Direction 1: Frontend → Container (Push)
 
 **When it fires:** User saves changes in the config tabs.
@@ -1227,6 +1273,24 @@ User message → bot streams text + UI blocks → cards appear in grid
 - **Merge**: compatible cards can be combined
 - No borders or padding on components — they fill their card area (`p-3 h-full`)
 
+### Error Resilience in Chat + Canvas
+
+Three guards prevent the chat/canvas pipeline from getting stuck or crashing:
+
+**1. Safe SSE sendEvent** (`tamboAgent.ts`)
+The `sendEvent()` helper wraps `JSON.stringify()` in a try/catch. If an event contains non-serializable data (e.g., circular references from certain tool outputs), it sends a fallback error event instead of crashing the SSE stream. Internal error details are redacted before reaching the client.
+
+**2. Pending Block Timeout** (`useCanvasChat.ts`)
+UI blocks (`jarble_ui` fenced blocks) are tracked as "pending" while streaming. If a block is still open after **10 seconds** (e.g., the stream was interrupted mid-block), it is automatically discarded. All pending blocks are also cleared when the stream ends (`RUN_FINISHED` event).
+
+**3. Component Expansion Limits** (`componentResolver.ts`)
+Custom component templates are validated before they reach the canvas:
+- Max 20 children per layout definition
+- Max 50 KB definition size (JSON)
+- Max 256 KB total resolved props size (after variable substitution)
+
+Oversized props return an empty result rather than crashing the renderer.
+
 ### Marketplace Sandbox (Double-Iframe Security)
 
 Marketplace sandbox-tier components run arbitrary HTML/CSS/JS. They use a **double-iframe** architecture for security:
@@ -1238,6 +1302,8 @@ Outer iframe: sandboxed (no same-origin, allow-scripts only)
 ```
 
 This prevents sandbox code from accessing the Jarble app's DOM, cookies, or localStorage. The CSP further restricts what the sandbox can load — only origins in `TRUSTED_CDN_ORIGINS` are allowed.
+
+**Defense-in-depth CDN validation**: `sandboxCore.ts:buildDocument()` validates all library URLs AND extracted `<script src>` / `<link href>` tags from the `html` prop against `TRUSTED_CDN_ORIGINS` **on the client side**, as an additional layer on top of the server-side validation in `uiBlockParser.ts`.
 
 ---
 
@@ -1831,6 +1897,30 @@ erDiagram
         string componentId FK
         int rating
     }
+
+    marketplaceServices {
+        string id PK
+        string creatorId FK
+        string name
+        string hostingModel "package or hosted"
+        text instructionSnippet
+        string status "draft/pending/published/rejected"
+    }
+
+    serviceInstalls {
+        string id PK
+        string deploymentId FK
+        string serviceId FK
+        timestamp installedAt
+    }
+
+    serviceCredentials {
+        string id PK
+        string deploymentId FK
+        string packageId FK
+        text signingSecret "AES-256-GCM encrypted HMAC secret"
+        text remoteApiConfig "ServiceCard JSON"
+    }
 ```
 
 ### The ORM (Drizzle)
@@ -1962,6 +2052,8 @@ The API starts with an **in-memory SQLite database** pre-seeded with test data. 
 | Config sync | Yes (mock) | With `MOCK_K8S=true`, config files read/write to in-memory store |
 | LLM key validation | Yes (bypass) | Keys prefixed with `dev-` are accepted without calling provider APIs |
 | Marketplace browsing | Yes | Reads from SQLite marketplace tables (empty on fresh start) |
+| Service marketplace | Yes | Reads from SQLite service tables. Hosted service proxy requires creator API running |
+| Artifact workspace | Partial | Needs a running pod (exec-based). Works with real or mock K8s |
 | Canvas chat (/d/[id]) | Partial | Needs a running pod for actual chat. UI renders without it |
 | Sentry / PostHog | No | Omit `NEXT_PUBLIC_SENTRY_DSN` and `NEXT_PUBLIC_POSTHOG_KEY` to disable |
 | Manifest CI check | Yes | Run `npm run check:manifest` from `jarble-api-main/` |
@@ -2223,11 +2315,18 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **SimpleCanvasGrid** | CSS grid layout for the canvas (no react-grid-layout). Supports drag-to-reorder, split, and merge |
 | **SSE** | Server-Sent Events — server pushes data to browser |
 | **SuperJSON** | Serialization library that handles Dates, Maps, etc. |
-| **Tambo** | Chat orchestration framework used in the `/d/[id]` chat page |
+| **Tambo** | Chat orchestration framework previously used. Replaced by `@assistant-ui/react` with `ExternalStoreRuntime` wrapping the `useCanvasChat` hook |
 | **Terraform** | Infrastructure-as-code tool (defines servers in config files) |
 | **Traefik** | Reverse proxy / ingress controller for K8s |
 | **tRPC** | Type-safe RPC framework (frontend calls backend functions directly) |
-| **TRUSTED_CDN_ORIGINS** | Allowlist of 10 CDN origins for sandbox library URLs. Enforced server-side in `uiBlockParser.ts` and client-side in `CanvasSandbox.tsx` |
+| **TRUSTED_CDN_ORIGINS** | Allowlist of 10 CDN origins for sandbox library URLs. Enforced server-side in `uiBlockParser.ts` (before block reaches frontend) and client-side in `sandboxCore.ts:buildDocument()` (validates all library URLs + extracted `<script src>` / `<link href>` tags — defense-in-depth) |
 | **ZeroClaw** | Rust-based bot runtime (lightweight, ~3.4MB binary) |
+| **Artifact Workspace** | Pod-side `/data/workspace/` directory containing `manifest.json` + per-artifact JSON files. Accessed via `/api/deployments/:id/artifact/*` endpoints |
+| **Circuit Breaker** | `src/services/circuitBreaker.ts` — opens after 5 consecutive service proxy failures, auto-resets after 60s to prevent hammering unhealthy creator APIs |
+| **HMAC Signing** | Per-install HMAC-SHA256 signature on outbound service proxy requests. Each buyer gets a unique signing secret stored in `serviceCredentials` (encrypted) |
+| **Service Marketplace** | Service bundles (components + skills + instruction snippets). Two models: Package (buyer runs everything) and Hosted/Remote (creator hosts APIs, buyer proxies through Jarble) |
+| **ServiceCard** | Structured JSON blob published by service creators describing their API endpoint, auth method, skill definitions, rate limits, and health endpoint. Validated against Zod schema in `serviceCard.ts` |
+| **Service Proxy** | `POST /api/services/proxy/:deploymentId/:serviceId/:skillName` — the Jarble API gateway between buyer pods and creator remote APIs. Handles HMAC auth, rate limiting, circuit breaking, and input/output schema validation |
+| **Tiered Config Sync** | Three-tier strategy in `syncConfigsToPvc()`: Tier 1 = file-only (zero downtime), Tier 2 = process restart (~5-10s), Tier 3 = pod restart (~30-60s). Selects minimum disruption tier needed |
 | **Webhook Idempotency** | `processedWebhookEvents` table prevents duplicate Stripe event processing |
 | **ZIP export** | Download bot configs as a ZIP file (for backup/migration) |

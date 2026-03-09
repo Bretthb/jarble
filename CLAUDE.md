@@ -38,7 +38,7 @@ npm run dev          # Start dev server on :3000
 npm run build        # Production build
 npm run check        # TypeScript type-check (tsc --noEmit)
 npm run format       # Prettier format
-npm run test         # Run Vitest unit tests (367 tests)
+npm run test         # Run Vitest unit tests
 npm run test:coverage # Run tests with v8 coverage report
 npx vitest run path/to/file.test.ts   # Run a single unit test file
 npm run check:manifest   # Verify manifest ↔ component sync
@@ -50,7 +50,7 @@ npm run dev          # Start with file watching (tsx watch)
 npm run dev:test     # Start with SQLite (USE_SQLITE=true) for local dev
 npm run typecheck    # TypeScript type-check
 npm run lint         # ESLint
-npm run test         # Run Vitest unit tests (453 tests)
+npm run test         # Run Vitest unit tests (934 tests)
 npm run test:coverage # Run tests with v8 coverage report
 npm run db:push      # Push schema to database (MySQL/SQLite)
 npm run db:studio    # Open Drizzle Studio
@@ -76,19 +76,33 @@ E2E auth setup requires `e2e/.env.test` with Auth0 ROPC credentials (see `e2e/.e
 
 ## Test Suite
 
-**820 tests across 30 files** (453 backend + 367 frontend), all Vitest.
+**1,301 tests across 45+ files** (934 backend + 367 frontend), all Vitest.
 
 ### Backend Test Structure (jarble-api-main/src/)
 ```
 ├── utils/encryption.test.ts           # AES-256-GCM encrypt/decrypt (19 tests)
 ├── utils/chatErrors.test.ts           # Error classification patterns (21 tests)
 ├── utils/pricing.test.ts              # Pricing formula (10 tests)
+├── utils/hmac.test.ts                 # HMAC signing for hosted packages (19 tests)
+├── utils/componentResolver.test.ts    # Component template expansion + validation (36 tests)
+├── utils/uiBlockParser.test.ts        # UI block extraction from bot text (27 tests)
+├── utils/schemaValidation.test.ts     # Schema validation utilities (16 tests)
+├── utils/jsonSchemaValidation.test.ts # JSON Schema validation (52 tests)
 ├── utils/__tests__/libraryValidation  # CDN allowlist + security (19 tests)
 ├── services/manifestValidator.test.ts # Manifest validation (74 tests)
+├── services/circuitBreaker.test.ts    # Circuit breaker for external calls (22 tests)
+├── services/serviceCard.test.ts       # Service card (A2A-style) validation (39 tests)
+├── services/__tests__/serviceHealthCheck # Service health monitoring (20 tests)
 ├── runtimes/handlers/openclaw.test.ts # OpenClaw runtime handler (48 tests)
 ├── runtimes/handlers/zeroclaw.test.ts # ZeroClaw runtime handler (19 tests)
 ├── k8s/constants.test.ts              # K8s constants, dual-mode (16 tests)
 ├── k8s/configmap.test.ts              # ConfigMap key encoding (22 tests)
+├── mcp/__tests__/artifactTools.test.ts     # Artifact workspace MCP tools (52 tests)
+├── mcp/__tests__/renderUiValidation.test.ts # render_ui validation (21 tests)
+├── mcp/__tests__/jsonSchemaValidator.test.ts # JSON Schema for configSchema (22 tests)
+├── routes/__tests__/artifact.test.ts       # Artifact REST endpoints (23 tests)
+├── routes/__tests__/serviceProxy.test.ts   # Hosted service proxy + auth (27 tests)
+├── middleware/serviceRateLimit.test.ts      # Per-service rate limiting (59 tests)
 ├── __tests__/contracts/schemas.test.ts # Zod input schema contracts (25 tests)
 ├── __tests__/helpers/testDb.ts        # In-memory SQLite test harness
 ├── __tests__/helpers/testCaller.ts    # tRPC caller with mock auth
@@ -97,7 +111,10 @@ E2E auth setup requires `e2e/.env.test` with Auth0 ROPC credentials (see `e2e/.e
     ├── deployment.test.ts             # Deployment CRUD + lifecycle (30 tests)
     ├── user.test.ts                   # User management (10 tests)
     ├── platformCredentials.test.ts    # Credential CRUD + configSync (16 tests)
-    └── openrouter.test.ts            # LLM key validation (14 tests)
+    ├── openrouter.test.ts            # LLM key validation (14 tests)
+    ├── marketplace.test.ts            # Marketplace CRUD + install/publish (97 tests)
+    ├── services.test.ts               # Service marketplace CRUD (113 tests)
+    └── services.admin.test.ts         # Service admin moderation (16 tests)
 ```
 
 ### Frontend Test Structure (Jarble-mvp/)
@@ -108,10 +125,12 @@ E2E auth setup requires `e2e/.env.test` with Auth0 ROPC credentials (see `e2e/.e
 ├── components/workspace/__tests__/canvasReducer    # Canvas state, 26 actions (54 tests)
 ├── components/workspace/__tests__/autoLayout       # Grid layout logic (35 tests)
 ├── components/canvas/__tests__/canvasComponents    # Renderer + registry (23 tests)
+├── components/canvas/__tests__/canvasEmbed         # Canvas embed/iframe security (47 tests)
 ├── components/canvas/__tests__/sandbox-csp         # Sandbox CSP security (5 tests)
 ├── components/canvas/__tests__/sandboxCore         # Sandbox core: sanitize, build, escape (48 tests)
 ├── hooks/__tests__/useStatusStream                 # SSE status stream (9 tests)
 ├── hooks/__tests__/useCanvasPersistence            # Canvas localStorage (9 tests)
+├── hooks/__tests__/useArtifactSync                 # Artifact workspace sync (8 tests)
 └── hooks/__tests__/useMobile                       # Mobile detection (5 tests)
 ```
 
@@ -333,6 +352,15 @@ Each runtime implements `RuntimeHandler`:
 8. Bot confirms pairing, user can chat
 ```
 
+### Pod Performance Tuning
+Applied in `k8s/lifecycle.ts`:
+- **Removed `validate-config` init container**: Previously pulled the full OpenClaw image a second time to validate configs. Since configs are generated by trusted code (`renderConfigs`), validation added ~10-30s startup for no benefit. Config errors surface via container logs.
+- **Batched PVC config writes**: Init container copies all ConfigMap files in a single shell invocation (`one shell invocation to minimize init container runtime`).
+- **`terminationGracePeriodSeconds: 10`** (down from default 30s): OpenClaw has no long-running requests to drain — it reconnects instantly. Faster termination means faster restarts.
+- **Readiness probe**: `initialDelaySeconds: 10` (down from 20s), `periodSeconds: 5` (down from 10s). Warm boots start the gateway in <5s.
+- **Liveness probe**: `initialDelaySeconds: 90` (up from 60s) to give cold boots (npm install) more breathing room.
+- **Resource request/limit split**: Requests at ~50% of limits (min 250m CPU). Allows CPU burst during npm install while keeping scheduling efficient for steady-state.
+
 ### Pod Security (Implemented)
 - ✅ Runs as non-root user (uid=1000, gid=1000) with `runAsNonRoot: true`
 - ⚠️ Secrets in env vars — should mount as files (requires upstream OpenClaw changes)
@@ -523,6 +551,7 @@ Available when running locally:
 |------|---------|
 | `component-manifest/index.ts` | Component manifest — schemas, metadata, derive functions |
 | `component-manifest/security.ts` | CDN allowlist (`TRUSTED_CDN_ORIGINS`) — shared by frontend + backend |
+| `component-manifest/skills/index.ts` | `BotSkill` type + placeholder `BOT_SKILLS` record (runtime-populated) |
 
 ### Scripts (scripts/)
 | File | Purpose |
@@ -584,6 +613,8 @@ Single source of truth for all 37 component definitions (+ 1 alias: `canvas` →
 - `getComponentDescriptions()` — Human-readable component descriptions
 
 Each component entry in `shared/component-manifest/components/{name}.ts` defines: name, description, category, Zod schema, layout hints (defaultSize, minSize, layoutHint), loading strategy, aliases, optional splittable config, and optional `configSchema` (JSON Schema for user-configurable sandbox components).
+
+**Skills subdirectory** (`shared/component-manifest/skills/`): Exports the `BotSkill` interface and a static placeholder `BOT_SKILLS` record. The canonical skill definitions live in `jarble-ui-server.js` and are extracted at runtime by `platformSkills.ts`. This shared type allows other packages to import `BotSkill` without depending on the MCP server file.
 
 ## AutoFix Prop Repair
 
@@ -647,14 +678,24 @@ Services bundle **components + skills + bot instructions** into a single install
 
 ### Sandbox Security
 - **CSP**: Tightened to 10 trusted CDN origins, centralized in `shared/component-manifest/security.ts`
-- **CSP violation monitoring**: Tracked via Sentry breadcrumbs
+- **Client-side CDN origin validation**: `sandboxCore.ts` validates library URLs against `TRUSTED_CDN_ORIGINS` before injection (defense-in-depth, complements server-side check)
 - **Server-side library URL validation**: `uiBlockParser.ts` validates library URLs against CDN allowlist (`TRUSTED_CDN_ORIGINS`) before they reach the client
-- **HTML sanitization**: DOMPurify via `lib/sanitize.ts` sanitizes HTML content
+- **Server-side HTML sanitization fallback**: Backend sanitizes HTML in UI blocks as a second layer behind DOMPurify on the client
+- **CSP violation monitoring**: Tracked via Sentry breadcrumbs
+- **HTML sanitization**: DOMPurify via `lib/sanitize.ts` sanitizes HTML content on the client
 - **Heartbeat watchdog**: Kills sandboxes after 15s silence (3 missed heartbeats at 5s intervals)
 - **Error rate limiting**: Max 3 auto-fix attempts per card per 60s window prevents infinite fix loops
+- **Component expansion limits**: Custom component definitions capped at 20 children, 50KB definition size, max depth 3 (`componentResolver.ts`)
+
+### Chat SSE Resilience
+- **Safe `sendEvent` wrapper**: Checks `res.writableEnded` before writing; catches serialization errors and sends a minimal fallback event; prevents crashes from closed connections
+- **Internal error scrubbing**: Chat SSE endpoint uses `classifyError()` to convert raw errors into user-facing suggestions — internal stack traces never reach the client
+- **Error classification**: `chatErrors.ts` maps error patterns (pod not found, gateway timeout, etc.) to structured `{ category, suggestion }` objects
 
 ### Response Headers
 - `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
 - `Referrer-Policy: strict-origin-when-cross-origin`
 - `Permissions-Policy` — Restricts browser features
 
@@ -679,10 +720,11 @@ CSS custom property `--muted-foreground-subtle` provides WCAG AA compliant (4.5:
 
 ## Infrastructure Notes
 
-### Pod Security (Implemented)
+### Pod Security & Performance (Implemented)
 - ✅ Non-root containers, service account disabled, all capabilities dropped
 - ✅ NetworkPolicy restricts egress (allows LLM APIs, messaging platforms, DNS)
-- ✅ Liveness/readiness probes on port 18789
+- ✅ Tuned probes: readiness 10s/5s, liveness 90s/30s (see K8s Architecture > Pod Performance Tuning)
+- ✅ `terminationGracePeriodSeconds: 10`, resource requests at 50% of limits
 - ✅ Background status reconciler in `statusReconciler.ts`
 
 ### Known Issues

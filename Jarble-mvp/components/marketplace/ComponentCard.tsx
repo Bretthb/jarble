@@ -14,12 +14,12 @@ export interface MarketplaceComponentData {
   name: string;
   displayName: string;
   description: string;
-  tier: "template" | "sandbox";
+  tier: string;
   category: string;
   totalInstalls: number;
-  averageRating: number;
+  averageRating: number | null;
   ratingCount: number;
-  pricingModel: "free" | "one_time" | "subscription";
+  pricingModel: string;
   priceUsdCents: number;
   creator: {
     id: string;

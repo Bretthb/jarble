@@ -14,6 +14,11 @@ import archiver from "archiver";
  * Write config files to a deployment's PVC by exec-ing into the running pod.
  * Files are written to {pvcMount}/config/{path} — the config/ subdirectory keeps
  * Jarble-managed configs separate from runtime data (node_modules, etc.).
+ *
+ * Optimization: All files are written in a single exec call using a batched
+ * shell script. Each file is base64-encoded inline and decoded on the pod.
+ * This reduces N+M exec WebSocket round-trips (mkdir + write per file) to
+ * exactly 1, which typically saves 200-500ms per file.
  */
 export async function writeConfigsToPvc(
   deploymentId: string,
@@ -23,7 +28,6 @@ export async function writeConfigsToPvc(
   if (files.length === 0) return;
 
   const pvcMount = getPvcMountPath(managedBy);
-  const labelSelector = managedBy; // pass through to findPodForDeployment
 
   // Find the running pod
   const pods = await coreApi.listNamespacedPod(
@@ -47,22 +51,38 @@ export async function writeConfigsToPvc(
 
   const containerName = managedBy === "operator" ? "openclaw" : "runtime";
 
+  // Build a single batched shell script that creates all directories and writes all files.
+  // This replaces N sequential exec calls with 1, dramatically reducing latency.
+  const scriptParts: string[] = [];
+
+  // Collect unique directories to create
+  const dirs = new Set<string>();
+  dirs.add(`${pvcMount}/config`);
+
   for (const file of files) {
-    // Paths starting with "/" are absolute; otherwise relative to {pvcMount}/config/
     const filePath = file.path.startsWith("/") ? file.path : `${pvcMount}/config/${file.path}`;
-
-    // Ensure parent directory exists
     const dir = filePath.substring(0, filePath.lastIndexOf("/"));
-    if (dir && dir !== `${pvcMount}/config`) {
-      await execInPod(podName, ["mkdir", "-p", dir], containerName);
-    }
-
-    // Write file content via base64-encoded exec (avoids stdin WebSocket hanging issue)
-    const b64 = Buffer.from(file.content).toString("base64");
-    await execInPod(podName, ["sh", "-c", `echo '${b64}' | base64 -d > '${filePath}'`], containerName);
-
-    log.info({ deploymentId, path: file.path }, "Wrote config file to PVC");
+    if (dir) dirs.add(dir);
   }
+
+  // Single mkdir -p for all directories
+  scriptParts.push(`mkdir -p ${Array.from(dirs).map(d => `'${d}'`).join(" ")}`);
+
+  // Write each file via base64 decode
+  for (const file of files) {
+    const filePath = file.path.startsWith("/") ? file.path : `${pvcMount}/config/${file.path}`;
+    const b64 = Buffer.from(file.content).toString("base64");
+    scriptParts.push(`echo '${b64}' | base64 -d > '${filePath}'`);
+  }
+
+  const batchScript = scriptParts.join(" && ");
+
+  await execInPod(podName, ["sh", "-c", batchScript], containerName);
+
+  log.info(
+    { deploymentId, fileCount: files.length, paths: files.map(f => f.path) },
+    "Wrote config files to PVC (batched)"
+  );
 }
 
 // ── Config File Reading (PVC → DB sync) ────────────────────────────────
