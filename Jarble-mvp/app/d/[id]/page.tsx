@@ -183,7 +183,7 @@ function ChatPanel({
   onToggleSidebar: () => void;
 }) {
   const startMutation = trpc.deployment.start.useMutation();
-  const { messages, isStreaming, sendMessage, loadMessages, clearMessages } = useDirectChat(deploymentId);
+  const { messages, isStreaming, sendMessage, loadMessages, clearMessages, setSessionId } = useDirectChat(deploymentId);
   const {
     sessions,
     isLoading: sessionsLoading,
@@ -196,7 +196,7 @@ function ChatPanel({
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
       const msgs = await loadSession(sessionId);
-      loadMessages(msgs);
+      loadMessages(msgs, sessionId);
     },
     [loadSession, loadMessages]
   );

@@ -224,6 +224,25 @@ export const componentReviews = pgTable("component_reviews", {
   userComponentReviewIdx: uniqueIndex("uq_user_component_review").on(table.userId, table.componentId),
 }));
 
+// ── Chat History Tables ───────────────────────────────────────────────────
+
+export const chatSessions = pgTable("chat_sessions", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull().default("New conversation"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const chatMessages = pgTable("chat_messages", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  sessionId: varchar("session_id", { length: 255 }).notNull().references(() => chatSessions.id, { onDelete: "cascade" }),
+  role: varchar("role", { length: 20 }).notNull(),
+  content: text("content").notNull(),
+  thinkingText: text("thinking_text"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many, one }) => ({
   deployments: many(deployments),
@@ -239,6 +258,16 @@ export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   runtimeCatalogEntry: one(runtimeCatalog, { fields: [deployments.runtimeCatalogId], references: [runtimeCatalog.id] }),
   platformCredentials: many(platformCredentials),
   componentInstalls: many(componentInstalls),
+  chatSessions: many(chatSessions),
+}));
+
+export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => ({
+  deployment: one(deployments, { fields: [chatSessions.deploymentId], references: [deployments.id] }),
+  messages: many(chatMessages),
+}));
+
+export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
+  session: one(chatSessions, { fields: [chatMessages.sessionId], references: [chatSessions.id] }),
 }));
 
 export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => ({

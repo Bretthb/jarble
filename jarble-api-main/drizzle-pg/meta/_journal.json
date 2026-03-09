@@ -8,6 +8,20 @@
       "when": 1772865337876,
       "tag": "0000_thankful_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1772953733126,
+      "tag": "0001_loving_ultimo",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773095811449,
+      "tag": "0002_charming_hulk",
+      "breakpoints": true
     }
   ]
 }

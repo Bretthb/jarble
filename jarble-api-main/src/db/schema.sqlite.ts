@@ -226,6 +226,25 @@ export const componentReviews = sqliteTable("component_reviews", {
   userComponentReviewIdx: uniqueIndex("uq_user_component_review").on(table.userId, table.componentId),
 }));
 
+// ── Chat History Tables ───────────────────────────────────────────────────
+
+export const chatSessions = sqliteTable("chat_sessions", {
+  id: text("id").primaryKey(),
+  deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  title: text("title").notNull().default("New conversation"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+});
+
+export const chatMessages = sqliteTable("chat_messages", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull().references(() => chatSessions.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  thinkingText: text("thinking_text"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many, one }) => ({
   deployments: many(deployments),
@@ -241,6 +260,16 @@ export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   runtimeCatalogEntry: one(runtimeCatalog, { fields: [deployments.runtimeCatalogId], references: [runtimeCatalog.id] }),
   platformCredentials: many(platformCredentials),
   componentInstalls: many(componentInstalls),
+  chatSessions: many(chatSessions),
+}));
+
+export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => ({
+  deployment: one(deployments, { fields: [chatSessions.deploymentId], references: [deployments.id] }),
+  messages: many(chatMessages),
+}));
+
+export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
+  session: one(chatSessions, { fields: [chatMessages.sessionId], references: [chatSessions.id] }),
 }));
 
 export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => ({

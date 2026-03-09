@@ -48,11 +48,14 @@ export function useDirectChat(deploymentId: string) {
   const { getAccessTokenSilently } = useAuth0();
   const [messages, setMessages] = useState<DirectChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   // Ref-based guards to keep sendMessage deps stable
   const isStreamingRef = useRef(false);
   const messagesRef = useRef<DirectChatMessage[]>([]);
   messagesRef.current = messages;
+  const sessionIdRef = useRef<string | null>(null);
+  sessionIdRef.current = sessionId;
 
   const sendMessage = useCallback(
     async (text: string, displayText?: string) => {
@@ -100,7 +103,7 @@ export function useDirectChat(deploymentId: string) {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ deploymentId, messages: historyForApi }),
+          body: JSON.stringify({ deploymentId, messages: historyForApi, ...(sessionIdRef.current ? { sessionId: sessionIdRef.current } : {}) }),
           signal: controller.signal,
         });
 
@@ -242,7 +245,12 @@ export function useDirectChat(deploymentId: string) {
                 );
               }
 
-              if (event.type === "RUN_FINISHED") break outer;
+              if (event.type === "RUN_FINISHED") {
+                if (event.sessionId) {
+                  setSessionId(event.sessionId);
+                }
+                break outer;
+              }
             } catch {
               isDev && console.warn(`[Jarble:DirectChat] Failed to parse SSE event data: ${trimmed.slice(0, 200)}`);
             }
@@ -276,11 +284,15 @@ export function useDirectChat(deploymentId: string) {
     [deploymentId, getAccessTokenSilently]
   );
 
-  const clearMessages = useCallback(() => setMessages([]), []);
-
-  const loadMessages = useCallback((msgs: DirectChatMessage[]) => {
-    setMessages(msgs);
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+    setSessionId(null);
   }, []);
 
-  return { messages, isStreaming, sendMessage, clearMessages, loadMessages };
+  const loadMessages = useCallback((msgs: DirectChatMessage[], loadedSessionId?: string) => {
+    setMessages(msgs);
+    if (loadedSessionId) setSessionId(loadedSessionId);
+  }, []);
+
+  return { messages, isStreaming, sendMessage, clearMessages, loadMessages, sessionId, setSessionId };
 }
