@@ -16,6 +16,12 @@ Each deployment gets a **web chat interface** (`/d/[id]`) where users interact w
 ├── shared/              # Shared packages
 │   └── component-manifest/  # Single source of truth for component metadata
 ├── scripts/             # CI/build scripts
+│   ├── check-manifest.ts        # Manifest ↔ component sync CI check
+│   └── deployment-testing/      # Automated deployment testing framework
+│       ├── run.ts               # Orchestrator — runs 4 agents, writes report
+│       ├── agents.ts            # 4 test agents (UI, Safety, Performance, Data)
+│       ├── lib.ts               # Shared test utilities and assertions
+│       └── reports/             # Generated markdown test reports
 ├── infrastructure/      # Terraform IaC + Auth0 config
 └── runtimes/            # Bot runtime implementations (openclaw, zeroclaw)
 ```
@@ -117,7 +123,8 @@ The monolithic `k8s/deployment.ts` was refactored into focused modules:
 - `k8s/components.ts` — Build K8s resource specs (Deployment, PVC, Secret, Service)
 - `k8s/status.ts` — Pod status checks
 - `k8s/logs.ts` — Log streaming
-- `k8s/client.ts` — K8s API client setup
+- `k8s/metrics.ts` — Pod CPU/memory/node metrics (`getDeploymentMetrics()`)
+- `k8s/client.ts` — K8s API client setup (CoreV1Api, AppsV1Api, CustomObjectsApi, Exec)
 - `k8s/config.ts` — Cluster configuration
 - `k8s/constants.ts` — Namespace, labels, etc.
 
@@ -185,6 +192,21 @@ Each runtime implements `RuntimeHandler`:
 - `parseConfigs(files)` → reverse: PVC config → DB fields
 - `validateCreate(input)` → pre-deploy validation
 
+### Prompt Architecture (OpenClaw)
+
+The system prompt is split into two distinct parts with different delivery mechanisms:
+
+| Constant | Location | Written to | Delivery | Purpose |
+|----------|----------|------------|----------|---------|
+| `PLATFORM_GUARDRAILS` | `openclaw.ts` | `soul.md` on PVC | Pod startup (configSync) | Security rules, real data policy, memory instructions — enforced on ALL platforms including Telegram/Discord/Slack |
+| `JARBLE_UI_PROMPT` | `openclaw.ts` | Never persisted | Injected per-request by `tamboAgent.ts` as a `system` message | Canvas rendering instructions, component reference, layout hints — web dashboard only |
+
+**Why split?** `PLATFORM_GUARDRAILS` must be in `soul.md` so messaging bots (which bypass the API) still obey security rules. `JARBLE_UI_PROMPT` is injected at request time in `chatViaHttp` so updating the API code instantly propagates UI instructions to all deployments without restarting any pods.
+
+`chatViaHttp` accepts an optional `systemMessage` parameter that is prepended to the messages array before the user message. `tamboAgent.ts` passes `JARBLE_UI_PROMPT` here for every web chat request.
+
+There is also a `MESSAGING_ONLY_PROMPT` constant for future use — a condensed alternative to `JARBLE_UI_PROMPT` that saves ~1,250 tokens on messaging-only deployments.
+
 ### Telegram Pairing Flow
 ```
 1. User enters bot token → validated via Telegram getMe API
@@ -209,6 +231,7 @@ Each runtime implements `RuntimeHandler`:
 - **npm cache corruption**: `ENOTEMPTY` errors on PVC. Fix: clear `/data/.npm` and delete pod
 - **Status stuck at "creating"**: Polling times out during slow npm install. Fix: debug endpoint or background reconciler
 - **Telegram 409 conflict**: Two pods with same bot token. Scale down stale deployments
+- **403 on exec for storage usage**: The SSE status stream attempts to exec into pods to read storage usage (`getDeploymentStorageUsage`). This currently returns 403 due to RBAC rules — storage metrics fall back to `null` gracefully. CPU/memory metrics come from the metrics API instead, which works correctly.
 
 ## Canvas & Chat Architecture
 
@@ -218,6 +241,9 @@ The deployment chat page uses `@assistant-ui/react` with an `ExternalStoreRuntim
 SSE event types: `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT` (delta), `TEXT_MESSAGE_END`, `UI_BLOCK_START`, `UI_BLOCK_PROPS`, `UI_BLOCK_END`, `RUN_FINISHED`
 
 The `uiBlockParser.ts` uses a brace-depth JSON parser (not regex) for reliable incremental block extraction during SSE streaming.
+
+### Chat Session Sidebar
+`components/chat/ChatSessionSidebar.tsx` renders a collapsible sidebar listing past chat sessions grouped by date (Today / Yesterday / Last 7 days / Older). The sidebar toggle is in the chat page header. When `isOpen` is false the component returns `null` — no collapsed icon is shown. Sessions are loaded via `hooks/useChatSessions.ts` which reads conversation history from the OpenClaw pod storage.
 
 ### Canvas Grid System (`SimpleCanvasGrid.tsx`)
 UI components render in a **simple responsive CSS grid** (not react-grid-layout):
@@ -296,6 +322,8 @@ const { getStatus } = useStatusStream({ enabled: isAuthenticated });
 const liveStatus = getStatus(deployment.id);
 ```
 
+`DeploymentStatus` now includes resource metrics fields: `nodeName`, `cpuUsageMillicores`, `cpuLimitMillicores`, `memoryUsageMb`, `memoryLimitMb`, `uptimeSeconds`. These are populated by the SSE status stream from `k8s/metrics.ts` and displayed in the `ResourceMetrics` component on the dashboard card.
+
 ## Environment Variables
 
 ### API (jarble-api-main/.env)
@@ -349,6 +377,7 @@ Available when running locally:
 | `k8s/lifecycle.ts` | K8s deployment lifecycle: create, restart, delete |
 | `k8s/exec.ts` | kubectl exec into pods |
 | `k8s/secrets.ts` | K8s Secret CRUD |
+| `k8s/metrics.ts` | Pod metrics: CPU/memory usage from metrics API, node name, uptime, restarts |
 | `services/configSync.ts` | Two-way config sync between DB and PVC |
 | `runtimes/handlers/openclaw.ts` | OpenClaw runtime: renderConfigs, getSecretEntries, parseConfigs |
 | `trpc/routers/platformCredentials.ts` | Credential CRUD, WhatsApp/Telegram pairing, pollTelegramPairing |
@@ -370,6 +399,9 @@ Available when running locally:
 | File | Purpose |
 |------|---------|
 | `check-manifest.ts` | CI check for manifest ↔ component sync |
+| `deployment-testing/run.ts` | Deployment testing orchestrator — runs 4 agents, generates markdown report |
+| `deployment-testing/agents.ts` | 4 test agents: UI Component, Conversation & Safety, Performance, Data & Integration |
+| `deployment-testing/lib.ts` | Shared test utilities: `sendTestMessage`, assertions, report generation |
 
 ### Frontend (Jarble-mvp/)
 | File | Purpose |
@@ -390,6 +422,9 @@ Available when running locally:
 | `lib/posthog.ts` | PostHog analytics integration |
 | `lib/assistantRuntime.ts` | assistant-ui ExternalStoreRuntime config |
 | `components/marketplace/` | Marketplace UI components (6 files) |
+| `components/ResourceMetrics.tsx` | CPU/memory progress bars, uptime, restart count for dashboard cards |
+| `components/chat/ChatSessionSidebar.tsx` | Collapsible sidebar with chat history grouped by date |
+| `hooks/useChatSessions.ts` | Fetches conversation history from pod storage |
 
 ## Component Manifest (`shared/component-manifest/`)
 
@@ -520,6 +555,41 @@ c.connect().then(() => c.query('YOUR SQL')).then(r => { console.log(JSON.stringi
 - **Hetzner NIC name**: Flannel must use `enp7s0`, not `ens10`. Check `/etc/systemd/system/k3s*.service` if nodes don't register
 - **GHCR auth**: Only classic PATs (`ghp_*`) work for container registry. Fine-grained PATs (`github_pat_*`) return 403
 - **`@jarble/component-manifest` in Docker**: TypeScript path alias requires runtime symlink in Dockerfile
+- **403 on exec for storage usage**: `getDeploymentStorageUsage` exec calls return 403 (RBAC). Storage usage falls back to `null`; CPU/memory come from the metrics API instead
+
+## Deployment Testing Framework
+
+`scripts/deployment-testing/` is a standalone automated testing suite that validates OpenClaw deployments end-to-end via the production API.
+
+### Usage
+```bash
+AUTH_TOKEN="eyJ..." npx tsx scripts/deployment-testing/run.ts --deployment <deploymentId> [--verbose]
+```
+
+Get `AUTH_TOKEN` from browser DevTools → any API request → Authorization header.
+
+Environment variables:
+- `AUTH_TOKEN` — Auth0 Bearer token (required)
+- `API_URL` — defaults to `https://api.jarble.ai`
+- `TEST_TIMEOUT` — per-test timeout ms (default: 45000)
+- `TEST_DELAY` — delay between tests ms (default: 2000)
+
+### 4 Testing Agents
+
+| Agent | Tests |
+|-------|-------|
+| **UI Component** | jarble_ui rendering pipeline — does the bot emit UI blocks when asked? Do named components appear? |
+| **Conversation & Safety** | Guardrail compliance, memory tool usage, context retention across turns |
+| **Performance & Reliability** | Response latency, streaming behaviour, error handling under load |
+| **Data & Integration** | Browser tool usage, real data policy compliance, platform awareness |
+
+### Report Format
+Reports are written to `scripts/deployment-testing/reports/{deploymentId}-{date}.md` with:
+- Per-agent pass/fail/warning counts
+- Overall score out of 100
+- Latency stats (avg, p50, p95) and TTFT
+- UI block success rate
+- Guardrail compliance %
 
 ## CI/CD
 

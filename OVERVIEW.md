@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: February 28, 2026 (Session 16 — Component Manifest, AutoFix, Marketplace, Security Hardening, assistant-ui)
+📅 Last updated: March 8, 2026 (Session 17 — Prompt Architecture Split, K8s Metrics, Resource Dashboard, Deployment Testing Framework)
 
 </aside>
 
@@ -939,6 +939,9 @@ flowchart TD
 - [x]  **Sentry + PostHog** — Client error monitoring (`sentry.client.config.ts`, `sentry.server.config.ts`) and product analytics (`lib/posthog.ts`)
 - [x]  **Security response headers** — `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` in `next.config.ts`
 - [x]  **HTML sanitization** — `lib/sanitize.ts` via DOMPurify for XSS prevention
+- [x]  **ResourceMetrics component** — `ResourceMetrics.tsx` shows CPU usage bar, memory usage bar, uptime, restart count, and node name (color-coded: green/amber/red based on percent utilization). Displayed on deployment cards when metrics data is present in the SSE stream
+- [x]  **`useStatusStream` — metrics fields** — Hook extended to surface `nodeName`, `cpuUsageMillicores`, `cpuLimitMillicores`, `memoryUsageMb`, `memoryLimitMb`, `uptimeSeconds`, `restarts` per deployment
+- [x]  **Chat session history sidebar** — `ChatSessionSidebar.tsx` collapsible sidebar on `/d/[id]`; sessions grouped by date (Today / Yesterday / Last 7 days / Older). Toggle in page header; returns `null` when closed. `useChatSessions.ts` fetches history from OpenClaw pod storage
 
 ## Backend ✅
 
@@ -991,6 +994,10 @@ flowchart TD
 - [x]  **Chat SSE streaming pipeline** — Incremental block extraction during deltas, brace-depth JSON parser, rAF-throttled frontend updates
 - [x]  **Server-side library URL validation** — `validateLibraryUrl()` in `uiBlockParser.ts` enforces TRUSTED_CDN_ORIGINS allowlist (10 origins) before block reaches frontend
 - [x]  **Status reconciler** — `statusReconciler.ts` background service syncs DB status with K8s reality (fixes "stuck at creating")
+- [x]  **K8s metrics module** — `k8s/metrics.ts` with `getDeploymentMetrics()`: CPU/memory usage (from `metrics.k8s.io` API), limits, uptime, restart count, node name. Circuit breaker disables calls for 60s on API failure. `CustomObjectsApi` added to `k8s/client.ts`
+- [x]  **SSE status stream — metrics fields** — Status stream events now include `nodeName`, `cpuUsageMillicores`, `cpuLimitMillicores`, `memoryUsageMb`, `memoryLimitMb`, `uptimeSeconds`, `restarts` when deployment is running
+- [x]  **Prompt architecture split** — `PLATFORM_GUARDRAILS` (security, real data policy, memory tools) written to `soul.md` for ALL platforms. `JARBLE_UI_PROMPT` (canvas rendering, components, layout) injected at request time by `tamboAgent.ts` — never written to pods. `MESSAGING_ONLY_PROMPT` condensed variant ready for future messaging-only deployments
+- [x]  **`chatViaHttp` system message injection** — `openclawGateway.ts:chatViaHttp()` accepts optional `systemMessage` parameter, prepended as a `system` role message to the request's messages array
 
 ## Infrastructure ✅
 
@@ -1051,6 +1058,9 @@ flowchart TD
 6. ~~Sentry + PostHog integration~~ — ✅ Done (Session 16). Client + server error monitoring, product analytics, autofix repair frequency tracking via Sentry breadcrumbs
 7. ~~assistant-ui integration~~ — ✅ Done (Session 16). `@assistant-ui/react` with ExternalStoreRuntime, replaces StreamingBotMessage.tsx
 8. ~~Prompt optimization~~ — ✅ Done (Session 16). Component quick reference trimmed 36→10 inline components, ~878 tokens saved per message
+9. ~~Prompt architecture split~~ — ✅ Done (Session 17). `PLATFORM_GUARDRAILS` → soul.md (all platforms), `JARBLE_UI_PROMPT` → injected at request time (web only). `MESSAGING_ONLY_PROMPT` ready for future messaging-only mode
+10. ~~K8s resource metrics~~ — ✅ Done (Session 17). `k8s/metrics.ts` + `ResourceMetrics.tsx` + metrics fields in SSE status stream
+11. ~~Deployment testing framework~~ — ✅ Done (Session 17). `scripts/deployment-testing/` with 4 automated test agents
 
 ## 🟢 Nice-to-Have (Future)
 
@@ -1059,19 +1069,21 @@ flowchart TD
 3. Multi-region cluster support
 4. Cluster auto-scaling based on deployments
 5. Telegram Mini Apps — Full canvas UI within Telegram
-6. Platform-conditional prompts — Skip web-specific prompt sections on non-web platforms (~1,250 token savings)
+6. Platform-conditional prompts (messaging-only mode) — Activate `isMessagingOnly()` gate in openclaw.ts once `messagingOnly` DB column is added (~1,250 token savings per request)
 
 ---
 
 # 13. Component Inventory
 
-Shared: ProfileDropdown, IntegrationsMarquee, TemplateSelector, WizardLoader, ErrorBoundary, ThemeToggle, StatusBadge, StorageMeter, CancellationGracePeriod, WhatsAppQrModal, DevNav
+Shared: ProfileDropdown, IntegrationsMarquee, TemplateSelector, WizardLoader, ErrorBoundary, ThemeToggle, StatusBadge, StorageMeter, ResourceMetrics, CancellationGracePeriod, WhatsAppQrModal, DevNav
+
+Chat: AssistantUIChat, ChatSessionSidebar
 
 Canvas Components (37 active + 1 alias): card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, metric_card, header, button_group, form, code_editor, spreadsheet, sandbox (+ canvas alias), marketplace_sandbox, video, audio, avatar, blockquote, text_message, image_gallery, map, descriptions, steps, result, carousel, statistic, tag_cloud, tree
 
 Marketplace Components: CategoryBadge, ComponentCard, DeploymentPicker, StarRating, TierBadge
 
-Hooks: useStatusStream (SSE real-time status), useLogStream (SSE deployment logs), useQrStream (SSE WhatsApp QR), useCanvasChat (chat + canvas state), useComposition (IME composition), useMobile (responsive breakpoint), usePersistFn (stable fn ref)
+Hooks: useStatusStream (SSE real-time status + resource metrics), useLogStream (SSE deployment logs), useQrStream (SSE WhatsApp QR), useCanvasChat (chat + canvas state), useChatSessions (pod chat history), useDirectChat (HTTP chat), useComposition (IME composition), useMobile (responsive breakpoint), usePersistFn (stable fn ref)
 
 Auth: Auth0Provider, LoginButton, LogoutButton
 
@@ -1140,7 +1152,12 @@ monorepo/
 │
 ├── scripts/
 │   ├── check-manifest.ts              # CI check: manifest ↔ registry sync
-│   └── generate-mcp-manifest.ts       # Generates JSON snapshot for MCP server
+│   ├── generate-mcp-manifest.ts       # Generates JSON snapshot for MCP server
+│   └── deployment-testing/            # Automated deployment testing framework
+│       ├── run.ts                     # Orchestrator — runs 4 agents, generates report
+│       ├── agents.ts                  # 4 testing agents (UI, Conversation, Performance, Data)
+│       ├── lib.ts                     # Test helpers, assertions, report generation
+│       └── reports/                   # Generated markdown reports
 │
 ├── Jarble-mvp/                        # Frontend (Next.js 15)
 │   ├── app/
@@ -1211,10 +1228,12 @@ monorepo/
 │   │   │   ├── StarRating.tsx         # Review star rating
 │   │   │   └── DeploymentPicker.tsx   # Deployment selector for installs
 │   │   ├── chat/
-│   │   │   └── AssistantUIChat.tsx    # assistant-ui Thread component for chat interface
+│   │   │   ├── AssistantUIChat.tsx    # assistant-ui Thread component for chat interface
+│   │   │   └── ChatSessionSidebar.tsx # Collapsible history sidebar — null when closed
 │   │   ├── ProfileDropdown.tsx        # User menu (Dashboard, Billing, Analytics, Settings)
 │   │   ├── StatusBadge.tsx            # Shared status indicator
 │   │   ├── StorageMeter.tsx           # Storage usage bar with color coding
+│   │   ├── ResourceMetrics.tsx        # CPU/memory/uptime/restart display (K8s metrics API)
 │   │   ├── WhatsAppQrModal.tsx        # Reusable QR pairing dialog
 │   │   └── DevNav.tsx                 # Dev-only navigation sidebar
 │   ├── sentry.client.config.ts        # Sentry client-side error monitoring
@@ -1280,7 +1299,7 @@ monorepo/
 │   │   │   ├── statusReconciler.ts   # Background DB↔K8s status sync (fixes stuck "creating")
 │   │   │   ├── subscriptionEnforcement.ts # Background subscription validation (5-min cycle)
 │   │   │   └── storageEnforcement.ts # Background storage quota enforcement (5-min cycle)
-│   │   └── k8s/                       # K8s orchestration modules (lifecycle, exec, secrets, status, logs)
+│   │   └── k8s/                       # K8s orchestration modules (lifecycle, exec, secrets, status, logs, metrics)
 │   ├── k8s/                           # K8s manifests
 │   │   ├── deployment.yaml            # API deployment + RBAC + Ingress (TLS)
 │   │   ├── cert-manager.yaml          # Let's Encrypt ClusterIssuer
@@ -1321,7 +1340,7 @@ monorepo/
 ---
 
 <aside>
-📚 This document provides a complete snapshot of the Jarble platform as of February 28, 2026 (Session 16). Use the roadmap section to prioritize next steps.
+📚 This document provides a complete snapshot of the Jarble platform as of March 8, 2026 (Session 17). Use the roadmap section to prioritize next steps.
 
 </aside>
 

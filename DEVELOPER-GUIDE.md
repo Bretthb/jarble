@@ -565,6 +565,17 @@ graph TB
 - `.initialized` is the **gate** — if this file exists, the entrypoint skips installation and goes straight to starting the gateway.
 - Everything outside `/data/` is **ephemeral** — the container image is rebuilt from scratch on every restart, but `/data/` is always reattached.
 
+### Split Prompt Architecture
+
+`soul.md` does NOT contain the full system prompt. The bot's instructions are split across two delivery mechanisms:
+
+| Prompt Part | Where It Lives | When Delivered | Platforms |
+|-------------|----------------|----------------|-----------|
+| `PLATFORM_GUARDRAILS` | Written into `soul.md` by configSync | On pod start / config change | ALL (Telegram, Discord, Slack, web) |
+| `JARBLE_UI_PROMPT` | Never written to disk | Injected at request time by `tamboAgent.ts` as a `system` message | Web dashboard only |
+
+**Why?** Guardrails (infrastructure confidentiality, real data policy, memory tools) must apply to messaging bots too, which never go through the API chat endpoint. The canvas rendering instructions are too large for messaging bots and only make sense in the web dashboard context — injecting them at request time means updating the API code instantly updates all deployments without touching any pods.
+
 ### What Happens to Files During Each Operation
 
 ```mermaid
