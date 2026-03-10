@@ -12,7 +12,7 @@ import EssentialControls from "@/components/workspace/EssentialControls";
 import ConfigPanel from "@/components/workspace/ConfigPanel";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, SendHorizontal, Settings, MessageSquare } from "lucide-react";
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import ChatErrorCard from "@/components/workspace/ChatErrorCard";
@@ -206,10 +206,15 @@ function ChatPanel({
     clearMessages();
   }, [startNewChat, clearMessages]);
   // Adapt DirectChatMessage to the ChatMessage shape expected by useJarbleRuntime
-  const adaptedMessages = messages.map((m) => ({
-    ...m,
-    createdAt: Date.now(),
-  }));
+  const adaptedMessages = useMemo(() =>
+    messages.map((m) => ({
+      ...m,
+      createdAt: (m as any).createdAt
+        ? new Date((m as any).createdAt).getTime()
+        : Date.now(),
+    })),
+    [messages]
+  );
   const runtime = useJarbleRuntime({ messages: adaptedMessages, streamingText: "", isStreaming, sendMessage });
   const { result: diagnosis, isLoading: isDiagnosing, runDiagnosis } = useDiagnose(deploymentId);
   const [input, setInput] = useState("");

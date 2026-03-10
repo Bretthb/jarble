@@ -147,6 +147,10 @@ tamboAgentRouter.get("/sessions/:deploymentId", async (req, res) => {
         title: tables.chatSessions.title,
         createdAt: tables.chatSessions.createdAt,
         updatedAt: tables.chatSessions.updatedAt,
+        messageCount: sql<number>`(
+          SELECT COUNT(*) FROM ${tables.chatMessages}
+          WHERE ${tables.chatMessages.sessionId} = ${tables.chatSessions.id}
+        )`.as("message_count"),
       })
       .from(tables.chatSessions)
       .where(eq(tables.chatSessions.deploymentId, deploymentId))
@@ -156,7 +160,7 @@ tamboAgentRouter.get("/sessions/:deploymentId", async (req, res) => {
       sessionId: r.sessionId,
       title: r.title,
       createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
-      messageCount: 0, // Frontend doesn't need exact count for sidebar display
+      messageCount: Number(r.messageCount) || 0,
     }));
 
     res.json({ sessions });

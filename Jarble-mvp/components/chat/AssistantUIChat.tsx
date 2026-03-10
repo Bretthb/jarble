@@ -111,12 +111,19 @@ function UserBubble() {
 // ── Typewriter Hook ─────────────────────────────────────────────────────────
 
 function useTypewriter(text: string, speed = 4) {
-  const [displayed, setDisplayed] = useState("");
+  const [displayed, setDisplayed] = useState(speed === 0 ? text : "");
   const prevTextRef = useRef("");
 
   useEffect(() => {
     // If text changed (new message), animate from where we left off
     if (text === prevTextRef.current) return;
+
+    // Instant mode: skip animation entirely (used for loaded history messages)
+    if (speed === 0) {
+      setDisplayed(text);
+      prevTextRef.current = text;
+      return;
+    }
 
     const startFrom = text.startsWith(prevTextRef.current)
       ? prevTextRef.current.length
@@ -208,8 +215,10 @@ function AssistantBubble() {
     ? false
     : message?.status?.type !== "complete";
 
+  const isComplete = message?.status?.type === "complete";
   const thinkingText = reasoningParts.map((p) => p.text).join("");
-  const { displayed, isAnimating } = useTypewriter(content);
+  // Skip typewriter for completed/loaded messages — show instantly
+  const { displayed, isAnimating } = useTypewriter(content, isComplete ? 0 : 4);
   const showCursor = isInProgress || isAnimating;
 
   return (

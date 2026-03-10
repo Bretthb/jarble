@@ -64,6 +64,7 @@ export function useChatSessions(deploymentId: string): UseChatSessionsReturn {
           role: m.role,
           content: m.content,
           thinkingText: m.thinkingText,
+          createdAt: m.createdAt,
         }));
       } catch (err) {
         console.error("[useChatSessions] Failed to load session:", err);
