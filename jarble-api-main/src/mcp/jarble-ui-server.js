@@ -652,6 +652,71 @@ const TOOLS = [
       required: ["name", "displayName", "description", "instructionSnippet"],
     },
   },
+  {
+    name: "register_service",
+    description: "Register a platform-managed service. The Jarble platform handles all routing, authentication, health monitoring, and execution. You provide skill definitions with handler code (JS functions) or agent mode. This is the recommended way to create services — no HTTP server or port management needed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Service name (lowercase, letters/digits/hyphens, 1-64 chars, e.g. 'weather-api')"
+        },
+        displayName: {
+          type: "string",
+          description: "Human-readable display name (e.g. 'Weather Service')"
+        },
+        description: {
+          type: "string",
+          description: "What this service does (min 10 chars)"
+        },
+        skills: {
+          type: "array",
+          description: "Skills this service provides",
+          items: {
+            type: "object",
+            properties: {
+              name: {
+                type: "string",
+                description: "Skill name (lowercase_underscores, e.g. 'get_weather')"
+              },
+              description: {
+                type: "string",
+                description: "What this skill does"
+              },
+              mode: {
+                type: "string",
+                enum: ["handler", "agent"],
+                description: "'handler' = platform runs your JS code in the pod (fast, deterministic). 'agent' = request forwarded to your LLM (smart, creative). Default: 'handler'"
+              },
+              handlerCode: {
+                type: "string",
+                description: "For handler mode: async JS function body. Receives (args, context). Must return JSON-serializable result. Has access to fetch() and require(). Example: 'const r = await fetch(`https://api.example.com/${args.query}`); return await r.json();'"
+              },
+              inputSchema: {
+                type: "object",
+                description: "JSON Schema for skill input arguments"
+              },
+              outputSchema: {
+                type: "object",
+                description: "JSON Schema for skill output (optional)"
+              }
+            },
+            required: ["name", "description", "inputSchema"]
+          }
+        },
+        instructionSnippet: {
+          type: "string",
+          description: "Text injected into installing bot's system prompt, teaching it how to use your service"
+        },
+        category: {
+          type: "string",
+          description: "Category: utility, dashboard, social, game, visualization, media"
+        }
+      },
+      required: ["name", "displayName", "description", "skills"]
+    }
+  },
   // ── Marketplace browse/install tools ─────────────────────────────────
   {
     name: "browse_marketplace",
@@ -724,6 +789,200 @@ const TOOLS = [
         tags: { type: "array", items: { type: "string" }, description: "Tags for discoverability" },
       },
       required: ["name", "displayName", "description"],
+    },
+  },
+  // ── Web & Search tools (no API key required) ────────────────────────
+  {
+    name: "web_fetch",
+    description: "Fetch a URL and extract its text content. Strips HTML tags, scripts, styles, nav elements. Returns cleaned text with title. Use for reading web pages, documentation, articles.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL to fetch" },
+        maxLength: { type: "number", description: "Maximum text length to return (default 10000)" },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "web_search",
+    description: "Search the web using DuckDuckGo. Returns titles, URLs, and snippets for top results. No API key needed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        maxResults: { type: "number", description: "Maximum results to return (default 5, max 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "hacker_news",
+    description: "Search Hacker News stories and comments via Algolia API. Find tech discussions, Show HNs, and community insights.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 10)" },
+        type: { type: "string", enum: ["story", "comment"], description: "Search stories or comments (default: story)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "github_search",
+    description: "Search GitHub public repositories. Find repos by name, description, or topic. Returns stars, forks, language, and description.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query (e.g. 'react state management', 'language:rust stars:>1000')" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 10)" },
+        sort: { type: "string", enum: ["stars", "updated", "forks"], description: "Sort order (default: stars)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "npm_search",
+    description: "Search npm packages. Returns name, version, description, author, and weekly downloads.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 20)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "academic_search",
+    description: "Search arXiv for academic papers. Returns titles, authors, abstracts, and links to papers in physics, CS, math, biology, and more.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query (e.g. 'transformer attention mechanism', 'quantum computing')" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 20)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "news_search",
+    description: "Search recent news articles via DuckDuckGo. Returns headlines, URLs, and snippets from the past week.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "News search query" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  // ── Reference & Data tools ──────────────────────────────────────────
+  {
+    name: "dictionary",
+    description: "Look up English word definitions, phonetics, and examples using the Free Dictionary API.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        word: { type: "string", description: "Word to look up" },
+      },
+      required: ["word"],
+    },
+  },
+  {
+    name: "currency_exchange",
+    description: "Get live currency exchange rates from Frankfurter API (European Central Bank data). Convert between currencies.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Source currency ISO 4217 code (e.g. 'USD', 'EUR', 'GBP')" },
+        to: { type: "string", description: "Target currency code. Omit for all available rates." },
+        amount: { type: "number", description: "Amount to convert (optional)" },
+      },
+      required: ["from"],
+    },
+  },
+  {
+    name: "timezone",
+    description: "Get current time in any timezone, or list all available timezones. Uses WorldTimeAPI.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        timezone: { type: "string", description: "Timezone name (e.g. 'America/New_York', 'Europe/London'). Use 'list' to see all available timezones." },
+      },
+      required: ["timezone"],
+    },
+  },
+  {
+    name: "country_info",
+    description: "Look up country information: capital, population, region, currencies, languages, flag, timezones, area.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Country name (e.g. 'France', 'Japan', 'Brazil')" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "open_library",
+    description: "Search for books using Open Library. Returns title, author, publication year, ISBN, and cover image URL.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Book search query (title, author, or ISBN)" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 20)" },
+      },
+      required: ["query"],
+    },
+  },
+  // ── Utility tools ───────────────────────────────────────────────────
+  {
+    name: "code_runner",
+    description: "Execute JavaScript code in a sandboxed VM. Has access to Math, Date, JSON, Array, Object, String, Number, Boolean, RegExp, Map, Set, and console.log. No filesystem or network access. Use for calculations, data transformations, and quick scripts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        code: { type: "string", description: "JavaScript code to execute. The result of the last expression is returned." },
+        timeout: { type: "number", description: "Execution timeout in ms (default 5000, max 10000)" },
+      },
+      required: ["code"],
+    },
+  },
+  {
+    name: "url_metadata",
+    description: "Extract Open Graph metadata, title, description, and favicon from a URL. Useful for link previews and URL inspection.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL to inspect" },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "rss_reader",
+    description: "Read RSS or Atom feed. Returns feed title and items with title, link, description, and publish date.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "RSS/Atom feed URL" },
+        maxItems: { type: "number", description: "Maximum items to return (default 10)" },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "wikipedia",
+    description: "Search and read Wikipedia articles. Returns article summary, thumbnail, and related topics.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Wikipedia article title or search query" },
+        sentences: { type: "number", description: "Number of sentences in summary (default 5, max 20)" },
+      },
+      required: ["query"],
     },
   },
 ];
@@ -845,6 +1104,45 @@ function autoRestartServices() {
   }
   if (restarted > 0) {
     console.error(`[MCP] Auto-restarted ${restarted} service(s) from manifest`);
+  }
+
+  // Re-register platform-managed services from saved registrations
+  try {
+    const registrationDirs = fs.readdirSync(SERVICES_DIR).filter(d => {
+      const regPath = path.join(SERVICES_DIR, d, "registration.json");
+      return fs.existsSync(regPath);
+    });
+
+    for (const dir of registrationDirs) {
+      try {
+        const regPath = path.join(SERVICES_DIR, dir, "registration.json");
+        const registration = JSON.parse(fs.readFileSync(regPath, "utf8"));
+
+        // Re-read handler code from disk
+        const skills = (registration.skills || []).map(skill => {
+          const handlerPath = path.join(SERVICES_DIR, dir, "handlers", `${skill.name}.js`);
+          let handlerCode = null;
+          if (skill.mode === "handler" && fs.existsSync(handlerPath)) {
+            handlerCode = fs.readFileSync(handlerPath, "utf8");
+          }
+          return { ...skill, handlerCode };
+        });
+
+        // Re-register with API (fire and forget)
+        apiRequest("POST", "/api/pod/marketplace/register-service", {
+          ...registration,
+          skills,
+        }).then(res => {
+          if (res.status === 200) {
+            console.error(`[service-recovery] Re-registered platform service: ${registration.name}`);
+          }
+        }).catch(() => {});
+      } catch (err) {
+        console.error(`[service-recovery] Failed to re-register ${dir}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    // /data/services may not exist yet
   }
 }
 
@@ -1411,10 +1709,12 @@ Your sandbox runs in a double-isolated iframe (sandbox="allow-scripts allow-popu
 ### Critical Rules
 1. \`html\` = body content ONLY (divs, canvas elements, containers). <script>/<style> tags ARE extracted automatically but putting code in the proper fields is cleaner.
 2. \`css\` = ALL styles. Global styles, responsive rules, dark mode, animations.
-3. \`js\` = ALL JavaScript. Runs AFTER all libraries finish loading. Runs at GLOBAL scope (const/let/var are global).
-4. \`libraries\` = array of CDN URLs. Loaded as <script> tags IN ORDER (sequential, not parallel). Put dependencies first.
-5. \`props\` = custom data passed to sandbox. Access via \`window.__JARBLE_PROPS__\`.
-6. \`title\` = card title. ALWAYS provide a descriptive title.
+3. \`js\` = Classic JavaScript. Runs AFTER all libraries finish loading. Runs at GLOBAL scope (const/let/var are global).
+4. \`moduleJs\` = ES module JavaScript with \`import\` statements. Rendered as \`<script type="module">\`. Runs after classic js.
+5. \`importMap\` = maps bare package names to CDN URLs for clean imports (e.g. \`{"react": "https://esm.sh/react@18"}\`).
+6. \`libraries\` = array of CDN URLs. Loaded as <script> tags IN ORDER (sequential, not parallel). Put dependencies first.
+7. \`props\` = custom data passed to sandbox. Access via \`window.__JARBLE_PROPS__\`.
+8. \`title\` = card title. ALWAYS provide a descriptive title.
 
 ### Allowed CDN Origins (ONLY these work — CSP blocks everything else)
 | Origin | Use For |
@@ -1423,7 +1723,8 @@ Your sandbox runs in a double-isolated iframe (sandbox="allow-scripts allow-popu
 | cdnjs.cloudflare.com | Classic CDN mirror |
 | unpkg.com | npm mirror |
 | cdn.tailwindcss.com | Tailwind CSS |
-| esm.sh | ES modules |
+| esm.sh | ES modules (React, Vue, Svelte, lodash, any npm package) |
+| esm.run | ES modules (jsDelivr CDN, fallback for esm.sh) |
 | threejs.org | Three.js examples/addons |
 | d3js.org | D3 official |
 | cdn.plot.ly | Plotly |
@@ -1442,6 +1743,50 @@ Leaflet CSS:  https://cdn.jsdelivr.net/npm/leaflet@1/dist/leaflet.css (put in cs
 p5.js:        https://cdn.jsdelivr.net/npm/p5@1/lib/p5.min.js
 Matter.js:    https://cdn.jsdelivr.net/npm/matter-js@0.19/build/matter.min.js
 GSAP:         https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js
+\\\`\\\`\\\`
+
+### ES Module Imports (Modern Pattern)
+
+Use \`moduleJs\` prop for ES module JavaScript with \`import\` statements. Use \`importMap\` prop to map bare package names to CDN URLs.
+
+**Key props:**
+- \`moduleJs\` — JavaScript string with import statements. Rendered as \`<script type="module">\`.
+- \`importMap\` — Object mapping bare specifiers to CDN URLs (e.g. \`{"react": "https://esm.sh/react@18"}\`).
+
+**esm.sh URL patterns:**
+\\\`\\\`\\\`
+https://esm.sh/PACKAGE@VERSION           — e.g. https://esm.sh/react@18
+https://esm.sh/PACKAGE@VERSION/SUBPATH   — e.g. https://esm.sh/react-dom@18/client
+https://esm.sh/PACKAGE@VERSION?bundle    — force bundled (includes deps)
+\\\`\\\`\\\`
+
+**When to use classic vs module:**
+| Pattern | Use When | Props |
+|---------|----------|-------|
+| Classic (UMD) | Three.js, D3, Chart.js, p5.js, anime.js — libraries that set globals | \`libraries\` + \`js\` |
+| Module (ESM) | React, Vue, Svelte, lodash-es, date-fns — modern npm packages | \`moduleJs\` + \`importMap\` |
+| Mixed | Three.js scene + React UI overlay | All four props together |
+
+**You can use BOTH classic and module in one sandbox.** Classic scripts load first (as globals), then module JS runs.
+
+**Pattern: React Component (ESM)**
+\\\`\\\`\\\`json
+{
+  "html": "<div id='root'></div>",
+  "moduleJs": "import React from 'react';\\nimport { createRoot } from 'react-dom/client';\\nconst App = () => React.createElement('div', { style: { padding: 20, fontFamily: 'system-ui' } },\\n  React.createElement('h1', null, 'Hello from React!'),\\n  React.createElement('p', null, 'Running inside sandbox via esm.sh'));\\ncreateRoot(document.getElementById('root')).render(React.createElement(App));",
+  "importMap": { "react": "https://esm.sh/react@18", "react-dom/client": "https://esm.sh/react-dom@18/client" },
+  "title": "React App"
+}
+\\\`\\\`\\\`
+
+**Pattern: Vue 3 (ESM)**
+\\\`\\\`\\\`json
+{
+  "html": "<div id='app'>{{ message }}</div>",
+  "moduleJs": "import { createApp } from 'vue';\\ncreateApp({ data: () => ({ message: 'Hello from Vue 3!' }) }).mount('#app');",
+  "importMap": { "vue": "https://esm.sh/vue@3" },
+  "title": "Vue App"
+}
 \\\`\\\`\\\`
 
 ### Design Patterns & Templates
@@ -1531,7 +1876,7 @@ Listen for updates: \`window.addEventListener("jarble:props", e => { const data 
 
 ### Common Mistakes (AVOID THESE)
 1. **Wrong library URL** — Use EXACT URLs from the list above. Wrong versions or paths fail silently.
-2. **Non-allowlisted CDN** — CSP blocks silently. ONLY the 10 origins above work.
+2. **Non-allowlisted CDN** — CSP blocks silently. ONLY the 11 origins above work.
 3. **Blocking main thread** — Heavy sync loops kill heartbeat. Chunk with \`setTimeout(fn, 0)\`.
 4. **No responsive sizing** — Use \`width: 100%; height: 100%\` on root elements.
 5. **fetch() to external APIs** — ONLY CDN origins work in connect-src. Pass data via props instead.
@@ -1539,7 +1884,8 @@ Listen for updates: \`window.addEventListener("jarble:props", e => { const data 
 7. **Opaque background** — ALWAYS use \`background: transparent\` on body.
 8. **Missing title** — Every sandbox MUST have a descriptive title prop.
 9. **No error handling** — Wrap risky code in try/catch. Errors show as red overlay in iframe.
-10. **Library version mismatch** — Pin specific versions in URLs (e.g. \`@0.169\` not \`@latest\`).`
+10. **Library version mismatch** — Pin specific versions in URLs (e.g. \`@0.169\` not \`@latest\`).
+11. **Using import in js prop** — ES module \`import\` statements ONLY work in \`moduleJs\`, not \`js\`. The \`js\` prop runs as a classic script.`
   },
 
   "generative-ui-patterns": {
@@ -1912,7 +2258,7 @@ const COMPONENT_REFERENCE = {
   form: "`{title?, fields: [{name, label, type: text|email|textarea|select|checkbox|number, placeholder?, required?, options?, defaultValue?}], submitLabel?}`",
   code_editor: "`{code, language?, title?, readOnly?, height?}` — Monaco code editor",
   spreadsheet: "`{data?: [{...}], title?, height?}` — editable Excel-like grid",
-  sandbox: "`{html, css?, js?, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML (divs etc), NEVER <script>/<style>/<html>/<head> tags. css=all styles. js=all JavaScript (runs AFTER libraries load). libraries=CDN URLs loaded dynamically. Use for: gauges, maps, scatter plots, heatmaps, 3D, animations, candlestick charts, word clouds, or ANY custom visualization. NEVER use code_editor for running JS — use sandbox instead.",
+  sandbox: "`{html, css?, js?, moduleJs?, importMap?: {}, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML. js=classic JavaScript (UMD globals). moduleJs=ES module JS with import statements. importMap=maps bare specifiers to CDN URLs (e.g. {\"react\":\"https://esm.sh/react@18\"}). libraries=CDN URLs loaded as <script> tags. Use for: gauges, maps, scatter plots, heatmaps, 3D, animations, candlestick charts, word clouds, React/Vue/Svelte components, or ANY custom visualization.",
   video: "`{url, title?, controls?: true, loop?: false, muted?: false}` — video/livestream player. Supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct MP4/HLS URLs. Use for livestreams (e.g. YouTube Live, Twitch channels). Just pass the URL.",
 };
 
@@ -2887,11 +3233,16 @@ async function executePublishToMarketplace(args) {
   });
 
   return new Promise((resolve) => {
-    const url = new URL(`${apiUrl}/debug/marketplace/publish-service`);
+    const url = new URL(`${apiUrl}/api/pod/marketplace/publish-service`);
     const transport = url.protocol === "https:" ? https : http;
     const req = transport.request(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) },
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+        "X-Deployment-Id": process.env.DEPLOYMENT_ID || "",
+        "X-Gateway-Token": process.env.OPENCLAW_GATEWAY_TOKEN || "",
+      },
     }, (res) => {
       let body = "";
       res.on("data", (d) => body += d);
@@ -2927,6 +3278,126 @@ async function executePublishToMarketplace(args) {
   });
 }
 
+// ── Platform-managed service registration ─────────────────────────────
+
+async function executeRegisterService(args) {
+  // 1. Validate environment
+  const deploymentId = process.env.DEPLOYMENT_ID;
+  const userId = process.env.USER_ID;
+  if (!deploymentId || !userId) {
+    return { isError: true, text: "Missing DEPLOYMENT_ID or USER_ID environment variables." };
+  }
+
+  // 2. Validate inputs
+  const name = (args.name || "").trim();
+  const displayName = (args.displayName || "").trim();
+  const description = (args.description || "").trim();
+  const skills = args.skills || [];
+
+  if (!name || !/^[a-z][a-z0-9-]{0,63}$/.test(name)) {
+    return { isError: true, text: "Invalid service name. Must be lowercase letters, digits, and hyphens (1-64 chars), starting with a letter." };
+  }
+  if (!displayName) {
+    return { isError: true, text: "displayName is required." };
+  }
+  if (!description || description.length < 10) {
+    return { isError: true, text: "description must be at least 10 characters." };
+  }
+  if (!Array.isArray(skills) || skills.length === 0) {
+    return { isError: true, text: "At least one skill is required." };
+  }
+
+  // 3. Validate each skill
+  for (const skill of skills) {
+    if (!skill.name || !/^[a-z][a-z0-9_]*$/.test(skill.name)) {
+      return { isError: true, text: `Invalid skill name "${skill.name}". Must be lowercase letters, digits, and underscores.` };
+    }
+    if (!skill.description) {
+      return { isError: true, text: `Skill "${skill.name}" missing description.` };
+    }
+    const mode = skill.mode || "handler";
+    if (mode === "handler" && !skill.handlerCode) {
+      return { isError: true, text: `Skill "${skill.name}" is handler mode but missing handlerCode.` };
+    }
+  }
+
+  // 4. Persist handler code to PVC for restart recovery
+  const serviceDir = path.join(SERVICES_DIR, name);
+  const handlersDir = path.join(serviceDir, "handlers");
+
+  try {
+    fs.mkdirSync(handlersDir, { recursive: true });
+
+    // Save registration manifest
+    const registration = {
+      name,
+      displayName,
+      description,
+      skills: skills.map(s => ({
+        name: s.name,
+        description: s.description,
+        mode: s.mode || "handler",
+        inputSchema: s.inputSchema || {},
+        outputSchema: s.outputSchema || null,
+      })),
+      instructionSnippet: args.instructionSnippet || null,
+      category: args.category || "utility",
+      registeredAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(serviceDir, "registration.json"), JSON.stringify(registration, null, 2));
+
+    // Save handler code files
+    for (const skill of skills) {
+      if (skill.handlerCode) {
+        fs.writeFileSync(path.join(handlersDir, `${skill.name}.js`), skill.handlerCode);
+      }
+    }
+  } catch (err) {
+    return { isError: true, text: `Failed to persist service files: ${err.message}` };
+  }
+
+  // 5. Register with the Jarble API
+  try {
+    const res = await apiRequest("POST", "/api/pod/marketplace/register-service", {
+      name,
+      displayName,
+      description,
+      skills: skills.map(s => ({
+        name: s.name,
+        description: s.description,
+        mode: s.mode || "handler",
+        handlerCode: s.handlerCode || null,
+        inputSchema: s.inputSchema || {},
+        outputSchema: s.outputSchema || null,
+      })),
+      instructionSnippet: args.instructionSnippet || null,
+      category: args.category || "utility",
+    });
+
+    if (res.status !== 200) {
+      return { isError: true, text: `API error (${res.status}): ${JSON.stringify(res.data)}` };
+    }
+
+    const result = res.data;
+    return {
+      isError: false,
+      text: [
+        `Service "${displayName}" registered successfully!`,
+        ``,
+        `ID: ${result.id}`,
+        `Status: ${result.status}`,
+        `Skills: ${skills.length} (${skills.map(s => s.name).join(", ")})`,
+        ``,
+        `The platform now manages routing, authentication, and execution.`,
+        `Other bots can install this service via: install_marketplace_item { id: "${result.id}", type: "service" }`,
+        `Handler code is persisted to /data/services/${name}/ and survives pod restarts.`,
+      ].join("\n"),
+    };
+  } catch (err) {
+    return { isError: true, text: `Failed to register service: ${err.message}` };
+  }
+}
+
 // ── Marketplace browse/install tool execution ─────────────────────────
 
 /**
@@ -2942,14 +3413,19 @@ function apiRequest(method, path, body) {
 
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
+    const headers = payload
+      ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
+      : {};
+    // Auth headers so the API can identify which pod/deployment is calling
+    headers["X-Deployment-Id"] = process.env.DEPLOYMENT_ID || "";
+    headers["X-Gateway-Token"] = process.env.OPENCLAW_GATEWAY_TOKEN || "";
+
     const opts = {
       method,
       hostname: url.hostname,
       port: url.port,
       path: url.pathname + url.search,
-      headers: payload
-        ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
-        : {},
+      headers,
     };
 
     const req = transport.request(opts, (res) => {
@@ -2976,7 +3452,7 @@ async function executeBrowseMarketplace(args) {
     if (args.query) params.set("q", args.query);
     if (args.category) params.set("category", args.category);
 
-    const res = await apiRequest("GET", `/debug/marketplace/browse?${params.toString()}`);
+    const res = await apiRequest("GET", `/api/pod/marketplace/browse?${params.toString()}`);
     if (res.status !== 200) {
       return { isError: true, text: `Marketplace API error: ${JSON.stringify(res.data)}` };
     }
@@ -3012,7 +3488,7 @@ async function executeGetMarketplaceItem(args) {
   if (!args.id) return { isError: true, text: "Missing item ID." };
 
   try {
-    const res = await apiRequest("GET", `/debug/marketplace/item/${args.id}`);
+    const res = await apiRequest("GET", `/api/pod/marketplace/item/${args.id}`);
     if (res.status === 404) {
       return { isError: true, text: `Item "${args.id}" not found in the marketplace.` };
     }
@@ -3064,7 +3540,7 @@ async function executeInstallMarketplaceItem(args) {
   }
 
   try {
-    const res = await apiRequest("POST", "/debug/marketplace/install", {
+    const res = await apiRequest("POST", "/api/pod/marketplace/install", {
       itemId: args.id,
       type: args.type,
       deploymentId,
@@ -3107,7 +3583,7 @@ async function executeUninstallMarketplaceItem(args) {
   }
 
   try {
-    const res = await apiRequest("POST", "/debug/marketplace/uninstall", {
+    const res = await apiRequest("POST", "/api/pod/marketplace/uninstall", {
       itemId: args.id,
       type: args.type,
       deploymentId,
@@ -3136,7 +3612,7 @@ async function executeListInstalledMarketplace() {
   }
 
   try {
-    const res = await apiRequest("GET", `/debug/marketplace/installed/${deploymentId}`);
+    const res = await apiRequest("GET", `/api/pod/marketplace/installed`);
     if (res.status !== 200) {
       return { isError: true, text: `API error: ${JSON.stringify(res.data)}` };
     }
@@ -3188,7 +3664,7 @@ async function executePublishComponent(args) {
   }
 
   try {
-    const res = await apiRequest("POST", "/debug/marketplace/publish-component", {
+    const res = await apiRequest("POST", "/api/pod/marketplace/publish-component", {
       name,
       displayName,
       description,
@@ -3219,6 +3695,835 @@ async function executePublishComponent(args) {
     };
   } catch (err) {
     return { isError: true, text: `Failed to publish component: ${err.message}` };
+  }
+}
+
+// ── Shared helpers for web tools ───────────────────────────────────────
+
+const WEB_USER_AGENT = "JarbleBot/1.0 (https://jarble.ai)";
+const WEB_FETCH_TIMEOUT = 10000;
+
+/**
+ * Extract readable text from HTML by stripping tags, scripts, styles, nav, header, footer.
+ * Collapses whitespace and returns clean text.
+ */
+function extractTextFromHtml(html) {
+  let text = html;
+  // Remove script, style, nav, header, footer, noscript, svg elements and their contents
+  text = text.replace(/<(script|style|nav|header|footer|noscript|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, " ");
+  // Remove all remaining HTML tags
+  text = text.replace(/<[^>]+>/g, " ");
+  // Decode common HTML entities
+  text = text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&nbsp;/g, " ");
+  // Collapse whitespace
+  text = text.replace(/\s+/g, " ").trim();
+  return text;
+}
+
+/**
+ * Extract <title> from HTML.
+ */
+function extractTitle(html) {
+  const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return m ? m[1].replace(/<[^>]+>/g, "").trim() : null;
+}
+
+/**
+ * Fetch a URL with timeout and user-agent.
+ */
+async function webFetch(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs || WEB_FETCH_TIMEOUT);
+  try {
+    const resp = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": WEB_USER_AGENT },
+    });
+    return resp;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── Web & Search tool handlers ────────────────────────────────────────
+
+async function executeWebFetch(args) {
+  const { url, maxLength } = args;
+  if (!url) return { isError: true, text: "Missing 'url' parameter." };
+
+  const limit = Math.min(Math.max(maxLength || 10000, 100), 100000);
+
+  try {
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `HTTP ${resp.status}: ${resp.statusText}` };
+
+    const html = await resp.text();
+    const title = extractTitle(html) || "";
+    let content = extractTextFromHtml(html);
+    const fullLength = content.length;
+    if (content.length > limit) content = content.slice(0, limit) + "...";
+
+    return {
+      isError: false,
+      text: JSON.stringify({ title, content, url, contentLength: fullLength }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out after 10 seconds" : err.message;
+    return { isError: true, text: `Failed to fetch ${url}: ${msg}` };
+  }
+}
+
+async function executeWebSearch(args) {
+  const { query, maxResults } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 10);
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT);
+    let resp;
+    try {
+      resp = await fetch("https://lite.duckduckgo.com/lite", {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "User-Agent": WEB_USER_AGENT,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: "q=" + encodeURIComponent(query),
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!resp.ok) return { isError: true, text: `DuckDuckGo returned HTTP ${resp.status}` };
+
+    const html = await resp.text();
+    const results = [];
+
+    // DuckDuckGo lite returns results in table rows with class "result-link" for links
+    // and snippets in subsequent cells. Parse via regex.
+    // Pattern: <a rel="nofollow" href="URL" class='result-link'>TITLE</a> ... <td class="result-snippet">SNIPPET</td>
+    const linkRe = /<a[^>]+class='result-link'[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+    const snippetRe = /<td\s+class="result-snippet"[^>]*>([\s\S]*?)<\/td>/gi;
+
+    const links = [];
+    let m;
+    while ((m = linkRe.exec(html)) !== null) {
+      links.push({ url: m[1], title: extractTextFromHtml(m[2]).trim() });
+    }
+    const snippets = [];
+    while ((m = snippetRe.exec(html)) !== null) {
+      snippets.push(extractTextFromHtml(m[1]).trim());
+    }
+
+    for (let i = 0; i < Math.min(links.length, limit); i++) {
+      results.push({
+        title: links[i].title,
+        url: links[i].url,
+        snippet: snippets[i] || "",
+      });
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Search timed out after 10 seconds" : err.message;
+    return { isError: true, text: `Web search failed: ${msg}` };
+  }
+}
+
+async function executeHackerNews(args) {
+  const { query, maxResults, type } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 10);
+  const searchType = type === "comment" ? "comment" : "story";
+
+  try {
+    const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=${searchType}&hitsPerPage=${limit}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `Hacker News API returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    const results = (data.hits || []).map(hit => ({
+      title: hit.title || hit.story_title || "",
+      url: hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`,
+      points: hit.points || 0,
+      author: hit.author || "",
+      createdAt: hit.created_at || "",
+      numComments: hit.num_comments || 0,
+      ...(searchType === "comment" ? { commentText: (hit.comment_text || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 300) } : {}),
+    }));
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Hacker News search failed: ${msg}` };
+  }
+}
+
+async function executeGithubSearch(args) {
+  const { query, maxResults, sort } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 10);
+  const sortBy = sort || "stars";
+
+  try {
+    const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=${sortBy}&per_page=${limit}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+
+    if (resp.status === 403) {
+      return { isError: true, text: "GitHub API rate limit exceeded (10 requests/min for unauthenticated). Try again in a minute." };
+    }
+    if (!resp.ok) return { isError: true, text: `GitHub API returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    const results = (data.items || []).map(repo => ({
+      name: repo.name,
+      fullName: repo.full_name,
+      description: repo.description || "",
+      stars: repo.stargazers_count,
+      forks: repo.forks_count,
+      language: repo.language || "Unknown",
+      url: repo.html_url,
+      updatedAt: repo.updated_at,
+    }));
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, totalCount: data.total_count, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `GitHub search failed: ${msg}` };
+  }
+}
+
+async function executeNpmSearch(args) {
+  const { query, maxResults } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 20);
+
+  try {
+    const url = `https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(query)}&size=${limit}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `npm registry returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    const results = (data.objects || []).map(obj => {
+      const pkg = obj.package;
+      return {
+        name: pkg.name,
+        version: pkg.version,
+        description: pkg.description || "",
+        author: pkg.author ? pkg.author.name || pkg.author : "",
+        weeklyDownloads: obj.score ? Math.round((obj.score.detail?.popularity || 0) * 1000000) : 0,
+        url: `https://www.npmjs.com/package/${pkg.name}`,
+      };
+    });
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `npm search failed: ${msg}` };
+  }
+}
+
+async function executeAcademicSearch(args) {
+  const { query, maxResults } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 20);
+
+  try {
+    const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&max_results=${limit}&sortBy=relevance`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `arXiv API returned HTTP ${resp.status}` };
+
+    const xml = await resp.text();
+    const results = [];
+
+    // Parse <entry> blocks from Atom XML using regex
+    const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
+    let entryMatch;
+    while ((entryMatch = entryRe.exec(xml)) !== null && results.length < limit) {
+      const entry = entryMatch[1];
+
+      const titleM = entry.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      const summaryM = entry.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i);
+      const idM = entry.match(/<id[^>]*>([\s\S]*?)<\/id>/i);
+      const publishedM = entry.match(/<published[^>]*>([\s\S]*?)<\/published>/i);
+
+      // Extract all author names
+      const authors = [];
+      const authorRe = /<author>\s*<name>([\s\S]*?)<\/name>/gi;
+      let authorMatch;
+      while ((authorMatch = authorRe.exec(entry)) !== null) {
+        authors.push(authorMatch[1].trim());
+      }
+
+      const title = titleM ? titleM[1].replace(/\s+/g, " ").trim() : "";
+      const summary = summaryM ? summaryM[1].replace(/\s+/g, " ").trim().slice(0, 500) : "";
+      const arxivUrl = idM ? idM[1].trim() : "";
+      const published = publishedM ? publishedM[1].trim() : "";
+
+      if (title) {
+        results.push({ title, authors, summary, url: arxivUrl, published });
+      }
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `arXiv search failed: ${msg}` };
+  }
+}
+
+async function executeNewsSearch(args) {
+  const { query, maxResults } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 10);
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT);
+    let resp;
+    try {
+      resp = await fetch("https://lite.duckduckgo.com/lite", {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "User-Agent": WEB_USER_AGENT,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: "q=" + encodeURIComponent(query + " news") + "&df=w",
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!resp.ok) return { isError: true, text: `DuckDuckGo returned HTTP ${resp.status}` };
+
+    const html = await resp.text();
+    const results = [];
+
+    const linkRe = /<a[^>]+class='result-link'[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+    const snippetRe = /<td\s+class="result-snippet"[^>]*>([\s\S]*?)<\/td>/gi;
+
+    const links = [];
+    let m;
+    while ((m = linkRe.exec(html)) !== null) {
+      links.push({ url: m[1], title: extractTextFromHtml(m[2]).trim() });
+    }
+    const snippets = [];
+    while ((m = snippetRe.exec(html)) !== null) {
+      snippets.push(extractTextFromHtml(m[1]).trim());
+    }
+
+    for (let i = 0; i < Math.min(links.length, limit); i++) {
+      results.push({
+        title: links[i].title,
+        url: links[i].url,
+        snippet: snippets[i] || "",
+      });
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Search timed out" : err.message;
+    return { isError: true, text: `News search failed: ${msg}` };
+  }
+}
+
+async function executeDictionary(args) {
+  const { word } = args;
+  if (!word) return { isError: true, text: "Missing 'word' parameter." };
+
+  try {
+    const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+
+    if (resp.status === 404) return { isError: true, text: `Word "${word}" not found in dictionary.` };
+    if (!resp.ok) return { isError: true, text: `Dictionary API returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      return { isError: true, text: `No definitions found for "${word}".` };
+    }
+
+    const entry = data[0];
+    const result = {
+      word: entry.word,
+      phonetic: entry.phonetic || (entry.phonetics && entry.phonetics[0] ? entry.phonetics[0].text : ""),
+      meanings: (entry.meanings || []).map(m => ({
+        partOfSpeech: m.partOfSpeech,
+        definitions: (m.definitions || []).slice(0, 3).map(d => ({
+          definition: d.definition,
+          example: d.example || undefined,
+        })),
+      })),
+    };
+
+    return {
+      isError: false,
+      text: JSON.stringify(result),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Dictionary lookup failed: ${msg}` };
+  }
+}
+
+async function executeCurrencyExchange(args) {
+  const { from, to, amount } = args;
+  if (!from) return { isError: true, text: "Missing 'from' currency code." };
+
+  const fromCode = from.toUpperCase();
+
+  try {
+    let url = `https://api.frankfurter.app/latest?from=${encodeURIComponent(fromCode)}`;
+    if (to) url += `&to=${encodeURIComponent(to.toUpperCase())}`;
+    if (amount !== undefined && amount !== null) url += `&amount=${encodeURIComponent(String(amount))}`;
+
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) {
+      const body = await resp.text();
+      return { isError: true, text: `Currency API error (${resp.status}): ${body.slice(0, 200)}` };
+    }
+
+    const data = await resp.json();
+    return {
+      isError: false,
+      text: JSON.stringify({
+        from: data.base || fromCode,
+        date: data.date,
+        rates: data.rates,
+        ...(amount !== undefined ? { amount } : {}),
+      }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Currency exchange failed: ${msg}` };
+  }
+}
+
+async function executeTimezone(args) {
+  const { timezone } = args;
+  if (!timezone) return { isError: true, text: "Missing 'timezone' parameter." };
+
+  try {
+    if (timezone.toLowerCase() === "list") {
+      const resp = await webFetch("https://worldtimeapi.org/api/timezone", WEB_FETCH_TIMEOUT);
+      if (!resp.ok) return { isError: true, text: `WorldTimeAPI returned HTTP ${resp.status}` };
+      const zones = await resp.json();
+      return { isError: false, text: JSON.stringify({ timezones: zones }) };
+    }
+
+    const url = `https://worldtimeapi.org/api/timezone/${encodeURIComponent(timezone)}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+
+    if (resp.status === 404) return { isError: true, text: `Timezone "${timezone}" not found. Use timezone "list" to see available timezones.` };
+    if (!resp.ok) return { isError: true, text: `WorldTimeAPI returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    return {
+      isError: false,
+      text: JSON.stringify({
+        timezone: data.timezone,
+        datetime: data.datetime,
+        utcOffset: data.utc_offset,
+        dayOfWeek: data.day_of_week,
+        weekNumber: data.week_number,
+      }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Timezone lookup failed: ${msg}` };
+  }
+}
+
+async function executeCountryInfo(args) {
+  const { name } = args;
+  if (!name) return { isError: true, text: "Missing 'name' parameter." };
+
+  try {
+    const url = `https://restcountries.com/v3.1/name/${encodeURIComponent(name)}?fields=name,capital,population,region,subregion,currencies,languages,flags,timezones,area`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+
+    if (resp.status === 404) return { isError: true, text: `Country "${name}" not found.` };
+    if (!resp.ok) return { isError: true, text: `REST Countries API returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      return { isError: true, text: `No country found for "${name}".` };
+    }
+
+    const country = data[0];
+    const currencies = country.currencies
+      ? Object.entries(country.currencies).map(([code, c]) => ({ code, name: c.name, symbol: c.symbol }))
+      : [];
+    const languages = country.languages
+      ? Object.values(country.languages)
+      : [];
+
+    return {
+      isError: false,
+      text: JSON.stringify({
+        name: country.name?.common || name,
+        officialName: country.name?.official || "",
+        capital: Array.isArray(country.capital) ? country.capital : [],
+        population: country.population,
+        region: country.region,
+        subregion: country.subregion || "",
+        currencies,
+        languages,
+        flag: country.flags?.emoji || country.flags?.png || "",
+        timezones: country.timezones || [],
+        area: country.area,
+      }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Country lookup failed: ${msg}` };
+  }
+}
+
+async function executeOpenLibrary(args) {
+  const { query, maxResults } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 20);
+
+  try {
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=${limit}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `Open Library returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    const results = (data.docs || []).slice(0, limit).map(doc => ({
+      title: doc.title || "",
+      author: Array.isArray(doc.author_name) ? doc.author_name.join(", ") : "",
+      firstPublished: doc.first_publish_year || null,
+      isbn: Array.isArray(doc.isbn) ? doc.isbn[0] : null,
+      coverUrl: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg` : null,
+      subjects: Array.isArray(doc.subject) ? doc.subject.slice(0, 5) : [],
+    }));
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Open Library search failed: ${msg}` };
+  }
+}
+
+function executeCodeRunner(args) {
+  const { code, timeout } = args;
+  if (!code) return { isError: true, text: "Missing 'code' parameter." };
+
+  const vm = require("vm");
+  const maxTimeout = Math.min(Math.max(timeout || 5000, 100), 10000);
+
+  const logs = [];
+  const mockConsole = {
+    log: (...a) => logs.push(a.map(v => typeof v === "object" ? JSON.stringify(v) : String(v)).join(" ")),
+    warn: (...a) => logs.push("[warn] " + a.map(v => typeof v === "object" ? JSON.stringify(v) : String(v)).join(" ")),
+    error: (...a) => logs.push("[error] " + a.map(v => typeof v === "object" ? JSON.stringify(v) : String(v)).join(" ")),
+    info: (...a) => logs.push(a.map(v => typeof v === "object" ? JSON.stringify(v) : String(v)).join(" ")),
+  };
+
+  const sandbox = {
+    console: mockConsole,
+    Math, Date, JSON, Array, Object, String, Number, Boolean, RegExp,
+    Map, Set, parseInt, parseFloat, isNaN, isFinite,
+    encodeURIComponent, decodeURIComponent, encodeURI, decodeURI,
+    undefined, NaN, Infinity,
+    setTimeout: undefined, // blocked
+    setInterval: undefined, // blocked
+    fetch: undefined, // blocked
+    require: undefined, // blocked
+    process: undefined, // blocked
+  };
+
+  const startMs = Date.now();
+  try {
+    const result = vm.runInNewContext(code, sandbox, { timeout: maxTimeout, filename: "code_runner.js" });
+    const elapsed = Date.now() - startMs;
+
+    let resultStr;
+    try {
+      resultStr = result === undefined ? "undefined" : JSON.stringify(result);
+    } catch {
+      resultStr = String(result);
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({
+        result: resultStr,
+        logs,
+        executionTimeMs: elapsed,
+      }),
+    };
+  } catch (err) {
+    const elapsed = Date.now() - startMs;
+    return {
+      isError: true,
+      text: JSON.stringify({
+        error: err.message,
+        logs,
+        executionTimeMs: elapsed,
+      }),
+    };
+  }
+}
+
+async function executeUrlMetadata(args) {
+  const { url } = args;
+  if (!url) return { isError: true, text: "Missing 'url' parameter." };
+
+  try {
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `HTTP ${resp.status}: ${resp.statusText}` };
+
+    const html = await resp.text();
+
+    // Extract various meta tags
+    const title = extractTitle(html) || "";
+    const getMetaContent = (nameOrProp) => {
+      // Match both name= and property= attributes
+      const re = new RegExp(`<meta[^>]+(?:property|name)=["']${nameOrProp}["'][^>]+content=["']([^"']*)["']`, "i");
+      const m = html.match(re);
+      if (m) return m[1];
+      // Also try content before name/property
+      const re2 = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${nameOrProp}["']`, "i");
+      const m2 = html.match(re2);
+      return m2 ? m2[1] : "";
+    };
+
+    const ogTitle = getMetaContent("og:title");
+    const ogDesc = getMetaContent("og:description");
+    const ogImage = getMetaContent("og:image");
+    const ogSiteName = getMetaContent("og:site_name");
+    const ogType = getMetaContent("og:type");
+    const metaDesc = getMetaContent("description");
+
+    // Favicon
+    const faviconM = html.match(/<link[^>]+rel=["'](?:icon|shortcut icon)["'][^>]+href=["']([^"']*)["']/i);
+    let favicon = faviconM ? faviconM[1] : "";
+    if (favicon && !favicon.startsWith("http")) {
+      try {
+        favicon = new URL(favicon, url).href;
+      } catch { /* keep as-is */ }
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({
+        url,
+        title: ogTitle || title,
+        description: ogDesc || metaDesc,
+        image: ogImage,
+        siteName: ogSiteName,
+        type: ogType,
+        favicon,
+      }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out after 10 seconds" : err.message;
+    return { isError: true, text: `Failed to fetch metadata from ${url}: ${msg}` };
+  }
+}
+
+async function executeRssReader(args) {
+  const { url, maxItems } = args;
+  if (!url) return { isError: true, text: "Missing 'url' parameter." };
+
+  const limit = Math.min(Math.max(maxItems || 10, 1), 50);
+
+  try {
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `HTTP ${resp.status}: ${resp.statusText}` };
+
+    const xml = await resp.text();
+
+    // Detect if RSS or Atom
+    const isAtom = /<feed\b/i.test(xml);
+    const items = [];
+
+    // Extract feed title
+    let feedTitle = "";
+    if (isAtom) {
+      const ftM = xml.match(/<feed[^>]*>[\s\S]*?<title[^>]*>([\s\S]*?)<\/title>/i);
+      feedTitle = ftM ? ftM[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
+    } else {
+      const ftM = xml.match(/<channel[^>]*>[\s\S]*?<title[^>]*>([\s\S]*?)<\/title>/i);
+      feedTitle = ftM ? ftM[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
+    }
+
+    if (isAtom) {
+      // Atom: <entry> elements
+      const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
+      let match;
+      while ((match = entryRe.exec(xml)) !== null && items.length < limit) {
+        const e = match[1];
+        const titleM = e.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+        const linkM = e.match(/<link[^>]+href=["']([^"']*)["']/i);
+        const summaryM = e.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i) || e.match(/<content[^>]*>([\s\S]*?)<\/content>/i);
+        const publishedM = e.match(/<published[^>]*>([\s\S]*?)<\/published>/i) || e.match(/<updated[^>]*>([\s\S]*?)<\/updated>/i);
+
+        items.push({
+          title: titleM ? titleM[1].replace(/<!\[CDATA\[|\]\]>/g, "").replace(/<[^>]+>/g, "").trim() : "",
+          link: linkM ? linkM[1] : "",
+          description: summaryM ? extractTextFromHtml((summaryM[1] || summaryM[2] || "").replace(/<!\[CDATA\[|\]\]>/g, "")).slice(0, 300) : "",
+          publishedAt: publishedM ? (publishedM[1] || publishedM[2] || "").trim() : "",
+        });
+      }
+    } else {
+      // RSS: <item> elements
+      const itemRe = /<item>([\s\S]*?)<\/item>/gi;
+      let match;
+      while ((match = itemRe.exec(xml)) !== null && items.length < limit) {
+        const e = match[1];
+        const titleM = e.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+        const linkM = e.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
+        const descM = e.match(/<description[^>]*>([\s\S]*?)<\/description>/i);
+        const pubDateM = e.match(/<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i);
+
+        items.push({
+          title: titleM ? titleM[1].replace(/<!\[CDATA\[|\]\]>/g, "").replace(/<[^>]+>/g, "").trim() : "",
+          link: linkM ? linkM[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "",
+          description: descM ? extractTextFromHtml(descM[1].replace(/<!\[CDATA\[|\]\]>/g, "")).slice(0, 300) : "",
+          publishedAt: pubDateM ? pubDateM[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "",
+        });
+      }
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({ feedTitle, items }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out after 10 seconds" : err.message;
+    return { isError: true, text: `RSS reader failed: ${msg}` };
+  }
+}
+
+async function executeWikipedia(args) {
+  const { query, sentences } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const numSentences = Math.min(Math.max(sentences || 5, 1), 20);
+
+  try {
+    // Try direct article lookup first
+    const articleTitle = query.replace(/\s+/g, "_");
+    const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(articleTitle)}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+
+    if (resp.ok) {
+      const data = await resp.json();
+      // Truncate summary to requested number of sentences
+      let summary = data.extract || "";
+      const sentenceEnds = [...summary.matchAll(/[.!?]\s+/g)];
+      if (sentenceEnds.length > numSentences && sentenceEnds[numSentences - 1]) {
+        summary = summary.slice(0, sentenceEnds[numSentences - 1].index + 1);
+      }
+
+      return {
+        isError: false,
+        text: JSON.stringify({
+          title: data.title || query,
+          summary,
+          url: data.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${articleTitle}`,
+          thumbnail: data.thumbnail?.source || null,
+          description: data.description || "",
+        }),
+      };
+    }
+
+    // Not found — try search
+    const searchUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=5&format=json`;
+    const searchResp = await webFetch(searchUrl, WEB_FETCH_TIMEOUT);
+    if (!searchResp.ok) return { isError: true, text: `Wikipedia API returned HTTP ${searchResp.status}` };
+
+    const searchData = await searchResp.json();
+    // opensearch returns [query, [titles], [descriptions], [urls]]
+    const titles = searchData[1] || [];
+    const descriptions = searchData[2] || [];
+    const urls = searchData[3] || [];
+
+    if (titles.length === 0) {
+      return { isError: true, text: `No Wikipedia article found for "${query}".` };
+    }
+
+    // Fetch the first result's summary
+    const firstUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(titles[0].replace(/\s+/g, "_"))}`;
+    const firstResp = await webFetch(firstUrl, WEB_FETCH_TIMEOUT);
+
+    if (firstResp.ok) {
+      const data = await firstResp.json();
+      let summary = data.extract || "";
+      const sentenceEnds = [...summary.matchAll(/[.!?]\s+/g)];
+      if (sentenceEnds.length > numSentences && sentenceEnds[numSentences - 1]) {
+        summary = summary.slice(0, sentenceEnds[numSentences - 1].index + 1);
+      }
+
+      const relatedTopics = titles.slice(1).map((t, i) => ({
+        title: t,
+        url: urls[i + 1] || "",
+      }));
+
+      return {
+        isError: false,
+        text: JSON.stringify({
+          title: data.title || titles[0],
+          summary,
+          url: data.content_urls?.desktop?.page || urls[0],
+          thumbnail: data.thumbnail?.source || null,
+          relatedTopics,
+        }),
+      };
+    }
+
+    // Fallback: return search results without summary
+    return {
+      isError: false,
+      text: JSON.stringify({
+        title: titles[0],
+        summary: descriptions[0] || "",
+        url: urls[0] || "",
+        thumbnail: null,
+        relatedTopics: titles.slice(1).map((t, i) => ({ title: t, url: urls[i + 1] || "" })),
+      }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Wikipedia lookup failed: ${msg}` };
   }
 }
 
@@ -3257,6 +4562,7 @@ async function executeTool(name, args) {
     case "stop_http_service": return executeStopHttpService(args || {});
     case "list_http_services": return executeListHttpServices();
     case "publish_to_marketplace": return executePublishToMarketplace(args || {});
+    case "register_service": return executeRegisterService(args || {});
     // Marketplace browse/install tools
     case "browse_marketplace": return executeBrowseMarketplace(args || {});
     case "get_marketplace_item": return executeGetMarketplaceItem(args || {});
@@ -3264,6 +4570,25 @@ async function executeTool(name, args) {
     case "uninstall_marketplace_item": return executeUninstallMarketplaceItem(args || {});
     case "list_installed_marketplace": return executeListInstalledMarketplace();
     case "publish_component": return executePublishComponent(args || {});
+    // Web & Search tools
+    case "web_fetch": return executeWebFetch(args || {});
+    case "web_search": return executeWebSearch(args || {});
+    case "hacker_news": return executeHackerNews(args || {});
+    case "github_search": return executeGithubSearch(args || {});
+    case "npm_search": return executeNpmSearch(args || {});
+    case "academic_search": return executeAcademicSearch(args || {});
+    case "news_search": return executeNewsSearch(args || {});
+    // Reference & Data tools
+    case "dictionary": return executeDictionary(args || {});
+    case "currency_exchange": return executeCurrencyExchange(args || {});
+    case "timezone": return executeTimezone(args || {});
+    case "country_info": return executeCountryInfo(args || {});
+    case "open_library": return executeOpenLibrary(args || {});
+    // Utility tools
+    case "code_runner": return executeCodeRunner(args || {});
+    case "url_metadata": return executeUrlMetadata(args || {});
+    case "rss_reader": return executeRssReader(args || {});
+    case "wikipedia": return executeWikipedia(args || {});
     default:
       // Per-component tools: show_chart, show_data_table, etc.
       // The tool's arguments ARE the props directly (not wrapped in {component, props}).

@@ -84,10 +84,10 @@ describe("serviceCardSchema", () => {
   // ── Missing required fields ────────────────────────────────────────────────
 
   describe("missing required fields", () => {
-    it("rejects missing endpoint", () => {
+    it("accepts missing endpoint (optional for platform-managed services)", () => {
       const { endpoint, ...rest } = validCard();
       const result = serviceCardSchema.safeParse(rest);
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
     });
 
     it("rejects missing auth", () => {
@@ -290,13 +290,13 @@ describe("serviceCardSchema", () => {
       expect(result.success).toBe(false);
     });
 
-    it("rejects skill name with hyphens", () => {
+    it("accepts skill name with hyphens", () => {
       const result = serviceCardSkillSchema.safeParse({
         name: "get-weather",
         description: "test",
         inputSchema: { type: "object", properties: {} },
       });
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
     });
 
     it("allows skill name with underscores", () => {

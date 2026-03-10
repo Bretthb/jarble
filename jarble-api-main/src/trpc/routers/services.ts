@@ -407,11 +407,11 @@ export const servicesRouter = router({
             updatedAt: dbDate(),
           } as any);
 
-          // Perform the install handshake (fire-and-forget)
-          void (async () => {
+          // Perform the install handshake (fire-and-forget, only for services with an endpoint)
+          if (card!.endpoint) void (async () => {
             try {
               const result = await performInstallHandshake({
-                endpoint: card!.endpoint,
+                endpoint: card!.endpoint!,
                 serviceId: input.serviceId,
                 deploymentId: input.deploymentId,
                 signingSecret,
@@ -588,7 +588,7 @@ export const servicesRouter = router({
           const rawConfig = (pkg as Record<string, unknown>).remoteApiConfig as string | null;
           if (rawConfig) {
             const parsed = serviceCardSchema.safeParse(JSON.parse(rawConfig));
-            if (parsed.success) {
+            if (parsed.success && parsed.data.endpoint) {
               const uninstallBody = {
                 action: "uninstall" as const,
                 serviceId: input.serviceId,
@@ -1332,7 +1332,7 @@ export const servicesRouter = router({
         const rawConfig = (pkg as Record<string, unknown>).remoteApiConfig as string | null;
         if (rawConfig) {
           const parsed = serviceCardSchema.safeParse(JSON.parse(rawConfig));
-          if (parsed.success) {
+          if (parsed.success && parsed.data.endpoint) {
             const rotateBody = {
               action: "rotate" as const,
               serviceId: input.serviceId,

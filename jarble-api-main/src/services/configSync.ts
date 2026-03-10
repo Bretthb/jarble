@@ -148,21 +148,23 @@ async function buildDeploymentFields(
     // The proxy URL routes skill calls through the Jarble API, which signs requests
     // with the stored HMAC secret before forwarding to the creator's endpoint.
     if (
-      (svc.hostingModel === "remote" || svc.hostingModel === "hybrid") &&
-      svc.remoteApiEndpoint &&
+      (svc.hostingModel === "remote" || svc.hostingModel === "hybrid" || svc.hostingModel === "platform_managed") &&
       svc.remoteApiConfig
     ) {
       try {
         const card = JSON.parse(svc.remoteApiConfig) as { skills?: Array<{ name: string }> };
-        const apiBase = process.env.API_BASE_URL ?? "http://localhost:3001";
+        const apiBase = process.env.JARBLE_API_URL ?? process.env.API_BASE_URL ?? "http://localhost:3001";
 
         if (Array.isArray(card.skills)) {
           for (const skill of card.skills) {
             if (typeof skill.name === "string" && skill.name) {
+              const proxyUrl = svc.hostingModel === "platform_managed"
+                ? `${apiBase}/api/services/execute/${svc.id}/${skill.name}?deploymentId=${deployment.id}`
+                : `${apiBase}/api/services/proxy/${deployment.id}/${svc.id}/${skill.name}`;
               remoteSkillConfigs.push({
                 packageId: svc.id,
                 skillName: skill.name,
-                proxyUrl: `${apiBase}/api/services/proxy/${deployment.id}/${svc.id}/${skill.name}`,
+                proxyUrl,
               });
             }
           }

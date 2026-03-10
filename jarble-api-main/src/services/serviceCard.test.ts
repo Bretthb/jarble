@@ -55,10 +55,10 @@ describe("ServiceCard Schema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects missing endpoint", () => {
+  it("accepts missing endpoint (optional for platform-managed services)", () => {
     const { endpoint, ...rest } = VALID_CARD;
     const result = serviceCardSchema.safeParse(rest);
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it("rejects non-URL endpoint", () => {
@@ -160,12 +160,12 @@ describe("ServiceCard Skill Schema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects name with hyphens", () => {
+  it("accepts name with hyphens", () => {
     const result = serviceCardSkillSchema.safeParse({
       ...VALID_SKILL,
       name: "get-weather",
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it("accepts name with underscores", () => {

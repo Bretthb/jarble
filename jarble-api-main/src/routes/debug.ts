@@ -121,6 +121,10 @@ debugRouter.post("/seed-deployment", async (req, res) => {
   }
 });
 
+// ── DEPRECATED: Marketplace endpoints below are replaced by /api/pod/marketplace/* ──
+// The authenticated pod API in routes/podApi.ts should be used instead.
+// These remain temporarily for backwards compatibility during the transition.
+
 // Publish a service to marketplace (called by MCP server's publish_to_marketplace tool)
 debugRouter.post("/marketplace/publish-service", async (req, res) => {
   try {
@@ -162,7 +166,7 @@ debugRouter.post("/marketplace/publish-service", async (req, res) => {
   }
 });
 
-// ── Marketplace API (called by MCP tools on pods) ────────────────────
+// ── DEPRECATED: Marketplace API — use /api/pod/marketplace/* instead (routes/podApi.ts) ──
 
 // Browse marketplace — components and services
 debugRouter.get("/marketplace/browse", async (req, res) => {

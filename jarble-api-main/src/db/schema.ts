@@ -240,6 +240,7 @@ export const marketplaceServices = mysqlTable("marketplace_packages", {
   remoteApiConfig: text("remote_api_config"),       // JSON PackageCard for remote/hybrid
   remoteHealth: varchar("remote_health", { length: 20 }).default("unknown"), // healthy | degraded | offline | unknown
   remoteLastCheck: timestamp("remote_last_check"),
+  creatorDeploymentId: varchar("creator_deployment_id", { length: 255 }),  // links service to creator's deployment for skill execution
   status: varchar("status", { length: 20 }).notNull().default("draft"),
   pricingModel: varchar("pricing_model", { length: 20 }).notNull().default("free"),
   priceUsdCents: int("price_usd_cents").notNull().default(0),

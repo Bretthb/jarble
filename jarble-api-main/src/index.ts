@@ -28,6 +28,10 @@ import { artifactRouter } from "./routes/artifact.js";
 import { mcpRouter } from "./routes/mcp.js";
 import { diagnoseRouter } from "./routes/diagnose.js";
 import { serviceProxyRouter } from "./routes/serviceProxy.js";
+import { serviceExecutionRouter } from "./routes/serviceExecution.js";
+import { serviceStreamRouter } from "./routes/serviceStream.js";
+import { podApiRouter } from "./routes/podApi.js";
+import { attachTerminalWs } from "./routes/terminal.js";
 
 const app = express();
 
@@ -87,6 +91,9 @@ app.use("/api/deployments", artifactRouter);
 app.use("/api/mcp", mcpRouter);
 app.use("/api/deployments", diagnoseRouter);
 app.use("/api/services", serviceProxyRouter);
+app.use("/api/services", serviceExecutionRouter);
+app.use("/api/services", serviceStreamRouter);
+app.use("/api/pod", podApiRouter);
 
 // Debug endpoints — dev only
 if (env.NODE_ENV === "development") {
@@ -137,13 +144,17 @@ async function start() {
   startWebhookCleanup();      // Purges processedWebhookEvents older than 30 days (every 24h)
 
   const PORT = env.PORT;
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     logger.info(`API server running on port ${PORT}`);
     logger.info(`   Health: http://localhost:${PORT}/health`);
     logger.info(`   tRPC:   http://localhost:${PORT}/trpc`);
+    logger.info(`   Terminal WS: ws://localhost:${PORT}/ws/terminal`);
     logger.info(`   Stripe: ${isStripeConfigured() ? "configured" : "not configured (set STRIPE_SECRET_KEY)"}`);
     logger.info(`   CORS:   ${env.FRONTEND_URL}`);
   });
+
+  // Attach WebSocket terminal server to the HTTP server
+  attachTerminalWs(server);
 }
 
 start().catch((err) => {

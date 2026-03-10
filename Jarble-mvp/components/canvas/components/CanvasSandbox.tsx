@@ -13,6 +13,10 @@ export interface CanvasSandboxProps {
   html: string;
   css?: string;
   js?: string;
+  /** ES module JavaScript — rendered as `<script type="module">`. Use for `import` from esm.sh/esm.run. */
+  moduleJs?: string;
+  /** Import map entries — enables clean imports (e.g. `"react"` → `"https://esm.sh/react@18"`). */
+  importMap?: Record<string, string>;
   props?: Record<string, unknown>;
   height?: number;
   title?: string;
@@ -26,6 +30,8 @@ function CanvasSandboxInner({
   html,
   css,
   js,
+  moduleJs,
+  importMap,
   props,
   title,
   libraries,
@@ -52,7 +58,7 @@ function CanvasSandboxInner({
   // Build srcdoc string — changes when content changes
   const srcdoc = buildDocument(sanitized.html, sanitized.css, sanitized.js, sanitized.libraries, {
     logPrefix: "[Jarble:Sandbox]",
-  });
+  }, sanitized.moduleJs || moduleJs, importMap);
 
   isDev && console.log("[Jarble:Sandbox] Render — html:", html?.length, "chars, css:", css?.length || 0, "chars, js:", js?.length || 0, "chars, libraries:", libraries);
 
@@ -68,7 +74,7 @@ function CanvasSandboxInner({
   // Reset ready state when content changes (iframe will reload)
   useEffect(() => {
     resetReady();
-  }, [html, css, js, libraries, resetReady]);
+  }, [html, css, js, moduleJs, libraries, resetReady]);
 
   return (
     <SandboxShell stopped={stopped} onToggle={handleStop}>

@@ -229,6 +229,7 @@ const CREATE_TABLES_SQL = `
     remote_api_config TEXT,
     remote_health TEXT DEFAULT 'unknown',
     remote_last_check TEXT,
+    creator_deployment_id TEXT,
     status TEXT DEFAULT 'draft' NOT NULL,
     pricing_model TEXT DEFAULT 'free' NOT NULL,
     price_usd_cents INTEGER DEFAULT 0 NOT NULL,
@@ -390,12 +391,28 @@ async function seedDatabase() {
     { id: nanoid(), name: "Calculator", description: "Perform math calculations", runtime: "openclaw", config: JSON.stringify({ tool: "calculator" }), author: "Jarble", isOfficial: true },
     { id: nanoid(), name: "Wikipedia", description: "Look up information from Wikipedia", runtime: "openclaw", config: JSON.stringify({ tool: "wikipedia", params: { language: "en" } }), author: "Jarble", isOfficial: true },
     { id: nanoid(), name: "Translator", description: "Translate text between languages", runtime: "openclaw", config: JSON.stringify({ tool: "translator" }), author: "Jarble", isOfficial: true },
+    // 16 new MCP tools — free, no API keys needed
+    { id: nanoid(), name: "Web Fetch", description: "Read and extract text content from any URL", runtime: "openclaw", config: JSON.stringify({ tool: "web_fetch", params: { maxLength: 10000 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "News Search", description: "Search recent news articles", runtime: "openclaw", config: JSON.stringify({ tool: "news_search", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Hacker News", description: "Search Hacker News stories and discussions", runtime: "openclaw", config: JSON.stringify({ tool: "hacker_news", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "GitHub Search", description: "Search GitHub public repositories", runtime: "openclaw", config: JSON.stringify({ tool: "github_search", params: { maxResults: 5, sort: "stars" } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "npm Search", description: "Search npm packages", runtime: "openclaw", config: JSON.stringify({ tool: "npm_search", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Academic Search", description: "Search arXiv for academic papers and research", runtime: "openclaw", config: JSON.stringify({ tool: "academic_search", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Dictionary", description: "Look up word definitions, phonetics, and usage examples", runtime: "openclaw", config: JSON.stringify({ tool: "dictionary" }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Currency Exchange", description: "Get live currency exchange rates (ECB data)", runtime: "openclaw", config: JSON.stringify({ tool: "currency_exchange" }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Timezone", description: "Get current time in any timezone worldwide", runtime: "openclaw", config: JSON.stringify({ tool: "timezone" }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Country Info", description: "Look up country information (population, capital, currency, etc.)", runtime: "openclaw", config: JSON.stringify({ tool: "country_info" }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Open Library", description: "Search for books by title, author, or subject", runtime: "openclaw", config: JSON.stringify({ tool: "open_library", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Code Runner", description: "Execute JavaScript code snippets safely", runtime: "openclaw", config: JSON.stringify({ tool: "code_runner", params: { timeout: 5000 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "URL Metadata", description: "Extract title, description, and preview image from any URL", runtime: "openclaw", config: JSON.stringify({ tool: "url_metadata" }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "RSS Reader", description: "Read RSS and Atom feeds from any source", runtime: "openclaw", config: JSON.stringify({ tool: "rss_reader", params: { maxItems: 10 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Image Search", description: "Search for images on the web", runtime: "openclaw", config: JSON.stringify({ tool: "image_search", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
   ];
   for (const skill of skills) {
     await sqliteDb.insert(sqliteSchema.skillsCatalog).values(skill);
   }
 
-  logger.info("Seeded: 2 runtimes, 1 user, 1 deployment, 5 skills");
+  logger.info("Seeded: 2 runtimes, 1 user, 1 deployment, 21 skills");
 
   // Seed marketplace data
   await seedMarketplaceData(sqliteDb, userId, deploymentId);

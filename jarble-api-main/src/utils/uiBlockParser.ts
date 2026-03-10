@@ -265,6 +265,19 @@ export function extractUIBlocks(text: string): {
         parsed.props.libraries = sanitizeLibraries(parsed.props.libraries);
       }
 
+      // Server-side import map URL validation for sandbox components
+      if (parsed.props.importMap && typeof parsed.props.importMap === "object" && !Array.isArray(parsed.props.importMap)) {
+        const safeMap: Record<string, string> = {};
+        for (const [key, value] of Object.entries(parsed.props.importMap as Record<string, unknown>)) {
+          if (typeof value === "string" && validateLibraryUrl(value)) {
+            safeMap[key] = value;
+          } else {
+            logger.warn("[uiBlockParser] Rejected untrusted import map URL for %s: %s", key, value);
+          }
+        }
+        parsed.props.importMap = safeMap;
+      }
+
       uiBlocks.push({
         id: nanoid(10),
         component: parsed.component,

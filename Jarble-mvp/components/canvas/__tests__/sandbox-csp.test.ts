@@ -68,13 +68,14 @@ describe("CanvasSandbox CSP and Security", () => {
     const iframe = container.querySelector("iframe");
     const srcdoc = iframe!.getAttribute("srcdoc") || "";
 
-    // Verify all 10 trusted CDN origins are present
+    // Verify all 11 trusted CDN origins are present
     const expectedOrigins = [
       "https://cdn.jsdelivr.net",
       "https://cdnjs.cloudflare.com",
       "https://unpkg.com",
       "https://cdn.tailwindcss.com",
       "https://esm.sh",
+      "https://esm.run",
       "https://threejs.org",
       "https://d3js.org",
       "https://cdn.plot.ly",

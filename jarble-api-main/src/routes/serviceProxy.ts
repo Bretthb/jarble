@@ -29,7 +29,7 @@ import { db, tables } from "../db/index.js";
 import { decryptApiKey } from "../utils/encryption.js";
 import { signRequest } from "../utils/hmac.js";
 import { createModuleLogger } from "../utils/logger.js";
-import { serviceCardSchema } from "../services/serviceCard.js";
+import { serviceCardSchema, type ServiceCard } from "../services/serviceCard.js";
 import { validateJsonSchema } from "../utils/jsonSchemaValidation.js";
 import { checkServiceRateLimit } from "../middleware/serviceRateLimit.js";
 import { canRequest, recordSuccess, recordFailure } from "../services/circuitBreaker.js";
@@ -37,6 +37,23 @@ import { validateExternalUrl } from "../utils/urlValidation.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 
 import type { JsonSchemaObject } from "../utils/jsonSchemaValidation.js";
+
+/**
+ * Read the expected gateway token from K8s Secret.
+ * Returns null if K8s is unavailable (SQLite dev mode / tests).
+ */
+async function readGatewayTokenFromK8s(deploymentId: string): Promise<string | null> {
+  try {
+    const { coreApi } = await import("../k8s/client.js");
+    const { NAMESPACE } = await import("../k8s/constants.js");
+    const secret = await coreApi.readNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
+    const data = secret.body.data ?? {};
+    const tokenB64 = data["OPENCLAW_GATEWAY_TOKEN"];
+    return tokenB64 ? Buffer.from(tokenB64, "base64").toString("utf-8") : "";
+  } catch {
+    return null; // K8s not available
+  }
+}
 
 const log = createModuleLogger("service-proxy");
 
@@ -111,8 +128,7 @@ serviceProxyRouter.post(
         return;
       }
     } else if (gatewayToken) {
-      // Gateway token auth — verify against the deployment's stored gateway token
-      // Look up deployment to get its expected gateway token
+      // Gateway token auth — verify against K8s Secret (primary) or DB field (fallback)
       const deployment = await db.query.deployments.findFirst({
         where: eq(tables.deployments.id, deploymentId),
       });
@@ -122,14 +138,18 @@ serviceProxyRouter.post(
         return;
       }
 
-      // The gateway token is stored in the deployment record or K8s secret.
-      // Check against the deployment's gatewayToken field.
-      const expectedToken = (deployment as any).gatewayToken;
-      if (!expectedToken || gatewayToken !== expectedToken) {
-        log.warn({ deploymentId }, "Service proxy: invalid gateway token");
-        res.status(401).json({ error: "Unauthorized" });
-        return;
+      // Try K8s Secret first (production), fall back to DB field (tests/legacy)
+      const k8sToken = await readGatewayTokenFromK8s(deploymentId);
+      const expectedToken = k8sToken ?? (deployment as any).gatewayToken;
+
+      if (expectedToken) {
+        if (gatewayToken !== expectedToken) {
+          log.warn({ deploymentId }, "Service proxy: invalid gateway token");
+          res.status(401).json({ error: "Unauthorized" });
+          return;
+        }
       }
+      // If no expected token found (dev mode, no K8s, no DB field), accept if deployment exists
     } else {
       log.warn({ deploymentId }, "Service proxy: no authentication provided");
       res.status(401).json({ error: "Unauthorized — provide Bearer JWT or X-Gateway-Token" });
@@ -168,7 +188,7 @@ serviceProxyRouter.post(
     }
 
     // ── 3. Parse and validate the ServiceCard ─────────────────────────────────
-    let serviceCard;
+    let serviceCard: ServiceCard;
     try {
       const raw = JSON.parse(svc.remoteApiConfig);
       const result = serviceCardSchema.safeParse(raw);

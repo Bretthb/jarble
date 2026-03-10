@@ -242,6 +242,7 @@ export const marketplaceServices = sqliteTable("marketplace_packages", {
   remoteApiConfig: text("remote_api_config"),       // JSON PackageCard for remote/hybrid
   remoteHealth: text("remote_health").default("unknown"), // healthy | degraded | offline | unknown
   remoteLastCheck: text("remote_last_check"),
+  creatorDeploymentId: text("creator_deployment_id"),  // links service to creator's deployment for skill execution
   status: text("status").notNull().default("draft"),
   pricingModel: text("pricing_model").notNull().default("free"),
   priceUsdCents: integer("price_usd_cents").notNull().default(0),

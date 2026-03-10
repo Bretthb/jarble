@@ -231,6 +231,7 @@ const CREATE_TABLES_SQL = `
     remote_api_config TEXT,
     remote_health TEXT DEFAULT 'unknown',
     remote_last_check TEXT,
+    creator_deployment_id TEXT,
     status TEXT DEFAULT 'draft' NOT NULL,
     pricing_model TEXT DEFAULT 'free' NOT NULL,
     price_usd_cents INTEGER DEFAULT 0 NOT NULL,

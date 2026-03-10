@@ -69,6 +69,10 @@ export interface BaseSandboxProps {
   html: string;
   css?: string;
   js?: string;
+  /** ES module JavaScript — rendered as `<script type="module">`. Use for `import` from esm.sh/esm.run. */
+  moduleJs?: string;
+  /** Import map entries — enables clean imports (e.g. `"react"` → `"https://esm.sh/react@18"`). */
+  importMap?: Record<string, string>;
   props?: Record<string, unknown>;
   height?: number;
   title?: string;

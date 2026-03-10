@@ -342,8 +342,8 @@ describe("MANIFEST_SPLITTABLE", () => {
 // ── TRUSTED_CDN_ORIGINS ────────────────────────────────────────────────────
 
 describe("TRUSTED_CDN_ORIGINS", () => {
-  it("has exactly 10 origins", () => {
-    expect(TRUSTED_CDN_ORIGINS.length).toBe(10);
+  it("has exactly 11 origins", () => {
+    expect(TRUSTED_CDN_ORIGINS.length).toBe(11);
   });
 
   it("all origins start with https://", () => {

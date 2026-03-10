@@ -44,11 +44,40 @@ export function sanitizeHtmlProp(
   existingLibs: string[] | undefined,
   logPrefix = "[Jarble:Sandbox]",
   existingCss?: string | undefined,
-): { html: string; js: string; css: string; libraries: string[] } {
+): { html: string; js: string; css: string; libraries: string[]; moduleJs: string } {
   let cleanHtml = html;
   const extractedJs: string[] = [];
+  const extractedModuleJs: string[] = [];
   const extractedCss: string[] = [];
   const extractedLibs: string[] = [...(existingLibs || [])];
+
+  // Extract <script type="module" src="..."> tags -> libraries (only from trusted CDNs)
+  cleanHtml = cleanHtml.replace(
+    /<script\s+[^>]*type=["']module["'][^>]*src=["']([^"']+)["'][^>]*>\s*<\/script>/gi,
+    (_match, url) => {
+      if (isUrlTrustedCdn(url)) {
+        isDev && console.log(`${logPrefix} Extracted <script type="module" src> from html ->`, url);
+        if (!extractedLibs.includes(url)) extractedLibs.push(url);
+      } else {
+        isDev && console.warn(`${logPrefix} Rejected untrusted module script URL:`, url);
+      }
+      return "";
+    },
+  );
+
+  // Extract inline <script type="module">...</script> -> moduleJs
+  // Must run BEFORE generic <script> extraction so module scripts go to moduleJs, not js
+  cleanHtml = cleanHtml.replace(
+    /<script\s+[^>]*type=["']module["'][^>]*>([\s\S]*?)<\/script>/gi,
+    (_match, code) => {
+      const trimmed = (code as string).trim();
+      if (trimmed) {
+        isDev && console.log(`${logPrefix} Extracted inline <script type="module"> from html ->`, trimmed.length, "chars");
+        extractedModuleJs.push(trimmed);
+      }
+      return "";
+    },
+  );
 
   // Extract <script src="..."> tags -> libraries (only from trusted CDNs)
   cleanHtml = cleanHtml.replace(
@@ -131,13 +160,17 @@ export function sanitizeHtmlProp(
   // Combine JS: existing js prop takes priority, extracted JS appended
   const allJs = [existingJs, ...extractedJs].filter(Boolean).join("\n");
 
+  // Combine module JS from extracted inline module scripts
+  const allModuleJs = extractedModuleJs.join("\n");
+
   // Combine CSS: extracted CSS first (so existing css prop can override)
   const allCss = [...extractedCss, existingCss].filter(Boolean).join("\n");
 
-  if (extractedJs.length > 0 || extractedLibs.length > (existingLibs?.length || 0) || extractedCss.length > 0) {
+  if (extractedJs.length > 0 || extractedModuleJs.length > 0 || extractedLibs.length > (existingLibs?.length || 0) || extractedCss.length > 0) {
     isDev && console.log(
       `${logPrefix} Sanitized html prop — extracted`,
       extractedJs.length, "script blocks,",
+      extractedModuleJs.length, "module script blocks,",
       extractedCss.length, "style blocks,",
       extractedLibs.length - (existingLibs?.length || 0), "library URLs",
     );
@@ -146,7 +179,7 @@ export function sanitizeHtmlProp(
   // Additional XSS sanitization via DOMPurify
   cleanHtml = sanitizeHtml(cleanHtml);
 
-  return { html: cleanHtml, js: allJs, css: allCss, libraries: extractedLibs };
+  return { html: cleanHtml, js: allJs, css: allCss, libraries: extractedLibs, moduleJs: allModuleJs };
 }
 
 /**
@@ -163,6 +196,8 @@ export function buildDocument(
   js: string | undefined,
   libraries: string[] | undefined,
   config: SandboxDocumentConfig = { logPrefix: "[Jarble:Sandbox]" },
+  moduleJs?: string,
+  importMap?: Record<string, string>,
 ): string {
   const { logPrefix } = config;
 
@@ -179,6 +214,20 @@ export function buildDocument(
     }
   });
   const libsJson = JSON.stringify(safeLibs);
+
+  // Sanitize import map: only allow trusted CDN URLs as values
+  const safeImportMap: Record<string, string> = {};
+  if (importMap && typeof importMap === "object") {
+    for (const [key, value] of Object.entries(importMap)) {
+      if (typeof value === "string" && isUrlTrustedCdn(value)) {
+        safeImportMap[key] = value;
+      } else if (isDev) {
+        console.warn(`${config.logPrefix} Rejected untrusted import map URL for "${key}":`, value);
+      }
+    }
+  }
+  const hasImportMap = Object.keys(safeImportMap).length > 0;
+  const hasModuleJs = typeof moduleJs === "string" && moduleJs.length > 0;
 
   const cdnOrigins = TRUSTED_CDN_ORIGINS.join(" ");
   const csp = [
@@ -202,6 +251,12 @@ export function buildDocument(
 
   // User JS is executed AFTER all libraries are dynamically loaded
   const escapedJs = js || "";
+  const escapedModuleJs = moduleJs || "";
+
+  // Import map must appear before any module scripts in <head>
+  const importMapTag = hasImportMap
+    ? `\n<script type="importmap">\n${JSON.stringify({ imports: safeImportMap }, null, 2)}\n<\/script>`
+    : "";
 
   return `<!DOCTYPE html>
 <html>
@@ -209,7 +264,7 @@ export function buildDocument(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${escapeAttr(csp)}">
-<style>${themeCSS}\n${css || ""}</style>
+<style>${themeCSS}\n${css || ""}</style>${importMapTag}
 </head>
 <body>
 ${html}
@@ -406,6 +461,14 @@ setInterval(function() {
       var s = document.createElement("script");
       s.textContent = ${JSON.stringify(escapedJs)};
       document.body.appendChild(s);
+    }
+    // Execute ES module JS (if provided) — runs as <script type="module">
+    // enabling import statements from esm.sh/esm.run CDNs.
+    if (${JSON.stringify(escapedModuleJs.length)} > 0) {
+      var m = document.createElement("script");
+      m.type = "module";
+      m.textContent = ${JSON.stringify(escapedModuleJs)};
+      document.body.appendChild(m);
     }
   }
   function loadNext() {

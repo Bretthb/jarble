@@ -124,8 +124,8 @@ describe("TRUSTED_CDN_ORIGINS", () => {
     expect(TRUSTED_CDN_ORIGINS.has("https://threejs.org")).toBe(true);
   });
 
-  it("has exactly 10 origins", () => {
-    expect(TRUSTED_CDN_ORIGINS.size).toBe(10);
+  it("has exactly 11 origins", () => {
+    expect(TRUSTED_CDN_ORIGINS.size).toBe(11);
   });
 
   it("does not contain untrusted origins", () => {

@@ -39,8 +39,8 @@ export const serviceCardSkillSchema = z.object({
     .min(1)
     .max(100)
     .regex(
-      /^[a-z][a-z0-9_]*$/,
-      "Skill name must be lowercase alphanumeric with underscores, starting with a letter",
+      /^[a-z][a-z0-9_-]*$/,
+      "Skill name must be lowercase alphanumeric with underscores or hyphens, starting with a letter",
     ),
 
   /** Human-readable description shown to the LLM. */
@@ -51,6 +51,12 @@ export const serviceCardSkillSchema = z.object({
 
   /** Optional JSON Schema for the expected response — validated on response at proxy. */
   outputSchema: jsonSchemaSchema.optional(),
+
+  /** How the platform executes this skill: "handler" runs JS inline, "agent" delegates to a bot. */
+  executionMode: z.enum(["handler", "agent"]).optional(),
+
+  /** JS function body for handler mode (max 50KB). */
+  handlerCode: z.string().max(50000).optional(),
 });
 
 // ── Auth Configuration ──────────────────────────────────────────────────────
@@ -87,11 +93,11 @@ export const serviceCardRateLimitsSchema = z.object({
 // ── ServiceCard (top-level) ─────────────────────────────────────────────────
 
 export const serviceCardSchema = z.object({
-  /** Creator's API base URL (HTTPS required in production). */
+  /** Creator's API base URL (HTTPS required in production). Optional for platform-managed services. */
   endpoint: z.string().url().refine(
     (url) => validateExternalUrl(url),
     "Endpoint must be a public URL (private IPs, localhost, and cloud metadata endpoints are blocked)",
-  ),
+  ).optional(),
 
   /** Health check endpoint. Jarble polls this every 5min. Falls back to `{endpoint}/health`. */
   healthEndpoint: z.string().url().refine(
@@ -119,6 +125,9 @@ export const serviceCardSchema = z.object({
       /^\d+\.\d+\.\d+$/,
       "Version must be semver format (e.g. 1.0.0)",
     ),
+
+  /** For platform-managed services: links to the creator's deployment for skill execution. */
+  creatorDeploymentId: z.string().optional(),
 });
 
 // ── Exported Types ──────────────────────────────────────────────────────────
@@ -127,6 +136,9 @@ export type ServiceCard = z.infer<typeof serviceCardSchema>;
 export type ServiceCardSkill = z.infer<typeof serviceCardSkillSchema>;
 export type ServiceCardAuth = z.infer<typeof serviceCardAuthSchema>;
 export type ServiceCardRateLimits = z.infer<typeof serviceCardRateLimitsSchema>;
+
+/** A ServiceCard that is guaranteed to have a creatorDeploymentId (platform-managed). */
+export type PlatformServiceCard = ServiceCard & { creatorDeploymentId: string; };
 
 // ── Backward-compatible aliases ─────────────────────────────────────────────
 // Keep old names available for any code that hasn't been updated yet.

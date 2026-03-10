@@ -16,6 +16,7 @@ export const TRUSTED_CDN_ORIGINS: readonly string[] = [
   "https://unpkg.com",
   "https://cdn.tailwindcss.com",
   "https://esm.sh",
+  "https://esm.run",
   "https://threejs.org",
   "https://d3js.org",
   "https://cdn.plot.ly",
