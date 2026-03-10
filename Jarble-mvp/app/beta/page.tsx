@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { API_URL } from "@/lib/trpc";
 
-const DISCORD_INVITE_URL = "https://discord.gg/REPLACE_ME";
+const DISCORD_INVITE_URL = "https://discord.gg/xq25gyTVUj";
 
 interface BetaFormData {
   name: string;
