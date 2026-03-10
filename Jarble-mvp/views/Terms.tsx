@@ -74,13 +74,6 @@ export default function Terms() {
           <h1 className="text-4xl font-serif font-medium mb-2">Terms of Service</h1>
           <p className="text-muted-foreground mb-8">Last updated: {LAST_UPDATED}</p>
 
-          <div className="bg-card/60 border border-border rounded-xl p-4 mb-8 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground mb-1">Disclaimer</p>
-            <p>
-              These terms were drafted by the development team based on actual platform data practices. They are not a substitute for professional legal counsel and should be reviewed by a lawyer before relying on them.
-            </p>
-          </div>
-
           {/* Table of Contents */}
           <nav className="mb-12 p-4 bg-secondary/30 rounded-xl">
             <p className="font-medium mb-3">Table of Contents</p>

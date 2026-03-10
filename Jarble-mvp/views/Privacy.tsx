@@ -12,17 +12,16 @@ const TOC = [
   { id: "data-we-collect", label: "2. Data We Collect" },
   { id: "how-we-use", label: "3. How We Use Your Data" },
   { id: "legal-basis", label: "4. Legal Basis (GDPR)" },
-  { id: "third-party", label: "5. Third-Party Services" },
-  { id: "storage-security", label: "6. Data Storage & Security" },
-  { id: "retention", label: "7. Data Retention" },
-  { id: "your-rights", label: "8. Your Rights (GDPR)" },
-  { id: "eu-ai-act", label: "9. EU AI Act Considerations" },
-  { id: "data-minimization", label: "10. Data Minimization" },
-  { id: "children", label: "11. Children's Privacy" },
-  { id: "international", label: "12. International Data Transfers" },
-  { id: "cookies", label: "13. Cookies" },
-  { id: "changes", label: "14. Changes to This Policy" },
-  { id: "contact", label: "15. Contact" },
+  { id: "storage-security", label: "5. Data Storage & Security" },
+  { id: "retention", label: "6. Data Retention" },
+  { id: "your-rights", label: "7. Your Rights (GDPR)" },
+  { id: "eu-ai-act", label: "8. EU AI Act Considerations" },
+  { id: "data-minimization", label: "9. Data Minimization" },
+  { id: "children", label: "10. Children's Privacy" },
+  { id: "international", label: "11. International Data Transfers" },
+  { id: "cookies", label: "12. Cookies" },
+  { id: "changes", label: "13. Changes to This Policy" },
+  { id: "contact", label: "14. Contact" },
 ];
 
 export default function Privacy() {
@@ -74,13 +73,6 @@ export default function Privacy() {
         <div className="max-w-4xl mx-auto">
           <h1 className="text-4xl font-serif font-medium mb-2">Privacy Policy</h1>
           <p className="text-muted-foreground mb-8">Last updated: {LAST_UPDATED}</p>
-
-          <div className="bg-card/60 border border-border rounded-xl p-4 mb-8 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground mb-1">Disclaimer</p>
-            <p>
-              This privacy policy was drafted by the development team based on actual platform data practices. It is not a substitute for professional legal counsel and should be reviewed by a lawyer before relying on it.
-            </p>
-          </div>
 
           {/* Table of Contents */}
           <nav className="mb-12 p-4 bg-secondary/30 rounded-xl">
@@ -186,84 +178,8 @@ export default function Privacy() {
               </div>
             </section>
 
-            <section id="third-party" className="scroll-mt-24">
-              <h2 className="text-2xl font-serif font-medium mb-4">5. Third-Party Services</h2>
-              <div className="text-muted-foreground leading-relaxed space-y-3">
-                <p>We share data with the following third-party services, each for a specific purpose:</p>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm border-collapse mt-4">
-                    <thead>
-                      <tr className="border-b border-border">
-                        <th className="text-left py-2 pr-4 font-medium text-foreground">Service</th>
-                        <th className="text-left py-2 pr-4 font-medium text-foreground">Data Shared</th>
-                        <th className="text-left py-2 pr-4 font-medium text-foreground">Purpose</th>
-                        <th className="text-left py-2 font-medium text-foreground">Location</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/50">
-                      <tr>
-                        <td className="py-2 pr-4">Auth0</td>
-                        <td className="py-2 pr-4">Email, name, auth tokens</td>
-                        <td className="py-2 pr-4">Authentication</td>
-                        <td className="py-2">US</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 pr-4">Stripe</td>
-                        <td className="py-2 pr-4">Email, payment details</td>
-                        <td className="py-2 pr-4">Payment processing</td>
-                        <td className="py-2">US</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 pr-4">Neon (PostgreSQL)</td>
-                        <td className="py-2 pr-4">All application data</td>
-                        <td className="py-2 pr-4">Database hosting</td>
-                        <td className="py-2">US</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 pr-4">Sentry</td>
-                        <td className="py-2 pr-4">Error context, stack traces</td>
-                        <td className="py-2 pr-4">Error monitoring</td>
-                        <td className="py-2">US</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 pr-4">PostHog</td>
-                        <td className="py-2 pr-4">Page views, feature usage</td>
-                        <td className="py-2 pr-4">Product analytics</td>
-                        <td className="py-2">US/EU</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 pr-4">OpenRouter / OpenAI / Anthropic / Google</td>
-                        <td className="py-2 pr-4">Chat messages (via your API key)</td>
-                        <td className="py-2 pr-4">LLM inference</td>
-                        <td className="py-2">US</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 pr-4">Hetzner Cloud</td>
-                        <td className="py-2 pr-4">Deployment containers, PVC data</td>
-                        <td className="py-2 pr-4">Infrastructure hosting</td>
-                        <td className="py-2">EU (Germany)</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 pr-4">Vercel</td>
-                        <td className="py-2 pr-4">Frontend assets, request logs</td>
-                        <td className="py-2 pr-4">Frontend hosting</td>
-                        <td className="py-2">US</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 pr-4">Cloudflare</td>
-                        <td className="py-2 pr-4">DNS queries</td>
-                        <td className="py-2 pr-4">DNS management</td>
-                        <td className="py-2">Global</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </section>
-
             <section id="storage-security" className="scroll-mt-24">
-              <h2 className="text-2xl font-serif font-medium mb-4">6. Data Storage & Security</h2>
+              <h2 className="text-2xl font-serif font-medium mb-4">5. Data Storage & Security</h2>
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <p>We take the security of your data seriously. Our measures include:</p>
                 <ul className="list-disc pl-6 space-y-1.5">
@@ -278,7 +194,7 @@ export default function Privacy() {
             </section>
 
             <section id="retention" className="scroll-mt-24">
-              <h2 className="text-2xl font-serif font-medium mb-4">7. Data Retention</h2>
+              <h2 className="text-2xl font-serif font-medium mb-4">6. Data Retention</h2>
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <ul className="list-disc pl-6 space-y-1.5">
                   <li><strong>Account data</strong>: Retained while your account is active. Deleted upon request after account termination</li>
@@ -292,7 +208,7 @@ export default function Privacy() {
             </section>
 
             <section id="your-rights" className="scroll-mt-24">
-              <h2 className="text-2xl font-serif font-medium mb-4">8. Your Rights (GDPR)</h2>
+              <h2 className="text-2xl font-serif font-medium mb-4">7. Your Rights (GDPR)</h2>
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <p>Under the GDPR, you have the following rights:</p>
                 <ul className="list-disc pl-6 space-y-1.5">
@@ -311,7 +227,7 @@ export default function Privacy() {
             </section>
 
             <section id="eu-ai-act" className="scroll-mt-24">
-              <h2 className="text-2xl font-serif font-medium mb-4">9. EU AI Act Considerations</h2>
+              <h2 className="text-2xl font-serif font-medium mb-4">8. EU AI Act Considerations</h2>
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <p>
                   Jarble is a <strong>deployment platform</strong>, not an AI model provider. With respect to the EU AI Act:
@@ -327,7 +243,7 @@ export default function Privacy() {
             </section>
 
             <section id="data-minimization" className="scroll-mt-24">
-              <h2 className="text-2xl font-serif font-medium mb-4">10. Data Minimization</h2>
+              <h2 className="text-2xl font-serif font-medium mb-4">9. Data Minimization</h2>
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <p>We actively minimize the data we collect and retain:</p>
                 <ul className="list-disc pl-6 space-y-1.5">
@@ -341,7 +257,7 @@ export default function Privacy() {
             </section>
 
             <section id="children" className="scroll-mt-24">
-              <h2 className="text-2xl font-serif font-medium mb-4">11. Children&apos;s Privacy</h2>
+              <h2 className="text-2xl font-serif font-medium mb-4">10. Children&apos;s Privacy</h2>
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <p>
                   Jarble is not directed at individuals under the age of 18. We do not knowingly collect personal data from children. If we become aware that we have collected data from a person under 18, we will take steps to delete that information promptly.
@@ -350,7 +266,7 @@ export default function Privacy() {
             </section>
 
             <section id="international" className="scroll-mt-24">
-              <h2 className="text-2xl font-serif font-medium mb-4">12. International Data Transfers</h2>
+              <h2 className="text-2xl font-serif font-medium mb-4">11. International Data Transfers</h2>
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <p>
                   Our infrastructure is hosted in the EU (Hetzner Cloud, Germany). However, some of our third-party processors are located in the United States (Auth0, Stripe, Sentry, Neon, Vercel).
@@ -362,7 +278,7 @@ export default function Privacy() {
             </section>
 
             <section id="cookies" className="scroll-mt-24">
-              <h2 className="text-2xl font-serif font-medium mb-4">13. Cookies</h2>
+              <h2 className="text-2xl font-serif font-medium mb-4">12. Cookies</h2>
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <p>
                   Jarble does not use persistent tracking cookies. Authentication is handled via stateless JWT tokens stored in memory.
@@ -374,7 +290,7 @@ export default function Privacy() {
             </section>
 
             <section id="changes" className="scroll-mt-24">
-              <h2 className="text-2xl font-serif font-medium mb-4">14. Changes to This Policy</h2>
+              <h2 className="text-2xl font-serif font-medium mb-4">13. Changes to This Policy</h2>
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <p>
                   We may update this Privacy Policy from time to time. When we make material changes, we will notify you by email and/or by posting a notice on the Service, and update the &quot;Last updated&quot; date at the top of this page.
@@ -386,7 +302,7 @@ export default function Privacy() {
             </section>
 
             <section id="contact" className="scroll-mt-24">
-              <h2 className="text-2xl font-serif font-medium mb-4">15. Contact</h2>
+              <h2 className="text-2xl font-serif font-medium mb-4">14. Contact</h2>
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <p>
                   If you have any questions about this Privacy Policy or wish to exercise your data rights, please contact us at:
