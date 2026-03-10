@@ -249,8 +249,8 @@ export default function Home() {
               <Link href="/pricing" className="text-muted-foreground hover:text-primary transition-colors">Pricing</Link>
               <span className="text-muted-foreground/50 cursor-default" title="Coming soon">Documentation</span>
               <span className="text-muted-foreground/50 cursor-default" title="Coming soon">API Reference</span>
-              <span className="text-muted-foreground/50 cursor-default" title="Coming soon">Terms of Service</span>
-              <span className="text-muted-foreground/50 cursor-default" title="Coming soon">Privacy Policy</span>
+              <Link href="/terms" className="text-muted-foreground hover:text-primary transition-colors">Terms of Service</Link>
+              <Link href="/privacy" className="text-muted-foreground hover:text-primary transition-colors">Privacy Policy</Link>
               <span className="text-muted-foreground/50 cursor-default" title="Coming soon">Contact</span>
             </nav>
           </div>

@@ -1,0 +1,429 @@
+"use client";
+
+import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useAuth0 } from "@auth0/auth0-react";
+
+const LAST_UPDATED = "March 10, 2026";
+
+const TOC = [
+  { id: "introduction", label: "1. Introduction" },
+  { id: "data-we-collect", label: "2. Data We Collect" },
+  { id: "how-we-use", label: "3. How We Use Your Data" },
+  { id: "legal-basis", label: "4. Legal Basis (GDPR)" },
+  { id: "third-party", label: "5. Third-Party Services" },
+  { id: "storage-security", label: "6. Data Storage & Security" },
+  { id: "retention", label: "7. Data Retention" },
+  { id: "your-rights", label: "8. Your Rights (GDPR)" },
+  { id: "eu-ai-act", label: "9. EU AI Act Considerations" },
+  { id: "data-minimization", label: "10. Data Minimization" },
+  { id: "children", label: "11. Children's Privacy" },
+  { id: "international", label: "12. International Data Transfers" },
+  { id: "cookies", label: "13. Cookies" },
+  { id: "changes", label: "14. Changes to This Policy" },
+  { id: "contact", label: "15. Contact" },
+];
+
+export default function Privacy() {
+  const { isAuthenticated } = useAuth0();
+  const router = useRouter();
+
+  return (
+    <div className="min-h-screen bg-background text-foreground relative">
+      {/* Navigation */}
+      <nav className="fixed inset-x-0 top-0 z-50 bg-background/80 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <h1 className="font-serif font-bold text-2xl tracking-tight">Jarble</h1>
+          </Link>
+          <div className="flex items-center gap-4">
+            <Link href="/" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
+              Home
+            </Link>
+            <Link href="/about" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
+              About
+            </Link>
+            <Link href="/pricing" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
+              Pricing
+            </Link>
+            {isAuthenticated ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push("/dashboard")}
+                className="rounded-full border-input bg-background/50 backdrop-blur-sm hover:bg-secondary/50"
+              >
+                Dashboard
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => router.push("/login")}
+                className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
+              >
+                Sign in
+              </Button>
+            )}
+          </div>
+        </div>
+      </nav>
+
+      {/* Content */}
+      <main className="pt-32 pb-20 px-4">
+        <div className="max-w-4xl mx-auto">
+          <h1 className="text-4xl font-serif font-medium mb-2">Privacy Policy</h1>
+          <p className="text-muted-foreground mb-8">Last updated: {LAST_UPDATED}</p>
+
+          <div className="bg-card/60 border border-border rounded-xl p-4 mb-8 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground mb-1">Disclaimer</p>
+            <p>
+              This privacy policy was drafted by the development team based on actual platform data practices. It is not a substitute for professional legal counsel and should be reviewed by a lawyer before relying on it.
+            </p>
+          </div>
+
+          {/* Table of Contents */}
+          <nav className="mb-12 p-4 bg-secondary/30 rounded-xl">
+            <p className="font-medium mb-3">Table of Contents</p>
+            <ul className="space-y-1.5">
+              {TOC.map((item) => (
+                <li key={item.id}>
+                  <a
+                    href={`#${item.id}`}
+                    className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    {item.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          <div className="space-y-10">
+            <section id="introduction" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">1. Introduction</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>
+                  Jarble, Corp. (&quot;we&quot;, &quot;us&quot;, &quot;our&quot;) operates the Jarble platform at jarble.ai. This Privacy Policy explains how we collect, use, store, and protect your personal data when you use our Service.
+                </p>
+                <p>
+                  We are committed to protecting your privacy and complying with applicable data protection regulations, including the General Data Protection Regulation (GDPR). We believe in transparency about our data practices and collect only what is necessary to operate the Service.
+                </p>
+              </div>
+            </section>
+
+            <section id="data-we-collect" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">2. Data We Collect</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-4">
+                <div>
+                  <h3 className="text-lg font-medium text-foreground mb-2">Account Data</h3>
+                  <p>When you create an account via Auth0, we store your email address, display name, and Auth0 user ID. If you subscribe to a paid plan, we also store your Stripe customer ID.</p>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-medium text-foreground mb-2">Deployment Configuration</h3>
+                  <p>For each bot deployment you create, we store: bot name, description, system prompt, selected LLM provider and model, and platform connection settings.</p>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-medium text-foreground mb-2">Credentials (Encrypted)</h3>
+                  <p>LLM API keys and messaging platform tokens are encrypted using AES-256-GCM before storage. These are used solely to operate your deployments and can be deleted at any time.</p>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-medium text-foreground mb-2">Chat Data</h3>
+                  <p>We store user messages and bot responses for your web chat sessions, along with session metadata (creation time, session title). UI component blocks are stripped before storage to minimize data retained. Chat data is stored to enable conversation history and session continuity.</p>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-medium text-foreground mb-2">Marketplace Data</h3>
+                  <p>If you publish or install marketplace components, we store creator profiles, component metadata, reviews, and installation records.</p>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-medium text-foreground mb-2">Usage Analytics</h3>
+                  <p>We use PostHog for product analytics (page views, feature usage). Analytics are collected in identified-only mode, meaning only authenticated users are tracked. We do not track anonymous visitors.</p>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-medium text-foreground mb-2">Error Monitoring</h3>
+                  <p>We use Sentry for error tracking and performance monitoring. Sentry captures JavaScript errors and performance traces at a 10% sampling rate to help us identify and fix issues.</p>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-medium text-foreground mb-2">Beta Signup Data</h3>
+                  <p>If you apply for beta access, we collect your name, email address, experience level, and use case description.</p>
+                </div>
+              </div>
+            </section>
+
+            <section id="how-we-use" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">3. How We Use Your Data</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>We use your data for the following purposes:</p>
+                <ul className="list-disc pl-6 space-y-1.5">
+                  <li><strong>Operate the Service</strong>: Create and manage your account, process deployments, connect to messaging platforms, and proxy LLM requests</li>
+                  <li><strong>Process payments</strong>: Handle subscription billing and payment processing through Stripe</li>
+                  <li><strong>Transactional emails</strong>: Send account-related notifications (e.g., password resets, billing confirmations)</li>
+                  <li><strong>Reliability monitoring</strong>: Identify and fix bugs, monitor system performance, and ensure service stability</li>
+                  <li><strong>Usage analytics</strong>: Understand how users interact with the platform to improve the product</li>
+                </ul>
+                <p className="font-medium text-foreground">
+                  We never sell your data. We never use your chat data to train AI models.
+                </p>
+              </div>
+            </section>
+
+            <section id="legal-basis" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">4. Legal Basis (GDPR Art. 6)</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>We process your personal data under the following legal bases:</p>
+                <ul className="list-disc pl-6 space-y-1.5">
+                  <li><strong>Contract performance</strong> (Art. 6(1)(b)): Processing necessary to provide the Service you signed up for — account management, deployment operations, payment processing</li>
+                  <li><strong>Legitimate interest</strong> (Art. 6(1)(f)): Error monitoring, security, fraud prevention, and product improvement — where our interest does not override your rights</li>
+                  <li><strong>Consent</strong> (Art. 6(1)(a)): Analytics tracking, marketing communications — which you may withdraw at any time</li>
+                </ul>
+              </div>
+            </section>
+
+            <section id="third-party" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">5. Third-Party Services</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>We share data with the following third-party services, each for a specific purpose:</p>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-collapse mt-4">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-2 pr-4 font-medium text-foreground">Service</th>
+                        <th className="text-left py-2 pr-4 font-medium text-foreground">Data Shared</th>
+                        <th className="text-left py-2 pr-4 font-medium text-foreground">Purpose</th>
+                        <th className="text-left py-2 font-medium text-foreground">Location</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      <tr>
+                        <td className="py-2 pr-4">Auth0</td>
+                        <td className="py-2 pr-4">Email, name, auth tokens</td>
+                        <td className="py-2 pr-4">Authentication</td>
+                        <td className="py-2">US</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 pr-4">Stripe</td>
+                        <td className="py-2 pr-4">Email, payment details</td>
+                        <td className="py-2 pr-4">Payment processing</td>
+                        <td className="py-2">US</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 pr-4">Neon (PostgreSQL)</td>
+                        <td className="py-2 pr-4">All application data</td>
+                        <td className="py-2 pr-4">Database hosting</td>
+                        <td className="py-2">US</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 pr-4">Sentry</td>
+                        <td className="py-2 pr-4">Error context, stack traces</td>
+                        <td className="py-2 pr-4">Error monitoring</td>
+                        <td className="py-2">US</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 pr-4">PostHog</td>
+                        <td className="py-2 pr-4">Page views, feature usage</td>
+                        <td className="py-2 pr-4">Product analytics</td>
+                        <td className="py-2">US/EU</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 pr-4">OpenRouter / OpenAI / Anthropic / Google</td>
+                        <td className="py-2 pr-4">Chat messages (via your API key)</td>
+                        <td className="py-2 pr-4">LLM inference</td>
+                        <td className="py-2">US</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 pr-4">Hetzner Cloud</td>
+                        <td className="py-2 pr-4">Deployment containers, PVC data</td>
+                        <td className="py-2 pr-4">Infrastructure hosting</td>
+                        <td className="py-2">EU (Germany)</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 pr-4">Vercel</td>
+                        <td className="py-2 pr-4">Frontend assets, request logs</td>
+                        <td className="py-2 pr-4">Frontend hosting</td>
+                        <td className="py-2">US</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 pr-4">Cloudflare</td>
+                        <td className="py-2 pr-4">DNS queries</td>
+                        <td className="py-2 pr-4">DNS management</td>
+                        <td className="py-2">Global</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <section id="storage-security" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">6. Data Storage & Security</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>We take the security of your data seriously. Our measures include:</p>
+                <ul className="list-disc pl-6 space-y-1.5">
+                  <li><strong>Infrastructure</strong>: Kubernetes cluster hosted on Hetzner Cloud in the EU (Germany), with isolated containers per deployment</li>
+                  <li><strong>Encryption at rest</strong>: All sensitive credentials encrypted with AES-256-GCM</li>
+                  <li><strong>Container security</strong>: Non-root containers, all Linux capabilities dropped, service account tokens disabled</li>
+                  <li><strong>Network security</strong>: Network policies restrict container egress to only necessary endpoints (LLM APIs, messaging platforms, DNS)</li>
+                  <li><strong>Authentication</strong>: Stateless JWT tokens verified via JWKS (no persistent session cookies). Tokens are short-lived and validated on every request</li>
+                  <li><strong>RBAC</strong>: Users can only access their own deployments. All API endpoints enforce ownership checks</li>
+                </ul>
+              </div>
+            </section>
+
+            <section id="retention" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">7. Data Retention</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <ul className="list-disc pl-6 space-y-1.5">
+                  <li><strong>Account data</strong>: Retained while your account is active. Deleted upon request after account termination</li>
+                  <li><strong>Chat data</strong>: Retained while the associated deployment exists. Deleted when the deployment is deleted</li>
+                  <li><strong>Credentials</strong>: Deleted immediately when you remove them from the dashboard or when a deployment is deleted</li>
+                  <li><strong>Analytics data</strong>: Retained per PostHog and Sentry default retention policies</li>
+                  <li><strong>Billing data</strong>: Retained as required by applicable tax and financial regulations</li>
+                  <li><strong>Beta signup data</strong>: Retained until the beta program concludes, then deleted unless you create an account</li>
+                </ul>
+              </div>
+            </section>
+
+            <section id="your-rights" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">8. Your Rights (GDPR)</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>Under the GDPR, you have the following rights:</p>
+                <ul className="list-disc pl-6 space-y-1.5">
+                  <li><strong>Right of access</strong>: Request a copy of the personal data we hold about you</li>
+                  <li><strong>Right to rectification</strong>: Request correction of inaccurate or incomplete data</li>
+                  <li><strong>Right to erasure</strong>: Request deletion of your personal data (&quot;right to be forgotten&quot;)</li>
+                  <li><strong>Right to data portability</strong>: Receive your data in a structured, machine-readable format</li>
+                  <li><strong>Right to restrict processing</strong>: Request that we limit how we use your data</li>
+                  <li><strong>Right to object</strong>: Object to processing based on legitimate interest</li>
+                  <li><strong>Right to withdraw consent</strong>: Withdraw consent for analytics or marketing at any time</li>
+                </ul>
+                <p>
+                  To exercise any of these rights, contact us at <a href="mailto:privacy@jarble.ai" className="text-primary hover:underline">privacy@jarble.ai</a>. We will respond within 30 days.
+                </p>
+              </div>
+            </section>
+
+            <section id="eu-ai-act" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">9. EU AI Act Considerations</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>
+                  Jarble is a <strong>deployment platform</strong>, not an AI model provider. With respect to the EU AI Act:
+                </p>
+                <ul className="list-disc pl-6 space-y-1.5">
+                  <li>We do not develop or train AI models — users choose their own LLM provider</li>
+                  <li>Users configure their own system prompts and guardrails for bot behavior</li>
+                  <li>We apply platform-level safety defaults, but users retain responsibility for their deployment configurations</li>
+                  <li>No automated decisions with legal or similarly significant effects are made by the platform itself</li>
+                  <li>We provide transparency about which AI providers are used and how messages are routed</li>
+                </ul>
+              </div>
+            </section>
+
+            <section id="data-minimization" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">10. Data Minimization</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>We actively minimize the data we collect and retain:</p>
+                <ul className="list-disc pl-6 space-y-1.5">
+                  <li>UI component blocks are stripped from chat messages before storage — only the text content is retained</li>
+                  <li>Chat session titles are auto-generated from the first user message and truncated</li>
+                  <li>Sentry error monitoring uses a 10% sampling rate, capturing only a fraction of events</li>
+                  <li>PostHog analytics operates in identified-only mode — no anonymous visitor tracking</li>
+                  <li>We collect only the data fields necessary to operate each feature</li>
+                </ul>
+              </div>
+            </section>
+
+            <section id="children" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">11. Children&apos;s Privacy</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>
+                  Jarble is not directed at individuals under the age of 18. We do not knowingly collect personal data from children. If we become aware that we have collected data from a person under 18, we will take steps to delete that information promptly.
+                </p>
+              </div>
+            </section>
+
+            <section id="international" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">12. International Data Transfers</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>
+                  Our infrastructure is hosted in the EU (Hetzner Cloud, Germany). However, some of our third-party processors are located in the United States (Auth0, Stripe, Sentry, Neon, Vercel).
+                </p>
+                <p>
+                  Where data is transferred outside the EU/EEA, we rely on appropriate safeguards including Standard Contractual Clauses (SCCs) as adopted by the European Commission, and the processors&apos; compliance with applicable data protection frameworks.
+                </p>
+              </div>
+            </section>
+
+            <section id="cookies" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">13. Cookies</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>
+                  Jarble does not use persistent tracking cookies. Authentication is handled via stateless JWT tokens stored in memory.
+                </p>
+                <p>
+                  Third-party services integrated into the platform (Auth0, PostHog, Sentry) may set their own cookies as described in their respective privacy policies. We recommend reviewing those policies for details.
+                </p>
+              </div>
+            </section>
+
+            <section id="changes" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">14. Changes to This Policy</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>
+                  We may update this Privacy Policy from time to time. When we make material changes, we will notify you by email and/or by posting a notice on the Service, and update the &quot;Last updated&quot; date at the top of this page.
+                </p>
+                <p>
+                  Your continued use of Jarble after changes are posted constitutes acceptance of the updated policy.
+                </p>
+              </div>
+            </section>
+
+            <section id="contact" className="scroll-mt-24">
+              <h2 className="text-2xl font-serif font-medium mb-4">15. Contact</h2>
+              <div className="text-muted-foreground leading-relaxed space-y-3">
+                <p>
+                  If you have any questions about this Privacy Policy or wish to exercise your data rights, please contact us at:
+                </p>
+                <p>
+                  <a href="mailto:privacy@jarble.ai" className="text-primary hover:underline">privacy@jarble.ai</a>
+                </p>
+                <p>
+                  Jarble, Corp.<br />
+                  State of Delaware, United States
+                </p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="py-12 border-t border-border relative z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+            <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+              <span className="font-serif font-bold text-foreground">Jarble</span>
+            </Link>
+            <nav className="flex flex-wrap justify-center gap-x-8 gap-y-2">
+              <Link href="/" className="text-muted-foreground hover:text-primary transition-colors">Home</Link>
+              <Link href="/about" className="text-muted-foreground hover:text-primary transition-colors">About</Link>
+              <Link href="/pricing" className="text-muted-foreground hover:text-primary transition-colors">Pricing</Link>
+              <Link href="/terms" className="text-muted-foreground hover:text-primary transition-colors">Terms of Service</Link>
+              <Link href="/privacy" className="text-primary">Privacy Policy</Link>
+            </nav>
+          </div>
+          <div className="mt-8 pt-8 border-t border-border text-center text-muted-foreground text-sm">
+            <p>&copy; 2026 Jarble. All rights reserved.</p>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
