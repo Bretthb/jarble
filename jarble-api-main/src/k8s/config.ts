@@ -23,9 +23,10 @@ import archiver from "archiver";
 export async function writeConfigsToPvc(
   deploymentId: string,
   files: ConfigFile[],
-  managedBy: ManagedBy = "legacy"
+  managedBy: ManagedBy = "legacy",
+  clearDirs: string[] = [],
 ): Promise<void> {
-  if (files.length === 0) return;
+  if (files.length === 0 && clearDirs.length === 0) return;
 
   const pvcMount = getPvcMountPath(managedBy);
 
@@ -54,6 +55,12 @@ export async function writeConfigsToPvc(
   // Build a single batched shell script that creates all directories and writes all files.
   // This replaces N sequential exec calls with 1, dramatically reducing latency.
   const scriptParts: string[] = [];
+
+  // Clear specified directories before writing (e.g. skills/ to remove stale configs)
+  for (const dir of clearDirs) {
+    const dirPath = dir.startsWith("/") ? dir : `${pvcMount}/config/${dir}`;
+    scriptParts.push(`rm -rf '${dirPath}'`);
+  }
 
   // Collect unique directories to create
   const dirs = new Set<string>();

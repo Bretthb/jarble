@@ -96,7 +96,7 @@ export function resolveCustomComponent(
 
 /**
  * Extract unique variable names from a component template's layout.
- * Used to generate Zod schemas for Tambo component registration.
+ * Used to generate Zod schemas for component registration.
  */
 export function extractTemplateVars(definition: ComponentDefinition): string[] {
   const vars = new Set<string>();

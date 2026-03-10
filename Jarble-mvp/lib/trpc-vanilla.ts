@@ -1,7 +1,7 @@
 /**
- * Vanilla tRPC client for use outside React hooks (e.g., Tambo tool functions).
+ * Vanilla tRPC client for use outside React hooks.
  *
- * Tools need to call tRPC mutations from plain async functions — not hooks.
+ * Useful for calling tRPC mutations from plain async functions.
  * This client shares the Auth0 token via a setter called from providers.tsx.
  */
 import { createTRPCClient, httpBatchLink } from "@trpc/client";

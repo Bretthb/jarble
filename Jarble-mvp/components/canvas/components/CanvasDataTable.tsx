@@ -12,7 +12,7 @@ export interface CanvasDataTableProps {
 
 /**
  * Normalize a row into an array of cell values.
- * Tambo's LLM may pass rows as:
+ * The LLM may pass rows as:
  *   - arrays: ["Alice", "Engineer"]
  *   - objects: { name: "Alice", role: "Engineer" }
  */

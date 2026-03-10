@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Search, SlidersHorizontal, Package, X } from "lucide-react";
+import { Search, SlidersHorizontal, Package, X, AlertCircle, RefreshCw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -151,9 +151,17 @@ export function ServiceList() {
       {/* Service grid */}
       {isLoading ? (
         <ServiceGridSkeleton />
-      ) : !hasData ? (
-        <ServiceEmptyState type="error" />
-      ) : isEmpty ? (
+      ) : servicesQuery.isError ? (
+        <ServiceEmptyState
+          type="error"
+          errorMessage={
+            servicesQuery.error instanceof Error
+              ? servicesQuery.error.message
+              : "An unexpected error occurred."
+          }
+          onRetry={() => servicesQuery.refetch()}
+        />
+      ) : !services || isEmpty ? (
         <ServiceEmptyState
           type="no-results"
           hasFilters={hasActiveFilters}
@@ -241,23 +249,33 @@ function ServiceEmptyState({
   type,
   hasFilters,
   onClearFilters,
+  errorMessage,
+  onRetry,
 }: {
   type: "error" | "no-results";
   hasFilters?: boolean;
   onClearFilters?: () => void;
+  errorMessage?: string;
+  onRetry?: () => void;
 }) {
   if (type === "error") {
     return (
-      <Empty className="py-20 border border-dashed border-border rounded-xl">
+      <Empty className="py-20 border border-dashed border-destructive/40 rounded-xl bg-destructive/5">
         <EmptyMedia variant="icon">
-          <Package />
+          <AlertCircle className="text-destructive" />
         </EmptyMedia>
         <EmptyHeader>
           <EmptyTitle>Unable to load services</EmptyTitle>
           <EmptyDescription>
-            Something went wrong loading the service list. Please try again later.
+            {errorMessage || "Something went wrong loading the service list."}
           </EmptyDescription>
         </EmptyHeader>
+        {onRetry && (
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            <RefreshCw className="size-3.5 mr-1.5" />
+            Retry
+          </Button>
+        )}
       </Empty>
     );
   }

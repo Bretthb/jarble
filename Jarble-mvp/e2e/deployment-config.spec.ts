@@ -12,7 +12,7 @@ import { setupAuthIntercept } from "./helpers/auth";
  * Tests the configuration panel/sidebar accessible via the Settings gear icon
  * on the deployment workspace page (/d/[id]).
  *
- * Uses deployment test1 (3vt3ej3hj1oi) — a running OpenClaw deployment.
+ * Uses deployment test1 (3vt3ej3hj1oi) -- a running OpenClaw deployment.
  * All tests are READ-ONLY: they verify UI renders correctly without
  * modifying any deployment settings.
  */
@@ -58,8 +58,8 @@ test.describe("Deployment Configuration", () => {
     const configHeader = page.getByText("Configuration", { exact: false });
     await expect(configHeader.first()).toBeVisible({ timeout: 10_000 });
 
-    // The panel should have "Powered by Tambo AI" subtitle
-    await expect(page.getByText("Powered by Tambo AI")).toBeVisible();
+    // The panel should have "Quick actions" subtitle
+    await expect(page.getByText("Quick actions")).toBeVisible();
 
     await screenshotMilestone(page, testInfo, "config-panel-opened");
   });
@@ -74,16 +74,16 @@ test.describe("Deployment Configuration", () => {
     await gearButton.click();
 
     // Verify panel is open
-    const tamboText = page.getByText("Powered by Tambo AI");
-    await expect(tamboText).toBeVisible({ timeout: 10_000 });
+    const panelSubtitle = page.getByText("Quick actions");
+    await expect(panelSubtitle).toBeVisible({ timeout: 10_000 });
 
     // Close via the X button (aria-label="Close config panel")
     const closeButton = page.locator('button[aria-label="Close config panel"]');
     await expect(closeButton).toBeVisible();
     await closeButton.click();
 
-    // Panel should be dismissed — "Powered by Tambo AI" no longer visible
-    await expect(tamboText).not.toBeVisible({ timeout: 5_000 });
+    // Panel should be dismissed -- "Quick actions" no longer visible
+    await expect(panelSubtitle).not.toBeVisible({ timeout: 5_000 });
 
     await screenshotMilestone(page, testInfo, "config-panel-closed");
   });
@@ -97,23 +97,23 @@ test.describe("Deployment Configuration", () => {
 
     // Open
     await gearButton.click();
-    const tamboText = page.getByText("Powered by Tambo AI");
-    await expect(tamboText).toBeVisible({ timeout: 10_000 });
+    const panelSubtitle = page.getByText("Quick actions");
+    await expect(panelSubtitle).toBeVisible({ timeout: 10_000 });
 
     // Close by clicking gear again
     await gearButton.click();
-    await expect(tamboText).not.toBeVisible({ timeout: 5_000 });
+    await expect(panelSubtitle).not.toBeVisible({ timeout: 5_000 });
 
     // Re-open
     await gearButton.click();
-    await expect(tamboText).toBeVisible({ timeout: 10_000 });
+    await expect(panelSubtitle).toBeVisible({ timeout: 10_000 });
 
     await screenshotMilestone(page, testInfo, "config-panel-toggle");
   });
 
   // ── Config Panel Content ──────────────────────────────────────────────
 
-  test("config panel shows welcome state with quick action chips", async ({ page }, testInfo) => {
+  test("config panel shows lifecycle buttons", async ({ page }, testInfo) => {
     await page.goto(DEPLOYMENT_URL);
     await page.waitForTimeout(5_000);
 
@@ -122,18 +122,18 @@ test.describe("Deployment Configuration", () => {
     await gearButton.click();
 
     // Wait for panel to render
-    await expect(page.getByText("Powered by Tambo AI")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Quick actions")).toBeVisible({ timeout: 10_000 });
 
-    // Welcome message should appear with deployment name
-    await expect(page.getByText("Config panel for", { exact: false })).toBeVisible({ timeout: 5_000 });
+    // Lifecycle section should have Start, Restart, Stop buttons
+    await expect(page.getByText("Lifecycle")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("button", { name: "Start" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Restart" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
 
-    // Should mention configuration capabilities
-    await expect(page.getByText("system prompt", { exact: false })).toBeVisible();
-
-    await screenshotMilestone(page, testInfo, "config-panel-welcome-state");
+    await screenshotMilestone(page, testInfo, "config-panel-lifecycle-buttons");
   });
 
-  test("config panel has chat input field", async ({ page }, testInfo) => {
+  test("config panel shows configuration hints", async ({ page }, testInfo) => {
     await page.goto(DEPLOYMENT_URL);
     await page.waitForTimeout(5_000);
 
@@ -141,20 +141,15 @@ test.describe("Deployment Configuration", () => {
     await expect(gearButton).toBeVisible({ timeout: 15_000 });
     await gearButton.click();
 
-    await expect(page.getByText("Powered by Tambo AI")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Quick actions")).toBeVisible({ timeout: 10_000 });
 
-    // Chat input should exist (textbox with aria-label)
-    const chatInput = page.getByRole("textbox", { name: "Configuration chat" });
-    await expect(chatInput).toBeVisible();
-    await expect(chatInput).toHaveAttribute(
-      "placeholder",
-      "Change model, connect platform, edit prompt..."
-    );
+    // Configuration section should list common config tasks
+    await expect(page.getByText("Edit system prompt")).toBeVisible();
+    await expect(page.getByText("Change LLM model")).toBeVisible();
+    await expect(page.getByText("Connect platforms")).toBeVisible();
+    await expect(page.getByText("View logs")).toBeVisible();
 
-    // "Press Enter to send" hint
-    await expect(page.getByText("Press Enter to send")).toBeVisible();
-
-    await screenshotMilestone(page, testInfo, "config-panel-chat-input");
+    await screenshotMilestone(page, testInfo, "config-panel-hints");
   });
 
   // ── /d/[id]/configure Redirect ────────────────────────────────────────
@@ -224,7 +219,7 @@ test.describe("Deployment Configuration", () => {
     await gearButton.click();
 
     // Both config panel and main workspace should be visible
-    await expect(page.getByText("Powered by Tambo AI")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Quick actions")).toBeVisible({ timeout: 10_000 });
 
     // The config panel is 360px wide and sits alongside the canvas
     // Verify both panel and main content area exist in the flex layout
@@ -246,7 +241,7 @@ test.describe("Deployment Configuration", () => {
     await gearButton.click();
 
     // Panel should still open even on narrow viewport
-    await expect(page.getByText("Powered by Tambo AI")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Quick actions")).toBeVisible({ timeout: 10_000 });
 
     // Close button should still be accessible
     const closeButton = page.locator('button[aria-label="Close config panel"]');
@@ -266,12 +261,10 @@ test.describe("Deployment Configuration", () => {
     await expect(gearButton).toBeVisible({ timeout: 15_000 });
     await gearButton.click();
 
-    await expect(page.getByText("Powered by Tambo AI")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Quick actions")).toBeVisible({ timeout: 10_000 });
 
-    // Welcome message should show deployment name
-    await expect(
-      page.getByText("Config panel for", { exact: false })
-    ).toBeVisible({ timeout: 5_000 });
+    // Lifecycle buttons should be present
+    await expect(page.getByRole("button", { name: "Start" })).toBeVisible();
 
     await screenshotMilestone(page, testInfo, "config-panel-second-deployment");
   });
@@ -286,63 +279,22 @@ test.describe("Deployment Configuration", () => {
     await expect(gearButton).toBeVisible({ timeout: 15_000 });
     await gearButton.click();
 
-    await expect(page.getByText("Powered by Tambo AI")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Quick actions")).toBeVisible({ timeout: 10_000 });
 
     // The panel has a "Configuration" title with Sparkles icon
-    // It renders as a flex column with header, scrollable message area, and input
     const panelHeader = page.locator("text=Configuration").first();
     await expect(panelHeader).toBeVisible();
 
-    // The input label text
-    await expect(page.getByText("Ask about config...")).toBeVisible();
+    // Lifecycle section label
+    await expect(page.getByText("Lifecycle")).toBeVisible();
 
-    // Submit button should be present (send icon)
-    const submitButton = page.locator('button[type="submit"]');
-    await expect(submitButton.first()).toBeVisible();
+    // Configuration section label
+    await expect(page.getByText("Configuration").nth(1)).toBeVisible();
 
     await screenshotMilestone(page, testInfo, "config-panel-layout");
   });
 
-  // ── Chat Input Behavior (Read-Only) ───────────────────────────────────
-
-  test("chat input accepts text but submit is disabled when empty", async ({ page }, testInfo) => {
-    await page.goto(DEPLOYMENT_URL);
-    await page.waitForTimeout(5_000);
-
-    const gearButton = page.locator('button[title="Configuration"]');
-    await expect(gearButton).toBeVisible({ timeout: 15_000 });
-    await gearButton.click();
-
-    await expect(page.getByText("Powered by Tambo AI")).toBeVisible({ timeout: 10_000 });
-
-    const chatInput = page.getByRole("textbox", { name: "Configuration chat" });
-    await expect(chatInput).toBeVisible();
-
-    // Scope submit button to the config panel form (near the chat input)
-    const configForm = chatInput.locator("xpath=ancestor::form");
-    const submitButton = configForm.locator('button[type="submit"]');
-    await expect(submitButton).toBeVisible();
-
-    // Submit button should be disabled when input is empty
-    await expect(submitButton).toBeDisabled();
-
-    // Type something (but do NOT submit — we don't want to trigger any config changes)
-    await chatInput.fill("test");
-    // After typing, submit button should become enabled
-    await expect(submitButton).toBeEnabled();
-
-    // Clear the input (do NOT submit)
-    await chatInput.fill("");
-    await expect(submitButton).toBeDisabled();
-
-    await screenshotMilestone(page, testInfo, "config-chat-input-behavior");
-  });
-
-  // ── Standalone Configuration Page (DeploymentConfiguration.tsx) ───────
-  // The standalone config page (/d/[id]/configure) redirects to /d/[id].
-  // However, the DeploymentConfiguration component defines a full tab-based
-  // config with sidebar navigation. We test it via the deployment detail
-  // URL if accessible, or verify the redirect behavior.
+  // ── Deployment Page Authentication ────────────────────────────────────
 
   test("deployment page loads without authentication error", async ({ page }, testInfo) => {
     await page.goto(DEPLOYMENT_URL);
@@ -358,9 +310,9 @@ test.describe("Deployment Configuration", () => {
     await screenshotMilestone(page, testInfo, "deployment-authenticated");
   });
 
-  // ── Quick Action Chips ────────────────────────────────────────────────
+  // ── Config Panel Guidance ─────────────────────────────────────────────
 
-  test("config panel shows welcome message with capabilities", async ({ page }, testInfo) => {
+  test("config panel shows guidance message", async ({ page }, testInfo) => {
     await page.goto(DEPLOYMENT_URL);
     await page.waitForTimeout(5_000);
 
@@ -368,17 +320,12 @@ test.describe("Deployment Configuration", () => {
     await expect(gearButton).toBeVisible({ timeout: 15_000 });
     await gearButton.click();
 
-    await expect(page.getByText("Powered by Tambo AI")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Quick actions")).toBeVisible({ timeout: 10_000 });
 
-    // Welcome message mentions the deployment name and capabilities
-    await expect(page.getByText("Config panel for", { exact: false })).toBeVisible();
-    await expect(page.getByText("system prompt", { exact: false })).toBeVisible();
+    // Guidance message about using deployment settings page
+    await expect(page.getByText("deployment settings page", { exact: false })).toBeVisible();
 
-    // Chat input is ready
-    const chatInput = page.getByRole("textbox", { name: "Configuration chat" });
-    await expect(chatInput).toBeVisible();
-
-    await screenshotMilestone(page, testInfo, "config-panel-capabilities");
+    await screenshotMilestone(page, testInfo, "config-panel-guidance");
   });
 
   // ── Navigation Back to Dashboard ──────────────────────────────────────

@@ -284,6 +284,8 @@ export const serviceCredentials = mysqlTable("package_credentials", {
   deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
   packageId: varchar("package_id", { length: 255 }).notNull().references(() => marketplaceServices.id),
   signingSecret: text("signing_secret").notNull(), // Encrypted HMAC-SHA256 signing secret
+  previousSigningSecret: text("previous_signing_secret"), // Previous secret, accepted during grace period
+  previousSecretExpiresAt: timestamp("previous_secret_expires_at"), // After this, only new secret is accepted
   handshakeStatus: varchar("handshake_status", { length: 20 }).notNull().default("pending"), // "pending" | "completed" | "failed"
   handshakeError: text("handshake_error"),
   remoteInstallId: varchar("remote_install_id", { length: 255 }), // ID returned by creator's endpoint

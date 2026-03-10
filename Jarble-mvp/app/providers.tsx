@@ -27,7 +27,7 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
   const authRef = useRef({ getAccessTokenSilently, isAuthenticated, isLoading });
   authRef.current = { getAccessTokenSilently, isAuthenticated, isLoading };
 
-  // Wire Auth0 token getter for the vanilla tRPC client (used by Tambo tools)
+  // Wire Auth0 token getter for the vanilla tRPC client
   useEffect(() => {
     setTokenGetter(getAccessTokenSilently);
   }, [getAccessTokenSilently]);

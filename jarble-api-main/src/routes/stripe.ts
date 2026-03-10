@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull, or, desc, inArray } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { logger } from "../utils/logger.js";
 import { env } from "../utils/env.js";
@@ -62,6 +62,44 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
             .where(eq(tables.users.id, userId));
 
           logger.info({ userId, customerId, subscriptionId }, "Checkout completed — subscription pending link");
+
+          // ── Two-sided linking: try to link subscription to an unlinked deployment ──
+          // This handles the race where deployment.create already ran before the webhook arrived.
+          if (subscriptionId) {
+            try {
+              const unlinkedDeployment = await db.query.deployments.findFirst({
+                where: and(
+                  eq(tables.deployments.userId, userId),
+                  isNull(tables.deployments.stripeSubscriptionId),
+                  or(
+                    eq(tables.deployments.isFree, false),
+                    isNull(tables.deployments.isFree),
+                  ),
+                  inArray(tables.deployments.status, ["creating", "running", "stopped"]),
+                ),
+                orderBy: desc(tables.deployments.createdAt),
+              });
+
+              if (unlinkedDeployment) {
+                await db.update(tables.deployments)
+                  .set({ stripeSubscriptionId: subscriptionId })
+                  .where(eq(tables.deployments.id, unlinkedDeployment.id));
+
+                // Clear pending since we just linked it directly
+                await db.update(tables.users)
+                  .set({ pendingStripeSubscriptionId: null })
+                  .where(eq(tables.users.id, userId));
+
+                logger.info(
+                  { userId, deploymentId: unlinkedDeployment.id, subscriptionId },
+                  "Webhook linked subscription directly to unlinked deployment (race condition resolved)"
+                );
+              }
+            } catch (linkErr) {
+              // Non-fatal: pending subscription remains as fallback for deployment.create
+              logger.warn({ err: linkErr, userId, subscriptionId }, "Failed to auto-link subscription in webhook (pending field preserved)");
+            }
+          }
         }
         break;
       }
@@ -252,19 +290,15 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     return;
   }
 
-  // If user already has a Stripe customer, redirect to portal for managing subscriptions
-  if (user.stripeCustomerId) {
-    res.json({ redirectToPortal: true });
-    return;
-  }
-
+  // Reuse existing Stripe customer ID if available (allows returning customers
+  // to subscribe to additional deployments without being blocked).
   try {
     const session = await createCheckoutSession({
       userId: user.id,
       userEmail: user.email,
       runtimeSlug,
       monthlyPriceCents,
-      stripeCustomerId: user.stripeCustomerId,
+      stripeCustomerId: user.stripeCustomerId ?? undefined,
       successUrl: `${env.FRONTEND_URL}/dashboard?checkout=success`,
       cancelUrl: `${env.FRONTEND_URL}/pricing?checkout=canceled`,
     });

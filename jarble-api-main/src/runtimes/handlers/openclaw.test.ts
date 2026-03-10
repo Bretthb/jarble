@@ -99,10 +99,13 @@ describe("openclawHandler.renderConfigs", () => {
     const files = openclawHandler.renderConfigs(deployment);
 
     const soulMd = files.find((f) => f.path === "soul.md")!;
-    // Should start directly with the JARBLE_UI_PROMPT (no user prompt prefix)
+    // Should contain deployment name identity header
+    expect(soulMd.content).toContain("# Test Bot");
+    expect(soulMd.content).toContain("You are Test Bot.");
+    // Should contain JARBLE_UI_PROMPT
     expect(soulMd.content).toContain("Platform Awareness");
-    // The content should start with the UI prompt, not with "null" or empty systemPrompt text
-    expect(soulMd.content.startsWith("## Platform Awareness")).toBe(true);
+    // Should start with the deployment name identity header, not "null"
+    expect(soulMd.content.startsWith("# Test Bot")).toBe(true);
   });
 
   it("writes soul.md to both config path and OpenClaw workspace path (legacy)", () => {

@@ -4,14 +4,7 @@ import { withSentryConfig } from "@sentry/nextjs";
 const nextConfig: NextConfig = {
   transpilePackages: ["@jarble/component-manifest"],
 
-  // Suppress optional peer dep warnings from @tambo-ai/react → @standard-community/standard-json
   webpack: (config) => {
-    config.resolve.fallback = {
-      ...config.resolve.fallback,
-      effect: false,
-      sury: false,
-      "@valibot/to-json-schema": false,
-    };
     // Allow .js imports in shared packages to resolve to .ts source files
     config.resolve.extensionAlias = {
       ...config.resolve.extensionAlias,

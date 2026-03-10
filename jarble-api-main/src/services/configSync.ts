@@ -50,6 +50,24 @@ import { nanoid } from "nanoid";
 
 const { deployments, platformCredentials, deploymentSkills, skillsCatalog, serviceInstalls, marketplaceServices, componentInstalls, marketplaceComponents } = tables;
 
+/**
+ * Retry a function once after a delay for transient failures.
+ * Used for exec-based PVC writes that can fail if the pod is briefly unavailable.
+ */
+async function retryOnce<T>(
+  fn: () => Promise<T>,
+  delayMs: number = 2000,
+  label: string = "operation",
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    log.warn({ err, label }, `${label} failed, retrying once after ${delayMs}ms`);
+    await new Promise((r) => setTimeout(r, delayMs));
+    return fn();
+  }
+}
+
 // ── Per-deployment sync mutex ────────────────────────────────────────────
 // Prevents concurrent syncs for the same deployment from racing.
 // Each deployment chains its syncs sequentially; different deployments run in parallel.
@@ -409,7 +427,11 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
         // Also write directly to the running pod for immediate effect
         try {
-          await writeConfigsToPvc(deploymentId, configFiles, managedBy);
+          await retryOnce(
+            () => writeConfigsToPvc(deploymentId, configFiles, managedBy, ["skills"]),
+            2000,
+            "configSync→PVC tier1 write",
+          );
         } catch (writeErr) {
           log.warn(
             { deploymentId, err: writeErr },
@@ -444,7 +466,11 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       if (configFiles.length > 0) {
         await updateDeploymentConfigMap(deploymentId, configFiles, managedBy);
         try {
-          await writeConfigsToPvc(deploymentId, configFiles, managedBy);
+          await retryOnce(
+            () => writeConfigsToPvc(deploymentId, configFiles, managedBy, ["skills"]),
+            2000,
+            "configSync→PVC tier2 write",
+          );
         } catch (writeErr) {
           log.warn(
             { deploymentId, err: writeErr },
@@ -526,7 +552,11 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       if (configFiles.length > 0) {
         await updateDeploymentConfigMap(deploymentId, configFiles, managedBy);
         try {
-          await writeConfigsToPvc(deploymentId, configFiles, managedBy);
+          await retryOnce(
+            () => writeConfigsToPvc(deploymentId, configFiles, managedBy, ["skills"]),
+            2000,
+            "configSync→PVC tier3 write",
+          );
         } catch (writeErr) {
           log.warn(
             { deploymentId, err: writeErr },

@@ -387,6 +387,207 @@ describe("validateJsonSchema", () => {
       expect(invalid.valid).toBe(false);
       expect(invalid.errors[0]).toContain("$.items[1]");
     });
+
+    it("handles schema with no type (unconstrained root)", () => {
+      const schema = {
+        properties: { name: { type: "string" } },
+      };
+      // No root type constraint, so any root type is accepted
+      const result = validateJsonSchema({ name: "Alice" }, schema);
+      expect(result.valid).toBe(true);
+    });
+
+    it("validates NaN as invalid number", () => {
+      const schema = {
+        type: "object" as const,
+        properties: { value: { type: "number" } },
+      };
+      const result = validateJsonSchema({ value: NaN }, schema);
+      expect(result.valid).toBe(false);
+    });
+
+    it("validates Infinity as valid number", () => {
+      const schema = {
+        type: "object" as const,
+        properties: { value: { type: "number" } },
+      };
+      const result = validateJsonSchema({ value: Infinity }, schema);
+      expect(result.valid).toBe(true);
+    });
+
+    it("distinguishes array from object type", () => {
+      const schema = {
+        type: "object" as const,
+        properties: {
+          data: { type: "object" },
+        },
+      };
+      const result = validateJsonSchema({ data: [1, 2, 3] }, schema);
+      expect(result.valid).toBe(false);
+      expect(result.errors[0]).toContain("$.data");
+      expect(result.errors[0]).toContain("expected type object");
+      expect(result.errors[0]).toContain("got array");
+    });
+
+    it("reports null correctly in error messages", () => {
+      const schema = {
+        type: "object" as const,
+        properties: { value: { type: "string" } },
+      };
+      const result = validateJsonSchema({ value: null }, schema);
+      expect(result.valid).toBe(false);
+      expect(result.errors[0]).toContain("got null");
+    });
+
+    it("handles empty required array", () => {
+      const schema = {
+        type: "object" as const,
+        properties: { name: { type: "string" } },
+        required: [],
+      };
+      const result = validateJsonSchema({}, schema);
+      expect(result.valid).toBe(true);
+    });
+
+    it("handles nested required inside array items", () => {
+      const schema = {
+        type: "object" as const,
+        properties: {
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                age: { type: "number" },
+              },
+              required: ["name"],
+            },
+          },
+        },
+      };
+      const valid = validateJsonSchema({ items: [{ name: "Alice", age: 30 }] }, schema);
+      expect(valid.valid).toBe(true);
+
+      const invalid = validateJsonSchema({ items: [{ age: 30 }] }, schema);
+      expect(invalid.valid).toBe(false);
+      expect(invalid.errors[0]).toContain("$.items[0]");
+      expect(invalid.errors[0]).toContain("name");
+    });
+
+    it("handles nullable union type", () => {
+      const schema = {
+        type: "object" as const,
+        properties: {
+          value: { type: ["string", "null"] },
+        },
+      };
+      expect(validateJsonSchema({ value: "hello" }, schema).valid).toBe(true);
+      expect(validateJsonSchema({ value: null }, schema).valid).toBe(true);
+      expect(validateJsonSchema({ value: 42 }, schema).valid).toBe(false);
+    });
+
+    it("handles boolean false correctly", () => {
+      const schema = {
+        type: "object" as const,
+        properties: { flag: { type: "boolean" } },
+      };
+      const result = validateJsonSchema({ flag: false }, schema);
+      expect(result.valid).toBe(true);
+    });
+
+    it("handles zero correctly as number", () => {
+      const schema = {
+        type: "object" as const,
+        properties: { count: { type: "number" } },
+      };
+      expect(validateJsonSchema({ count: 0 }, schema).valid).toBe(true);
+    });
+
+    it("handles empty string correctly", () => {
+      const schema = {
+        type: "object" as const,
+        properties: { name: { type: "string" } },
+      };
+      expect(validateJsonSchema({ name: "" }, schema).valid).toBe(true);
+    });
+  });
+
+  // ── Enum with objects ──────────────────────────────────────────────────────
+
+  describe("enum with complex values", () => {
+    it("validates object enum values via JSON comparison", () => {
+      const schema = {
+        type: "object" as const,
+        properties: {
+          config: { enum: [{ mode: "fast" }, { mode: "slow" }] },
+        },
+      };
+      expect(validateJsonSchema({ config: { mode: "fast" } }, schema).valid).toBe(true);
+      expect(validateJsonSchema({ config: { mode: "medium" } }, schema).valid).toBe(false);
+    });
+
+    it("validates numeric enum values", () => {
+      const schema = {
+        type: "object" as const,
+        properties: {
+          level: { type: "number", enum: [1, 2, 3] },
+        },
+      };
+      expect(validateJsonSchema({ level: 2 }, schema).valid).toBe(true);
+      expect(validateJsonSchema({ level: 4 }, schema).valid).toBe(false);
+    });
+
+    it("validates boolean enum values", () => {
+      const schema = {
+        type: "object" as const,
+        properties: {
+          enabled: { enum: [true] },
+        },
+      };
+      expect(validateJsonSchema({ enabled: true }, schema).valid).toBe(true);
+      expect(validateJsonSchema({ enabled: false }, schema).valid).toBe(false);
+    });
+
+    it("includes enum values in error message", () => {
+      const schema = {
+        type: "object" as const,
+        properties: {
+          color: { type: "string", enum: ["red", "green", "blue"] },
+        },
+      };
+      const result = validateJsonSchema({ color: "yellow" }, schema);
+      expect(result.valid).toBe(false);
+      expect(result.errors[0]).toContain("must be one of");
+      expect(result.errors[0]).toContain('"red"');
+      expect(result.errors[0]).toContain('"green"');
+      expect(result.errors[0]).toContain('"blue"');
+    });
+  });
+
+  // ── Nested arrays of arrays ────────────────────────────────────────────────
+
+  describe("nested arrays", () => {
+    it("validates array of arrays", () => {
+      const schema = {
+        type: "object" as const,
+        properties: {
+          matrix: {
+            type: "array",
+            items: {
+              type: "array",
+              items: { type: "number" },
+            },
+          },
+        },
+      };
+      const valid = validateJsonSchema({ matrix: [[1, 2], [3, 4]] }, schema);
+      expect(valid.valid).toBe(true);
+
+      const invalid = validateJsonSchema({ matrix: [[1, "two"], [3, 4]] }, schema);
+      expect(invalid.valid).toBe(false);
+      expect(invalid.errors[0]).toContain("$.matrix[0][1]");
+    });
   });
 
   // ── Real-world PackageCard skill input schemas ───────────────────────────

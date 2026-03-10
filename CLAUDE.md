@@ -734,6 +734,7 @@ CSS custom property `--muted-foreground-subtle` provides WCAG AA compliant (4.5:
 ## Claude Agents
 
 Pre-configured agents in `.claude/agents/`:
+- `accessibility-auditor` - WCAG 2.2 Level AA compliance auditing
 - `code-reviewer` - General code review
 - `docs-updater` - Documentation maintenance
 - `auth0-debugger` - Auth0 JWT/JWKS/redirect debugging

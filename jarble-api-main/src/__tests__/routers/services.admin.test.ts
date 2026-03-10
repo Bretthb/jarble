@@ -13,6 +13,15 @@ import { createTestCaller, createAnonymousCaller } from "../helpers/testCaller.j
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
+// Mock the shared admin utility so the admin user ID matches our test user.
+vi.mock("../../utils/admin.js", () => {
+  const adminIds = new Set(["admin-user-001"]);
+  return {
+    isAdmin: (userId: string) => adminIds.has(userId),
+    getAdminUserIds: () => adminIds,
+  };
+});
+
 vi.mock("../../k8s/index.js", () => ({
   createDeployment: vi.fn().mockResolvedValue(undefined),
   deleteDeployment: vi.fn().mockResolvedValue(undefined),

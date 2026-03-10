@@ -148,8 +148,33 @@ async function checkDeploymentStatus(dep: {
 
 /**
  * Apply a status fix to the database.
+ * Verifies the deployment still exists before updating (it may have been
+ * deleted between the check and apply phases of reconciliation).
  */
 async function applyStatusFix(mismatch: StatusMismatch): Promise<void> {
+  // Guard: verify the deployment still exists in the DB
+  const current = await db.query.deployments.findFirst({
+    where: eq(deployments.id, mismatch.deploymentId),
+    columns: { id: true, status: true },
+  });
+
+  if (!current) {
+    logger.debug(
+      { deploymentId: mismatch.deploymentId },
+      "statusReconciler: deployment deleted before fix could be applied, skipping"
+    );
+    return;
+  }
+
+  // Also skip if the status has already changed since we checked
+  if (current.status !== mismatch.dbStatus) {
+    logger.debug(
+      { deploymentId: mismatch.deploymentId, expected: mismatch.dbStatus, actual: current.status },
+      "statusReconciler: deployment status changed since check, skipping"
+    );
+    return;
+  }
+
   logger.info(
     {
       deploymentId: mismatch.deploymentId,

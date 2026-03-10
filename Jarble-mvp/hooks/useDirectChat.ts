@@ -4,7 +4,7 @@
  * useDirectChat — Slim streaming hook for direct bot chat via SSE.
  *
  * Handles text deltas and UI blocks from the pod proxy.
- * No tool call handling (management goes through Tambo).
+ * No tool call handling (management goes through the config panel).
  */
 
 import { useState, useCallback, useRef } from "react";

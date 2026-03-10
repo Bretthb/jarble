@@ -15,6 +15,7 @@
  */
 
 import { z } from "zod";
+import { validateExternalUrl } from "../utils/urlValidation.js";
 
 // ── JSON Schema sub-schema ──────────────────────────────────────────────────
 // Lightweight validator for JSON Schema objects used in skill input/output.
@@ -87,10 +88,16 @@ export const serviceCardRateLimitsSchema = z.object({
 
 export const serviceCardSchema = z.object({
   /** Creator's API base URL (HTTPS required in production). */
-  endpoint: z.string().url(),
+  endpoint: z.string().url().refine(
+    (url) => validateExternalUrl(url),
+    "Endpoint must be a public URL (private IPs, localhost, and cloud metadata endpoints are blocked)",
+  ),
 
   /** Health check endpoint. Jarble polls this every 5min. Falls back to `{endpoint}/health`. */
-  healthEndpoint: z.string().url().optional(),
+  healthEndpoint: z.string().url().refine(
+    (url) => validateExternalUrl(url),
+    "Health endpoint must be a public URL (private IPs, localhost, and cloud metadata endpoints are blocked)",
+  ).optional(),
 
   /** Auth configuration that the creator's API expects from the Jarble proxy. */
   auth: serviceCardAuthSchema,
@@ -100,6 +107,10 @@ export const serviceCardSchema = z.object({
 
   /** Rate limits the creator enforces. */
   rateLimits: serviceCardRateLimitsSchema.optional(),
+
+  /** Custom proxy timeout in milliseconds. Capped at 120000 (2 min) server-side.
+   *  Useful for AI inference skills that need longer than the default 30s. */
+  timeoutMs: z.number().int().positive().max(120_000).optional(),
 
   /** Service card version (semver). */
   version: z

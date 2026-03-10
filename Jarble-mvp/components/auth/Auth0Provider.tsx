@@ -22,10 +22,20 @@ export function Auth0Provider({ children }: { children: ReactNode }) {
     setRedirectUri(window.location.origin + '/dashboard');
   }, []);
 
-  // Don't render until redirect URI is available — the Auth0 SDK creates
+  // Don't render the Auth0 SDK until redirect URI is available — it creates
   // its internal client on first mount and won't pick up later changes
   // to redirect_uri, which causes "Unable to issue redirect" errors.
-  if (!redirectUri) return null;
+  // Show a minimal loading state instead of null to prevent a blank flash.
+  if (!redirectUri) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+          <span className="text-sm text-muted-foreground">Loading...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Provider

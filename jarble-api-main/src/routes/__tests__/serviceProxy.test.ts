@@ -18,11 +18,20 @@ const mockFindFirstServiceCreds = vi.fn();
 const mockFindFirstService = vi.fn();
 const mockFindFirstServiceUsage = vi.fn();
 const mockFindFirstServiceInstalls = vi.fn();
+const mockFindFirstDeployments = vi.fn();
 const mockUpdateUsage = vi.fn().mockReturnThis();
 const mockSetUsage = vi.fn().mockReturnThis();
 const mockWhereUsage = vi.fn().mockResolvedValue(undefined);
 const mockInsertUsage = vi.fn().mockReturnThis();
 const mockValuesUsage = vi.fn().mockResolvedValue(undefined);
+
+// Auth mock — prevent env.ts from loading at import time
+const mockVerifyToken = vi.fn();
+const mockGetUserFromToken = vi.fn();
+vi.mock("../../services/auth.js", () => ({
+  verifyToken: (...args: any[]) => mockVerifyToken(...args),
+  getUserFromToken: (...args: any[]) => mockGetUserFromToken(...args),
+}));
 
 vi.mock("../../db/index.js", () => ({
   db: {
@@ -31,6 +40,7 @@ vi.mock("../../db/index.js", () => ({
       marketplaceServices: { findFirst: (...args: any[]) => mockFindFirstService(...args) },
       serviceUsage: { findFirst: (...args: any[]) => mockFindFirstServiceUsage(...args) },
       serviceInstalls: { findFirst: (...args: any[]) => mockFindFirstServiceInstalls(...args) },
+      deployments: { findFirst: (...args: any[]) => mockFindFirstDeployments(...args) },
     },
     update: (...args: any[]) => {
       mockUpdateUsage(...args);
@@ -60,6 +70,10 @@ vi.mock("../../db/index.js", () => ({
     serviceInstalls: {
       deploymentId: "deploymentId",
       packageId: "packageId",
+    },
+    deployments: {
+      id: "id",
+      userId: "userId",
     },
   },
 }));
@@ -193,10 +207,20 @@ describe("Service Proxy Route", () => {
   // We intercept global fetch for upstream requests. Save the original.
   const originalFetch = globalThis.fetch;
 
+  const TEST_GATEWAY_TOKEN = "test-gateway-token-xyz";
+
   beforeEach(async () => {
     vi.clearAllMocks();
     resetAllServiceRateLimits();
     resetAllCircuits();
+
+    // Default: gateway token auth passes for dep-001
+    mockFindFirstDeployments.mockResolvedValue({
+      id: "dep-001",
+      userId: "user-1",
+      gatewayToken: TEST_GATEWAY_TOKEN,
+    });
+
     baseUrl = await startServer(createTestApp());
   });
 
@@ -215,7 +239,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({ location: "NYC" }),
       },
     );
@@ -239,7 +263,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({}),
       },
     );
@@ -256,7 +280,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/nonexistent_skill`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({}),
       },
     );
@@ -298,7 +322,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({ location: "NYC" }),
       },
     );
@@ -330,7 +354,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({ location: "NYC" }),
       },
     );
@@ -362,7 +386,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({ location: "NYC" }),
       },
     );
@@ -398,7 +422,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({ location: "NYC" }),
       },
     );
@@ -431,7 +455,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({ location: "NYC" }),
       },
     );
@@ -476,7 +500,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({ location: "NYC" }),
       },
     );
@@ -501,7 +525,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({ location: "NYC" }),
       },
     );
@@ -525,7 +549,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({}),
       },
     );
@@ -546,7 +570,7 @@ describe("Service Proxy Route", () => {
       `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
         body: JSON.stringify({}),
       },
     );
@@ -587,7 +611,7 @@ describe("Service Proxy Route", () => {
         `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
           body: JSON.stringify({ location: "NYC" }),
         },
       );
@@ -636,7 +660,7 @@ describe("Service Proxy Route", () => {
         `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
           body: JSON.stringify({ location: "NYC" }),
         },
       );
@@ -662,7 +686,7 @@ describe("Service Proxy Route", () => {
         `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
           body: JSON.stringify({}), // missing "location" which is required
         },
       );
@@ -682,7 +706,7 @@ describe("Service Proxy Route", () => {
         `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
           body: JSON.stringify({ location: 12345 }), // number instead of string
         },
       );
@@ -712,7 +736,7 @@ describe("Service Proxy Route", () => {
         `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
           body: JSON.stringify({ location: "NYC" }),
         },
       );
@@ -766,7 +790,7 @@ describe("Service Proxy Route", () => {
         `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
           body: JSON.stringify({ location: "NYC" }),
         },
       );
@@ -815,7 +839,7 @@ describe("Service Proxy Route", () => {
         `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
           body: JSON.stringify({ location: "NYC" }),
         },
       );
@@ -880,7 +904,7 @@ describe("Service Proxy Route", () => {
           `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
             body: JSON.stringify({ location: "NYC" }),
           },
         );
@@ -892,7 +916,7 @@ describe("Service Proxy Route", () => {
         `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
           body: JSON.stringify({ location: "NYC" }),
         },
       );
@@ -929,7 +953,7 @@ describe("Service Proxy Route", () => {
           `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
             body: JSON.stringify({ location: "NYC" }),
           },
         );
@@ -940,7 +964,7 @@ describe("Service Proxy Route", () => {
         `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
           body: JSON.stringify({ location: "NYC" }),
         },
       );

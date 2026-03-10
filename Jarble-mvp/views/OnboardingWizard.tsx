@@ -502,7 +502,7 @@ export default function OnboardingWizard() {
                   telegramBotUsername={telegramBotUsername}
                 />
               )}
-              {/* Telegram step removed — platform connections happen via Tambo chat after deploy */}
+              {/* Telegram step removed — platform connections happen via config panel after deploy */}
             </motion.div>
           </AnimatePresence>
         </div>

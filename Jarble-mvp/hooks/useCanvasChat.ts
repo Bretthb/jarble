@@ -511,7 +511,10 @@ export function useCanvasChat(
         }
       }
     },
-    // Stable deps — isStreaming replaced by isStreamingRef, state replaced by stateRef.current
+    // Stable deps — isStreaming replaced by isStreamingRef, state replaced by stateRef.current.
+    // registerComponent is safe to omit: created with useCallback(fn, []) in ComponentCatalogProvider
+    // so it is referentially stable for the lifetime of the provider.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [deploymentId, getAccessTokenSilently, dispatch]
   );
 

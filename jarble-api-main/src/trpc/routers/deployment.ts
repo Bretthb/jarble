@@ -2,7 +2,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { router, protectedProcedure } from "../middleware.js";
 import { tables, dbDate, type DbClient } from "../../db/index.js";
-import { eq, and, or, isNull } from "drizzle-orm";
+import { eq, and, or, isNull, sql } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc } from "../../k8s/index.js";
 import type { ManagedBy } from "../../k8s/constants.js";
 import { getPvcMountPath } from "../../k8s/constants.js";
@@ -274,18 +274,50 @@ export const deploymentRouter = router({
       const now = new Date();
       const freeTrialExpiryDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
+      // ── Cross-account free trial abuse prevention ──────────────────
+      // Check if ANY user with the same normalized email has already used a free trial.
+      // This prevents creating multiple Auth0 accounts to get unlimited free trials.
+      let crossAccountTrialUsed = false;
+      const currentUserRecord = await ctx.db.query.users.findFirst({
+        where: eq(users.id, ctx.user.id),
+      });
+
+      if (currentUserRecord?.email) {
+        const normalizedEmail = currentUserRecord.email.trim().toLowerCase();
+        const existingTrialUsers = await ctx.db.query.users.findMany({
+          where: and(
+            sql`LOWER(TRIM(${users.email})) = ${normalizedEmail}`,
+            eq(users.freeDeploymentUsed, true),
+          ),
+        });
+
+        crossAccountTrialUsed = existingTrialUsers.some(
+          (u: any) => u.id !== ctx.user.id
+        );
+
+        if (crossAccountTrialUsed) {
+          logger.warn(
+            { userId: ctx.user.id, email: normalizedEmail },
+            "Free trial denied: another account with the same email already used a free trial"
+          );
+        }
+      }
+
       // Atomic guard: attempt to claim the free deployment slot.
       // This UPDATE only succeeds if freeDeploymentUsed is false/null,
       // preventing two concurrent requests from both getting a free deployment.
-      const claimResult = await ctx.db.update(users)
-        .set({
-          freeDeploymentUsed: true,
-          freeTrialExpiresAt: dbDate(freeTrialExpiryDate),
-        })
-        .where(and(
-          eq(users.id, ctx.user.id),
-          or(eq(users.freeDeploymentUsed, false), isNull(users.freeDeploymentUsed))
-        ));
+      // Also blocked if another account with the same email already used a trial.
+      const claimResult = crossAccountTrialUsed
+        ? { changes: 0, rowsAffected: 0 }  // Skip claim — trial already used by another account
+        : await ctx.db.update(users)
+          .set({
+            freeDeploymentUsed: true,
+            freeTrialExpiresAt: dbDate(freeTrialExpiryDate),
+          })
+          .where(and(
+            eq(users.id, ctx.user.id),
+            or(eq(users.freeDeploymentUsed, false), isNull(users.freeDeploymentUsed))
+          ));
 
       const claimRows = (claimResult as any)?.rowsAffected ?? (claimResult as any)?.changes ?? (claimResult as any)?.[0]?.affectedRows ?? 0;
       const isFree = claimRows > 0;

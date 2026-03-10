@@ -12,6 +12,7 @@ import { startStorageEnforcement } from "./services/storageEnforcement.js";
 import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement.js";
 import { startStatusReconciler } from "./services/statusReconciler.js";
 import { startServiceHealthCheck } from "./services/serviceHealthCheck.js";
+import { startWebhookCleanup } from "./services/webhookCleanup.js";
 import { globalLimiter, authLimiter } from "./middleware/rateLimit.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { requestLoggingMiddleware } from "./middleware/requestLogging.js";
@@ -133,6 +134,7 @@ async function start() {
   startSubscriptionEnforcement();
   startStatusReconciler();  // Syncs DB status with K8s reality (fixes "stuck at creating")
   startServiceHealthCheck();  // Pings remote/hybrid service health endpoints every 5 min
+  startWebhookCleanup();      // Purges processedWebhookEvents older than 30 days (every 24h)
 
   const PORT = env.PORT;
   app.listen(PORT, () => {

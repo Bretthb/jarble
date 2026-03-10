@@ -15,12 +15,38 @@ import {
   findPodForDeployment,
   streamExecInPod,
 } from "../k8s/index.js";
+import {
+  subscribe as statusCacheSubscribe,
+  unsubscribeAll as statusCacheUnsubscribeAll,
+  type CachedStatus,
+  type StatusChangeCallback,
+} from "../services/statusCache.js";
 
 /**
  * SSE streaming routes for deployments.
  * Mounted at /api/deployments in index.ts.
  */
 export const sseRouter = Router();
+
+// ─── Per-user SSE connection limiting ────────────────────────────────────────
+const MAX_SSE_CONNECTIONS_PER_USER = 10;
+const activeConnections = new Map<string, number>();
+
+function acquireConnection(userId: string): boolean {
+  const count = activeConnections.get(userId) ?? 0;
+  if (count >= MAX_SSE_CONNECTIONS_PER_USER) return false;
+  activeConnections.set(userId, count + 1);
+  return true;
+}
+
+function releaseConnection(userId: string): void {
+  const count = activeConnections.get(userId) ?? 0;
+  if (count <= 1) {
+    activeConnections.delete(userId);
+  } else {
+    activeConnections.set(userId, count - 1);
+  }
+}
 
 /**
  * Authenticate via Bearer header OR ?token= query param.
@@ -73,10 +99,16 @@ sseRouter.get("/:id/logs/stream", async (req, res) => {
       return;
     }
 
+    // Enforce per-user SSE connection limit
+    if (!acquireConnection(user.id)) {
+      res.status(429).json({ error: "Too many SSE connections" });
+      return;
+    }
+
     // Set SSE headers
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-store, no-transform",
       "Connection": "keep-alive",
       "X-Accel-Buffering": "no",
     });
@@ -130,19 +162,34 @@ sseRouter.get("/:id/logs/stream", async (req, res) => {
       return;
     }
 
-    // Keep-alive ping every 30s to prevent proxy/load-balancer timeouts
+    // Keep-alive ping every 25s to prevent proxy/load-balancer timeouts
     const keepAlive = setInterval(() => {
       if (!res.writableEnded) {
         res.write(": ping\n\n");
       }
-    }, 30_000);
+    }, 25_000);
+
+    const cleanupLogs = () => {
+      clearInterval(keepAlive);
+      logStream.destroy();
+      if (abortFn) abortFn();
+      releaseConnection(user!.id);
+    };
 
     // Clean up when client disconnects
     req.on("close", () => {
       log.debug({ deploymentId }, "Log stream client disconnected");
-      clearInterval(keepAlive);
-      logStream.destroy();
-      if (abortFn) abortFn();
+      cleanupLogs();
+    });
+
+    req.on("error", (err: Error) => {
+      log.warn({ err, deploymentId }, "Log stream request error");
+      cleanupLogs();
+    });
+
+    res.on("error", (err: Error) => {
+      log.warn({ err, deploymentId }, "Log stream response error");
+      cleanupLogs();
     });
   } catch (err) {
     log.error({ err }, "SSE log stream error");
@@ -189,10 +236,16 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
       return;
     }
 
+    // Enforce per-user SSE connection limit
+    if (!acquireConnection(user.id)) {
+      res.status(429).json({ error: "Too many SSE connections" });
+      return;
+    }
+
     // Set SSE headers
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-store, no-transform",
       "Connection": "keep-alive",
       "X-Accel-Buffering": "no",
     });
@@ -202,6 +255,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
 
     let connected = false;
     let abortFn: (() => void) | null = null;
+    let pairingTimeout: ReturnType<typeof setTimeout> | null = null;
 
     // Heuristic: detect QR output from OpenClaw
     const isQrLine = (line: string): boolean => {
@@ -238,6 +292,11 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
     const markConnected = async () => {
       if (connected) return;
       connected = true;
+      // Clear the 90s pairing timeout — QR was scanned successfully
+      if (pairingTimeout) {
+        clearTimeout(pairingTimeout);
+        pairingTimeout = null;
+      }
       try {
         const existing = await db.query.platformCredentials.findFirst({
           where: and(
@@ -302,7 +361,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
     log.info({ deploymentId, podName }, "WhatsApp QR pairing stream started");
 
     // 90-second timeout for the entire pairing session
-    const timeout = setTimeout(() => {
+    pairingTimeout = setTimeout(() => {
       if (!res.writableEnded && !connected) {
         res.write(`event: timeout\ndata: {}\n\n`);
         res.end();
@@ -310,19 +369,34 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
       }
     }, 90_000);
 
-    // Keep-alive ping every 30s
+    // Keep-alive ping every 25s
     const keepAlive = setInterval(() => {
       if (!res.writableEnded) {
         res.write(": ping\n\n");
       }
-    }, 30_000);
+    }, 25_000);
+
+    const cleanupQr = () => {
+      if (pairingTimeout) clearTimeout(pairingTimeout);
+      clearInterval(keepAlive);
+      if (abortFn) abortFn();
+      releaseConnection(user!.id);
+    };
 
     // Clean up when client disconnects
     req.on("close", () => {
       log.debug({ deploymentId }, "WhatsApp QR stream client disconnected");
-      clearTimeout(timeout);
-      clearInterval(keepAlive);
-      if (abortFn) abortFn();
+      cleanupQr();
+    });
+
+    req.on("error", (err: Error) => {
+      log.warn({ err, deploymentId }, "QR stream request error");
+      cleanupQr();
+    });
+
+    res.on("error", (err: Error) => {
+      log.warn({ err, deploymentId }, "QR stream response error");
+      cleanupQr();
     });
   } catch (err) {
     log.error({ err }, "WhatsApp QR stream error");
@@ -333,6 +407,10 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
 });
 
 // ─── SSE: Deployment status streaming ────────────────────────────────────────
+//
+// Uses a shared statusCache so that multiple SSE connections watching the same
+// deployment result in only ONE K8s API call per poll interval, not N.
+//
 sseRouter.get("/status/stream", async (req, res) => {
   try {
     const user = await authenticateSSE(req);
@@ -341,10 +419,16 @@ sseRouter.get("/status/stream", async (req, res) => {
       return;
     }
 
+    // Enforce per-user SSE connection limit
+    if (!acquireConnection(user.id)) {
+      res.status(429).json({ error: "Too many SSE connections" });
+      return;
+    }
+
     // Set SSE headers
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-store, no-transform",
       "Connection": "keep-alive",
       "X-Accel-Buffering": "no",
     });
@@ -352,66 +436,76 @@ sseRouter.get("/status/stream", async (req, res) => {
 
     res.write(": connected\n\n");
 
-    // Track last known statuses to only push deltas
+    // Track last known statuses to only push deltas to THIS client
     const lastKnown = new Map<string, string>();
 
-    // Helper: build status snapshot for all user deployments
-    async function buildStatusSnapshot() {
-      const { deployments: deploymentsTable } = tables;
+    // IDs we've subscribed to (for cleanup)
+    const subscribedIds: string[] = [];
+
+    // Callback invoked by the shared cache when a deployment's status changes
+    const onStatusChange: StatusChangeCallback = (status: CachedStatus) => {
+      if (res.writableEnded) return;
+
+      const serialized = JSON.stringify(status);
+      if (lastKnown.get(status.deploymentId) !== serialized) {
+        lastKnown.set(status.deploymentId, serialized);
+        res.write(`data: ${serialized}\n\n`);
+      }
+    };
+
+    // Load user's deployments and subscribe each to the shared cache
+    const { deployments: deploymentsTable } = tables;
+
+    try {
       const userDeployments = await db.query.deployments.findMany({
-        where: eq(deploymentsTable.userId, user!.id),
+        where: eq(deploymentsTable.userId, user.id),
       });
 
-      // Parallelize K8s pod status lookups instead of sequential N+1 calls
-      const results = await Promise.all(userDeployments.map(async (dep) => {
-        const dbStatus = dep.status;
+      // Subscribe to all deployments in parallel.
+      // For deployments in transitional states (creating/restarting/stopping),
+      // we still subscribe — the cache will query K8s and report the actual pod state.
+      // For non-transitional states, the cache deduplicates across connections.
+      const initialStatuses = await Promise.all(
+        userDeployments.map(async (dep) => {
+          const dbStatus = dep.status;
+          const isTransitional = ["creating", "restarting", "stopping"].includes(dbStatus);
 
-        const isTransitional = ["creating", "restarting", "stopping"].includes(dbStatus);
-        if (!isTransitional && (dbStatus === "running" || dbStatus === "failed")) {
-          try {
-            const podStatus = await getDeploymentPodStatus(dep.id);
-
-            if (podStatus.status !== dbStatus
-                && (podStatus.status === "running" || podStatus.status === "failed")) {
-              try {
-                await db.update(deploymentsTable)
-                  .set({
-                    status: podStatus.status,
-                    ...(podStatus.error ? { error: podStatus.error } : {}),
-                  })
-                  .where(and(
-                    eq(deploymentsTable.id, dep.id),
-                    eq(deploymentsTable.status, dbStatus),
-                  ));
-              } catch (syncErr) {
-                log.warn({ deploymentId: dep.id, syncErr }, "SSE status sync: failed to update DB");
-              }
-            }
-
-            return {
-              deploymentId: dep.id,
-              status: podStatus.status,
-              restarts: podStatus.restarts,
-              error: podStatus.error,
-            };
-          } catch {
+          if (!isTransitional && dbStatus !== "running" && dbStatus !== "failed") {
+            // Stopped or other non-pollable state — use DB status directly
             return { deploymentId: dep.id, status: dbStatus };
           }
-        }
 
-        return { deploymentId: dep.id, status: dbStatus };
-      }));
+          // Subscribe to the shared cache for K8s-backed statuses
+          subscribedIds.push(dep.id);
+          const cached = await statusCacheSubscribe(dep.id, onStatusChange);
 
-      return results;
-    }
+          // Sync K8s status back to DB if it diverged
+          if (cached.status !== dbStatus
+              && (cached.status === "running" || cached.status === "failed")) {
+            try {
+              await db.update(deploymentsTable)
+                .set({
+                  status: cached.status,
+                  ...(cached.error ? { error: cached.error } : {}),
+                })
+                .where(and(
+                  eq(deploymentsTable.id, dep.id),
+                  eq(deploymentsTable.status, dbStatus),
+                ));
+            } catch (syncErr) {
+              log.warn({ deploymentId: dep.id, syncErr }, "SSE status sync: failed to update DB");
+            }
+          }
 
-    // Send initial snapshot
-    try {
-      const snapshot = await buildStatusSnapshot();
-      for (const s of snapshot) {
+          return cached;
+        })
+      );
+
+      // Send initial snapshot
+      for (const s of initialStatuses) {
         lastKnown.set(s.deploymentId, JSON.stringify(s));
       }
-      res.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
+      res.write(`event: snapshot\ndata: ${JSON.stringify(initialStatuses)}\n\n`);
     } catch (err) {
       log.error({ err, userId: user.id }, "Failed to build initial status snapshot");
       res.write(`event: error\ndata: ${JSON.stringify({ message: "Failed to fetch deployment statuses" })}\n\n`);
@@ -419,60 +513,96 @@ sseRouter.get("/status/stream", async (req, res) => {
       return;
     }
 
-    // Poll for changes every 5 seconds
-    const pollInterval = setInterval(async () => {
+    // Periodic check for new/removed deployments (DB-level, not K8s).
+    // This handles deployments created or deleted while the stream is open.
+    const deploymentSyncInterval = setInterval(async () => {
       if (res.writableEnded) {
-        clearInterval(pollInterval);
+        clearInterval(deploymentSyncInterval);
         return;
       }
 
       try {
-        const current = await buildStatusSnapshot();
+        const currentDeployments = await db.query.deployments.findMany({
+          where: eq(deploymentsTable.userId, user!.id),
+          columns: { id: true, status: true },
+        });
 
-        for (const s of current) {
-          const serialized = JSON.stringify(s);
-          if (lastKnown.get(s.deploymentId) !== serialized) {
-            lastKnown.set(s.deploymentId, serialized);
-            res.write(`data: ${serialized}\n\n`);
+        const currentIds = new Set(currentDeployments.map((d) => d.id));
+        const subscribedSet = new Set(subscribedIds);
+
+        // Subscribe to newly created deployments
+        for (const dep of currentDeployments) {
+          if (!subscribedSet.has(dep.id)) {
+            const isTransitional = ["creating", "restarting", "stopping"].includes(dep.status);
+            if (isTransitional || dep.status === "running" || dep.status === "failed") {
+              subscribedIds.push(dep.id);
+              const cached = await statusCacheSubscribe(dep.id, onStatusChange);
+              const serialized = JSON.stringify(cached);
+              if (lastKnown.get(dep.id) !== serialized) {
+                lastKnown.set(dep.id, serialized);
+                res.write(`data: ${serialized}\n\n`);
+              }
+            }
           }
         }
 
         // Detect removed deployments
-        const currentIds = new Set(current.map((s) => s.deploymentId));
         for (const [id] of lastKnown) {
           if (!currentIds.has(id)) {
             lastKnown.delete(id);
             res.write(`data: ${JSON.stringify({ deploymentId: id, status: "not_found" })}\n\n`);
+            // Unsubscribe from cache
+            const idx = subscribedIds.indexOf(id);
+            if (idx !== -1) {
+              subscribedIds.splice(idx, 1);
+              statusCacheUnsubscribeAll([id], onStatusChange);
+            }
           }
         }
       } catch (err) {
-        log.error({ err, userId: user.id }, "Status stream poll error");
+        log.error({ err, userId: user!.id }, "Status stream deployment sync error");
       }
-    }, 5_000);
+    }, 15_000); // Check for new/removed deployments every 15s (less frequent than status polling)
 
-    // Keep-alive ping every 30s
+    // Keep-alive ping every 25s
     const keepAlive = setInterval(() => {
       if (!res.writableEnded) {
         res.write(": ping\n\n");
       }
-    }, 30_000);
+    }, 25_000);
 
     // Maximum connection lifetime: 1 hour
     const maxConnectionMs = 60 * 60 * 1000;
     const connectionTimeout = setTimeout(() => {
       log.debug({ userId: user!.id }, "Status stream max lifetime reached, closing");
-      clearInterval(pollInterval);
-      clearInterval(keepAlive);
+      cleanup();
       res.write(`event: reconnect\ndata: {"reason":"max_lifetime"}\n\n`);
       res.end();
     }, maxConnectionMs);
 
+    function cleanup() {
+      clearInterval(deploymentSyncInterval);
+      clearInterval(keepAlive);
+      clearTimeout(connectionTimeout);
+      // Unsubscribe from all deployments in the shared cache
+      statusCacheUnsubscribeAll(subscribedIds, onStatusChange);
+      releaseConnection(user!.id);
+    }
+
     // Clean up when client disconnects
     req.on("close", () => {
       log.debug({ userId: user!.id }, "Status stream client disconnected");
-      clearInterval(pollInterval);
-      clearInterval(keepAlive);
-      clearTimeout(connectionTimeout);
+      cleanup();
+    });
+
+    req.on("error", (err: Error) => {
+      log.warn({ err, userId: user!.id }, "Status stream request error");
+      cleanup();
+    });
+
+    res.on("error", (err: Error) => {
+      log.warn({ err, userId: user!.id }, "Status stream response error");
+      cleanup();
     });
   } catch (err) {
     log.error({ err }, "SSE status stream error");

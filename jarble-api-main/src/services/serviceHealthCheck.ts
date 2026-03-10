@@ -13,6 +13,8 @@
 import { db, tables, dbDate } from "../db/index.js";
 import { eq, sql } from "drizzle-orm";
 import { logger } from "../utils/logger.js";
+import { validateExternalUrl } from "../utils/urlValidation.js";
+import { canRequest } from "./circuitBreaker.js";
 
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -74,6 +76,35 @@ async function checkServiceHealth(svc: any): Promise<void> {
 
   if (!healthUrl) {
     return; // No endpoint to check
+  }
+
+  // Skip the network call if the circuit breaker is open — the service is
+  // already known to be down, so hitting it again is wasteful. Just mark it
+  // offline and let the circuit breaker recovery timeout handle re-probing.
+  const circuit = canRequest(svc.id);
+  if (!circuit.allowed) {
+    logger.info(
+      { serviceId: svc.id, healthUrl },
+      "Service health check: skipping — circuit breaker is OPEN",
+    );
+
+    await db
+      .update(tables.marketplaceServices)
+      .set({
+        remoteHealth: "offline",
+        remoteLastCheck: dbDate(),
+      } as any)
+      .where(eq(tables.marketplaceServices.id, svc.id));
+    return;
+  }
+
+  // SSRF protection: validate the health URL before making the request
+  if (!validateExternalUrl(healthUrl)) {
+    logger.warn(
+      { serviceId: svc.id, healthUrl },
+      "Service health check: blocked SSRF — URL points to private/internal network",
+    );
+    return;
   }
 
   let health: "healthy" | "degraded" | "offline" = "offline";

@@ -46,6 +46,12 @@ vi.mock("../../utils/logger.js", () => ({
     error: vi.fn(),
     debug: vi.fn(),
   },
+  createModuleLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
 }));
 
 // ── Import under test (after mocks) ─────────────────────────────────────────
@@ -54,6 +60,11 @@ import {
   startServiceHealthCheck,
   stopServiceHealthCheck,
 } from "../serviceHealthCheck.js";
+import {
+  recordFailure,
+  resetAllCircuits,
+  FAILURE_THRESHOLD,
+} from "../circuitBreaker.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -72,6 +83,7 @@ describe("Service Health Check Service", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    resetAllCircuits();
     mockFindMany.mockResolvedValue([]);
     // Ensure we start clean (no leftover interval)
     stopServiceHealthCheck();
@@ -464,6 +476,40 @@ describe("Service Health Check Service", () => {
           health: "degraded",
         }),
         expect.stringContaining("not healthy"),
+      );
+    });
+
+    it("skips network call and marks offline when circuit breaker is open", async () => {
+      const pkg = {
+        id: "pkg-circuit",
+        remoteApiConfig: JSON.stringify({
+          endpoint: "https://api.circuit.test/v1",
+          healthEndpoint: "https://api.circuit.test/health",
+          auth: { type: "api_key", headerName: "X-API-Key" },
+          skills: [{ name: "test_skill", description: "Test", inputSchema: { type: "object", properties: {} } }],
+          version: "1.0.0",
+        }),
+      };
+      mockFindMany.mockResolvedValueOnce([pkg]);
+
+      // Trip the circuit breaker for this service
+      for (let i = 0; i < FAILURE_THRESHOLD; i++) {
+        recordFailure("pkg-circuit");
+      }
+
+      mockFetch(() => new Response("OK", { status: 200 }));
+
+      startServiceHealthCheck(60_000);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // fetch should NOT have been called — circuit is open
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+
+      // DB should still be updated to "offline"
+      expect(mockSet).toHaveBeenCalledWith(
+        expect.objectContaining({
+          remoteHealth: "offline",
+        }),
       );
     });
 

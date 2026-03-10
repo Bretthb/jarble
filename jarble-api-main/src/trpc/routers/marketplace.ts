@@ -11,6 +11,7 @@ import {
   removeMarketplaceComponent,
 } from "../../services/configSync.js";
 import { validatePropsSchema } from "../../utils/schemaValidation.js";
+import { isAdmin } from "../../utils/admin.js";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { COMPONENT_SCHEMAS, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 
@@ -39,14 +40,8 @@ function generateId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }
 
-// MVP admin check: hardcoded admin user IDs. Replace with role-based check later.
-const ADMIN_USER_IDS = new Set<string>([
-  // Add admin user IDs here, e.g.:
-  // "usr_abc123def456",
-]);
-
 function assertAdmin(userId: string) {
-  if (!ADMIN_USER_IDS.has(userId)) {
+  if (!isAdmin(userId)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Admin access required",
@@ -561,6 +556,14 @@ export const marketplaceRouter = router({
           eq(componentInstalls.componentId, input.componentId),
           eq(componentInstalls.deploymentId, input.deploymentId),
         ));
+
+      // Decrement totalInstalls (floor at 0)
+      await ctx.db
+        .update(marketplaceComponents)
+        .set({
+          totalInstalls: sql`MAX(${marketplaceComponents.totalInstalls} - 1, 0)` as any,
+        })
+        .where(eq(marketplaceComponents.id, input.componentId));
 
       logger.info({
         componentId: input.componentId,
@@ -1168,6 +1171,42 @@ export const marketplaceRouter = router({
       if (input.tags !== undefined) updateData.tags = JSON.stringify(input.tags);
       if (input.priceUsdCents !== undefined) updateData.priceUsdCents = input.priceUsdCents;
 
+      // Track whether manifest-relevant fields changed (description, botDescription, displayName)
+      const manifestChanged =
+        (input.displayName !== undefined && input.displayName !== component.displayName) ||
+        (input.description !== undefined && input.description !== component.description) ||
+        (input.botDescription !== undefined && input.botDescription !== component.botDescription);
+
+      // Bump version if manifest-relevant fields changed
+      let newVersion: string | null = null;
+      if (manifestChanged) {
+        // Increment patch version (e.g. 1.0.0 -> 1.0.1)
+        const parts = (component.currentVersion ?? "1.0.0").split(".");
+        const patch = parseInt(parts[2] ?? "0", 10) + 1;
+        newVersion = `${parts[0]}.${parts[1]}.${patch}`;
+        updateData.currentVersion = newVersion;
+
+        // Insert a new version record
+        const manifestHash = crypto.createHash("sha256")
+          .update(JSON.stringify({
+            displayName: input.displayName ?? component.displayName,
+            description: input.description ?? component.description,
+            botDescription: input.botDescription ?? component.botDescription,
+          }))
+          .digest("hex");
+
+        await ctx.db.insert(componentVersions).values({
+          id: generateId("ver"),
+          componentId: input.componentId,
+          version: newVersion,
+          changelog: "Component metadata updated",
+          packageUrl: "pending://upload",
+          packageSizeBytes: 0,
+          manifestHash,
+          createdAt: dbDate(),
+        });
+      }
+
       await ctx.db
         .update(marketplaceComponents)
         .set(updateData as any)
@@ -1176,9 +1215,10 @@ export const marketplaceRouter = router({
       logger.info({
         componentId: input.componentId,
         userId: ctx.user.id,
+        ...(newVersion ? { newVersion } : {}),
       }, "Marketplace component updated");
 
-      return { success: true as const };
+      return { success: true as const, ...(newVersion ? { newVersion } : {}) };
     }),
 
   myComponents: protectedProcedure.query(async ({ ctx }) => {

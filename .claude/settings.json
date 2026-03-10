@@ -13,6 +13,22 @@
           "bash scripts/claude-hooks/session-end.sh"
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          "node .claude/hooks/block-lockfiles.js"
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          "node .claude/hooks/format.js"
+        ],
+        "matcher": "Edit|Write"
+      }
     ]
   }
 }

@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Menu,
   Search,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -73,25 +74,66 @@ const NAV_SECTIONS = [
   },
 ] as const;
 
-function SidebarSearch() {
+function SidebarSearch({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <div className="relative">
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
       <input
         type="text"
         placeholder="Search docs..."
-        className="w-full rounded-md border border-input bg-transparent py-2 pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-md border border-input bg-transparent py-2 pl-9 pr-8 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring"
       />
+      {value && (
+        <button
+          onClick={() => onChange("")}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Clear search"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   );
 }
 
-function SidebarNav({ onLinkClick }: { onLinkClick?: () => void }) {
+function SidebarNav({
+  onLinkClick,
+  searchQuery,
+}: {
+  onLinkClick?: () => void;
+  searchQuery: string;
+}) {
   const pathname = usePathname();
+
+  const filteredSections = searchQuery
+    ? NAV_SECTIONS.filter((section) => {
+        const q = searchQuery.toLowerCase();
+        return (
+          section.title.toLowerCase().includes(q) ||
+          section.description.toLowerCase().includes(q)
+        );
+      })
+    : NAV_SECTIONS;
+
+  if (filteredSections.length === 0) {
+    return (
+      <div className="px-1 py-6 text-center text-sm text-muted-foreground">
+        No pages matching &ldquo;{searchQuery}&rdquo;
+      </div>
+    );
+  }
 
   return (
     <nav className="flex flex-col gap-1" aria-label="Documentation navigation">
-      {NAV_SECTIONS.map((section) => {
+      {filteredSections.map((section) => {
         const Icon = section.icon;
         const isActive =
           pathname === section.href || pathname?.startsWith(section.href + "/");
@@ -118,14 +160,16 @@ function SidebarNav({ onLinkClick }: { onLinkClick?: () => void }) {
 }
 
 function SidebarContent({ onLinkClick }: { onLinkClick?: () => void }) {
+  const [searchQuery, setSearchQuery] = useState("");
+
   return (
     <div className="flex h-full flex-col gap-4 py-4">
       <div className="px-4">
-        <SidebarSearch />
+        <SidebarSearch value={searchQuery} onChange={setSearchQuery} />
       </div>
       <Separator />
       <ScrollArea className="flex-1 px-4">
-        <SidebarNav onLinkClick={onLinkClick} />
+        <SidebarNav onLinkClick={onLinkClick} searchQuery={searchQuery} />
       </ScrollArea>
       <Separator />
       <div className="px-4">

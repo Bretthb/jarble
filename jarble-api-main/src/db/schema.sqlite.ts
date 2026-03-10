@@ -286,6 +286,8 @@ export const serviceCredentials = sqliteTable("package_credentials", {
   deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
   packageId: text("package_id").notNull().references(() => marketplaceServices.id),
   signingSecret: text("signing_secret").notNull(), // Encrypted HMAC-SHA256 signing secret
+  previousSigningSecret: text("previous_signing_secret"), // Previous secret, accepted during grace period
+  previousSecretExpiresAt: text("previous_secret_expires_at"), // ISO 8601 — after this, only new secret is accepted
   handshakeStatus: text("handshake_status").notNull().default("pending"), // "pending" | "completed" | "failed"
   handshakeError: text("handshake_error"),
   remoteInstallId: text("remote_install_id"), // ID returned by creator's endpoint

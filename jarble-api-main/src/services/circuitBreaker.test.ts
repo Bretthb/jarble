@@ -266,5 +266,186 @@ describe("circuitBreaker", () => {
       const result = canRequest(pkg, openedAt + RECOVERY_TIMEOUT_MS);
       expect(result.allowed).toBe(true);
     });
+
+    it("retryAfterMs decreases as time passes", () => {
+      const pkg = "pkg-retry-decrease";
+      const openedAt = 1000000;
+
+      for (let i = 0; i < FAILURE_THRESHOLD; i++) {
+        recordFailure(pkg, openedAt);
+      }
+
+      const r1 = canRequest(pkg, openedAt + 5_000);
+      const r2 = canRequest(pkg, openedAt + 30_000);
+
+      expect(r1.allowed).toBe(false);
+      expect(r2.allowed).toBe(false);
+      if (!r1.allowed && !r2.allowed) {
+        expect(r2.retryAfterMs).toBeLessThan(r1.retryAfterMs);
+      }
+    });
+
+    it("retryAfterMs is 0 when recovery timeout is exactly reached", () => {
+      const pkg = "pkg-retry-zero";
+      const openedAt = 1000000;
+
+      for (let i = 0; i < FAILURE_THRESHOLD; i++) {
+        recordFailure(pkg, openedAt);
+      }
+
+      // At recovery timeout, should transition to HALF_OPEN (allowed=true)
+      const result = canRequest(pkg, openedAt + RECOVERY_TIMEOUT_MS);
+      expect(result.allowed).toBe(true);
+    });
+  });
+
+  // ── Additional edge cases ─────────────────────────────────────────────
+
+  describe("additional edge cases", () => {
+    it("failures beyond threshold keep circuit OPEN (does not double-open)", () => {
+      const pkg = "pkg-extra-failures";
+      const now = 1000000;
+      for (let i = 0; i < FAILURE_THRESHOLD + 10; i++) {
+        recordFailure(pkg, now);
+      }
+      const state = getCircuitState(pkg);
+      expect(state.state).toBe("OPEN");
+      expect(state.consecutiveFailures).toBe(FAILURE_THRESHOLD + 10);
+    });
+
+    it("recordSuccess on a never-seen package creates CLOSED entry", () => {
+      recordSuccess("pkg-never-seen");
+      const state = getCircuitState("pkg-never-seen");
+      expect(state.state).toBe("CLOSED");
+      expect(state.consecutiveFailures).toBe(0);
+    });
+
+    it("lastFailureAt is set correctly on each failure", () => {
+      const pkg = "pkg-timestamps";
+      recordFailure(pkg, 1000);
+      expect(getCircuitState(pkg).lastFailureAt).toBe(1000);
+
+      recordFailure(pkg, 2000);
+      expect(getCircuitState(pkg).lastFailureAt).toBe(2000);
+    });
+
+    it("HALF_OPEN → OPEN preserves failure count from before", () => {
+      const pkg = "pkg-count-preservation";
+      const now = 1000000;
+
+      // Open circuit (5 failures)
+      for (let i = 0; i < FAILURE_THRESHOLD; i++) {
+        recordFailure(pkg, now);
+      }
+
+      // Transition to HALF_OPEN
+      canRequest(pkg, now + RECOVERY_TIMEOUT_MS);
+      expect(getCircuitState(pkg).state).toBe("HALF_OPEN");
+
+      // Probe fails — consecutive failures should increment
+      recordFailure(pkg, now + RECOVERY_TIMEOUT_MS + 100);
+      expect(getCircuitState(pkg).state).toBe("OPEN");
+      expect(getCircuitState(pkg).consecutiveFailures).toBe(FAILURE_THRESHOLD + 1);
+    });
+
+    it("multiple resets are idempotent", () => {
+      recordFailure("pkg-multi-reset");
+      resetCircuit("pkg-multi-reset");
+      resetCircuit("pkg-multi-reset");
+
+      const state = getCircuitState("pkg-multi-reset");
+      expect(state.state).toBe("CLOSED");
+      expect(state.consecutiveFailures).toBe(0);
+    });
+
+    it("OPEN circuit correctly tracks openedAt from the transition moment", () => {
+      const pkg = "pkg-opened-at-tracking";
+      recordFailure(pkg, 100);
+      recordFailure(pkg, 200);
+      recordFailure(pkg, 300);
+      recordFailure(pkg, 400);
+
+      // Not yet at threshold
+      if (FAILURE_THRESHOLD > 4) {
+        expect(getCircuitState(pkg).openedAt).toBeNull();
+      }
+
+      // Record failures until threshold
+      for (let i = 4; i < FAILURE_THRESHOLD; i++) {
+        recordFailure(pkg, 500 + i * 100);
+      }
+
+      const state = getCircuitState(pkg);
+      expect(state.state).toBe("OPEN");
+      expect(state.openedAt).not.toBeNull();
+    });
+
+    it("full lifecycle: CLOSED → OPEN → HALF_OPEN → CLOSED", () => {
+      const pkg = "pkg-full-lifecycle";
+      const t0 = 1000000;
+
+      // CLOSED
+      expect(getCircuitState(pkg).state).toBe("CLOSED");
+      expect(canRequest(pkg, t0).allowed).toBe(true);
+
+      // Accumulate failures → OPEN (all at same time so openedAt = t0)
+      for (let i = 0; i < FAILURE_THRESHOLD; i++) {
+        recordFailure(pkg, t0);
+      }
+      expect(getCircuitState(pkg).state).toBe("OPEN");
+      expect(canRequest(pkg, t0 + 1000).allowed).toBe(false);
+
+      // Wait for recovery → HALF_OPEN
+      const t1 = t0 + RECOVERY_TIMEOUT_MS;
+      expect(canRequest(pkg, t1).allowed).toBe(true);
+      expect(getCircuitState(pkg).state).toBe("HALF_OPEN");
+
+      // Probe succeeds → CLOSED
+      recordSuccess(pkg);
+      expect(getCircuitState(pkg).state).toBe("CLOSED");
+      expect(getCircuitState(pkg).consecutiveFailures).toBe(0);
+    });
+
+    it("full lifecycle: CLOSED → OPEN → HALF_OPEN → OPEN → HALF_OPEN → CLOSED", () => {
+      const pkg = "pkg-full-lifecycle-2";
+      const t0 = 1000000;
+
+      // CLOSED → OPEN
+      for (let i = 0; i < FAILURE_THRESHOLD; i++) {
+        recordFailure(pkg, t0);
+      }
+      expect(getCircuitState(pkg).state).toBe("OPEN");
+
+      // OPEN → HALF_OPEN
+      const t1 = t0 + RECOVERY_TIMEOUT_MS;
+      canRequest(pkg, t1);
+      expect(getCircuitState(pkg).state).toBe("HALF_OPEN");
+
+      // HALF_OPEN → OPEN (probe fails)
+      recordFailure(pkg, t1 + 1);
+      expect(getCircuitState(pkg).state).toBe("OPEN");
+
+      // OPEN → HALF_OPEN (again after recovery)
+      const t2 = t1 + 1 + RECOVERY_TIMEOUT_MS;
+      canRequest(pkg, t2);
+      expect(getCircuitState(pkg).state).toBe("HALF_OPEN");
+
+      // HALF_OPEN → CLOSED (probe succeeds)
+      recordSuccess(pkg);
+      expect(getCircuitState(pkg).state).toBe("CLOSED");
+    });
+  });
+
+  // ── Configuration constants ────────────────────────────────────────────
+
+  describe("configuration constants", () => {
+    it("FAILURE_THRESHOLD is a positive integer", () => {
+      expect(FAILURE_THRESHOLD).toBeGreaterThan(0);
+      expect(Number.isInteger(FAILURE_THRESHOLD)).toBe(true);
+    });
+
+    it("RECOVERY_TIMEOUT_MS is a positive number", () => {
+      expect(RECOVERY_TIMEOUT_MS).toBeGreaterThan(0);
+    });
   });
 });

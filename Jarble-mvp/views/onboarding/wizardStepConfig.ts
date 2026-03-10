@@ -119,7 +119,7 @@ export const UNIVERSAL_STEPS: WizardStepDef[] = [
 
 const RUNTIME_EXTRA_STEPS: Record<string, WizardStepDef[]> = {
   // OpenClaw — AI multi-platform bot, needs LLM config then deploy
-  // Platform connections happen conversationally after deploy via Tambo chat
+  // Platform connections happen after deploy via the config panel
   openclaw: [
     { id: "llm", title: "LLM Setup", icon: Sparkles },
     { id: "deploy", title: "Deploy", icon: Rocket },

@@ -223,6 +223,12 @@ export const openclawHandler: RuntimeHandler = {
       : JARBLE_UI_PROMPT;
 
     const soulParts: string[] = [];
+
+    // Identity: let the bot know its own name
+    if (deployment.name) {
+      soulParts.push(`# ${deployment.name}\nYou are ${deployment.name}.`);
+    }
+
     if (deployment.systemPrompt) {
       soulParts.push(deployment.systemPrompt);
     }

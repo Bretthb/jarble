@@ -11,6 +11,7 @@ import {
   syncConfigsToPvc,
 } from "../../services/configSync.js";
 import { validatePropsSchema } from "../../utils/schemaValidation.js";
+import { isAdmin } from "../../utils/admin.js";
 import { serviceCardSchema, type ServiceCard } from "../../services/serviceCard.js";
 import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { generateSigningSecret, signRequest } from "../../utils/hmac.js";
@@ -40,16 +41,8 @@ function generateId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }
 
-// MVP admin check: hardcoded admin user IDs. Replace with role-based check later.
-// Must stay in sync with the set in marketplace.ts until a shared admin service is extracted.
-const ADMIN_USER_IDS = new Set<string>([
-  "admin-user-001",
-  // Add additional admin user IDs here, e.g.:
-  // "usr_abc123def456",
-]);
-
 function assertAdmin(userId: string): void {
-  if (!ADMIN_USER_IDS.has(userId)) {
+  if (!isAdmin(userId)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Admin access required",
@@ -269,6 +262,30 @@ export const servicesRouter = router({
       const pkgSkillRows = await ctx.db.query.serviceSkills.findMany({
         where: eq(serviceSkills.packageId, pkg.id),
       });
+
+      // Validate component compatibility with deployment runtime.
+      // Marketplace components rely on the MCP UI server which is only
+      // available on openclaw-based runtimes. Warn for non-openclaw runtimes.
+      if (pkgComps.length > 0 && deployment.runtime !== "openclaw") {
+        logger.warn({
+          deploymentId: input.deploymentId,
+          runtime: deployment.runtime,
+          componentCount: pkgComps.length,
+        }, "Service contains UI components but deployment runtime is not openclaw — components may not render");
+      }
+
+      // Verify all service components are still published
+      for (const pc of pkgComps) {
+        const comp = await ctx.db.query.marketplaceComponents.findFirst({
+          where: eq(marketplaceComponents.id, pc.componentId),
+        });
+        if (!comp || (comp.status !== "published" && comp.status !== "approved")) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Component ${pc.componentId} is no longer available (status: ${comp?.status ?? "missing"})`,
+          });
+        }
+      }
 
       // Create package install record
       const installId = generateId("pki");
@@ -521,6 +538,13 @@ export const servicesRouter = router({
               eq(componentInstalls.componentId, pc.componentId),
               eq(componentInstalls.deploymentId, input.deploymentId),
             ));
+
+          // Decrement totalInstalls (floor at 0)
+          await ctx.db
+            .update(marketplaceComponents)
+            .set({ totalInstalls: sql`MAX(${marketplaceComponents.totalInstalls} - 1, 0)` as any })
+            .where(eq(marketplaceComponents.id, pc.componentId));
+
           removedComponents++;
         }
       }
@@ -612,6 +636,12 @@ export const servicesRouter = router({
           eq(serviceInstalls.packageId, input.serviceId),
           eq(serviceInstalls.deploymentId, input.deploymentId),
         ));
+
+      // Decrement service totalInstalls (floor at 0)
+      await ctx.db
+        .update(marketplaceServices)
+        .set({ totalInstalls: sql`MAX(${marketplaceServices.totalInstalls} - 1, 0)` as any })
+        .where(eq(marketplaceServices.id, input.serviceId));
 
       logger.info({
         packageId: input.serviceId,
@@ -1271,11 +1301,18 @@ export const servicesRouter = router({
       // 4. Generate new signing secret
       const newSecret = generateSigningSecret();
 
-      // 5. Encrypt and update the credentials row with the new secret
+      // 5. Encrypt and update the credentials row with the new secret.
+      //    Store the old secret with a 5-minute grace period so that
+      //    in-flight requests signed with the old secret still succeed.
+      const gracePeriodMs = 5 * 60 * 1000; // 5 minutes
+      const expiresAt = new Date(Date.now() + gracePeriodMs).toISOString();
+
       await ctx.db
         .update(serviceCredentials)
         .set({
           signingSecret: encryptApiKey(newSecret),
+          previousSigningSecret: cred.signingSecret, // already encrypted
+          previousSecretExpiresAt: expiresAt,
           updatedAt: dbDate(),
         } as any)
         .where(eq(serviceCredentials.id, cred.id));

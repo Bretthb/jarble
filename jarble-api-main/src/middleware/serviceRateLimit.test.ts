@@ -250,5 +250,176 @@ describe("serviceRateLimit", () => {
         expect(result.retryAfterSeconds).toBeGreaterThanOrEqual(1);
       }
     });
+
+    it("day retryAfterSeconds is correct", () => {
+      const dayMs = 24 * 60 * 60 * 1000;
+      const limits = { requestsPerDay: 1 };
+      // 1 hour into the day
+      const now = dayMs * 10 + 3600 * 1000;
+
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+
+      expect(result.allowed).toBe(false);
+      if (!result.allowed) {
+        expect(result.retryAfterSeconds).toBeGreaterThan(0);
+        // Should be approximately 23 hours
+        expect(result.retryAfterSeconds).toBeLessThanOrEqual(24 * 3600);
+      }
+    });
+  });
+
+  // ── Edge cases ─────────────────────────────────────────────────────────
+
+  describe("edge cases", () => {
+    it("handles limit of 0 (always blocked)", () => {
+      const limits = { requestsPerMinute: 0 };
+      const now = 60 * 1000 * 10;
+
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+
+      expect(result.allowed).toBe(false);
+      if (!result.allowed) {
+        expect(result.limitType).toBe("minute");
+        expect(result.current).toBe(0);
+        expect(result.limit).toBe(0);
+      }
+    });
+
+    it("handles very large limits", () => {
+      const limits = { requestsPerMinute: 1000000 };
+      const now = 60 * 1000 * 10;
+
+      for (let i = 0; i < 100; i++) {
+        const result = checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+        expect(result.allowed).toBe(true);
+      }
+    });
+
+    it("handles only requestsPerMinute set (requestsPerDay undefined)", () => {
+      const limits = { requestsPerMinute: 2 };
+      const now = 60 * 1000 * 10;
+
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      expect(result.allowed).toBe(false);
+    });
+
+    it("handles only requestsPerDay set (requestsPerMinute undefined)", () => {
+      const limits = { requestsPerDay: 2 };
+      const dayMs = 24 * 60 * 60 * 1000;
+      const now = dayMs * 10;
+
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      expect(result.allowed).toBe(false);
+      if (!result.allowed) {
+        expect(result.limitType).toBe("day");
+      }
+    });
+
+    it("minute window boundary exact alignment", () => {
+      const minuteMs = 60 * 1000;
+      const limits = { requestsPerMinute: 1 };
+
+      // Request at exact window boundary
+      const windowStart = minuteMs * 100;
+      checkServiceRateLimit("dep-1", "pkg-1", limits, windowStart);
+
+      // Request at next window boundary exactly
+      const nextWindow = minuteMs * 101;
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, nextWindow);
+      expect(result.allowed).toBe(true);
+    });
+
+    it("day window boundary exact alignment", () => {
+      const dayMs = 24 * 60 * 60 * 1000;
+      const limits = { requestsPerDay: 1 };
+
+      const dayStart = dayMs * 10;
+      checkServiceRateLimit("dep-1", "pkg-1", limits, dayStart);
+
+      // Next day boundary
+      const nextDay = dayMs * 11;
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, nextDay);
+      expect(result.allowed).toBe(true);
+    });
+
+    it("same callback for minute and day gets same count", () => {
+      const limits = { requestsPerMinute: 5, requestsPerDay: 10 };
+      const now = 60 * 1000 * 100;
+
+      // Make 3 requests
+      for (let i = 0; i < 3; i++) {
+        checkServiceRateLimit("dep-1", "pkg-1", limits, now);
+      }
+
+      const status = getRateLimitStatus("dep-1", "pkg-1");
+      expect(status).not.toBeNull();
+      expect(status!.minuteCount).toBe(3);
+      expect(status!.dayCount).toBe(3);
+    });
+  });
+
+  // ── resetAllServiceRateLimits ──────────────────────────────────────────
+
+  describe("resetAllServiceRateLimits", () => {
+    it("clears all rate limit state across all deployments and services", () => {
+      const now = 60 * 1000 * 10;
+      checkServiceRateLimit("dep-1", "pkg-1", { requestsPerMinute: 10 }, now);
+      checkServiceRateLimit("dep-2", "pkg-1", { requestsPerMinute: 10 }, now);
+      checkServiceRateLimit("dep-1", "pkg-2", { requestsPerMinute: 10 }, now);
+
+      resetAllServiceRateLimits();
+
+      expect(getRateLimitStatus("dep-1", "pkg-1")).toBeNull();
+      expect(getRateLimitStatus("dep-2", "pkg-1")).toBeNull();
+      expect(getRateLimitStatus("dep-1", "pkg-2")).toBeNull();
+    });
+  });
+
+  // ── Multiple request patterns ─────────────────────────────────────────
+
+  describe("complex request patterns", () => {
+    it("minute resets allow more requests within same day", () => {
+      const minuteMs = 60 * 1000;
+      const limits = { requestsPerMinute: 2, requestsPerDay: 100 };
+
+      // Window 1
+      const w1 = minuteMs * 10;
+      checkServiceRateLimit("dep-1", "pkg-1", limits, w1);
+      checkServiceRateLimit("dep-1", "pkg-1", limits, w1);
+      expect(checkServiceRateLimit("dep-1", "pkg-1", limits, w1).allowed).toBe(false);
+
+      // Window 2 — minute resets, day does not
+      const w2 = minuteMs * 11;
+      expect(checkServiceRateLimit("dep-1", "pkg-1", limits, w2).allowed).toBe(true);
+    });
+
+    it("day limit accumulates across minute windows", () => {
+      const minuteMs = 60 * 1000;
+      const limits = { requestsPerMinute: 10, requestsPerDay: 3 };
+
+      const w1 = minuteMs * 10;
+      checkServiceRateLimit("dep-1", "pkg-1", limits, w1);
+
+      const w2 = minuteMs * 11;
+      checkServiceRateLimit("dep-1", "pkg-1", limits, w2);
+
+      const w3 = minuteMs * 12;
+      checkServiceRateLimit("dep-1", "pkg-1", limits, w3);
+
+      // Day limit of 3 reached
+      const w4 = minuteMs * 13;
+      const result = checkServiceRateLimit("dep-1", "pkg-1", limits, w4);
+      expect(result.allowed).toBe(false);
+      if (!result.allowed) {
+        expect(result.limitType).toBe("day");
+      }
+    });
   });
 });

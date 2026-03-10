@@ -22,6 +22,7 @@
  *  13. Return the creator's response
  */
 
+import crypto from "crypto";
 import { Router } from "express";
 import { eq, and, sql } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
@@ -32,13 +33,34 @@ import { serviceCardSchema } from "../services/serviceCard.js";
 import { validateJsonSchema } from "../utils/jsonSchemaValidation.js";
 import { checkServiceRateLimit } from "../middleware/serviceRateLimit.js";
 import { canRequest, recordSuccess, recordFailure } from "../services/circuitBreaker.js";
+import { validateExternalUrl } from "../utils/urlValidation.js";
+import { verifyToken, getUserFromToken } from "../services/auth.js";
 
 import type { JsonSchemaObject } from "../utils/jsonSchemaValidation.js";
 
 const log = createModuleLogger("service-proxy");
 
 const MAX_RESPONSE_BYTES = 1 * 1024 * 1024; // 1 MB
-const REQUEST_TIMEOUT_MS = 30_000; // 30 seconds
+const DEFAULT_TIMEOUT_MS = 30_000; // 30 seconds
+const MAX_TIMEOUT_MS = 120_000; // 120 seconds — absolute cap
+
+/**
+ * Hop-by-hop headers that MUST NOT be forwarded from the upstream response.
+ * See RFC 2616 section 13.5.1 / RFC 7230 section 6.1.
+ */
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  // Also skip headers we set ourselves:
+  "content-length",
+  "content-encoding",
+]);
 
 export const serviceProxyRouter = Router();
 
@@ -47,7 +69,72 @@ serviceProxyRouter.post(
   async (req, res) => {
     const { deploymentId, serviceId, skillName } = req.params;
 
-    log.info({ deploymentId, serviceId, skillName }, "Service proxy: incoming request");
+    // ── Request ID tracing ──────────────────────────────────────────────────
+    // Accept an incoming X-Request-Id or generate one. Forward to the creator
+    // API and include in the response for end-to-end tracing.
+    const requestId =
+      (req.headers["x-request-id"] as string | undefined) ?? crypto.randomUUID();
+
+    log.info({ deploymentId, serviceId, skillName, requestId }, "Service proxy: incoming request");
+
+    // ── 0. Authenticate: Bearer JWT or X-Gateway-Token ──────────────────────
+    // Accepts either:
+    //   - Bearer JWT: user-initiated calls from the frontend (verifies deployment ownership)
+    //   - X-Gateway-Token: pod-to-API calls (validated against the deployment's gateway token)
+    const authHeader = req.headers.authorization;
+    const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const gatewayToken = req.headers["x-gateway-token"] as string | undefined;
+
+    if (bearerToken) {
+      // JWT auth — verify token and check deployment ownership
+      try {
+        const payload = await verifyToken(bearerToken);
+        const user = await getUserFromToken(payload);
+        if (!user) {
+          log.warn({ deploymentId }, "Service proxy: bearer token valid but user not found");
+          res.status(401).json({ error: "Unauthorized" });
+          return;
+        }
+
+        // Verify the user owns this deployment
+        const deployment = await db.query.deployments.findFirst({
+          where: eq(tables.deployments.id, deploymentId),
+        });
+        if (!deployment || deployment.userId !== user.id) {
+          log.warn({ deploymentId, userId: user.id }, "Service proxy: user does not own deployment");
+          res.status(403).json({ error: "Forbidden" });
+          return;
+        }
+      } catch {
+        log.warn({ deploymentId }, "Service proxy: invalid or expired bearer token");
+        res.status(401).json({ error: "Invalid token" });
+        return;
+      }
+    } else if (gatewayToken) {
+      // Gateway token auth — verify against the deployment's stored gateway token
+      // Look up deployment to get its expected gateway token
+      const deployment = await db.query.deployments.findFirst({
+        where: eq(tables.deployments.id, deploymentId),
+      });
+      if (!deployment) {
+        log.warn({ deploymentId }, "Service proxy: deployment not found for gateway token auth");
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      // The gateway token is stored in the deployment record or K8s secret.
+      // Check against the deployment's gatewayToken field.
+      const expectedToken = (deployment as any).gatewayToken;
+      if (!expectedToken || gatewayToken !== expectedToken) {
+        log.warn({ deploymentId }, "Service proxy: invalid gateway token");
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+    } else {
+      log.warn({ deploymentId }, "Service proxy: no authentication provided");
+      res.status(401).json({ error: "Unauthorized — provide Bearer JWT or X-Gateway-Token" });
+      return;
+    }
 
     // ── 1. Look up serviceCredentials ─────────────────────────────────────────
     const creds = await db.query.serviceCredentials.findFirst({
@@ -170,8 +257,19 @@ serviceProxyRouter.post(
 
     // ── 8. Decrypt the signing secret ─────────────────────────────────────────
     let signingSecret: string;
+    let fallbackSigningSecret: string | null = null;
     try {
       signingSecret = decryptApiKey(creds.signingSecret);
+
+      // During the grace period after rotation, also decrypt the previous
+      // secret so we can retry with it if the creator hasn't picked up the
+      // new secret yet.
+      if (creds.previousSigningSecret && creds.previousSecretExpiresAt) {
+        const expiresAt = new Date(creds.previousSecretExpiresAt).getTime();
+        if (Date.now() < expiresAt) {
+          fallbackSigningSecret = decryptApiKey(creds.previousSigningSecret);
+        }
+      }
     } catch (err) {
       log.error({ deploymentId, serviceId, err }, "Service proxy: failed to decrypt signing secret");
       res.status(500).json({ error: "Internal configuration error" });
@@ -179,62 +277,102 @@ serviceProxyRouter.post(
     }
 
     // ── 9. Build the outbound request ─────────────────────────────────────────
+    // Resolve timeout: per-service config (capped at MAX_TIMEOUT_MS), or default
+    const timeoutMs = serviceCard.timeoutMs
+      ? Math.min(serviceCard.timeoutMs, MAX_TIMEOUT_MS)
+      : DEFAULT_TIMEOUT_MS;
+
     const targetUrl = `${serviceCard.endpoint}/skills/${skillName}`;
-    const bodyJson = JSON.stringify(req.body ?? {});
-    const timestamp = Date.now();
 
-    // HMAC signature over: `${timestamp}.${bodyJson}`
-    const signature = signRequest(signingSecret, timestamp, bodyJson);
-
-    const outboundHeaders: Record<string, string> = {
-      "Content-Type": "application/json",
-      "X-Jarble-Signature": signature,
-      "X-Jarble-Timestamp": String(timestamp),
-      "X-Jarble-Deployment-Id": deploymentId,
-    };
-
-    // Add auth headers based on the ServiceCard auth config
-    const auth = serviceCard.auth;
-    if (auth.type === "api_key") {
-      // API key auth: use the signing secret as the key value
-      // The creator generates a separate API key during handshake; for MVP
-      // we use the signing secret as the shared credential.
-      outboundHeaders[auth.headerName] = signingSecret;
-    } else if (auth.type === "bearer") {
-      outboundHeaders[auth.headerName] = `Bearer ${signingSecret}`;
+    // Defense-in-depth: validate the constructed URL even though ServiceCard
+    // schema already validates the endpoint. This catches edge cases where
+    // the endpoint was stored before SSRF validation was added.
+    if (!validateExternalUrl(targetUrl)) {
+      log.warn({ deploymentId, serviceId, skillName, targetUrl }, "Service proxy: SSRF blocked — target URL points to private/internal network");
+      res.status(403).json({ error: "Target URL is blocked for security reasons" });
+      return;
     }
-    // oauth2_client_credentials: token exchange is out of scope for proxy MVP;
-    // the HMAC signature headers are sufficient for creator to authenticate.
+
+    const bodyJson = JSON.stringify(req.body ?? {});
+
+    // Build outbound headers for a given signing secret
+    function buildOutboundHeaders(secret: string): Record<string, string> {
+      const ts = Date.now();
+      const sig = signRequest(secret, ts, bodyJson);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "X-Jarble-Signature": sig,
+        "X-Jarble-Timestamp": String(ts),
+        "X-Jarble-Deployment-Id": deploymentId,
+        "X-Request-Id": requestId,
+      };
+
+      // Add auth headers based on the ServiceCard auth config
+      const auth = serviceCard.auth;
+      if (auth.type === "api_key") {
+        headers[auth.headerName] = secret;
+      } else if (auth.type === "bearer") {
+        headers[auth.headerName] = `Bearer ${secret}`;
+      }
+      return headers;
+    }
+
+    let outboundHeaders = buildOutboundHeaders(signingSecret);
 
     // ── 10. Forward the request to the creator's API ──────────────────────────
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    // Helper: make a single fetch attempt with the configured timeout.
+    async function attemptFetch(): Promise<Response> {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(targetUrl, {
+          method: "POST",
+          headers: outboundHeaders,
+          body: bodyJson,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(tid);
+      }
+    }
 
     let upstreamRes: Response;
     try {
-      upstreamRes = await fetch(targetUrl, {
-        method: "POST",
-        headers: outboundHeaders,
-        body: bodyJson,
-        signal: controller.signal,
-      });
+      upstreamRes = await attemptFetch();
+
+      // ── 10a. Retry with fallback secret on 401 during grace period ────────
+      if (upstreamRes.status === 401 && fallbackSigningSecret) {
+        log.info(
+          { deploymentId, serviceId, skillName, requestId },
+          "Service proxy: 401 from creator — retrying with previous signing secret (grace period)",
+        );
+        outboundHeaders = buildOutboundHeaders(fallbackSigningSecret);
+        upstreamRes = await attemptFetch();
+      }
+
+      // ── 10b. Retry once for transient 502/503 ────────────────────────────
+      if (upstreamRes.status === 502 || upstreamRes.status === 503) {
+        log.info(
+          { deploymentId, serviceId, skillName, requestId, status: upstreamRes.status },
+          "Service proxy: transient error — retrying once after 1s",
+        );
+        await new Promise((r) => setTimeout(r, 1000));
+        upstreamRes = await attemptFetch();
+      }
     } catch (err: unknown) {
-      clearTimeout(timeoutId);
       const e = err instanceof Error ? err : new Error(String(err));
 
       // Record failure for circuit breaker
       recordFailure(serviceId);
 
       if (e.name === "AbortError") {
-        log.warn({ deploymentId, serviceId, skillName, targetUrl }, "Service proxy: upstream request timed out");
-        res.status(504).json({ error: "Upstream API timed out" });
+        log.warn({ deploymentId, serviceId, skillName, requestId, targetUrl }, "Service proxy: upstream request timed out");
+        res.status(504).json({ error: "Upstream API timed out", requestId });
       } else {
-        log.error({ deploymentId, serviceId, skillName, targetUrl, err: e.message }, "Service proxy: upstream fetch failed");
-        res.status(502).json({ error: "Failed to reach creator API" });
+        log.error({ deploymentId, serviceId, skillName, requestId, targetUrl, err: e.message }, "Service proxy: upstream fetch failed");
+        res.status(502).json({ error: "Failed to reach creator API", requestId });
       }
       return;
-    } finally {
-      clearTimeout(timeoutId);
     }
 
     // ── 11. Circuit breaker: record success/failure based on HTTP status ─────
@@ -247,9 +385,22 @@ serviceProxyRouter.post(
     // ── 12. Enforce 1 MB response size limit ────────────────────────────────
     const contentLength = upstreamRes.headers.get("content-length");
     if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BYTES) {
-      log.warn({ deploymentId, serviceId, skillName, contentLength }, "Service proxy: response too large");
-      res.status(502).json({ error: "Creator API response exceeds size limit" });
+      log.warn({ deploymentId, serviceId, skillName, requestId, contentLength }, "Service proxy: response too large");
+      res.status(502).json({ error: "Creator API response exceeds size limit", requestId });
       return;
+    }
+
+    // ── 12a. Validate upstream content-type before parsing ──────────────────
+    const upstreamContentType = upstreamRes.headers.get("content-type") ?? "";
+    const isJsonResponse = upstreamContentType.includes("application/json");
+
+    // If it's a success response but not JSON, the creator returned something
+    // unexpected (e.g., an HTML error page). Warn but still forward the body.
+    if (upstreamRes.status >= 200 && upstreamRes.status < 300 && !isJsonResponse && upstreamContentType) {
+      log.warn(
+        { deploymentId, serviceId, skillName, requestId, contentType: upstreamContentType },
+        "Service proxy: upstream response is not JSON",
+      );
     }
 
     // Read response body with size enforcement
@@ -270,8 +421,8 @@ serviceProxyRouter.post(
             totalBytes += value.byteLength;
             if (totalBytes > MAX_RESPONSE_BYTES) {
               reader.cancel();
-              log.warn({ deploymentId, serviceId, skillName }, "Service proxy: response body exceeded 1MB limit during streaming");
-              res.status(502).json({ error: "Creator API response exceeds size limit" });
+              log.warn({ deploymentId, serviceId, skillName, requestId }, "Service proxy: response body exceeded 1MB limit during streaming");
+              res.status(502).json({ error: "Creator API response exceeds size limit", requestId });
               return;
             }
             chunks.push(value);
@@ -281,39 +432,51 @@ serviceProxyRouter.post(
         responseBody = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString("utf8");
       }
     } catch (err) {
-      log.error({ deploymentId, serviceId, skillName, err }, "Service proxy: failed to read upstream response body");
-      res.status(502).json({ error: "Failed to read creator API response" });
+      log.error({ deploymentId, serviceId, skillName, requestId, err }, "Service proxy: failed to read upstream response body");
+      res.status(502).json({ error: "Failed to read creator API response", requestId });
       return;
     }
 
     // ── 13. Output schema validation (warn-only) ────────────────────────────
-    const responseHeaders: Record<string, string> = {};
-    const upstreamContentType = upstreamRes.headers.get("content-type") ?? "application/json";
+    const responseHeaders: Record<string, string> = {
+      "X-Request-Id": requestId,
+    };
+
+    // Forward safe upstream response headers (exclude hop-by-hop)
+    upstreamRes.headers.forEach((value, key) => {
+      const lower = key.toLowerCase();
+      if (!HOP_BY_HOP_HEADERS.has(lower) && !lower.startsWith("x-jarble-")) {
+        responseHeaders[key] = value;
+      }
+    });
 
     if (skill.outputSchema && upstreamRes.status >= 200 && upstreamRes.status < 300) {
-      try {
-        const parsedResponse = JSON.parse(responseBody);
-        const outputValidation = validateJsonSchema(
-          parsedResponse,
-          skill.outputSchema as JsonSchemaObject,
-        );
-        if (!outputValidation.valid) {
-          log.warn(
-            {
-              deploymentId,
-              serviceId,
-              skillName,
-              errors: outputValidation.errors,
-            },
-            "Service proxy: output schema validation mismatch (non-blocking)",
+      if (!isJsonResponse) {
+        // Cannot validate non-JSON response against schema
+        responseHeaders["X-Jarble-Schema-Warning"] = "response is not JSON — cannot validate";
+      } else {
+        try {
+          const parsedResponse = JSON.parse(responseBody);
+          const outputValidation = validateJsonSchema(
+            parsedResponse,
+            skill.outputSchema as JsonSchemaObject,
           );
-          responseHeaders["X-Jarble-Schema-Warning"] = "output schema mismatch";
-        }
-      } catch {
-        // Response body is not JSON — can't validate, just warn
-        if (upstreamContentType.includes("application/json")) {
+          if (!outputValidation.valid) {
+            log.warn(
+              {
+                deploymentId,
+                serviceId,
+                skillName,
+                requestId,
+                errors: outputValidation.errors,
+              },
+              "Service proxy: output schema validation mismatch (non-blocking)",
+            );
+            responseHeaders["X-Jarble-Schema-Warning"] = "output schema mismatch";
+          }
+        } catch {
           log.warn(
-            { deploymentId, serviceId, skillName },
+            { deploymentId, serviceId, skillName, requestId },
             "Service proxy: response claims JSON content-type but body is not valid JSON",
           );
           responseHeaders["X-Jarble-Schema-Warning"] = "response is not valid JSON";
@@ -327,6 +490,7 @@ serviceProxyRouter.post(
         deploymentId,
         serviceId,
         skillName,
+        requestId,
         status: upstreamRes.status,
         responseBytes: responseBody.length,
       },
@@ -335,7 +499,7 @@ serviceProxyRouter.post(
 
     res
       .status(upstreamRes.status)
-      .set("Content-Type", upstreamContentType)
+      .set("Content-Type", upstreamContentType || "application/octet-stream")
       .set(responseHeaders)
       .send(responseBody);
 

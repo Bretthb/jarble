@@ -205,7 +205,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   // SSE headers
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
+    "Cache-Control": "no-cache, no-store, no-transform",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
   });
@@ -280,10 +280,61 @@ tamboAgentRouter.post("/", async (req, res) => {
     llmModel: deployment.llmModel,
   });
 
-  // Handle client disconnect
+  // Handle client disconnect and resource cleanup
   const abortController = new AbortController();
+
+  // Keep-alive ping every 25s to prevent proxy/load-balancer timeouts
+  const keepAliveInterval = setInterval(() => {
+    if (!res.writableEnded) {
+      res.write(": keepalive\n\n");
+    }
+  }, 25_000);
+
+  // Master timeout: 5 minutes — prevents indefinitely hanging connections
+  // if the gateway WebSocket or exec hangs without triggering its own timeout.
+  const MASTER_TIMEOUT_MS = 5 * 60 * 1000;
+  const masterTimeout = setTimeout(() => {
+    if (res.writableEnded) return;
+    log.warn({ deploymentId, threadId }, "Chat SSE master timeout (5 min) — closing connection");
+    sendEvent(res, {
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId,
+      delta: "\n\nSorry, the request timed out. The bot may be processing a complex task — please try again.",
+    });
+    sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+    sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+    res.end();
+    abortController.abort();
+  }, MASTER_TIMEOUT_MS);
+
+  /** Clear all timers and abort. Called on disconnect or successful completion. */
+  const cleanupTimers = () => {
+    clearInterval(keepAliveInterval);
+    clearTimeout(masterTimeout);
+  };
+
+  // Wrap res.end to always clean up timers
+  const originalEnd = res.end.bind(res);
+  res.end = ((...args: any[]) => {
+    cleanupTimers();
+    return originalEnd(...args);
+  }) as typeof res.end;
+
   req.on("close", () => {
     log.debug({ deploymentId, threadId }, "Chat client disconnected");
+    cleanupTimers();
+    abortController.abort();
+  });
+
+  req.on("error", (err: Error) => {
+    log.warn({ err, deploymentId, threadId }, "Chat SSE request error");
+    cleanupTimers();
+    abortController.abort();
+  });
+
+  res.on("error", (err: Error) => {
+    log.warn({ err, deploymentId, threadId }, "Chat SSE response error");
+    cleanupTimers();
     abortController.abort();
   });
 
