@@ -1,4 +1,13 @@
 {
+  "mcpServers": {
+    "codegraphcontext": {
+      "command": "bash",
+      "args": ["scripts/cgc-mcp.sh"],
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      }
+    }
+  },
   "hooks": {
     "SessionStart": [
       {

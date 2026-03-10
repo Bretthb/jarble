@@ -1,0 +1,39 @@
+# CodeGraphContext ignore file
+# Patterns here are in addition to the built-in ignores (node_modules, .git, etc.)
+
+# Build artifacts
+.next/
+dist/
+build/
+*.tsbuildinfo
+
+# Test fixtures & snapshots
+test-results/
+playwright-report/
+e2e/.auth/
+**/__snapshots__/
+
+# Generated / vendored
+*.min.js
+*.bundle.js
+*.chunk.js
+
+# Infrastructure (not TypeScript source)
+infrastructure/
+runtimes/
+
+# Documentation & logs
+*.md
+*.log
+Work-Sessions/
+research/
+
+# Environment & secrets
+.env*
+*.pem
+*.key
+
+# Large data files
+*.db
+*.sqlite
+local.db
