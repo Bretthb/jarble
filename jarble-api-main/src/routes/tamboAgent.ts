@@ -15,7 +15,7 @@
 import { Router } from "express";
 import { timingSafeEqual } from "crypto";
 import { nanoid } from "nanoid";
-import { eq, desc, sql, and } from "drizzle-orm";
+import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { db, tables, dbDate } from "../db/index.js";
 import { env } from "../utils/env.js";
 import { logger } from "../utils/logger.js";
@@ -147,20 +147,33 @@ tamboAgentRouter.get("/sessions/:deploymentId", async (req, res) => {
         title: tables.chatSessions.title,
         createdAt: tables.chatSessions.createdAt,
         updatedAt: tables.chatSessions.updatedAt,
-        messageCount: sql<number>`(
-          SELECT COUNT(*) FROM ${tables.chatMessages}
-          WHERE ${tables.chatMessages.sessionId} = ${tables.chatSessions.id}
-        )`.as("message_count"),
       })
       .from(tables.chatSessions)
       .where(eq(tables.chatSessions.deploymentId, deploymentId))
       .orderBy(desc(tables.chatSessions.updatedAt));
 
+    const sessionIds = rows.map((r) => r.sessionId);
+    const counts =
+      sessionIds.length > 0
+        ? await db
+            .select({
+              sessionId: tables.chatMessages.sessionId,
+              count: sql<number>`count(*)`.as("cnt"),
+            })
+            .from(tables.chatMessages)
+            .where(inArray(tables.chatMessages.sessionId, sessionIds))
+            .groupBy(tables.chatMessages.sessionId)
+        : [];
+
+    const countMap = new Map(
+      counts.map((c) => [c.sessionId, Number(c.count) || 0])
+    );
+
     const sessions = rows.map((r) => ({
       sessionId: r.sessionId,
       title: r.title,
       createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
-      messageCount: Number(r.messageCount) || 0,
+      messageCount: countMap.get(r.sessionId) ?? 0,
     }));
 
     res.json({ sessions });
