@@ -1,7 +1,7 @@
 # Jarble API Endpoints Reference
 
-> Complete reference for every API endpoint in the Jarble platform. Covers all 67 tRPC procedures and 19 REST endpoints.
-> Last updated: February 28, 2026 (Session 16)
+> Complete reference for every API endpoint in the Jarble platform. Covers all 75 tRPC procedures and 21 REST endpoints.
+> Last updated: March 9, 2026 (Session 18)
 
 ---
 
@@ -567,7 +567,9 @@ sequenceDiagram
 | POST | `/api/stripe/webhook` | Stripe signature (`stripe-signature` header) | Exempt | Handles 4 event types: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. **Idempotent** — deduplicates via `processedWebhookEvents` table |
 | POST | `/api/auth0/email-verified` | M2M Bearer secret (`AUTH0_M2M_SECRET`) | Exempt | Auth0 Post Login Action webhook. Updates `emailVerified` flag in DB |
 | POST | `/api/config-changed` | deploymentId in body | Global | Called by pod file-watcher when PVC config files change. Triggers reverse sync (PVC → DB) |
-| POST | `/api/tambo-agent` | JWT Bearer | 120 req/min | Chat endpoint. Streams bot response as SSE with text deltas and `jarble_ui` UI block events. Proxies to pod via OpenClaw gateway |
+| POST | `/api/tambo-agent` | JWT Bearer | 120 req/min | Chat endpoint. Streams bot response as SSE with text deltas and `jarble_ui` UI block events. Proxies to pod via OpenClaw gateway. Persists messages to `chat_sessions` / `chat_messages` DB tables (fire-and-forget). Returns `sessionId` in `RUN_FINISHED` event |
+| GET | `/api/tambo-agent/sessions/:deploymentId` | JWT Bearer | 120 req/min | List chat sessions for a deployment. Returns `sessions[]` with `sessionId`, `title`, `createdAt`, and real `messageCount` (SQL correlated subquery from `chat_messages`) |
+| GET | `/api/tambo-agent/sessions/:deploymentId/:sessionId` | JWT Bearer | 120 req/min | Load all messages for a specific session. Returns `messages[]` with `id`, `role`, `content`, optional `thinkingText`, and `createdAt` |
 
 ---
 
@@ -687,11 +689,11 @@ sequenceDiagram
 | tRPC Mutations | 36 | protected | 120 req/min | No |
 | REST Webhooks | 3 | signature/M2M/deploymentId | global/exempt | No |
 | REST Payment | 2 | JWT Bearer | 10 req/min | No |
-| REST Chat | 1 | JWT Bearer | 120 req/min | Yes |
+| REST Chat | 3 | JWT Bearer | 120 req/min | Chat POST is SSE; GET history endpoints are JSON |
 | SSE Streams | 3 | JWT (header or query) | 120 req/min | Yes |
 | MCP Endpoints | 5 | JWT Bearer | global | Mixed |
 | Health/Debug | 5 | none | exempt | No |
-| **Total** | **86** | -- | -- | -- |
+| **Total** | **88** | -- | -- | -- |
 
 ### Quick Reference by Router
 
@@ -707,8 +709,8 @@ sequenceDiagram
 | `skills` | 2 | 2 | 4 |
 | `marketplace` | 11 | 11 | 22 |
 | **tRPC Total** | **36** | **39** | **75** |
-| REST endpoints | -- | -- | **11** |
-| **Grand Total** | -- | -- | **86** |
+| REST endpoints (incl. 2 new chat history GET) | -- | -- | **13** |
+| **Grand Total** | -- | -- | **88** |
 
 ### Key Files
 
@@ -716,7 +718,7 @@ sequenceDiagram
 |---|---|
 | `jarble-api-main/src/index.ts` | Express server — mounts all route modules |
 | `jarble-api-main/src/routes/sse.ts` | SSE streams: status, logs, whatsapp/qr |
-| `jarble-api-main/src/routes/tamboAgent.ts` | POST /api/tambo-agent chat SSE endpoint |
+| `jarble-api-main/src/routes/tamboAgent.ts` | POST /api/tambo-agent chat SSE endpoint + GET /api/tambo-agent/sessions/* chat history endpoints |
 | `jarble-api-main/src/routes/canvasFiles.ts` | POST /api/deployments/:id/mcp/invoke proxy |
 | `jarble-api-main/src/routes/mcp.ts` | MCP Streamable HTTP (POST/GET/DELETE) |
 | `jarble-api-main/src/routes/diagnose.ts` | GET /api/deployments/:id/diagnose |

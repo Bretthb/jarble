@@ -253,10 +253,11 @@ trpc.marketplace.install        → Install a component on a deployment
 trpc.skills.listCatalog         → List available skills
 ```
 
-**2. REST Endpoints** (11 total)
+**2. REST Endpoints** (13 total)
 Plain HTTP routes for things that can't use tRPC:
 - **Webhooks** (Stripe, Auth0, config-changed) — external services POST to us
 - **SSE Streams** (logs, status, WhatsApp QR, chat) — long-lived connections that push data
+- **Chat history** (`GET /api/tambo-agent/sessions/*`) — session list and message loader
 - **MCP endpoints** (Streamable HTTP + proxy) — for external MCP clients
 - **Diagnostic endpoint** — structured health checks for a deployment
 - **Health check** — for Kubernetes to know we're alive
@@ -335,6 +336,7 @@ graph TD
     ROUTER -->|"template.*"| TMPL["template.ts<br/>1 procedure"]
     ROUTER -->|"skills.*"| SKILLS["skills.ts<br/>4 procedures"]
     ROUTER -->|"marketplace.*"| MKT["marketplace.ts<br/>22 procedures"]
+    ROUTER -->|"GET /api/tambo-agent/sessions/*"| CHATREST["tamboAgent.ts<br/>2 REST GET endpoints (chat history)"]
 
     DEPLOY --> DB[("Database")]
     DEPLOY --> K8S["K8s Cluster"]
@@ -458,7 +460,9 @@ graph TB
 ```
 What: A chunk of disk space that survives pod restarts
 Why: Bot data (configs, databases, logs) must persist
-Size: 20-100 GB (user configurable)
+Size: 5 GB default (the storageMb column name is misleading — units are GB).
+     Typical bot uses 500 MB–1 GB, so 5 GB gives ~4x headroom.
+Storage class: longhorn-1r (1 replica — trades redundancy for 3x more density)
 Analogy: A storage locker at the apartment complex. Even if the tenant
          moves to a different apartment, their stuff stays in the locker.
 ```
@@ -657,17 +661,22 @@ Where:
   p = max persistent storage per deployment
 ```
 
-| Resource | cpx21 has | Per deployment (default) | Per deployment (min) |
-|----------|-----------|------------------------|---------------------|
-| CPU | 3 vCPU | 2 vCPU | 1 vCPU |
-| RAM | 4 GB | 2 GB | 256 MB |
-| Storage (PVC) | Block storage | 30 GB | 20 GB |
-| Max deployments | — | ~1 per node | ~3 per node |
+| Resource | cpx21 has | Pod request (default) | Typical deployment |
+|----------|-----------|----------------------|-------------------|
+| CPU | 3 vCPU | 100m (0.1 vCPU) | 100m request, configurable limit |
+| RAM | 4 GB | 256 MB | 256 MB request, configurable limit |
+| Storage (PVC) | Block storage | **5 GB** (default `storageMb=5`) | 500 MB–1 GB actual usage |
+| Max deployments | — | ~15 per node (memory-limited) | ~30 per node (CPU-limited) |
 
-With default specs (2 vCPU, 2GB RAM), only **~1 deployment fits per cpx21 node**. With minimum specs, up to **~3 deployments** fit (CPU-limited). The user can allocate up to **100 GB storage per deployment**, so the block storage volume must be sized accordingly:
+With the new 5 GB default PVC and `longhorn-1r` storage class (1 replica), cluster density improved dramatically:
 
-- 1 deployment x 100 GB = **100 GB block storage**
-- 3 deployments x 100 GB = **300 GB block storage**
+- Memory-limited: ~15 deployments per cpx21 (4 GB / 256 MB request)
+- CPU-limited: ~30 deployments per cpx21 (3 vCPU / 100m request)
+- Storage-limited: ~56 deployments per cpx21 with 300 GB block storage (300 GB / 5 GB)
+
+Block storage per node: with 15 deployments × 5 GB = **75 GB** (vs 15 × 30 GB = 450 GB before).
+
+> **Why `longhorn-1r`?** The `longhorn-1r` storage class uses 1 Longhorn replica instead of 3, tripling the usable block storage capacity at the cost of no redundancy. Acceptable for ephemeral bot data that can be reproduced.
 
 Hetzner Block Storage volumes are provisioned by Terraform (`hcloud_volume`, default 100 GB per node) and mounted at `/var/lib/longhorn` on each worker node. Longhorn automatically uses this path — no config changes needed. Hetzner supports up to **10 TB** per block storage volume.
 
@@ -1842,6 +1851,23 @@ erDiagram
         string componentId FK
         int rating
     }
+
+    chatSessions {
+        string id PK
+        string deploymentId FK
+        string title "auto-titled from first user message"
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    chatMessages {
+        string id PK
+        string sessionId FK
+        string role "user or assistant"
+        text content "cleaned text"
+        text thinkingText "optional"
+        timestamp createdAt
+    }
 ```
 
 ### The ORM (Drizzle)
@@ -1974,6 +2000,7 @@ The API starts with an **in-memory SQLite database** pre-seeded with test data. 
 | LLM key validation | Yes (bypass) | Keys prefixed with `dev-` are accepted without calling provider APIs |
 | Marketplace browsing | Yes | Reads from SQLite marketplace tables (empty on fresh start) |
 | Canvas chat (/d/[id]) | Partial | Needs a running pod for actual chat. UI renders without it |
+| Chat session history | Yes | Stored in SQLite `chat_sessions` / `chat_messages` tables. Sidebar shows past sessions with real message counts |
 | Sentry / PostHog | No | Omit `NEXT_PUBLIC_SENTRY_DSN` and `NEXT_PUBLIC_POSTHOG_KEY` to disable |
 | Manifest CI check | Yes | Run `npm run check:manifest` from `jarble-api-main/` |
 
@@ -2203,6 +2230,7 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **@jarble/component-manifest** | Shared package (`shared/component-manifest/`) — single source of truth for all canvas component definitions, schemas, and derive functions |
 | **BYOK** | "Bring Your Own Key" — user provides their own LLM API key |
 | **Canvas** | The grid area in `/d/[id]` where bot-rendered UI components appear |
+| **chat_sessions / chat_messages** | DB tables storing conversation history. Sessions auto-titled from first user message; messages cleaned of canvas state and `jarble_ui` fences. Fetched via REST (`GET /api/tambo-agent/sessions/*`) |
 | **Credit Pool** | Shared LLM budget across multiple bots (owner/linked model) |
 | **Deployment** | One user's bot instance (database record + K8s resources) |
 | **DB_PROVIDER** | Env var to select database backend: `sqlite`, `mysql`, `postgres` |
@@ -2214,6 +2242,7 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **JWT** | JSON Web Token — a signed auth token from Auth0 |
 | **K3s** | Lightweight Kubernetes (same API, smaller footprint) |
 | **K8s** | Kubernetes — container orchestration platform |
+| **longhorn-1r** | K8s StorageClass with 1 Longhorn replica (default for all bot PVCs). Triples usable capacity vs the 3-replica default — acceptable for ephemeral bot data |
 | **Longhorn** | Distributed storage system for Kubernetes |
 | **Marketplace** | Platform feature where creators can publish and share canvas components. Two tiers: Template (safe JSON) and Sandbox (HTML/JS, admin-reviewed) |
 | **MarketplaceSandbox** | Double-iframe renderer for sandbox-tier components. Outer iframe is sandboxed; inner iframe runs user code |

@@ -270,6 +270,17 @@ export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   session: one(chatSessions, { fields: [chatMessages.sessionId], references: [chatSessions.id] }),
 }));
 
+// ── Beta Signups ──────────────────────────────────────────────────────────
+
+export const betaSignups = pgTable("beta_signups", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  experience: varchar("experience", { length: 50 }),
+  useCase: text("use_case"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => ({
   deployments: many(deployments),
 }));

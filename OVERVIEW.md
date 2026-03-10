@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: March 8, 2026 (Session 17 — Prompt Architecture Split, K8s Metrics, Resource Dashboard, Deployment Testing Framework)
+📅 Last updated: March 9, 2026 (Session 18 — Chat History in Database, PVC Size Reduction, Real Message Counts)
 
 </aside>
 
@@ -293,6 +293,8 @@ graph TB
 | POST | /api/auth0/email-verified | M2M | Auth0 email verification sync |
 | POST | /api/config-changed | deploymentId | PVC file-watcher config sync webhook |
 | POST | /api/tambo-agent | JWT | Chat SSE stream (bot text + UI blocks) |
+| GET | /api/tambo-agent/sessions/:deploymentId | JWT | List chat sessions for a deployment (with real message counts) |
+| GET | /api/tambo-agent/sessions/:deploymentId/:sessionId | JWT | Load messages for a specific chat session |
 | GET | /api/deployments/status/stream | JWT | SSE stream of deployment status changes |
 | GET | /api/deployments/:id/logs/stream | JWT | SSE stream of K8s container logs |
 | GET | /api/deployments/:id/whatsapp/qr | JWT | SSE stream of WhatsApp QR pairing |
@@ -455,6 +457,23 @@ erDiagram
         timestamp createdAt
     }
 
+    chatSessions {
+        varchar id PK
+        varchar deploymentId FK
+        varchar title
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    chatMessages {
+        varchar id PK
+        varchar sessionId FK
+        varchar role "user or assistant"
+        text content "cleaned text (canvas state + jarble_ui fences stripped)"
+        text thinkingText "optional extended thinking output"
+        timestamp createdAt
+    }
+
     users ||--o{ deployments : "has many"
     users ||--o| creatorProfiles : "has one"
     users ||--o{ componentInstalls : "has many"
@@ -463,12 +482,14 @@ erDiagram
     runtimeCatalog ||--o{ deployments : "used by"
     deployments ||--o{ platformCredentials : "has many"
     deployments ||--o{ deploymentSkills : "has many"
+    deployments ||--o{ chatSessions : "has many"
     skillsCatalog ||--o{ deploymentSkills : "used by"
     creatorProfiles ||--o{ marketplaceComponents : "publishes"
     marketplaceComponents ||--o{ componentVersions : "has many"
     marketplaceComponents ||--o{ componentInstalls : "installed via"
     marketplaceComponents ||--o{ componentPurchases : "purchased via"
     marketplaceComponents ||--o{ componentReviews : "reviewed via"
+    chatSessions ||--o{ chatMessages : "has many"
 ```
 
 ---
@@ -619,22 +640,25 @@ Where:
 
 | Factor | Value | Notes |
 |--------|-------|-------|
-| Max storage per deployment (p) | 100 GB | User-configurable: 20-100 GB |
+| Default PVC per deployment | 5 GB | `storageMb` default = 5 (unit is GB despite name). Typical bot uses 500MB–1GB |
+| Storage class | `longhorn-1r` | 1 Longhorn replica (not 3) — 3x more capacity per node |
 | Hetzner Block Storage max | 10 TB | Per VPS |
 | cpx21 local disk | 80 GB | OS + K3s + images only — NOT for PVCs |
 | cpx21 CPU | 3 vCPU | |
 | cpx21 RAM | 4 GB | |
-| Default deployment resources | 2 vCPU, 2 GB RAM, 30 GB | Only ~1 fits per cpx21 |
-| Free tier resources | 1 vCPU, 2 GB RAM, 20 GB | Up to ~3 per cpx21 |
-| Min deployment resources | 1 vCPU, 256 MB RAM, 20 GB | Up to ~3 per cpx21 (CPU-limited) |
+| Pod CPU request | 100m (0.1 vCPU) | Limit is configurable |
+| Pod memory request | 256 Mi | Limit is configurable |
+| Max deployments by memory | ~15 per cpx21 | 4 GB / 256 MB |
+| Max deployments by CPU | ~30 per cpx21 | 3 vCPU / 100m (practical ceiling ~75 if 40m real usage) |
+| Max deployments by storage | ~56 per cpx21 | 300 GB block volume / 5 GB PVC |
 
-**Example scenarios:**
+**Example scenarios (5Gi default PVCs):**
 
-| Node Type | Deployments (d) | Max Storage Each (p) | Block Storage Needed |
-|-----------|----------------|---------------------|---------------------|
-| cpx21 (default specs) | 1 | 100 GB | 100 GB |
-| cpx21 (free tier) | 3 | 20 GB | 60 GB |
-| cpx21 (min specs) | 3 | 100 GB | 300 GB |
+| Node Type | Limiting Factor | Max Deployments | Block Storage Needed |
+|-----------|----------------|-----------------|---------------------|
+| cpx21 + 300 GB block | Memory (256 Mi request) | ~15 | 75 GB (5 GB × 15) |
+| cpx21 + 300 GB block | CPU (100m request) | ~30 | 150 GB (5 GB × 30) |
+| cpx21 + 300 GB block | Storage (5 Gi PVC) | ~56 | 280 GB |
 
 Hetzner Block Storage volumes are provisioned via Terraform (`hcloud_volume`), attached to each worker node, and mounted at `/var/lib/longhorn` before K3s starts. Longhorn automatically uses this path as its data directory — no Longhorn config changes needed.
 
@@ -941,7 +965,8 @@ flowchart TD
 - [x]  **HTML sanitization** — `lib/sanitize.ts` via DOMPurify for XSS prevention
 - [x]  **ResourceMetrics component** — `ResourceMetrics.tsx` shows CPU usage bar, memory usage bar, uptime, restart count, and node name (color-coded: green/amber/red based on percent utilization). Displayed on deployment cards when metrics data is present in the SSE stream
 - [x]  **`useStatusStream` — metrics fields** — Hook extended to surface `nodeName`, `cpuUsageMillicores`, `cpuLimitMillicores`, `memoryUsageMb`, `memoryLimitMb`, `uptimeSeconds`, `restarts` per deployment
-- [x]  **Chat session history sidebar** — `ChatSessionSidebar.tsx` collapsible sidebar on `/d/[id]`; sessions grouped by date (Today / Yesterday / Last 7 days / Older). Toggle in page header; returns `null` when closed. `useChatSessions.ts` fetches history from OpenClaw pod storage
+- [x]  **Chat session history sidebar** — `ChatSessionSidebar.tsx` collapsible sidebar on `/d/[id]`; sessions grouped by date (Today / Yesterday / Last 7 days / Older). Toggle in page header; returns `null` when closed. `useChatSessions.ts` fetches history from the `chat_sessions` / `chat_messages` DB tables via REST
+- [x]  **Chat history — real message counts** — Session list shows actual message counts from SQL correlated subquery; typewriter animation skipped for loaded history messages (`speed=0`); `adaptedMessages` memoized in `page.tsx` with stable timestamps from API
 
 ## Backend ✅
 
@@ -998,6 +1023,8 @@ flowchart TD
 - [x]  **SSE status stream — metrics fields** — Status stream events now include `nodeName`, `cpuUsageMillicores`, `cpuLimitMillicores`, `memoryUsageMb`, `memoryLimitMb`, `uptimeSeconds`, `restarts` when deployment is running
 - [x]  **Prompt architecture split** — `PLATFORM_GUARDRAILS` (security, real data policy, memory tools) written to `soul.md` for ALL platforms. `JARBLE_UI_PROMPT` (canvas rendering, components, layout) injected at request time by `tamboAgent.ts` — never written to pods. `MESSAGING_ONLY_PROMPT` condensed variant ready for future messaging-only deployments
 - [x]  **`chatViaHttp` system message injection** — `openclawGateway.ts:chatViaHttp()` accepts optional `systemMessage` parameter, prepended as a `system` role message to the request's messages array
+- [x]  **Chat history in database** — `chat_sessions` + `chat_messages` tables store conversation history. Messages are cleaned before storage (canvas state stripped, `jarble_ui` fences removed). Sessions auto-titled from first user message. REST endpoints at `GET /api/tambo-agent/sessions/:deploymentId` and `GET /api/tambo-agent/sessions/:deploymentId/:sessionId`
+- [x]  **Default PVC reduced to 5Gi** — Default persistent storage per deployment reduced from 30 GB to 5 GB (actual unit is GB despite the `storageMb` column name). Storage class changed to `longhorn-1r` (1 replica instead of 3), increasing cluster deployment density significantly
 
 ## Infrastructure ✅
 
@@ -1061,6 +1088,8 @@ flowchart TD
 9. ~~Prompt architecture split~~ — ✅ Done (Session 17). `PLATFORM_GUARDRAILS` → soul.md (all platforms), `JARBLE_UI_PROMPT` → injected at request time (web only). `MESSAGING_ONLY_PROMPT` ready for future messaging-only mode
 10. ~~K8s resource metrics~~ — ✅ Done (Session 17). `k8s/metrics.ts` + `ResourceMetrics.tsx` + metrics fields in SSE status stream
 11. ~~Deployment testing framework~~ — ✅ Done (Session 17). `scripts/deployment-testing/` with 4 automated test agents
+12. ~~Chat history in database~~ — ✅ Done (Session 18). `chat_sessions` + `chat_messages` tables; sessions auto-titled, messages cleaned of canvas state/UI fences; REST endpoints return real message counts via SQL subquery
+13. ~~Default PVC reduced to 5Gi~~ — ✅ Done (Session 18). Default storage 30 GB → 5 GB; storage class `longhorn-1r` (1 replica); increases cluster density from ~9 to ~30+ deployments per node (memory-limited)
 
 ## 🟢 Nice-to-Have (Future)
 
@@ -1340,7 +1369,7 @@ monorepo/
 ---
 
 <aside>
-📚 This document provides a complete snapshot of the Jarble platform as of March 8, 2026 (Session 17). Use the roadmap section to prioritize next steps.
+📚 This document provides a complete snapshot of the Jarble platform as of March 9, 2026 (Session 18). Use the roadmap section to prioritize next steps.
 
 </aside>
 
@@ -1412,6 +1441,8 @@ flowchart TB
         CHAT_SSE["✅ Chat SSE (tambo-agent)"]
         LIBURL_VAL["✅ Server-side Library URL Validation"]
         STATUS_RECON["✅ Status Reconciler"]
+        CHAT_HIST["✅ Chat History in DB (sessions + messages)"]
+        PVC_REDUCE["✅ Default PVC 5Gi + longhorn-1r"]
     end
 
     subgraph DONE_INFRA["✅ DONE — Infrastructure"]

@@ -272,6 +272,17 @@ export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   session: one(chatSessions, { fields: [chatMessages.sessionId], references: [chatSessions.id] }),
 }));
 
+// ── Beta Signups ──────────────────────────────────────────────────────────
+
+export const betaSignups = sqliteTable("beta_signups", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  experience: text("experience"),
+  useCase: text("use_case"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+});
+
 export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => ({
   deployments: many(deployments),
 }));

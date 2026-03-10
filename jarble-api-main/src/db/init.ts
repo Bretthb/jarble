@@ -232,6 +232,15 @@ const CREATE_TABLES_SQL = `
     thinking_text TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS beta_signups (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    experience TEXT,
+    use_case TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
 `;
 
 export async function initDatabase() {

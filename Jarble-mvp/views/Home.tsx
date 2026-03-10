@@ -69,10 +69,24 @@ export default function Home() {
         </div>
       </nav>
 
+      {/* Beta Banner */}
+      <div className="fixed inset-x-0 top-[64px] z-40 bg-primary/10 border-b border-primary/20 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-center gap-3 text-sm">
+          <span className="font-medium">Beta Testing opens March 29th</span>
+          <Link
+            href="/beta"
+            className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+          >
+            Apply Now
+            <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+      </div>
+
       {/* Hero + Integrations share one background for seamless blend */}
       <div className="relative pt-16">
         {/* Hero Section */}
-        <section className="relative z-10 pt-32 pb-20 lg:pt-48 lg:pb-32 px-4 scroll-mt-20">
+        <section className="relative z-10 pt-40 pb-20 lg:pt-56 lg:pb-32 px-4 scroll-mt-20">
           <div className="max-w-6xl mx-auto relative lg:grid lg:grid-cols-[1fr_1fr] lg:gap-4 lg:items-start lg:pt-8">
             {/* Mobile: static image - positioned behind hero text */}
             <div className="absolute inset-0 flex items-start justify-end -top-6 -right-16 sm:hidden pointer-events-none animate-fade-in-scale">

@@ -73,7 +73,7 @@ cd Jarble-mvp && npm run dev
 - **Container Image**: `ghcr.io/jarble-ai/openclaw:latest` (Node.js 22, OpenClaw runtime)
 
 ### tRPC Router Structure
-The API exposes 8 routers with 67+ procedures at `/trpc`:
+The API exposes 8 routers with 75 procedures at `/trpc`, plus 2 REST chat history endpoints (`GET /api/tambo-agent/sessions/*`) mounted in `tamboAgent.ts`:
 - `user` - Profile management, auth state
 - `deployment` - CRUD, lifecycle (start/stop/restart), K8s operations
 - `runtimeCatalog` - Available bot runtimes
@@ -104,6 +104,8 @@ Core tables in `jarble-api-main/src/db/schema.ts` (SQLite variant in `schema.sql
 - `componentPurchases` - Purchase records
 - `componentReviews` - Ratings and reviews
 - `marketplaceCreators` - Creator profiles
+- `chat_sessions` - Chat conversation sessions per deployment (auto-titled from first user message, tracks `createdAt`/`updatedAt`)
+- `chat_messages` - Individual messages per session (role: user/assistant, cleaned content, optional `thinkingText`)
 
 SQLite dev DB is file-based at `jarble-api-main/local.db` (persists across tsx watch restarts). Seed data (test user, runtime catalog, skills) created on startup via `db/init.ts`.
 
@@ -132,7 +134,7 @@ The monolithic `k8s/deployment.ts` was refactored into focused modules:
 Each deployment creates 4 K8s resources in namespace `jarble`:
 - **Deployment**: `dep-{deploymentId}` — 1 replica, container `runtime`, port 18789
 - **Secret**: `secret-{deploymentId}` — LLM keys, platform tokens, deployment metadata
-- **PVC**: `pvc-{deploymentId}` — Longhorn, 20Gi RWO, mounted at `/data`
+- **PVC**: `pvc-{deploymentId}` — Longhorn (`longhorn-1r` storage class, 1 replica), **5Gi** RWO default, mounted at `/data`
 - **Service**: ClusterIP for inter-pod communication
 
 ### PVC Directory Structure (`/data/`)
@@ -243,7 +245,7 @@ SSE event types: `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT` (delta), `TEXT_MES
 The `uiBlockParser.ts` uses a brace-depth JSON parser (not regex) for reliable incremental block extraction during SSE streaming.
 
 ### Chat Session Sidebar
-`components/chat/ChatSessionSidebar.tsx` renders a collapsible sidebar listing past chat sessions grouped by date (Today / Yesterday / Last 7 days / Older). The sidebar toggle is in the chat page header. When `isOpen` is false the component returns `null` — no collapsed icon is shown. Sessions are loaded via `hooks/useChatSessions.ts` which reads conversation history from the OpenClaw pod storage.
+`components/chat/ChatSessionSidebar.tsx` renders a collapsible sidebar listing past chat sessions grouped by date (Today / Yesterday / Last 7 days / Older). The sidebar toggle is in the chat page header. When `isOpen` is false the component returns `null` — no collapsed icon is shown. Sessions are loaded via `hooks/useChatSessions.ts` which fetches conversation history from the database via `GET /api/tambo-agent/sessions/:deploymentId`. Chat history is stored in the `chat_sessions` and `chat_messages` DB tables (not pod storage).
 
 ### Canvas Grid System (`SimpleCanvasGrid.tsx`)
 UI components render in a **simple responsive CSS grid** (not react-grid-layout):
@@ -424,7 +426,7 @@ Available when running locally:
 | `components/marketplace/` | Marketplace UI components (6 files) |
 | `components/ResourceMetrics.tsx` | CPU/memory progress bars, uptime, restart count for dashboard cards |
 | `components/chat/ChatSessionSidebar.tsx` | Collapsible sidebar with chat history grouped by date |
-| `hooks/useChatSessions.ts` | Fetches conversation history from pod storage |
+| `hooks/useChatSessions.ts` | Fetches conversation history from DB via REST (`GET /api/tambo-agent/sessions/*`) |
 
 ## Component Manifest (`shared/component-manifest/`)
 
