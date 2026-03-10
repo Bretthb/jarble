@@ -273,7 +273,7 @@ async function seedDatabase() {
       dockerImage: "ghcr.io/jarble-ai/openclaw:latest",
       cpuLimit: "2.0",
       memoryMb: 2048,
-      storageMb: 30,
+      storageMb: 5,
       monthlyPriceCents: 0,
     },
     {
@@ -284,7 +284,7 @@ async function seedDatabase() {
       dockerImage: "ghcr.io/jarble-ai/zeroclaw:latest",
       cpuLimit: "2.0",
       memoryMb: 2048,
-      storageMb: 30,
+      storageMb: 5,
       monthlyPriceCents: 0,
     },
   ];

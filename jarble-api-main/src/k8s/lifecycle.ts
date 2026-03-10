@@ -19,7 +19,7 @@ export async function createDeployment(
   // Derive resource values from config (with sensible defaults)
   const cpuLimit = config.cpuLimit || "2.0";
   const memoryMb = config.memoryMb || 3072;
-  const storageGbVal = config.storageMb || 30; // "storageMb" is actually GB (historical naming)
+  const storageGbVal = config.storageMb || 5; // "storageMb" is actually GB (historical naming)
 
   // Convert to K8s resource units
   // CPU: "2.0" → "2000m" (millicores). Request = limit (guaranteed QoS).
@@ -41,7 +41,7 @@ export async function createDeployment(
     metadata: { name: `pvc-${deploymentId}` },
     spec: {
       accessModes: ["ReadWriteOnce"],
-      storageClassName: process.env.K8S_STORAGE_CLASS || "longhorn",
+      storageClassName: process.env.K8S_STORAGE_CLASS || "longhorn-1r",
       resources: { requests: { storage: storageGi } },
     },
   });
