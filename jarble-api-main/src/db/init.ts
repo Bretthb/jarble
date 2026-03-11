@@ -29,6 +29,7 @@ const CREATE_TABLES_SQL = `
     name TEXT,
     auth0_id TEXT NOT NULL UNIQUE,
     email_verified INTEGER DEFAULT 0 NOT NULL,
+    role TEXT DEFAULT 'user' NOT NULL,
     stripe_customer_id TEXT,
     pending_stripe_subscription_id TEXT,
     pending_stripe_tier TEXT,
@@ -233,6 +234,17 @@ const CREATE_TABLES_SQL = `
     created_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    action TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
+    metadata TEXT,
+    ip_address TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS beta_signups (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -310,6 +322,7 @@ async function seedDatabase() {
     name: "Test User",
     auth0Id: "auth0|test123",
     emailVerified: true,
+    role: "super_admin",
     stripeCustomerId: "cus_test123",
     freeDeploymentUsed: true,
   });

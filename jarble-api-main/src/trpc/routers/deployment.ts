@@ -20,6 +20,7 @@ import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrou
 import { syncConfigsToPvc } from "../../services/configSync.js";
 import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
 import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
+import { isAdmin } from "../../utils/rbac.js";
 
 const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills } = tables;
 
@@ -59,6 +60,13 @@ async function checkFreeDeployment(db: DbClient, userId: string) {
     freeExpired,
     freeExpiresAt,
   };
+}
+
+function deploymentWhere(deploymentId: string, userId: string, user: { role?: string }) {
+  if (isAdmin(user)) {
+    return eq(deployments.id, deploymentId);
+  }
+  return and(eq(deployments.id, deploymentId), eq(deployments.userId, userId));
 }
 
 export const deploymentRouter = router({
@@ -106,10 +114,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       return ctx.db.query.deployments.findFirst({
-        where: and(
-          eq(deployments.id, input.id),
-          eq(deployments.userId, ctx.user.id)
-        ),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
         with: { runtimeCatalogEntry: true },
       });
     }),
@@ -118,9 +123,9 @@ export const deploymentRouter = router({
   getComponentCatalog: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Verify ownership
+      // Verify ownership (admins bypass)
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
@@ -164,7 +169,7 @@ export const deploymentRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
@@ -200,7 +205,7 @@ export const deploymentRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
@@ -500,11 +505,11 @@ export const deploymentRouter = router({
       // This prevents race conditions from rapid button clicks causing double-deploys
       const validStartStates = ["pending", "stopped", "failed"];
 
+      const baseWhere = deploymentWhere(deploymentId, ctx.user.id, ctx.user);
       const result = await ctx.db.update(deployments)
         .set({ status: "creating", error: null })
         .where(and(
-          eq(deployments.id, deploymentId),
-          eq(deployments.userId, ctx.user.id),
+          baseWhere,
           or(
             eq(deployments.status, "pending"),
             eq(deployments.status, "stopped"),
@@ -518,7 +523,7 @@ export const deploymentRouter = router({
       if (rowsAffected === 0) {
         // Either deployment doesn't exist, user doesn't own it, or it's already deploying
         const deployment = await ctx.db.query.deployments.findFirst({
-          where: and(eq(deployments.id, deploymentId), eq(deployments.userId, ctx.user.id)),
+          where: deploymentWhere(deploymentId, ctx.user.id, ctx.user),
         });
 
         if (!deployment) {
@@ -628,7 +633,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
       if (!deployment) {
         return { status: "not_found" };
@@ -641,9 +646,9 @@ export const deploymentRouter = router({
   getStorageUsage: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Verify ownership
+      // Verify ownership (admins bypass)
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
       if (!deployment) {
         return null;
@@ -701,7 +706,7 @@ export const deploymentRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
@@ -740,7 +745,7 @@ export const deploymentRouter = router({
 
       // Fetch the existing deployment to detect mode switches
       const existing = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(id, ctx.user.id, ctx.user),
       });
 
       if (!existing) {
@@ -848,7 +853,7 @@ export const deploymentRouter = router({
 
       await ctx.db.update(deployments)
         .set(updates)
-        .where(and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)));
+        .where(deploymentWhere(id, ctx.user.id, ctx.user));
 
       // Config sync: push updated configs to PVC if deployment is running
       if (existing.status === "running") {
@@ -866,7 +871,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
 
       if (!deployment) {
@@ -916,7 +921,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
 
       if (!deployment) {
@@ -992,7 +997,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
 
       if (!deployment) {
@@ -1064,7 +1069,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
 
       if (!deployment) {
@@ -1113,7 +1118,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
 
       if (!deployment) {
@@ -1155,7 +1160,7 @@ export const deploymentRouter = router({
     .input(z.object({ deploymentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.deploymentId, ctx.user.id, ctx.user),
       });
 
       if (!deployment) {
@@ -1237,7 +1242,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
 
       if (!deployment) {
@@ -1273,7 +1278,7 @@ export const deploymentRouter = router({
 
       // Fetch deployment first to get the OpenRouter key hash (for revocation)
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
       });
 
       if (!deployment) {
@@ -1349,7 +1354,7 @@ export const deploymentRouter = router({
       logger.debug({ deploymentId: input.id, rows: getRowsAffected(skillsResult) }, "delete: deployment_skills removed");
 
       await ctx.db.delete(deployments)
-        .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
+        .where(deploymentWhere(input.id, ctx.user.id, ctx.user));
       logger.debug({ deploymentId: input.id }, "delete: deployments row removed");
 
       // Note: We do NOT reset freeDeploymentUsed — the free trial is one-time only

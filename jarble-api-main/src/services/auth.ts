@@ -54,6 +54,10 @@ export async function verifyToken(token: string): Promise<TokenPayload> {
   if (result[`${CLAIMS_NAMESPACE}/email_verified`] !== undefined) {
     result.email_verified = result[`${CLAIMS_NAMESPACE}/email_verified`] as boolean;
   }
+  // Extract role claim (informational only — DB is authoritative, not the JWT)
+  if (result[`${CLAIMS_NAMESPACE}/role`]) {
+    result.role = result[`${CLAIMS_NAMESPACE}/role`] as string;
+  }
 
   return result;
 }

@@ -12,6 +12,7 @@ export const users = pgTable("users", {
   name: varchar("name", { length: 255 }),
   auth0Id: varchar("auth0_id", { length: 255 }).notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
+  role: varchar("role", { length: 20 }).notNull().default("user"),
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
   pendingStripeSubscriptionId: varchar("pending_stripe_subscription_id", { length: 255 }),
   freeDeploymentUsed: boolean("free_deployment_used").notNull().default(false),
@@ -268,6 +269,23 @@ export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => 
 
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   session: one(chatSessions, { fields: [chatMessages.sessionId], references: [chatSessions.id] }),
+}));
+
+// ── Audit Logs ──────────────────────────────────────────────────────────
+
+export const auditLogs = pgTable("audit_logs", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  action: varchar("action", { length: 100 }).notNull(),
+  targetType: varchar("target_type", { length: 50 }),
+  targetId: varchar("target_id", { length: 255 }),
+  metadata: text("metadata"),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
+  user: one(users, { fields: [auditLogs.userId], references: [users.id] }),
 }));
 
 // ── Beta Signups ──────────────────────────────────────────────────────────

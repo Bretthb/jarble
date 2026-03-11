@@ -36,14 +36,10 @@ function generateId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }
 
-// MVP admin check: hardcoded admin user IDs. Replace with role-based check later.
-const ADMIN_USER_IDS = new Set<string>([
-  // Add admin user IDs here, e.g.:
-  // "usr_abc123def456",
-]);
+import { isAdmin } from "../../utils/rbac.js";
 
-function assertAdmin(userId: string) {
-  if (!ADMIN_USER_IDS.has(userId)) {
+function assertAdmin(user: { role?: string }) {
+  if (!isAdmin(user)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Admin access required",
@@ -1144,7 +1140,7 @@ export const marketplaceRouter = router({
   // ==========================================
 
   getReviewQueue: protectedProcedure.query(async ({ ctx }) => {
-    assertAdmin(ctx.user.id);
+    assertAdmin(ctx.user);
 
     const allComponents = await ctx.db.query.marketplaceComponents.findMany();
     return allComponents
@@ -1170,7 +1166,7 @@ export const marketplaceRouter = router({
       notes: z.string().max(2000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      assertAdmin(ctx.user.id);
+      assertAdmin(ctx.user);
 
       const component = await ctx.db.query.marketplaceComponents.findFirst({
         where: eq(marketplaceComponents.id, input.componentId),
@@ -1210,7 +1206,7 @@ export const marketplaceRouter = router({
       notes: z.string().min(1).max(2000),
     }))
     .mutation(async ({ ctx, input }) => {
-      assertAdmin(ctx.user.id);
+      assertAdmin(ctx.user);
 
       const component = await ctx.db.query.marketplaceComponents.findFirst({
         where: eq(marketplaceComponents.id, input.componentId),

@@ -14,6 +14,7 @@ export const users = sqliteTable("users", {
   name: text("name"),
   auth0Id: text("auth0_id").notNull().unique(),
   emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
+  role: text("role").notNull().default("user"),
   stripeCustomerId: text("stripe_customer_id"),
   pendingStripeSubscriptionId: text("pending_stripe_subscription_id"),
   freeDeploymentUsed: integer("free_deployment_used", { mode: "boolean" }).notNull().default(false),
@@ -270,6 +271,23 @@ export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => 
 
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   session: one(chatSessions, { fields: [chatMessages.sessionId], references: [chatSessions.id] }),
+}));
+
+// ── Audit Logs ──────────────────────────────────────────────────────────
+
+export const auditLogs = sqliteTable("audit_logs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  action: text("action").notNull(),
+  targetType: text("target_type"),
+  targetId: text("target_id"),
+  metadata: text("metadata"),
+  ipAddress: text("ip_address"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+});
+
+export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
+  user: one(users, { fields: [auditLogs.userId], references: [users.id] }),
 }));
 
 // ── Beta Signups ──────────────────────────────────────────────────────────

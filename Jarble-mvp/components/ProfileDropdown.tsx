@@ -24,12 +24,15 @@ import {
   BarChart3,
   CreditCard,
   Store,
+  Shield,
 } from "lucide-react";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 
 export default function ProfileDropdown() {
   const { user, logout } = useAuth0();
   const router = useRouter();
   const { theme, toggleTheme, switchable } = useTheme();
+  const { isAdmin } = useIsAdmin();
 
   const initials = user?.name
     ? user.name
@@ -78,6 +81,12 @@ export default function ProfileDropdown() {
             <Store className="w-4 h-4" />
             Marketplace
           </DropdownMenuItem> */}
+          {isAdmin && (
+            <DropdownMenuItem onClick={() => router.push("/admin")}>
+              <Shield className="w-4 h-4" />
+              Admin Dashboard
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={() => router.push("/analytics")}>
             <BarChart3 className="w-4 h-4" />
             Usage Analytics
