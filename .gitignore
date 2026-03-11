@@ -69,6 +69,13 @@ Thumbs.db
 .windsurf/
 .zencoder/
 
+# CodeGraphContext — graph DB is regenerated via `cgc index .`
+.codegraphcontext/
+*.cgc-bundle
+
+# Playwright MCP logs
+.playwright-mcp/
+
 # Claude Code — ignore session data, keep agents, settings, and memory
 .claude/*
 !.claude/agents/

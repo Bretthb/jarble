@@ -39,11 +39,16 @@ echo "Starting Neo4j container..."
 cd "$SCRIPT_DIR"
 docker compose up -d
 
-# 4. Wait for Neo4j to be ready
+# 4. Wait for Neo4j Bolt port to be ready (not just process running)
 echo "Waiting for Neo4j to accept connections..."
-for i in $(seq 1 30); do
-  if docker exec jarble-codegraph neo4j status 2>/dev/null | grep -q "running"; then
+for i in $(seq 1 60); do
+  if docker logs jarble-codegraph --tail 5 2>&1 | grep -q "Started\."; then
+    echo "Neo4j is ready."
     break
+  fi
+  if [ "$i" -eq 60 ]; then
+    echo "WARNING: Neo4j did not start within 120s. Check: docker logs jarble-codegraph"
+    exit 1
   fi
   sleep 2
 done

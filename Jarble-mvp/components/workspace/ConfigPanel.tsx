@@ -3,13 +3,13 @@
 /**
  * ConfigPanel -- slide-out left sidebar for deployment configuration.
  *
- * Direct tRPC-based config panel (no Tambo dependency).
- * Provides quick actions for common configuration tasks.
+ * Tabbed panel with Config (lifecycle buttons + info) and Terminal (xterm.js shell).
  */
 
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, lazy, Suspense } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   X,
   Loader2,
@@ -22,18 +22,29 @@ import {
   Square,
   Play,
   MessageSquare,
+  TerminalSquare,
+  Settings2,
 } from "lucide-react";
+
+const TerminalPanel = lazy(() => import("./TerminalPanel"));
 
 // ── ConfigPanel (outer shell) ───────────────────────────────────────────────
 
 interface ConfigPanelProps {
   deploymentId: string;
+  liveStatus: string;
   onClose: () => void;
 }
 
-function ConfigPanelInner({ deploymentId, onClose }: ConfigPanelProps) {
+function ConfigPanelInner({ deploymentId, liveStatus, onClose }: ConfigPanelProps) {
+  const [activeTab, setActiveTab] = useState("config");
+  const isRunning = liveStatus === "running";
+
   return (
-    <div className="h-full w-[360px] shrink-0 border-r border-border/60 bg-background flex flex-col relative">
+    <div
+      className="h-full shrink-0 border-r border-border/60 bg-background flex flex-col relative transition-[width] duration-200 overflow-hidden"
+      style={{ width: activeTab === "terminal" ? 640 : 360 }}
+    >
       {/* Left accent line */}
       <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-gradient-to-b from-primary/40 via-primary/20 to-transparent" />
 
@@ -43,7 +54,7 @@ function ConfigPanelInner({ deploymentId, onClose }: ConfigPanelProps) {
           <Sparkles className="w-4 h-4 text-primary/70" />
           <div>
             <span className="text-sm font-semibold text-foreground">Configuration</span>
-            <p className="text-[10px] text-muted-foreground leading-tight">Quick actions</p>
+            <p className="text-[10px] text-muted-foreground leading-tight">Quick actions & OpenClaw CLI</p>
           </div>
         </div>
         <Button
@@ -57,8 +68,44 @@ function ConfigPanelInner({ deploymentId, onClose }: ConfigPanelProps) {
         </Button>
       </div>
 
-      {/* Config actions */}
-      <ConfigActions deploymentId={deploymentId} />
+      {/* Tabbed content */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+        <div className="px-4 pt-2">
+          <TabsList className="w-full">
+            <TabsTrigger value="config" className="flex-1 gap-1.5">
+              <Settings2 className="w-3.5 h-3.5" />
+              Config
+            </TabsTrigger>
+            <TabsTrigger
+              value="terminal"
+              className="flex-1 gap-1.5"
+              disabled={!isRunning}
+              title={!isRunning ? "OpenClaw CLI requires a running deployment" : undefined}
+            >
+              <TerminalSquare className="w-3.5 h-3.5" />
+              OpenClaw CLI
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="config" className="flex-1 overflow-y-auto">
+          <ConfigActions deploymentId={deploymentId} />
+        </TabsContent>
+
+        <TabsContent value="terminal" className="flex-1 min-h-0 overflow-hidden">
+          {isRunning && activeTab === "terminal" && (
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center h-full">
+                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                </div>
+              }
+            >
+              <TerminalPanel deploymentId={deploymentId} />
+            </Suspense>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

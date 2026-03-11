@@ -71,6 +71,16 @@ for pkg_dir in "Jarble-mvp" "jarble-api-main"; do
   fi
 done
 
+# --- CodeGraphContext (optional) ---
+echo ""
+echo "Setting up CodeGraphContext (graph DB for code analysis)..."
+if command -v docker &>/dev/null; then
+  bash "$REPO_ROOT/scripts/codegraph/setup.sh" || echo "  ⚠ CodeGraphContext setup failed (non-blocking)"
+else
+  echo "  Docker not found — skipping CodeGraphContext. Install Docker and run:"
+  echo "    bash scripts/codegraph/setup.sh"
+fi
+
 # --- Summary ---
 echo ""
 echo "=== Setup Complete ==="

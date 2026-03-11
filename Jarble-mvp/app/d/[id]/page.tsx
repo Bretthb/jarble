@@ -267,6 +267,7 @@ function WorkspacePage({
         {configOpen && (
           <ConfigPanel
             deploymentId={deploymentId}
+            liveStatus={liveStatus}
             onClose={() => setConfigOpen(false)}
           />
         )}
