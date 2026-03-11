@@ -76,7 +76,7 @@ export async function getUserFromToken(payload: TokenPayload) {
     if (payload.email && payload.email !== user.email) {
       updates.email = payload.email;
     }
-    if (payload.name && payload.name !== user.name) {
+    if (payload.name && !user.name) {
       updates.name = payload.name;
     }
     if (emailVerified && !user.emailVerified) {
