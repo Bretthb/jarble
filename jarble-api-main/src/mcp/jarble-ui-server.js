@@ -2161,6 +2161,77 @@ Example:
 "When users ask about the current time or need timestamps, make an HTTP GET request to {endpoint}/time. The response is JSON: {iso, unix, utc, timezone, hostname}. Present the time clearly."
 `
   },
+  "data-formatting": {
+    description: "Data format cheat sheet — recharts data, data_table rows, map center, form options, timeline events, stat_grid stats, layout hints",
+    content: `## Data Formatting Cheat Sheet
+
+### Chart Data (recharts format)
+\\\`\\\`\\\`json
+{"type": "bar", "title": "Revenue by Quarter", "data": [{"quarter": "Q1", "revenue": 250000, "target": 200000}, {"quarter": "Q2", "revenue": 310000, "target": 280000}], "dataKeys": ["revenue", "target"], "xAxisKey": "quarter", "showLegend": true, "showGrid": true}
+\\\`\\\`\\\`
+- \`data\`: array of flat objects — every object has the SAME keys
+- \`dataKeys\`: numeric fields to plot (NOT the label field)
+- \`xAxisKey\`: the category/label field (string values)
+- Chart types: \`bar\`, \`line\`, \`pie\`, \`area\` ONLY
+- For multi-series: add multiple entries to \`dataKeys\`
+- For stacked: add \`"stacked": true\`
+- **NEVER** use Chart.js format (\`labels\` + \`datasets\`)
+
+### data_table Rows (2D arrays, not objects)
+\\\`\\\`\\\`json
+{"title": "Top Customers", "columns": ["Customer", "Revenue", "Growth"], "rows": [["Acme Corp", "$420K", "+15%"], ["Globex Inc", "$380K", "+8%"]]}
+\\\`\\\`\\\`
+- \`rows\`: array of arrays — each inner array matches column order
+- **NEVER** use objects: \`[{"Customer": "Acme"}]\` is WRONG
+
+### metric_card
+\\\`\\\`\\\`json
+{"label": "Monthly Revenue", "value": "$1.2M", "change": "+15%", "changeLabel": "vs last month", "sparkline": [800, 920, 1050, 1100, 1150, 1200]}
+\\\`\\\`\\\`
+- Use \`label\` (NOT \`name\` or \`title\`)
+- \`value\` is a string (pre-formatted)
+- \`change\` includes sign: "+15%" or "-3%"
+
+### stat_grid (5+ metrics)
+\\\`\\\`\\\`json
+{"stats": [{"label": "Revenue", "value": "$1.2M", "change": "+15%"}, {"label": "Users", "value": "12,847", "change": "+23%"}]}
+\\\`\\\`\\\`
+- Use \`stats\` array (NOT \`items\` or \`data\`)
+- Each stat uses \`label\` (NOT \`name\`)
+
+### timeline
+\\\`\\\`\\\`json
+{"title": "Project Timeline", "events": [{"label": "Planning", "description": "Requirements gathered", "timestamp": "Jan 2024", "status": "completed"}, {"label": "Development", "timestamp": "Mar 2024", "status": "active"}]}
+\\\`\\\`\\\`
+- Use \`events\` array (NOT \`items\` or \`data\`)
+- Status values: \`completed\`, \`active\`, \`pending\`
+
+### map
+\\\`\\\`\\\`json
+{"center": [48.8566, 2.3522], "zoom": 12, "markers": [{"lat": 48.8566, "lng": 2.3522, "label": "Paris"}]}
+\\\`\\\`\\\`
+- \`center\` is a \`[lat, lng]\` tuple (NOT an object)
+
+### form
+\\\`\\\`\\\`json
+{"title": "Contact", "fields": [{"name": "role", "label": "Role", "type": "select", "options": ["Engineer", "Designer", "Manager"]}], "submitLabel": "Send"}
+\\\`\\\`\\\`
+- Select options: flat strings (NOT \`{label, value}\` objects)
+- Use \`submitLabel\` (NOT \`submitText\`)
+
+### alert
+\\\`\\\`\\\`json
+{"title": "Deploy Complete", "message": "v2.3.1 is live", "variant": "success"}
+\\\`\\\`\\\`
+- Use \`message\` (NOT \`description\`)
+- Variants: \`info\`, \`success\`, \`warning\`, \`destructive\` (NOT \`error\` or \`danger\`)
+
+### Layout Hints (REQUIRED on every component)
+- \`"full-width"\`: headers, wide tables, sandboxes, maps
+- \`"half"\`: charts, timelines, tabs, accordions
+- \`"third"\`: metric_cards, badges, alerts, progress bars
+- \`"compact"\`: dividers, avatars`
+  },
 };
 
 // ── Dynamic skill loading from API ────────────────────────────────────────────
@@ -2293,6 +2364,18 @@ const COMPONENT_REFERENCE = {
   video: "`{url, title?, controls?: true, loop?: false, muted?: false}` — video/livestream player. Supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct MP4/HLS URLs. Use for livestreams (e.g. YouTube Live, Twitch channels). Just pass the URL.",
 };
 
+// Copy-paste examples for the most error-prone components
+const COMPONENT_EXAMPLES = {
+  chart: '```jarble_ui\n{"component": "chart", "props": {"type": "bar", "title": "Revenue by Region", "data": [{"region": "NA", "revenue": 4200000}, {"region": "EU", "revenue": 3100000}], "dataKeys": ["revenue"], "xAxisKey": "region", "showLegend": true, "showGrid": true}, "layout_hint": "half"}\n```',
+  data_table: '```jarble_ui\n{"component": "data_table", "props": {"title": "Top Customers", "columns": ["Customer", "Revenue", "Growth"], "rows": [["Acme Corp", "$420K", "+15%"], ["Globex", "$380K", "+8%"]]}, "layout_hint": "full-width"}\n```',
+  metric_card: '```jarble_ui\n{"component": "metric_card", "props": {"label": "Monthly Revenue", "value": "$1.2M", "change": "+15%", "sparkline": [800, 920, 1050, 1200]}, "layout_hint": "third"}\n```',
+  stat_grid: '```jarble_ui\n{"component": "stat_grid", "props": {"stats": [{"label": "Revenue", "value": "$1.2M", "change": "+15%"}, {"label": "Users", "value": "12,847", "change": "+23%"}]}, "layout_hint": "full-width"}\n```',
+  timeline: '```jarble_ui\n{"component": "timeline", "props": {"title": "Project Timeline", "events": [{"label": "Planning", "timestamp": "Jan 2024", "status": "completed"}, {"label": "Dev", "timestamp": "Mar 2024", "status": "active"}]}, "layout_hint": "half"}\n```',
+  map: '```jarble_ui\n{"component": "map", "props": {"center": [48.8566, 2.3522], "zoom": 12, "markers": [{"lat": 48.8566, "lng": 2.3522, "label": "Paris"}]}, "layout_hint": "full-width"}\n```',
+  form: '```jarble_ui\n{"component": "form", "props": {"title": "Contact", "fields": [{"name": "email", "label": "Email", "type": "email", "required": true}, {"name": "role", "label": "Role", "type": "select", "options": ["Engineer", "Designer"]}], "submitLabel": "Send"}, "layout_hint": "half"}\n```',
+  alert: '```jarble_ui\n{"component": "alert", "props": {"title": "Deploy Complete", "message": "v2.3.1 is live", "variant": "success"}, "layout_hint": "third"}\n```',
+};
+
 function executeComponentReference(args) {
   const name = args?.component;
 
@@ -2306,6 +2389,12 @@ function executeComponentReference(args) {
         lines.push("```json");
         lines.push(JSON.stringify(BUILTIN_SCHEMAS[name], null, 2));
         lines.push("```");
+      }
+      // Add copy-paste example if available
+      if (COMPONENT_EXAMPLES[name]) {
+        lines.push("");
+        lines.push("**Copy-paste example:**");
+        lines.push(COMPONENT_EXAMPLES[name]);
       }
       return { isError: false, text: lines.join("\n") };
     }

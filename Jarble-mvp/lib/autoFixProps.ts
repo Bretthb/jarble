@@ -394,6 +394,12 @@ function applyMissingDefaults(
     }
   }
 
+  // Rule 35: chart-default-type — default to "bar" when chart type is missing
+  if (component === "chart" && props.type === undefined) {
+    props.type = "bar";
+    recordRepair(repairs, "chart-default-type", "props.type", undefined, "bar");
+  }
+
   // Rule 10: badge-default-variant
   if (component === "badge" && props.variant === undefined) {
     props.variant = "default";
@@ -899,6 +905,13 @@ const FIELD_ALIAS_RULES: FieldAliasRule[] = [
   { components: ["steps"], from: "steps", to: "items", rule: "field-steps-to-items" },
   { components: ["carousel"], from: "slides", to: "items", rule: "field-slides-to-items" },
   { components: ["carousel"], from: "cards", to: "items", rule: "field-cards-to-items" },
+  // Rule 32: timeline items→events — LLMs use "items" instead of "events"
+  { components: ["timeline"], from: "items", to: "events", rule: "field-items-to-events" },
+  // Rule 33: stat_grid items→stats — LLMs use "items" or "metrics" instead of "stats"
+  { components: ["stat_grid"], from: "items", to: "stats", rule: "field-items-to-stats" },
+  { components: ["stat_grid"], from: "metrics", to: "stats", rule: "field-metrics-to-stats" },
+  // Rule 34: carousel images→items — LLMs use "images" instead of "items"
+  { components: ["carousel"], from: "images", to: "items", rule: "field-images-to-items" },
   // Rule 27: text_message field aliases — LLMs use many names for botText
   { components: ["text_message"], from: "message", to: "botText", rule: "field-message-to-botText" },
   { components: ["text_message"], from: "text", to: "botText", rule: "field-text-to-botText" },
