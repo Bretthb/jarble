@@ -151,6 +151,8 @@ export type { ComponentManifestEntry, LayoutHintType, ComponentCategory, Loading
 export { TRUSTED_CDN_ORIGINS, TRUSTED_EMBED_ORIGINS } from "./security.js";
 export { SANDBOX_SDK_VERSION } from "./components/sandbox.js";
 export { BOT_SKILLS } from "./skills/index.js";
+export { THEME_PRESETS, THEME_PRESET_NAMES, THEME_COLOR_KEYS, resolveThemeVars, validateThemeConfig } from "./themes.js";
+export type { ThemeConfig, ThemeColorKey } from "./themes.js";
 
 // Re-export individual schemas for direct imports
 export {

@@ -51,6 +51,7 @@ export const deployments = sqliteTable("deployments", {
   error: text("error"),
   messagingOnly: integer("messaging_only", { mode: "boolean" }).notNull().default(false),
   managedBy: text("managed_by").notNull().default("legacy"),  // "legacy" | "operator"
+  themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 });

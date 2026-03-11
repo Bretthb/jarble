@@ -48,6 +48,7 @@ export const deployments = pgTable("deployments", {
   status: varchar("status", { length: 50 }).notNull().default("creating"),
   error: text("error"),
   messagingOnly: boolean("messaging_only").notNull().default(false),
+  themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

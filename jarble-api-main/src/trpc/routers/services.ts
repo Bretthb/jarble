@@ -1202,6 +1202,166 @@ export const servicesRouter = router({
       };
     }),
 
+  // ── Hosted Services Dashboard ─────────────────────────────────────────────
+
+  /** List all services hosted by a specific deployment (creatorDeploymentId match) */
+  listHostedByDeployment: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Verify user owns the deployment
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Find services linked to this deployment
+      const services = await ctx.db.query.marketplaceServices.findMany({
+        where: eq(marketplaceServices.creatorDeploymentId, input.deploymentId),
+      });
+
+      if (services.length === 0) return [];
+
+      // For each service, get install count + monthly request count
+      const results = await Promise.all(
+        services.map(async (svc) => {
+          // Count installs
+          const installs = await ctx.db.query.serviceInstalls.findMany({
+            where: eq(serviceInstalls.packageId, svc.id),
+          });
+
+          // Sum request counts for current month
+          const now = new Date();
+          const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+          let monthlyRequests = 0;
+          const usage = await (ctx.db.query as any).serviceUsage?.findMany?.({
+            where: eq(serviceUsage.packageId, svc.id),
+          }) ?? [];
+          for (const u of usage as any[]) {
+            if (u.billingCycleStart === currentMonth) {
+              monthlyRequests += u.requestCount || 0;
+            }
+          }
+
+          return {
+            id: svc.id,
+            name: svc.name,
+            displayName: svc.displayName,
+            status: svc.status,
+            hostingModel: svc.hostingModel,
+            remoteHealth: svc.remoteHealth,
+            remoteLastCheck: svc.remoteLastCheck,
+            totalInstalls: installs.length,
+            monthlyRequests,
+            pricingModel: svc.pricingModel,
+            priceUsdCents: svc.priceUsdCents,
+          };
+        }),
+      );
+
+      return results;
+    }),
+
+  /** Detailed stats for a single hosted service (installs, usage by month, per-skill breakdown) */
+  hostedServiceStats: protectedProcedure
+    .input(z.object({ serviceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Get the service
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
+      });
+      if (!pkg) throw new TRPCError({ code: "NOT_FOUND", message: "Service not found" });
+
+      // Verify ownership via creatorDeploymentId → deployment → user
+      if (pkg.creatorDeploymentId) {
+        const deployment = await ctx.db.query.deployments.findFirst({
+          where: and(
+            eq(deployments.id, pkg.creatorDeploymentId),
+            eq(deployments.userId, ctx.user.id),
+          ),
+        });
+        if (!deployment) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Not the service host" });
+        }
+      } else {
+        // Fallback: check creator profile
+        const creator = await ctx.db.query.creatorProfiles.findFirst({
+          where: eq(creatorProfiles.userId, ctx.user.id),
+        });
+        if (!creator || creator.id !== pkg.creatorId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Not the service creator" });
+        }
+      }
+
+      // Get installs with deployment names
+      const installRows = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.packageId, input.serviceId),
+      });
+
+      const installs = await Promise.all(
+        installRows.slice(0, 50).map(async (i) => {
+          const dep = await ctx.db.query.deployments.findFirst({
+            where: eq(deployments.id, i.deploymentId),
+          });
+          return {
+            id: i.id,
+            deploymentId: i.deploymentId,
+            deploymentName: dep?.name ?? "Unknown",
+            installedAt: i.installedAt,
+          };
+        }),
+      );
+
+      // Get usage data (last 6 months)
+      const usage = await (ctx.db.query as any).serviceUsage?.findMany?.({
+        where: eq(serviceUsage.packageId, input.serviceId),
+      }) ?? [];
+
+      // Aggregate by month
+      const byMonth: Record<string, number> = {};
+      const bySkill: Record<string, number> = {};
+      const now = new Date();
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+      for (const u of usage as any[]) {
+        byMonth[u.billingCycleStart] = (byMonth[u.billingCycleStart] || 0) + (u.requestCount || 0);
+        if (u.billingCycleStart === currentMonth) {
+          bySkill[u.skillName] = (bySkill[u.skillName] || 0) + (u.requestCount || 0);
+        }
+      }
+
+      // Sort months and take last 6
+      const monthlyUsage = Object.entries(byMonth)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .slice(-6)
+        .map(([month, requests]) => ({ month, requests }));
+
+      const skillBreakdown = Object.entries(bySkill)
+        .sort(([, a], [, b]) => b - a)
+        .map(([skill, requests]) => ({ skill, requests }));
+
+      return {
+        service: {
+          id: pkg.id,
+          name: pkg.name,
+          displayName: pkg.displayName,
+          description: pkg.description,
+          status: pkg.status,
+          hostingModel: pkg.hostingModel,
+          remoteHealth: pkg.remoteHealth,
+          remoteLastCheck: pkg.remoteLastCheck,
+          pricingModel: pkg.pricingModel,
+          priceUsdCents: pkg.priceUsdCents,
+        },
+        totalInstalls: installRows.length,
+        totalRequests: Object.values(byMonth).reduce((a, b) => a + b, 0),
+        monthlyUsage,
+        skillBreakdown,
+        installs,
+      };
+    }),
+
   // ── Creator Dashboard ────────────────────────────────────────────────────
 
   creatorInstalls: protectedProcedure

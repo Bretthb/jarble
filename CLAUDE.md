@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Detailed documentation is split into `.claude/rules/` — path-specific files load automatically when you work in matching directories.
+
 ## Developer Portability
 
 This repo includes a **portable memory system** so Claude Code context travels with git:
@@ -10,13 +12,12 @@ This repo includes a **portable memory system** so Claude Code context travels w
 - **`.claude/agent-memory/`** — Accumulated debugging knowledge from specialized agents.
 - **`scripts/setup.sh`** — Run `bash scripts/setup.sh` after cloning on a new machine to restore memory, install deps.
 - **Hooks** (`.claude/settings.json`): `SessionStart` restores committed memory → local; `Stop` copies local → committed and stages for git.
-- **Work-Sessions/** — Historical session logs (deprecated, replaced by memory sync).
 
 ## Project Overview
 
 Jarble is a **no-code AI bot deployment platform** that lets users deploy LLM-powered bots to messaging platforms (WhatsApp, Discord, Slack, Telegram) without coding. Users pick a runtime (OpenClaw, ZeroClaw), configure an LLM provider, and deploy — all through a guided wizard.
 
-Each deployment gets a **web chat interface** (`/d/[id]`) where users interact with their bot through a Tambo-powered chat. The bot can render **rich UI components** (charts, tables, 3D visualizations, live widgets) via an MCP UI server, displayed as interactive canvas blocks inline in the conversation.
+Each deployment gets a **web chat interface** (`/d/[id]`) where users interact with their bot through a chat UI. The bot can render **rich UI components** (charts, tables, 3D visualizations, live widgets) via an MCP UI server, displayed as interactive canvas blocks inline in the conversation.
 
 ## Monorepo Structure
 
@@ -37,10 +38,7 @@ Each deployment gets a **web chat interface** (`/d/[id]`) where users interact w
 npm run dev          # Start dev server on :3000
 npm run build        # Production build
 npm run check        # TypeScript type-check (tsc --noEmit)
-npm run format       # Prettier format
 npm run test         # Run Vitest unit tests
-npm run test:coverage # Run tests with v8 coverage report
-npx vitest run path/to/file.test.ts   # Run a single unit test file
 npm run check:manifest   # Verify manifest ↔ component sync
 ```
 
@@ -49,434 +47,75 @@ npm run check:manifest   # Verify manifest ↔ component sync
 npm run dev          # Start with file watching (tsx watch)
 npm run dev:test     # Start with SQLite (USE_SQLITE=true) for local dev
 npm run typecheck    # TypeScript type-check
-npm run lint         # ESLint
-npm run test         # Run Vitest unit tests (934 tests)
-npm run test:coverage # Run tests with v8 coverage report
-npm run db:push      # Push schema to database (MySQL/SQLite)
+npm run test         # Run Vitest unit tests
+npm run db:push      # Push schema to database
 npm run db:studio    # Open Drizzle Studio
-npm run db:generate  # Generate migrations (MySQL/SQLite)
-npm run db:migrate   # Run migrations
-npm run db:push:pg   # Push schema (PostgreSQL)
-npm run db:generate:pg  # Generate migrations (PostgreSQL)
-npm run db:migrate:pg   # Run migrations (PostgreSQL)
 ```
-
-### E2E Tests (Jarble-mvp/)
-```bash
-npm run test:e2e           # Run all Playwright E2E tests
-npm run test:e2e:auth      # Fetch Auth0 ROPC tokens + seed deployment (run before first E2E)
-npm run test:e2e:browse    # Run browse/navigation tests only
-npm run test:e2e:chat      # Run chat component tests only
-npm run test:e2e:edit      # Run edit/persist tests only
-npm run test:e2e:report    # Open Playwright HTML report
-npx playwright test e2e/smoke.spec.ts  # Run a single E2E spec file
-```
-
-E2E auth setup requires `e2e/.env.test` with Auth0 ROPC credentials (see `e2e/.env.test.example`). Run `npm run test:e2e:auth` once to generate `e2e/.auth/storageState.json`.
-
-## Test Suite
-
-**1,301 tests across 45+ files** (934 backend + 367 frontend), all Vitest.
-
-### Backend Test Structure (jarble-api-main/src/)
-```
-├── utils/encryption.test.ts           # AES-256-GCM encrypt/decrypt (19 tests)
-├── utils/chatErrors.test.ts           # Error classification patterns (21 tests)
-├── utils/pricing.test.ts              # Pricing formula (10 tests)
-├── utils/hmac.test.ts                 # HMAC signing for hosted packages (19 tests)
-├── utils/componentResolver.test.ts    # Component template expansion + validation (36 tests)
-├── utils/uiBlockParser.test.ts        # UI block extraction from bot text (27 tests)
-├── utils/schemaValidation.test.ts     # Schema validation utilities (16 tests)
-├── utils/jsonSchemaValidation.test.ts # JSON Schema validation (52 tests)
-├── utils/__tests__/libraryValidation  # CDN allowlist + security (19 tests)
-├── services/manifestValidator.test.ts # Manifest validation (74 tests)
-├── services/circuitBreaker.test.ts    # Circuit breaker for external calls (22 tests)
-├── services/serviceCard.test.ts       # Service card (A2A-style) validation (39 tests)
-├── services/__tests__/serviceHealthCheck # Service health monitoring (20 tests)
-├── runtimes/handlers/openclaw.test.ts # OpenClaw runtime handler (48 tests)
-├── runtimes/handlers/zeroclaw.test.ts # ZeroClaw runtime handler (19 tests)
-├── k8s/constants.test.ts              # K8s constants, dual-mode (16 tests)
-├── k8s/configmap.test.ts              # ConfigMap key encoding (22 tests)
-├── mcp/__tests__/artifactTools.test.ts     # Artifact workspace MCP tools (52 tests)
-├── mcp/__tests__/renderUiValidation.test.ts # render_ui validation (21 tests)
-├── mcp/__tests__/jsonSchemaValidator.test.ts # JSON Schema for configSchema (22 tests)
-├── routes/__tests__/artifact.test.ts       # Artifact REST endpoints (23 tests)
-├── routes/__tests__/serviceProxy.test.ts   # Hosted service proxy + auth (27 tests)
-├── middleware/serviceRateLimit.test.ts      # Per-service rate limiting (59 tests)
-├── __tests__/contracts/schemas.test.ts # Zod input schema contracts (25 tests)
-├── __tests__/helpers/testDb.ts        # In-memory SQLite test harness
-├── __tests__/helpers/testCaller.ts    # tRPC caller with mock auth
-├── __tests__/helpers/harness.test.ts  # Harness smoke tests (4 tests)
-└── __tests__/routers/
-    ├── deployment.test.ts             # Deployment CRUD + lifecycle (30 tests)
-    ├── user.test.ts                   # User management (10 tests)
-    ├── platformCredentials.test.ts    # Credential CRUD + configSync (16 tests)
-    ├── openrouter.test.ts            # LLM key validation (14 tests)
-    ├── marketplace.test.ts            # Marketplace CRUD + install/publish (97 tests)
-    ├── services.test.ts               # Service marketplace CRUD (113 tests)
-    └── services.admin.test.ts         # Service admin moderation (16 tests)
-```
-
-### Frontend Test Structure (Jarble-mvp/)
-```
-├── lib/__tests__/autoFixProps.test.ts              # AutoFix prop repair (51 tests)
-├── lib/__tests__/sanitize.test.ts                  # HTML sanitization (14 tests)
-├── __tests__/ChatErrorCard.test.tsx                # Error card UI (22 tests)
-├── components/workspace/__tests__/canvasReducer    # Canvas state, 26 actions (54 tests)
-├── components/workspace/__tests__/autoLayout       # Grid layout logic (35 tests)
-├── components/canvas/__tests__/canvasComponents    # Renderer + registry (23 tests)
-├── components/canvas/__tests__/canvasEmbed         # Canvas embed/iframe security (47 tests)
-├── components/canvas/__tests__/sandbox-csp         # Sandbox CSP security (5 tests)
-├── components/canvas/__tests__/sandboxCore         # Sandbox core: sanitize, build, escape (48 tests)
-├── hooks/__tests__/useStatusStream                 # SSE status stream (9 tests)
-├── hooks/__tests__/useCanvasPersistence            # Canvas localStorage (9 tests)
-├── hooks/__tests__/useArtifactSync                 # Artifact workspace sync (8 tests)
-└── hooks/__tests__/useMobile                       # Mobile detection (5 tests)
-```
-
-### Integration Test Harness
-Backend router tests use a real in-memory SQLite DB (`__tests__/helpers/testDb.ts`) with mocked K8s, Stripe, and external APIs. Each test gets a fresh DB via `beforeEach`. The harness creates all tables and seeds runtime catalog + test user.
-
-```ts
-// Usage pattern:
-import { createTestDb } from "../helpers/testDb.js";
-import { createTestCaller } from "../helpers/testCaller.js";
-
-let db: ReturnType<typeof createTestDb>;
-let caller: ReturnType<typeof createTestCaller>;
-
-beforeEach(() => {
-  db = createTestDb();
-  caller = createTestCaller(db, { userId: "test-user" });
-});
-```
-
-### Key Mocking Patterns
-- **Encryption tests**: `vi.mock("./env.js")` to control `API_KEY_ENCRYPTION_KEY`
-- **Runtime handler tests**: `vi.mock("../../trpc/routers/platformCredentials.js")` to break circular deps
-- **K8s tests**: `vi.mock("./client.js")` to avoid KubeConfig init at import
-- **Frontend hooks**: Mock `EventSource`, `window.matchMedia`, `localStorage`
-- **Router tests**: Mock K8s lifecycle, Stripe, configSync, fetch
-
-### Writing New Tests
-- Backend unit tests: place next to source file as `{name}.test.ts`
-- Backend integration tests: place in `src/__tests__/routers/`
-- Frontend unit tests: place in `__tests__/` subdirectory next to source
-- Run single file: `npx vitest run path/to/file.test.ts`
-- Coverage: `npm run test:coverage` (generates text + HTML + lcov reports)
 
 ### Running Both Services
-Start API and frontend in separate terminals:
 ```bash
 # Terminal 1 - API on :3001
 cd jarble-api-main && npm run dev
-
 # Terminal 2 - Frontend on :3000
 cd Jarble-mvp && npm run dev
 ```
 
-## Architecture
-
-### Tech Stack
-- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind v4, shadcn/ui, Framer Motion, @xyflow/react (node graph), recharts, Monaco Editor, Leaflet, @assistant-ui/react (chat framework), @sentry/nextjs (error monitoring), posthog-js (analytics), DOMPurify (HTML sanitization)
+## Tech Stack
+- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind v4, shadcn/ui, @assistant-ui/react, recharts, @xyflow/react, Monaco Editor
 - **API**: Express, tRPC, SuperJSON, Drizzle ORM
-- **MCP**: Custom stdio MCP server (`jarble-ui-server.js`) running inside bot pods — exposes `render_ui`, `define_component`, `list_components`, `component_reference` tools
+- **MCP**: Custom stdio MCP server (`jarble-ui-server.js`) — `render_ui`, `define_component`, `list_components`, `component_reference`, `skill_reference`
 - **Database**: MySQL (prod), PostgreSQL (alt), SQLite (dev with USE_SQLITE=true)
-- **Auth**: Auth0 (JWT + JWKS verification)
-- **Payments**: Stripe (dynamic pricing via price_data)
-- **Infrastructure**: Hetzner Cloud, Terraform, K3s, Longhorn storage
-- **Container Image**: `ghcr.io/jarble-ai/openclaw:latest` (Node.js 22, OpenClaw runtime)
+- **Auth**: Auth0 (JWT + JWKS), **Payments**: Stripe, **Infra**: Hetzner Cloud, Terraform, K3s, Longhorn
 
-### tRPC Router Structure
-The API exposes 9 routers with 73+ procedures at `/trpc`:
-- `user` - Profile management, auth state
-- `deployment` - CRUD, lifecycle (start/stop/restart), K8s operations
-- `runtimeCatalog` - Available bot runtimes
-- `openrouter` - LLM key provisioning, validation, multi-provider support
-- `billing` - Stripe checkout, subscriptions
-- `platformCredentials` - Encrypted messaging platform credentials, pairing flows
-- `template` - Bot configuration templates
-- `marketplace` - Component marketplace: browse, install, publish, review, creator tools, admin moderation
-- `services` - Service marketplace: browse, install/uninstall, publish, list by creator (bundles of components + skills + instructions)
+## tRPC Router Structure
+9 routers with 73+ procedures at `/trpc`:
+`user`, `deployment`, `runtimeCatalog`, `openrouter`, `billing`, `platformCredentials`, `template`, `marketplace` (components), `services` (service marketplace + hosted dashboard)
 
-### Frontend-Backend Communication
+## Frontend-Backend Communication
 - **tRPC + React Query**: Type-safe API calls with automatic caching
-- **SSE Streams**: Real-time status updates (`useStatusStream`), logs (`useLogStream`), QR pairing (`useQrStream`)
-- **Chat SSE**: `POST /api/tambo-agent` streams bot responses as SSE events (text deltas + UI blocks)
+- **SSE Streams**: Real-time status (`useStatusStream`), logs (`useLogStream`), QR pairing (`useQrStream`)
+- **Chat SSE**: `POST /api/tambo-agent` streams bot responses (text deltas + UI blocks)
 - **Auth0 Bearer tokens**: Automatically attached via tRPC link headers
 
-### Database Schema (Drizzle)
-Core tables in `jarble-api-main/src/db/schema.ts` (SQLite variant in `schema.sqlite.ts`):
-- `users` - Auth0 ID, Stripe customer, email verification, free trial state
-- `deployments` - Bot instances with K8s state, LLM config (provider, model, encrypted API key), subscription links
-- `runtimeCatalog` - Available runtimes with hardware specs and pricing
-- `platformCredentials` - AES-256-GCM encrypted platform tokens (Telegram, Discord, Slack, WhatsApp, etc.)
-- `skillsCatalog` - Available skills (Web Search, Weather, Calculator, etc.)
-- `deploymentSkills` - Many-to-many linking deployments to skills
-- `processedWebhookEvents` - Stripe webhook idempotency tracking
-- `marketplaceComponents` - Published components (manifest, code, author, pricing, status)
-- `componentVersions` - Version history
-- `componentInstalls` - Deployment→component installations
-- `componentPurchases` - Purchase records
-- `componentReviews` - Ratings and reviews
-- `marketplaceCreators` - Creator profiles
-- `marketplaceServices` - Services bundling components + skills + instructions (two hosting models: self-hosted, remote)
-- `serviceComponents` - Many-to-many linking services to components
-- `serviceSkills` - Many-to-many linking services to skills
-- `serviceInstalls` - Service→deployment installations
+## Path Aliases & Zod Version Split
 
-SQLite dev DB is file-based at `jarble-api-main/local.db` (persists across tsx watch restarts). Seed data (test user, runtime catalog, skills) created on startup via `db/init.ts`.
+**Critical**: Frontend uses **Zod v4**, API uses **Zod v3**. Each tsconfig pins the `zod` path to its own `node_modules/zod`. The shared `component-manifest` package must work with both — don't construct Zod schemas that cross the version boundary.
 
-### Path Aliases & Zod Version Split
-Both `Jarble-mvp/tsconfig.json` and `jarble-api-main/tsconfig.json` define path aliases:
 - `@/*` → `Jarble-mvp/*` (frontend only)
 - `@jarble/component-manifest` → `shared/component-manifest/index.ts` (both)
-- `zod` → pinned to each package's local `node_modules/zod`
-
-**Critical**: Frontend uses **Zod v4** (`zod@^4.1.12`), API uses **Zod v3** (`zod@^3.22.0`). Each tsconfig pins the `zod` path to its own copy. The shared `component-manifest` package must work with both — import schemas from the manifest, don't construct Zod schemas that cross the version boundary.
-
-The `@jarble/component-manifest` package must be listed in `next.config.ts:transpilePackages` since it's raw TypeScript (no build step).
-
-### Config-Driven UI
-The wizard and config tabs are driven by `Jarble-mvp/views/onboarding/wizardStepConfig.ts`:
-- `RUNTIME_EXTRA_STEPS` - Defines wizard steps per runtime
-- `RUNTIME_CONFIG_TABS` - Defines configuration tabs per runtime
-- Adding a new runtime only requires config changes + component implementation
-
-## K8s Architecture
-
-### K8s Module Structure
-The monolithic `k8s/deployment.ts` was refactored into focused modules:
-- `k8s/lifecycle.ts` — Create, restart, delete deployments
-- `k8s/exec.ts` — kubectl exec into pods
-- `k8s/secrets.ts` — K8s Secret CRUD
-- `k8s/components.ts` — Build K8s resource specs (Deployment, PVC, Secret, Service)
-- `k8s/status.ts` — Pod status checks
-- `k8s/logs.ts` — Log streaming
-- `k8s/client.ts` — K8s API client setup
-- `k8s/config.ts` — Cluster configuration
-- `k8s/constants.ts` — Namespace, labels, etc.
-
-### Resources Per Deployment
-Each deployment creates 4 K8s resources in namespace `jarble`:
-- **Deployment**: `dep-{deploymentId}` — 1 replica, container `runtime`, port 18789
-- **Secret**: `secret-{deploymentId}` — LLM keys, platform tokens, deployment metadata
-- **PVC**: `pvc-{deploymentId}` — Longhorn, 20Gi RWO, mounted at `/data`
-- **Service**: ClusterIP for inter-pod communication
-
-### PVC Directory Structure (`/data/`)
-```
-/data/
-├── .initialized          # Marker — skips npm install on subsequent boots
-├── .npm/                 # npm cache (can get corrupted — see Known Issues)
-├── .openclaw/            # OpenClaw's own state directory
-│   ├── openclaw.json     # OpenClaw native config (generated by entrypoint)
-│   └── .openclaw/        # Internal state (auth store, conversations, canvas)
-├── components/           # Custom component definitions (JSON, written by define_component MCP tool)
-├── config/               # Jarble platform-managed configs (written by configSync)
-│   ├── openclaw.json     # Channel config rendered from DB
-│   ├── soul.md           # System prompt from DB (+ service instruction snippets)
-│   └── platform-skills.json  # Cached platform skills (fetched from API on boot)
-├── files/                # Saved canvas component data (written by save_canvas_file MCP tool)
-├── skills/               # Installed skill configs (written by configSync from deploymentSkills)
-├── logs/                 # Application logs
-└── runtime/              # npm-installed OpenClaw package (node_modules)
-```
-
-### Config Path Architecture (IMPORTANT)
-There are TWO `openclaw.json` files:
-| Path | Written By | Purpose |
-|------|-----------|---------|
-| `/data/config/openclaw.json` | configSync (Jarble API) | Channel configs, agent model |
-| `/data/.openclaw/openclaw.json` | OpenClaw entrypoint | Native config (gateway port, model) |
-
-**Critical**: OpenClaw reads platform tokens (Telegram, Discord, Slack) from **K8s Secret env vars**, not from openclaw.json. The JSON config enables/disables channels and sets policies (e.g. `dmPolicy`), but actual credentials come from env vars like `TELEGRAM_BOT_TOKEN`.
-
-### K8s Secret Contents
-```
-# Always present:
-DEPLOYMENT_ID, USER_ID, DEPLOYMENT_NAME, TEMPLATE, RUNTIME, OPENCLAW_GATEWAY_TOKEN
-
-# LLM (one of):
-ANTHROPIC_API_KEY | OPENROUTER_API_KEY | OPENAI_API_KEY | GOOGLE_API_KEY
-LLM_PROVIDER, LLM_MODEL
-
-# Platform tokens (added by configSync when credentials saved):
-TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN
-```
-
-### ConfigSync Pipeline (`jarble-api-main/src/services/configSync.ts`)
-Triggered fire-and-forget by credential save/delete mutations and service install/uninstall:
-```
-DB → buildDeploymentFields()     # loads platform creds, skills, service snippets
-  → renderConfigs()              # soul.md (+ service snippets), openclaw.json, skills/*.json
-  → getSecretEntries()           # LLM keys, platform tokens
-  → writeConfigsToPvc()          # exec into pod, write files via stdin
-  → updateDeploymentSecret()     # replace K8s Secret
-  → restartDeployment()          # scale 0→1
-  → poll for readiness           # 30 × 2s = 60s max
-  → update DB status             # "running" or "failed"
-```
-
-`buildDeploymentFields()` now also loads installed skills (from `deploymentSkills` + `skillsCatalog`) and service instruction snippets (from `serviceInstalls` + `marketplaceServices`). Skills render as `/data/skills/{name}.json`. Service instruction snippets are appended to soul.md as `## Service: {name}` sections.
-
-### Dynamic Skill Loading
-Pods fetch latest platform skills from the API on boot, without needing container image rebuilds:
-```
-Pod Boot Flow:
-1. MCP server starts with baked-in BOT_SKILLS (hardcoded fallback)
-2. After 3s delay, fetch GET /debug/platform-skills from API
-3. If success: merge fetched skills over baked-in, cache to PVC
-4. If API unreachable: load from PVC cache (/data/config/platform-skills.json)
-5. If no cache: use baked-in defaults
-```
-
-**Update flow**: Edit skills in `jarble-ui-server.js` → redeploy API → pods fetch latest on next restart. `platformSkills.ts` extracts `BOT_SKILLS` from the MCP server file at runtime using brace-depth parsing + `new Function()` eval (single source of truth).
-
-### Runtime Handler Pattern (`jarble-api-main/src/runtimes/handlers/`)
-Each runtime implements `RuntimeHandler`:
-- `renderConfigs(deployment)` → config files to write to PVC
-- `getSecretEntries(deployment)` → env vars for K8s Secret
-- `parseConfigs(files)` → reverse: PVC config → DB fields
-- `validateCreate(input)` → pre-deploy validation
-
-### Telegram Pairing Flow
-```
-1. User enters bot token → validated via Telegram getMe API
-2. Credentials saved to DB → configSync writes PVC + updates Secret
-3. Pod restarts → OpenClaw detects TELEGRAM_BOT_TOKEN → enables Telegram
-4. User messages bot → bot sends pairing code (dmPolicy: "pairing")
-5. Frontend polls pollTelegramPairing mutation every 3s
-6. Backend exec: `npx openclaw pairing list telegram --json`
-7. Finds pending → `npx openclaw pairing approve telegram {code} --notify`
-8. Bot confirms pairing, user can chat
-```
-
-### Pod Performance Tuning
-Applied in `k8s/lifecycle.ts`:
-- **Removed `validate-config` init container**: Previously pulled the full OpenClaw image a second time to validate configs. Since configs are generated by trusted code (`renderConfigs`), validation added ~10-30s startup for no benefit. Config errors surface via container logs.
-- **Batched PVC config writes**: Init container copies all ConfigMap files in a single shell invocation (`one shell invocation to minimize init container runtime`).
-- **`terminationGracePeriodSeconds: 10`** (down from default 30s): OpenClaw has no long-running requests to drain — it reconnects instantly. Faster termination means faster restarts.
-- **Readiness probe**: `initialDelaySeconds: 10` (down from 20s), `periodSeconds: 5` (down from 10s). Warm boots start the gateway in <5s.
-- **Liveness probe**: `initialDelaySeconds: 90` (up from 60s) to give cold boots (npm install) more breathing room.
-- **Resource request/limit split**: Requests at ~50% of limits (min 250m CPU). Allows CPU burst during npm install while keeping scheduling efficient for steady-state.
-
-### Pod Security (Implemented)
-- ✅ Runs as non-root user (uid=1000, gid=1000) with `runAsNonRoot: true`
-- ⚠️ Secrets in env vars — should mount as files (requires upstream OpenClaw changes)
-- ✅ K8s service account token disabled (`automountServiceAccountToken: false`)
-- ✅ NetworkPolicy restricts egress (blocks cloud metadata, localhost; allows LLM APIs + messaging platforms)
-- ✅ All capabilities dropped (`drop: ["ALL"]`)
-- ✅ RBAC denies API requests, DNS works, Longhorn storage works
-
-### Known K8s Issues
-- **npm cache corruption**: `ENOTEMPTY` errors on PVC. Fix: clear `/data/.npm` and delete pod
-- **Status stuck at "creating"**: Polling times out during slow npm install. Fix: debug endpoint or background reconciler
-- **Telegram 409 conflict**: Two pods with same bot token. Scale down stale deployments
-
-## Canvas & Chat Architecture
-
-### Chat Flow (`/d/[id]`)
-The deployment chat page uses `@assistant-ui/react` with an `ExternalStoreRuntime` to orchestrate user ↔ bot conversations. Bot responses stream via SSE with text deltas and UI blocks. The chat UI is implemented in `components/chat/AssistantUIChat.tsx` (replaced the former `StreamingBotMessage.tsx`).
-
-SSE event types: `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT` (delta), `TEXT_MESSAGE_END`, `UI_BLOCK_START`, `UI_BLOCK_PROPS`, `UI_BLOCK_END`, `RUN_FINISHED`
-
-The `uiBlockParser.ts` uses a brace-depth JSON parser (not regex) for reliable incremental block extraction during SSE streaming.
-
-### Canvas Grid System (`SimpleCanvasGrid.tsx`)
-UI components render in a **simple responsive CSS grid** (not react-grid-layout):
-- Components flow naturally at their content size
-- **Drag-to-reorder**: Drag any card to swap positions with another
-- **Split**: Multi-item components (stat_grid, key_value, descriptions) can split into individual cards
-- **Merge**: Compatible cards show a merge button to combine items
-- No visible wrappers — components render without borders/padding (styling removed from all components)
-- **Keyboard navigation**: Roving tabindex with arrow keys between cards, Enter/Space to activate, Tab to controls, Escape to grid level (`role="grid"` / `role="gridcell"`)
-- **Touch targets**: All card action buttons are 28px (WCAG 2.2 AA compliant), controls always partially visible (40% opacity, full on hover/focus)
-- **Drag accessibility**: `aria-grabbed`, `aria-dropeffect="move"`, `aria-live="polite"` announcements
-
-**Canvas reducer actions** (`canvasReducer.ts`):
-- `ADD_CARD`, `REMOVE_CARD`, `MOVE_CARD`, `RESIZE_CARD`
-- `SPLIT_CARD` — Splits multi-item components into individual cards
-- `MERGE_CARDS` — Combines items from two compatible cards
-- `REORDER_CARDS` — Drag-to-reorder support
-- `RECORD_FIX_ATTEMPT` — Tracks sandbox fix attempts per card (rate limiting)
-- `RESET_FIX_ATTEMPTS` — Clears fix attempt counter for a card
-
-**Splittable components** (configured in `types.ts:SPLITTABLE_COMPONENTS`):
-- `stat_grid` → splits into `statistic` cards
-- `key_value` → splits into `card` cards
-- `descriptions` → splits into `card` cards
-
-### Canvas Components (37 active + 1 alias)
-Bot renders UI via `render_ui` MCP tool → `jarble_ui` fenced blocks → frontend parses and renders. All component metadata is defined in `shared/component-manifest/` (the single source of truth). 22 Ant Design chart components were deleted and replaced by a unified recharts-based `chart` component.
-
-**Categories**: Display (card, stat_grid, data_table, chart, tabs, accordion), Charts (recharts), Interactive (button_group, form), Media (video, audio, image_gallery), Specialized (code_editor, map, sandbox, marketplace_sandbox)
-
-**Alias**: `canvas` → `sandbox` (LLMs often say "canvas" when they mean "sandbox")
-
-**Rendering pipeline**: Props are first run through `autoFixProps` (20 repair rules, 30+ component name aliases), then validated via Zod schemas, then rendered with an error boundary. Repair actions are tracked via Sentry breadcrumbs.
-
-**Sandbox** (`CanvasSandbox.tsx`): Secure iframe for arbitrary HTML/CSS/JS with Three.js, D3, etc. Uses `sandbox="allow-scripts allow-popups"` (no same-origin). Shared core modules in `components/canvas/sandbox/`:
-- `sandboxCore.ts` — `buildDocument()`, CSP construction, library injection, `sanitizeHtmlProp()` (extracts `<style>`, `<link rel="stylesheet">`, `<script>` from html prop; libraries load sequentially; user JS runs at global scope via script injection)
-- `useSandboxBridge.ts` — React hook for postMessage bridge, heartbeat monitoring, storage/events relay
-- `SandboxControls.tsx` — Shared stop/restart/error UI
-- `SandboxConfigPanel.tsx` — Renders JSON Schema `configSchema` as a form for user-configurable sandboxes
-- `types.ts` — Message types, constants (`HEARTBEAT_INTERVAL_MS`, `FIX_ATTEMPT_LIMIT`)
-
-**Sandbox watchdog**: Heartbeat-based (not flat timeout). Iframe auto-pings every 5s; parent kills after 15s silence (3 missed heartbeats). Animations keep heartbeat alive since `setInterval` fires regardless of user JS.
-
-**Bridge API** (`window.jarble.*`): `jarble.send(action, payload)`, `jarble.theme`, `jarble.storage.get/set/delete` (scoped localStorage, 1MB quota), `jarble.events.on/emit` (inter-component pub/sub), `jarble.canvas.resize(w,h)`, `jarble.canvas.setTitle(t)`, `jarble.heartbeat()`, `jarble.config`, `jarble.reportProgress(pct)`. SDK version: `jarble.sdkVersion = "1.0"`.
-
-**Error rate limiting**: Max 3 "Fix Component" attempts per card per 60s window. After limit, shows "Sandbox timed out — click to retry" instead of auto-sending to bot.
-
-**CDN allowlist**: 10 trusted origins centralized in `shared/component-manifest/security.ts` (`TRUSTED_CDN_ORIGINS`), imported by both frontend `sandboxCore.ts` and backend `uiBlockParser.ts`. Server-side library URL validation before they reach the client.
-
-### Adding a New Canvas Component
-1. Create `Jarble-mvp/components/canvas/components/Canvas{Name}.tsx` — **no wrapper styling** (use `p-3 h-full`)
-2. Add component entry to `shared/component-manifest/components/{name}.ts` with Zod schema, layout hints, category, and description
-3. Register the entry in `shared/component-manifest/index.ts` — this is the single source of truth; `registry.ts` imports from it
-4. Run `npm run check:manifest` to verify manifest ↔ component sync
+- `@jarble/component-manifest` must be in `next.config.ts:transpilePackages` (raw TypeScript, no build step)
 
 ## Key Patterns
 
 ### Adding a New Runtime
-1. Add entry to `RUNTIME_EXTRA_STEPS` and `RUNTIME_CONFIG_TABS` in wizardStepConfig.ts
+1. Add entry to `RUNTIME_EXTRA_STEPS` and `RUNTIME_CONFIG_TABS` in `wizardStepConfig.ts`
 2. Create runtime handler in `jarble-api-main/src/runtimes/handlers/`
-3. Add render blocks in OnboardingWizard.tsx and DeploymentConfiguration.tsx
+3. Add render blocks in `OnboardingWizard.tsx` and `DeploymentConfiguration.tsx`
 
 ### Adding a New LLM Provider
-1. Add to `LLM_PROVIDERS` in wizardStepConfig.ts
-2. Add validation case in `openrouter.ts:validateProviderKey` (URL, headers, success check)
+1. Add to `LLM_PROVIDERS` in `wizardStepConfig.ts`
+2. Add validation case in `openrouter.ts:validateProviderKey`
 3. Add to Zod enum in deployment router
 4. Add env var mapping in `openclaw.ts:getSecretEntries` (`providerEnvMap`)
 
 ### Adding a New Messaging Platform
 1. Add credential field mapping in `platformCredentials.ts:PLATFORM_CREDENTIAL_KEYS`
 2. Add env var mapping in `platformCredentials.ts:PLATFORM_ENV_MAP`
-3. Add channel config in `openclaw.ts:renderConfigs` (dmPolicy, etc.)
-4. Add UI component in OnboardingWizard.tsx and DeploymentConfiguration.tsx
+3. Add channel config in `openclaw.ts:renderConfigs`
+4. Add UI in `OnboardingWizard.tsx` and `DeploymentConfiguration.tsx`
 5. Add step in `wizardStepConfig.ts:RUNTIME_EXTRA_STEPS`
 
+### Adding a New Canvas Component
+1. Create `Jarble-mvp/components/canvas/components/Canvas{Name}.tsx` — **no wrapper styling** (use `p-3 h-full`)
+2. Add entry to `shared/component-manifest/components/{name}.ts`
+3. Register in `shared/component-manifest/index.ts`
+4. Run `npm run check:manifest`
+
 ### Claude Max OAuth Tokens
-`sk-ant-oat*` tokens (Claude Max subscription) can't be validated via the Anthropic API — they return 401 regardless of auth method. These are auto-passed by prefix in `openrouter.ts:validateProviderKey`. They use Bearer auth (not `x-api-key` header).
+`sk-ant-oat*` tokens can't be validated via Anthropic API — auto-passed by prefix in `openrouter.ts:validateProviderKey`. Use Bearer auth (not `x-api-key`).
 
-### Protected Routes
-All protected pages check Auth0 authentication:
-```tsx
-const { isAuthenticated, isLoading } = useAuth0();
-if (isLoading) return <Spinner />;
-if (!isAuthenticated) return <Redirect to="/login" />;
-```
-
-### Linked Deployments Graph
-`/deployments` uses React Flow (@xyflow/react) + dagre for an interactive node graph showing credit pool relationships. Nodes are circle icons (owner/linked/standalone), edges show credit pool links, and clicking a node opens a detail panel overlay on the left. Filter bar toggles credit pool edges and filters by runtime.
-
-### Real-Time Updates
-Dashboard uses SSE streams instead of polling:
-```tsx
-const { getStatus } = useStatusStream({ enabled: isAuthenticated });
-const liveStatus = getStatus(deployment.id);
-```
+### Config-Driven UI
+Wizard steps and config tabs driven by `Jarble-mvp/views/onboarding/wizardStepConfig.ts`. Adding a new runtime only requires config changes + component implementation.
 
 ## Environment Variables
 
@@ -489,7 +128,6 @@ AUTH0_AUDIENCE=https://api.jarble.ai
 STRIPE_SECRET_KEY=sk_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 OPENROUTER_API_KEY=sk-or-...
-OPENROUTER_MANAGEMENT_KEY=...   # For included credits provisioning
 ENCRYPTION_KEY=...              # AES-256-GCM key for platform credentials
 ```
 
@@ -501,254 +139,25 @@ NEXT_PUBLIC_AUTH0_CLIENT_ID=...
 NEXT_PUBLIC_AUTH0_AUDIENCE=https://api.jarble.ai
 ```
 
-### Local Dev with Real K8s
-When testing against a real K3s cluster:
-```bash
-export USE_SQLITE=true
-npx tsx watch src/index.ts
-```
-Ensure `kubectl` is configured and the `jarble` namespace exists.
-
 ## Debug Endpoints (dev only)
+- `GET /debug/db` — Dump all tables
+- `POST /debug/deployment/:id/status` — Force deployment status
+- `GET /debug/deployment/:id/pod-status` — K8s pod status
+- `GET /debug/platform-skills` — Platform skills for pods
 
-Available when running locally:
-- `GET /debug/db` — Dump all tables (users, deployments, runtimeCatalog, platformCredentials, etc.)
-- `POST /debug/deployment/:id/status` — Force deployment status (`{ "status": "running" }`)
-- `GET /debug/deployment/:id/pod-status` — Check K8s pod status for a deployment
-- `GET /debug/platform-skills` — Serve platform skills extracted from `jarble-ui-server.js` (consumed by pods on boot)
+## Rules Index (`.claude/rules/`)
 
-## Key Files Reference
-
-### Backend (jarble-api-main/src/)
-| File | Purpose |
-|------|---------|
-| `routes/tamboAgent.ts` | Chat SSE endpoint — proxies to pod via WS/exec, streams text + UI blocks |
-| `mcp/jarble-ui-server.js` | MCP stdio server (render_ui, define_component, component_reference, etc.) |
-| `mcp/tools/renderUi.ts` | Server-side render_ui tool for MCP HTTP endpoint |
-| `mcp/tools/listComponents.ts` | Server-side list_components tool |
-| `utils/componentResolver.ts` | Custom component template substitution + validation |
-| `utils/uiBlockParser.ts` | Extracts `jarble_ui` fenced blocks from bot text |
-| `services/openclawGateway.ts` | WebSocket + exec chat with OpenClaw gateway |
-| `k8s/lifecycle.ts` | K8s deployment lifecycle: create, restart, delete |
-| `k8s/exec.ts` | kubectl exec into pods |
-| `k8s/secrets.ts` | K8s Secret CRUD |
-| `services/configSync.ts` | Two-way config sync between DB and PVC |
-| `runtimes/handlers/openclaw.ts` | OpenClaw runtime: renderConfigs, getSecretEntries, parseConfigs |
-| `trpc/routers/platformCredentials.ts` | Credential CRUD, WhatsApp/Telegram pairing, pollTelegramPairing |
-| `trpc/routers/openrouter.ts` | Multi-provider LLM key validation, OpenRouter provisioning |
-| `trpc/routers/deployment.ts` | Deployment CRUD, lifecycle, K8s orchestration |
-| `db/schema.sqlite.ts` | SQLite schema (dev) |
-| `db/init.ts` | Seed data for local dev |
-| `utils/encryption.ts` | AES-256-GCM encrypt/decrypt for credentials |
-| `trpc/routers/marketplace.ts` | Marketplace CRUD, install/uninstall, publish, review, admin |
-| `trpc/routers/services.ts` | Service marketplace: list, get, install, uninstall, publish, listByCreator |
-| `services/manifestValidator.ts` | Component manifest validation (13 rules, includes configSchema + sdkVersion) |
-| `services/marketplace.types.ts` | Marketplace type definitions |
-| `skills/platformSkills.ts` | Extracts BOT_SKILLS from MCP server file, serves via debug endpoint |
-
-### Shared (shared/)
-| File | Purpose |
-|------|---------|
-| `component-manifest/index.ts` | Component manifest — schemas, metadata, derive functions |
-| `component-manifest/security.ts` | CDN allowlist (`TRUSTED_CDN_ORIGINS`) — shared by frontend + backend |
-| `component-manifest/skills/index.ts` | `BotSkill` type + placeholder `BOT_SKILLS` record (runtime-populated) |
-
-### Scripts (scripts/)
-| File | Purpose |
-|------|---------|
-| `check-manifest.ts` | CI check for manifest ↔ component sync |
-
-### Frontend (Jarble-mvp/)
-| File | Purpose |
-|------|---------|
-| `app/d/[id]/page.tsx` | Deployment chat page — Tambo chat, canvas grid, message rendering |
-| `components/workspace/SimpleCanvasGrid.tsx` | Responsive grid with drag-to-reorder, split/merge buttons |
-| `components/workspace/canvasReducer.ts` | Canvas state: ADD/REMOVE/REORDER/SPLIT/MERGE_CARDS actions |
-| `components/workspace/types.ts` | CanvasCard, CanvasAction types, SPLITTABLE_COMPONENTS config |
-| `components/chat/AssistantUIChat.tsx` | Thread-based chat via assistant-ui (replaced StreamingBotMessage) |
-| `components/canvas/registry.ts` | 37 components with Zod schemas (imports from @jarble/component-manifest) |
-| `components/canvas/CanvasRenderer.tsx` | Validates props via Zod, renders with error boundary, sandbox fix rate limiting |
-| `components/canvas/components/CanvasSandbox.tsx` | Thin wrapper using shared sandbox modules |
-| `components/canvas/sandbox/sandboxCore.ts` | Shared `buildDocument()`, CSP, library injection, `sanitizeHtmlProp()` |
-| `components/canvas/sandbox/useSandboxBridge.ts` | Shared hook: postMessage bridge, heartbeat, storage/events relay |
-| `components/canvas/sandbox/SandboxControls.tsx` | Shared stop/restart/error UI |
-| `components/canvas/sandbox/SandboxConfigPanel.tsx` | JSON Schema config panel for sandbox components |
-| `components/canvas/sandbox/types.ts` | Sandbox message types, constants |
-| `views/OnboardingWizard.tsx` | Multi-step deployment wizard |
-| `views/DeploymentConfiguration.tsx` | Post-deploy config sidebar |
-| `lib/trpc.ts` | tRPC client setup with Auth0 headers |
-| `lib/autoFixProps.ts` | AutoFix prop repair — 20 rules before Zod validation |
-| `lib/sanitize.ts` | HTML sanitization via DOMPurify |
-| `lib/posthog.ts` | PostHog analytics integration |
-| `lib/assistantRuntime.ts` | assistant-ui ExternalStoreRuntime config |
-| `components/marketplace/` | Marketplace UI components (10 files — 6 component + 4 service) |
-| `components/marketplace/ServiceCard.tsx` | Service card for browse grid |
-| `components/marketplace/ServiceDetail.tsx` | Full service detail view (components, skills, instructions) |
-| `components/marketplace/ServiceList.tsx` | Service browse/search page with filters |
-| `components/marketplace/ServicePublishForm.tsx` | Creator service composition wizard |
-
-## Component Manifest (`shared/component-manifest/`)
-
-Single source of truth for all 37 component definitions (+ 1 alias: `canvas` → `sandbox`). Published as `@jarble/component-manifest` (path alias in both tsconfigs).
-
-**Consumed by**:
-- Frontend `registry.ts` — Zod schemas + component mapping
-- API `componentResolver.ts` — builtin name validation
-- API `listComponents.ts` — component descriptions
-- API `openclaw.ts` — prompt generation
-- MCP server `jarble-ui-server.js` — via generated JSON
-
-**Key exports**:
-- `COMPONENT_MANIFEST` — Record of all component entries keyed by canonical name
-- `COMPONENT_NAME_SET` — Set for O(1) name lookups
-- `DEFAULT_CARD_SIZES` — Default card dimensions derived from manifest layout hints
-- `COMPONENT_SCHEMAS` — All Zod schemas indexed by name
-- `MANIFEST_SPLITTABLE` — Splittable component config derived from manifest
-- `TRUSTED_CDN_ORIGINS` — 10 trusted CDN origins for sandbox CSP (from `security.ts`)
-- `SANDBOX_SDK_VERSION` — Current sandbox SDK version ("1.0")
-
-**Derive functions**:
-- `generatePromptReference()` — Generates component reference text for soul.md prompts
-- `generateMcpReference()` / `getComponentReference()` — MCP tool reference generation
-- `getComponentDescriptions()` — Human-readable component descriptions
-
-Each component entry in `shared/component-manifest/components/{name}.ts` defines: name, description, category, Zod schema, layout hints (defaultSize, minSize, layoutHint), loading strategy, aliases, optional splittable config, and optional `configSchema` (JSON Schema for user-configurable sandbox components).
-
-**Skills subdirectory** (`shared/component-manifest/skills/`): Exports the `BotSkill` interface and a static placeholder `BOT_SKILLS` record. The canonical skill definitions live in `jarble-ui-server.js` and are extracted at runtime by `platformSkills.ts`. This shared type allows other packages to import `BotSkill` without depending on the MCP server file.
-
-## AutoFix Prop Repair
-
-`Jarble-mvp/lib/autoFixProps.ts` implements 20 repair rules with 30+ component name aliases that run before Zod validation in `CanvasRenderer.tsx`.
-
-**Categories of repair rules**:
-- Type coercion (string→number, string→boolean)
-- Enum normalization (e.g., "Line" → "line")
-- Missing defaults (fill in required fields)
-- Structural fixes (flatten/restructure nested props)
-- Field aliases (map common misspellings to correct field names)
-- Data normalization (e.g., chart data shape fixes)
-
-**Monitoring**: Each applied fix is recorded as a Sentry breadcrumb with the rule name, enabling frequency tracking and identification of common LLM mistakes.
-
-## Marketplace System
-
-Component and service marketplace for discovering, installing, and publishing custom UI components and bundled services.
-
-### Component Marketplace
-**Database tables** (6):
-- `marketplaceComponents` — Published components (manifest, code, author, pricing, status)
-- `componentVersions` — Version history
-- `componentInstalls` — Deployment→component installations
-- `componentPurchases` — Purchase records
-- `componentReviews` — Ratings and reviews
-- `marketplaceCreators` — Creator profiles
-
-**Two tiers**:
-- **Template** (safe JSON) — Declarative components using existing primitives
-- **Code/Sandbox** (double-iframe) — Custom HTML/CSS/JS components run in isolated sandbox
-
-**tRPC marketplace router**: 22 procedures for browsing, installing/uninstalling, publishing, reviewing, creator tools, and admin moderation.
-
-**MCP server integration**: Bots can discover and use marketplace components via the MCP tools.
-
-**Manifest validator** (`services/manifestValidator.ts`): 13 validation rules for component manifests (includes configSchema and sdkVersion validation).
-
-### Service Marketplace
-Services bundle **components + skills + bot instructions** into a single installable unit.
-
-**Database tables** (4):
-- `marketplaceServices` — Published services (name, hosting model, instruction snippet, pricing, status)
-- `serviceComponents` — Many-to-many linking services to components
-- `serviceSkills` — Many-to-many linking services to skills
-- `serviceInstalls` — Service→deployment installations
-
-**Two hosting models**:
-- **Self-hosted** (`hostingModel: "package"`) — Buyer downloads everything, runs on their own pod
-- **Remote/Hosted** (`hostingModel: "hosted"`) — Creator hosts APIs, buyer gets frontend components + skill definitions pointing to creator's API
-
-**tRPC services router** (`trpc/routers/services.ts`): 6 procedures — `list`, `get`, `install` (atomic: components + skills + instruction snippet + single PVC sync), `uninstall`, `publish`, `listByCreator`.
-
-**Install flow**: Creates `serviceInstalls` + `componentInstalls` + `deploymentSkills` records, appends `instructionSnippet` to soul.md (as `## Service: {name}` section), triggers single `syncConfigsToPvc()`.
-
-**Skills pipeline**: Installed skills are rendered to `/data/skills/{name}.json` on the pod by `openclaw.ts:renderConfigs()`. ConfigSync loads skills from `deploymentSkills` + `skillsCatalog` join.
-
-**Frontend UI** (`components/marketplace/`): `ServiceCard.tsx`, `ServiceDetail.tsx`, `ServiceList.tsx`, `ServicePublishForm.tsx`. Integrated as "Services" tab on the marketplace page alongside "Components" and "Publish" tabs.
-
-## Security
-
-### Sandbox Security
-- **CSP**: Tightened to 10 trusted CDN origins, centralized in `shared/component-manifest/security.ts`
-- **Client-side CDN origin validation**: `sandboxCore.ts` validates library URLs against `TRUSTED_CDN_ORIGINS` before injection (defense-in-depth, complements server-side check)
-- **Server-side library URL validation**: `uiBlockParser.ts` validates library URLs against CDN allowlist (`TRUSTED_CDN_ORIGINS`) before they reach the client
-- **Server-side HTML sanitization fallback**: Backend sanitizes HTML in UI blocks as a second layer behind DOMPurify on the client
-- **CSP violation monitoring**: Tracked via Sentry breadcrumbs
-- **HTML sanitization**: DOMPurify via `lib/sanitize.ts` sanitizes HTML content on the client
-- **Heartbeat watchdog**: Kills sandboxes after 15s silence (3 missed heartbeats at 5s intervals)
-- **Error rate limiting**: Max 3 auto-fix attempts per card per 60s window prevents infinite fix loops
-- **Component expansion limits**: Custom component definitions capped at 20 children, 50KB definition size, max depth 3 (`componentResolver.ts`)
-
-### Chat SSE Resilience
-- **Safe `sendEvent` wrapper**: Checks `res.writableEnded` before writing; catches serialization errors and sends a minimal fallback event; prevents crashes from closed connections
-- **Internal error scrubbing**: Chat SSE endpoint uses `classifyError()` to convert raw errors into user-facing suggestions — internal stack traces never reach the client
-- **Error classification**: `chatErrors.ts` maps error patterns (pod not found, gateway timeout, etc.) to structured `{ category, suggestion }` objects
-
-### Response Headers
-- `X-Content-Type-Options: nosniff`
-- `X-Frame-Options: DENY`
-- `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
-- `Referrer-Policy: strict-origin-when-cross-origin`
-- `Permissions-Policy` — Restricts browser features
-
-### Monitoring
-- Sentry error tracking (`sentry.client.config.ts`, `sentry.server.config.ts`)
-- PostHog analytics (`lib/posthog.ts`)
-- AutoFix rule frequency tracking via Sentry breadcrumbs
-
-## Accessibility
-
-### Card Infrastructure (SimpleCanvasGrid + DashboardCanvas)
-- **Keyboard navigation**: Roving tabindex — arrow keys move between cards, Enter/Space activates, Tab moves to controls, Escape returns to grid. `role="grid"` on container, `role="gridcell"` on cards.
-- **Touch targets**: All card action buttons 28px (`w-7 h-7`), meets WCAG 2.2 Level AA 24px minimum. Resize handle 20px with `role="slider"` and `aria-label`.
-- **Always-visible controls**: Card controls at 40% opacity always (`opacity-40`), full on hover or keyboard focus (`group-hover:opacity-100 group-focus-within:opacity-100`).
-- **Drag accessibility**: `aria-grabbed` on draggable cards, `aria-dropeffect="move"` on drop targets, `aria-live="polite"` region for reorder announcements.
-
-### Component ARIA Roles (29 components)
-All canvas components have semantic ARIA: `role="list"` + `role="listitem"` (stat_grid, timeline, list, steps, image_gallery, tag_cloud), `role="img"` (chart), `role="alert"` (alert), `role="progressbar"` (progress), `role="toolbar"` (button_group), `role="region"` (code_block, carousel, map, code_editor, spreadsheet), `role="article"` (card, metric_card), `role="status"` (result), `role="tree"` + `role="treeitem"` (tree), `dl/dt/dd` semantics (key_value, descriptions), `htmlFor` + `aria-required` (form). Radix-based components (tabs, accordion) verified with `aria-label` on root.
-
-### Color Contrast
-CSS custom property `--muted-foreground-subtle` provides WCAG AA compliant (4.5:1) muted text. Light: `#737373` (4.73:1), Dark: `#918c85` (~4.6:1). Tailwind token: `text-muted-foreground-subtle`. All `/40`, `/50`, `/60` opacity modifiers on text replaced across 24 files. Decorative icons and placeholder text intentionally exempt (WCAG AA allows).
-
-## Infrastructure Notes
-
-### Pod Security & Performance (Implemented)
-- ✅ Non-root containers, service account disabled, all capabilities dropped
-- ✅ NetworkPolicy restricts egress (allows LLM APIs, messaging platforms, DNS)
-- ✅ Tuned probes: readiness 10s/5s, liveness 90s/30s (see K8s Architecture > Pod Performance Tuning)
-- ✅ `terminationGracePeriodSeconds: 10`, resource requests at 50% of limits
-- ✅ Background status reconciler in `statusReconciler.ts`
-
-### Known Issues
-- **npm cache corruption**: `ENOTEMPTY` errors on PVC. Fix: clear `/data/.npm` and delete pod
-- **Telegram 409 conflict**: Two pods with same bot token. Scale down stale deployments
+| File | Loads When | Content |
+|------|-----------|---------|
+| `kubernetes.md` | Working in `k8s/`, `runtimes/`, `configSync`, `infrastructure/` | K8s architecture, pod lifecycle, ConfigSync, runtime handlers |
+| `canvas-chat.md` | Working in `canvas/`, `workspace/`, `chat/`, `hooks/`, `component-manifest/` | Chat flow, canvas grid, sandbox, components, accessibility |
+| `testing.md` | Working in `*.test.*`, `__tests__/`, `e2e/` | Test structure, harness, mocking patterns, E2E |
+| `marketplace.md` | Working in `marketplace/`, `services.*`, `HostedService*` | Component/service marketplace, hosted services dashboard |
+| `security.md` | Working in `sandbox*`, `security*`, `sanitize*`, `encryption*` | Sandbox CSP, SSE resilience, response headers |
+| `database.md` | Working in `db/`, `schema*`, `migration*` | Drizzle schema, tables, dev database |
+| `key-files.md` | Always loaded | Key file reference tables (backend, shared, frontend) |
 
 ## Claude Agents
 
 Pre-configured agents in `.claude/agents/`:
-- `accessibility-auditor` - WCAG 2.2 Level AA compliance auditing
-- `code-reviewer` - General code review
-- `docs-updater` - Documentation maintenance
-- `auth0-debugger` - Auth0 JWT/JWKS/redirect debugging
-- `canvas-component-builder` - Build new canvas components
-- `design-system-reviewer` - UI/design consistency checks
-- `drizzle-db-schema` - Database schema changes & migrations
-- `jarble-api-debugger` - tRPC/service layer debugging
-- `k8s-pod-lifecycle-debugger` - Pod startup, PVC, image pull issues
-- `mcp-server` - MCP UI server tools & component resolution
-- `nextjs-frontend-debugger` - Hydration, React Query, SSE, routing issues
-- `performance-bundle-analyzer` - Bundle size & rendering perf
-- `runtime-handler` - Bot runtime config rendering & secrets
-- `sse-stream-debugger` - SSE stream disconnects & cleanup
-- `stripe-webhook-debugger` - Stripe webhook event handling
-- `tambo-integration-reviewer` - Tambo chat integration
-- `terraform-infra` - Terraform/Hetzner/K3s infrastructure
-- `test-writer` - Vitest unit/integration + Playwright E2E tests
+`accessibility-auditor`, `code-reviewer`, `docs-updater`, `auth0-debugger`, `canvas-component-builder`, `design-system-reviewer`, `drizzle-db-schema`, `jarble-api-debugger`, `k8s-pod-lifecycle-debugger`, `mcp-server`, `nextjs-frontend-debugger`, `performance-bundle-analyzer`, `runtime-handler`, `sse-stream-debugger`, `stripe-webhook-debugger`, `tambo-integration-reviewer`, `terraform-infra`, `test-writer`

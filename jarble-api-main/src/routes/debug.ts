@@ -5,6 +5,7 @@ import { db, tables, dbDate } from "../db/index.js";
 import { logger } from "../utils/logger.js";
 import { verifyToken } from "../services/auth.js";
 import { syncConfigsToPvc } from "../services/configSync.js";
+import { validateThemeConfig, THEME_PRESET_NAMES } from "@jarble/component-manifest";
 
 /**
  * Debug endpoints — only mounted in development mode.
@@ -599,8 +600,21 @@ debugRouter.post("/marketplace/publish-component", async (req, res) => {
       updatedAt: now,
     } as any);
 
-    logger.info({ componentId: id, name, creatorId }, "Debug: component published to marketplace");
-    res.json({ success: true, id, status: "submitted" });
+    // Auto-create v1.0.0 so the component is installable immediately
+    const versionId = `ver_${nanoid(12)}`;
+    await db.insert(tables.componentVersions).values({
+      id: versionId,
+      componentId: id,
+      version: "1.0.0",
+      changelog: "Initial release",
+      packageUrl: `debug://${name}/1.0.0`,
+      packageSizeBytes: 0,
+      manifestHash: `sha256-${nanoid(8)}`,
+      createdAt: now,
+    } as any);
+
+    logger.info({ componentId: id, versionId, name, creatorId }, "Debug: component published to marketplace");
+    res.json({ success: true, id, versionId, status: "submitted" });
   } catch (err) {
     logger.error({ err }, "Debug: marketplace component publish failed");
     res.status(500).json({ error: "Failed to publish component", details: String(err) });
@@ -640,6 +654,240 @@ debugRouter.post("/deployment/:id/sync-config", async (req, res) => {
 // and pods pick them up on next restart without needing a new container image.
 
 import { getPlatformSkills } from "../skills/platformSkills.js";
+import { chatViaGateway, chatViaExec } from "../services/openclawGateway.js";
+
+// ── K8s imports (optional — not available in SQLite dev mode) ────────────────
+let k8s: {
+  findPodForDeployment: typeof import("../k8s/exec.js").findPodForDeployment;
+  execInPod: typeof import("../k8s/exec.js").execInPod;
+  getPodAddress: typeof import("../k8s/status.js").getPodAddress;
+  getDeploymentLogs: typeof import("../k8s/logs.js").getDeploymentLogs;
+} | null = null;
+
+const k8sDebugReady = (async () => {
+  try {
+    const execMod = await import("../k8s/exec.js");
+    const statusMod = await import("../k8s/status.js");
+    const logsMod = await import("../k8s/logs.js");
+    k8s = {
+      findPodForDeployment: execMod.findPodForDeployment,
+      execInPod: execMod.execInPod,
+      getPodAddress: statusMod.getPodAddress,
+      getDeploymentLogs: logsMod.getDeploymentLogs,
+    };
+  } catch {
+    // K8s not available (SQLite dev mode without kubectl)
+  }
+})();
+
+// ── Chat with a deployment (synchronous, for MCP server) ─────────────────────
+debugRouter.post("/deployment/:id/chat", async (req, res) => {
+  await k8sDebugReady;
+  try {
+    const { id } = req.params;
+    const { message, sessionKey } = req.body;
+    if (!message) {
+      res.status(400).json({ error: "Missing required field: message" });
+      return;
+    }
+
+    const deployment = await db.query.deployments.findFirst({
+      where: eq(tables.deployments.id, id),
+    });
+    if (!deployment) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+    if (deployment.status !== "running") {
+      res.status(400).json({ error: `Deployment is ${deployment.status}, not running` });
+      return;
+    }
+
+    const session = sessionKey || `debug-${id}`;
+    const managedBy = ((deployment as any).managedBy ?? "legacy") as "legacy" | "operator";
+
+    // Try gateway first, fall back to exec
+    const useExecOnly = !k8s || process.env.USE_SQLITE === "true";
+
+    if (!useExecOnly && k8s) {
+      try {
+        const podAddr = await k8s.getPodAddress(id, managedBy);
+        if (podAddr) {
+          const result = await chatViaGateway(
+            { ip: podAddr.ip, port: podAddr.port, gatewayToken: podAddr.gatewayToken, sessionKey: session },
+            message,
+          );
+          res.json({
+            text: result.text,
+            rawText: result.rawText,
+            uiBlocks: result.uiBlocks,
+            uiUpdates: result.uiUpdates,
+            componentDefs: result.componentDefs,
+          });
+          return;
+        }
+      } catch {
+        // Fall through to exec
+      }
+    }
+
+    // Exec fallback
+    if (!k8s) {
+      res.status(503).json({ error: "K8s not available (running in SQLite dev mode without kubectl)" });
+      return;
+    }
+    const podName = await k8s.findPodForDeployment(id, { requireReady: false, managedBy });
+    if (!podName) {
+      res.status(503).json({ error: "No pod found for this deployment" });
+      return;
+    }
+    const result = await chatViaExec(podName, session, message);
+    res.json({
+      text: result.text,
+      rawText: result.rawText,
+      uiBlocks: result.uiBlocks,
+      uiUpdates: result.uiUpdates,
+      componentDefs: result.componentDefs,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Chat failed", details: String(err) });
+  }
+});
+
+// ── Read config files from pod PVC ───────────────────────────────────────────
+debugRouter.get("/deployment/:id/config", async (req, res) => {
+  await k8sDebugReady;
+  try {
+    const { id } = req.params;
+    const file = req.query.file as string; // optional: specific file path
+
+    if (!k8s) {
+      res.status(503).json({ error: "K8s not available" });
+      return;
+    }
+
+    const deployment = await db.query.deployments.findFirst({
+      where: eq(tables.deployments.id, id),
+    });
+    if (!deployment) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+
+    const managedBy = ((deployment as any).managedBy ?? "legacy") as "legacy" | "operator";
+    const podName = await k8s.findPodForDeployment(id, { requireReady: false, managedBy });
+    if (!podName) {
+      res.status(503).json({ error: "No pod found for this deployment" });
+      return;
+    }
+
+    if (file) {
+      // Read a specific file
+      const safePath = file.replace(/\.\./g, ""); // basic path traversal guard
+      const content = await k8s.execInPod(podName, ["cat", `/data/${safePath}`]);
+      res.json({ file: safePath, content });
+    } else {
+      // List config directory + read key files
+      const listing = await k8s.execInPod(podName, ["find", "/data/config", "-type", "f"]);
+      const files: Record<string, string> = {};
+
+      const keyFiles = ["config/soul.md", "config/openclaw.json", "config/platform-skills.json"];
+      for (const f of keyFiles) {
+        try {
+          files[f] = await k8s.execInPod(podName, ["cat", `/data/${f}`]);
+        } catch {
+          files[f] = "(not found)";
+        }
+      }
+
+      // Also list skills and components
+      let skillFiles = "";
+      let componentFiles = "";
+      try { skillFiles = await k8s.execInPod(podName, ["ls", "-la", "/data/skills/"]); } catch { /* empty */ }
+      try { componentFiles = await k8s.execInPod(podName, ["ls", "-la", "/data/components/"]); } catch { /* empty */ }
+
+      res.json({
+        allConfigFiles: listing.trim().split("\n").filter(Boolean),
+        keyFiles: files,
+        skillFiles: skillFiles.trim(),
+        componentFiles: componentFiles.trim(),
+      });
+    }
+  } catch (err) {
+    res.status(500).json({ error: "Config read failed", details: String(err) });
+  }
+});
+
+// ── Get deployment pod logs (one-shot) ───────────────────────────────────────
+debugRouter.get("/deployment/:id/logs", async (req, res) => {
+  await k8sDebugReady;
+  try {
+    const { id } = req.params;
+    const tailLines = parseInt(req.query.tail as string) || 100;
+
+    if (!k8s) {
+      res.status(503).json({ error: "K8s not available" });
+      return;
+    }
+
+    const deployment = await db.query.deployments.findFirst({
+      where: eq(tables.deployments.id, id),
+    });
+    if (!deployment) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+
+    const managedBy = ((deployment as any).managedBy ?? "legacy") as "legacy" | "operator";
+    const result = await k8s.getDeploymentLogs(id, tailLines, managedBy);
+    res.json({ podName: result.podName, logs: result.logs, lineCount: result.logs.split("\n").length });
+  } catch (err) {
+    res.status(500).json({ error: "Logs failed", details: String(err) });
+  }
+});
+
+// Set deployment theme (for testing without a pod)
+debugRouter.post("/deployment/:id/theme", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const themeConfig = req.body;
+
+    const error = validateThemeConfig(themeConfig);
+    if (error) {
+      res.status(400).json({ error });
+      return;
+    }
+
+    await db.update(tables.deployments)
+      .set({ themeConfig: JSON.stringify(themeConfig), updatedAt: dbDate() } as any)
+      .where(eq(tables.deployments.id, id));
+
+    res.json({ success: true, message: "Theme updated", presets: THEME_PRESET_NAMES });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Get deployment theme
+debugRouter.get("/deployment/:id/theme", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deployment = await db.query.deployments.findFirst({
+      where: eq(tables.deployments.id, id),
+    });
+    if (!deployment) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+    const themeConfig = (deployment as any).themeConfig;
+    res.json({
+      themeConfig: themeConfig ? JSON.parse(themeConfig) : null,
+      availablePresets: THEME_PRESET_NAMES,
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
 
 debugRouter.get("/platform-skills", (_req, res) => {
   const skills = getPlatformSkills();

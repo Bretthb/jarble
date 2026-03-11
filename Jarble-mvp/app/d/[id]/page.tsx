@@ -18,13 +18,16 @@ import DashboardCanvas from "@/components/workspace/DashboardCanvas";
 import EssentialControls from "@/components/workspace/EssentialControls";
 import ConfigPanel from "@/components/workspace/ConfigPanel";
 import MarketplacePanel from "@/components/workspace/MarketplacePanel";
+import HostedServicesPanel from "@/components/workspace/HostedServicesPanel";
 import CanvasRenderer from "@/components/canvas/CanvasRenderer";
 import EditableCanvas from "@/components/canvas/EditableCanvas";
 import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, SendHorizontal, Settings, Store, MessageSquare, Layout, X } from "lucide-react";
-import { useReducer, useRef, useState, useCallback, useEffect, memo } from "react";
+import { ArrowLeft, Loader2, SendHorizontal, Settings, Store, Server, MessageSquare, Layout, X } from "lucide-react";
+import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
+import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
+import type { ThemeConfig } from "@jarble/component-manifest";
 import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import ChatErrorCard from "@/components/workspace/ChatErrorCard";
@@ -98,6 +101,19 @@ const EXAMPLE_PROMPTS = [
   "Show me a chart of something interesting",
   "Create an interactive 3D visualization",
 ];
+
+/** Parse themeConfig JSON and resolve to inline CSS variables */
+function useDeploymentTheme(themeConfigJson: string | null | undefined): React.CSSProperties {
+  return useMemo(() => {
+    if (!themeConfigJson) return {};
+    try {
+      const config: ThemeConfig = JSON.parse(themeConfigJson);
+      return resolveThemeVars(config) as React.CSSProperties;
+    } catch {
+      return {};
+    }
+  }, [themeConfigJson]);
+}
 
 export default function DeploymentChatPage() {
   const { id } = useParams() as { id: string };
@@ -195,6 +211,7 @@ export default function DeploymentChatPage() {
           deploymentId={id}
           deploymentName={deployment.name}
           liveStatus={liveStatus}
+          themeConfig={(deployment as any).themeConfig}
         />
       </DeploymentTamboProvider>
     </ComponentCatalogProvider>
@@ -207,17 +224,21 @@ function WorkspacePage({
   deploymentId,
   deploymentName,
   liveStatus,
+  themeConfig,
 }: {
   deploymentId: string;
   deploymentName: string;
   liveStatus: string;
+  themeConfig?: string | null;
 }) {
   const router = useRouter();
   const [configOpen, setConfigOpen] = useState(false);
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
+  const [hostedServicesOpen, setHostedServicesOpen] = useState(false);
+  const themeStyle = useDeploymentTheme(themeConfig);
 
   return (
-    <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden">
+    <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden" style={themeStyle}>
       {/* Header */}
       <header className="border-b border-border/60 bg-background/95 backdrop-blur-sm z-10 shrink-0">
         <div className="px-4 py-2 flex items-center justify-between">
@@ -240,6 +261,20 @@ function WorkspacePage({
             <EssentialControls deploymentId={deploymentId} status={liveStatus} />
             <div className="w-px h-5 bg-border/60" />
             <Button
+              variant={hostedServicesOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setHostedServicesOpen((v) => {
+                  if (!v) setConfigOpen(false);
+                  return !v;
+                });
+              }}
+              className="h-8 w-8 p-0"
+              title="Hosted Services"
+            >
+              <Server className="w-4 h-4" />
+            </Button>
+            <Button
               variant={marketplaceOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setMarketplaceOpen((v) => !v)}
@@ -251,7 +286,12 @@ function WorkspacePage({
             <Button
               variant={configOpen ? "secondary" : "ghost"}
               size="sm"
-              onClick={() => setConfigOpen((v) => !v)}
+              onClick={() => {
+                setConfigOpen((v) => {
+                  if (!v) setHostedServicesOpen(false);
+                  return !v;
+                });
+              }}
               className="h-8 w-8 p-0"
               title="Configuration"
             >
@@ -262,13 +302,19 @@ function WorkspacePage({
         </div>
       </header>
 
-      {/* Main area: optional config panel + canvas + optional marketplace panel */}
+      {/* Main area: optional config/hosted panel + canvas + optional marketplace panel */}
       <div className="flex-1 flex overflow-hidden">
         {configOpen && (
           <ConfigPanel
             deploymentId={deploymentId}
             liveStatus={liveStatus}
             onClose={() => setConfigOpen(false)}
+          />
+        )}
+        {hostedServicesOpen && (
+          <HostedServicesPanel
+            deploymentId={deploymentId}
+            onClose={() => setHostedServicesOpen(false)}
           />
         )}
         <CanvasWorkspace deploymentId={deploymentId} />

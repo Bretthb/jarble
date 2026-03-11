@@ -2364,3 +2364,143 @@ describe("services.listDeploymentSkills", () => {
     ).rejects.toThrow(/not found/i);
   });
 });
+
+// ── Hosted Services Dashboard ──────────────────────────────────────────────
+
+describe("services.listHostedByDeployment", () => {
+  it("returns services linked to a deployment via creatorDeploymentId", async () => {
+    const depId = seedDeployment();
+    const creatorId = seedCreatorProfile();
+    const svcId = seedService(creatorId, { status: "published" });
+
+    // Link service to deployment
+    ctx.raw.exec(
+      `UPDATE marketplace_packages SET creator_deployment_id = '${depId}' WHERE id = '${svcId}'`
+    );
+
+    const caller = authedCaller();
+    const result = await caller.services.listHostedByDeployment({ deploymentId: depId });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: svcId,
+      status: "published",
+      totalInstalls: 0,
+      monthlyRequests: 0,
+    });
+  });
+
+  it("returns empty array when no services are hosted", async () => {
+    const depId = seedDeployment();
+    const caller = authedCaller();
+    const result = await caller.services.listHostedByDeployment({ deploymentId: depId });
+    expect(result).toEqual([]);
+  });
+
+  it("includes install count from serviceInstalls", async () => {
+    const depId = seedDeployment();
+    const creatorId = seedCreatorProfile();
+    const svcId = seedService(creatorId);
+
+    ctx.raw.exec(
+      `UPDATE marketplace_packages SET creator_deployment_id = '${depId}' WHERE id = '${svcId}'`
+    );
+
+    // Create a second deployment and install the service on it
+    const installerDepId = seedDeployment();
+    installServiceDirectly(svcId, installerDepId);
+
+    const caller = authedCaller();
+    const result = await caller.services.listHostedByDeployment({ deploymentId: depId });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].totalInstalls).toBe(1);
+  });
+
+  it("rejects NOT_FOUND for other user's deployment", async () => {
+    const { userId, auth0Id } = seedSecondUser();
+    const depId = seedDeployment(); // owned by test user
+    const caller = authedCaller({ userId, auth0Id });
+    await expect(
+      caller.services.listHostedByDeployment({ deploymentId: depId }),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it("rejects NOT_FOUND for nonexistent deployment", async () => {
+    const caller = authedCaller();
+    await expect(
+      caller.services.listHostedByDeployment({ deploymentId: "nonexistent" }),
+    ).rejects.toThrow(/not found/i);
+  });
+});
+
+describe("services.hostedServiceStats", () => {
+  it("returns detailed stats for a hosted service", async () => {
+    const depId = seedDeployment();
+    const creatorId = seedCreatorProfile();
+    const svcId = seedService(creatorId, { status: "published" });
+
+    ctx.raw.exec(
+      `UPDATE marketplace_packages SET creator_deployment_id = '${depId}' WHERE id = '${svcId}'`
+    );
+
+    const caller = authedCaller();
+    const result = await caller.services.hostedServiceStats({ serviceId: svcId });
+
+    expect(result.service).toMatchObject({
+      id: svcId,
+      status: "published",
+    });
+    expect(result.totalInstalls).toBe(0);
+    expect(result.totalRequests).toBe(0);
+    expect(result.monthlyUsage).toEqual([]);
+    expect(result.skillBreakdown).toEqual([]);
+    expect(result.installs).toEqual([]);
+  });
+
+  it("includes install list with deployment names", async () => {
+    const depId = seedDeployment();
+    const creatorId = seedCreatorProfile();
+    const svcId = seedService(creatorId);
+
+    ctx.raw.exec(
+      `UPDATE marketplace_packages SET creator_deployment_id = '${depId}' WHERE id = '${svcId}'`
+    );
+
+    const installerDepId = seedDeployment();
+    installServiceDirectly(svcId, installerDepId);
+
+    const caller = authedCaller();
+    const result = await caller.services.hostedServiceStats({ serviceId: svcId });
+
+    expect(result.totalInstalls).toBe(1);
+    expect(result.installs).toHaveLength(1);
+    expect(result.installs[0]).toMatchObject({
+      deploymentId: installerDepId,
+      deploymentName: "Test Bot",
+    });
+  });
+
+  it("rejects FORBIDDEN when user doesn't own the host deployment", async () => {
+    const depId = seedDeployment(); // owned by test user
+    const creatorId = seedCreatorProfile();
+    const svcId = seedService(creatorId);
+
+    ctx.raw.exec(
+      `UPDATE marketplace_packages SET creator_deployment_id = '${depId}' WHERE id = '${svcId}'`
+    );
+
+    const { userId, auth0Id } = seedSecondUser();
+    const caller = authedCaller({ userId, auth0Id });
+    await expect(
+      caller.services.hostedServiceStats({ serviceId: svcId }),
+    ).rejects.toThrow(/not the service/i);
+  });
+
+  it("rejects NOT_FOUND for nonexistent service", async () => {
+    const caller = authedCaller();
+    await expect(
+      caller.services.hostedServiceStats({ serviceId: "nonexistent" }),
+    ).rejects.toThrow(/not found/i);
+  });
+});

@@ -67,6 +67,7 @@ const CREATE_TABLES_SQL = `
     error TEXT,
     messaging_only INTEGER DEFAULT 0 NOT NULL,
     managed_by TEXT DEFAULT 'legacy' NOT NULL,
+    theme_config TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
@@ -306,6 +307,18 @@ export async function initDatabase() {
   // Create tables
   logger.info("Creating SQLite tables");
   sqliteRaw.exec(CREATE_TABLES_SQL);
+
+  // Migrations for existing DBs (ALTER TABLE is idempotent with IF NOT EXISTS on columns)
+  try {
+    const cols = sqliteRaw.pragma("table_info(deployments)") as Array<{ name: string }>;
+    const colNames = new Set(cols.map((c: any) => c.name));
+    if (!colNames.has("theme_config")) {
+      sqliteRaw.exec("ALTER TABLE deployments ADD COLUMN theme_config TEXT");
+      logger.info("Added theme_config column to deployments");
+    }
+  } catch (err) {
+    logger.warn({ err }, "Theme config migration skipped (may already exist)");
+  }
 
   // Seed with test data
   logger.info("Seeding test data");

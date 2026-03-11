@@ -22,6 +22,7 @@ import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrou
 import { syncConfigsToPvc } from "../../services/configSync.js";
 import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
 import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
+import { validateThemeConfig } from "@jarble/component-manifest";
 
 const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills } = tables;
 
@@ -1293,6 +1294,32 @@ export const deploymentRouter = router({
           message,
         });
       }
+    }),
+
+  // Set deployment theme
+  setTheme: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      themeConfig: z.record(z.unknown()),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      const error = validateThemeConfig(input.themeConfig);
+      if (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error });
+      }
+
+      await ctx.db.update(deployments)
+        .set({ themeConfig: JSON.stringify(input.themeConfig) } as any)
+        .where(eq(deployments.id, input.id));
+
+      return { success: true };
     }),
 
   // Delete deployment + K8s resources

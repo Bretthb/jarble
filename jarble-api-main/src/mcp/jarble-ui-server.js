@@ -435,6 +435,24 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "publish_component",
+    description: "Publish a custom component to the Jarble marketplace. The component will be reviewed by the automated review agent before appearing in the marketplace.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Component name (lowercase, letters/digits/underscores)" },
+        displayName: { type: "string", description: "Human-readable display name" },
+        description: { type: "string", description: "Description of what this component does (min 10 chars)" },
+        tier: { type: "string", enum: ["template", "sandbox"], description: "template = safe JSON, sandbox = custom HTML/CSS/JS" },
+        category: { type: "string", description: "Category: dashboard, chart, form, media, utility, game, visualization, layout, social" },
+        propsSchema: { type: "object", description: "JSON Schema describing the component's props" },
+        exampleProps: { type: "object", description: "Example props demonstrating usage" },
+        tags: { type: "array", items: { type: "string" }, description: "Tags for discoverability" },
+      },
+      required: ["name", "displayName", "description"],
+    },
+  },
   // Legacy canvas file tools removed from TOOLS array — replaced by artifact tools above.
   // The old tool names (save_canvas_file, load_canvas_file, list_canvas_files, delete_canvas_file)
   // are still handled as aliases in executeTool() for backward compatibility.
@@ -575,6 +593,37 @@ const TOOLS = [
       type: "object",
       properties: {
         skill: { type: "string", description: "Skill name (e.g. 'component-rendering', 'sandbox-mastery'). Omit to list all available skills." },
+      },
+    },
+  },
+  {
+    name: "set_theme",
+    description: "Set the visual theme for this deployment's web chat page. Changes are applied instantly. Supports presets (midnight, forest, cyberpunk, ocean, rose, amber, terminal) and custom color overrides. Use 'default' preset to reset to platform defaults.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        preset: {
+          type: "string",
+          enum: ["default", "midnight", "forest", "cyberpunk", "ocean", "rose", "amber", "terminal"],
+          description: "Theme preset name. 'default' resets to platform defaults.",
+        },
+        colors: {
+          type: "object",
+          description: "Custom color overrides (hex values like '#ff0000'). Merged on top of preset. Keys: background, foreground, primary, primary-foreground, secondary, secondary-foreground, card, card-foreground, muted, muted-foreground, accent, accent-foreground, destructive, border, input, ring, chart-1 through chart-5.",
+          additionalProperties: { type: "string" },
+        },
+        radius: {
+          type: "string",
+          description: "Border radius value, e.g. '0.75rem', '0', '1rem'",
+        },
+        fontFamily: {
+          type: "string",
+          description: "CSS font-family for body text, e.g. \"'Fira Code', monospace\"",
+        },
+        headingFontFamily: {
+          type: "string",
+          description: "CSS font-family for headings, e.g. \"'Playfair Display', serif\"",
+        },
       },
     },
   },
@@ -771,24 +820,6 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-    },
-  },
-  {
-    name: "publish_component",
-    description: "Publish a custom component to the Jarble marketplace. The component will be reviewed by the automated review agent before appearing in the marketplace.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        name: { type: "string", description: "Component name (lowercase, letters/digits/underscores)" },
-        displayName: { type: "string", description: "Human-readable display name" },
-        description: { type: "string", description: "Description of what this component does (min 10 chars)" },
-        tier: { type: "string", enum: ["template", "sandbox"], description: "template = safe JSON, sandbox = custom HTML/CSS/JS" },
-        category: { type: "string", description: "Category: dashboard, chart, form, media, utility, game, visualization, layout, social" },
-        propsSchema: { type: "object", description: "JSON Schema describing the component's props" },
-        exampleProps: { type: "object", description: "Example props demonstrating usage" },
-        tags: { type: "array", items: { type: "string" }, description: "Tags for discoverability" },
-      },
-      required: ["name", "displayName", "description"],
     },
   },
   // ── Web & Search tools (no API key required) ────────────────────────
@@ -1271,7 +1302,7 @@ function executeDefineComponent(args) {
   try {
     writeComponent(name, def);
     console.error("[MCP] Component defined:", name);
-    return { isError: false, text: `Component "${name}" saved. Use render_ui with component="${name}" to display it.` };
+    return { isError: false, text: `Component "${name}" saved. Use render_ui with component="${name}" to display it.\n\nTip: To share this component with other bots, use the publish_component tool.` };
   } catch (err) {
     console.error("[MCP] Failed to define component:", name, err.message);
     return { isError: true, text: `Failed to save: ${err.message}` };
@@ -3651,6 +3682,41 @@ async function executeListInstalledMarketplace() {
   }
 }
 
+async function executeSetTheme(args) {
+  const body = {};
+  if (args.preset) body.preset = args.preset;
+  if (args.colors) body.colors = args.colors;
+  if (args.radius) body.radius = args.radius;
+  if (args.fontFamily) body.fontFamily = args.fontFamily;
+  if (args.headingFontFamily) body.headingFontFamily = args.headingFontFamily;
+
+  // If nothing specified, treat as reset
+  if (Object.keys(body).length === 0) {
+    body.preset = "default";
+  }
+
+  try {
+    const res = await apiRequest("POST", "/api/pod/theme", body);
+    if (res.status !== 200) {
+      return { isError: true, text: `Failed to set theme: ${JSON.stringify(res.data)}` };
+    }
+
+    const parts = [];
+    if (body.preset) parts.push(`Preset: ${body.preset}`);
+    if (body.colors) parts.push(`Custom colors: ${Object.keys(body.colors).join(", ")}`);
+    if (body.radius) parts.push(`Border radius: ${body.radius}`);
+    if (body.fontFamily) parts.push(`Font: ${body.fontFamily}`);
+    if (body.headingFontFamily) parts.push(`Heading font: ${body.headingFontFamily}`);
+
+    return {
+      isError: false,
+      text: `Theme updated! The chat page will reflect the new theme.\n${parts.join("\n")}`,
+    };
+  } catch (err) {
+    return { isError: true, text: `Failed to set theme: ${err.message}` };
+  }
+}
+
 async function executePublishComponent(args) {
   const { name, displayName, description, tier, category, propsSchema, exampleProps, tags } = args;
 
@@ -4570,6 +4636,7 @@ async function executeTool(name, args) {
     case "uninstall_marketplace_item": return executeUninstallMarketplaceItem(args || {});
     case "list_installed_marketplace": return executeListInstalledMarketplace();
     case "publish_component": return executePublishComponent(args || {});
+    case "set_theme": return executeSetTheme(args || {});
     // Web & Search tools
     case "web_fetch": return executeWebFetch(args || {});
     case "web_search": return executeWebSearch(args || {});

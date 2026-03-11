@@ -7,6 +7,7 @@ import { syncConfigsToPvc } from "../services/configSync.js";
 import { encryptApiKey } from "../utils/encryption.js";
 import { generateSigningSecret } from "../utils/hmac.js";
 import { performInstallHandshake } from "../services/serviceHandshake.js";
+import { validateThemeConfig } from "@jarble/component-manifest";
 
 const logger = createModuleLogger("podApi");
 
@@ -634,7 +635,10 @@ podApiRouter.post("/marketplace/publish-component", async (req: Request, res: Re
   try {
     const deployment = (req as any).podDeployment;
     const deploymentId = (req as any).podDeploymentId as string;
-    const creatorId = await resolveCreatorId((deployment as any).userId, (deployment as any).name);
+    // marketplace_components.creator_id references users.id (NOT creator_profiles.id)
+    // Still ensure a creator profile exists for the user
+    await resolveCreatorId((deployment as any).userId, (deployment as any).name);
+    const creatorId = (deployment as any).userId;
 
     const {
       name,
@@ -689,11 +693,24 @@ podApiRouter.post("/marketplace/publish-component", async (req: Request, res: Re
       updatedAt: now,
     } as any);
 
+    // Auto-create v1.0.0 so the component is installable immediately
+    const versionId = `ver_${nanoid(12)}`;
+    await db.insert(tables.componentVersions).values({
+      id: versionId,
+      componentId: id,
+      version: "1.0.0",
+      changelog: "Initial release",
+      packageUrl: `pod://${deploymentId}/${name}/1.0.0`,
+      packageSizeBytes: 0,
+      manifestHash: `sha256-${nanoid(8)}`,
+      createdAt: now,
+    } as any);
+
     logger.info(
-      { componentId: id, name, creatorId, deploymentId },
+      { componentId: id, versionId, name, creatorId, deploymentId },
       "Pod API: component published to marketplace",
     );
-    res.json({ success: true, id, status: "submitted" });
+    res.json({ success: true, id, versionId, status: "submitted" });
   } catch (err) {
     logger.error({ err }, "Pod API: marketplace component publish failed");
     res.status(500).json({
@@ -875,5 +892,33 @@ podApiRouter.post("/marketplace/register-service", async (req: Request, res: Res
       error: "Failed to register service",
       details: String(err),
     });
+  }
+});
+
+// ── Theme ───────────────────────────────────────────────────────────────────
+
+// POST /api/pod/theme — Set deployment theme (called by set_theme MCP tool)
+podApiRouter.post("/theme", async (req: Request, res: Response) => {
+  try {
+    const deploymentId = (req as any).podDeploymentId as string;
+    const themeConfig = req.body;
+
+    // Validate theme config
+    const error = validateThemeConfig(themeConfig);
+    if (error) {
+      res.status(400).json({ error });
+      return;
+    }
+
+    // Persist to DB
+    await db.update(tables.deployments)
+      .set({ themeConfig: JSON.stringify(themeConfig), updatedAt: dbDate() } as any)
+      .where(eq(tables.deployments.id, deploymentId));
+
+    logger.info({ deploymentId, preset: themeConfig.preset }, "Pod API: theme updated");
+    res.json({ success: true, message: "Theme updated" });
+  } catch (err) {
+    logger.error({ err }, "Pod API: theme update failed");
+    res.status(500).json({ error: "Failed to update theme", details: String(err) });
   }
 });

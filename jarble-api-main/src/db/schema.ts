@@ -49,6 +49,7 @@ export const deployments = mysqlTable("deployments", {
   error: text("error"),
   messagingOnly: boolean("messaging_only").notNull().default(false),
   managedBy: varchar("managed_by", { length: 20 }).notNull().default("legacy"),  // "legacy" | "operator"
+  themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });
