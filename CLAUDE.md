@@ -67,21 +67,22 @@ cd Jarble-mvp && npm run dev
 - **API**: Express, tRPC, SuperJSON, Drizzle ORM
 - **MCP**: Custom stdio MCP server (`jarble-ui-server.js`) running inside bot pods — exposes `render_ui`, `define_component`, `list_components`, `component_reference` tools
 - **Database**: PostgreSQL via Neon (prod), SQLite (dev with USE_SQLITE=true)
-- **Auth**: Auth0 (JWT + JWKS verification)
+- **Auth**: Auth0 (JWT + JWKS verification), RBAC (`super_admin` / `user` roles)
 - **Payments**: Stripe (dynamic pricing via price_data)
 - **Infrastructure**: Hetzner Cloud, Terraform, K3s, Longhorn storage
 - **Container Image**: `ghcr.io/jarble-ai/openclaw:latest` (Node.js 22, OpenClaw runtime)
 
 ### tRPC Router Structure
-The API exposes 8 routers with 75 procedures at `/trpc`, plus 2 REST chat history endpoints (`GET /api/tambo-agent/sessions/*`) mounted in `tamboAgent.ts`:
+The API exposes 9 routers at `/trpc`, plus 2 REST chat history endpoints (`GET /api/tambo-agent/sessions/*`) mounted in `tamboAgent.ts`:
 - `user` - Profile management, auth state
-- `deployment` - CRUD, lifecycle (start/stop/restart), K8s operations
+- `deployment` - CRUD, lifecycle (start/stop/restart), K8s operations (admins bypass ownership checks)
 - `runtimeCatalog` - Available bot runtimes
 - `openrouter` - LLM key provisioning, validation, multi-provider support
 - `billing` - Stripe checkout, subscriptions
 - `platformCredentials` - Encrypted messaging platform credentials, pairing flows
 - `template` - Bot configuration templates
 - `marketplace` - Component marketplace: browse, install, publish, review, creator tools, admin moderation
+- `admin` - Platform admin: stats, user management, all deployments, deployment control (start/stop/restart/delete), billing stats, system health, audit logs (13 procedures, all `adminProcedure`-guarded)
 
 ### Frontend-Backend Communication
 - **tRPC + React Query**: Type-safe API calls with automatic caching
@@ -91,7 +92,7 @@ The API exposes 8 routers with 75 procedures at `/trpc`, plus 2 REST chat histor
 
 ### Database Schema (Drizzle)
 Core tables in `jarble-api-main/src/db/schema.ts` (SQLite variant in `schema.sqlite.ts`):
-- `users` - Auth0 ID, Stripe customer, email verification, free trial state
+- `users` - Auth0 ID, Stripe customer, email verification, free trial state, role (`user` or `super_admin`)
 - `deployments` - Bot instances with K8s state, LLM config (provider, model, encrypted API key), subscription links
 - `runtimeCatalog` - Available runtimes with hardware specs and pricing
 - `platformCredentials` - AES-256-GCM encrypted platform tokens (Telegram, Discord, Slack, WhatsApp, etc.)
@@ -106,6 +107,7 @@ Core tables in `jarble-api-main/src/db/schema.ts` (SQLite variant in `schema.sql
 - `marketplaceCreators` - Creator profiles
 - `chat_sessions` - Chat conversation sessions per deployment (auto-titled from first user message, tracks `createdAt`/`updatedAt`)
 - `chat_messages` - Individual messages per session (role: user/assistant, cleaned content, optional `thinkingText`)
+- `auditLogs` - Admin action audit trail (userId, action, targetType, targetId, metadata JSON, ipAddress, createdAt)
 
 SQLite dev DB is file-based at `jarble-api-main/local.db` (persists across tsx watch restarts). Seed data (test user, runtime catalog, skills) created on startup via `db/init.ts`.
 
@@ -314,6 +316,9 @@ if (isLoading) return <Spinner />;
 if (!isAuthenticated) return <Redirect to="/login" />;
 ```
 
+### Admin Routes
+Admin pages (`/admin/*`) are protected by `AdminGuard` which checks `useIsAdmin()` (queries `user.getProfile` for `role === "super_admin"`) and redirects non-admins to `/dashboard`. Backend uses `adminProcedure` middleware (composed from `protectedProcedure` + `isAdmin()` check from `utils/rbac.ts`).
+
 ### Linked Deployments Graph
 `/deployments` uses React Flow (@xyflow/react) + dagre for an interactive node graph showing credit pool relationships. Nodes are circle icons (owner/linked/standalone), edges show credit pool links, and clicking a node opens a detail panel overlay on the left. Filter bar toggles credit pool edges and filters by runtime.
 
@@ -384,7 +389,11 @@ Available when running locally:
 | `runtimes/handlers/openclaw.ts` | OpenClaw runtime: renderConfigs, getSecretEntries, parseConfigs |
 | `trpc/routers/platformCredentials.ts` | Credential CRUD, WhatsApp/Telegram pairing, pollTelegramPairing |
 | `trpc/routers/openrouter.ts` | Multi-provider LLM key validation, OpenRouter provisioning |
-| `trpc/routers/deployment.ts` | Deployment CRUD, lifecycle, K8s orchestration |
+| `trpc/routers/deployment.ts` | Deployment CRUD, lifecycle, K8s orchestration (admins bypass ownership via `deploymentWhere()`) |
+| `trpc/routers/admin.ts` | Admin router: 13 procedures for platform management (stats, users, deployments, billing, audit logs) |
+| `trpc/middleware.ts` | tRPC middleware: `publicProcedure`, `protectedProcedure`, `adminProcedure` |
+| `utils/rbac.ts` | Role-based access control helper (`isAdmin()`, `UserRole` type) |
+| `services/auditLog.ts` | Fire-and-forget audit logging for admin actions (`logAdminAction()`) |
 | `db/schema.sqlite.ts` | SQLite schema (dev) |
 | `db/init.ts` | Seed data for local dev |
 | `utils/encryption.ts` | AES-256-GCM encrypt/decrypt for credentials |
@@ -427,6 +436,10 @@ Available when running locally:
 | `components/ResourceMetrics.tsx` | CPU/memory progress bars, uptime, restart count for dashboard cards |
 | `components/chat/ChatSessionSidebar.tsx` | Collapsible sidebar with chat history grouped by date |
 | `hooks/useChatSessions.ts` | Fetches conversation history from DB via REST (`GET /api/tambo-agent/sessions/*`) |
+| `hooks/useIsAdmin.ts` | Admin role check hook (`useIsAdmin()` → queries `user.getProfile`) |
+| `components/admin/AdminGuard.tsx` | Client-side admin guard — redirects non-admins to `/dashboard` |
+| `app/admin/layout.tsx` | Admin layout: top navbar + sidebar navigation (7 sections) |
+| `views/admin/Admin*.tsx` | 8 admin views: Overview, Users, UserDetail, Deployments, Marketplace, Billing, System, Audit |
 
 ## Component Manifest (`shared/component-manifest/`)
 
@@ -489,6 +502,40 @@ Component marketplace for discovering, installing, and publishing custom UI comp
 
 **Manifest validator** (`services/manifestValidator.ts`): 11 validation rules for component manifests.
 
+## RBAC & Admin Dashboard
+
+### Role System
+Two roles stored in DB `users.role` column (DB is authoritative, not JWT):
+- `user` (default) — Standard platform access
+- `super_admin` — Full platform management + ownership bypass on all deployments
+
+### Backend Authorization
+- `protectedProcedure` — Requires authenticated user (JWT verified)
+- `adminProcedure` — Extends `protectedProcedure`, requires `role === "super_admin"` via `isAdmin()` from `utils/rbac.ts`
+- `deploymentWhere()` helper in `deployment.ts` — Skips `userId` ownership check for admins, enabling admins to manage any deployment through standard routes
+- Marketplace admin: replaced hardcoded `ADMIN_USER_IDS` set with `isAdmin()` check
+
+### Admin Dashboard (`/admin`)
+8 pages with sidebar navigation, guarded by `AdminGuard`:
+
+| Route | View | Data Source |
+|-------|------|-------------|
+| `/admin` | Overview — 4 stat cards (users, deployments, active, revenue) | `admin.getStats` |
+| `/admin/users` | Searchable user table with role badges | `admin.listUsers` |
+| `/admin/users/[id]` | User detail + deployments + role toggle | `admin.getUserById`, `admin.updateUserRole` |
+| `/admin/deployments` | All deployments table with start/stop/restart/delete actions | `admin.listAllDeployments` |
+| `/admin/marketplace` | Moderation queue (placeholder) | — |
+| `/admin/billing` | Revenue stats: MRR, active subs, free vs paid | `admin.getRevenueStats` |
+| `/admin/system` | Pod status breakdown by state | `admin.getSystemHealth` |
+| `/admin/audit` | Audit log table with action/user filters | `admin.getAuditLogs` |
+
+### Audit Logging
+All admin mutations (deployment control, role changes) log to `audit_logs` table via `logAdminAction()`. Captures: userId, action, targetType, targetId, metadata (JSON), ipAddress, createdAt.
+
+### Accessing Admin
+- Navigate to `/admin` or use the Shield icon in `ProfileDropdown` (visible only to `super_admin` users)
+- Admin user seeded in DB migration: `auth0_id = 'google-oauth2|112298309586248235116'`
+
 ## Security
 
 ### Sandbox Security
@@ -497,6 +544,15 @@ Component marketplace for discovering, installing, and publishing custom UI comp
 - **Server-side library URL validation**: `uiBlockParser.ts` validates library URLs against a CDN allowlist before they reach the client
 - **HTML sanitization**: DOMPurify via `lib/sanitize.ts` sanitizes HTML content
 - **30s watchdog timer**: Kills runaway scripts in sandbox iframes
+
+### Authentication & Authorization
+- **Auth0 JWT**: Verified via JWKS, Bearer token in `Authorization` header
+- **RBAC**: DB-authoritative role system (`user` / `super_admin`), JWT role claim is informational only
+- **Admin middleware**: `adminProcedure` composed from `protectedProcedure` — no `as any` casts, uses `isAdmin()` helper
+- **Ownership bypass**: Admins skip `userId` checks on deployment queries via `deploymentWhere()` helper
+- **Audit trail**: All admin mutations logged to `audit_logs` with IP address, action, target, and metadata
+- **Input validation**: Admin search inputs capped at 100 chars, LIKE wildcards escaped via `escapeLike()`, status filters use `z.enum()`
+- **Sensitive field protection**: Admin queries use explicit column selects (never `SELECT *`) to prevent leaking `llmApiKey`, `auth0Id`, `stripeCustomerId`
 
 ### Response Headers
 - `X-Content-Type-Options: nosniff`
