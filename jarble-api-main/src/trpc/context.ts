@@ -23,7 +23,7 @@ export async function createContext({ req }: CreateExpressContextOptions) {
     logger.debug({ path: req.path }, "No auth token provided");
   }
 
-  return { user, db };
+  return { user, db, ip: req.ip ?? null };
 }
 
 export type Context = Awaited<ReturnType<typeof createContext>>;

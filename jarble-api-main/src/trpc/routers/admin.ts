@@ -18,6 +18,26 @@ import { logger } from "../../utils/logger.js";
 
 const { users, deployments, chatSessions, auditLogs } = tables;
 
+/** Escape SQL LIKE wildcards in user-provided search strings */
+function escapeLike(str: string): string {
+  return str.replace(/[%_\\]/g, "\\$&");
+}
+
+/** Verify a deployment exists and return safe fields, or throw NOT_FOUND */
+async function requireDeployment(id: string) {
+  const [dep] = await db
+    .select({
+      id: deployments.id,
+      stripeSubscriptionId: deployments.stripeSubscriptionId,
+    })
+    .from(deployments)
+    .where(eq(deployments.id, id));
+  if (!dep) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+  }
+  return dep;
+}
+
 // ── Platform Stats ──────────────────────────────────────────────────────
 
 const getStats = adminProcedure.query(async () => {
@@ -55,7 +75,7 @@ const listUsers = adminProcedure
     z.object({
       page: z.number().int().min(1).default(1),
       limit: z.number().int().min(1).max(100).default(20),
-      search: z.string().optional(),
+      search: z.string().max(100).optional(),
     })
   )
   .query(async ({ input }) => {
@@ -64,8 +84,8 @@ const listUsers = adminProcedure
 
     const conditions = search
       ? or(
-          like(users.name, `%${search}%`),
-          like(users.email, `%${search}%`)
+          like(users.name, `%${escapeLike(search)}%`),
+          like(users.email, `%${escapeLike(search)}%`)
         )
       : undefined;
 
@@ -100,16 +120,47 @@ const listUsers = adminProcedure
 const getUserById = adminProcedure
   .input(z.object({ userId: z.string() }))
   .query(async ({ input }) => {
-    const user = await (db as any).query.users.findFirst({
-      where: eq(users.id, input.userId),
-      with: { deployments: true },
-    });
+    // Explicit select to avoid leaking sensitive fields (llmApiKey, auth0Id, stripeCustomerId)
+    const [user] = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        role: users.role,
+        emailVerified: users.emailVerified,
+        freeDeploymentUsed: users.freeDeploymentUsed,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
+      })
+      .from(users)
+      .where(eq(users.id, input.userId));
+
     if (!user) {
       throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
     }
-    return user;
+
+    // Fetch deployments with safe fields only
+    const userDeployments = await db
+      .select({
+        id: deployments.id,
+        name: deployments.name,
+        runtime: deployments.runtime,
+        status: deployments.status,
+        llmProvider: deployments.llmProvider,
+        llmModel: deployments.llmModel,
+        llmMode: deployments.llmMode,
+        monthlyPriceCents: deployments.monthlyPriceCents,
+        isFree: deployments.isFree,
+        createdAt: deployments.createdAt,
+      })
+      .from(deployments)
+      .where(eq(deployments.userId, input.userId));
+
+    return { ...user, deployments: userDeployments };
   });
 
+// Self-demotion guard: admins cannot remove their own admin role.
+// Note: self-promotion (already admin setting super_admin) is a no-op and allowed by design.
 const updateUserRole = adminProcedure
   .input(
     z.object({
@@ -130,12 +181,13 @@ const updateUserRole = adminProcedure
       .set({ role: input.role })
       .where(eq(users.id, input.userId));
 
-    logAdminAction({
+    await logAdminAction({
       userId: ctx.user.id,
       action: "update_user_role",
       targetType: "user",
       targetId: input.userId,
       metadata: { newRole: input.role },
+      ipAddress: ctx.ip ?? undefined,
     });
 
     return { success: true };
@@ -148,8 +200,8 @@ const listAllDeployments = adminProcedure
     z.object({
       page: z.number().int().min(1).default(1),
       limit: z.number().int().min(1).max(100).default(20),
-      status: z.string().optional(),
-      search: z.string().optional(),
+      status: z.enum(["creating", "running", "stopped", "failed", "pending", "error"]).optional(),
+      search: z.string().max(100).optional(),
     })
   )
   .query(async ({ input }) => {
@@ -161,10 +213,11 @@ const listAllDeployments = adminProcedure
       conditions.push(eq(deployments.status, status));
     }
     if (search) {
+      const escaped = escapeLike(search);
       conditions.push(
         or(
-          like(deployments.name, `%${search}%`),
-          like(deployments.id, `%${search}%`)
+          like(deployments.name, `%${escaped}%`),
+          like(deployments.id, `%${escaped}%`)
         )!
       );
     }
@@ -205,17 +258,36 @@ const listAllDeployments = adminProcedure
 const getDeploymentById = adminProcedure
   .input(z.object({ id: z.string() }))
   .query(async ({ input }) => {
-    const deployment = await (db as any).query.deployments.findFirst({
-      where: eq(deployments.id, input.id),
-      with: { runtimeCatalogEntry: true, user: true },
-    });
-    if (!deployment) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Deployment not found",
-      });
+    // Explicit select to avoid leaking llmApiKey, llmApiKeyId, and other sensitive fields
+    const [dep] = await db
+      .select({
+        id: deployments.id,
+        name: deployments.name,
+        description: deployments.description,
+        runtime: deployments.runtime,
+        status: deployments.status,
+        error: deployments.error,
+        llmProvider: deployments.llmProvider,
+        llmModel: deployments.llmModel,
+        llmMode: deployments.llmMode,
+        llmCreditLimitDollars: deployments.llmCreditLimitDollars,
+        monthlyPriceCents: deployments.monthlyPriceCents,
+        isFree: deployments.isFree,
+        messagingOnly: deployments.messagingOnly,
+        userId: deployments.userId,
+        createdAt: deployments.createdAt,
+        updatedAt: deployments.updatedAt,
+        ownerEmail: users.email,
+        ownerName: users.name,
+      })
+      .from(deployments)
+      .leftJoin(users, eq(deployments.userId, users.id))
+      .where(eq(deployments.id, input.id));
+
+    if (!dep) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
     }
-    return deployment;
+    return dep;
   });
 
 // ── Deployment Control ──────────────────────────────────────────────────
@@ -223,13 +295,15 @@ const getDeploymentById = adminProcedure
 const adminStartDeployment = adminProcedure
   .input(z.object({ id: z.string() }))
   .mutation(async ({ ctx, input }) => {
+    await requireDeployment(input.id);
     await startDeployment(input.id);
 
-    logAdminAction({
+    await logAdminAction({
       userId: ctx.user.id,
       action: "start_deployment",
       targetType: "deployment",
       targetId: input.id,
+      ipAddress: ctx.ip ?? undefined,
     });
 
     return { success: true };
@@ -238,13 +312,15 @@ const adminStartDeployment = adminProcedure
 const adminStopDeployment = adminProcedure
   .input(z.object({ id: z.string() }))
   .mutation(async ({ ctx, input }) => {
+    await requireDeployment(input.id);
     await stopDeployment(input.id);
 
-    logAdminAction({
+    await logAdminAction({
       userId: ctx.user.id,
       action: "stop_deployment",
       targetType: "deployment",
       targetId: input.id,
+      ipAddress: ctx.ip ?? undefined,
     });
 
     return { success: true };
@@ -253,13 +329,15 @@ const adminStopDeployment = adminProcedure
 const adminRestartDeployment = adminProcedure
   .input(z.object({ id: z.string() }))
   .mutation(async ({ ctx, input }) => {
+    await requireDeployment(input.id);
     await restartDeployment(input.id);
 
-    logAdminAction({
+    await logAdminAction({
       userId: ctx.user.id,
       action: "restart_deployment",
       targetType: "deployment",
       targetId: input.id,
+      ipAddress: ctx.ip ?? undefined,
     });
 
     return { success: true };
@@ -268,20 +346,7 @@ const adminRestartDeployment = adminProcedure
 const adminDeleteDeployment = adminProcedure
   .input(z.object({ id: z.string() }))
   .mutation(async ({ ctx, input }) => {
-    // Look up deployment for Stripe subscription info
-    const [dep] = await db
-      .select({
-        stripeSubscriptionId: deployments.stripeSubscriptionId,
-      })
-      .from(deployments)
-      .where(eq(deployments.id, input.id));
-
-    if (!dep) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Deployment not found",
-      });
-    }
+    const dep = await requireDeployment(input.id);
 
     // Delete K8s resources
     await deleteDeployment(input.id);
@@ -301,11 +366,12 @@ const adminDeleteDeployment = adminProcedure
     // Delete from DB
     await db.delete(deployments).where(eq(deployments.id, input.id));
 
-    logAdminAction({
+    await logAdminAction({
       userId: ctx.user.id,
       action: "delete_deployment",
       targetType: "deployment",
       targetId: input.id,
+      ipAddress: ctx.ip ?? undefined,
     });
 
     return { success: true };
@@ -378,7 +444,7 @@ const getAuditLogs = adminProcedure
     z.object({
       page: z.number().int().min(1).default(1),
       limit: z.number().int().min(1).max(100).default(50),
-      action: z.string().optional(),
+      action: z.string().max(100).optional(),
       userId: z.string().optional(),
     })
   )
