@@ -34,6 +34,7 @@ import { serviceStreamRouter } from "./routes/serviceStream.js";
 import { serviceHeartbeatRouter } from "./routes/serviceHeartbeat.js";
 import { serviceJobsRouter, startJobCleanup } from "./routes/serviceJobs.js";
 import { podApiRouter } from "./routes/podApi.js";
+import { filesRouter } from "./routes/files.js";
 import { attachTerminalWs } from "./routes/terminal.js";
 
 const app = express();
@@ -105,6 +106,7 @@ app.use("/api/services", serviceStreamRouter);
 app.use("/api/services", serviceHeartbeatRouter);
 app.use("/api/services", serviceJobsRouter);
 app.use("/api/pod", podApiRouter);
+app.use("/api/deployments", filesRouter);
 
 // Debug endpoints — dev only
 if (env.NODE_ENV === "development") {

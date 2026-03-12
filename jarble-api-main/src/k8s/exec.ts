@@ -224,6 +224,56 @@ export async function findPodForDeployment(
 }
 
 /**
+ * Execute a command in a pod and return stdout as a PassThrough stream.
+ * Unlike execInPod() which accumulates all stdout into a string, this
+ * returns a stream suitable for piping large binary data (e.g. base64-encoded files).
+ */
+export async function execInPodStreaming(
+  podName: string,
+  command: string[],
+  containerName: string = LEGACY_CONTAINER_NAME,
+  timeoutMs: number = 300000
+): Promise<stream.PassThrough> {
+  log.debug({ podName, command: command.join(" ") }, "execInPodStreaming");
+  const stdout = new stream.PassThrough();
+  const stderr = new stream.PassThrough();
+
+  let stderrData = "";
+  stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
+
+  const timeout = setTimeout(() => {
+    stdout.destroy(new Error(`execInPodStreaming timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  try {
+    await execClient.exec(
+      NAMESPACE,
+      podName,
+      containerName,
+      command,
+      stdout,
+      stderr,
+      null,
+      false,
+      (status) => {
+        clearTimeout(timeout);
+        if (status.status !== "Success") {
+          stdout.destroy(new Error(`exec failed: ${status.message || stderrData || "unknown"}`));
+        } else {
+          stdout.end();
+        }
+      }
+    );
+  } catch (err) {
+    clearTimeout(timeout);
+    log.error({ err, podName, command: command.join(" ") }, "execInPodStreaming failed");
+    stdout.destroy(err instanceof Error ? err : new Error(String(err)));
+  }
+
+  return stdout;
+}
+
+/**
  * Escape a value for use in single-quoted shell assignment.
  * Handles embedded single quotes: ' → '\''
  */

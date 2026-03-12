@@ -19,11 +19,12 @@ import EssentialControls from "@/components/workspace/EssentialControls";
 import ConfigPanel from "@/components/workspace/ConfigPanel";
 import MarketplacePanel from "@/components/workspace/MarketplacePanel";
 import HostedServicesPanel from "@/components/workspace/HostedServicesPanel";
+import FilePanel from "@/components/workspace/FilePanel";
 import CanvasRenderer from "@/components/canvas/CanvasRenderer";
 import EditableCanvas from "@/components/canvas/EditableCanvas";
 import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, SendHorizontal, Settings, Store, Server, MessageSquare, Layout, X } from "lucide-react";
+import { ArrowLeft, Loader2, SendHorizontal, Settings, Store, Server, FolderOpen, MessageSquare, Layout, X } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -235,6 +236,7 @@ function WorkspacePage({
   const [configOpen, setConfigOpen] = useState(false);
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
   const [hostedServicesOpen, setHostedServicesOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
   const themeStyle = useDeploymentTheme(themeConfig);
 
   return (
@@ -261,11 +263,25 @@ function WorkspacePage({
             <EssentialControls deploymentId={deploymentId} status={liveStatus} />
             <div className="w-px h-5 bg-border/60" />
             <Button
+              variant={filesOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setFilesOpen((v) => {
+                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); }
+                  return !v;
+                });
+              }}
+              className="h-8 w-8 p-0"
+              title="Files"
+            >
+              <FolderOpen className="w-4 h-4" />
+            </Button>
+            <Button
               variant={hostedServicesOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => {
                 setHostedServicesOpen((v) => {
-                  if (!v) setConfigOpen(false);
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); }
                   return !v;
                 });
               }}
@@ -288,7 +304,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setConfigOpen((v) => {
-                  if (!v) setHostedServicesOpen(false);
+                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); }
                   return !v;
                 });
               }}
@@ -304,6 +320,12 @@ function WorkspacePage({
 
       {/* Main area: optional config/hosted panel + canvas + optional marketplace panel */}
       <div className="flex-1 flex overflow-hidden">
+        {filesOpen && (
+          <FilePanel
+            deploymentId={deploymentId}
+            onClose={() => setFilesOpen(false)}
+          />
+        )}
         {configOpen && (
           <ConfigPanel
             deploymentId={deploymentId}

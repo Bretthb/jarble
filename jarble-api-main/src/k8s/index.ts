@@ -8,7 +8,7 @@ export { CRD_GROUP, CRD_VERSION, CRD_PLURAL } from "./constants.js";
 export { getContainerName, getPvcMountPath, getContainerHome, podLabelSelector } from "./constants.js";
 export type { DeploymentConfig, ManagedBy } from "./constants.js";
 
-export { execInPod, execInPodWithStdin, streamExecInPod, findPodForDeployment, escapeShellValue } from "./exec.js";
+export { execInPod, execInPodWithStdin, execInPodStreaming, streamExecInPod, findPodForDeployment, escapeShellValue } from "./exec.js";
 
 export { createDeployment, stopDeployment, startDeployment, restartDeployment, deleteDeployment } from "./lifecycle.js";
 
