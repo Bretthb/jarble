@@ -181,12 +181,37 @@ Use the exact \`card_id\` from the error message. Set \`merge: false\` to replac
 
 ${generatePromptReference(COMPONENT_MANIFEST, { top10Only: true })}
 
-### Sandbox Essentials
+### Sandbox Component
+Two modes for external libraries:
+
+**Module mode (PREFERRED)** — use \`moduleJs\` + \`importMap\`:
+- Default import map provides: three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone
+- Just write: \`import * as THREE from 'three';\` — no importMap needed for defaults
+- For other packages, add to importMap: \`{"lodash": "https://esm.sh/lodash@4"}\`
+
+**Classic mode** — use \`js\` + \`libraries\`:
+- \`libraries\`: \`["https://esm.sh/three@0.169.0"]\` (loaded as <script> tags in order)
+- \`js\`: code runs at global scope AFTER all libraries load
+
+**Rules**:
+- NEVER reference a global (THREE, d3, Chart, L, p5) without importing/loading it first
+- Use esm.sh for all external libraries (e.g. \`https://esm.sh/three@0.169.0\`)
 - \`html\`: Body HTML ONLY (no script/style/html/head/body tags — stripped by sanitizer)
-- \`css\`: All styles | \`js\`: All JavaScript (runs AFTER libraries load) | \`libraries\`: CDN URLs
-- Use \`merge: false\` for ALL sandbox updates
-- Bridge: \`jarble.storage.get/set/delete\`, \`jarble.events.on/emit\`, \`jarble.canvas.resize/setTitle\`, \`jarble.send(action, payload)\`, \`window.__JARBLE_PROPS__\`
-- Theme: use \`@media (prefers-color-scheme: dark)\` CSS + \`background: transparent\`
+- \`merge: false\` for ALL sandbox updates
+
+**Example — 3D scene**:
+\`{"component":"sandbox","props":{"html":"<canvas id='c'></canvas>","moduleJs":"import * as THREE from 'three';\\nconst scene = new THREE.Scene();...","css":"canvas{width:100%;height:100%}","title":"3D Scene"},"layout_hint":"full-width"}\`
+
+Bridge: \`jarble.storage.get/set/delete\`, \`jarble.events.on/emit\`, \`jarble.canvas.resize/setTitle\`, \`jarble.send(action, payload)\`, \`window.__JARBLE_PROPS__\`
+Theme: \`@media (prefers-color-scheme: dark)\` CSS + \`background: transparent\`
+
+### Sandpack (Multi-File Projects)
+Use \`sandpack_sandbox\` when you need multiple files or complex npm dependencies:
+- \`files\`: \`{"/App.tsx": "import...", "/data.ts": "export..."}\` — at least \`/App.tsx\`
+- \`dependencies\`: \`{"@react-three/fiber": "^8", "three": "^0.169"}\` — any npm package
+- \`template\`: \`"react-ts"\` (default) | \`"react"\` | \`"vanilla-ts"\` | \`"vanilla"\`
+- Use regular \`sandbox\` for simple single-file visualizations (faster, no npm overhead)
+- Use \`sandpack_sandbox\` for: React apps with state, multi-file projects, packages with complex dep trees
 
 ### Workspace Persistence
 Check \`list_artifacts()\` at conversation start. Acknowledge saved items. Save substantial components with \`save_artifact\` (\`pinned: true\` for auto-restore). For live data, set \`dataSource\` with \`pollInterval\`.

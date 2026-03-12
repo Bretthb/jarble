@@ -75,6 +75,11 @@ export const COMPONENT_NAME_MAP: Record<string, string> = {
   stepper: "steps",
   tree_view: "tree",
   status: "result",
+  // Sandpack aliases
+  sandpack: "sandpack_sandbox",
+  npm_sandbox: "sandpack_sandbox",
+  project_sandbox: "sandpack_sandbox",
+  SandpackSandbox: "sandpack_sandbox",
   // Embed aliases
   widget: "embed",
   iframe: "embed",
@@ -815,6 +820,33 @@ function applyStructuralFixes(
       }
     }
   }
+
+  // Rule 36: sandbox-detect-bare-globals — detect unimported globals and convert to module mode
+  if (component === "sandbox" && typeof props.js === "string" && !props.moduleJs && !props.libraries) {
+    const jsCode = props.js as string;
+    const GLOBAL_TO_IMPORT: Record<string, string> = {
+      "THREE": "import * as THREE from 'three';",
+      "d3": "import * as d3 from 'd3';",
+      "Chart": "import { Chart } from 'chart.js/auto';",
+      "L": "import L from 'leaflet';",
+      "gsap": "import gsap from 'gsap';",
+      "p5": "import p5 from 'p5';",
+      "Tone": "import * as Tone from 'tone';",
+    };
+    const needed: string[] = [];
+    for (const [global, importStmt] of Object.entries(GLOBAL_TO_IMPORT)) {
+      // Match the global as a standalone identifier (not inside a string or as part of another word)
+      const re = new RegExp(`\\b${global}\\b`);
+      if (re.test(jsCode)) {
+        needed.push(importStmt);
+      }
+    }
+    if (needed.length > 0) {
+      props.moduleJs = needed.join("\n") + "\n" + jsCode;
+      delete props.js;
+      recordRepair(repairs, "sandbox-detect-bare-globals", "props.js -> props.moduleJs", "js with bare globals", `moduleJs with ${needed.length} import(s)`);
+    }
+  }
 }
 
 // ── Category 5: Field Aliases ────────────────────────────────────────────────
@@ -1091,6 +1123,40 @@ export function autoFixProps(
 
   // 8. Data normalization (progress percent strip, sparkline cleanup)
   applyDataNormalization(normalizedComponent, fixed, repairs);
+
+  // 9. Sandbox → Sandpack upgrade (component type change)
+  if (normalizedComponent === "sandbox" && typeof fixed.moduleJs === "string") {
+    const code = fixed.moduleJs as string;
+    const hasReactPatterns = /\b(useState|useEffect|createElement|useRef|useCallback|useMemo)\b/.test(code);
+    const importCount = (code.match(/^import\s/gm) || []).length;
+    if (hasReactPatterns && code.length > 500 && importCount >= 3) {
+      const files: Record<string, string> = { "/App.tsx": code };
+      const deps: Record<string, string> = {};
+      if (isPlainObject(fixed.importMap)) {
+        for (const [pkg, url] of Object.entries(fixed.importMap as Record<string, string>)) {
+          if (typeof url === "string") {
+            const versionMatch = url.match(/@([^/]+)/);
+            deps[pkg] = versionMatch ? `^${versionMatch[1]}` : "latest";
+          }
+        }
+      }
+      fixed.files = files;
+      if (Object.keys(deps).length > 0) fixed.dependencies = deps;
+      fixed.template = "react-ts";
+      delete fixed.moduleJs;
+      delete fixed.importMap;
+      delete fixed.html;
+      delete fixed.css;
+      delete fixed.js;
+      delete fixed.libraries;
+      recordRepair(repairs, "sandbox-upgrade-to-sandpack", "component", "sandbox", "sandpack_sandbox");
+      // Return with changed component name
+      if (repairs.length > 0 && process.env.NODE_ENV === "development") {
+        console.warn(`[AutoFix] ${repairs.length} repair(s) for sandpack_sandbox:`, repairs.map((r) => r.rule));
+      }
+      return { component: "sandpack_sandbox", props: fixed, repairs };
+    }
+  }
 
   // Dev-mode logging
   if (repairs.length > 0 && process.env.NODE_ENV === "development") {

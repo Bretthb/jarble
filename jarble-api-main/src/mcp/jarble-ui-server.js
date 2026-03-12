@@ -393,7 +393,7 @@ function listCustomComponents() {
 const TOOLS = [
   {
     name: "render_ui",
-    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, metric_card, header, button_group, form, code_editor, spreadsheet, sandbox) and custom bot-defined components. For anything beyond these — charts, gauges, maps, 3D, animations, custom visualizations — use the sandbox component with HTML/CSS/JS. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
+    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, metric_card, header, button_group, form, code_editor, spreadsheet, sandbox) and custom bot-defined components. For anything beyond these — charts, gauges, maps, 3D, animations, custom visualizations — use the sandbox component with HTML/CSS/JS. Sandbox supports moduleJs (ES module code with import statements) and importMap (bare specifier to CDN URL mapping). Default imports include three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone — just use import statements. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2360,7 +2360,7 @@ const COMPONENT_REFERENCE = {
   form: "`{title?, fields: [{name, label, type: text|email|textarea|select|checkbox|number, placeholder?, required?, options?, defaultValue?}], submitLabel?}`",
   code_editor: "`{code, language?, title?, readOnly?, height?}` — Monaco code editor",
   spreadsheet: "`{data?: [{...}], title?, height?}` — editable Excel-like grid",
-  sandbox: "`{html, css?, js?, moduleJs?, importMap?: {}, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML. js=classic JavaScript (UMD globals). moduleJs=ES module JS with import statements. importMap=maps bare specifiers to CDN URLs (e.g. {\"react\":\"https://esm.sh/react@18\"}). libraries=CDN URLs loaded as <script> tags. Use for: gauges, maps, scatter plots, heatmaps, 3D, animations, candlestick charts, word clouds, React/Vue/Svelte components, or ANY custom visualization.",
+  sandbox: "`{html, css?, js?, moduleJs?, importMap?: {}, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML. js=classic JavaScript (UMD globals). moduleJs=ES module JS with import statements. importMap=maps bare specifiers to CDN URLs (e.g. {\"react\":\"https://esm.sh/react@18\"}). libraries=CDN URLs loaded as <script> tags. Default import map includes: three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone — no importMap needed for these packages, just use import statements in moduleJs. Use for: gauges, maps, scatter plots, heatmaps, 3D, animations, candlestick charts, word clouds, React/Vue/Svelte components, or ANY custom visualization.",
   video: "`{url, title?, controls?: true, loop?: false, muted?: false}` — video/livestream player. Supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct MP4/HLS URLs. Use for livestreams (e.g. YouTube Live, Twitch channels). Just pass the URL.",
 };
 
@@ -2395,6 +2395,11 @@ function executeComponentReference(args) {
         lines.push("");
         lines.push("**Copy-paste example:**");
         lines.push(COMPONENT_EXAMPLES[name]);
+      }
+      // Add default import map note for sandbox
+      if (name === "sandbox") {
+        lines.push("");
+        lines.push("**Default import map:** three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone — no importMap needed for these packages, just use import statements in moduleJs.");
       }
       return { isError: false, text: lines.join("\n") };
     }

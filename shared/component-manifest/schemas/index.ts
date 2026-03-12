@@ -327,6 +327,10 @@ export const sandboxSchema = z.object({
   html: z.string(),
   css: z.string().optional(),
   js: z.string().optional(),
+  /** ES module JavaScript — rendered as <script type="module">. */
+  moduleJs: z.string().optional(),
+  /** Import map — maps bare specifiers to CDN URLs (e.g. {"react": "https://esm.sh/react@18"}). */
+  importMap: z.record(z.string(), z.string()).optional(),
   props: z.record(z.string(), z.unknown()).optional(),
   height: z.number().optional(),
   title: z.string().optional(),
@@ -339,6 +343,10 @@ export const marketplaceSandboxSchema = z.object({
   html: z.string(),
   css: z.string().optional(),
   js: z.string().optional(),
+  /** ES module JavaScript — rendered as <script type="module">. */
+  moduleJs: z.string().optional(),
+  /** Import map — maps bare specifiers to CDN URLs (e.g. {"react": "https://esm.sh/react@18"}). */
+  importMap: z.record(z.string(), z.string()).optional(),
   props: z.record(z.string(), z.unknown()).optional(),
   height: z.number().optional(),
   title: z.string().optional(),
@@ -360,6 +368,15 @@ export const mapSchema = z.object({
   title: z.string().optional(),
   height: z.number().optional(),
 }).transform((d) => ({ ...d, center: d.center || d.location || d.position || [0, 0] as [number, number] }));
+
+export const sandpackSandboxSchema = z.object({
+  files: z.record(z.string(), z.string()),
+  dependencies: z.record(z.string(), z.string()).optional(),
+  template: z.enum(["react", "react-ts", "vanilla", "vanilla-ts"]).optional(),
+  title: z.string().optional(),
+  height: z.number().optional(),
+  entryFile: z.string().optional(),
+});
 
 // ── Ant Design Components ─────────────────────────────────────────────────────
 
@@ -488,6 +505,7 @@ export const COMPONENT_SCHEMAS: Record<string, ZodType> = {
   spreadsheet: spreadsheetSchema,
   sandbox: sandboxSchema,
   marketplace_sandbox: marketplaceSandboxSchema,
+  sandpack_sandbox: sandpackSandboxSchema,
   video: videoSchema,
   embed: embedSchema,
   canvas: sandboxSchema, // alias: LLMs often say "canvas" when they mean "sandbox"

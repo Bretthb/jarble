@@ -36,6 +36,7 @@ import { codeEditorEntry } from "./components/code_editor.js";
 import { spreadsheetEntry } from "./components/spreadsheet.js";
 import { sandboxEntry, SANDBOX_SDK_VERSION } from "./components/sandbox.js";
 import { marketplaceSandboxEntry } from "./components/marketplace_sandbox.js";
+import { sandpackSandboxEntry } from "./components/sandpack_sandbox.js";
 import { videoEntry } from "./components/video.js";
 import { embedEntry } from "./components/embed.js";
 import { audioEntry } from "./components/audio.js";
@@ -88,6 +89,7 @@ export const COMPONENT_MANIFEST: Record<string, ComponentManifestEntry> = {
   spreadsheet: spreadsheetEntry,
   sandbox: sandboxEntry,
   marketplace_sandbox: marketplaceSandboxEntry,
+  sandpack_sandbox: sandpackSandboxEntry,
   video: videoEntry,
   embed: embedEntry,
   // Alias: LLMs often say "canvas" when they mean "sandbox"
@@ -187,6 +189,7 @@ export {
   blockquoteSchema,
   textMessageSchema,
   imageGallerySchema,
+  sandpackSandboxSchema,
   mapSchema,
   descriptionsSchema,
   stepsSchema,

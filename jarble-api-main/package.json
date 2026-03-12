@@ -20,7 +20,8 @@
     "db:push:pg": "drizzle-kit push --config=drizzle.config.pg.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:openclaw:rendering": "node scripts/test-openclaw-rendering.js"
   },
   "dependencies": {
     "@kubernetes/client-node": "^0.20.0",

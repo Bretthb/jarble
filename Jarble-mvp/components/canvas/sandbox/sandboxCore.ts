@@ -13,6 +13,26 @@ import { HEARTBEAT_INTERVAL_MS } from "./types";
 
 const isDev = process.env.NODE_ENV === "development";
 
+/**
+ * Default ESM import map — pre-configured for common libraries.
+ * Merged with user-supplied importMap in buildDocument().
+ * Unused entries have zero runtime cost (browsers ignore them).
+ */
+export const DEFAULT_SANDBOX_IMPORTS: Record<string, string> = {
+  "three": "https://esm.sh/three@0.169.0",
+  "three/addons/controls/OrbitControls": "https://esm.sh/three@0.169.0/addons/controls/OrbitControls.js",
+  "d3": "https://esm.sh/d3@7.9.0",
+  "chart.js": "https://esm.sh/chart.js@4.4.1",
+  "chart.js/auto": "https://esm.sh/chart.js@4.4.1/auto",
+  "leaflet": "https://esm.sh/leaflet@1.9.4",
+  "react": "https://esm.sh/react@18.3.1",
+  "react-dom": "https://esm.sh/react-dom@18.3.1",
+  "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+  "gsap": "https://esm.sh/gsap@3.12.5",
+  "p5": "https://esm.sh/p5@1.9.0",
+  "tone": "https://esm.sh/tone@14.7.77",
+};
+
 /** Check if a URL origin is in the trusted CDN allowlist. */
 function isUrlTrustedCdn(url: string): boolean {
   if (!url.startsWith("https://")) return false;
@@ -215,15 +235,16 @@ export function buildDocument(
   });
   const libsJson = JSON.stringify(safeLibs);
 
+  // Merge default imports with user-supplied importMap (user takes precedence)
+  const mergedMap = { ...DEFAULT_SANDBOX_IMPORTS, ...(importMap ?? {}) };
+
   // Sanitize import map: only allow trusted CDN URLs as values
   const safeImportMap: Record<string, string> = {};
-  if (importMap && typeof importMap === "object") {
-    for (const [key, value] of Object.entries(importMap)) {
-      if (typeof value === "string" && isUrlTrustedCdn(value)) {
-        safeImportMap[key] = value;
-      } else if (isDev) {
-        console.warn(`${config.logPrefix} Rejected untrusted import map URL for "${key}":`, value);
-      }
+  for (const [key, value] of Object.entries(mergedMap)) {
+    if (typeof value === "string" && isUrlTrustedCdn(value)) {
+      safeImportMap[key] = value;
+    } else if (isDev) {
+      console.warn(`${config.logPrefix} Rejected untrusted import map URL for "${key}":`, value);
     }
   }
   const hasImportMap = Object.keys(safeImportMap).length > 0;

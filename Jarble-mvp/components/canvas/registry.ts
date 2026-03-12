@@ -39,6 +39,7 @@ import {
   spreadsheetSchema,
   sandboxSchema,
   marketplaceSandboxSchema,
+  sandpackSandboxSchema,
   videoSchema,
   embedSchema,
   audioSchema,
@@ -85,6 +86,7 @@ export {
   spreadsheetSchema,
   sandboxSchema,
   marketplaceSandboxSchema,
+  sandpackSandboxSchema,
   videoSchema,
   embedSchema,
   audioSchema,
@@ -141,6 +143,7 @@ const CanvasCodeEditor = dynamic(() => import("./components/CanvasCodeEditor"), 
 const CanvasSpreadsheet = dynamic(() => import("./components/CanvasSpreadsheet"), { ssr: false });
 const CanvasSandbox = dynamic(() => import("./components/CanvasSandbox"), { ssr: false });
 const MarketplaceSandbox = dynamic(() => import("./components/MarketplaceSandbox"), { ssr: false });
+const CanvasSandpackSandbox = dynamic(() => import("./components/CanvasSandpackSandbox"), { ssr: false });
 const CanvasVideo = dynamic(() => import("./components/CanvasVideo"), { ssr: false });
 const CanvasEmbed = dynamic(() => import("./components/CanvasEmbed"), { ssr: false });
 const CanvasMap = dynamic(() => import("./components/CanvasMap"), { ssr: false });
@@ -198,6 +201,7 @@ export const CANVAS_COMPONENTS: Record<string, CanvasComponentEntry> = {
   spreadsheet: { component: CanvasSpreadsheet, propsSchema: spreadsheetSchema },
   sandbox: { component: CanvasSandbox, propsSchema: sandboxSchema },
   marketplace_sandbox: { component: MarketplaceSandbox, propsSchema: marketplaceSandboxSchema },
+  sandpack_sandbox: { component: CanvasSandpackSandbox, propsSchema: sandpackSandboxSchema },
   video: { component: CanvasVideo, propsSchema: videoSchema },
   embed: { component: CanvasEmbed, propsSchema: embedSchema },
   // Alias: LLMs often say "canvas" when they mean "sandbox"
