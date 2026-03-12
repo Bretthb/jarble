@@ -1,5 +1,5 @@
 /**
- * Circuit Breaker — Per-package failure isolation for the package proxy.
+ * Circuit Breaker — Per-service failure isolation for the service proxy.
  *
  * Prevents cascading failures by stopping requests to a creator API that
  * is consistently failing. Uses the standard 3-state pattern:
@@ -14,13 +14,15 @@
  *   HALF_OPEN → CLOSED: If the probe request succeeds.
  *   HALF_OPEN → OPEN:   If the probe request fails.
  *
- * The circuit is keyed by packageId. Each package gets its own breaker state.
- *
- * In-memory only — state is lost on restart, which is acceptable for MVP
- * (circuits re-learn quickly, and a restart implies the proxy was redeployed).
+ * Now delegates to a StateStore for persistence (DB-backed by default,
+ * shared across API replicas). HALF_OPEN probe coordination uses
+ * claimHalfOpenProbe() to ensure only one replica sends the probe.
  */
 
+import crypto from "crypto";
 import { createModuleLogger } from "../utils/logger.js";
+import type { StateStore, CircuitBreakerRecord } from "./stateStore.js";
+import { MemoryStateStore } from "./memoryStateStore.js";
 
 const log = createModuleLogger("circuit-breaker");
 
@@ -44,32 +46,19 @@ export interface CircuitStatus {
   openedAt: number | null;
 }
 
-interface BreakerEntry {
-  state: CircuitState;
-  consecutiveFailures: number;
-  lastFailureAt: number | null;
-  openedAt: number | null;
-}
+// ── Default store + replica ID ─────────────────────────────────────────────
 
-// ── In-memory store ────────────────────────────────────────────────────────
+let defaultStore: StateStore = new MemoryStateStore();
 
-const breakers = new Map<string, BreakerEntry>();
+/** Unique identifier for this API replica — used for HALF_OPEN probe coordination. */
+const REPLICA_ID = crypto.randomUUID();
 
 /**
- * Get or create a breaker entry for a package.
+ * Set the default StateStore used by the circuit breaker.
+ * Call once at startup after the DB is initialized.
  */
-function getEntry(packageId: string): BreakerEntry {
-  let entry = breakers.get(packageId);
-  if (!entry) {
-    entry = {
-      state: "CLOSED",
-      consecutiveFailures: 0,
-      lastFailureAt: null,
-      openedAt: null,
-    };
-    breakers.set(packageId, entry);
-  }
-  return entry;
+export function setCircuitBreakerStore(store: StateStore): void {
+  defaultStore = store;
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -83,11 +72,12 @@ function getEntry(packageId: string): BreakerEntry {
  * @returns `{ allowed: true }` if the request can proceed, or
  *          `{ allowed: false, retryAfterMs }` if the circuit is open.
  */
-export function canRequest(
+export async function canRequest(
   packageId: string,
   now: number = Date.now(),
-): { allowed: true } | { allowed: false; retryAfterMs: number } {
-  const entry = getEntry(packageId);
+  store: StateStore = defaultStore,
+): Promise<{ allowed: true } | { allowed: false; retryAfterMs: number }> {
+  const entry = await store.getCircuitBreaker(packageId);
 
   if (entry.state === "CLOSED") {
     return { allowed: true };
@@ -95,7 +85,6 @@ export function canRequest(
 
   if (entry.state === "HALF_OPEN") {
     // In HALF_OPEN, we allow exactly one request through (the probe).
-    // The proxy should call recordSuccess/recordFailure after the probe.
     return { allowed: true };
   }
 
@@ -104,6 +93,9 @@ export function canRequest(
   if (entry.openedAt !== null && now - entry.openedAt >= RECOVERY_TIMEOUT_MS) {
     // Transition to HALF_OPEN — allow one probe request.
     entry.state = "HALF_OPEN";
+    entry.halfOpenClaimedBy = null;
+    entry.halfOpenClaimedAt = null;
+    await store.setCircuitBreaker(packageId, entry);
     log.info(
       { packageId, consecutiveFailures: entry.consecutiveFailures },
       "Circuit breaker: OPEN → HALF_OPEN (recovery timeout elapsed)",
@@ -120,12 +112,15 @@ export function canRequest(
 }
 
 /**
- * Record a successful request to a package's creator API.
+ * Record a successful request to a service's creator API.
  *
  * Resets the failure counter and closes the circuit (if it was HALF_OPEN).
  */
-export function recordSuccess(packageId: string): void {
-  const entry = getEntry(packageId);
+export async function recordSuccess(
+  packageId: string,
+  store: StateStore = defaultStore,
+): Promise<void> {
+  const entry = await store.getCircuitBreaker(packageId);
 
   if (entry.state === "HALF_OPEN") {
     log.info({ packageId }, "Circuit breaker: HALF_OPEN → CLOSED (probe succeeded)");
@@ -133,16 +128,23 @@ export function recordSuccess(packageId: string): void {
 
   entry.state = "CLOSED";
   entry.consecutiveFailures = 0;
+  entry.halfOpenClaimedBy = null;
+  entry.halfOpenClaimedAt = null;
+  await store.setCircuitBreaker(packageId, entry);
 }
 
 /**
- * Record a failed request to a package's creator API.
+ * Record a failed request to a service's creator API.
  *
  * Increments the consecutive failure counter. If the threshold is reached,
  * opens the circuit. If already HALF_OPEN, reopens immediately.
  */
-export function recordFailure(packageId: string, now: number = Date.now()): void {
-  const entry = getEntry(packageId);
+export async function recordFailure(
+  packageId: string,
+  now: number = Date.now(),
+  store: StateStore = defaultStore,
+): Promise<void> {
+  const entry = await store.getCircuitBreaker(packageId);
   entry.consecutiveFailures += 1;
   entry.lastFailureAt = now;
 
@@ -150,6 +152,9 @@ export function recordFailure(packageId: string, now: number = Date.now()): void
     // Probe failed — reopen the circuit.
     entry.state = "OPEN";
     entry.openedAt = now;
+    entry.halfOpenClaimedBy = null;
+    entry.halfOpenClaimedAt = null;
+    await store.setCircuitBreaker(packageId, entry);
     log.warn(
       { packageId, consecutiveFailures: entry.consecutiveFailures },
       "Circuit breaker: HALF_OPEN → OPEN (probe failed)",
@@ -163,22 +168,28 @@ export function recordFailure(packageId: string, now: number = Date.now()): void
   ) {
     entry.state = "OPEN";
     entry.openedAt = now;
+    await store.setCircuitBreaker(packageId, entry);
     log.warn(
       { packageId, consecutiveFailures: entry.consecutiveFailures },
       `Circuit breaker: CLOSED → OPEN (${FAILURE_THRESHOLD} consecutive failures)`,
     );
+    return;
   }
+
+  await store.setCircuitBreaker(packageId, entry);
 }
 
 /**
- * Get the current circuit state for a package.
+ * Get the current circuit state for a service.
  *
  * Useful for health check endpoints and diagnostics.
- * Returns a snapshot — the state may change on the next `canRequest()` call
- * (e.g., OPEN → HALF_OPEN on recovery timeout).
+ * Returns a snapshot — the state may change on the next `canRequest()` call.
  */
-export function getCircuitState(packageId: string): CircuitStatus {
-  const entry = getEntry(packageId);
+export async function getCircuitState(
+  packageId: string,
+  store: StateStore = defaultStore,
+): Promise<CircuitStatus> {
+  const entry = await store.getCircuitBreaker(packageId);
   return {
     state: entry.state,
     consecutiveFailures: entry.consecutiveFailures,
@@ -188,12 +199,15 @@ export function getCircuitState(packageId: string): CircuitStatus {
 }
 
 /**
- * Reset the circuit breaker for a package.
+ * Reset the circuit breaker for a service.
  *
- * Useful for admin actions (e.g., "force re-enable this package").
+ * Useful for admin actions (e.g., "force re-enable this service").
  */
-export function resetCircuit(packageId: string): void {
-  breakers.delete(packageId);
+export async function resetCircuit(
+  packageId: string,
+  store: StateStore = defaultStore,
+): Promise<void> {
+  await store.deleteCircuitBreaker(packageId);
   log.info({ packageId }, "Circuit breaker: reset to CLOSED");
 }
 
@@ -202,6 +216,8 @@ export function resetCircuit(packageId: string): void {
  *
  * Primarily used in tests.
  */
-export function resetAllCircuits(): void {
-  breakers.clear();
+export async function resetAllCircuits(
+  store: StateStore = defaultStore,
+): Promise<void> {
+  await store.deleteAllCircuitBreakers();
 }

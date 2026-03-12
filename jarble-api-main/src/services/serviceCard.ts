@@ -57,6 +57,12 @@ export const serviceCardSkillSchema = z.object({
 
   /** JS function body for handler mode (max 50KB). */
   handlerCode: z.string().max(50000).optional(),
+
+  /** Maximum retry attempts for transient failures (502/503). Default 2, max 5. */
+  maxRetries: z.number().int().min(0).max(5).optional(),
+
+  /** Call mode: "sync" (default) waits for response, "async" returns 202 + job polling. */
+  callMode: z.enum(["sync", "async"]).optional(),
 });
 
 // ── Auth Configuration ──────────────────────────────────────────────────────
@@ -128,6 +134,12 @@ export const serviceCardSchema = z.object({
 
   /** For platform-managed services: links to the creator's deployment for skill execution. */
   creatorDeploymentId: z.string().optional(),
+
+  /** Heartbeat interval in ms (creator pushes heartbeats at this rate). Max 10 minutes. */
+  heartbeatIntervalMs: z.number().int().positive().max(600_000).optional(),
+
+  /** HMAC secret for heartbeat signature verification. Min 16, max 128 chars. */
+  heartbeatSecret: z.string().min(16).max(128).optional(),
 });
 
 // ── Exported Types ──────────────────────────────────────────────────────────

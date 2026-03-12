@@ -17,9 +17,10 @@
  *   8. Decrypt the HMAC signing secret
  *   9. Build outbound request with auth + HMAC headers
  *  10. Forward req.body (tool arguments) to the creator's API
- *  11. Record circuit breaker success/failure
- *  12. *** Output schema validation (response vs skill.outputSchema, warn-only) ***
- *  13. Return the creator's response
+ *  11. Exponential backoff retry for transient 502/503 errors
+ *  12. Record circuit breaker success/failure
+ *  13. *** Output schema validation (response vs skill.outputSchema, warn-only) ***
+ *  14. Return the creator's response (or 202 for async mode)
  */
 
 import crypto from "crypto";
@@ -35,6 +36,7 @@ import { checkServiceRateLimit } from "../middleware/serviceRateLimit.js";
 import { canRequest, recordSuccess, recordFailure } from "../services/circuitBreaker.js";
 import { validateExternalUrl } from "../utils/urlValidation.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
+import { createAsyncJob, completeAsyncJob } from "./serviceJobs.js";
 
 import type { JsonSchemaObject } from "../utils/jsonSchemaValidation.js";
 
@@ -78,6 +80,15 @@ const HOP_BY_HOP_HEADERS = new Set([
   "content-length",
   "content-encoding",
 ]);
+
+/**
+ * Sleep for a given duration with optional jitter.
+ * Jitter adds up to `jitterFraction` of the delay randomly.
+ */
+function sleepWithJitter(baseMs: number, jitterFraction = 0.5): Promise<void> {
+  const jitter = baseMs * jitterFraction * Math.random();
+  return new Promise((r) => setTimeout(r, baseMs + jitter));
+}
 
 export const serviceProxyRouter = Router();
 
@@ -213,7 +224,7 @@ serviceProxyRouter.post(
     }
 
     // ── 5. Rate limit check ───────────────────────────────────────────────────
-    const rateLimitResult = checkServiceRateLimit(
+    const rateLimitResult = await checkServiceRateLimit(
       deploymentId,
       serviceId,
       serviceCard.rateLimits,
@@ -241,7 +252,7 @@ serviceProxyRouter.post(
     }
 
     // ── 6. Circuit breaker check ──────────────────────────────────────────────
-    const circuitResult = canRequest(serviceId);
+    const circuitResult = await canRequest(serviceId);
     if (!circuitResult.allowed) {
       log.warn(
         { deploymentId, serviceId, skillName, retryAfterMs: circuitResult.retryAfterMs },
@@ -339,15 +350,69 @@ serviceProxyRouter.post(
 
     let outboundHeaders = buildOutboundHeaders(signingSecret);
 
+    // ── 9a. Async execution mode ─────────────────────────────────────────────
+    if (skill.callMode === "async") {
+      try {
+        const jobId = await createAsyncJob(deploymentId, serviceId, skillName, bodyJson);
+        log.info({ deploymentId, serviceId, skillName, requestId, jobId }, "Service proxy: async job created");
+
+        res.status(202).json({
+          jobId,
+          pollUrl: `/api/services/jobs/${jobId}`,
+          status: "pending",
+        });
+
+        // Fire-and-forget: execute the proxy call with retries in the background
+        void executeWithRetries(
+          targetUrl,
+          outboundHeaders,
+          bodyJson,
+          timeoutMs,
+          fallbackSigningSecret ? buildOutboundHeaders(fallbackSigningSecret) : null,
+          skill.maxRetries ?? 2,
+        ).then(async (result) => {
+          if (result.success) {
+            await completeAsyncJob(jobId, {
+              status: "completed",
+              responseBody: result.body,
+              responseStatus: result.status,
+            });
+            await recordSuccess(serviceId);
+          } else {
+            await completeAsyncJob(jobId, {
+              status: "failed",
+              errorMessage: result.error,
+              responseStatus: result.status,
+            });
+            await recordFailure(serviceId);
+          }
+        }).catch(async () => {
+          await completeAsyncJob(jobId, {
+            status: "failed",
+            errorMessage: "Internal proxy error",
+          });
+          await recordFailure(serviceId);
+        });
+
+        // Fire-and-forget usage recording
+        void recordUsage(deploymentId, serviceId, skillName).catch(() => {});
+        return;
+      } catch (err) {
+        log.error({ deploymentId, serviceId, skillName, err }, "Service proxy: failed to create async job");
+        res.status(500).json({ error: "Failed to create async job" });
+        return;
+      }
+    }
+
     // ── 10. Forward the request to the creator's API ──────────────────────────
     // Helper: make a single fetch attempt with the configured timeout.
-    async function attemptFetch(): Promise<Response> {
+    async function attemptFetch(headers?: Record<string, string>): Promise<Response> {
       const controller = new AbortController();
       const tid = setTimeout(() => controller.abort(), timeoutMs);
       try {
         return await fetch(targetUrl, {
           method: "POST",
-          headers: outboundHeaders,
+          headers: headers ?? outboundHeaders,
           body: bodyJson,
           signal: controller.signal,
         });
@@ -357,6 +422,7 @@ serviceProxyRouter.post(
     }
 
     let upstreamRes: Response;
+    const maxRetries = skill.maxRetries ?? 2;
     try {
       upstreamRes = await attemptFetch();
 
@@ -370,20 +436,26 @@ serviceProxyRouter.post(
         upstreamRes = await attemptFetch();
       }
 
-      // ── 10b. Retry once for transient 502/503 ────────────────────────────
+      // ── 10b. Exponential backoff retry for transient 502/503 ──────────────
       if (upstreamRes.status === 502 || upstreamRes.status === 503) {
-        log.info(
-          { deploymentId, serviceId, skillName, requestId, status: upstreamRes.status },
-          "Service proxy: transient error — retrying once after 1s",
-        );
-        await new Promise((r) => setTimeout(r, 1000));
-        upstreamRes = await attemptFetch();
+        let lastStatus = upstreamRes.status;
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          const delayMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
+          log.info(
+            { deploymentId, serviceId, skillName, requestId, status: lastStatus, attempt: attempt + 1, delayMs },
+            "Service proxy: transient error — retrying with backoff",
+          );
+          await sleepWithJitter(delayMs);
+          upstreamRes = await attemptFetch();
+          if (upstreamRes.status !== 502 && upstreamRes.status !== 503) break;
+          lastStatus = upstreamRes.status;
+        }
       }
     } catch (err: unknown) {
       const e = err instanceof Error ? err : new Error(String(err));
 
       // Record failure for circuit breaker
-      recordFailure(serviceId);
+      await recordFailure(serviceId);
 
       if (e.name === "AbortError") {
         log.warn({ deploymentId, serviceId, skillName, requestId, targetUrl }, "Service proxy: upstream request timed out");
@@ -397,9 +469,9 @@ serviceProxyRouter.post(
 
     // ── 11. Circuit breaker: record success/failure based on HTTP status ─────
     if (upstreamRes.status >= 500) {
-      recordFailure(serviceId);
+      await recordFailure(serviceId);
     } else {
-      recordSuccess(serviceId);
+      await recordSuccess(serviceId);
     }
 
     // ── 12. Enforce 1 MB response size limit ────────────────────────────────
@@ -527,6 +599,69 @@ serviceProxyRouter.post(
     void recordUsage(deploymentId, serviceId, skillName).catch(() => {});
   },
 );
+
+// ── Async Execution Helper ──────────────────────────────────────────────────
+
+interface ExecuteResult {
+  success: boolean;
+  status?: number;
+  body?: string;
+  error?: string;
+}
+
+async function executeWithRetries(
+  targetUrl: string,
+  headers: Record<string, string>,
+  body: string,
+  timeoutMs: number,
+  fallbackHeaders: Record<string, string> | null,
+  maxRetries: number,
+): Promise<ExecuteResult> {
+  async function attempt(hdrs: Record<string, string>): Promise<Response> {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(targetUrl, {
+        method: "POST",
+        headers: hdrs,
+        body,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(tid);
+    }
+  }
+
+  try {
+    let response = await attempt(headers);
+
+    // Retry with fallback on 401
+    if (response.status === 401 && fallbackHeaders) {
+      response = await attempt(fallbackHeaders);
+    }
+
+    // Exponential backoff for 502/503
+    if (response.status === 502 || response.status === 503) {
+      for (let i = 0; i < maxRetries; i++) {
+        const delayMs = 1000 * Math.pow(2, i);
+        await sleepWithJitter(delayMs);
+        response = await attempt(headers);
+        if (response.status !== 502 && response.status !== 503) break;
+      }
+    }
+
+    const responseBody = await response.text();
+
+    if (response.status >= 500) {
+      return { success: false, status: response.status, error: `Upstream returned ${response.status}`, body: responseBody };
+    }
+
+    return { success: true, status: response.status, body: responseBody };
+  } catch (err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    return { success: false, error: e.message };
+  }
+}
 
 /**
  * Record a single request against the service_usage table.

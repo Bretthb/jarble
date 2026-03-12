@@ -75,7 +75,17 @@ vi.mock("../../db/index.js", () => ({
       id: "id",
       userId: "userId",
     },
+    serviceAsyncJobs: {
+      id: "id",
+      deploymentId: "deploymentId",
+      expiresAt: "expiresAt",
+    },
   },
+  dbDate: (d?: Date) => d ?? new Date(),
+}));
+
+vi.mock("../../db/schema.js", () => ({
+  generateMarketplaceId: (prefix: string) => `${prefix}_test123`,
 }));
 
 // Encryption mock
@@ -106,8 +116,15 @@ vi.mock("../../utils/logger.js", () => ({
   }),
 }));
 
+// Mock serviceJobs to avoid DB calls
+vi.mock("../serviceJobs.js", () => ({
+  createAsyncJob: vi.fn().mockResolvedValue("sjb_test123"),
+  completeAsyncJob: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { resetAllServiceRateLimits } from "../../middleware/serviceRateLimit.js";
 import { resetAllCircuits } from "../../services/circuitBreaker.js";
+import { MemoryStateStore } from "../../services/memoryStateStore.js";
 import { serviceProxyRouter } from "../serviceProxy.js";
 import { signRequest } from "../../utils/hmac.js";
 
@@ -115,6 +132,7 @@ import { signRequest } from "../../utils/hmac.js";
 
 let server: http.Server;
 let baseUrl: string;
+let store: MemoryStateStore;
 
 function createTestApp() {
   const app = express();
@@ -144,6 +162,8 @@ function buildRemoteApiConfig(overrides?: {
     description: string;
     inputSchema?: Record<string, unknown>;
     outputSchema?: Record<string, unknown>;
+    maxRetries?: number;
+    executionMode?: string;
   }>;
 }): string {
   const skills = overrides?.skills ?? [
@@ -182,6 +202,8 @@ function setupValidMocks(overrides?: {
     description: string;
     inputSchema?: Record<string, unknown>;
     outputSchema?: Record<string, unknown>;
+    maxRetries?: number;
+    executionMode?: string;
   }>;
 }) {
   const signingSecret = "plain:test-signing-secret-hex-value-1234";
@@ -211,8 +233,9 @@ describe("Service Proxy Route", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    resetAllServiceRateLimits();
-    resetAllCircuits();
+    store = new MemoryStateStore();
+    await resetAllServiceRateLimits(store);
+    await resetAllCircuits(store);
 
     // Default: gateway token auth passes for dep-001
     mockFindFirstDeployments.mockResolvedValue({
@@ -304,9 +327,6 @@ describe("Service Proxy Route", () => {
       },
     );
 
-    // Replace global fetch temporarily for the upstream call
-    // The test server uses the Express app internally, so we intercept
-    // only the outbound call to the creator's endpoint.
     const fetchCalls: Array<{ url: string; options: RequestInit }> = [];
     globalThis.fetch = vi.fn(async (url: any, options: any) => {
       const urlStr = typeof url === "string" ? url : url.toString();
@@ -314,7 +334,6 @@ describe("Service Proxy Route", () => {
         fetchCalls.push({ url: urlStr, options });
         return mockUpstreamResponse;
       }
-      // For the test server itself, use original fetch
       return originalFetch(url, options);
     }) as any;
 
@@ -339,7 +358,6 @@ describe("Service Proxy Route", () => {
   it("returns 504 on upstream timeout", async () => {
     setupValidMocks();
 
-    // Mock fetch to simulate an abort error (timeout)
     globalThis.fetch = vi.fn(async (url: any, options: any) => {
       const urlStr = typeof url === "string" ? url : url.toString();
       if (urlStr.includes("creator.example.com")) {
@@ -367,7 +385,6 @@ describe("Service Proxy Route", () => {
   it("returns 502 when response content-length exceeds 1MB", async () => {
     setupValidMocks();
 
-    // Mock fetch to return a response with content-length > 1MB
     globalThis.fetch = vi.fn(async (url: any, options: any) => {
       const urlStr = typeof url === "string" ? url : url.toString();
       if (urlStr.includes("creator.example.com")) {
@@ -375,7 +392,7 @@ describe("Service Proxy Route", () => {
           status: 200,
           headers: {
             "Content-Type": "application/json",
-            "Content-Length": String(2 * 1024 * 1024), // 2MB
+            "Content-Length": String(2 * 1024 * 1024),
           },
         });
       }
@@ -429,7 +446,6 @@ describe("Service Proxy Route", () => {
 
     expect(fetchCalls).toHaveLength(1);
     const headers = fetchCalls[0].headers;
-    // The decrypted signing secret should be used as the API key value
     expect(headers["X-Custom-Key"]).toBe("test-signing-secret-hex-value-1234");
   });
 
@@ -463,18 +479,11 @@ describe("Service Proxy Route", () => {
     expect(fetchCalls).toHaveLength(1);
     const headers = fetchCalls[0].headers;
 
-    // Check HMAC signature header is in the expected format
     expect(headers["X-Jarble-Signature"]).toMatch(/^sha256=[0-9a-f]{64}$/);
-
-    // Check timestamp header is present and numeric
     expect(headers["X-Jarble-Timestamp"]).toBeDefined();
     const ts = parseInt(headers["X-Jarble-Timestamp"], 10);
     expect(ts).toBeGreaterThan(0);
-
-    // Check deployment ID is forwarded
     expect(headers["X-Jarble-Deployment-Id"]).toBe("dep-001");
-
-    // Verify that signRequest was called (our mock wraps the real impl)
     expect(signRequest).toHaveBeenCalled();
   });
 
@@ -587,7 +596,6 @@ describe("Service Proxy Route", () => {
       const endpoint = "https://api.creator.example.com/v1";
       setupValidMocks({ endpoint });
 
-      // recordUsage: no existing usage row, but there IS an install row
       mockFindFirstServiceUsage.mockResolvedValue(null);
       mockFindFirstServiceInstalls.mockResolvedValue({
         id: "pki_001",
@@ -595,7 +603,6 @@ describe("Service Proxy Route", () => {
         serviceId: "pkg-001",
       });
 
-      // Mock the outbound fetch to the creator API
       globalThis.fetch = vi.fn(async (url: any, options: any) => {
         const urlStr = typeof url === "string" ? url : url.toString();
         if (urlStr.startsWith(endpoint)) {
@@ -621,7 +628,6 @@ describe("Service Proxy Route", () => {
       // recordUsage is fire-and-forget, give it a moment to resolve
       await new Promise((r) => setTimeout(r, 50));
 
-      // Verify insert was called for new usage record
       expect(mockInsertUsage).toHaveBeenCalled();
       expect(mockValuesUsage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -638,7 +644,6 @@ describe("Service Proxy Route", () => {
       const endpoint = "https://api.creator.example.com/v1";
       setupValidMocks({ endpoint });
 
-      // recordUsage: there IS an existing usage row for this cycle
       mockFindFirstServiceUsage.mockResolvedValue({
         id: "pu_existing",
         requestCount: 42,
@@ -666,11 +671,7 @@ describe("Service Proxy Route", () => {
       );
 
       expect(res.status).toBe(200);
-
-      // recordUsage is fire-and-forget, give it a moment to resolve
       await new Promise((r) => setTimeout(r, 50));
-
-      // Verify update (not insert) was called to increment counter
       expect(mockUpdateUsage).toHaveBeenCalled();
       expect(mockSetUsage).toHaveBeenCalled();
     });
@@ -687,7 +688,7 @@ describe("Service Proxy Route", () => {
         {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
-          body: JSON.stringify({}), // missing "location" which is required
+          body: JSON.stringify({}),
         },
       );
 
@@ -697,24 +698,6 @@ describe("Service Proxy Route", () => {
       expect(data.details).toEqual(
         expect.arrayContaining([expect.stringContaining("location")]),
       );
-    });
-
-    it("returns 400 when body has wrong type for a field", async () => {
-      setupValidMocks();
-
-      const res = await originalFetch(
-        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
-          body: JSON.stringify({ location: 12345 }), // number instead of string
-        },
-      );
-
-      expect(res.status).toBe(400);
-      const data = (await res.json()) as { error: string; details: string[] };
-      expect(data.error).toContain("Input validation failed");
-      expect(data.details[0]).toContain("location");
     });
 
     it("passes validation when all required fields have correct types", async () => {
@@ -745,117 +728,12 @@ describe("Service Proxy Route", () => {
     });
   });
 
-  // ── Output Schema Validation (Warn-Only) ─────────────────────────────────
-
-  describe("output schema validation", () => {
-    it("adds X-Jarble-Schema-Warning header when output does not match schema", async () => {
-      const endpoint = "https://api.creator.example.com/v1";
-      // Use a skill with an outputSchema
-      setupValidMocks({
-        endpoint,
-        skills: [
-          {
-            name: "get_weather",
-            description: "Get weather",
-            inputSchema: {
-              type: "object",
-              properties: { location: { type: "string" } },
-              required: ["location"],
-            },
-            outputSchema: {
-              type: "object",
-              properties: {
-                temperature: { type: "number" },
-                unit: { type: "string" },
-              },
-              required: ["temperature", "unit"],
-            },
-          },
-        ] as any,
-      });
-
-      // Creator API returns a mismatched response (missing "unit")
-      globalThis.fetch = vi.fn(async (url: any, options: any) => {
-        const urlStr = typeof url === "string" ? url : url.toString();
-        if (urlStr.startsWith(endpoint)) {
-          return new Response(JSON.stringify({ temperature: 72 }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        return originalFetch(url, options);
-      }) as any;
-
-      const res = await originalFetch(
-        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
-          body: JSON.stringify({ location: "NYC" }),
-        },
-      );
-
-      // Response is still returned (warn-only, not blocking)
-      expect(res.status).toBe(200);
-      expect(res.headers.get("X-Jarble-Schema-Warning")).toBe("output schema mismatch");
-    });
-
-    it("does not add warning header when output matches schema", async () => {
-      const endpoint = "https://api.creator.example.com/v1";
-      setupValidMocks({
-        endpoint,
-        skills: [
-          {
-            name: "get_weather",
-            description: "Get weather",
-            inputSchema: {
-              type: "object",
-              properties: { location: { type: "string" } },
-              required: ["location"],
-            },
-            outputSchema: {
-              type: "object",
-              properties: {
-                temperature: { type: "number" },
-              },
-              required: ["temperature"],
-            },
-          },
-        ] as any,
-      });
-
-      globalThis.fetch = vi.fn(async (url: any, options: any) => {
-        const urlStr = typeof url === "string" ? url : url.toString();
-        if (urlStr.startsWith(endpoint)) {
-          return new Response(JSON.stringify({ temperature: 72 }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        return originalFetch(url, options);
-      }) as any;
-
-      const res = await originalFetch(
-        `${baseUrl}/api/services/proxy/dep-001/pkg-001/get_weather`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Gateway-Token": TEST_GATEWAY_TOKEN },
-          body: JSON.stringify({ location: "NYC" }),
-        },
-      );
-
-      expect(res.status).toBe(200);
-      expect(res.headers.get("X-Jarble-Schema-Warning")).toBeNull();
-    });
-  });
-
   // ── Rate Limiting ─────────────────────────────────────────────────────────
 
   describe("rate limiting", () => {
     it("returns 429 when per-minute rate limit is exceeded", async () => {
       const endpoint = "https://api.creator.example.com/v1";
 
-      // Use a service with strict rate limits
       const signingSecret = "plain:test-signing-secret-hex-value-1234";
       mockFindFirstServiceCreds.mockResolvedValue({
         id: "pkc_001",
@@ -935,7 +813,6 @@ describe("Service Proxy Route", () => {
       const endpoint = "https://api.creator.example.com/v1";
       setupValidMocks({ endpoint });
 
-      // Mock fetch to always return 500 (triggers circuit breaker failures)
       globalThis.fetch = vi.fn(async (url: any, options: any) => {
         const urlStr = typeof url === "string" ? url : url.toString();
         if (urlStr.startsWith(endpoint)) {

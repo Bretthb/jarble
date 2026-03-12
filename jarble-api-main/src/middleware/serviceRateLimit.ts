@@ -9,30 +9,18 @@
  * gets its own quota per service. This matches the ServiceCard semantics where
  * the creator declares limits per-consumer, not globally.
  *
- * Implementation: Fixed-window counters stored in a Map. Window boundaries are
- * aligned to clock time (minute/day) for simplicity. A periodic cleanup timer
- * evicts expired entries to prevent unbounded memory growth.
- *
- * In-memory only — not shared between replicas. Acceptable for MVP.
+ * Implementation: Delegates to a StateStore (DB-backed by default, in-memory
+ * fallback). Window boundaries are aligned to clock time for consistency.
  */
 
 import { createModuleLogger } from "../utils/logger.js";
 import type { ServiceCardRateLimits } from "../services/serviceCard.js";
+import type { StateStore } from "../services/stateStore.js";
+import { MemoryStateStore } from "../services/memoryStateStore.js";
 
 const log = createModuleLogger("service-rate-limit");
 
 // ── Types ──────────────────────────────────────────────────────────────────
-
-interface WindowCounter {
-  count: number;
-  /** Start of the current window (Unix ms). */
-  windowStart: number;
-}
-
-interface RateLimitEntry {
-  minute: WindowCounter;
-  day: WindowCounter;
-}
 
 export type RateLimitResult = {
   allowed: true;
@@ -59,15 +47,16 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 /** Entries older than this are evicted (2x the longest window = 48 hours). */
 const STALE_THRESHOLD_MS = 2 * DAY_MS;
 
-// ── In-memory store ────────────────────────────────────────────────────────
+// ── Default store ──────────────────────────────────────────────────────────
 
-const counters = new Map<string, RateLimitEntry>();
+let defaultStore: StateStore = new MemoryStateStore();
 
 /**
- * Build the rate limit key from deployment + service IDs.
+ * Set the default StateStore used by the rate limiter.
+ * Call once at startup after the DB is initialized.
  */
-function makeKey(deploymentId: string, serviceId: string): string {
-  return `${deploymentId}:${serviceId}`;
+export function setRateLimitStore(store: StateStore): void {
+  defaultStore = store;
 }
 
 /**
@@ -86,18 +75,12 @@ function startCleanupTimer(): void {
   if (cleanupTimer) return;
   cleanupTimer = setInterval(() => {
     const now = Date.now();
-    let evicted = 0;
-    for (const [key, entry] of counters) {
-      const minuteAge = now - entry.minute.windowStart;
-      const dayAge = now - entry.day.windowStart;
-      if (minuteAge > STALE_THRESHOLD_MS && dayAge > STALE_THRESHOLD_MS) {
-        counters.delete(key);
-        evicted++;
+    const threshold = now - STALE_THRESHOLD_MS;
+    void defaultStore.cleanupStaleWindows(threshold).then((evicted) => {
+      if (evicted > 0) {
+        log.debug({ evicted }, "Service rate limit: cleanup sweep");
       }
-    }
-    if (evicted > 0) {
-      log.debug({ evicted, remaining: counters.size }, "Service rate limit: cleanup sweep");
-    }
+    }).catch(() => {});
   }, CLEANUP_INTERVAL_MS);
   // Don't block process exit
   cleanupTimer.unref();
@@ -121,14 +104,16 @@ startCleanupTimer();
  * @param serviceId    - The service ID.
  * @param rateLimits   - The rate limits from the ServiceCard (may be undefined).
  * @param now          - Current timestamp (for testing; defaults to Date.now()).
+ * @param store        - Optional StateStore override (for testing).
  * @returns Whether the request is allowed, and retry info if denied.
  */
-export function checkServiceRateLimit(
+export async function checkServiceRateLimit(
   deploymentId: string,
   serviceId: string,
   rateLimits: ServiceCardRateLimits | undefined,
   now: number = Date.now(),
-): RateLimitResult {
+  store: StateStore = defaultStore,
+): Promise<RateLimitResult> {
   // No rate limits configured — always allow.
   if (!rateLimits) {
     return { allowed: true };
@@ -141,65 +126,54 @@ export function checkServiceRateLimit(
     return { allowed: true };
   }
 
-  const key = makeKey(deploymentId, serviceId);
-  let entry = counters.get(key);
-
   const minuteWindowStart = getWindowStart(now, MINUTE_MS);
   const dayWindowStart = getWindowStart(now, DAY_MS);
 
-  if (!entry) {
-    entry = {
-      minute: { count: 0, windowStart: minuteWindowStart },
-      day: { count: 0, windowStart: dayWindowStart },
-    };
-    counters.set(key, entry);
-  }
-
-  // Reset counters if we've moved to a new window.
-  if (entry.minute.windowStart !== minuteWindowStart) {
-    entry.minute = { count: 0, windowStart: minuteWindowStart };
-  }
-  if (entry.day.windowStart !== dayWindowStart) {
-    entry.day = { count: 0, windowStart: dayWindowStart };
-  }
-
   // Check per-minute limit.
-  if (requestsPerMinute !== undefined && entry.minute.count >= requestsPerMinute) {
-    const retryAfterMs = (minuteWindowStart + MINUTE_MS) - now;
-    const retryAfterSeconds = Math.ceil(retryAfterMs / 1000);
-    log.warn(
-      { deploymentId, serviceId, count: entry.minute.count, limit: requestsPerMinute },
-      "Service rate limit: per-minute limit exceeded",
-    );
-    return {
-      allowed: false,
-      limitType: "minute",
-      retryAfterSeconds: Math.max(1, retryAfterSeconds),
-      limit: requestsPerMinute,
-      current: entry.minute.count,
-    };
+  if (requestsPerMinute !== undefined) {
+    const window = await store.getRateLimitWindow(deploymentId, serviceId, "minute", minuteWindowStart);
+    const count = window?.count ?? 0;
+    if (count >= requestsPerMinute) {
+      const retryAfterMs = (minuteWindowStart + MINUTE_MS) - now;
+      const retryAfterSeconds = Math.ceil(retryAfterMs / 1000);
+      log.warn(
+        { deploymentId, serviceId, count, limit: requestsPerMinute },
+        "Service rate limit: per-minute limit exceeded",
+      );
+      return {
+        allowed: false,
+        limitType: "minute",
+        retryAfterSeconds: Math.max(1, retryAfterSeconds),
+        limit: requestsPerMinute,
+        current: count,
+      };
+    }
   }
 
   // Check per-day limit.
-  if (requestsPerDay !== undefined && entry.day.count >= requestsPerDay) {
-    const retryAfterMs = (dayWindowStart + DAY_MS) - now;
-    const retryAfterSeconds = Math.ceil(retryAfterMs / 1000);
-    log.warn(
-      { deploymentId, serviceId, count: entry.day.count, limit: requestsPerDay },
-      "Service rate limit: per-day limit exceeded",
-    );
-    return {
-      allowed: false,
-      limitType: "day",
-      retryAfterSeconds: Math.max(1, retryAfterSeconds),
-      limit: requestsPerDay,
-      current: entry.day.count,
-    };
+  if (requestsPerDay !== undefined) {
+    const window = await store.getRateLimitWindow(deploymentId, serviceId, "day", dayWindowStart);
+    const count = window?.count ?? 0;
+    if (count >= requestsPerDay) {
+      const retryAfterMs = (dayWindowStart + DAY_MS) - now;
+      const retryAfterSeconds = Math.ceil(retryAfterMs / 1000);
+      log.warn(
+        { deploymentId, serviceId, count, limit: requestsPerDay },
+        "Service rate limit: per-day limit exceeded",
+      );
+      return {
+        allowed: false,
+        limitType: "day",
+        retryAfterSeconds: Math.max(1, retryAfterSeconds),
+        limit: requestsPerDay,
+        current: count,
+      };
+    }
   }
 
-  // Allowed — increment both counters.
-  entry.minute.count += 1;
-  entry.day.count += 1;
+  // Allowed — increment both counters atomically.
+  await store.incrementRateLimitWindow(deploymentId, serviceId, "minute", minuteWindowStart);
+  await store.incrementRateLimitWindow(deploymentId, serviceId, "day", dayWindowStart);
 
   return { allowed: true };
 }
@@ -209,15 +183,23 @@ export function checkServiceRateLimit(
  *
  * Useful for diagnostics and the `/debug` endpoints.
  */
-export function getRateLimitStatus(
+export async function getRateLimitStatus(
   deploymentId: string,
   serviceId: string,
-): { minuteCount: number; dayCount: number } | null {
-  const entry = counters.get(makeKey(deploymentId, serviceId));
-  if (!entry) return null;
+  now: number = Date.now(),
+  store: StateStore = defaultStore,
+): Promise<{ minuteCount: number; dayCount: number } | null> {
+  const minuteWindowStart = getWindowStart(now, MINUTE_MS);
+  const dayWindowStart = getWindowStart(now, DAY_MS);
+
+  const minuteWindow = await store.getRateLimitWindow(deploymentId, serviceId, "minute", minuteWindowStart);
+  const dayWindow = await store.getRateLimitWindow(deploymentId, serviceId, "day", dayWindowStart);
+
+  if (!minuteWindow && !dayWindow) return null;
+
   return {
-    minuteCount: entry.minute.count,
-    dayCount: entry.day.count,
+    minuteCount: minuteWindow?.count ?? 0,
+    dayCount: dayWindow?.count ?? 0,
   };
 }
 
@@ -225,18 +207,21 @@ export function getRateLimitStatus(
  * Reset rate limit state for a deployment+service pair.
  * Useful for admin actions and tests.
  */
-export function resetServiceRateLimit(
+export async function resetServiceRateLimit(
   deploymentId: string,
   serviceId: string,
-): void {
-  counters.delete(makeKey(deploymentId, serviceId));
+  store: StateStore = defaultStore,
+): Promise<void> {
+  await store.deleteRateLimit(deploymentId, serviceId);
 }
 
 /**
  * Clear all rate limit state. Primarily used in tests.
  */
-export function resetAllServiceRateLimits(): void {
-  counters.clear();
+export async function resetAllServiceRateLimits(
+  store: StateStore = defaultStore,
+): Promise<void> {
+  await store.deleteAllRateLimits();
 }
 
 // ── Backward-compatible aliases ─────────────────────────────────────────────

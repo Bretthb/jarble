@@ -209,7 +209,7 @@ serviceExecutionRouter.post(
     }
 
     // ── 7. Rate limit check ─────────────────────────────────────────────────────
-    const rateLimitResult = checkServiceRateLimit(
+    const rateLimitResult = await checkServiceRateLimit(
       deploymentId,
       serviceId,
       serviceCard.rateLimits,
@@ -238,7 +238,7 @@ serviceExecutionRouter.post(
     }
 
     // ── 8. Circuit breaker check ────────────────────────────────────────────────
-    const circuitResult = canRequest(serviceId);
+    const circuitResult = await canRequest(serviceId);
     if (!circuitResult.allowed) {
       log.warn(
         { deploymentId, serviceId, skillName, retryAfterMs: circuitResult.retryAfterMs },
@@ -319,7 +319,7 @@ serviceExecutionRouter.post(
         log.info({ serviceId, skillName }, "Service execution: K8s unavailable, using dev handler runtime");
       } else {
         log.error({ serviceId, creatorDeploymentId }, "Service execution: failed to find creator pod");
-        recordFailure(serviceId);
+        await recordFailure(serviceId);
         res.status(503).set("X-Request-Id", requestId).json({
           error: "Failed to locate creator pod",
         });
@@ -334,7 +334,7 @@ serviceExecutionRouter.post(
         log.info({ serviceId, skillName }, "Service execution: pod not found, using dev handler runtime");
       } else {
         log.warn({ serviceId, creatorDeploymentId }, "Service execution: creator pod not available");
-        recordFailure(serviceId);
+        await recordFailure(serviceId);
         res.status(503).set("X-Request-Id", requestId).json({
           error: "Creator pod not available",
         });
@@ -353,21 +353,21 @@ serviceExecutionRouter.post(
         );
 
         if (devResult.ok) {
-          recordSuccess(serviceId);
+          await recordSuccess(serviceId);
           log.info(
             { deploymentId, serviceId, skillName, requestId, mode: "dev" },
             "Service execution: dev handler completed successfully",
           );
           res.status(200).set("X-Request-Id", requestId).json(devResult.result);
         } else {
-          recordFailure(serviceId);
+          await recordFailure(serviceId);
           res.status(500).set("X-Request-Id", requestId).json({
             error: devResult.error ?? "Handler execution failed",
           });
         }
       } catch (err: unknown) {
         const e = err instanceof Error ? err : new Error(String(err));
-        recordFailure(serviceId);
+        await recordFailure(serviceId);
         log.error({ serviceId, skillName, err: e.message, stack: e.stack }, "Service execution: dev handler threw");
         res.status(500).set("X-Request-Id", requestId).json({
           error: `Dev handler execution failed: ${e.message}`,
@@ -422,7 +422,7 @@ serviceExecutionRouter.post(
           { serviceId, skillName, requestId, stdout: stdout.slice(0, 500) },
           "Service execution: handler output is not valid JSON",
         );
-        recordFailure(serviceId);
+        await recordFailure(serviceId);
         res.status(500).set("X-Request-Id", requestId).json({
           error: "Handler produced invalid JSON output",
         });
@@ -431,7 +431,7 @@ serviceExecutionRouter.post(
 
       if (parsed.ok) {
         // ── 12. Record circuit breaker success ──────────────────────────────
-        recordSuccess(serviceId);
+        await recordSuccess(serviceId);
 
         // Output schema validation (warn-only, non-blocking)
         const responseHeaders: Record<string, string> = {
@@ -466,7 +466,7 @@ serviceExecutionRouter.post(
         res.status(200).set(responseHeaders).json(parsed.result);
       } else {
         // Handler returned an error
-        recordFailure(serviceId);
+        await recordFailure(serviceId);
         log.warn(
           { deploymentId, serviceId, skillName, requestId, error: parsed.error },
           "Service execution: handler returned error",
@@ -478,7 +478,7 @@ serviceExecutionRouter.post(
     } catch (err: unknown) {
       const e = err instanceof Error ? err : new Error(String(err));
 
-      recordFailure(serviceId);
+      await recordFailure(serviceId);
 
       if (e.message.includes("timed out")) {
         log.warn(

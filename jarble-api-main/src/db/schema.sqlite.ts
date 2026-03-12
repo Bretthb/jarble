@@ -414,3 +414,59 @@ export const serviceUsage = sqliteTable("package_usage", {
 export const serviceUsageRelations = relations(serviceUsage, ({ one }) => ({
   packageInstall: one(serviceInstalls, { fields: [serviceUsage.packageInstallId], references: [serviceInstalls.id] }),
 }));
+
+// ── Service Proxy Resilience Tables ────────────────────────────────────────
+
+// Per-deployment+service rate limit counters (shared across API replicas)
+export const serviceRateLimits = sqliteTable("service_rate_limits", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("srl")),
+  deploymentId: text("deployment_id").notNull(),
+  serviceId: text("service_id").notNull(),
+  windowType: text("window_type").notNull(), // "minute" | "day"
+  windowStart: text("window_start").notNull(), // Unix ms as string
+  count: integer("count").notNull().default(0),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+}, (table) => ({
+  deploymentServiceWindowIdx: uniqueIndex("uq_srl_deployment_service_window").on(
+    table.deploymentId, table.serviceId, table.windowType, table.windowStart,
+  ),
+}));
+
+// Per-service circuit breaker state (shared across API replicas)
+export const serviceCircuitBreakers = sqliteTable("service_circuit_breakers", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("scb")),
+  serviceId: text("service_id").notNull().unique(),
+  state: text("state").notNull().default("CLOSED"), // CLOSED | OPEN | HALF_OPEN
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  lastFailureAt: text("last_failure_at"), // Unix ms as string
+  openedAt: text("opened_at"), // Unix ms as string
+  halfOpenClaimedBy: text("half_open_claimed_by"), // Replica ID
+  halfOpenClaimedAt: text("half_open_claimed_at"), // Unix ms, 30s timeout
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+});
+
+// Push-based heartbeat records from creator services
+export const serviceHeartbeats = sqliteTable("service_heartbeats", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("shb")),
+  serviceId: text("service_id").notNull().unique(),
+  lastHeartbeatAt: text("last_heartbeat_at").notNull(),
+  heartbeatIntervalMs: integer("heartbeat_interval_ms").notNull().default(60000),
+  payload: text("payload"), // JSON metadata
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+});
+
+// Async job queue for long-running skill executions
+export const serviceAsyncJobs = sqliteTable("service_async_jobs", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("sjb")),
+  deploymentId: text("deployment_id").notNull(),
+  serviceId: text("service_id").notNull(),
+  skillName: text("skill_name").notNull(),
+  status: text("status").notNull().default("pending"), // pending | completed | failed
+  requestBody: text("request_body").notNull(), // JSON
+  responseBody: text("response_body"), // JSON
+  responseStatus: integer("response_status"),
+  errorMessage: text("error_message"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  completedAt: text("completed_at"),
+  expiresAt: text("expires_at").notNull(),
+});

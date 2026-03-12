@@ -410,3 +410,59 @@ export const serviceUsage = pgTable("package_usage", {
 export const serviceUsageRelations = relations(serviceUsage, ({ one }) => ({
   packageInstall: one(serviceInstalls, { fields: [serviceUsage.packageInstallId], references: [serviceInstalls.id] }),
 }));
+
+// ── Service Proxy Resilience Tables ────────────────────────────────────────
+
+// Per-deployment+service rate limit counters (shared across API replicas)
+export const serviceRateLimits = pgTable("service_rate_limits", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("srl")),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull(),
+  serviceId: varchar("service_id", { length: 255 }).notNull(),
+  windowType: varchar("window_type", { length: 10 }).notNull(), // "minute" | "day"
+  windowStart: varchar("window_start", { length: 20 }).notNull(), // Unix ms as string
+  count: integer("count").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  deploymentServiceWindowIdx: uniqueIndex("uq_srl_deployment_service_window").on(
+    table.deploymentId, table.serviceId, table.windowType, table.windowStart,
+  ),
+}));
+
+// Per-service circuit breaker state (shared across API replicas)
+export const serviceCircuitBreakers = pgTable("service_circuit_breakers", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("scb")),
+  serviceId: varchar("service_id", { length: 255 }).notNull().unique(),
+  state: varchar("state", { length: 20 }).notNull().default("CLOSED"), // CLOSED | OPEN | HALF_OPEN
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  lastFailureAt: varchar("last_failure_at", { length: 20 }), // Unix ms as string
+  openedAt: varchar("opened_at", { length: 20 }), // Unix ms as string
+  halfOpenClaimedBy: varchar("half_open_claimed_by", { length: 255 }), // Replica ID
+  halfOpenClaimedAt: varchar("half_open_claimed_at", { length: 20 }), // Unix ms, 30s timeout
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Push-based heartbeat records from creator services
+export const serviceHeartbeats = pgTable("service_heartbeats", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("shb")),
+  serviceId: varchar("service_id", { length: 255 }).notNull().unique(),
+  lastHeartbeatAt: timestamp("last_heartbeat_at").notNull(),
+  heartbeatIntervalMs: integer("heartbeat_interval_ms").notNull().default(60000),
+  payload: text("payload"), // JSON metadata
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Async job queue for long-running skill executions
+export const serviceAsyncJobs = pgTable("service_async_jobs", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("sjb")),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull(),
+  serviceId: varchar("service_id", { length: 255 }).notNull(),
+  skillName: varchar("skill_name", { length: 100 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | completed | failed
+  requestBody: text("request_body").notNull(), // JSON
+  responseBody: text("response_body"), // JSON
+  responseStatus: integer("response_status"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+});

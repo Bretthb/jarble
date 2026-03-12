@@ -30,6 +30,8 @@ import { diagnoseRouter } from "./routes/diagnose.js";
 import { serviceProxyRouter } from "./routes/serviceProxy.js";
 import { serviceExecutionRouter } from "./routes/serviceExecution.js";
 import { serviceStreamRouter } from "./routes/serviceStream.js";
+import { serviceHeartbeatRouter } from "./routes/serviceHeartbeat.js";
+import { serviceJobsRouter, startJobCleanup } from "./routes/serviceJobs.js";
 import { podApiRouter } from "./routes/podApi.js";
 import { attachTerminalWs } from "./routes/terminal.js";
 
@@ -93,6 +95,8 @@ app.use("/api/deployments", diagnoseRouter);
 app.use("/api/services", serviceProxyRouter);
 app.use("/api/services", serviceExecutionRouter);
 app.use("/api/services", serviceStreamRouter);
+app.use("/api/services", serviceHeartbeatRouter);
+app.use("/api/services", serviceJobsRouter);
 app.use("/api/pod", podApiRouter);
 
 // Debug endpoints — dev only
@@ -142,6 +146,7 @@ async function start() {
   startStatusReconciler();  // Syncs DB status with K8s reality (fixes "stuck at creating")
   startServiceHealthCheck();  // Pings remote/hybrid service health endpoints every 5 min
   startWebhookCleanup();      // Purges processedWebhookEvents older than 30 days (every 24h)
+  startJobCleanup();          // Cleans up expired async service jobs (hourly)
 
   const PORT = env.PORT;
   const server = app.listen(PORT, () => {

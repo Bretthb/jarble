@@ -80,10 +80,10 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Response | Prom
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("Service Health Check Service", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    resetAllCircuits();
+    await resetAllCircuits();
     mockFindMany.mockResolvedValue([]);
     // Ensure we start clean (no leftover interval)
     stopServiceHealthCheck();
@@ -494,7 +494,7 @@ describe("Service Health Check Service", () => {
 
       // Trip the circuit breaker for this service
       for (let i = 0; i < FAILURE_THRESHOLD; i++) {
-        recordFailure("pkg-circuit");
+        await recordFailure("pkg-circuit");
       }
 
       mockFetch(() => new Response("OK", { status: 200 }));
