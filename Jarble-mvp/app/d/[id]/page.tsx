@@ -205,14 +205,23 @@ function ChatPanel({
     startNewChat();
     clearMessages();
   }, [startNewChat, clearMessages]);
-  // Adapt DirectChatMessage to the ChatMessage shape expected by useJarbleRuntime
+  // Adapt DirectChatMessage to the ChatMessage shape expected by useJarbleRuntime.
+  // Uses a stable cache so unchanged messages keep the same object reference,
+  // preventing unnecessary re-renders of completed message bubbles.
+  const adaptCacheRef = useRef(new WeakMap<object, { id: string; role: "user" | "assistant"; content: string; createdAt: number; thinkingText?: string; displayText?: string; isActionRelay?: boolean }>());
   const adaptedMessages = useMemo(() =>
-    messages.map((m) => ({
-      ...m,
-      createdAt: (m as any).createdAt
-        ? new Date((m as any).createdAt).getTime()
-        : Date.now(),
-    })),
+    messages.map((m) => {
+      const cached = adaptCacheRef.current.get(m);
+      if (cached && cached.content === m.content && cached.thinkingText === m.thinkingText) return cached;
+      const adapted = {
+        ...m,
+        createdAt: (m as any).createdAt
+          ? new Date((m as any).createdAt).getTime()
+          : Date.now(),
+      };
+      adaptCacheRef.current.set(m, adapted);
+      return adapted;
+    }),
     [messages]
   );
   const runtime = useJarbleRuntime({ messages: adaptedMessages, streamingText: "", isStreaming, sendMessage });

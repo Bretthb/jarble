@@ -126,17 +126,19 @@ export function useDirectChat(deploymentId: string) {
         let buffer = "";
         const pendingBlocks = new Map<string, UIBlock>();
 
-        // rAF-based throttling for text deltas to prevent excessive re-renders
+        // Throttled flushing — 100ms intervals (~10 updates/sec) instead of rAF (60/sec).
+        // Text streaming doesn't need 60fps; 10fps looks equally smooth and massively
+        // reduces React re-renders and markdown re-parses.
         let pendingTextDelta = "";
         let pendingThinkingDelta = "";
-        let rafHandle = 0;
+        let flushTimer = 0;
 
         const flushTextDeltas = () => {
           const textBatch = pendingTextDelta;
           const thinkingBatch = pendingThinkingDelta;
           pendingTextDelta = "";
           pendingThinkingDelta = "";
-          rafHandle = 0;
+          flushTimer = 0;
 
           if (textBatch || thinkingBatch) {
             setMessages((prev) =>
@@ -153,8 +155,8 @@ export function useDirectChat(deploymentId: string) {
         };
 
         const scheduleFlush = () => {
-          if (!rafHandle) {
-            rafHandle = requestAnimationFrame(flushTextDeltas);
+          if (!flushTimer) {
+            flushTimer = window.setTimeout(flushTextDeltas, 100);
           }
         };
 
@@ -258,7 +260,7 @@ export function useDirectChat(deploymentId: string) {
         }
 
         // Flush any remaining buffered deltas
-        if (rafHandle) cancelAnimationFrame(rafHandle);
+        if (flushTimer) clearTimeout(flushTimer);
         if (pendingTextDelta || pendingThinkingDelta) flushTextDeltas();
 
         isDev && console.log(`[Jarble:DirectChat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
