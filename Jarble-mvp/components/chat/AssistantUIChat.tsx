@@ -252,7 +252,7 @@ function AssistantBubble() {
         >
           <MarkdownMessage content={displayed} />
           {showCursor && (
-            <span className="inline-block w-2 h-4 bg-primary/60 animate-pulse ml-1 align-middle" />
+            <span className="inline-block w-[2px] h-[1.1em] bg-primary/80 ml-0.5 align-middle animate-[blink_1s_steps(2,start)_infinite]" />
           )}
         </div>
         {/* Copy + Regenerate - only shows on hover, after animation */}
