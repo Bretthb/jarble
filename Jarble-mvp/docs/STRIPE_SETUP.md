@@ -1,5 +1,9 @@
 # Stripe Setup Guide
 
+*Last updated: March 11, 2026*
+
+> Jarble uses **dynamic pricing** via `price_data` in checkout sessions — no pre-created Stripe Price objects needed. Pricing is derived from the runtime catalog (`monthlyPriceCents`).
+
 ## 1. Create Stripe Account
 
 1. Go to https://dashboard.stripe.com/register
@@ -7,36 +11,14 @@
 
 ## 2. Get API Keys
 
-1. Go to https://dashboard.stripe.com/test/apikeys
-2. Copy the **Secret key** (starts with `sk_test_`)
-3. Add to `.env.local`:
-   ```
-   STRIPE_SECRET_KEY=sk_test_xxxx
-   ```
+1. Go to https://dashboard.stripe.com/test/apikeys (test) or `/apikeys` (live)
+2. Copy the **Secret key** (`sk_test_*` or `sk_live_*`)
+3. Copy the **Publishable key** (`pk_test_*` or `pk_live_*`)
+4. Set in environment:
+   - **Backend**: `STRIPE_SECRET_KEY` in `.env` (local) or K8s secret (prod)
+   - **Frontend**: `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in `.env.local` (local) or Vercel (prod)
 
-## 3. Create Products & Prices
-
-Go to https://dashboard.stripe.com/test/products and create:
-
-### Pro Tier ($10/month)
-- Name: "Jarble Pro"
-- Price: $10.00 / month (recurring)
-- Copy the Price ID (starts with `price_`)
-- Add to `.env.local`:
-  ```
-  STRIPE_PRICE_PRO=price_xxxx
-  ```
-
-### Agency Tier ($50/month)
-- Name: "Jarble Agency"
-- Price: $50.00 / month (recurring)
-- Copy the Price ID
-- Add to `.env.local`:
-  ```
-  STRIPE_PRICE_AGENCY=price_xxxx
-  ```
-
-## 4. Set Up Webhook
+## 3. Set Up Webhook
 
 ### For Local Development (using Stripe CLI)
 
@@ -44,28 +26,26 @@ Go to https://dashboard.stripe.com/test/products and create:
 2. Login: `stripe login`
 3. Forward webhooks:
    ```bash
-   stripe listen --forward-to localhost:3000/api/stripe/webhook
+   stripe listen --forward-to localhost:3001/api/stripe/webhook
    ```
 4. Copy the webhook signing secret (starts with `whsec_`)
-5. Add to `.env.local`:
+5. Add to `.env`:
    ```
    STRIPE_WEBHOOK_SECRET=whsec_xxxx
    ```
 
 ### For Production
 
-1. Go to https://dashboard.stripe.com/test/webhooks
+1. Go to Stripe Dashboard → Webhooks
 2. Click "Add endpoint"
-3. Endpoint URL: `https://jarble.ai/api/stripe/webhook`
+3. Endpoint URL: `https://api.jarble.ai/api/stripe/webhook`
 4. Select events:
    - `checkout.session.completed`
-   - `customer.subscription.created`
    - `customer.subscription.updated`
    - `customer.subscription.deleted`
-   - `invoice.paid`
    - `invoice.payment_failed`
 5. Copy the signing secret
-6. Add to environment variables
+6. Set in K8s secret `jarble-api-secrets` → `STRIPE_WEBHOOK_SECRET`
 
 ## 5. Configure Customer Portal
 
@@ -76,38 +56,39 @@ Go to https://dashboard.stripe.com/test/products and create:
    - ✅ Update payment methods
 3. Set cancellation policy (optional)
 
-## 6. Test the Flow
+## 5. Test the Flow
 
-### Subscribe to Pro:
-1. Click "Subscribe to Pro" on pricing page
-2. Use test card: `4242 4242 4242 4242`
-3. Any future expiry, any CVC, any ZIP
-4. Complete checkout
-5. Should redirect to dashboard with `?checkout=success`
+### Create a deployment and subscribe:
+1. Complete the onboarding wizard
+2. At the deploy step, Stripe checkout opens with dynamic pricing
+3. Use test card: `4242 4242 4242 4242`
+4. Any future expiry, any CVC, any ZIP
+5. Complete checkout → deployment creates and pod starts
 
 ### Verify in Database:
 ```sql
-SELECT id, email, tier, subscription_status, stripe_customer_id 
-FROM users 
-WHERE id = YOUR_USER_ID;
+SELECT id, name, stripe_subscription_id, monthly_price_cents, status
+FROM deployments
+WHERE user_id = 'YOUR_USER_ID';
 ```
 
 ### Test Webhook:
 ```bash
-# In another terminal
 stripe trigger checkout.session.completed
 ```
 
 ## Environment Variables Summary
 
 ```bash
-# .env.local
+# Backend (.env)
 STRIPE_SECRET_KEY=sk_test_xxxx
 STRIPE_WEBHOOK_SECRET=whsec_xxxx
-STRIPE_PRICE_PRO=price_xxxx
-STRIPE_PRICE_AGENCY=price_xxxx
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Frontend (.env.local)
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_xxxx
 ```
+
+**Important**: Test and Live keys are completely separate. When switching modes, clear `stripe_customer_id` on all users in the DB.
 
 ## Test Cards
 

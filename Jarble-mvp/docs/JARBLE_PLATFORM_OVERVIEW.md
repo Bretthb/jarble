@@ -1,25 +1,29 @@
 # Jarble Platform — Complete Overview & Roadmap
 
-*Last updated: February 16, 2026*
+*Last updated: March 11, 2026*
+
+> **Note**: For the most up-to-date architectural reference, see `CLAUDE.md` in the repo root. For operational procedures, see `docs/RUNBOOK.md`. This document provides visual diagrams and flow documentation that complement those files.
 
 ---
 
 ## 1. Platform Architecture
 
-Jarble is a **no-code AI deployment platform** that lets users deploy AI-powered bots (powered by LLMs) to messaging platforms in under 2 minutes — no coding required.
+Jarble is a **no-code AI bot deployment platform** that lets users deploy LLM-powered bots to messaging platforms (WhatsApp, Discord, Slack, Telegram) without coding. Each deployment gets a web chat interface (`/d/[id]`) with rich UI components via an MCP server.
 
 ### Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | Next.js 15 (App Router), React 18, TypeScript |
-| **Styling** | Tailwind CSS v4, shadcn/ui (40+ components), Framer Motion |
+| **Frontend** | Next.js 15 (App Router), React 19, TypeScript |
+| **Styling** | Tailwind CSS v4, shadcn/ui, Framer Motion |
 | **API** | Express + tRPC, SuperJSON serialization |
-| **Database** | Drizzle ORM — MySQL (prod), PostgreSQL (alt), SQLite (dev) |
-| **Auth** | Auth0 (Email/Password, Google OAuth, GitHub OAuth) |
-| **Payments** | Stripe (subscriptions, checkout, webhooks) |
+| **Database** | Drizzle ORM — PostgreSQL via Neon (prod), SQLite (dev) |
+| **Auth** | Auth0 (Google OAuth), RBAC (`super_admin` / `user` roles) |
+| **Payments** | Stripe (dynamic pricing via price_data, subscriptions, webhooks) |
 | **Infrastructure** | Hetzner Cloud, Terraform IaC, K3s (Longhorn storage, Traefik ingress) |
 | **LLM Providers** | OpenRouter, OpenAI, Anthropic, Google |
+| **MCP** | Custom stdio MCP server (`jarble-ui-server.js`) — `render_ui`, `define_component`, `list_components` |
+| **Chat** | @assistant-ui/react, SSE streaming (text deltas + UI blocks) |
 | **State Management** | React Query + tRPC hooks |
 
 ### System Architecture Diagram
@@ -41,18 +45,24 @@ graph TB
         J[Runtime Catalog Router]
         K[OpenRouter Router]
         L[Template Router]
+        L2[Billing Router]
+        L3[PlatformCredentials Router]
+        L4[Marketplace Router]
+        L5[Admin Router]
         WH[Auth0 Webhook Endpoint]
     end
 
     subgraph "Services"
-        M[Auth Service - JWT + JWKS]
+        M[Auth Service - JWT + JWKS + RBAC]
         N[Stripe Service - Subscriptions]
         O[K8s Service - Pod Management]
         P[OpenRouter Service - Key Provisioning]
+        P2[ConfigSync Service]
+        P3[Audit Log Service]
     end
 
     subgraph "Data Layer"
-        Q[(MySQL/Postgres)]
+        Q[(PostgreSQL - Neon)]
         R[Drizzle ORM]
     end
 
@@ -105,25 +115,37 @@ graph TB
 graph LR
     subgraph "Public Routes"
         P1["/ Home"]
-        P2["/login"]
-        P3["/register"]
         P4["/about"]
         P5["/pricing"]
+        P6["/terms"]
+        P7["/privacy"]
     end
 
     subgraph "Protected Routes"
         R1["/dashboard"]
         R2["/onboarding/id"]
         R3["/d/id/configure"]
+        R5["/d/id - Chat"]
+        R6["/deployments - Graph"]
+        R7["/billing"]
         R4["/settings"]
     end
 
-    P1 -->|Sign In| P2
-    P2 -->|Auth0| R1
+    subgraph "Admin Routes (super_admin only)"
+        A1["/admin - Overview"]
+        A2["/admin/users"]
+        A3["/admin/deployments"]
+        A4["/admin/billing"]
+        A5["/admin/audit"]
+    end
+
+    P1 -->|Auth0 Login| R1
     R1 -->|New Deployment| R2
     R1 -->|Click Deployment| R3
+    R1 -->|Chat| R5
     R1 -->|Profile Icon| R4
     R2 -->|Complete| R1
+    R4 -->|Admin| A1
 ```
 
 ### Pages Inventory
@@ -131,14 +153,25 @@ graph LR
 | Route | View | Description | Status |
 |-------|------|-------------|--------|
 | `/` | Home.tsx | Hero, integrations marquee, features grid, CTA | ✅ Complete |
-| `/login` | Login.tsx | Auth0 Email/Google/GitHub sign-in | ✅ Complete |
-| `/register` | — | Registration flow | ✅ Complete |
-| `/about` | About.tsx | Company story, market stats, team | ✅ Complete (team placeholder) |
+| `/about` | About.tsx | Company story, market stats, team | ✅ Complete |
 | `/pricing` | Pricing.tsx | Runtime catalog pricing, LLM credits, FAQ | ✅ Complete |
-| `/dashboard` | Dashboard.tsx | Deployment cards, create/delete, status badges, email verification banner | ✅ Complete |
-| `/onboarding/[id]` | OnboardingWizard.tsx | 5-step wizard: Name → Runtime → LLM → Deploy → WhatsApp | ✅ Complete |
+| `/terms` | Terms.tsx | Terms of Service | ✅ Complete |
+| `/privacy` | Privacy.tsx | Privacy Policy | ✅ Complete |
+| `/dashboard` | Dashboard.tsx | Deployment cards, SSE status, resource metrics, create/delete | ✅ Complete |
+| `/deployments` | — | React Flow node graph of deployments with credit pool edges | ✅ Complete |
+| `/onboarding/[id]` | OnboardingWizard.tsx | Multi-step wizard: Name → Runtime → LLM → Deploy → Platforms | ✅ Complete |
+| `/d/[id]` | — | Web chat interface (assistant-ui), canvas grid, chat session sidebar | ✅ Complete |
 | `/d/[id]/configure` | DeploymentConfiguration.tsx | Tabbed config (General, Model, Platforms, Skills, Advanced) | ✅ Complete |
-| `/settings` | Settings.tsx | Profile, theme, password reset (email/password users), account info | ✅ Complete |
+| `/billing` | Billing.tsx | Stripe subscription management | ✅ Complete |
+| `/settings` | Settings.tsx | Profile, theme, account info | ✅ Complete |
+| `/admin` | AdminOverview.tsx | Platform stats (users, deployments, revenue, active pods) | ✅ Complete |
+| `/admin/users` | AdminUsers.tsx | Searchable user table, role management | ✅ Complete |
+| `/admin/users/[id]` | AdminUserDetail.tsx | User detail + deployments + role toggle | ✅ Complete |
+| `/admin/deployments` | AdminDeployments.tsx | All deployments with start/stop/restart/delete | ✅ Complete |
+| `/admin/billing` | AdminBilling.tsx | Revenue stats, MRR, free vs paid | ✅ Complete |
+| `/admin/system` | AdminSystem.tsx | Pod status breakdown | ✅ Complete |
+| `/admin/audit` | AdminAudit.tsx | Audit log table | ✅ Complete |
+| `/admin/marketplace` | AdminMarketplace.tsx | Moderation queue (placeholder) | 🔲 Placeholder |
 
 ---
 
@@ -173,46 +206,19 @@ flowchart TD
 
 ## 4. Backend — API Routers & Procedures
 
-### tRPC Router Map
+### tRPC Router Map (9 routers)
 
-```mermaid
-graph TB
-    subgraph "User Router"
-        U1[me - public query]
-        U2[getProfile - protected]
-        U3[updateProfile - protected]
-        U4[completeProfile - protected]
-    end
+See `CLAUDE.md` for the full procedure list. Key routers:
 
-    subgraph "Deployment Router"
-        D1[canDeploy - query]
-        D2[list - query]
-        D3[getById - query]
-        D4[create - mutation]
-        D5[deploy - mutation]
-        D6[getStatus - query]
-        D7[update - mutation]
-        D8[delete - mutation]
-    end
-
-    subgraph "Runtime Catalog Router"
-        RC1[list - public query]
-        RC2[getById - public query]
-        RC3[getBySlug - public query]
-    end
-
-    subgraph "OpenRouter Router"
-        OR1[healthCheck - query]
-        OR2[models - query]
-        OR3[validateApiKey - mutation]
-        OR4[validateProviderKey - mutation]
-        OR5[provisionKey - mutation]
-    end
-
-    subgraph "Template Router"
-        T1[list - public query]
-    end
-```
+- **user** — Profile management, auth state
+- **deployment** — CRUD, lifecycle (start/stop/restart), K8s operations (admins bypass ownership)
+- **runtimeCatalog** — Available bot runtimes
+- **openrouter** — LLM key provisioning, validation, multi-provider support
+- **billing** — Stripe checkout, subscriptions
+- **platformCredentials** — Encrypted messaging platform credentials, pairing flows
+- **template** — Bot configuration templates
+- **marketplace** — Component marketplace (22 procedures): browse, install, publish, review, admin moderation
+- **admin** — Platform admin (13 procedures, `adminProcedure`-guarded): stats, users, deployments, billing, audit
 
 ### REST Endpoints (Non-tRPC)
 
@@ -220,35 +226,20 @@ graph TB
 |--------|------|------|-------------|
 | `GET` | `/health` | None | K8s liveness/readiness probe |
 | `POST` | `/api/stripe/webhook` | Stripe signature | Stripe event webhooks (raw body) |
-| `POST` | `/api/stripe/checkout` | JWT Bearer | Create Stripe checkout session |
-| `POST` | `/api/stripe/portal` | JWT Bearer | Create Stripe billing portal session |
-| `POST` | `/api/auth0/email-verified` | M2M Bearer | Auth0 email verification sync webhook |
+| `POST` | `/api/tambo-agent` | JWT Bearer | Chat SSE endpoint — streams text + UI blocks |
+| `GET` | `/api/tambo-agent/sessions/:deploymentId` | JWT Bearer | Chat session history |
+| `GET` | `/api/tambo-agent/sessions/:deploymentId/:sessionId` | JWT Bearer | Single session messages |
+| `GET` | `/api/deployments/status/stream` | JWT (query param) | SSE status stream for all user deployments |
+| `GET` | `/api/deployments/:id/logs` | JWT (query param) | SSE log stream |
+| `GET` | `/api/deployments/:id/whatsapp/qr` | JWT (query param) | SSE QR code stream |
+| `POST` | `/api/auth0/email-verified` | M2M Bearer | Auth0 email verification sync |
 | `GET` | `/debug/db` | None (dev only) | View all database tables |
-
-### Procedures Detail
-
-| Router | Procedure | Type | Auth | Description |
-|--------|-----------|------|------|-------------|
-| **user** | me | query | public | Current user from context |
-| **user** | getProfile | query | protected | Full user profile from DB |
-| **user** | updateProfile | mutation | protected | Update name/email |
-| **user** | completeProfile | mutation | protected | Complete profile for email signups |
-| **deployment** | canDeploy | query | protected | Check free deployment eligibility |
-| **deployment** | list | query | protected | All user deployments |
-| **deployment** | getById | query | protected | Single deployment |
-| **deployment** | create | mutation | protected | Create deployment record + provision LLM key |
-| **deployment** | deploy | mutation | protected | Trigger K8s deployment (async) |
-| **deployment** | getStatus | query | protected | Pod status from K8s |
-| **deployment** | update | mutation | protected | Update deployment config |
-| **deployment** | delete | mutation | protected | Delete K8s resources + DB record |
-| **runtimeCatalog** | list | query | public | All active runtimes |
-| **openrouter** | validateProviderKey | mutation | protected | Multi-provider key validation |
-| **openrouter** | provisionKey | mutation | protected | Provision OpenRouter tenant key |
-| **template** | list | query | public | Hardcoded templates (3) |
 
 ---
 
 ## 5. Database Schema
+
+See `CLAUDE.md` for the full table list. Core tables:
 
 ```mermaid
 erDiagram
@@ -257,10 +248,10 @@ erDiagram
         varchar email UK
         varchar name
         varchar auth0Id UK
+        varchar role "user or super_admin"
         boolean emailVerified
         varchar stripeCustomerId
         boolean freeDeploymentUsed
-        timestamp freeTrialExpiresAt
         timestamp createdAt
         timestamp updatedAt
     }
@@ -269,56 +260,76 @@ erDiagram
         varchar id PK
         varchar userId FK
         varchar name
-        text description
         varchar runtime
-        varchar image
-        int runtimeCatalogId FK
-        boolean isFree
-        int monthlyPriceCents
-        timestamp freeExpiresAt
-        varchar cpuLimit
-        int memoryMb
-        int storageMb
-        varchar llmMode
+        varchar status
         varchar llmProvider
         varchar llmModel
-        varchar llmApiKey
-        varchar status
-        text error
+        varchar llmApiKey "AES-256-GCM encrypted"
+        int monthlyPriceCents
+        boolean isFree
+        varchar stripeSubscriptionId
         timestamp createdAt
         timestamp updatedAt
     }
 
-    runtimeCatalog {
-        int id PK
-        varchar slug UK
-        varchar name
-        text description
-        varchar category
-        varchar dockerImage
-        varchar cpuLimit
-        int memoryMb
-        int storageMb
-        int monthlyPriceCents
-        boolean isActive
+    auditLogs {
+        varchar id PK
+        varchar userId FK
+        varchar action
+        varchar targetType
+        varchar targetId
+        text metadata "JSON"
+        varchar ipAddress
+        timestamp createdAt
+    }
+
+    platformCredentials {
+        varchar id PK
+        varchar deploymentId FK
+        varchar platform
+        text credentials "AES-256-GCM encrypted"
+        timestamp createdAt
+    }
+
+    chatSessions {
+        varchar id PK
+        varchar deploymentId FK
+        varchar title
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    chatMessages {
+        varchar id PK
+        varchar sessionId FK
+        varchar role "user or assistant"
+        text content
+        text thinkingText
         timestamp createdAt
     }
 
     users ||--o{ deployments : "has many"
-    runtimeCatalog ||--o{ deployments : "used by"
+    users ||--o{ auditLogs : "performed"
+    deployments ||--o{ platformCredentials : "has"
+    deployments ||--o{ chatSessions : "has"
+    chatSessions ||--o{ chatMessages : "contains"
 ```
+
+Additional tables (marketplace): `marketplaceComponents`, `componentVersions`, `componentInstalls`, `componentPurchases`, `componentReviews`, `marketplaceCreators`
+
+Additional tables (other): `runtimeCatalog`, `skillsCatalog`, `deploymentSkills`, `processedWebhookEvents`
 
 ### Field Details
 
 **users table**
 - `id` — nanoid(12) primary key
+- `role` — `"user"` (default) or `"super_admin"` (DB is authoritative, not JWT)
 - `emailVerified` — synced from Auth0 via Post Login Action webhook
-- `freeDeploymentUsed` — one-time flag, user gets exactly 1 free deployment
 
 **deployments table**
 - `llmMode` — "included" or "byok" (bring-your-own-key)
 - `llmProvider` — "openrouter", "openai", "anthropic", or "google"
-- `status` — "pending", "creating", "running", or "failed"
+- `status` — "pending", "creating", "running", "stopped", "failed", or "error"
 
 ---
 
@@ -589,20 +600,26 @@ sequenceDiagram
 | **Issuer** | `https://{AUTH0_DOMAIN}/` |
 | **Audience** | `https://api.jarble.ai` |
 | **User Provisioning** | Auto-create on first login with nanoid(12) IDs |
+| **RBAC** | `super_admin` / `user` roles in DB (authoritative). JWT claim is informational only. |
+| **Beta Gating** | Auth0 Post Login Action blocks users without `app_metadata.beta_approved` |
+| **Admin Middleware** | `adminProcedure` composed from `protectedProcedure` + `isAdmin()` check |
+| **Ownership Bypass** | Admins skip `userId` checks on deployment queries via `deploymentWhere()` |
 | **Google Users** | Auto-verified email, account linking by email |
-| **Email/Password** | Reset password via Auth0 `dbconnections/change_password` |
 | **Email Gate** | Deployments blocked until `email_verified === true` |
 | **Email Sync** | Auth0 Post Login Action webhook → `POST /api/auth0/email-verified` |
-| **M2M Auth** | Shared secret (`AUTH0_M2M_SECRET`) in Bearer token header |
 
-### Auth0 Action Setup
+### Auth0 Tenants
 
-The Post Login Action (`infrastructure/auth0/post-email-verification-action.js`) requires two secrets in the Auth0 Dashboard:
+| Environment | Tenant | Client ID |
+|-------------|--------|-----------|
+| **Production** | `jarble.us.auth0.com` | Set in Vercel + K8s secret |
+| **Dev/Local** | `jarble-dev.us.auth0.com` | Set in `.env.local` |
 
-| Secret | Value |
-|--------|-------|
-| `JARBLE_API_URL` | `https://api.jarble.ai` (or `http://localhost:3001` for dev) |
-| `JARBLE_M2M_SECRET` | Same value as `AUTH0_M2M_SECRET` in the API `.env` |
+### Auth0 Post Login Action (Production)
+
+The `Beta Gate + Role Claim` action on the prod tenant:
+1. Blocks unapproved users (checks `app_metadata.beta_approved`)
+2. Sets role claim (`https://api.jarble.ai/role`) from `app_metadata.role`
 
 ---
 
@@ -638,13 +655,16 @@ flowchart TD
 
 | Feature | Status |
 |---------|--------|
+| Dynamic pricing via `price_data` | ✅ Implemented |
 | Checkout session creation | ✅ Implemented |
 | Portal session creation | ✅ Implemented |
 | Webhook signature verification | ✅ Implemented |
 | checkout.session.completed | ✅ Implemented |
-| subscription.updated → sync deployments | ❌ TODO |
-| subscription.deleted → stop deployments | ❌ TODO |
-| invoice.payment_failed → flag account | ❌ TODO |
+| customer.subscription.updated | ✅ Implemented |
+| customer.subscription.deleted → stop deployment | ✅ Implemented |
+| invoice.payment_failed | ✅ Implemented |
+| Pending subscription handoff (race condition handling) | ✅ Implemented |
+| Webhook idempotency (`processedWebhookEvents` table) | ✅ Implemented |
 
 ---
 
@@ -653,141 +673,125 @@ flowchart TD
 ### Frontend ✅
 
 - [x] Landing page with hero animation, features grid, integrations marquee
-- [x] Auth0 login/register with Google, GitHub, Email/Password
+- [x] Auth0 login with Google OAuth
 - [x] Protected route guards with auth redirects
-- [x] Dashboard with deployment cards (status, pricing, delete)
-- [x] Email verification banner on dashboard (blocks deployment creation)
-- [x] 5-step onboarding wizard (Name → Runtime → LLM → Deploy → WhatsApp)
-- [x] Deploy step blocks unverified email users with warning
+- [x] Dashboard with deployment cards, SSE status, resource metrics (CPU/memory)
+- [x] Deployment node graph with React Flow (@xyflow/react) + dagre
+- [x] Multi-step onboarding wizard (config-driven via `wizardStepConfig.ts`)
+- [x] Web chat interface (`/d/[id]`) with @assistant-ui/react + SSE streaming
+- [x] 37 canvas UI components (charts, tables, 3D sandbox, maps, etc.)
+- [x] Chat session sidebar with history grouped by date
 - [x] Deployment configuration (General, Model, Platforms, Skills, Advanced tabs)
-- [x] Settings page (profile, theme toggle, account info)
-- [x] Password reset button for email/password auth users
+- [x] Billing page with Stripe subscription management
+- [x] Admin dashboard (8 pages: overview, users, deployments, marketplace, billing, system, audit)
+- [x] AdminGuard (client-side role check, redirects non-admins)
+- [x] Component marketplace UI (browse, install, publish, review)
+- [x] Settings page (profile, theme toggle)
+- [x] Terms of Service + Privacy Policy pages
 - [x] Dark mode with localStorage persistence + system preference detection
-- [x] Profile dropdown (avatar, settings, theme, logout) — shown on all pages
-- [x] About page (company narrative, market stats)
-- [x] Pricing page (runtime catalog, LLM credits, FAQ)
-- [x] Error boundaries + toast notifications
-- [x] Responsive design (mobile + desktop)
-- [x] 40+ shadcn/ui components
+- [x] Profile dropdown with conditional admin link
+- [x] Error boundaries + toast notifications + Sentry error tracking
+- [x] PostHog analytics integration
 
 ### Backend ✅
 
 - [x] Auth0 JWT verification + auto user provisioning
-- [x] Deployment CRUD (create, read, update, delete)
-- [x] Kubernetes deployment orchestration (PVC, Secret, Deployment)
-- [x] K8s pod status monitoring (phase, restarts, errors)
-- [x] Free tier system (1 free deployment, 7-day expiry)
-- [x] Runtime catalog management
+- [x] RBAC (`super_admin` / `user` roles), `adminProcedure` middleware
+- [x] Beta gating via Auth0 Post Login Action
+- [x] Admin tRPC router (13 procedures): stats, users, deployments, billing, audit logs
+- [x] Audit logging on all admin mutations (`logAdminAction()`)
+- [x] Deployment CRUD + lifecycle (start/stop/restart/cancel/reactivate)
+- [x] Deployment ownership bypass for admins via `deploymentWhere()`
+- [x] Kubernetes orchestration (Deployment, PVC, Secret, Service per bot)
+- [x] K8s pod status monitoring, CPU/memory metrics, node info
+- [x] ConfigSync pipeline (DB → PVC + K8s Secret → restart → poll readiness)
+- [x] SSE streaming: deployment status, logs, QR pairing
+- [x] Chat SSE endpoint with text deltas + UI block streaming
+- [x] Chat session/message persistence in DB
+- [x] MCP server (`jarble-ui-server.js`) with render_ui, define_component, list_components
+- [x] 37 canvas component schemas + autofix prop repair (20 rules)
+- [x] Component marketplace (22 procedures, manifest validation)
+- [x] Platform credentials (AES-256-GCM encrypted, configSync integration)
+- [x] Telegram/WhatsApp pairing flows
 - [x] Multi-LLM provider support (OpenRouter, OpenAI, Anthropic, Google)
-- [x] API key validation per provider
-- [x] OpenRouter tenant key provisioning ($5/mo limit)
-- [x] Stripe checkout + portal + webhook handling
-- [x] Auth0 email verification webhook (`POST /api/auth0/email-verified`)
-- [x] M2M shared secret authentication for webhooks
-- [x] CORS configuration
-- [x] Health checks (K8s liveness/readiness probes)
-- [x] Multi-database support (MySQL, PostgreSQL, SQLite)
+- [x] Stripe: dynamic pricing, checkout, portal, webhooks, subscription lifecycle
+- [x] Background status reconciler
+- [x] Pod security: non-root, NetworkPolicy, capabilities dropped
 
 ### Infrastructure ✅
 
-- [x] Terraform config for Hetzner Cloud K3s cluster provisioning
-- [x] Master node + configurable agent nodes with auto-join
-- [x] Private networking (10.0.0.0/16) for internal cluster communication
-- [x] Firewall rules (SSH, HTTP, HTTPS, K3s API, VXLAN)
-- [x] Floating IP for ingress load balancing
-- [x] Longhorn storage class auto-installation
-- [x] Traefik ingress (bundled with K3s)
-- [x] Auth0 Post Login Action script for email verification sync
-- [x] K8s deployment manifests (ServiceAccount, Role, RoleBinding, Deployment, Service, Ingress)
+- [x] Terraform for Hetzner Cloud K3s cluster (3 nodes)
+- [x] Longhorn storage, cert-manager TLS, Traefik ingress
+- [x] GitHub Actions CI: API image build, runtime image build, Terraform plan/apply
+- [x] Vercel frontend deployment (auto on push to main)
+- [x] Neon PostgreSQL (production), SQLite (dev)
+- [x] Automated deployment testing framework (4 agents, markdown reports)
 
 ---
 
-## 12. What's NOT Built Yet — Roadmap
+## 12. Remaining Work
 
-### 🔴 Critical (Must-Have for Launch)
+### 🔴 Active TODO (see `TaskList` tool for current items)
 
 | # | Task | Description | Effort |
 |---|------|-------------|--------|
-| 1 | **Platform credential storage** | Wire PlatformsTab to API — save WhatsApp/Discord/Slack/Telegram credentials to DB, test connections, disconnect | Medium |
-| 2 | **Stripe subscription → deployment sync** | When subscription changes/cancels, update deployment status. Handle payment failures. | Medium |
-| 3 | **Deployment status toggle (stop/start)** | Pause/resume deployments from dashboard and config page — scale K8s replicas to 0/1 | Medium |
-| 4 | **Drizzle migrations regeneration** | Current migrations are stale — regenerate from updated schemas | Small |
-| 5 | **Webhook configuration** | Save webhook URLs, send events on deployment status changes | Medium |
-| 6 | **WhatsApp QR integration** | Replace mock QR code with real WhatsApp Business API connection | Large |
-| 7 | **Email verification resend** | Add "Resend verification email" button for unverified users | Small |
+| 1 | **Auth0 prod tenant finalization** | Verify API registered, callback URLs, Post Login Action deployed, beta gate working | Small |
+| 2 | **Stripe live mode switch** | Update keys in K8s + Vercel, clear test customer IDs, verify webhooks | Small |
+| 3 | **Admin marketplace moderation** | Build real UI for `/admin/marketplace` (currently placeholder) | Medium |
+| 4 | **CD auto-restart** | GitHub Actions step to restart API pods after image build | Medium |
+| 5 | **E2E deployment test** | Full flow: wizard → checkout → pod → chat → messaging | Medium |
 
 ### 🟡 Important (Post-Launch)
 
 | # | Task | Description | Effort |
 |---|------|-------------|--------|
-| 8 | **Deployment logs** | Stream container logs from K8s pods to frontend | Medium |
-| 9 | **Real-time status updates** | WebSocket/SSE for live deployment status instead of polling | Medium |
-| 10 | **Usage analytics dashboard** | Track API calls, message counts, costs per deployment | Large |
-| 11 | **Billing management page** | Show invoices, usage, upgrade/downgrade plans | Medium |
-| 12 | **API key management** | Rotate, revoke, regenerate LLM keys from dashboard | Small |
-| 13 | **Rate limiting** | Add rate limiting on API routes to prevent abuse | Small |
-| 14 | **Templates database** | Move hardcoded templates to DB, allow custom templates | Medium |
-| 15 | **Deployment history** | Track config changes, restarts, status transitions | Medium |
-| 16 | **Terraform CI/CD** | GitHub Actions pipeline for `terraform plan` on PR, `terraform apply` on merge | Medium |
+| 6 | **Rate limiting** | Add rate limiting on API + admin endpoints | Small |
+| 7 | **Usage analytics** | Track API calls, message counts, costs per deployment | Large |
+| 8 | **API key rotation** | Rotate, revoke, regenerate LLM keys from dashboard | Small |
+| 9 | **DB CHECK constraint** | Enforce `role` column values at database level | Small |
 
 ### 🟢 Nice-to-Have (Future)
 
 | # | Task | Description | Effort |
 |---|------|-------------|--------|
-| 17 | **Multi-deployment management** | Bulk actions, deployment groups, labels | Medium |
-| 18 | **Custom domain support** | Allow users to point custom domains to their bots | Large |
-| 19 | **Team/organization support** | Multi-user orgs, role-based access, shared deployments | Large |
-| 20 | **Chat testing playground** | In-browser chat interface to test bot before deploying | Medium |
-| 21 | **Skill marketplace** | Browse, install, configure pre-built skills/plugins | Large |
-| 22 | **CI/CD integration** | GitHub Actions / GitLab CI for deployment automation | Medium |
-| 23 | **Image upload for avatar** | Settings page avatar change | Small |
-| 24 | **Guided tour** | Interactive onboarding tour for new users | Small |
-| 25 | **About page team section** | Replace placeholder team cards with real profiles | Small |
-| 26 | **LLM fine-tuning integration** | Allow users to fine-tune models on their data | Large |
-| 27 | **Multi-region cluster support** | Terraform modules for deploying K3s to multiple Hetzner regions | Large |
-| 28 | **Cluster auto-scaling** | Scale agent nodes based on deployment count/resource usage | Large |
+| 10 | **Custom domain support** | Allow users to point custom domains to their bots | Large |
+| 11 | **Team/organization support** | Multi-user orgs, shared deployments | Large |
+| 12 | **Multi-region cluster** | Terraform modules for multiple Hetzner regions | Large |
+| 13 | **Cluster auto-scaling** | Scale agent nodes based on deployment count | Large |
+| 14 | **LLM fine-tuning** | Allow users to fine-tune models on their data | Large |
 
 ---
 
 ## 13. Component Inventory
 
-### Shared Components
+See `CLAUDE.md` for the full key files reference. Key component areas:
 
-| Component | Purpose |
-|-----------|---------|
-| ProfileDropdown | User avatar dropdown (settings, theme, logout) |
-| IntegrationsMarquee | Scrolling platform integration logos with search |
-| TemplateSelector | Template selection for deployment creation |
-| WizardLoader | Animated deployment progress indicator |
-| ErrorBoundary | Graceful error handling wrapper |
-| ThemeToggle | Light/dark mode toggle button |
-| PlatformConfigForm | Generic form builder for platform credentials |
-| SubscribeButton | Stripe subscription button |
-| DevNav | Development-only navigation bar |
-
-### Auth Components
-
-| Component | Purpose |
-|-----------|---------|
-| Auth0Provider | Auth0 SDK wrapper with config |
-| LoginButton | Auth0 login trigger |
-| LogoutButton | Auth0 logout trigger |
-
-### UI Library (shadcn/ui)
-
-40+ components including: Accordion, Alert, Avatar, Badge, Button, Card, Checkbox, Dialog, Dropdown Menu, Input, Label, Popover, Progress, Select, Separator, Sheet, Skeleton, Slider, Switch, Table, Tabs, Textarea, Toast (Sonner), Toggle, Tooltip
+| Area | Components |
+|------|-----------|
+| **Auth** | `Auth0Provider`, `AdminGuard` |
+| **Canvas** | 37 UI components + `CanvasRenderer`, `CanvasSandbox`, `SimpleCanvasGrid` |
+| **Chat** | `AssistantUIChat`, `ChatSessionSidebar` |
+| **Admin** | 8 admin views, `AdminGuard` |
+| **Marketplace** | 6 marketplace UI components |
+| **Dashboard** | `ProfileDropdown`, `ResourceMetrics`, `DeploymentStatus` |
+| **Shared** | `ErrorBoundary`, `ThemeToggle`, `WizardLoader`, `TemplateSelector` |
+| **UI Library** | shadcn/ui components |
 
 ---
 
 ## 14. Environment Variables
 
+See `docs/RUNBOOK.md` for the full environment matrix with locations for dev vs prod.
+
 ### Frontend (.env.local)
 
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_AUTH0_DOMAIN` | Auth0 tenant domain (jarble-dev.us.auth0.com) |
+| `NEXT_PUBLIC_AUTH0_DOMAIN` | Auth0 tenant domain |
 | `NEXT_PUBLIC_AUTH0_CLIENT_ID` | Auth0 application client ID |
-| `NEXT_PUBLIC_AUTH0_AUDIENCE` | Auth0 API audience (https://api.jarble.ai) |
+| `NEXT_PUBLIC_AUTH0_AUDIENCE` | Auth0 API audience (`https://api.jarble.ai`) |
+| `NEXT_PUBLIC_API_URL` | API base URL (`http://localhost:3001` or `https://api.jarble.ai`) |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key |
 
 ### Backend (.env)
 
@@ -797,150 +801,75 @@ flowchart TD
 | `NODE_ENV` | No (default: development) | Environment |
 | `FRONTEND_URL` | No (default: http://localhost:3000) | CORS origin |
 | `DATABASE_URL` | Yes (unless SQLite) | Database connection string |
-| `DB_PROVIDER` | No (default: mysql) | mysql, postgres, or sqlite |
-| `USE_SQLITE` | No | Legacy flag — same as DB_PROVIDER=sqlite |
+| `USE_SQLITE` | No | Use file-based SQLite for local dev |
 | `AUTH0_DOMAIN` | Yes | Auth0 tenant domain |
 | `AUTH0_AUDIENCE` | Yes | Auth0 API audience |
-| `AUTH0_M2M_SECRET` | No | Shared secret for Auth0 Action webhooks (generate with `openssl rand -hex 32`) |
 | `OPENROUTER_API_KEY` | No | OpenRouter API key |
 | `OPENROUTER_MANAGEMENT_KEY` | No | OpenRouter Management API key for provisioning |
 | `STRIPE_SECRET_KEY` | No | Stripe secret key (Stripe disabled if not set) |
 | `STRIPE_WEBHOOK_SECRET` | If Stripe enabled | Stripe webhook signing secret |
-| `STRIPE_PRICE_PRO` | If Stripe enabled | Stripe price ID for Pro tier |
-| `STRIPE_PRICE_AGENCY` | If Stripe enabled | Stripe price ID for Agency tier |
-
-### Terraform (terraform.tfvars)
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `hcloud_token` | Yes | Hetzner Cloud API token |
-| `ssh_public_key_path` | No (default: ~/.ssh/id_rsa.pub) | Path to SSH public key |
-| `cluster_name` | No (default: jarble) | K3s cluster name prefix |
-| `location` | No (default: ash) | Hetzner datacenter (ash, fsn1, nbg1, hel1) |
-| `master_server_type` | No (default: cpx21) | Master node instance type |
-| `agent_server_type` | No (default: cpx21) | Worker node instance type |
-| `agent_count` | No (default: 2) | Number of worker nodes |
-| `k3s_version` | No (default: v1.29.2+k3s1) | K3s version |
-| `domain` | No (default: jarble.ai) | Base domain for DNS records |
-
-### Auth0 Action Secrets
-
-| Secret | Description |
-|--------|-------------|
-| `JARBLE_API_URL` | API base URL (https://api.jarble.ai or http://localhost:3001) |
-| `JARBLE_M2M_SECRET` | Must match `AUTH0_M2M_SECRET` in API .env |
+| `API_KEY_ENCRYPTION_KEY` | Yes | AES-256-GCM key for encrypting platform credentials |
 
 ---
 
 ## 15. File Structure Overview
 
+See `CLAUDE.md` for the detailed key files reference. High-level structure:
+
 ```
 monorepo/
-├── Jarble-mvp/                        # Frontend (Next.js 15)
+├── Jarble-mvp/                        # Frontend (Next.js 15, React 19)
 │   ├── app/                           # App Router routes
-│   │   ├── layout.tsx                 # Root layout
-│   │   ├── providers.tsx              # Auth0 + tRPC + Theme providers
-│   │   ├── page.tsx                   # Home page
-│   │   ├── globals.css                # Global styles + CSS variables
-│   │   ├── login/page.tsx
-│   │   ├── register/page.tsx
-│   │   ├── about/page.tsx
-│   │   ├── pricing/page.tsx
-│   │   ├── dashboard/page.tsx
-│   │   ├── settings/page.tsx
-│   │   ├── onboarding/[id]/page.tsx
-│   │   └── d/[id]/configure/page.tsx
+│   │   ├── admin/                     # Admin dashboard (8 pages)
+│   │   ├── d/[id]/                    # Chat page + configure
+│   │   ├── dashboard/
+│   │   ├── deployments/               # Node graph view
+│   │   ├── onboarding/[id]/
+│   │   ├── billing/, settings/, pricing/, about/, terms/, privacy/
+│   │   └── layout.tsx, providers.tsx
 │   ├── views/                         # Page-level view components
-│   │   ├── Home.tsx
-│   │   ├── Dashboard.tsx
-│   │   ├── OnboardingWizard.tsx
-│   │   ├── DeploymentConfiguration.tsx
-│   │   ├── Settings.tsx
-│   │   ├── Login.tsx
-│   │   ├── About.tsx
-│   │   ├── Pricing.tsx
-│   │   ├── NotFound.tsx
+│   │   ├── admin/                     # 8 admin views
 │   │   ├── onboarding/
-│   │   │   └── wizardStepConfig.ts
-│   │   └── deployment-config/
-│   │       ├── GeneralTab.tsx
-│   │       ├── ModelTab.tsx
-│   │       ├── PlatformsTab.tsx
-│   │       ├── SkillsTab.tsx
-│   │       ├── AdvancedTab.tsx
-│   │       └── types.ts
-│   ├── components/                    # Shared components
-│   │   ├── auth/                      # Auth0 wrappers
-│   │   ├── ui/                        # 40+ shadcn components
-│   │   ├── ProfileDropdown.tsx
-│   │   ├── IntegrationsMarquee.tsx
-│   │   ├── WizardLoader.tsx
-│   │   ├── TemplateSelector.tsx
-│   │   ├── PlatformConfigForm.tsx
-│   │   ├── SubscribeButton.tsx
-│   │   ├── ErrorBoundary.tsx
-│   │   ├── ThemeToggle.tsx
-│   │   ├── GuidedTour.tsx
-│   │   └── DevNav.tsx
-│   ├── contexts/
-│   │   └── ThemeContext.tsx
-│   ├── hooks/
-│   │   ├── useMobile.tsx
-│   │   ├── useComposition.ts
-│   │   └── usePersistFn.ts
-│   ├── lib/
-│   │   ├── trpc.ts
-│   │   ├── const.ts
-│   │   ├── platformConfigs.ts
-│   │   └── utils.ts
-│   ├── docs/
-│   │   └── JARBLE_PLATFORM_OVERVIEW.md
-│   └── public/                        # Static assets
-│       ├── hero-animation.webm
-│       ├── hero-mobile.webp
-│       └── ...
+│   │   ├── deployment-config/
+│   │   └── *.tsx
+│   ├── components/
+│   │   ├── admin/                     # AdminGuard
+│   │   ├── auth/                      # Auth0Provider
+│   │   ├── canvas/                    # 37 canvas components + registry
+│   │   ├── chat/                      # AssistantUIChat, ChatSessionSidebar
+│   │   ├── marketplace/               # Marketplace UI (6 files)
+│   │   ├── workspace/                 # Canvas grid, reducer
+│   │   └── ui/                        # shadcn components
+│   ├── hooks/                         # useIsAdmin, useChatSessions, useStatusStream, etc.
+│   └── lib/                           # trpc, autoFixProps, sanitize, posthog
 │
 ├── jarble-api-main/                   # Backend (Express + tRPC)
 │   ├── src/
-│   │   ├── index.ts                   # Server entry + Stripe/Auth0 webhooks
 │   │   ├── trpc/
-│   │   │   ├── index.ts               # Router exports
-│   │   │   ├── context.ts             # tRPC context (auth + DB)
-│   │   │   └── routers/
-│   │   │       ├── user.ts
-│   │   │       ├── deployment.ts
-│   │   │       ├── runtimeCatalog.ts
-│   │   │       ├── openrouter.ts
-│   │   │       └── template.ts
+│   │   │   ├── middleware.ts          # public/protected/admin procedures
+│   │   │   ├── context.ts            # Auth context + IP
+│   │   │   └── routers/              # 9 routers (user, deployment, admin, marketplace, etc.)
 │   │   ├── db/
-│   │   │   ├── schema.ts             # MySQL schema (Drizzle)
-│   │   │   ├── schema.pg.ts          # Postgres schema
-│   │   │   ├── schema.sqlite.ts      # SQLite schema
-│   │   │   └── init.ts               # DB init + test data seeding
+│   │   │   ├── schema.ts, schema.pg.ts, schema.sqlite.ts
+│   │   │   ├── index.ts              # Multi-DB support
+│   │   │   └── init.ts               # SQLite seed data
 │   │   ├── services/
-│   │   │   ├── auth.ts               # JWT verification + user provisioning
-│   │   │   └── stripe.ts             # Stripe checkout/portal/webhooks
-│   │   ├── k8s/
-│   │   │   └── deployment.ts         # K8s orchestration (PVC, Secret, Deployment)
-│   │   └── utils/
-│   │       └── env.ts                # Zod env validation
-│   ├── k8s/
-│   │   └── deployment.yaml           # K8s manifests (SA, Role, Deployment, Service, Ingress)
-│   ├── drizzle/                       # MySQL migrations (stale)
-│   └── drizzle-pg/                    # Postgres migrations (stale)
+│   │   │   ├── auth.ts, stripe.ts, configSync.ts, auditLog.ts
+│   │   │   └── manifestValidator.ts
+│   │   ├── k8s/                       # lifecycle, exec, secrets, status, logs, metrics, etc.
+│   │   ├── runtimes/handlers/         # OpenClaw, ZeroClaw runtime handlers
+│   │   ├── mcp/                       # MCP server + tools
+│   │   ├── routes/                    # tamboAgent.ts (chat SSE)
+│   │   └── utils/                     # rbac.ts, encryption.ts, logger.ts
+│   └── drizzle-pg/                    # PostgreSQL migrations (active)
 │
-├── infrastructure/                    # Infrastructure-as-Code
-│   ├── terraform/                     # Hetzner Cloud K3s provisioning
-│   │   ├── main.tf                    # SSH, network, firewall, K3s master + agents, floating IP
-│   │   ├── variables.tf               # All configurable variables
-│   │   ├── outputs.tf                 # IPs, kubeconfig command, DNS records
-│   │   ├── terraform.tfvars.example   # Template config
-│   │   ├── .gitignore                 # Excludes state, tfvars, kubeconfig
-│   │   └── README.md                  # Quick start guide
-│   └── auth0/
-│       └── post-email-verification-action.js  # Auth0 Post Login Action (email sync webhook)
+├── shared/component-manifest/         # Component schemas, metadata (single source of truth)
+├── scripts/deployment-testing/        # Automated deployment test framework
+├── infrastructure/terraform/          # Hetzner Cloud K3s IaC
+├── docs/RUNBOOK.md                    # Operational runbook
+└── CLAUDE.md                          # Primary architecture reference
 ```
 
 ---
 
-*This document provides a complete snapshot of the Jarble platform as of February 16, 2026. Use the roadmap section to prioritize next steps.*
+*This document provides a snapshot of the Jarble platform as of March 11, 2026. For the most current reference, see `CLAUDE.md` and `docs/RUNBOOK.md`.*

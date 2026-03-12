@@ -362,6 +362,15 @@ npx tsx watch src/index.ts
 ```
 Ensure `kubectl` is configured and the `jarble` namespace exists.
 
+## Operational Runbook
+
+**IMPORTANT**: Before making any env var change, deployment, infrastructure update, or operational decision, read `docs/RUNBOOK.md` first. It contains:
+- **Environment matrix** — every env var, where it lives, how to update it (dev vs prod). Consult this before changing any config to avoid mismatches.
+- **Deploy & release** — step-by-step procedures for shipping API and frontend changes. Follow these instead of guessing.
+- **Decision log** — key architectural and operational decisions with dates and rationale. Check this before proposing changes that may contradict prior decisions.
+
+After making operational changes, update the runbook's relevant section and add a new entry to the Decision Log if it was a significant decision.
+
 ## Debug Endpoints (dev only)
 
 Available when running locally:
