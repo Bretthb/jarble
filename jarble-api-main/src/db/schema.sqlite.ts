@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 import { customAlphabet } from "nanoid";
 
@@ -54,7 +54,10 @@ export const deployments = sqliteTable("deployments", {
   themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
-});
+}, (table) => ({
+  userIdIdx: index("idx_deployments_user_id").on(table.userId),
+  statusIdx: index("idx_deployments_status").on(table.status),
+}));
 
 export const runtimeCatalog = sqliteTable("runtime_catalog", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -161,6 +164,7 @@ export const marketplaceComponents = sqliteTable("marketplace_components", {
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 }, (table) => ({
   creatorNameIdx: uniqueIndex("uq_creator_component_name").on(table.creatorId, table.name),
+  statusIdx: index("idx_marketplace_components_status").on(table.status),
 }));
 
 // Component version history
@@ -469,4 +473,7 @@ export const serviceAsyncJobs = sqliteTable("service_async_jobs", {
   createdAt: text("created_at").notNull().$defaultFn(now),
   completedAt: text("completed_at"),
   expiresAt: text("expires_at").notNull(),
-});
+}, (table) => ({
+  deploymentIdIdx: index("idx_service_async_jobs_deployment_id").on(table.deploymentId),
+  expiresAtIdx: index("idx_service_async_jobs_expires_at").on(table.expiresAt),
+}));

@@ -932,13 +932,12 @@ describe("configSync", () => {
     it("loads installed skills and passes them to renderConfigs", async () => {
       mockDeploymentsFindFirst.mockResolvedValue(makeDeployment());
       mockDeploymentSkillsFindMany.mockResolvedValue([
-        { deploymentId: "dep-1", skillId: "skill-1" },
+        {
+          deploymentId: "dep-1",
+          skillId: "skill-1",
+          skill: { id: "skill-1", name: "web-search", config: '{"enabled": true}' },
+        },
       ]);
-      mockSkillsCatalogFindFirst.mockResolvedValue({
-        id: "skill-1",
-        name: "web-search",
-        config: '{"enabled": true}',
-      });
       mockReadCurrentSecretData.mockResolvedValue({});
       mockRenderConfigs.mockReturnValue([]);
       mockGetSecretEntries.mockReturnValue({});
@@ -956,9 +955,8 @@ describe("configSync", () => {
     it("handles skills where catalog entry is missing", async () => {
       mockDeploymentsFindFirst.mockResolvedValue(makeDeployment());
       mockDeploymentSkillsFindMany.mockResolvedValue([
-        { deploymentId: "dep-1", skillId: "skill-missing" },
+        { deploymentId: "dep-1", skillId: "skill-missing", skill: null },
       ]);
-      mockSkillsCatalogFindFirst.mockResolvedValue(null); // Not found
       mockReadCurrentSecretData.mockResolvedValue({});
       mockRenderConfigs.mockReturnValue([]);
       mockGetSecretEntries.mockReturnValue({});

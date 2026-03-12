@@ -2,6 +2,7 @@ import { db, tables } from "../../db/index.js";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { syncConfigsToPvc } from "../../services/configSync.js";
+import { safeFireAndForget } from "../../utils/safeAsync.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 
@@ -50,7 +51,7 @@ export const installSkillTool: McpTool = {
     logger.info({ deploymentId: ctx.deploymentId, skillId }, "MCP: Skill installed");
 
     if (ctx.deployment.status === "running") {
-      void syncConfigsToPvc(ctx.deploymentId);
+      safeFireAndForget(syncConfigsToPvc(ctx.deploymentId), { operation: "syncConfigsToPvc", deploymentId: ctx.deploymentId });
     }
 
     return {

@@ -13,6 +13,7 @@ import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement
 import { startStatusReconciler } from "./services/statusReconciler.js";
 import { startServiceHealthCheck } from "./services/serviceHealthCheck.js";
 import { startWebhookCleanup } from "./services/webhookCleanup.js";
+import helmet from "helmet";
 import { globalLimiter, authLimiter } from "./middleware/rateLimit.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { requestLoggingMiddleware } from "./middleware/requestLogging.js";
@@ -68,6 +69,12 @@ app.use(cors({
   credentials: true,
   allowedHeaders: ["Content-Type", "Authorization", "mcp-session-id", "mcp-protocol-version"],
   exposedHeaders: ["mcp-session-id"],
+}));
+
+// Security headers (HSTS, X-Content-Type-Options, X-Frame-Options, etc.)
+app.use(helmet({
+  contentSecurityPolicy: false,  // API-only, no HTML
+  crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
 
 // Global rate limiter — 300 req/min per IP (skips /health, webhooks)

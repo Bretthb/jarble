@@ -3,6 +3,7 @@ import { eq, inArray, desc } from "drizzle-orm";
 import { getDeploymentPodStatus, type DeploymentPodStatus } from "../k8s/index.js";
 import type { ManagedBy } from "../k8s/constants.js";
 import { logger } from "../utils/logger.js";
+import { safeFireAndForget } from "../utils/safeAsync.js";
 
 const { deployments } = tables;
 
@@ -208,6 +209,6 @@ async function applyStatusFix(mismatch: StatusMismatch): Promise<void> {
  */
 export function startStatusReconciler(intervalMs: number = 30 * 1000): NodeJS.Timeout {
   logger.info({ intervalMs }, "statusReconciler: starting periodic status reconciliation");
-  void reconcileStatuses();
-  return setInterval(() => void reconcileStatuses(), intervalMs);
+  safeFireAndForget(reconcileStatuses(), { operation: "reconcileStatuses" });
+  return setInterval(() => safeFireAndForget(reconcileStatuses(), { operation: "reconcileStatuses" }), intervalMs);
 }

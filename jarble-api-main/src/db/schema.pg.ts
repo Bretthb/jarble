@@ -1,4 +1,4 @@
-import { pgTable, varchar, text, integer, timestamp, boolean, serial, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, integer, timestamp, boolean, serial, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { customAlphabet } from "nanoid";
 
@@ -51,7 +51,10 @@ export const deployments = pgTable("deployments", {
   themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  userIdIdx: index("idx_deployments_user_id").on(table.userId),
+  statusIdx: index("idx_deployments_status").on(table.status),
+}));
 
 export const runtimeCatalog = pgTable("runtime_catalog", {
   id: serial("id").primaryKey(),
@@ -158,6 +161,7 @@ export const marketplaceComponents = pgTable("marketplace_components", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   creatorNameIdx: uniqueIndex("uq_creator_component_name").on(table.creatorId, table.name),
+  statusIdx: index("idx_marketplace_components_status").on(table.status),
 }));
 
 // Component version history
@@ -465,4 +469,7 @@ export const serviceAsyncJobs = pgTable("service_async_jobs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
   expiresAt: timestamp("expires_at").notNull(),
-});
+}, (table) => ({
+  deploymentIdIdx: index("idx_service_async_jobs_deployment_id").on(table.deploymentId),
+  expiresAtIdx: index("idx_service_async_jobs_expires_at").on(table.expiresAt),
+}));

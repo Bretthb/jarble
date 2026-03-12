@@ -35,9 +35,10 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
     logger.info({ type: event.type, id: event.id }, "Stripe webhook received");
 
     // ── Idempotency check: skip if already processed ──
-    const existing = await db.query.processedWebhookEvents?.findFirst({
-      where: eq(tables.processedWebhookEvents.eventId, event.id),
-    });
+    const existing = await db.select().from(tables.processedWebhookEvents)
+      .where(eq(tables.processedWebhookEvents.eventId, event.id))
+      .limit(1)
+      .then(rows => rows[0]);
 
     if (existing) {
       logger.info({ eventId: event.id }, "Webhook event already processed, skipping");
@@ -67,8 +68,8 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
           // This handles the race where deployment.create already ran before the webhook arrived.
           if (subscriptionId) {
             try {
-              const unlinkedDeployment = await db.query.deployments.findFirst({
-                where: and(
+              const unlinkedDeployment = await db.select().from(tables.deployments)
+                .where(and(
                   eq(tables.deployments.userId, userId),
                   isNull(tables.deployments.stripeSubscriptionId),
                   or(
@@ -76,9 +77,10 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
                     isNull(tables.deployments.isFree),
                   ),
                   inArray(tables.deployments.status, ["creating", "running", "stopped"]),
-                ),
-                orderBy: desc(tables.deployments.createdAt),
-              });
+                ))
+                .orderBy(desc(tables.deployments.createdAt))
+                .limit(1)
+                .then(rows => rows[0]);
 
               if (unlinkedDeployment) {
                 await db.update(tables.deployments)
@@ -117,9 +119,10 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
         logger.info({ customerId, subscriptionId, status, cancelAtPeriodEnd }, "Subscription updated");
 
         try {
-          const linked = await db.query.deployments.findFirst({
-            where: eq(tables.deployments.stripeSubscriptionId, subscriptionId),
-          });
+          const linked = await db.select().from(tables.deployments)
+            .where(eq(tables.deployments.stripeSubscriptionId, subscriptionId))
+            .limit(1)
+            .then(rows => rows[0]);
 
           if (!linked) {
             logger.warn({ subscriptionId }, "No deployment found for updated subscription");
@@ -163,9 +166,10 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
         logger.info({ customerId, subscriptionId }, "Subscription canceled — stopping deployment");
 
         try {
-          const linked = await db.query.deployments.findFirst({
-            where: eq(tables.deployments.stripeSubscriptionId, subscriptionId),
-          });
+          const linked = await db.select().from(tables.deployments)
+            .where(eq(tables.deployments.stripeSubscriptionId, subscriptionId))
+            .limit(1)
+            .then(rows => rows[0]);
 
           if (linked) {
             await stopDeployment(linked.id);
@@ -191,9 +195,10 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
 
         try {
           if (invoiceSubscriptionId) {
-            const linked = await db.query.deployments.findFirst({
-              where: eq(tables.deployments.stripeSubscriptionId, invoiceSubscriptionId),
-            });
+            const linked = await db.select().from(tables.deployments)
+              .where(eq(tables.deployments.stripeSubscriptionId, invoiceSubscriptionId))
+              .limit(1)
+              .then(rows => rows[0]);
 
             if (linked) {
               await db.update(tables.deployments)
@@ -202,14 +207,14 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
               logger.warn({ deploymentId: linked.id, subscriptionId: invoiceSubscriptionId }, "Deployment flagged for payment failure");
             }
           } else {
-            const user = await db.query.users.findFirst({
-              where: eq(tables.users.stripeCustomerId, customerId),
-            });
+            const user = await db.select().from(tables.users)
+              .where(eq(tables.users.stripeCustomerId, customerId))
+              .limit(1)
+              .then(rows => rows[0]);
 
             if (user) {
-              const userDeployments = await db.query.deployments.findMany({
-                where: eq(tables.deployments.userId, user.id),
-              });
+              const userDeployments = await db.select().from(tables.deployments)
+                .where(eq(tables.deployments.userId, user.id));
               for (const dep of userDeployments) {
                 if (!dep.isFree && dep.stripeSubscriptionId) {
                   await db.update(tables.deployments)
@@ -277,9 +282,10 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
   }
 
   // Look up runtime catalog to get the canonical price (never trust client-sent price)
-  const runtime = await db.query.runtimeCatalog.findFirst({
-    where: eq(tables.runtimeCatalog.slug, runtimeSlug),
-  });
+  const runtime = await db.select().from(tables.runtimeCatalog)
+    .where(eq(tables.runtimeCatalog.slug, runtimeSlug))
+    .limit(1)
+    .then(rows => rows[0]);
   if (!runtime) {
     res.status(400).json({ error: "Unknown runtime" });
     return;

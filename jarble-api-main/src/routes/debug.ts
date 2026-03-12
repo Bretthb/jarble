@@ -5,6 +5,7 @@ import { db, tables, dbDate } from "../db/index.js";
 import { logger } from "../utils/logger.js";
 import { verifyToken } from "../services/auth.js";
 import { syncConfigsToPvc } from "../services/configSync.js";
+import { safeFireAndForget } from "../utils/safeAsync.js";
 import { validateThemeConfig, THEME_PRESET_NAMES } from "@jarble/component-manifest";
 
 /**
@@ -447,7 +448,7 @@ debugRouter.post("/marketplace/install", async (req, res) => {
 
       // Trigger configSync (fire and forget)
       if ((deployment as any).status === "running") {
-        void syncConfigsToPvc(deploymentId);
+        safeFireAndForget(syncConfigsToPvc(deploymentId), { operation: "syncConfigsToPvc", deploymentId });
       }
 
       logger.info({ serviceId: itemId, deploymentId }, "Debug: marketplace service installed");
@@ -501,7 +502,7 @@ debugRouter.post("/marketplace/install", async (req, res) => {
 
       // Trigger configSync
       if ((deployment as any).status === "running") {
-        void syncConfigsToPvc(deploymentId);
+        safeFireAndForget(syncConfigsToPvc(deploymentId), { operation: "syncConfigsToPvc", deploymentId });
       }
 
       logger.info({ componentId: itemId, deploymentId }, "Debug: marketplace component installed");
@@ -538,7 +539,7 @@ debugRouter.post("/marketplace/uninstall", async (req, res) => {
         .where(eq(tables.serviceInstalls.id, (install as any).id));
 
       // Trigger configSync to remove instruction snippet from soul.md
-      void syncConfigsToPvc(deploymentId);
+      safeFireAndForget(syncConfigsToPvc(deploymentId), { operation: "syncConfigsToPvc", deploymentId });
 
       res.json({ success: true, type: "service", message: "Service uninstalled. ConfigSync triggered." });
     } else {
@@ -556,7 +557,7 @@ debugRouter.post("/marketplace/uninstall", async (req, res) => {
       await db.delete(tables.componentInstalls)
         .where(eq(tables.componentInstalls.id, (install as any).id));
 
-      void syncConfigsToPvc(deploymentId);
+      safeFireAndForget(syncConfigsToPvc(deploymentId), { operation: "syncConfigsToPvc", deploymentId });
 
       res.json({ success: true, type: "component", message: "Component uninstalled. ConfigSync triggered." });
     }
@@ -639,7 +640,7 @@ debugRouter.post("/deployment/:id/sync-config", async (req, res) => {
     logger.info({ deploymentId: id }, "Debug: triggering configSync (fire and forget)");
 
     // Trigger config sync (fire and forget - don't block the request)
-    void syncConfigsToPvc(id);
+    safeFireAndForget(syncConfigsToPvc(id), { operation: "syncConfigsToPvc", deploymentId: id });
 
     res.json({ success: true, deploymentId: id, message: "Config sync triggered (running in background)" });
   } catch (err) {

@@ -20,6 +20,7 @@ import type { DeploymentFields } from "../../runtimes/types.js";
 import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrouter.js";
 import { syncConfigsToPvc } from "../../services/configSync.js";
+import { safeFireAndForget } from "../../utils/safeAsync.js";
 import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
 import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
 import { validateThemeConfig } from "@jarble/component-manifest";
@@ -860,7 +861,7 @@ export const deploymentRouter = router({
 
       // Config sync: push updated configs to PVC if deployment is running
       if (existing.status === "running") {
-        void syncConfigsToPvc(id);
+        safeFireAndForget(syncConfigsToPvc(id), { operation: "syncConfigsToPvc", deploymentId: id });
       }
 
       return ctx.db.query.deployments.findFirst({

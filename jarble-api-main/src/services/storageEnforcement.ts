@@ -2,6 +2,7 @@ import { db, tables, USE_SQLITE } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import { getDeploymentStorageUsage, stopDeployment } from "../k8s/index.js";
 import { logger } from "../utils/logger.js";
+import { safeFireAndForget } from "../utils/safeAsync.js";
 
 const { deployments } = tables;
 
@@ -86,6 +87,6 @@ async function checkDeploymentStorage(dep: {
  */
 export function startStorageEnforcement(intervalMs: number = 5 * 60 * 1000): NodeJS.Timeout {
   logger.info({ intervalMs }, "storageEnforcement: starting periodic storage limit checks");
-  void enforceStorageLimits();
-  return setInterval(() => void enforceStorageLimits(), intervalMs);
+  safeFireAndForget(enforceStorageLimits(), { operation: "enforceStorageLimits" });
+  return setInterval(() => safeFireAndForget(enforceStorageLimits(), { operation: "enforceStorageLimits" }), intervalMs);
 }

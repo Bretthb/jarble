@@ -7,6 +7,7 @@ import { createModuleLogger } from "../utils/logger.js";
 const log = createModuleLogger("webhooks");
 import { env } from "../utils/env.js";
 import { syncConfigsFromPvc } from "../services/configSync.js";
+import { safeFireAndForget } from "../utils/safeAsync.js";
 
 // Constant-time string comparison to prevent timing attacks on secrets
 function secureCompare(a: string, b: string): boolean {
@@ -115,7 +116,7 @@ webhooksRouter.post("/config-changed", async (req, res) => {
     }
 
     // Fire-and-forget: read PVC config files and sync to DB
-    void syncConfigsFromPvc(deploymentId);
+    safeFireAndForget(syncConfigsFromPvc(deploymentId), { operation: "syncConfigsFromPvc", deploymentId });
 
     log.info({ deploymentId }, "Config change webhook received, syncing from PVC");
     res.json({ ok: true });

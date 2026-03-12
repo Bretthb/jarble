@@ -2,6 +2,7 @@ import { db, tables, dbDate } from "../../db/index.js";
 import { eq } from "drizzle-orm";
 import { encryptApiKey } from "../../utils/encryption.js";
 import { syncConfigsToPvc } from "../../services/configSync.js";
+import { safeFireAndForget } from "../../utils/safeAsync.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 
@@ -59,7 +60,7 @@ export const updateLlmConfigTool: McpTool = {
 
     // Secret change → triggers configSync restart
     if (ctx.deployment.status === "running") {
-      void syncConfigsToPvc(ctx.deploymentId);
+      safeFireAndForget(syncConfigsToPvc(ctx.deploymentId), { operation: "syncConfigsToPvc", deploymentId: ctx.deploymentId });
     }
 
     const parts: string[] = [];

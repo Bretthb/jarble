@@ -107,20 +107,16 @@ async function buildDeploymentFields(
     }
   }
 
-  // Load installed skills for this deployment
+  // Load installed skills for this deployment (single query with join)
   const skillRows = await db.query.deploymentSkills.findMany({
     where: eq(deploymentSkills.deploymentId, deployment.id),
+    with: { skill: true },
   });
 
   const skills: Array<{ name: string; config: string }> = [];
-  if (skillRows.length > 0) {
-    for (const row of skillRows) {
-      const skill = await db.query.skillsCatalog.findFirst({
-        where: eq(skillsCatalog.id, row.skillId),
-      });
-      if (skill) {
-        skills.push({ name: skill.name, config: skill.config });
-      }
+  for (const row of skillRows) {
+    if (row.skill) {
+      skills.push({ name: row.skill.name, config: row.skill.config });
     }
   }
 

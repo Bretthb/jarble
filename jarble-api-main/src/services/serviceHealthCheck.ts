@@ -16,6 +16,7 @@
 import { db, tables, dbDate } from "../db/index.js";
 import { eq, sql } from "drizzle-orm";
 import { logger } from "../utils/logger.js";
+import { safeFireAndForget } from "../utils/safeAsync.js";
 import { validateExternalUrl } from "../utils/urlValidation.js";
 import { canRequest } from "./circuitBreaker.js";
 
@@ -31,8 +32,8 @@ export function startServiceHealthCheck(intervalMs = 5 * 60 * 1000): void {
   logger.info({ intervalMs }, "Starting service health check service");
 
   // Run immediately, then on interval
-  void checkAllServices();
-  healthCheckInterval = setInterval(() => void checkAllServices(), intervalMs);
+  safeFireAndForget(checkAllServices(), { operation: "checkAllServices" });
+  healthCheckInterval = setInterval(() => safeFireAndForget(checkAllServices(), { operation: "checkAllServices" }), intervalMs);
 }
 
 /**

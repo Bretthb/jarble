@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { db, tables, dbDate } from "../db/index.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { syncConfigsToPvc } from "../services/configSync.js";
+import { safeFireAndForget } from "../utils/safeAsync.js";
 import { encryptApiKey } from "../utils/encryption.js";
 import { generateSigningSecret } from "../utils/hmac.js";
 import { performInstallHandshake } from "../services/serviceHandshake.js";
@@ -453,7 +454,7 @@ podApiRouter.post("/marketplace/install", async (req: Request, res: Response) =>
 
       // Trigger configSync (fire and forget)
       if ((deployment as any).status === "running") {
-        void syncConfigsToPvc(deploymentId);
+        safeFireAndForget(syncConfigsToPvc(deploymentId), { operation: "syncConfigsToPvc", deploymentId });
       }
 
       logger.info(
@@ -520,7 +521,7 @@ podApiRouter.post("/marketplace/install", async (req: Request, res: Response) =>
 
       // Trigger configSync
       if ((deployment as any).status === "running") {
-        void syncConfigsToPvc(deploymentId);
+        safeFireAndForget(syncConfigsToPvc(deploymentId), { operation: "syncConfigsToPvc", deploymentId });
       }
 
       logger.info(
@@ -581,7 +582,7 @@ podApiRouter.post("/marketplace/uninstall", async (req: Request, res: Response) 
         .where(eq(tables.serviceInstalls.id, (install as any).id));
 
       // Trigger configSync to remove instruction snippet from soul.md
-      void syncConfigsToPvc(deploymentId);
+      safeFireAndForget(syncConfigsToPvc(deploymentId), { operation: "syncConfigsToPvc", deploymentId });
 
       logger.info(
         { serviceId: itemId, deploymentId },
@@ -610,7 +611,7 @@ podApiRouter.post("/marketplace/uninstall", async (req: Request, res: Response) 
         .delete(tables.componentInstalls)
         .where(eq(tables.componentInstalls.id, (install as any).id));
 
-      void syncConfigsToPvc(deploymentId);
+      safeFireAndForget(syncConfigsToPvc(deploymentId), { operation: "syncConfigsToPvc", deploymentId });
 
       logger.info(
         { componentId: itemId, deploymentId },

@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
 import { syncConfigsToPvc } from "../../services/configSync.js";
+import { safeFireAndForget } from "../../utils/safeAsync.js";
 
 const { deployments, skillsCatalog, deploymentSkills } = tables;
 
@@ -103,7 +104,7 @@ export const skillsRouter = router({
 
       // Sync updated skills config to PVC if deployment is running
       if (deployment.status === "running") {
-        void syncConfigsToPvc(input.deploymentId);
+        safeFireAndForget(syncConfigsToPvc(input.deploymentId), { operation: "syncConfigsToPvc", deploymentId: input.deploymentId });
       }
 
       return { success: true };
@@ -146,7 +147,7 @@ export const skillsRouter = router({
 
       // Sync updated skills config to PVC if deployment is running
       if (deployment.status === "running") {
-        void syncConfigsToPvc(input.deploymentId);
+        safeFireAndForget(syncConfigsToPvc(input.deploymentId), { operation: "syncConfigsToPvc", deploymentId: input.deploymentId });
       }
 
       return { success: true };

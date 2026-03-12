@@ -966,7 +966,7 @@ describe("Pod API Route", () => {
           description: "A cool chart component",
           tier: "code",
           category: "charts",
-          creatorId: "cp_test001",
+          creatorId: "user-001",
           status: "submitted",
         }),
       );

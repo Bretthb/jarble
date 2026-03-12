@@ -9,6 +9,7 @@ const log = createModuleLogger("sse");
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { encryptApiKey } from "../utils/encryption.js";
 import { syncConfigsToPvc } from "../services/configSync.js";
+import { safeFireAndForget } from "../utils/safeAsync.js";
 import {
   streamDeploymentLogs,
   getDeploymentPodStatus,
@@ -314,7 +315,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
           });
           log.info({ deploymentId }, "WhatsApp marked as connected via QR pairing");
         }
-        void syncConfigsToPvc(deploymentId);
+        safeFireAndForget(syncConfigsToPvc(deploymentId), { operation: "syncConfigsToPvc", deploymentId });
       } catch (err) {
         log.error({ deploymentId, err }, "Failed to mark WhatsApp connected");
       }
@@ -334,7 +335,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
           if (inQrBlock) flushQrBuffer();
 
           if (isConnectedLine(line)) {
-            void markConnected();
+            safeFireAndForget(markConnected(), { operation: "markConnected", deploymentId });
             res.write(`event: connected\ndata: {}\n\n`);
           } else if (line.trim()) {
             // Forward as debug log line
@@ -348,7 +349,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
 
         if (res.writableEnded) return;
         if (success && !connected) {
-          void markConnected();
+          safeFireAndForget(markConnected(), { operation: "markConnected", deploymentId });
           res.write(`event: connected\ndata: {}\n\n`);
         } else if (!success && !connected) {
           res.write(`event: error\ndata: ${JSON.stringify({ message: message || "Pairing process exited" })}\n\n`);

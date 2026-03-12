@@ -1,6 +1,7 @@
 import { db, tables, DB_PROVIDER } from "../db/index.js";
 import { sql } from "drizzle-orm";
 import { logger } from "../utils/logger.js";
+import { safeFireAndForget } from "../utils/safeAsync.js";
 
 const { processedWebhookEvents } = tables;
 
@@ -44,6 +45,6 @@ export async function cleanupOldWebhookEvents(): Promise<number> {
 export function startWebhookCleanup(intervalMs: number = 24 * 60 * 60 * 1000): NodeJS.Timeout {
   logger.info({ intervalMs }, "webhookCleanup: starting periodic webhook event cleanup");
   // Run once immediately on startup
-  void cleanupOldWebhookEvents();
-  return setInterval(() => void cleanupOldWebhookEvents(), intervalMs);
+  safeFireAndForget(cleanupOldWebhookEvents(), { operation: "cleanupOldWebhookEvents" });
+  return setInterval(() => safeFireAndForget(cleanupOldWebhookEvents(), { operation: "cleanupOldWebhookEvents" }), intervalMs);
 }

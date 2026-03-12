@@ -3,6 +3,7 @@ import { eq, and, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { stopDeployment } from "../k8s/index.js";
 import { isStripeConfigured, getSubscriptionDetails } from "./stripe.js";
 import { logger } from "../utils/logger.js";
+import { safeFireAndForget } from "../utils/safeAsync.js";
 
 const { deployments, users } = tables;
 
@@ -306,12 +307,12 @@ export function startSubscriptionEnforcement(
   );
 
   // Run immediately on startup
-  void enforceSubscriptionStatus();
-  void cleanupOrphanedDeployments();
+  safeFireAndForget(enforceSubscriptionStatus(), { operation: "enforceSubscriptionStatus" });
+  safeFireAndForget(cleanupOrphanedDeployments(), { operation: "cleanupOrphanedDeployments" });
 
   // Schedule periodic checks
-  const primaryTimer = setInterval(() => void enforceSubscriptionStatus(), intervalMs);
-  const orphanTimer = setInterval(() => void cleanupOrphanedDeployments(), orphanIntervalMs);
+  const primaryTimer = setInterval(() => safeFireAndForget(enforceSubscriptionStatus(), { operation: "enforceSubscriptionStatus" }), intervalMs);
+  const orphanTimer = setInterval(() => safeFireAndForget(cleanupOrphanedDeployments(), { operation: "cleanupOrphanedDeployments" }), orphanIntervalMs);
 
   return { primaryTimer, orphanTimer };
 }
