@@ -99,6 +99,7 @@ export function useCanvasChat(
   const [streamingCardIds, setStreamingCardIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingText, setStreamingText] = useState("");
+  const [streamingThinkingText, setStreamingThinkingText] = useState("");
   const [lastChatError, setLastChatError] = useState<ClassifiedChatError | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -116,6 +117,7 @@ export function useCanvasChat(
   // rAF-based throttle for streaming text updates — coalesces rapid deltas into
   // a single React re-render per animation frame (~16ms / 60fps)
   const pendingTextRef = useRef<string>("");
+  const pendingThinkingRef = useRef<string>("");
   const rafIdRef = useRef<number | null>(null);
 
   // Load chat history from localStorage on mount
@@ -204,6 +206,7 @@ export function useCanvasChat(
       isStreamingRef.current = true;
       setIsStreaming(true);
       setStreamingText("");
+      setStreamingThinkingText("");
       setLastChatError(null);
       setLastUserMessage(text);
       abortRef.current?.abort();
@@ -212,6 +215,7 @@ export function useCanvasChat(
 
       const messageId = `msg-${Date.now()}`;
       let accumulatedText = "";
+      let accumulatedThinkingText = "";
       const streamStart = Date.now();
       let eventCount = 0;
 
@@ -271,12 +275,12 @@ export function useCanvasChat(
         const cardsAddedThisStream: CanvasCard[] = [];
         let textContentCount = 0;
 
-        // rAF-based throttle: coalesce rapid text deltas into one setState per frame
-        function scheduleTextUpdate(text: string) {
-          pendingTextRef.current = text;
+        // rAF-based throttle: coalesce rapid text + thinking deltas into one setState per frame
+        function scheduleFlush() {
           if (rafIdRef.current === null) {
             rafIdRef.current = requestAnimationFrame(() => {
               setStreamingText(pendingTextRef.current);
+              setStreamingThinkingText(pendingThinkingRef.current);
               rafIdRef.current = null;
             });
           }
@@ -306,9 +310,13 @@ export function useCanvasChat(
                   console.log(`[Jarble:Chat] SSE event: TEXT_MESSAGE_CONTENT (x${textContentCount}, ${accumulatedText.length} chars total)`);
                 }
                 accumulatedText += event.delta;
-                // Schedule rAF-throttled update — coalesces rapid deltas into one render per frame
-                scheduleTextUpdate(stripUIMarkers(accumulatedText));
-              } else if (isDev && event.type !== "TEXT_MESSAGE_CONTENT") {
+                pendingTextRef.current = stripUIMarkers(accumulatedText);
+                scheduleFlush();
+              } else if (event.type === "THINKING_CONTENT" && event.delta) {
+                accumulatedThinkingText += event.delta;
+                pendingThinkingRef.current = accumulatedThinkingText;
+                scheduleFlush();
+              } else if (isDev && event.type !== "TEXT_MESSAGE_CONTENT" && event.type !== "THINKING_CONTENT") {
                 console.log(`[Jarble:Chat] SSE event: ${event.type}`);
               }
 
@@ -394,6 +402,7 @@ export function useCanvasChat(
           rafIdRef.current = null;
         }
         setStreamingText(stripUIMarkers(accumulatedText));
+        setStreamingThinkingText(accumulatedThinkingText);
 
         // After streaming ends: add bot text to chat messages (NOT canvas)
         const cleanText = stripUIMarkers(accumulatedText);
@@ -405,6 +414,7 @@ export function useCanvasChat(
               role: "assistant",
               content: cleanText,
               createdAt: Date.now(),
+              ...(accumulatedThinkingText ? { thinkingText: accumulatedThinkingText } : {}),
             },
           ]);
         }
@@ -436,6 +446,7 @@ export function useCanvasChat(
           isStreamingRef.current = false;
           setIsStreaming(false);
           setStreamingText("");
+          setStreamingThinkingText("");
           setStreamingCardIds(new Set());
         }
       }
@@ -446,7 +457,7 @@ export function useCanvasChat(
 
   const clearChatError = useCallback(() => setLastChatError(null), []);
 
-  return { sendMessage, isStreaming, streamingCardIds, messages, streamingText, lastChatError, lastUserMessage, clearChatError };
+  return { sendMessage, isStreaming, streamingCardIds, messages, streamingText, streamingThinkingText, lastChatError, lastUserMessage, clearChatError };
 }
 
 // ── Helper: create canvas card for UI blocks only ────────────────────────────

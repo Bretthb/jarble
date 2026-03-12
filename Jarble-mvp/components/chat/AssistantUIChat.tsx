@@ -87,70 +87,36 @@ function UserBubble() {
 
   return (
     <MessagePrimitive.Root className="flex gap-3 flex-row-reverse group">
-      {/* Avatar */}
-      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border bg-primary/90 text-primary-foreground border-primary/20">
-        <span className="text-[10px] font-semibold">Y</span>
-      </div>
+      <motion.div className="flex gap-3 flex-row-reverse flex-1" {...MESSAGE_ENTER}>
+        {/* Avatar */}
+        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border bg-primary/90 text-primary-foreground border-primary/20">
+          <span className="text-[10px] font-semibold">Y</span>
+        </div>
 
-      {/* Content + actions */}
-      <div className="flex flex-col gap-0.5 items-end flex-1 max-w-[80%]">
-        <div className="rounded-lg px-4 py-3 bg-primary/90 text-primary-foreground shadow-sm">
-          <p className="text-sm">{content}</p>
+        {/* Content + actions */}
+        <div className="flex flex-col gap-0.5 items-end flex-1 max-w-[80%]">
+          <div className="rounded-lg px-4 py-3 bg-primary/90 text-primary-foreground shadow-sm">
+            <p className="text-sm">{content}</p>
+          </div>
+          {/* Edit action - only shows on hover */}
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+            <ActionBarPrimitive.Edit className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
+              <Pencil className="w-3 h-3" />
+            </ActionBarPrimitive.Edit>
+          </div>
         </div>
-        {/* Edit action - only shows on hover */}
-        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-          <ActionBarPrimitive.Edit className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
-            <Pencil className="w-3 h-3" />
-          </ActionBarPrimitive.Edit>
-        </div>
-      </div>
+      </motion.div>
     </MessagePrimitive.Root>
   );
 }
 
-// ── Typewriter Hook ─────────────────────────────────────────────────────────
+// ── Message entrance animation ──────────────────────────────────────────────
 
-function useTypewriter(text: string, speed = 4) {
-  const [displayed, setDisplayed] = useState(speed === 0 ? text : "");
-  const prevTextRef = useRef("");
-
-  useEffect(() => {
-    // If text changed (new message), animate from where we left off
-    if (text === prevTextRef.current) return;
-
-    // Instant mode: skip animation entirely (used for loaded history messages)
-    if (speed === 0) {
-      setDisplayed(text);
-      prevTextRef.current = text;
-      return;
-    }
-
-    const startFrom = text.startsWith(prevTextRef.current)
-      ? prevTextRef.current.length
-      : 0;
-
-    if (startFrom === 0) setDisplayed("");
-
-    let i = startFrom;
-    const timer = setInterval(() => {
-      if (i >= text.length) {
-        clearInterval(timer);
-        prevTextRef.current = text;
-        setDisplayed(text);
-        return;
-      }
-      // Advance by several chars per tick — with real streaming, LLM pace provides natural typewriter
-      const step = Math.min(8, text.length - i);
-      i += step;
-      setDisplayed(text.slice(0, i));
-    }, speed);
-
-    return () => clearInterval(timer);
-  }, [text, speed]);
-
-  const isAnimating = displayed.length < text.length;
-  return { displayed, isAnimating };
-}
+const MESSAGE_ENTER = {
+  initial: { opacity: 0, y: 8 } as const,
+  animate: { opacity: 1, y: 0 } as const,
+  transition: { duration: 0.25 } as const,
+};
 
 // ── Thinking Section ─────────────────────────────────────────────────────────
 
@@ -217,56 +183,55 @@ function AssistantBubble() {
 
   const isComplete = message?.status?.type === "complete";
   const thinkingText = reasoningParts.map((p) => p.text).join("");
-  // Skip typewriter for completed/loaded messages — show instantly
-  const { displayed, isAnimating } = useTypewriter(content, isComplete ? 0 : 4);
-  const showCursor = isInProgress || isAnimating;
 
   return (
     <MessagePrimitive.Root className="flex gap-3 group">
-      {/* Avatar */}
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500/20 to-primary/20 border border-primary/10 flex items-center justify-center shrink-0">
-        <Sparkles className="w-3.5 h-3.5 text-primary/70" />
-      </div>
+      <motion.div className="flex gap-3 flex-1" {...MESSAGE_ENTER}>
+        {/* Avatar */}
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500/20 to-primary/20 border border-primary/10 flex items-center justify-center shrink-0">
+          <Sparkles className="w-3.5 h-3.5 text-primary/70" />
+        </div>
 
-      {/* Content + actions */}
-      <div className="flex flex-col gap-0.5 items-start flex-1 max-w-[80%]">
-        {/* Thinking section — collapsible */}
-        {thinkingText && (
-          <ThinkingSection text={thinkingText} isStreaming={isInProgress} />
-        )}
-
-        <div
-          className={cn(
-            "rounded-lg px-4 py-3 bg-secondary/30",
-            isInProgress && !isAnimating && !content && "animate-[shimmer_2s_ease-in-out_infinite]",
+        {/* Content + actions */}
+        <div className="flex flex-col gap-0.5 items-start flex-1 max-w-[80%]">
+          {/* Thinking section — collapsible */}
+          {thinkingText && (
+            <ThinkingSection text={thinkingText} isStreaming={isInProgress} />
           )}
-          style={
-            isInProgress && !isAnimating && !content
-              ? {
-                  backgroundSize: "200% 100%",
-                  backgroundImage:
-                    "linear-gradient(90deg, transparent 0%, hsl(var(--secondary)/0.15) 50%, transparent 100%)",
-                }
-              : undefined
-          }
-        >
-          <MarkdownMessage content={displayed} />
-          {showCursor && (
-            <span className="inline-block w-[2px] h-[1.1em] bg-primary/80 ml-0.5 align-middle animate-[blink_1s_steps(2,start)_infinite]" />
+
+          <div
+            className={cn(
+              "rounded-lg px-4 py-3 bg-secondary/30",
+              isInProgress && !content && "animate-[shimmer_2s_ease-in-out_infinite]",
+            )}
+            style={
+              isInProgress && !content
+                ? {
+                    backgroundSize: "200% 100%",
+                    backgroundImage:
+                      "linear-gradient(90deg, transparent 0%, hsl(var(--secondary)/0.15) 50%, transparent 100%)",
+                  }
+                : undefined
+            }
+          >
+            <MarkdownMessage content={content} />
+            {isInProgress && (
+              <span className="inline-block w-[2px] h-[1.1em] bg-primary/80 ml-0.5 align-middle animate-[blink_1s_steps(2,start)_infinite]" />
+            )}
+          </div>
+          {/* Copy + Regenerate - only shows on hover after completion */}
+          {isComplete && (
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+              <ActionBarPrimitive.Copy className="p-1 rounded hover:bg-secondary/60 text-muted-foreground" copiedDuration={2000}>
+                <Copy className="w-3 h-3" />
+              </ActionBarPrimitive.Copy>
+              <ActionBarPrimitive.Reload className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
+                <RotateCcw className="w-3 h-3" />
+              </ActionBarPrimitive.Reload>
+            </div>
           )}
         </div>
-        {/* Copy + Regenerate - only shows on hover, after animation */}
-        {!isAnimating && (
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-            <ActionBarPrimitive.Copy className="p-1 rounded hover:bg-secondary/60 text-muted-foreground" copiedDuration={2000}>
-              <Copy className="w-3 h-3" />
-            </ActionBarPrimitive.Copy>
-            <ActionBarPrimitive.Reload className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
-              <RotateCcw className="w-3 h-3" />
-            </ActionBarPrimitive.Reload>
-          </div>
-        )}
-      </div>
+      </motion.div>
     </MessagePrimitive.Root>
   );
 }
