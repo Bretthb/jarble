@@ -34,7 +34,16 @@ CONFIG_DIR="/data/config"
 OPENCLAW_HOME="/data/.openclaw"
 OPENCLAW_STATE="/data/.openclaw/.openclaw"
 LOG_DIR="/data/logs"
-JARBLE_MCP="/opt/jarble/mcp/jarble-ui-server.js"
+# Prefer PVC-deployed version (updated by configSync) over baked-in image version
+JARBLE_MCP_PVC="/data/config/mcp/jarble-ui-server.js"
+JARBLE_MCP_BAKED="/opt/jarble/mcp/jarble-ui-server.js"
+if [ -f "$JARBLE_MCP_PVC" ]; then
+  JARBLE_MCP="$JARBLE_MCP_PVC"
+  echo "[entrypoint] Using PVC-deployed MCP server"
+else
+  JARBLE_MCP="$JARBLE_MCP_BAKED"
+  echo "[entrypoint] Using baked-in MCP server (PVC version not found)"
+fi
 
 # Track background process PIDs for cleanup
 WATCHER_PID=""
@@ -154,19 +163,19 @@ else
   echo "[entrypoint] Deployment: ${DEPLOYMENT_NAME:-unknown} (${DEPLOYMENT_ID:-unknown})"
 fi
 
-# ── Register Jarble UI MCP server (baked into image) ─────────────────
+# ── Register Jarble UI MCP server ─────────────────────────────────────
 # mcporter bridges the jarble-ui-server.js (stdio MCP) to OpenClaw's
 # skill system, giving the bot render_ui, define_component, etc. tools.
-# Both mcporter and the MCP server are baked into the image — no npm install.
+# Re-registers on every start to pick up PVC-deployed updates from configSync.
 if [ -f "$JARBLE_MCP" ]; then
-  if ! /opt/openclaw/node_modules/.bin/mcporter list 2>/dev/null | grep -q jarble-ui; then
-    echo "[entrypoint] Registering jarble-ui MCP server..."
-    /opt/openclaw/node_modules/.bin/mcporter config add jarble-ui \
-      --command node --arg "$JARBLE_MCP" \
-      --description "Jarble UI canvas components" \
-      --scope home 2>&1 || echo "[entrypoint] Warning: mcporter registration failed (non-fatal)"
-    echo "[entrypoint] jarble-ui MCP server registered"
-  fi
+  echo "[entrypoint] Registering jarble-ui MCP server ($JARBLE_MCP)..."
+  # Remove stale registration if present, then re-add with current path
+  /opt/openclaw/node_modules/.bin/mcporter config remove jarble-ui 2>/dev/null || true
+  /opt/openclaw/node_modules/.bin/mcporter config add jarble-ui \
+    --command node --arg "$JARBLE_MCP" \
+    --description "Jarble UI canvas components" \
+    --scope home 2>&1 || echo "[entrypoint] Warning: mcporter registration failed (non-fatal)"
+  echo "[entrypoint] jarble-ui MCP server registered"
 fi
 
 # ── Start file watcher (background) ──────────────────────────────────

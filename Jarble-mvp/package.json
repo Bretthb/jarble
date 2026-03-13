@@ -41,9 +41,9 @@
   "dependencies": {
     "@assistant-ui/react": "^0.12.14",
     "@auth0/auth0-react": "^2.13.0",
-    "@codesandbox/sandpack-react": "^2.19.0",
     "@aws-sdk/client-s3": "^3.693.0",
     "@aws-sdk/s3-request-presigner": "^3.693.0",
+    "@codesandbox/sandpack-react": "^2.20.0",
     "@fortune-sheet/react": "^1.0.4",
     "@hookform/resolvers": "^5.2.2",
     "@modelcontextprotocol/sdk": "^1.26.0",

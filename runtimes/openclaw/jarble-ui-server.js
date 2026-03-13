@@ -16,50 +16,273 @@
 const fs = require("fs");
 const path = require("path");
 
-const COMPONENTS_DIR = "/data/components";
-const FILES_DIR = "/data/files";
+const COMPONENTS_DIR = process.env.JARBLE_COMPONENTS_DIR || "/data/components";
+const FILES_DIR = process.env.JARBLE_FILES_DIR || "/data/files";
+const WORKSPACE_DIR = process.env.JARBLE_WORKSPACE_DIR || "/data/workspace";
 const PROTOCOL_VERSION = "2024-11-05";
 
 const FILE_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
+// ── Migrate old /data/files/ to /data/workspace/artifacts/ ──────────
+// One-time migration on first run after upgrade.
+try {
+  if (fs.existsSync(FILES_DIR)) {
+    const wsManifestPath = path.join(WORKSPACE_DIR, "manifest.json");
+    // Only migrate if workspace doesn't exist yet (first run)
+    if (!fs.existsSync(wsManifestPath)) {
+      const files = fs.readdirSync(FILES_DIR).filter(f => f.endsWith(".json"));
+      if (files.length > 0) {
+        // Ensure workspace dirs exist
+        fs.mkdirSync(path.join(WORKSPACE_DIR, "artifacts"), { recursive: true });
+        let migrated = 0;
+        const manifestArtifacts = [];
+        for (const file of files) {
+          try {
+            const raw = fs.readFileSync(path.join(FILES_DIR, file), "utf-8");
+            const old = JSON.parse(raw);
+            if (!old.component || typeof old.props !== "object" || old.props === null) continue;
+            const rawId = file.replace(/\.json$/, "");
+            const id = rawId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+            if (!id) continue;
+            const now = new Date().toISOString();
+            const artifact = {
+              id,
+              component: old.component,
+              props: old.props,
+              title: old.name || old.description || id,
+              createdAt: old.savedAt || now,
+              updatedAt: now,
+              pinned: false,
+              source: "bot",
+              dataSource: null,
+            };
+            const serialized = JSON.stringify(artifact, null, 2);
+            if (Buffer.byteLength(serialized, "utf-8") > 1_000_000) continue;
+            fs.writeFileSync(path.join(WORKSPACE_DIR, "artifacts", `${id}.json`), serialized, "utf-8");
+            manifestArtifacts.push({ id, component: artifact.component, title: artifact.title, createdAt: artifact.createdAt, updatedAt: artifact.updatedAt, pinned: false });
+            migrated++;
+          } catch { /* skip malformed */ }
+        }
+        fs.writeFileSync(wsManifestPath, JSON.stringify({ version: 1, artifacts: manifestArtifacts }, null, 2), "utf-8");
+        if (migrated > 0) console.error(`[MCP] Migrated ${migrated} old canvas files to workspace artifacts`);
+      }
+    }
+  }
+} catch (e) {
+  console.error("[MCP] Migration failed:", e.message);
+}
 const MAX_FILE_SIZE = 1_000_000; // 1MB
 
 // ── Built-in components ────────────────────────────────────────────────
+// Loaded from generated JSON (shared/component-manifest/generated/component-data.json).
+// To regenerate: npx tsx scripts/generate-mcp-manifest.ts (run from jarble-api-main/)
+// Falls back to inline list if JSON not found (e.g. first boot before build step).
 
-const BUILTIN_COMPONENTS = [
-  "card", "data_table", "stat_grid", "key_value",
-  "code_block", "alert", "progress", "image", "layout",
-  "chart", "tabs", "accordion", "badge", "list",
-  "timeline", "divider", "metric_card", "header",
-  "button_group", "form", "code_editor", "spreadsheet",
-  "sandbox", "video",
-];
+let BUILTIN_COMPONENTS;
+let BUILTIN_DESCRIPTIONS;
+let BUILTIN_SCHEMAS = {}; // JSON Schema draft-07 per component (loaded from generated manifest)
+let PER_COMPONENT_TOOLS = []; // Per-component MCP tools (show_chart, show_data_table, etc.)
 
-const BUILTIN_DESCRIPTIONS = {
-  card: "Simple card with title, subtitle, and body text",
-  data_table: "Table with column headers and data rows",
-  stat_grid: "Grid of metric cards with labels, values, and optional change indicators",
-  key_value: "List of key-value pairs",
-  code_block: "Syntax-highlighted code snippet",
-  alert: "Notification banner (info, success, warning, error)",
-  progress: "Progress bar with label and percentage",
-  image: "Image with optional alt text and caption",
-  layout: "Container that renders an array of child components",
-  chart: "Bar, line, pie, or area chart with data series (recharts)",
-  tabs: "Tabbed content panels with optional nested child components",
-  accordion: "Collapsible sections with titles and content",
-  badge: "Small label/tag with variant styling",
-  list: "Structured list with optional icons, descriptions, and badges",
-  timeline: "Chronological event timeline with status indicators",
-  divider: "Visual separator with optional label",
-  metric_card: "Single metric display with optional sparkline chart",
-  header: "Section heading with optional subtitle and divider",
-  button_group: "Row of action buttons that dispatch UI_ACTION callbacks on click",
-  form: "Input form with text, email, textarea, select, checkbox, number fields — dispatches UI_ACTION on submit",
-  code_editor: "Monaco code editor with syntax highlighting",
-  spreadsheet: "Editable Excel-like spreadsheet grid",
-  sandbox: "Sandboxed iframe for custom HTML/CSS/JS mini-apps — render anything. Use for charts, 3D, animations, gauges, maps, or any visualization not covered by built-in components.",
-  video: "Video/livestream player — supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct URLs. Use for livestreams (NASA ISS, Twitch channels, YouTube Live).",
-};
+try {
+  // Try to load from generated manifest JSON (created by build step)
+  const manifestPath = path.resolve(__dirname, "../../../shared/component-manifest/generated/component-data.json");
+  const manifestData = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+  BUILTIN_COMPONENTS = manifestData.componentNames;
+  BUILTIN_DESCRIPTIONS = manifestData.descriptions;
+  if (manifestData.schemas) {
+    BUILTIN_SCHEMAS = manifestData.schemas;
+    console.error(`[MCP] Loaded ${Object.keys(BUILTIN_SCHEMAS).length} component JSON schemas`);
+  }
+  if (Array.isArray(manifestData.tools)) {
+    PER_COMPONENT_TOOLS = manifestData.tools;
+    console.error(`[MCP] Loaded ${PER_COMPONENT_TOOLS.length} per-component tools`);
+  }
+} catch {
+  // Fallback: inline list for first boot / when JSON not yet generated
+  BUILTIN_COMPONENTS = [
+    "card", "data_table", "stat_grid", "key_value",
+    "code_block", "alert", "progress", "image", "layout",
+    "chart", "tabs", "accordion", "badge", "list",
+    "timeline", "divider", "metric_card", "header",
+    "button_group", "form", "code_editor", "spreadsheet",
+    "sandbox", "video",
+    "audio", "avatar", "blockquote", "text_message",
+    "image_gallery", "map",
+    "descriptions", "steps", "result", "carousel",
+    "statistic", "tag_cloud",
+    "tree", "marketplace_sandbox",
+  ];
+  BUILTIN_DESCRIPTIONS = {};
+}
+
+// ── Load marketplace component metadata from PVC ──────────────────────
+// At startup, scan /data/marketplace/*/manifest.json for installed marketplace
+// components. We do NOT merge them into BUILTIN_COMPONENTS because marketplace
+// components are synced as custom component definitions to /data/components/
+// and should be resolved through the custom component path in render_ui
+// (template substitution), not the builtin path (which emits raw component
+// names the frontend doesn't know).
+//
+// We track them in a separate set for list_components display purposes only.
+
+const MARKETPLACE_DIR = process.env.JARBLE_MARKETPLACE_DIR || "/data/marketplace";
+const MARKETPLACE_COMPONENT_NAMES = new Set();
+try {
+  if (fs.existsSync(MARKETPLACE_DIR)) {
+    for (const dir of fs.readdirSync(MARKETPLACE_DIR)) {
+      const manifestPath = path.join(MARKETPLACE_DIR, dir, "manifest.json");
+      if (fs.existsSync(manifestPath)) {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+        if (manifest.name) {
+          MARKETPLACE_COMPONENT_NAMES.add(manifest.name);
+        }
+      }
+    }
+    if (MARKETPLACE_COMPONENT_NAMES.size > 0) {
+      console.error(`[MCP] Found ${MARKETPLACE_COMPONENT_NAMES.size} marketplace components (resolved via /data/components/)`);
+    }
+  }
+} catch (e) {
+  console.error("[MCP] Failed to scan marketplace dir:", e.message);
+}
+
+// ── JSON Schema Validator (zero dependencies) ─────────────────────────
+// Validates values against JSON Schema draft-07 subset produced by zod-to-json-schema.
+// Handles: type checks, required, enum, anyOf, nested objects, arrays, tuples, number ranges.
+// Returns { valid: boolean, errors: string[] }.
+
+const MAX_VALIDATION_ERRORS = 10;
+
+function validateJsonSchema(value, schema, path) {
+  const errors = [];
+  _validate(value, schema, path, errors);
+  return { valid: errors.length === 0, errors: errors.slice(0, MAX_VALIDATION_ERRORS) };
+}
+
+function _validate(value, schema, path, errors) {
+  if (!schema || typeof schema !== "object") return;
+  if (errors.length >= MAX_VALIDATION_ERRORS) return;
+
+  // anyOf — try each sub-schema; pass if at least one matches
+  if (Array.isArray(schema.anyOf)) {
+    const anyErrors = [];
+    for (const sub of schema.anyOf) {
+      const subErrs = [];
+      _validate(value, sub, path, subErrs);
+      if (subErrs.length === 0) return; // one branch matched
+      anyErrors.push(subErrs);
+    }
+    // None matched — report the shortest error list (most likely intended type)
+    const best = anyErrors.reduce((a, b) => a.length <= b.length ? a : b, anyErrors[0]);
+    for (const e of best) errors.push(e);
+    return;
+  }
+
+  // Type check — handles both "type": "string" and "type": ["string", "number"]
+  if (schema.type) {
+    const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+    const actualType = _jsonType(value);
+    if (!types.includes(actualType)) {
+      const expected = types.length === 1 ? types[0] : `one of: ${types.join(", ")}`;
+      errors.push(`${path}: expected ${expected}, got ${actualType}`);
+      return; // skip deeper checks if type is wrong
+    }
+  }
+
+  // Enum validation
+  if (Array.isArray(schema.enum)) {
+    if (!schema.enum.includes(value)) {
+      const allowed = schema.enum.map(v => JSON.stringify(v)).join(", ");
+      errors.push(`${path}: must be one of [${allowed}], got ${JSON.stringify(value)}`);
+    }
+    return;
+  }
+
+  // Number range
+  if (typeof value === "number") {
+    if (schema.minimum !== undefined && value < schema.minimum) {
+      errors.push(`${path}: must be >= ${schema.minimum}, got ${value}`);
+    }
+    if (schema.maximum !== undefined && value > schema.maximum) {
+      errors.push(`${path}: must be <= ${schema.maximum}, got ${value}`);
+    }
+  }
+
+  // Object validation
+  if (schema.type === "object" && typeof value === "object" && value !== null && !Array.isArray(value)) {
+    // Required fields
+    if (Array.isArray(schema.required)) {
+      for (const key of schema.required) {
+        if (!(key in value) || value[key] === undefined) {
+          // Add type hint for required fields
+          const propSchema = schema.properties?.[key];
+          const hint = _typeHint(propSchema);
+          errors.push(`${path}.${key}: required field missing${hint}`);
+        }
+      }
+    }
+    // Validate known properties
+    if (schema.properties) {
+      for (const [key, propSchema] of Object.entries(schema.properties)) {
+        if (key in value && value[key] !== undefined) {
+          _validate(value[key], propSchema, `${path}.${key}`, errors);
+        }
+      }
+    }
+    return;
+  }
+
+  // Array validation
+  if (schema.type === "array" && Array.isArray(value)) {
+    // Tuple validation (minItems === maxItems with array of item schemas)
+    if (Array.isArray(schema.items)) {
+      if (schema.minItems !== undefined && value.length < schema.minItems) {
+        errors.push(`${path}: expected at least ${schema.minItems} items, got ${value.length}`);
+      }
+      if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+        errors.push(`${path}: expected at most ${schema.maxItems} items, got ${value.length}`);
+      }
+      // Validate each tuple position
+      for (let i = 0; i < Math.min(value.length, schema.items.length); i++) {
+        _validate(value[i], schema.items[i], `${path}[${i}]`, errors);
+      }
+      return;
+    }
+    // Regular array items
+    if (schema.items && typeof schema.items === "object") {
+      for (let i = 0; i < value.length; i++) {
+        if (errors.length >= MAX_VALIDATION_ERRORS) break;
+        _validate(value[i], schema.items, `${path}[${i}]`, errors);
+      }
+    }
+    if (schema.minItems !== undefined && value.length < schema.minItems) {
+      errors.push(`${path}: expected at least ${schema.minItems} items, got ${value.length}`);
+    }
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+      errors.push(`${path}: expected at most ${schema.maxItems} items, got ${value.length}`);
+    }
+  }
+}
+
+function _jsonType(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value; // "string", "number", "boolean", "object", "undefined"
+}
+
+function _typeHint(propSchema) {
+  if (!propSchema) return "";
+  if (Array.isArray(propSchema.enum)) {
+    return ` (one of: ${propSchema.enum.join(", ")})`;
+  }
+  if (propSchema.type === "array") return " (array)";
+  if (propSchema.type === "object") return " (object)";
+  if (propSchema.type) {
+    const t = Array.isArray(propSchema.type) ? propSchema.type.join(" | ") : propSchema.type;
+    return ` (${t})`;
+  }
+  return "";
+}
 
 // ── Component resolver ─────────────────────────────────────────────────
 
@@ -170,7 +393,7 @@ function listCustomComponents() {
 const TOOLS = [
   {
     name: "render_ui",
-    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, metric_card, header, button_group, form, code_editor, spreadsheet, sandbox) and custom bot-defined components. For anything beyond these — charts, gauges, maps, 3D, animations, custom visualizations — use the sandbox component with HTML/CSS/JS. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
+    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, metric_card, header, button_group, form, code_editor, spreadsheet, sandbox) and custom bot-defined components. For anything beyond these — charts, gauges, maps, 3D, animations, custom visualizations — use the sandbox component with HTML/CSS/JS. Sandbox supports moduleJs (ES module code with import statements) and importMap (bare specifier to CDN URL mapping). Default imports include three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone — just use import statements. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -213,38 +436,82 @@ const TOOLS = [
     },
   },
   {
-    name: "save_canvas_file",
-    description: "Save canvas component data to a file on the bot's filesystem. Used when the user saves a component to their personal library or edits an editable component. Returns the saved metadata for confirmation.",
+    name: "publish_component",
+    description: "Publish a custom component to the Jarble marketplace. The component will be reviewed by the automated review agent before appearing in the marketplace.",
     inputSchema: {
       type: "object",
       properties: {
-        fileId: { type: "string", description: "File identifier (alphanumeric, hyphens, underscores, max 64 chars)" },
-        component: { type: "string", description: "Component type (e.g. data_table, card)" },
-        props: { type: "object", description: "Component props to persist" },
-        name: { type: "string", description: "Human-readable display name (e.g. 'Q4 Revenue Dashboard')" },
-        description: { type: "string", description: "Brief description of what this component shows" },
-        tags: { type: "array", items: { type: "string" }, description: "Tags for categorization (e.g. ['finance', 'dashboard'])" },
+        name: { type: "string", description: "Component name (lowercase, letters/digits/underscores)" },
+        displayName: { type: "string", description: "Human-readable display name" },
+        description: { type: "string", description: "Description of what this component does (min 10 chars)" },
+        tier: { type: "string", enum: ["template", "sandbox"], description: "template = safe JSON, sandbox = custom HTML/CSS/JS" },
+        category: { type: "string", description: "Category: dashboard, chart, form, media, utility, game, visualization, layout, social" },
+        propsSchema: { type: "object", description: "JSON Schema describing the component's props" },
+        exampleProps: { type: "object", description: "Example props demonstrating usage" },
+        tags: { type: "array", items: { type: "string" }, description: "Tags for discoverability" },
       },
-      required: ["fileId", "component", "props"],
+      required: ["name", "displayName", "description"],
     },
   },
+  // Legacy canvas file tools removed from TOOLS array — replaced by artifact tools above.
+  // The old tool names (save_canvas_file, load_canvas_file, list_canvas_files, delete_canvas_file)
+  // are still handled as aliases in executeTool() for backward compatibility.
+  // ── Artifact workspace tools (replace old canvas file tools) ────────
   {
-    name: "load_canvas_file",
-    description: "Load previously saved canvas component data from a file.",
+    name: "save_artifact",
+    description: "Save or update a UI artifact in the workspace. Artifacts persist across sessions and can be restored on the user's canvas. Use this instead of save_canvas_file.",
     inputSchema: {
       type: "object",
       properties: {
-        fileId: { type: "string", description: "File identifier to load" },
+        id: { type: "string", description: "Unique artifact ID (alphanumeric, hyphens, underscores, max 64 chars)" },
+        component: { type: "string", description: "Component type (e.g. 'spreadsheet', 'chart', 'data_table')" },
+        props: { type: "object", description: "Full component props" },
+        title: { type: "string", description: "Human-readable title" },
+        pinned: { type: "boolean", description: "If true, auto-restores on session start. Default: false" },
+        dataSource: {
+          type: "object",
+          description: "Optional live data configuration for auto-updating artifacts",
+          properties: {
+            type: { type: "string", enum: ["file", "skill"] },
+            path: { type: "string", description: "PVC file path (required for type: file)" },
+            skill: { type: "string", description: "Skill name (required for type: skill)" },
+            args: { type: "object", description: "Arguments for skill execution" },
+            pollInterval: { type: "number", description: "Seconds between updates (min 5, max 3600)" },
+            transform: { type: "string", description: "Dot-path to extract data from response" },
+          },
+        },
       },
-      required: ["fileId"],
+      required: ["id", "component", "props", "title"],
     },
   },
   {
-    name: "list_canvas_files",
-    description: "List all saved canvas files in /data/files/ with their metadata (name, description, component type, tags, saved date). Use this when the user asks to see their saved components.",
+    name: "load_artifact",
+    description: "Load a saved artifact from the workspace by ID. Returns full artifact data including props.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Artifact ID to load" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "list_artifacts",
+    description: "List all saved artifacts in the workspace. Returns metadata (no props) sorted by most recently updated. Use this at session start to see what the user has saved.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_artifact",
+    description: "Delete an artifact from the workspace by ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Artifact ID to delete" },
+      },
+      required: ["id"],
     },
   },
   {
@@ -319,16 +586,626 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "skill_reference",
+    description: "Get detailed rendering guides and best practices. Available skills: component-rendering (selection matrix, props examples, design principles), sandbox-mastery (CDN allowlist, bridge API, theme, heartbeat), generative-ui-patterns (when to render UI vs text, text+UI harmony), platform-awareness (canvas system, MCP tools, multi-platform), dashboard-composition (ordering, layout strategy, data consistency), service-hosting (create/host/publish HTTP services on your pod). Call without a name to list all, or with a specific skill name for full content.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        skill: { type: "string", description: "Skill name (e.g. 'component-rendering', 'sandbox-mastery'). Omit to list all available skills." },
+      },
+    },
+  },
+  {
+    name: "set_theme",
+    description: "Set the visual theme for this deployment's web chat page. Changes are applied instantly. Supports presets (midnight, forest, cyberpunk, ocean, rose, amber, terminal) and custom color overrides. Use 'default' preset to reset to platform defaults.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        preset: {
+          type: "string",
+          enum: ["default", "midnight", "forest", "cyberpunk", "ocean", "rose", "amber", "terminal"],
+          description: "Theme preset name. 'default' resets to platform defaults.",
+        },
+        colors: {
+          type: "object",
+          description: "Custom color overrides (hex values like '#ff0000'). Merged on top of preset. Keys: background, foreground, primary, primary-foreground, secondary, secondary-foreground, card, card-foreground, muted, muted-foreground, accent, accent-foreground, destructive, border, input, ring, chart-1 through chart-5.",
+          additionalProperties: { type: "string" },
+        },
+        radius: {
+          type: "string",
+          description: "Border radius value, e.g. '0.75rem', '0', '1rem'",
+        },
+        fontFamily: {
+          type: "string",
+          description: "CSS font-family for body text, e.g. \"'Fira Code', monospace\"",
+        },
+        headingFontFamily: {
+          type: "string",
+          description: "CSS font-family for headings, e.g. \"'Playfair Display', serif\"",
+        },
+      },
+    },
+  },
+  {
+    name: "create_dashboard",
+    description: "Render a multi-component dashboard. Emits multiple UI components as a visual group with a shared title. Use when the user asks for a dashboard, overview, or summary with multiple data views. Max 8 components.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Dashboard title displayed above the grouped components" },
+        components: {
+          type: "array",
+          description: "Array of components to render in the dashboard",
+          items: {
+            type: "object",
+            properties: {
+              component: { type: "string", description: "Component name (e.g. 'chart', 'stat_grid', 'data_table')" },
+              props: { type: "object", description: "Props for the component" },
+            },
+            required: ["component", "props"],
+          },
+          minItems: 1,
+          maxItems: 8,
+        },
+      },
+      required: ["title", "components"],
+    },
+  },
+  // ── Service hosting tools ───────────────────────────────────────────
+  {
+    name: "start_http_service",
+    description: "Start an HTTP service on this pod. Writes a Node.js server script to /data/services/{name}/ and spawns it as a background process. The service is accessible from other pods in the cluster via this pod's internal IP. Use ports 19001-19099. The service auto-restarts when the pod restarts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Service name (lowercase, letters/digits/hyphens, e.g. 'time-sync')" },
+        port: { type: "number", description: "Port to listen on (19001-19099). If omitted, auto-assigns next available port." },
+        code: { type: "string", description: "Node.js server code. Must call http.createServer() and listen on the specified port. Use process.env.SERVICE_PORT to get the assigned port." },
+        description: { type: "string", description: "Human-readable description of what this service does" },
+      },
+      required: ["name", "code"],
+    },
+  },
+  {
+    name: "stop_http_service",
+    description: "Stop a running HTTP service on this pod and remove it from the service registry.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Service name to stop" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "list_http_services",
+    description: "List all HTTP services registered on this pod, including their status (running/stopped), port, and PID.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "publish_to_marketplace",
+    description: "Publish a running HTTP service to the Jarble marketplace so other bots can install and use it. The service must already be started via start_http_service. Creates a marketplace service entry with the instruction snippet you provide.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Service name (must match a running service from start_http_service)" },
+        displayName: { type: "string", description: "Human-readable display name for the marketplace listing" },
+        description: { type: "string", description: "Description for the marketplace listing" },
+        instructionSnippet: { type: "string", description: "Instruction text that gets injected into the installing bot's system prompt. Tell the bot how to use your service's API endpoint." },
+        category: { type: "string", description: "Marketplace category: dashboard, chart, form, media, utility, game, visualization, layout, social" },
+      },
+      required: ["name", "displayName", "description", "instructionSnippet"],
+    },
+  },
+  {
+    name: "register_service",
+    description: "Register a platform-managed service. The Jarble platform handles all routing, authentication, health monitoring, and execution. You provide skill definitions with handler code (JS functions) or agent mode. This is the recommended way to create services — no HTTP server or port management needed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Service name (lowercase, letters/digits/hyphens, 1-64 chars, e.g. 'weather-api')"
+        },
+        displayName: {
+          type: "string",
+          description: "Human-readable display name (e.g. 'Weather Service')"
+        },
+        description: {
+          type: "string",
+          description: "What this service does (min 10 chars)"
+        },
+        skills: {
+          type: "array",
+          description: "Skills this service provides",
+          items: {
+            type: "object",
+            properties: {
+              name: {
+                type: "string",
+                description: "Skill name (lowercase_underscores, e.g. 'get_weather')"
+              },
+              description: {
+                type: "string",
+                description: "What this skill does"
+              },
+              mode: {
+                type: "string",
+                enum: ["handler", "agent"],
+                description: "'handler' = platform runs your JS code in the pod (fast, deterministic). 'agent' = request forwarded to your LLM (smart, creative). Default: 'handler'"
+              },
+              handlerCode: {
+                type: "string",
+                description: "For handler mode: async JS function body. Receives (args, context). Must return JSON-serializable result. Has access to fetch() and require(). Example: 'const r = await fetch(`https://api.example.com/${args.query}`); return await r.json();'"
+              },
+              inputSchema: {
+                type: "object",
+                description: "JSON Schema for skill input arguments"
+              },
+              outputSchema: {
+                type: "object",
+                description: "JSON Schema for skill output (optional)"
+              }
+            },
+            required: ["name", "description", "inputSchema"]
+          }
+        },
+        instructionSnippet: {
+          type: "string",
+          description: "Text injected into installing bot's system prompt, teaching it how to use your service"
+        },
+        category: {
+          type: "string",
+          description: "Category: utility, dashboard, social, game, visualization, media"
+        }
+      },
+      required: ["name", "displayName", "description", "skills"]
+    }
+  },
+  // ── Marketplace browse/install tools ─────────────────────────────────
+  {
+    name: "browse_marketplace",
+    description: "Browse the Jarble marketplace for published components and services. Search by name, description, or category. Returns a list of available items other bots have published.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["all", "component", "service"], description: "Filter by item type. Default: all" },
+        query: { type: "string", description: "Search query to filter by name or description" },
+        category: { type: "string", description: "Filter by category (dashboard, chart, form, media, utility, game, visualization, layout, social)" },
+      },
+    },
+  },
+  {
+    name: "get_marketplace_item",
+    description: "Get detailed information about a specific marketplace component or service by its ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The marketplace item ID (e.g. 'cmp_xyz' for components, 'pkg_xyz' for services)" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "install_marketplace_item",
+    description: "Install a marketplace component or service onto this deployment. For services, this also installs bundled components and skills, and updates the system prompt with the service's instruction snippet.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The marketplace item ID to install" },
+        type: { type: "string", enum: ["component", "service"], description: "Whether this is a component or service" },
+      },
+      required: ["id", "type"],
+    },
+  },
+  {
+    name: "uninstall_marketplace_item",
+    description: "Uninstall a marketplace component or service from this deployment.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The marketplace item ID to uninstall" },
+        type: { type: "string", enum: ["component", "service"], description: "Whether this is a component or service" },
+      },
+      required: ["id", "type"],
+    },
+  },
+  {
+    name: "list_installed_marketplace",
+    description: "List all marketplace components and services currently installed on this deployment.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+    },
+  },
+  // ── Web & Search tools (no API key required) ────────────────────────
+  {
+    name: "web_fetch",
+    description: "Fetch a URL and extract its text content. Strips HTML tags, scripts, styles, nav elements. Returns cleaned text with title. Use for reading web pages, documentation, articles.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL to fetch" },
+        maxLength: { type: "number", description: "Maximum text length to return (default 10000)" },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "web_search",
+    description: "Search the web using DuckDuckGo. Returns titles, URLs, and snippets for top results. No API key needed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        maxResults: { type: "number", description: "Maximum results to return (default 5, max 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "hacker_news",
+    description: "Search Hacker News stories and comments via Algolia API. Find tech discussions, Show HNs, and community insights.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 10)" },
+        type: { type: "string", enum: ["story", "comment"], description: "Search stories or comments (default: story)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "github_search",
+    description: "Search GitHub public repositories. Find repos by name, description, or topic. Returns stars, forks, language, and description.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query (e.g. 'react state management', 'language:rust stars:>1000')" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 10)" },
+        sort: { type: "string", enum: ["stars", "updated", "forks"], description: "Sort order (default: stars)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "npm_search",
+    description: "Search npm packages. Returns name, version, description, author, and weekly downloads.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 20)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "academic_search",
+    description: "Search arXiv for academic papers. Returns titles, authors, abstracts, and links to papers in physics, CS, math, biology, and more.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query (e.g. 'transformer attention mechanism', 'quantum computing')" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 20)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "news_search",
+    description: "Search recent news articles via DuckDuckGo. Returns headlines, URLs, and snippets from the past week.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "News search query" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  // ── Reference & Data tools ──────────────────────────────────────────
+  {
+    name: "dictionary",
+    description: "Look up English word definitions, phonetics, and examples using the Free Dictionary API.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        word: { type: "string", description: "Word to look up" },
+      },
+      required: ["word"],
+    },
+  },
+  {
+    name: "currency_exchange",
+    description: "Get live currency exchange rates from Frankfurter API (European Central Bank data). Convert between currencies.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Source currency ISO 4217 code (e.g. 'USD', 'EUR', 'GBP')" },
+        to: { type: "string", description: "Target currency code. Omit for all available rates." },
+        amount: { type: "number", description: "Amount to convert (optional)" },
+      },
+      required: ["from"],
+    },
+  },
+  {
+    name: "timezone",
+    description: "Get current time in any timezone, or list all available timezones. Uses WorldTimeAPI.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        timezone: { type: "string", description: "Timezone name (e.g. 'America/New_York', 'Europe/London'). Use 'list' to see all available timezones." },
+      },
+      required: ["timezone"],
+    },
+  },
+  {
+    name: "country_info",
+    description: "Look up country information: capital, population, region, currencies, languages, flag, timezones, area.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Country name (e.g. 'France', 'Japan', 'Brazil')" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "open_library",
+    description: "Search for books using Open Library. Returns title, author, publication year, ISBN, and cover image URL.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Book search query (title, author, or ISBN)" },
+        maxResults: { type: "number", description: "Maximum results (default 5, max 20)" },
+      },
+      required: ["query"],
+    },
+  },
+  // ── Utility tools ───────────────────────────────────────────────────
+  {
+    name: "code_runner",
+    description: "Execute JavaScript code in a sandboxed VM. Has access to Math, Date, JSON, Array, Object, String, Number, Boolean, RegExp, Map, Set, and console.log. No filesystem or network access. Use for calculations, data transformations, and quick scripts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        code: { type: "string", description: "JavaScript code to execute. The result of the last expression is returned." },
+        timeout: { type: "number", description: "Execution timeout in ms (default 5000, max 10000)" },
+      },
+      required: ["code"],
+    },
+  },
+  {
+    name: "url_metadata",
+    description: "Extract Open Graph metadata, title, description, and favicon from a URL. Useful for link previews and URL inspection.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL to inspect" },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "rss_reader",
+    description: "Read RSS or Atom feed. Returns feed title and items with title, link, description, and publish date.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "RSS/Atom feed URL" },
+        maxItems: { type: "number", description: "Maximum items to return (default 10)" },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "wikipedia",
+    description: "Search and read Wikipedia articles. Returns article summary, thumbnail, and related topics.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Wikipedia article title or search query" },
+        sentences: { type: "number", description: "Number of sentences in summary (default 5, max 20)" },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
+// ── Service hosting — process manager ─────────────────────────────────
+
+const SERVICES_DIR = process.env.JARBLE_SERVICES_DIR || "/data/services";
+const SERVICE_MANIFEST_PATH = path.join(SERVICES_DIR, "manifest.json");
+const SERVICE_PORT_MIN = 19001;
+const SERVICE_PORT_MAX = 19099;
+const SERVICE_NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
+
+// In-memory tracking of running child processes
+const runningServices = new Map(); // name -> { process, port, pid, startedAt }
+
+/**
+ * Read the service manifest from PVC.
+ * Format: { services: { [name]: { port, code, description, createdAt, updatedAt } } }
+ */
+function readServiceManifest() {
+  try {
+    if (fs.existsSync(SERVICE_MANIFEST_PATH)) {
+      return JSON.parse(fs.readFileSync(SERVICE_MANIFEST_PATH, "utf-8"));
+    }
+  } catch (e) {
+    console.error("[MCP] Failed to read service manifest:", e.message);
+  }
+  return { services: {} };
+}
+
+function writeServiceManifest(manifest) {
+  fs.mkdirSync(SERVICES_DIR, { recursive: true });
+  fs.writeFileSync(SERVICE_MANIFEST_PATH, JSON.stringify(manifest, null, 2), "utf-8");
+}
+
+function getUsedPorts(manifest) {
+  const ports = new Set();
+  for (const svc of Object.values(manifest.services)) {
+    if (svc.port) ports.add(svc.port);
+  }
+  return ports;
+}
+
+function allocatePort(manifest) {
+  const used = getUsedPorts(manifest);
+  for (let p = SERVICE_PORT_MIN; p <= SERVICE_PORT_MAX; p++) {
+    if (!used.has(p)) return p;
+  }
+  return null;
+}
+
+/**
+ * Get this pod's cluster IP for cross-pod service discovery.
+ * Works in both Docker and K3s/K8s environments.
+ */
+function getPodIP() {
+  // K8s injects POD_IP via downward API, or we can read from hostname resolution
+  if (process.env.POD_IP) return process.env.POD_IP;
+  try {
+    const os = require("os");
+    const interfaces = os.networkInterfaces();
+    for (const iface of Object.values(interfaces)) {
+      for (const addr of iface) {
+        if (addr.family === "IPv4" && !addr.internal) return addr.address;
+      }
+    }
+  } catch { /* fallback */ }
+  return "127.0.0.1";
+}
+
+/**
+ * Spawn a service process from its code on the PVC.
+ */
+function spawnService(name, port, codeFilePath) {
+  const { spawn } = require("child_process");
+  const child = spawn("node", [codeFilePath], {
+    env: { ...process.env, SERVICE_PORT: String(port), SERVICE_NAME: name },
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: false,
+  });
+
+  child.stdout.on("data", (d) => console.error(`[service:${name}] ${d.toString().trim()}`));
+  child.stderr.on("data", (d) => console.error(`[service:${name}:err] ${d.toString().trim()}`));
+
+  child.on("exit", (code, signal) => {
+    console.error(`[MCP] Service "${name}" exited (code=${code}, signal=${signal})`);
+    runningServices.delete(name);
+  });
+
+  runningServices.set(name, {
+    process: child,
+    port,
+    pid: child.pid,
+    startedAt: new Date().toISOString(),
+  });
+
+  console.error(`[MCP] Service "${name}" started on port ${port} (PID ${child.pid})`);
+  return child.pid;
+}
+
+/**
+ * Auto-restart services from manifest on MCP server boot.
+ */
+function autoRestartServices() {
+  const manifest = readServiceManifest();
+  let restarted = 0;
+  for (const [name, svc] of Object.entries(manifest.services)) {
+    const codeFile = path.join(SERVICES_DIR, name, "server.js");
+    if (!fs.existsSync(codeFile)) {
+      console.error(`[MCP] Service "${name}" code missing at ${codeFile}, skipping auto-restart`);
+      continue;
+    }
+    try {
+      spawnService(name, svc.port, codeFile);
+      restarted++;
+    } catch (e) {
+      console.error(`[MCP] Failed to auto-restart service "${name}":`, e.message);
+    }
+  }
+  if (restarted > 0) {
+    console.error(`[MCP] Auto-restarted ${restarted} service(s) from manifest`);
+  }
+
+  // Re-register platform-managed services from saved registrations
+  try {
+    const registrationDirs = fs.readdirSync(SERVICES_DIR).filter(d => {
+      const regPath = path.join(SERVICES_DIR, d, "registration.json");
+      return fs.existsSync(regPath);
+    });
+
+    for (const dir of registrationDirs) {
+      try {
+        const regPath = path.join(SERVICES_DIR, dir, "registration.json");
+        const registration = JSON.parse(fs.readFileSync(regPath, "utf8"));
+
+        // Re-read handler code from disk
+        const skills = (registration.skills || []).map(skill => {
+          const handlerPath = path.join(SERVICES_DIR, dir, "handlers", `${skill.name}.js`);
+          let handlerCode = null;
+          if (skill.mode === "handler" && fs.existsSync(handlerPath)) {
+            handlerCode = fs.readFileSync(handlerPath, "utf8");
+          }
+          return { ...skill, handlerCode };
+        });
+
+        // Re-register with API (fire and forget)
+        apiRequest("POST", "/api/pod/marketplace/register-service", {
+          ...registration,
+          skills,
+        }).then(res => {
+          if (res.status === 200) {
+            console.error(`[service-recovery] Re-registered platform service: ${registration.name}`);
+          }
+        }).catch(() => {});
+      } catch (err) {
+        console.error(`[service-recovery] Failed to re-register ${dir}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    // /data/services may not exist yet
+  }
+}
+
+// Run auto-restart on startup (delayed slightly to let MCP init finish)
+setTimeout(autoRestartServices, 1000);
+
 // ── Tool execution ─────────────────────────────────────────────────────
+
+function _formatValidationErrors(component, errors) {
+  const lines = [`Invalid props for "${component}". ${errors.length} error(s):`];
+  for (let i = 0; i < errors.length; i++) {
+    lines.push(`  ${i + 1}. ${errors[i]}`);
+  }
+  lines.push("");
+  lines.push(`Fix the props and call render_ui again. Use component_reference("${component}") for the full schema.`);
+  return lines.join("\n");
+}
 
 function executeRenderUi(args) {
   const { component, props } = args;
   if (!component) return { isError: true, text: "Missing 'component' parameter." };
 
-  // Built-in — emit as jarble_ui fenced block so the frontend renders it
+  // Built-in — validate props against JSON Schema, then emit fenced block
   if (BUILTIN_COMPONENTS.includes(component)) {
+    const schema = BUILTIN_SCHEMAS[component];
+    if (schema && props && typeof props === "object") {
+      const result = validateJsonSchema(props, schema, "props");
+      if (!result.valid) {
+        console.error(`[MCP] render_ui validation failed for "${component}":`, result.errors.length, "errors");
+        return { isError: true, text: _formatValidationErrors(component, result.errors) };
+      }
+    }
     const block = JSON.stringify({ component, props: props || {} });
     return { isError: false, text: "```jarble_ui\n" + block + "\n```" };
   }
@@ -347,6 +1224,70 @@ function executeRenderUi(args) {
   return { isError: false, text: "```jarble_ui\n" + layoutBlock + "\n```" };
 }
 
+function executeCreateDashboard(args) {
+  const { title, components } = args;
+  if (!title || !Array.isArray(components) || components.length === 0) {
+    return { isError: true, text: "Missing 'title' or 'components' array." };
+  }
+  if (components.length > 8) {
+    return { isError: true, text: "Maximum 8 components per dashboard." };
+  }
+
+  const dashboardId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const blocks = [];
+  const errors = [];
+
+  for (let i = 0; i < components.length; i++) {
+    const { component, props } = components[i];
+    if (!component) {
+      errors.push(`Component ${i + 1}: missing 'component' name.`);
+      continue;
+    }
+
+    if (BUILTIN_COMPONENTS.includes(component)) {
+      const schema = BUILTIN_SCHEMAS[component];
+      if (schema && props && typeof props === "object") {
+        const result = validateJsonSchema(props, schema, "props");
+        if (!result.valid) {
+          errors.push(`Component ${i + 1} ("${component}"): ${result.errors[0]}`);
+          continue;
+        }
+      }
+      blocks.push(JSON.stringify({
+        component,
+        props: props || {},
+        dashboardId,
+        dashboardTitle: title,
+      }));
+    } else {
+      const def = readComponent(component);
+      if (!def) {
+        errors.push(`Component ${i + 1}: "${component}" not found.`);
+        continue;
+      }
+      const children = resolveCustom(def, props || {});
+      blocks.push(JSON.stringify({
+        component: "layout",
+        props: { title: def.description || undefined, children },
+        dashboardId,
+        dashboardTitle: title,
+      }));
+    }
+  }
+
+  if (blocks.length === 0) {
+    return { isError: true, text: "All components failed validation:\n" + errors.join("\n") };
+  }
+
+  let output = blocks.map(b => "```jarble_ui\n" + b + "\n```").join("\n\n");
+  if (errors.length > 0) {
+    output += "\n\nNote: " + errors.length + " component(s) skipped due to errors:\n" + errors.join("\n");
+  }
+
+  console.error(`[MCP] create_dashboard: "${title}" with ${blocks.length} components (dashboardId=${dashboardId})`);
+  return { isError: false, text: output };
+}
+
 function executeDefineComponent(args) {
   const { name, description, layout } = args;
   if (!name || !layout) return { isError: true, text: "Missing 'name' and 'layout'." };
@@ -361,7 +1302,7 @@ function executeDefineComponent(args) {
   try {
     writeComponent(name, def);
     console.error("[MCP] Component defined:", name);
-    return { isError: false, text: `Component "${name}" saved. Use render_ui with component="${name}" to display it.` };
+    return { isError: false, text: `Component "${name}" saved. Use render_ui with component="${name}" to display it.\n\nTip: To share this component with other bots, use the publish_component tool.` };
   } catch (err) {
     console.error("[MCP] Failed to define component:", name, err.message);
     return { isError: true, text: `Failed to save: ${err.message}` };
@@ -384,6 +1325,8 @@ function executeListComponents() {
   return { isError: false, text: lines.join("\n") };
 }
 
+// Legacy canvas file handlers — kept for reference. New code uses executeSaveArtifact etc.
+// Old tools (save_canvas_file, etc.) now redirect through artifact system in executeTool().
 function executeSaveCanvasFile(args) {
   const { fileId, component, props, name, description, tags } = args;
   if (!fileId || !component || !props) return { isError: true, text: "Missing required fields: fileId, component, props." };
@@ -495,6 +1438,903 @@ function executeDeleteCanvasFile(args) {
   }
 }
 
+// ── Artifact workspace (persistent UI components) ─────────────────────
+// Artifacts stored at /data/workspace/manifest.json + /data/workspace/artifacts/*.json
+// Replaces old /data/files/ system. Supports pinning, live data sources, etc.
+
+const ARTIFACT_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+const MAX_ARTIFACT_SIZE = 1_000_000; // 1MB
+
+function ensureArtifactWorkspace() {
+  const artDir = path.join(WORKSPACE_DIR, "artifacts");
+  if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
+  if (!fs.existsSync(artDir)) fs.mkdirSync(artDir, { recursive: true });
+  const mPath = path.join(WORKSPACE_DIR, "manifest.json");
+  if (!fs.existsSync(mPath)) {
+    fs.writeFileSync(mPath, JSON.stringify({ version: 1, artifacts: [] }, null, 2), "utf-8");
+  }
+}
+
+function readArtifactManifest() {
+  ensureArtifactWorkspace();
+  const mPath = path.join(WORKSPACE_DIR, "manifest.json");
+  try {
+    return JSON.parse(fs.readFileSync(mPath, "utf-8"));
+  } catch {
+    // Corrupted manifest — rebuild from artifact files
+    return rebuildArtifactManifest();
+  }
+}
+
+function rebuildArtifactManifest() {
+  const artDir = path.join(WORKSPACE_DIR, "artifacts");
+  const artifacts = [];
+  if (fs.existsSync(artDir)) {
+    for (const file of fs.readdirSync(artDir).filter(f => f.endsWith(".json") && !f.endsWith(".tmp"))) {
+      try {
+        const raw = fs.readFileSync(path.join(artDir, file), "utf-8");
+        const a = JSON.parse(raw);
+        if (a.id && a.component) {
+          artifacts.push({ id: a.id, component: a.component, title: a.title, createdAt: a.createdAt, updatedAt: a.updatedAt, pinned: !!a.pinned });
+        }
+      } catch { /* skip corrupted */ }
+    }
+  }
+  const manifest = { version: 1, artifacts };
+  writeArtifactManifest(manifest);
+  return manifest;
+}
+
+function writeArtifactManifest(manifest) {
+  const mPath = path.join(WORKSPACE_DIR, "manifest.json");
+  const tmpPath = mPath + ".tmp";
+  fs.writeFileSync(tmpPath, JSON.stringify(manifest, null, 2), "utf-8");
+  fs.renameSync(tmpPath, mPath);
+}
+
+function validateArtifactDataSource(ds) {
+  if (!ds) return;
+  if (ds.type !== undefined && ds.type !== "file" && ds.type !== "skill") {
+    throw new Error(`dataSource type must be "file" or "skill", got "${ds.type}"`);
+  }
+  if (ds.pollInterval !== undefined) {
+    const val = Number(ds.pollInterval);
+    if (!Number.isFinite(val) || val < 5 || val > 3600) {
+      throw new Error(`pollInterval must be a number between 5 and 3600 seconds, got ${ds.pollInterval}`);
+    }
+  }
+  if (ds.type === "file" && !ds.path) throw new Error('dataSource type "file" requires a "path" field');
+  if (ds.type === "skill" && !ds.skill) throw new Error('dataSource type "skill" requires a "skill" field');
+}
+
+function executeSaveArtifact(args) {
+  const { id, component, props, title, pinned, dataSource } = args;
+  if (!id || !component || !props || !title) return { isError: true, text: "Missing required fields: id, component, props, title." };
+  if (!ARTIFACT_ID_RE.test(id)) return { isError: true, text: `Invalid artifact ID "${id}". Must match /^[a-zA-Z0-9_-]{1,64}$/.` };
+
+  try {
+    validateArtifactDataSource(dataSource);
+  } catch (err) {
+    return { isError: true, text: err.message };
+  }
+
+  ensureArtifactWorkspace();
+  const now = new Date().toISOString();
+  const manifest = readArtifactManifest();
+  const existingIdx = manifest.artifacts.findIndex(a => a.id === id);
+
+  // Load existing for update semantics
+  let existing = null;
+  const filePath = path.join(WORKSPACE_DIR, "artifacts", `${id}.json`);
+  if (existingIdx !== -1 && fs.existsSync(filePath)) {
+    try { existing = JSON.parse(fs.readFileSync(filePath, "utf-8")); } catch { /* treat as new */ }
+  }
+
+  const artifact = {
+    id,
+    component,
+    props,
+    title,
+    createdAt: existing ? existing.createdAt : now,
+    updatedAt: now,
+    pinned: pinned !== undefined ? pinned : (existing ? !!existing.pinned : false),
+    source: "bot",
+    dataSource: dataSource !== undefined ? dataSource : (existing ? existing.dataSource : null),
+  };
+
+  const serialized = JSON.stringify(artifact, null, 2);
+  if (Buffer.byteLength(serialized, "utf-8") > MAX_ARTIFACT_SIZE) {
+    return { isError: true, text: `Artifact "${id}" exceeds 1 MB limit.` };
+  }
+
+  // Atomic write: artifact file
+  const tmpFilePath = filePath + ".tmp";
+  fs.writeFileSync(tmpFilePath, serialized, "utf-8");
+  fs.renameSync(tmpFilePath, filePath);
+
+  // Update manifest
+  const meta = { id, component, title, createdAt: artifact.createdAt, updatedAt: artifact.updatedAt, pinned: artifact.pinned };
+  if (existingIdx !== -1) {
+    manifest.artifacts[existingIdx] = meta;
+  } else {
+    manifest.artifacts.push(meta);
+  }
+  writeArtifactManifest(manifest);
+
+  console.error("[MCP] Artifact saved:", id, component);
+  return { isError: false, text: `Saved artifact "${title}" (${id}) — ${artifact.pinned ? "pinned" : "not pinned"}` };
+}
+
+function executeLoadArtifact(args) {
+  const { id } = args;
+  if (!id) return { isError: true, text: "Missing artifact ID." };
+  if (!ARTIFACT_ID_RE.test(id)) return { isError: true, text: `Invalid artifact ID "${id}".` };
+
+  ensureArtifactWorkspace();
+  // Check artifacts/ subdirectory first, then workspace root (legacy layout)
+  let filePath = path.join(WORKSPACE_DIR, "artifacts", `${id}.json`);
+  if (!fs.existsSync(filePath)) {
+    filePath = path.join(WORKSPACE_DIR, `${id}.json`);
+  }
+  if (!fs.existsSync(filePath)) return { isError: true, text: `Artifact "${id}" not found.` };
+
+  try {
+    const content = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    return { isError: false, text: JSON.stringify(content, null, 2) };
+  } catch (err) {
+    return { isError: true, text: `Failed to read artifact: ${err.message}` };
+  }
+}
+
+function executeListArtifacts() {
+  const manifest = readArtifactManifest();
+  const sorted = [...manifest.artifacts].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  if (sorted.length === 0) {
+    return { isError: false, text: "No saved artifacts in workspace." };
+  }
+
+  const lines = [`**${sorted.length} artifact(s) in workspace:**`, ""];
+  for (const a of sorted) {
+    let line = `- **${a.title}** (\`${a.id}\`) — ${a.component}`;
+    if (a.pinned) line += " [pinned]";
+    if (a.updatedAt) line += ` _(updated ${a.updatedAt.split("T")[0]})_`;
+    lines.push(line);
+  }
+  lines.push("", "Use `load_artifact` with an ID to recall, then `render_ui` to display.");
+  return { isError: false, text: lines.join("\n") };
+}
+
+function executeDeleteArtifact(args) {
+  const { id } = args;
+  if (!id || !ARTIFACT_ID_RE.test(id)) return { isError: true, text: "Invalid or missing artifact ID." };
+
+  ensureArtifactWorkspace();
+  const manifest = readArtifactManifest();
+  const idx = manifest.artifacts.findIndex(a => a.id === id);
+
+  const filePath = path.join(WORKSPACE_DIR, "artifacts", `${id}.json`);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+  if (idx !== -1) {
+    manifest.artifacts.splice(idx, 1);
+    writeArtifactManifest(manifest);
+    console.error("[MCP] Artifact deleted:", id);
+    return { isError: false, text: `Deleted artifact "${id}" from workspace.` };
+  }
+
+  return { isError: false, text: `Artifact "${id}" was not in the manifest (may have already been removed).` };
+}
+
+// ── Skill reference (on-demand rendering guides) ────────────────────────
+
+const BOT_SKILLS = {
+  "component-rendering": {
+    description: "Component selection matrix, props examples, dashboard composition, design principles",
+    content: `## UI Component Rendering Guide
+
+### Component Selection Matrix
+
+Match user intent to the correct component. Call \`component_reference\` for full prop schemas.
+
+**Metrics & KPIs:**
+- Single headline number with trend → \`metric_card\` (include \`sparkline\` array for mini-chart, \`change\` for delta like "+12%")
+- 2-4 related metrics side by side → emit 2-4 separate \`metric_card\` blocks (grid arranges them automatically)
+- 5+ metrics in a compact grid → \`stat_grid\` (one block, all stats in the \`stats\` array)
+- Countdown or formatted number → \`statistic\` (supports \`prefix\`, \`suffix\`, \`precision\`)
+
+**Data Visualization:**
+- Trend over time → \`chart\` type \`"line"\` (time series on x-axis)
+- Comparison across categories → \`chart\` type \`"bar"\` (categories on x-axis)
+- Part-of-whole / distribution → \`chart\` type \`"pie"\` (no x-axis needed)
+- Cumulative or stacked trends → \`chart\` type \`"area"\` (use \`stacked: true\`)
+- Tabular data, sortable → \`data_table\` (columns as string array, rows as 2D string/number array)
+- Editable spreadsheet → \`spreadsheet\` (data as array of record objects)
+- Novel visualization (heatmap, treemap, sankey, 3D) → \`sandbox\` with library
+
+**Structured Content:**
+- Key-value pairs (specs, config) → \`key_value\` or \`descriptions\`
+- Chronological events → \`timeline\` (use \`status\`: completed/active/pending)
+- Process with numbered steps → \`steps\` (set \`current\` to highlight active step)
+- Hierarchical / nested → \`tree\`
+- Enumerated items → \`list\`
+- Categorized content → \`tabs\` (each tab can contain text or nested children)
+- Expandable sections → \`accordion\`
+
+**Communication:**
+- Status notification → \`alert\` (variant: info/success/warning/error)
+- Operation outcome → \`result\` (status: success/error/info/warning)
+- Highlighted quote → \`blockquote\`
+- Code snippet → \`code_block\` (set \`language\`)
+- Editable code → \`code_editor\`
+
+**User Interaction:**
+- Collect input → \`form\` (fields with type: text/email/textarea/select/checkbox/number)
+- Present choices → \`button_group\` (each button needs \`id\` and \`label\`)
+
+**Media:**
+- Location/geography → \`map\` (center as \`[lat, lng]\` tuple)
+- Photo grid → \`image_gallery\`
+- Slides → \`carousel\`
+- Third-party widget → \`embed\` (Google Maps, TradingView, YouTube, Spotify — just pass the URL)
+
+### Props Examples (Most Error-Prone Components)
+
+**Charts:**
+\\\`\\\`\\\`json
+{"component":"chart","props":{"type":"bar","title":"Q4 Revenue by Region","data":[{"region":"NA","revenue":4200000,"target":4000000},{"region":"EU","revenue":3100000,"target":3500000}],"dataKeys":["revenue","target"],"xAxisKey":"region","showLegend":true,"showGrid":true},"layout_hint":"half"}
+\\\`\\\`\\\`
+- \`data\` = array of flat objects with same keys
+- \`dataKeys\` = which keys contain numeric values to plot (NOT the x-axis key)
+- \`xAxisKey\` = the label/category key
+- Always set \`title\`, \`showLegend: true\` for multi-series
+
+**Tables:**
+\\\`\\\`\\\`json
+{"component":"data_table","props":{"title":"Top Customers","columns":["Customer","Revenue","Growth"],"rows":[["Acme Corp",420000,"+15%"],["Globex",380000,"+8%"]]}}
+\\\`\\\`\\\`
+- \`rows\` must be 2D arrays matching column order — NOT objects
+
+**Metric Cards:**
+\\\`\\\`\\\`json
+{"component":"metric_card","props":{"label":"Monthly Active Users","value":"12,847","change":"+23.5%","sparkline":[8200,9100,9800,10500,11200,12847]},"layout_hint":"third"}
+\\\`\\\`\\\`
+
+### Design Principles
+
+- **Hierarchy**: Most important info first and biggest. Lead with the answer.
+- **Less is more**: 4 well-chosen metrics beat 12 crammed stats.
+- **Titles are content**: "Monthly Recurring Revenue" not "MRR". "Support Tickets by Priority" not "Table".
+- **Context over raw numbers**: "$1.2M (+15% vs Q3)" tells a story; "$1.2M" alone is noise.
+- **Separate concerns**: Each component answers one question.`
+  },
+
+  "sandbox-mastery": {
+    description: "Sandbox architecture, design patterns, CDN allowlist, bridge API, theme support, heartbeat, templates, common mistakes",
+    content: `## Sandbox Component Mastery Guide
+
+### When to Use
+Use \`sandbox\` for: 3D (Three.js), animations, custom charts (candlestick, heatmap, gauge, treemap, sankey), interactive visualizations, games, physics simulations, or anything not covered by built-in components. Prefer built-ins when they fit — sandbox is last resort.
+
+### Architecture: How Sandboxes Work
+Your sandbox runs in a double-isolated iframe (sandbox="allow-scripts allow-popups" — NO same-origin). The pipeline:
+1. Your \`html\` prop is sanitized: <script>, <style>, <link> tags are auto-extracted into js/css/libraries
+2. A full HTML document is constructed with CSP, theme CSS, error overlay, bridge API, heartbeat
+3. Libraries load SEQUENTIALLY (dependency order preserved), then your JS runs at GLOBAL scope
+4. Bridge API (\`window.jarble\`) provides communication with parent app
+
+### Props Schema
+\\\`\\\`\\\`json
+{
+  "html": "<div id='app'></div>",
+  "css": "body { margin: 0; } #app { width: 100%; height: 100%; }",
+  "js": "const el = document.getElementById('app'); // your code here",
+  "libraries": ["https://cdn.jsdelivr.net/npm/three@0.169/build/three.min.js"],
+  "title": "My Visualization",
+  "height": 500,
+  "props": { "color": "#ff0000", "speed": 1.5 },
+  "configSchema": { "type": "object", "properties": { "speed": { "type": "number", "default": 1 } } }
+}
+\\\`\\\`\\\`
+
+### Critical Rules
+1. \`html\` = body content ONLY (divs, canvas elements, containers). <script>/<style> tags ARE extracted automatically but putting code in the proper fields is cleaner.
+2. \`css\` = ALL styles. Global styles, responsive rules, dark mode, animations.
+3. \`js\` = Classic JavaScript. Runs AFTER all libraries finish loading. Runs at GLOBAL scope (const/let/var are global).
+4. \`moduleJs\` = ES module JavaScript with \`import\` statements. Rendered as \`<script type="module">\`. Runs after classic js.
+5. \`importMap\` = maps bare package names to CDN URLs for clean imports (e.g. \`{"react": "https://esm.sh/react@18"}\`).
+6. \`libraries\` = array of CDN URLs. Loaded as <script> tags IN ORDER (sequential, not parallel). Put dependencies first.
+7. \`props\` = custom data passed to sandbox. Access via \`window.__JARBLE_PROPS__\`.
+8. \`title\` = card title. ALWAYS provide a descriptive title.
+
+### Allowed CDN Origins (ONLY these work — CSP blocks everything else)
+| Origin | Use For |
+|--------|---------|
+| cdn.jsdelivr.net | npm packages (Three.js, D3, Chart.js, anime.js, Leaflet, p5.js) |
+| cdnjs.cloudflare.com | Classic CDN mirror |
+| unpkg.com | npm mirror |
+| cdn.tailwindcss.com | Tailwind CSS |
+| esm.sh | ES modules (React, Vue, Svelte, lodash, any npm package) |
+| esm.run | ES modules (jsDelivr CDN, fallback for esm.sh) |
+| threejs.org | Three.js examples/addons |
+| d3js.org | D3 official |
+| cdn.plot.ly | Plotly |
+| fonts.googleapis.com | Google Fonts CSS |
+| fonts.gstatic.com | Google Fonts files |
+
+### Common Library URLs (TESTED, USE THESE EXACT URLs)
+\\\`\\\`\\\`
+Three.js:     https://cdn.jsdelivr.net/npm/three@0.169/build/three.min.js
+D3.js:        https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js
+Chart.js:     https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js
+anime.js:     https://cdn.jsdelivr.net/npm/animejs@3/lib/anime.min.js
+Plotly:       https://cdn.plot.ly/plotly-2.35.0.min.js
+Leaflet JS:   https://cdn.jsdelivr.net/npm/leaflet@1/dist/leaflet.js
+Leaflet CSS:  https://cdn.jsdelivr.net/npm/leaflet@1/dist/leaflet.css (put in css as @import)
+p5.js:        https://cdn.jsdelivr.net/npm/p5@1/lib/p5.min.js
+Matter.js:    https://cdn.jsdelivr.net/npm/matter-js@0.19/build/matter.min.js
+GSAP:         https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js
+\\\`\\\`\\\`
+
+### ES Module Imports (Modern Pattern)
+
+Use \`moduleJs\` prop for ES module JavaScript with \`import\` statements. Use \`importMap\` prop to map bare package names to CDN URLs.
+
+**Key props:**
+- \`moduleJs\` — JavaScript string with import statements. Rendered as \`<script type="module">\`.
+- \`importMap\` — Object mapping bare specifiers to CDN URLs (e.g. \`{"react": "https://esm.sh/react@18"}\`).
+
+**esm.sh URL patterns:**
+\\\`\\\`\\\`
+https://esm.sh/PACKAGE@VERSION           — e.g. https://esm.sh/react@18
+https://esm.sh/PACKAGE@VERSION/SUBPATH   — e.g. https://esm.sh/react-dom@18/client
+https://esm.sh/PACKAGE@VERSION?bundle    — force bundled (includes deps)
+\\\`\\\`\\\`
+
+**When to use classic vs module:**
+| Pattern | Use When | Props |
+|---------|----------|-------|
+| Classic (UMD) | Three.js, D3, Chart.js, p5.js, anime.js — libraries that set globals | \`libraries\` + \`js\` |
+| Module (ESM) | React, Vue, Svelte, lodash-es, date-fns — modern npm packages | \`moduleJs\` + \`importMap\` |
+| Mixed | Three.js scene + React UI overlay | All four props together |
+
+**You can use BOTH classic and module in one sandbox.** Classic scripts load first (as globals), then module JS runs.
+
+**Pattern: React Component (ESM)**
+\\\`\\\`\\\`json
+{
+  "html": "<div id='root'></div>",
+  "moduleJs": "import React from 'react';\\nimport { createRoot } from 'react-dom/client';\\nconst App = () => React.createElement('div', { style: { padding: 20, fontFamily: 'system-ui' } },\\n  React.createElement('h1', null, 'Hello from React!'),\\n  React.createElement('p', null, 'Running inside sandbox via esm.sh'));\\ncreateRoot(document.getElementById('root')).render(React.createElement(App));",
+  "importMap": { "react": "https://esm.sh/react@18", "react-dom/client": "https://esm.sh/react-dom@18/client" },
+  "title": "React App"
+}
+\\\`\\\`\\\`
+
+**Pattern: Vue 3 (ESM)**
+\\\`\\\`\\\`json
+{
+  "html": "<div id='app'>{{ message }}</div>",
+  "moduleJs": "import { createApp } from 'vue';\\ncreateApp({ data: () => ({ message: 'Hello from Vue 3!' }) }).mount('#app');",
+  "importMap": { "vue": "https://esm.sh/vue@3" },
+  "title": "Vue App"
+}
+\\\`\\\`\\\`
+
+### Design Patterns & Templates
+
+**Pattern: Basic Canvas Animation**
+\\\`\\\`\\\`json
+{
+  "html": "<canvas id='c'></canvas>",
+  "css": "body { margin: 0; overflow: hidden; background: transparent; } canvas { display: block; width: 100%; height: 100%; }",
+  "js": "const canvas = document.getElementById('c');\\nconst ctx = canvas.getContext('2d');\\nfunction resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }\\nresize(); window.addEventListener('resize', resize);\\nfunction draw() { ctx.clearRect(0, 0, canvas.width, canvas.height); /* your drawing */ requestAnimationFrame(draw); }\\ndraw();",
+  "title": "Canvas Animation"
+}
+\\\`\\\`\\\`
+
+**Pattern: Three.js Scene**
+\\\`\\\`\\\`json
+{
+  "html": "<div id='container'></div>",
+  "css": "body { margin: 0; overflow: hidden; background: transparent; } #container { width: 100%; height: 100%; }",
+  "js": "const container = document.getElementById('container');\\nconst renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });\\nrenderer.setSize(container.clientWidth, container.clientHeight);\\ncontainer.appendChild(renderer.domElement);\\nconst scene = new THREE.Scene();\\nconst camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);\\ncamera.position.z = 5;\\n// Add objects, lights, animate...\\nfunction animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }\\nanimate();",
+  "libraries": ["https://cdn.jsdelivr.net/npm/three@0.169/build/three.min.js"],
+  "title": "3D Scene"
+}
+\\\`\\\`\\\`
+
+**Pattern: D3 Visualization**
+\\\`\\\`\\\`json
+{
+  "html": "<svg id='chart'></svg>",
+  "css": "body { margin: 0; background: transparent; } svg { width: 100%; height: 100%; } @media (prefers-color-scheme: dark) { text { fill: #e5e5e5; } .axis line, .axis path { stroke: #555; } }",
+  "js": "const svg = d3.select('#chart');\\nconst width = window.innerWidth, height = window.innerHeight;\\nsvg.attr('viewBox', \\\"0 0 \\\" + width + \\\" \\\" + height);\\n// Your D3 code...",
+  "libraries": ["https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"],
+  "title": "D3 Chart"
+}
+\\\`\\\`\\\`
+
+**Pattern: Interactive with Props & Config**
+\\\`\\\`\\\`json
+{
+  "html": "<div id='viz'></div>",
+  "css": "#viz { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }",
+  "js": "const props = window.__JARBLE_PROPS__;\\nconst speed = props.speed || 1;\\n// Use props...\\nwindow.addEventListener('jarble:props', e => { /* handle updates */ });",
+  "props": { "speed": 1.5, "color": "#3b82f6" },
+  "configSchema": { "type": "object", "properties": { "speed": { "type": "number", "title": "Speed", "default": 1, "minimum": 0.1, "maximum": 5 } } },
+  "title": "Interactive Viz"
+}
+\\\`\\\`\\\`
+
+### Theme Support (REQUIRED for all sandboxes)
+\\\`\\\`\\\`css
+body { color: #1a1a1a; background: transparent; }
+@media (prefers-color-scheme: dark) {
+  body { color: #e5e5e5; }
+  .panel { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); }
+}
+\\\`\\\`\\\`
+ALWAYS set \`background: transparent\` on body so the card background shows through. Use media queries for text/border colors.
+
+### Bridge API (window.jarble)
+\\\`\\\`\\\`
+jarble.send(action, payload)          — Send action to parent app
+jarble.canvas.resize(width, height)   — Request card resize (200-1200w, 100-800h)
+jarble.canvas.setTitle(title)         — Update card title (max 100 chars)
+jarble.reportProgress(percent)        — Show loading progress (0-100)
+await jarble.storage.set(key, value)  — Persistent storage (1MB quota, string values)
+await jarble.storage.get(key)         — Returns string|null
+jarble.events.on(channel, handler)    — Inter-sandbox pub/sub
+jarble.events.emit(channel, data)     — Broadcast to other sandboxes
+\\\`\\\`\\\`
+
+Access initial props: \`window.__JARBLE_PROPS__\`
+Listen for updates: \`window.addEventListener("jarble:props", e => { const data = e.detail; })\`
+
+### Heartbeat & Lifecycle
+- Sandbox auto-pings parent every 5s. Parent kills after 15s silence (3 missed).
+- requestAnimationFrame/setInterval keep heartbeat alive — animations are safe.
+- Heavy synchronous loops >15s will kill the sandbox. Use setTimeout chunking or Web Workers.
+- Variables declared with const/let/var in your JS are GLOBAL (not scoped to a function).
+- The auto-resize system looks for global \`renderer\` and \`camera\` vars for Three.js.
+
+### Responsive Design Checklist
+1. Root container: \`width: 100%; height: 100%;\` (fills card)
+2. SVG: use \`viewBox\` for scaling
+3. Canvas: resize on window resize events (auto-resize handles Three.js)
+4. Text: use relative units (em, rem, %) not fixed px
+5. Touch: add touch event handlers for mobile
+
+### Common Mistakes (AVOID THESE)
+1. **Wrong library URL** — Use EXACT URLs from the list above. Wrong versions or paths fail silently.
+2. **Non-allowlisted CDN** — CSP blocks silently. ONLY the 11 origins above work.
+3. **Blocking main thread** — Heavy sync loops kill heartbeat. Chunk with \`setTimeout(fn, 0)\`.
+4. **No responsive sizing** — Use \`width: 100%; height: 100%\` on root elements.
+5. **fetch() to external APIs** — ONLY CDN origins work in connect-src. Pass data via props instead.
+6. **Forgetting dark mode** — ALWAYS add \`@media (prefers-color-scheme: dark)\` styles.
+7. **Opaque background** — ALWAYS use \`background: transparent\` on body.
+8. **Missing title** — Every sandbox MUST have a descriptive title prop.
+9. **No error handling** — Wrap risky code in try/catch. Errors show as red overlay in iframe.
+10. **Library version mismatch** — Pin specific versions in URLs (e.g. \`@0.169\` not \`@latest\`).
+11. **Using import in js prop** — ES module \`import\` statements ONLY work in \`moduleJs\`, not \`js\`. The \`js\` prop runs as a classic script.`
+  },
+
+  "generative-ui-patterns": {
+    description: "When to render UI vs text, text+UI harmony, multi-component orchestration, quality checklist",
+    content: `## Generative UI Best Practices
+
+### Core Principle
+You are both a conversationalist and a UI designer. Text introduces, UI presents, together they tell the story.
+
+### When to Render UI
+- Data in the answer — ALWAYS render a visual. Numbers, comparisons, trends deserve charts/tables/metrics.
+- "Show me" / "display" / "visualize" — User explicitly wants UI.
+- Structured results — API responses, search results, config summaries.
+- Complex explanations — Multi-step processes → steps/timeline. Categorized → tabs/accordion.
+- Actionable output — Choices → button_group/form. Success/failure → alert/result.
+
+### When NOT to Render UI
+- Simple conversation ("Hello!", "Thanks!")
+- Clarifying questions ("Which date range?")
+- Short factual answers without data
+- Error acknowledgments (unless you have a suggested action)
+
+### Text + UI Harmony
+1. Introduce before rendering — "Here's your revenue breakdown:" then the chart.
+2. Don't duplicate — If chart shows data, add insight in text: "Revenue peaked in Q3, driven by enterprise."
+3. Be concise when UI is present — 1-2 sentences of context, then the component.
+4. Reference the UI — "As shown in the chart above..."
+5. Insight over narration — Text explains why, UI shows what.
+
+### Multi-Component Responses
+- Limit to 3-4 components per response. Build dashboards across conversation, not one message.
+- Follow the rendering order: overview (KPIs) → detail (charts/tables) → actions (forms/buttons).
+- Each component stands alone. Users can minimize, reorder, split cards. Title everything.
+- Narrative flow: Overview → detail → action.
+
+### Component Selection Judgment
+1. Is there a built-in for this? Call component_reference when unsure.
+2. Would a human designer pick this? metric_card for metrics, steps for processes.
+3. Are props complete? Every chart needs a title. No "Card 1" titles.
+4. Does the layout hint match? KPIs = "third". Charts = "half". Wide tables = "full-width".
+
+### Quality Checklist
+- Right component type for this data
+- Props complete — title, labels, data all populated
+- Real data, not placeholders
+- Text introduces the UI and adds insight
+- Layout hints set for multi-component responses`
+  },
+
+  "platform-awareness": {
+    description: "Canvas system, MCP tools inventory, multi-platform behavior, artifact workspace, essential behaviors",
+    content: `## Jarble Platform Guide
+
+### How Your UI Appears
+Components render as interactive cards on a canvas. Users can:
+- Drag to reposition, resize (grid-snapped at 20px)
+- Minimize/maximize cards
+- Split multi-item components (stat_grid, data_table, tabs, list, timeline, key_value, descriptions)
+- Merge compatible cards back together
+- Pin cards to survive clears, save/bookmark to artifact workspace
+- Group related cards under a shared dashboard title
+
+Canvas holds up to 100 cards. Older unpinned cards are evicted at limit.
+
+### Canvas Grid Layout
+3-column responsive grid:
+- full-width = 3 columns: header, steps, wide data_table, sandbox, map
+- half = 2 columns: chart, timeline, list, tabs, accordion
+- third = 1 column: metric_card, statistic, badge, progress, alert
+- compact = smallest: badge, avatar, divider
+
+Components flow top-to-bottom in emission order. Users can drag to reorder.
+
+### Your MCP Tools
+Rendering: render_ui (new card), update_ui (edit existing), create_dashboard (grouped, max 8)
+Discovery: list_components (all 37+ types), component_reference (prop schema), skill_reference (guides)
+Templates: define_component (reusable templates with {{variable}} placeholders)
+Persistence: save_artifact / load_artifact / list_artifacts / delete_artifact
+Memory: store_memory / recall_memory / list_memories / forget_memory (cross-platform)
+
+### Multi-Platform
+- Jarble web dashboard — full canvas with rich UI. Messages contain [CANVAS_STATE] or [UI_ACTION].
+- Telegram, Discord, Slack, WhatsApp — text and markdown only. No UI rendering.
+
+### Essential Behaviors
+1. Right-size responses — simple questions get text, data-rich answers get UI
+2. Title specifically — "Q1 Revenue by Region" not "Chart"
+3. Limit density — max 4-6 components unless building an explicit dashboard
+4. Built-ins over sandbox — call component_reference before unfamiliar components
+5. Sandbox is last resort — only for 3D, games, custom animations
+6. Real data only — never fabricate placeholder data
+7. Memory proactively — store preferences without being asked; recall at session start`
+  },
+
+  "dashboard-composition": {
+    description: "Dashboard ordering, layout hint strategy, data consistency, density guidelines, interactive dashboards",
+    content: `## Dashboard Composition Guide
+
+### When to Build a Dashboard
+Build multi-component dashboards for: overviews/summaries/reports, analytics dashboards, status pages, comparison views. For single-topic responses, prefer one well-chosen component.
+
+### Composition Order (emit in this order)
+1. Header (title/subtitle)
+2. KPI row — 1-4 metric_card OR stat_grid (5+ metrics)
+3. Status/progress — badge, progress, result, alert
+4. Structure — steps, timeline, descriptions
+5. Charts — chart (bar/line/pie/area)
+6. Data — data_table, list, key_value, tree
+7. Rich content — card, blockquote, code_block
+8. Media — image, image_gallery, carousel, video
+9. Interactive — form, button_group, tabs, accordion
+10. Full-screen — sandbox, map, code_editor, spreadsheet
+
+### Layout Strategy (3-column grid)
+Classic KPI + Chart + Table:
+  [metric_card third] [metric_card third] [metric_card third]
+  [chart half] [list third]
+  [data_table full-width]
+
+Status Dashboard:
+  [header full-width]
+  [stat_grid full-width]
+  [chart half] [chart half]
+  [alert third] [alert third] [alert third]
+
+### Data Consistency Rules
+- Same source, same numbers. If stat_grid shows "$1.2M", chart must include that data point.
+- Consistent units. Don't mix "$1.2M" and "1200000".
+- Time alignment. Title says "Q4 2025" → all components show Q4 2025 data.
+- Labels match. "Active Users" in metric_card → "Active Users" in chart legend.
+
+### Density Guidelines
+- 3-4 components — ideal for focused answer
+- 5-6 — comprehensive dashboard
+- 7-8 — maximum (use create_dashboard for grouping)
+- 9+ — too many. Split across turns or use tabs/accordion
+
+### Dashboard Anti-Patterns
+1. Wall of metric_cards — Don't emit 10 individual cards. Use stat_grid for 5+.
+2. Chart without context — Every chart should follow KPIs that frame its significance.
+3. Missing titles — Every component MUST have a specific, descriptive title.
+4. Random ordering — Follow composition order.
+5. Redundant components — Chart AND table showing exact same data without additional detail.
+
+### Saving Dashboards
+For dashboards user will revisit: save_artifact + pinned: true. Descriptive IDs: "sales-dashboard-q4" not "dashboard-1". For live data, set dataSource with pollInterval.`
+  },
+  "service-hosting": {
+    description: "How to create, host, and publish HTTP services on your pod for other bots to consume via the marketplace",
+    content: `## Service Hosting Guide
+
+### Overview
+You can create HTTP services that run on your pod and publish them to the Jarble marketplace. Other bots in the cluster can install your service and call your API endpoint.
+
+### Architecture
+- Your pod runs in a K8s cluster (currently Docker for dev, K3s on Hetzner VPS in production)
+- Each pod has an internal cluster IP reachable by other pods
+- Services you host run as child processes managed by the MCP server
+- Services persist across pod restarts (code saved to PVC, auto-restarted on boot)
+
+### Port Range
+- Port 18789 is reserved for the OpenClaw gateway — NEVER use it
+- Use ports **19001-19099** for your services
+- The \`start_http_service\` tool auto-allocates the next available port if you don't specify one
+
+### Available Tools
+1. **start_http_service** — Write and start a Node.js HTTP server
+   - \`name\`: lowercase with hyphens (e.g. "time-sync", "weather-api")
+   - \`port\`: 19001-19099 (optional, auto-assigned if omitted)
+   - \`code\`: Complete Node.js server script
+   - \`description\`: What this service does
+
+2. **stop_http_service** — Stop and remove a running service
+
+3. **list_http_services** — Show all registered services with status
+
+4. **publish_to_marketplace** — Submit a running service to the marketplace
+   - Requires: name, displayName, description, instructionSnippet
+   - The instruction snippet tells installing bots how to use your API
+
+### Writing Service Code
+Your code runs as a standalone Node.js script. Use only Node.js built-in modules (http, https, url, crypto, fs, path, os, etc.) — no npm packages.
+
+Access the assigned port via \`process.env.SERVICE_PORT\`:
+\`\`\`javascript
+const http = require("http");
+const PORT = process.env.SERVICE_PORT || 19001;
+
+const server = http.createServer((req, res) => {
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok" }));
+    return;
+  }
+  // Your API logic here
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ message: "Hello from my service" }));
+});
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log("Service listening on port " + PORT);
+});
+\`\`\`
+
+### Best Practices
+- Always include a \`/health\` endpoint returning \`{"status":"ok"}\`
+- Listen on \`0.0.0.0\` (not localhost) so other pods can reach you
+- Return JSON with \`Content-Type: application/json\`
+- Handle errors gracefully — a crash kills the service
+- Keep services focused — one API per service
+- Include the hostname in responses so consumers can verify which pod they're calling
+
+### Networking
+- **Within the cluster**: Other pods reach you via \`http://<pod-ip>:<port>\`
+- **Pod IPs change** when pods restart — the marketplace stores the endpoint at install time
+- **No external access needed** — this is pod-to-pod communication
+- Docker networking and K3s overlay networking both support this
+- No firewall rules or NetworkPolicy restrictions between pods in the jarble namespace
+
+### Publishing to Marketplace
+After starting your service, publish it:
+1. Verify the service is running: \`list_http_services\`
+2. Test the endpoint manually
+3. Call \`publish_to_marketplace\` with:
+   - A clear display name and description
+   - An instruction snippet that tells the installing bot exactly how to call your API
+   - The snippet should reference the endpoint URL and expected request/response format
+
+The automated review agent will evaluate your submission for:
+- Quality and coherence
+- Security (no prompt injection in the instruction snippet)
+- Legitimate use case
+
+### Instruction Snippet Tips
+The instruction snippet gets injected into the installing bot's system prompt. Keep it:
+- Focused: Only describe how to use YOUR service
+- Safe: No attempts to override other instructions
+- Clear: Include the endpoint URL, HTTP method, expected response format
+- Scoped: "When the user asks about X, use the Y skill to call Z endpoint"
+
+Example:
+"When users ask about the current time or need timestamps, make an HTTP GET request to {endpoint}/time. The response is JSON: {iso, unix, utc, timezone, hostname}. Present the time clearly."
+`
+  },
+  "data-formatting": {
+    description: "Data format cheat sheet — recharts data, data_table rows, map center, form options, timeline events, stat_grid stats, layout hints",
+    content: `## Data Formatting Cheat Sheet
+
+### Chart Data (recharts format)
+\\\`\\\`\\\`json
+{"type": "bar", "title": "Revenue by Quarter", "data": [{"quarter": "Q1", "revenue": 250000, "target": 200000}, {"quarter": "Q2", "revenue": 310000, "target": 280000}], "dataKeys": ["revenue", "target"], "xAxisKey": "quarter", "showLegend": true, "showGrid": true}
+\\\`\\\`\\\`
+- \`data\`: array of flat objects — every object has the SAME keys
+- \`dataKeys\`: numeric fields to plot (NOT the label field)
+- \`xAxisKey\`: the category/label field (string values)
+- Chart types: \`bar\`, \`line\`, \`pie\`, \`area\` ONLY
+- For multi-series: add multiple entries to \`dataKeys\`
+- For stacked: add \`"stacked": true\`
+- **NEVER** use Chart.js format (\`labels\` + \`datasets\`)
+
+### data_table Rows (2D arrays, not objects)
+\\\`\\\`\\\`json
+{"title": "Top Customers", "columns": ["Customer", "Revenue", "Growth"], "rows": [["Acme Corp", "$420K", "+15%"], ["Globex Inc", "$380K", "+8%"]]}
+\\\`\\\`\\\`
+- \`rows\`: array of arrays — each inner array matches column order
+- **NEVER** use objects: \`[{"Customer": "Acme"}]\` is WRONG
+
+### metric_card
+\\\`\\\`\\\`json
+{"label": "Monthly Revenue", "value": "$1.2M", "change": "+15%", "changeLabel": "vs last month", "sparkline": [800, 920, 1050, 1100, 1150, 1200]}
+\\\`\\\`\\\`
+- Use \`label\` (NOT \`name\` or \`title\`)
+- \`value\` is a string (pre-formatted)
+- \`change\` includes sign: "+15%" or "-3%"
+
+### stat_grid (5+ metrics)
+\\\`\\\`\\\`json
+{"stats": [{"label": "Revenue", "value": "$1.2M", "change": "+15%"}, {"label": "Users", "value": "12,847", "change": "+23%"}]}
+\\\`\\\`\\\`
+- Use \`stats\` array (NOT \`items\` or \`data\`)
+- Each stat uses \`label\` (NOT \`name\`)
+
+### timeline
+\\\`\\\`\\\`json
+{"title": "Project Timeline", "events": [{"label": "Planning", "description": "Requirements gathered", "timestamp": "Jan 2024", "status": "completed"}, {"label": "Development", "timestamp": "Mar 2024", "status": "active"}]}
+\\\`\\\`\\\`
+- Use \`events\` array (NOT \`items\` or \`data\`)
+- Status values: \`completed\`, \`active\`, \`pending\`
+
+### map
+\\\`\\\`\\\`json
+{"center": [48.8566, 2.3522], "zoom": 12, "markers": [{"lat": 48.8566, "lng": 2.3522, "label": "Paris"}]}
+\\\`\\\`\\\`
+- \`center\` is a \`[lat, lng]\` tuple (NOT an object)
+
+### form
+\\\`\\\`\\\`json
+{"title": "Contact", "fields": [{"name": "role", "label": "Role", "type": "select", "options": ["Engineer", "Designer", "Manager"]}], "submitLabel": "Send"}
+\\\`\\\`\\\`
+- Select options: flat strings (NOT \`{label, value}\` objects)
+- Use \`submitLabel\` (NOT \`submitText\`)
+
+### alert
+\\\`\\\`\\\`json
+{"title": "Deploy Complete", "message": "v2.3.1 is live", "variant": "success"}
+\\\`\\\`\\\`
+- Use \`message\` (NOT \`description\`)
+- Variants: \`info\`, \`success\`, \`warning\`, \`destructive\` (NOT \`error\` or \`danger\`)
+
+### Layout Hints (REQUIRED on every component)
+- \`"full-width"\`: headers, wide tables, sandboxes, maps
+- \`"half"\`: charts, timelines, tabs, accordions
+- \`"third"\`: metric_cards, badges, alerts, progress bars
+- \`"compact"\`: dividers, avatars`
+  },
+};
+
+// ── Dynamic skill loading from API ────────────────────────────────────────────
+// On boot, fetch latest platform skills from the API. If the API has newer
+// skills, they override the hardcoded BOT_SKILLS above. This lets us update
+// skills by redeploying the API — pods pick up changes on next restart.
+
+const SKILLS_CACHE_PATH = "/data/config/platform-skills.json";
+
+async function fetchAndMergeSkills() {
+  const apiUrl = process.env.JARBLE_API_URL || process.env.API_BASE_URL || "http://host.docker.internal:3001";
+  const url = `${apiUrl}/debug/platform-skills`;
+
+  try {
+    console.error("[MCP] Fetching latest platform skills from", url);
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(10000), // 10s timeout
+      headers: { "Accept": "application/json" },
+    });
+
+    if (!resp.ok) {
+      console.error("[MCP] Skills fetch failed:", resp.status, resp.statusText);
+      return loadCachedSkills();
+    }
+
+    const data = await resp.json();
+    if (!data.skills || typeof data.skills !== "object") {
+      console.error("[MCP] Invalid skills response — missing skills object");
+      return loadCachedSkills();
+    }
+
+    // Merge: API skills override baked-in skills, baked-in skills fill gaps
+    let updated = 0;
+    for (const [name, skill] of Object.entries(data.skills)) {
+      if (skill && typeof skill === "object" && skill.content) {
+        BOT_SKILLS[name] = skill;
+        updated++;
+      }
+    }
+
+    console.error(`[MCP] Merged ${updated} skills from API (version ${data.version || "?"})`);
+
+    // Cache to PVC for offline fallback
+    try {
+      fs.mkdirSync(path.dirname(SKILLS_CACHE_PATH), { recursive: true });
+      fs.writeFileSync(SKILLS_CACHE_PATH, JSON.stringify(data, null, 2));
+      console.error("[MCP] Cached skills to", SKILLS_CACHE_PATH);
+    } catch (cacheErr) {
+      console.error("[MCP] Failed to cache skills:", cacheErr.message);
+    }
+  } catch (err) {
+    console.error("[MCP] Skills fetch error:", err.message || err);
+    return loadCachedSkills();
+  }
+}
+
+function loadCachedSkills() {
+  try {
+    if (fs.existsSync(SKILLS_CACHE_PATH)) {
+      const cached = JSON.parse(fs.readFileSync(SKILLS_CACHE_PATH, "utf-8"));
+      if (cached.skills && typeof cached.skills === "object") {
+        let updated = 0;
+        for (const [name, skill] of Object.entries(cached.skills)) {
+          if (skill && typeof skill === "object" && skill.content) {
+            BOT_SKILLS[name] = skill;
+            updated++;
+          }
+        }
+        console.error(`[MCP] Loaded ${updated} cached skills from PVC (version ${cached.version || "?"})`);
+      }
+    } else {
+      console.error("[MCP] No cached skills on PVC, using baked-in defaults");
+    }
+  } catch (err) {
+    console.error("[MCP] Failed to load cached skills:", err.message);
+  }
+}
+
+// Fetch skills after a short delay (let the API server start first in dev)
+setTimeout(fetchAndMergeSkills, 3000);
+
+function executeSkillReference(args) {
+  const name = args?.skill;
+
+  if (name) {
+    const skill = BOT_SKILLS[name];
+    if (!skill) {
+      const available = Object.keys(BOT_SKILLS).join(", ");
+      return { isError: true, text: `Unknown skill "${name}". Available skills: ${available}` };
+    }
+    return { isError: false, text: skill.content };
+  }
+
+  // List all available skills
+  const lines = ["# Available Rendering Skills", ""];
+  for (const [skillName, skill] of Object.entries(BOT_SKILLS)) {
+    lines.push(`- **${skillName}** — ${skill.description}`);
+  }
+  lines.push("");
+  lines.push("Call `skill_reference` with a specific skill name (e.g. `{\"skill\": \"component-rendering\"}`) to get the full guide.");
+  return { isError: false, text: lines.join("\n") };
+}
+
 // ── Component reference (detailed prop schemas) ────────────────────────
 
 const COMPONENT_REFERENCE = {
@@ -520,18 +2360,78 @@ const COMPONENT_REFERENCE = {
   form: "`{title?, fields: [{name, label, type: text|email|textarea|select|checkbox|number, placeholder?, required?, options?, defaultValue?}], submitLabel?}`",
   code_editor: "`{code, language?, title?, readOnly?, height?}` — Monaco code editor",
   spreadsheet: "`{data?: [{...}], title?, height?}` — editable Excel-like grid",
-  sandbox: "`{html, css?, js?, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML (divs etc), NEVER <script>/<style>/<html>/<head> tags. css=all styles. js=all JavaScript (runs AFTER libraries load). libraries=CDN URLs loaded dynamically. Use for: gauges, maps, scatter plots, heatmaps, 3D, animations, candlestick charts, word clouds, or ANY custom visualization. NEVER use code_editor for running JS — use sandbox instead.",
+  sandbox: "`{html, css?, js?, moduleJs?, importMap?: {}, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML. js=classic JavaScript (UMD globals). moduleJs=ES module JS with import statements. importMap=maps bare specifiers to CDN URLs (e.g. {\"react\":\"https://esm.sh/react@18\"}). libraries=CDN URLs loaded as <script> tags. Default import map includes: three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone — no importMap needed for these packages, just use import statements in moduleJs. Use for: gauges, maps, scatter plots, heatmaps, 3D, animations, candlestick charts, word clouds, React/Vue/Svelte components, or ANY custom visualization.",
   video: "`{url, title?, controls?: true, loop?: false, muted?: false}` — video/livestream player. Supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct MP4/HLS URLs. Use for livestreams (e.g. YouTube Live, Twitch channels). Just pass the URL.",
+};
+
+// Copy-paste examples for the most error-prone components
+const COMPONENT_EXAMPLES = {
+  chart: '```jarble_ui\n{"component": "chart", "props": {"type": "bar", "title": "Revenue by Region", "data": [{"region": "NA", "revenue": 4200000}, {"region": "EU", "revenue": 3100000}], "dataKeys": ["revenue"], "xAxisKey": "region", "showLegend": true, "showGrid": true}, "layout_hint": "half"}\n```',
+  data_table: '```jarble_ui\n{"component": "data_table", "props": {"title": "Top Customers", "columns": ["Customer", "Revenue", "Growth"], "rows": [["Acme Corp", "$420K", "+15%"], ["Globex", "$380K", "+8%"]]}, "layout_hint": "full-width"}\n```',
+  metric_card: '```jarble_ui\n{"component": "metric_card", "props": {"label": "Monthly Revenue", "value": "$1.2M", "change": "+15%", "sparkline": [800, 920, 1050, 1200]}, "layout_hint": "third"}\n```',
+  stat_grid: '```jarble_ui\n{"component": "stat_grid", "props": {"stats": [{"label": "Revenue", "value": "$1.2M", "change": "+15%"}, {"label": "Users", "value": "12,847", "change": "+23%"}]}, "layout_hint": "full-width"}\n```',
+  timeline: '```jarble_ui\n{"component": "timeline", "props": {"title": "Project Timeline", "events": [{"label": "Planning", "timestamp": "Jan 2024", "status": "completed"}, {"label": "Dev", "timestamp": "Mar 2024", "status": "active"}]}, "layout_hint": "half"}\n```',
+  map: '```jarble_ui\n{"component": "map", "props": {"center": [48.8566, 2.3522], "zoom": 12, "markers": [{"lat": 48.8566, "lng": 2.3522, "label": "Paris"}]}, "layout_hint": "full-width"}\n```',
+  form: '```jarble_ui\n{"component": "form", "props": {"title": "Contact", "fields": [{"name": "email", "label": "Email", "type": "email", "required": true}, {"name": "role", "label": "Role", "type": "select", "options": ["Engineer", "Designer"]}], "submitLabel": "Send"}, "layout_hint": "half"}\n```',
+  alert: '```jarble_ui\n{"component": "alert", "props": {"title": "Deploy Complete", "message": "v2.3.1 is live", "variant": "success"}, "layout_hint": "third"}\n```',
 };
 
 function executeComponentReference(args) {
   const name = args?.component;
 
   if (name) {
-    if (!COMPONENT_REFERENCE[name]) {
-      return { isError: true, text: `Unknown component "${name}". Use list_components to see available components.` };
+    // Check built-in components first
+    if (COMPONENT_REFERENCE[name]) {
+      const lines = [`**${name}** — props: ${COMPONENT_REFERENCE[name]}`];
+      if (BUILTIN_SCHEMAS[name]) {
+        lines.push("");
+        lines.push("**JSON Schema:**");
+        lines.push("```json");
+        lines.push(JSON.stringify(BUILTIN_SCHEMAS[name], null, 2));
+        lines.push("```");
+      }
+      // Add copy-paste example if available
+      if (COMPONENT_EXAMPLES[name]) {
+        lines.push("");
+        lines.push("**Copy-paste example:**");
+        lines.push(COMPONENT_EXAMPLES[name]);
+      }
+      // Add default import map note for sandbox
+      if (name === "sandbox") {
+        lines.push("");
+        lines.push("**Default import map:** three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone — no importMap needed for these packages, just use import statements in moduleJs.");
+      }
+      return { isError: false, text: lines.join("\n") };
     }
-    return { isError: false, text: `**${name}** — props: ${COMPONENT_REFERENCE[name]}` };
+
+    // Fall back to custom/marketplace components from /data/components/
+    const customDef = readComponent(name);
+    if (customDef) {
+      const lines = [`**${name}** (custom component) — ${customDef.description || "No description"}`];
+      lines.push("");
+      if (customDef.layout && Array.isArray(customDef.layout)) {
+        lines.push("**Template layout:** This component resolves to built-in primitives with `{{variable}}` placeholders.");
+        lines.push("");
+        // Extract available variables from the layout template
+        const variables = new Set();
+        const layoutJson = JSON.stringify(customDef.layout);
+        const varMatches = layoutJson.match(/\{\{(\w+)\}\}/g);
+        if (varMatches) {
+          for (const m of varMatches) variables.add(m.slice(2, -2));
+        }
+        if (variables.size > 0) {
+          lines.push(`**Props (template variables):** \`${[...variables].join("`, `")}\``);
+          lines.push("");
+        }
+        lines.push("**Layout definition:**");
+        lines.push("```json");
+        lines.push(JSON.stringify(customDef.layout, null, 2));
+        lines.push("```");
+      }
+      return { isError: false, text: lines.join("\n") };
+    }
+
+    return { isError: true, text: `Unknown component "${name}". Use list_components to see available components.` };
   }
 
   // Return full reference grouped by category
@@ -560,6 +2460,20 @@ function executeComponentReference(args) {
     first = false;
   }
 
+  // Include custom/marketplace components
+  const custom = listCustomComponents();
+  if (custom.length > 0) {
+    lines.push("");
+    lines.push("## Installed Components");
+    for (const c of custom) {
+      lines.push(`- \`${c.name}\` — ${c.description || "Custom component"}`);
+    }
+  }
+
+  lines.push("");
+  lines.push("---");
+  lines.push("**Tip:** Call `component_reference` with a specific component name (e.g. `{\"component\": \"chart\"}`) to get the full JSON Schema with all accepted props, types, and constraints.");
+
   return { isError: false, text: lines.join("\n") };
 }
 
@@ -569,6 +2483,21 @@ function executeUpdateUi(args) {
   if (!props || typeof props !== "object") return { isError: true, text: "Missing or invalid 'props' parameter." };
 
   console.error("[MCP] update_ui:", card_id, "merge:", merge !== false);
+
+  // Validate props if a component is specified (for merge mode, skip required-field checks)
+  const targetComponent = component || null;
+  if (targetComponent && BUILTIN_SCHEMAS[targetComponent]) {
+    const schema = BUILTIN_SCHEMAS[targetComponent];
+    // For merge mode, validate only the provided fields (strip "required" from schema)
+    const effectiveSchema = (merge !== false)
+      ? { ...schema, required: undefined }
+      : schema;
+    const result = validateJsonSchema(props, effectiveSchema, "props");
+    if (!result.valid) {
+      console.error(`[MCP] update_ui validation failed for "${targetComponent}":`, result.errors.length, "errors");
+      return { isError: true, text: _formatValidationErrors(targetComponent, result.errors) };
+    }
+  }
 
   const block = JSON.stringify({
     card_id,
@@ -588,7 +2517,7 @@ function executeUpdateUi(args) {
 // Stores memories as JSON on PVC with embeddings for similarity search.
 // Uses the bot's LLM provider for embeddings and fact extraction.
 
-const MEMORY_DIR = "/data/memory";
+const MEMORY_DIR = process.env.JARBLE_MEMORY_DIR || "/data/memory";
 const MEMORY_FILE = path.join(MEMORY_DIR, "store.json");
 const MEMORY_VERSION = 1;
 const EMBEDDING_DIMS = 512;
@@ -1240,6 +3169,1524 @@ async function executeForgetMemory(args) {
   }
 }
 
+// ── Service hosting tool execution ────────────────────────────────────
+
+function executeStartHttpService(args) {
+  const { name, code, description } = args;
+  let { port } = args;
+
+  if (!name || !SERVICE_NAME_RE.test(name)) {
+    return { isError: true, text: `Invalid service name "${name}". Must be lowercase letters, digits, hyphens, 1-64 chars, starting with a letter.` };
+  }
+  if (!code || typeof code !== "string" || code.trim().length < 10) {
+    return { isError: true, text: "Service code is missing or too short. Provide a complete Node.js HTTP server script." };
+  }
+
+  // If already running, stop the old instance first (allows code updates)
+  if (runningServices.has(name)) {
+    const old = runningServices.get(name);
+    try { old.process.kill("SIGTERM"); } catch { /* already dead */ }
+    runningServices.delete(name);
+    console.error(`[MCP] Stopped old instance of "${name}" (PID ${old.pid}) for update`);
+  }
+
+  const manifest = readServiceManifest();
+  const existing = manifest.services[name];
+
+  // Port allocation — reuse existing port if service was previously registered
+  if (port) {
+    if (port < SERVICE_PORT_MIN || port > SERVICE_PORT_MAX) {
+      return { isError: true, text: `Port ${port} is out of range. Use ${SERVICE_PORT_MIN}-${SERVICE_PORT_MAX}.` };
+    }
+    const used = getUsedPorts(manifest);
+    if (used.has(port) && !(existing && existing.port === port)) {
+      return { isError: true, text: `Port ${port} is already in use by another service.` };
+    }
+  } else if (existing && existing.port) {
+    // Reuse the previously assigned port
+    port = existing.port;
+  } else {
+    port = allocatePort(manifest);
+    if (!port) {
+      return { isError: true, text: `No ports available in range ${SERVICE_PORT_MIN}-${SERVICE_PORT_MAX}. Stop an existing service first.` };
+    }
+  }
+
+  // Write service code to PVC
+  const serviceDir = path.join(SERVICES_DIR, name);
+  const codeFile = path.join(serviceDir, "server.js");
+  try {
+    fs.mkdirSync(serviceDir, { recursive: true });
+    fs.writeFileSync(codeFile, code, "utf-8");
+  } catch (e) {
+    return { isError: true, text: `Failed to write service code: ${e.message}` };
+  }
+
+  // Update manifest
+  const now = new Date().toISOString();
+  manifest.services[name] = {
+    port,
+    description: description || "",
+    createdAt: manifest.services[name]?.createdAt || now,
+    updatedAt: now,
+  };
+  writeServiceManifest(manifest);
+
+  // Spawn the process
+  try {
+    const pid = spawnService(name, port, codeFile);
+    const podIP = getPodIP();
+    return {
+      isError: false,
+      text: [
+        `Service "${name}" started successfully.`,
+        `  Port: ${port}`,
+        `  PID: ${pid}`,
+        `  Internal URL: http://${podIP}:${port}`,
+        `  Code: ${codeFile}`,
+        ``,
+        `Other pods in the cluster can reach this service at http://${podIP}:${port}`,
+        `The service will auto-restart when this pod restarts.`,
+      ].join("\n"),
+    };
+  } catch (e) {
+    return { isError: true, text: `Failed to start service: ${e.message}` };
+  }
+}
+
+function executeStopHttpService(args) {
+  const { name } = args;
+  if (!name) return { isError: true, text: "Missing service name." };
+
+  const running = runningServices.get(name);
+  if (running) {
+    try {
+      running.process.kill("SIGTERM");
+    } catch { /* already dead */ }
+    runningServices.delete(name);
+  }
+
+  // Remove from manifest
+  const manifest = readServiceManifest();
+  if (manifest.services[name]) {
+    delete manifest.services[name];
+    writeServiceManifest(manifest);
+  }
+
+  // Clean up code directory
+  const serviceDir = path.join(SERVICES_DIR, name);
+  try {
+    if (fs.existsSync(serviceDir)) {
+      fs.rmSync(serviceDir, { recursive: true, force: true });
+    }
+  } catch { /* ignore cleanup failures */ }
+
+  return {
+    isError: false,
+    text: running
+      ? `Service "${name}" stopped and removed (was PID ${running.pid} on port ${running.port}).`
+      : `Service "${name}" removed from registry (was not currently running).`,
+  };
+}
+
+function executeListHttpServices() {
+  const manifest = readServiceManifest();
+  const podIP = getPodIP();
+  const entries = Object.entries(manifest.services);
+
+  if (entries.length === 0) {
+    return { isError: false, text: "No services registered. Use start_http_service to create one." };
+  }
+
+  const lines = [`${entries.length} registered service(s) on this pod (${podIP}):\n`];
+  for (const [name, svc] of entries) {
+    const running = runningServices.get(name);
+    const status = running ? `RUNNING (PID ${running.pid})` : "STOPPED";
+    lines.push(`  ${name}`);
+    lines.push(`    Status: ${status}`);
+    lines.push(`    Port: ${svc.port}`);
+    lines.push(`    URL: http://${podIP}:${svc.port}`);
+    if (svc.description) lines.push(`    Description: ${svc.description}`);
+    lines.push(`    Created: ${svc.createdAt}`);
+    lines.push("");
+  }
+
+  return { isError: false, text: lines.join("\n") };
+}
+
+async function executePublishToMarketplace(args) {
+  const { name, displayName, description, instructionSnippet, category } = args;
+
+  if (!name) return { isError: true, text: "Missing service name." };
+  if (!displayName) return { isError: true, text: "Missing display name." };
+  if (!description || description.length < 10) return { isError: true, text: "Description must be at least 10 characters." };
+  if (!instructionSnippet) return { isError: true, text: "Missing instruction snippet." };
+
+  // Verify the service is running
+  const running = runningServices.get(name);
+  if (!running) {
+    return { isError: true, text: `Service "${name}" is not running. Start it first with start_http_service.` };
+  }
+
+  const podIP = getPodIP();
+  const endpoint = `http://${podIP}:${running.port}`;
+
+  // Build the marketplace submission
+  const deploymentId = process.env.DEPLOYMENT_ID;
+  const userId = process.env.USER_ID;
+
+  if (!deploymentId || !userId) {
+    return { isError: true, text: "Cannot publish: DEPLOYMENT_ID or USER_ID not set in environment." };
+  }
+
+  // Try to publish via the Jarble API
+  const apiUrl = process.env.JARBLE_API_URL || process.env.API_BASE_URL || "http://host.docker.internal:3001";
+  const http = require("http");
+  const https = require("https");
+
+  const payload = JSON.stringify({
+    name: name.replace(/-/g, "_"),
+    displayName,
+    description,
+    hostingModel: "hosted",
+    instructionSnippet,
+    remoteApiEndpoint: endpoint,
+    category: category || "utility",
+    pricingModel: "free",
+    priceUsdCents: 0,
+    creatorId: userId,
+  });
+
+  return new Promise((resolve) => {
+    const url = new URL(`${apiUrl}/api/pod/marketplace/publish-service`);
+    const transport = url.protocol === "https:" ? https : http;
+    const req = transport.request(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+        "X-Deployment-Id": process.env.DEPLOYMENT_ID || "",
+        "X-Gateway-Token": process.env.OPENCLAW_GATEWAY_TOKEN || "",
+      },
+    }, (res) => {
+      let body = "";
+      res.on("data", (d) => body += d);
+      res.on("end", () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try {
+            const result = JSON.parse(body);
+            resolve({
+              isError: false,
+              text: [
+                `Service "${displayName}" published to marketplace!`,
+                `  ID: ${result.id || "pending"}`,
+                `  Status: submitted (pending review)`,
+                `  Endpoint: ${endpoint}`,
+                ``,
+                `The automated review agent will evaluate your submission.`,
+                `Once approved, other bots can install it from the marketplace.`,
+              ].join("\n"),
+            });
+          } catch {
+            resolve({ isError: false, text: `Published successfully. Response: ${body}` });
+          }
+        } else {
+          resolve({ isError: true, text: `Marketplace API returned ${res.statusCode}: ${body}` });
+        }
+      });
+    });
+    req.on("error", (e) => {
+      resolve({ isError: true, text: `Failed to reach marketplace API at ${apiUrl}: ${e.message}` });
+    });
+    req.write(payload);
+    req.end();
+  });
+}
+
+// ── Platform-managed service registration ─────────────────────────────
+
+async function executeRegisterService(args) {
+  // 1. Validate environment
+  const deploymentId = process.env.DEPLOYMENT_ID;
+  const userId = process.env.USER_ID;
+  if (!deploymentId || !userId) {
+    return { isError: true, text: "Missing DEPLOYMENT_ID or USER_ID environment variables." };
+  }
+
+  // 2. Validate inputs
+  const name = (args.name || "").trim();
+  const displayName = (args.displayName || "").trim();
+  const description = (args.description || "").trim();
+  const skills = args.skills || [];
+
+  if (!name || !/^[a-z][a-z0-9-]{0,63}$/.test(name)) {
+    return { isError: true, text: "Invalid service name. Must be lowercase letters, digits, and hyphens (1-64 chars), starting with a letter." };
+  }
+  if (!displayName) {
+    return { isError: true, text: "displayName is required." };
+  }
+  if (!description || description.length < 10) {
+    return { isError: true, text: "description must be at least 10 characters." };
+  }
+  if (!Array.isArray(skills) || skills.length === 0) {
+    return { isError: true, text: "At least one skill is required." };
+  }
+
+  // 3. Validate each skill
+  for (const skill of skills) {
+    if (!skill.name || !/^[a-z][a-z0-9_]*$/.test(skill.name)) {
+      return { isError: true, text: `Invalid skill name "${skill.name}". Must be lowercase letters, digits, and underscores.` };
+    }
+    if (!skill.description) {
+      return { isError: true, text: `Skill "${skill.name}" missing description.` };
+    }
+    const mode = skill.mode || "handler";
+    if (mode === "handler" && !skill.handlerCode) {
+      return { isError: true, text: `Skill "${skill.name}" is handler mode but missing handlerCode.` };
+    }
+  }
+
+  // 4. Persist handler code to PVC for restart recovery
+  const serviceDir = path.join(SERVICES_DIR, name);
+  const handlersDir = path.join(serviceDir, "handlers");
+
+  try {
+    fs.mkdirSync(handlersDir, { recursive: true });
+
+    // Save registration manifest
+    const registration = {
+      name,
+      displayName,
+      description,
+      skills: skills.map(s => ({
+        name: s.name,
+        description: s.description,
+        mode: s.mode || "handler",
+        inputSchema: s.inputSchema || {},
+        outputSchema: s.outputSchema || null,
+      })),
+      instructionSnippet: args.instructionSnippet || null,
+      category: args.category || "utility",
+      registeredAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(serviceDir, "registration.json"), JSON.stringify(registration, null, 2));
+
+    // Save handler code files
+    for (const skill of skills) {
+      if (skill.handlerCode) {
+        fs.writeFileSync(path.join(handlersDir, `${skill.name}.js`), skill.handlerCode);
+      }
+    }
+  } catch (err) {
+    return { isError: true, text: `Failed to persist service files: ${err.message}` };
+  }
+
+  // 5. Register with the Jarble API
+  try {
+    const res = await apiRequest("POST", "/api/pod/marketplace/register-service", {
+      name,
+      displayName,
+      description,
+      skills: skills.map(s => ({
+        name: s.name,
+        description: s.description,
+        mode: s.mode || "handler",
+        handlerCode: s.handlerCode || null,
+        inputSchema: s.inputSchema || {},
+        outputSchema: s.outputSchema || null,
+      })),
+      instructionSnippet: args.instructionSnippet || null,
+      category: args.category || "utility",
+    });
+
+    if (res.status !== 200) {
+      return { isError: true, text: `API error (${res.status}): ${JSON.stringify(res.data)}` };
+    }
+
+    const result = res.data;
+    return {
+      isError: false,
+      text: [
+        `Service "${displayName}" registered successfully!`,
+        ``,
+        `ID: ${result.id}`,
+        `Status: ${result.status}`,
+        `Skills: ${skills.length} (${skills.map(s => s.name).join(", ")})`,
+        ``,
+        `The platform now manages routing, authentication, and execution.`,
+        `Other bots can install this service via: install_marketplace_item { id: "${result.id}", type: "service" }`,
+        `Handler code is persisted to /data/services/${name}/ and survives pod restarts.`,
+      ].join("\n"),
+    };
+  } catch (err) {
+    return { isError: true, text: `Failed to register service: ${err.message}` };
+  }
+}
+
+// ── Marketplace browse/install tool execution ─────────────────────────
+
+/**
+ * Helper: Make an HTTP request to the Jarble API.
+ * Pods have JARBLE_API_URL (or defaults to localhost:3001).
+ */
+function apiRequest(method, path, body) {
+  const apiUrl = process.env.JARBLE_API_URL || process.env.API_BASE_URL || "http://host.docker.internal:3001";
+  const http = require("http");
+  const https = require("https");
+  const url = new URL(`${apiUrl}${path}`);
+  const transport = url.protocol === "https:" ? https : http;
+
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
+    const headers = payload
+      ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
+      : {};
+    // Auth headers so the API can identify which pod/deployment is calling
+    headers["X-Deployment-Id"] = process.env.DEPLOYMENT_ID || "";
+    headers["X-Gateway-Token"] = process.env.OPENCLAW_GATEWAY_TOKEN || "";
+
+    const opts = {
+      method,
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname + url.search,
+      headers,
+    };
+
+    const req = transport.request(opts, (res) => {
+      let data = "";
+      res.on("data", (d) => data += d);
+      res.on("end", () => {
+        try {
+          resolve({ status: res.statusCode, data: JSON.parse(data) });
+        } catch {
+          resolve({ status: res.statusCode, data });
+        }
+      });
+    });
+    req.on("error", reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+async function executeBrowseMarketplace(args) {
+  try {
+    const params = new URLSearchParams();
+    if (args.type) params.set("type", args.type);
+    if (args.query) params.set("q", args.query);
+    if (args.category) params.set("category", args.category);
+
+    const res = await apiRequest("GET", `/api/pod/marketplace/browse?${params.toString()}`);
+    if (res.status !== 200) {
+      return { isError: true, text: `Marketplace API error: ${JSON.stringify(res.data)}` };
+    }
+
+    const { results, count } = res.data;
+    if (count === 0) {
+      return { isError: false, text: "No items found in the marketplace matching your criteria." };
+    }
+
+    const lines = [`Found ${count} marketplace item(s):\n`];
+    for (const item of results) {
+      const price = item.pricingModel === "free" ? "Free" : `$${(item.priceUsdCents / 100).toFixed(2)}`;
+      if (item.type === "component") {
+        lines.push(`  [Component] ${item.displayName} (${item.id})`);
+        lines.push(`    ${item.description || "No description"}`);
+        lines.push(`    Category: ${item.category} | Tier: ${item.tier} | Price: ${price} | Installs: ${item.totalInstalls || 0}`);
+      } else {
+        lines.push(`  [Service] ${item.displayName} (${item.id})`);
+        lines.push(`    ${item.description || "No description"}`);
+        lines.push(`    Hosting: ${item.hostingModel} | Price: ${price} | Installs: ${item.totalInstalls || 0}`);
+      }
+      lines.push("");
+    }
+
+    lines.push("Use get_marketplace_item with an ID for full details, or install_marketplace_item to install.");
+    return { isError: false, text: lines.join("\n") };
+  } catch (err) {
+    return { isError: true, text: `Failed to browse marketplace: ${err.message}` };
+  }
+}
+
+async function executeGetMarketplaceItem(args) {
+  if (!args.id) return { isError: true, text: "Missing item ID." };
+
+  try {
+    const res = await apiRequest("GET", `/api/pod/marketplace/item/${args.id}`);
+    if (res.status === 404) {
+      return { isError: true, text: `Item "${args.id}" not found in the marketplace.` };
+    }
+    if (res.status !== 200) {
+      return { isError: true, text: `Marketplace API error: ${JSON.stringify(res.data)}` };
+    }
+
+    const { type, item, components, skills } = res.data;
+    const lines = [`## ${item.displayName} (${type})\n`];
+    lines.push(`**ID:** ${item.id}`);
+    lines.push(`**Name:** ${item.name}`);
+    lines.push(`**Status:** ${item.status}`);
+
+    if (type === "component") {
+      lines.push(`**Tier:** ${item.tier}`);
+      lines.push(`**Category:** ${item.category}`);
+      if (item.description) lines.push(`\n### Description\n${item.description}`);
+      if (item.propsSchema) lines.push(`\n### Props Schema\n\`\`\`json\n${item.propsSchema}\n\`\`\``);
+      if (item.exampleProps) lines.push(`\n### Example Props\n\`\`\`json\n${item.exampleProps}\n\`\`\``);
+    } else {
+      lines.push(`**Hosting:** ${item.hostingModel}`);
+      if (item.description) lines.push(`\n### Description\n${item.description}`);
+      if (item.instructionSnippet) lines.push(`\n### Instruction Snippet\n\`\`\`\n${item.instructionSnippet}\n\`\`\``);
+      if (item.remoteApiEndpoint) lines.push(`\n### API Endpoint\n${item.remoteApiEndpoint}`);
+      if (components && components.length > 0) {
+        lines.push(`\n### Bundled Components (${components.length})`);
+        components.forEach(c => lines.push(`- ${c.componentId}`));
+      }
+      if (skills && skills.length > 0) {
+        lines.push(`\n### Bundled Skills (${skills.length})`);
+        skills.forEach(s => lines.push(`- ${s.skillId}`));
+      }
+    }
+
+    return { isError: false, text: lines.join("\n") };
+  } catch (err) {
+    return { isError: true, text: `Failed to get item details: ${err.message}` };
+  }
+}
+
+async function executeInstallMarketplaceItem(args) {
+  if (!args.id) return { isError: true, text: "Missing item ID." };
+  if (!args.type) return { isError: true, text: "Missing type (component or service)." };
+
+  const deploymentId = process.env.DEPLOYMENT_ID;
+  const userId = process.env.USER_ID;
+  if (!deploymentId || !userId) {
+    return { isError: true, text: "Cannot install: DEPLOYMENT_ID or USER_ID not set in environment." };
+  }
+
+  try {
+    const res = await apiRequest("POST", "/api/pod/marketplace/install", {
+      itemId: args.id,
+      type: args.type,
+      deploymentId,
+      userId,
+    });
+
+    if (res.status === 409) {
+      return { isError: true, text: `This ${args.type} is already installed on this deployment.` };
+    }
+    if (res.status === 404) {
+      return { isError: true, text: `${args.type} "${args.id}" not found in the marketplace.` };
+    }
+    if (res.status !== 200) {
+      return { isError: true, text: `Install failed: ${JSON.stringify(res.data)}` };
+    }
+
+    return {
+      isError: false,
+      text: [
+        `Successfully installed ${args.type} "${args.id}"!`,
+        res.data.message || "",
+        "",
+        args.type === "service"
+          ? "The service's instruction snippet has been added to your system prompt. ConfigSync is updating your configuration."
+          : "The component is now available for use with render_ui.",
+      ].join("\n"),
+    };
+  } catch (err) {
+    return { isError: true, text: `Failed to install: ${err.message}` };
+  }
+}
+
+async function executeUninstallMarketplaceItem(args) {
+  if (!args.id) return { isError: true, text: "Missing item ID." };
+  if (!args.type) return { isError: true, text: "Missing type (component or service)." };
+
+  const deploymentId = process.env.DEPLOYMENT_ID;
+  if (!deploymentId) {
+    return { isError: true, text: "Cannot uninstall: DEPLOYMENT_ID not set in environment." };
+  }
+
+  try {
+    const res = await apiRequest("POST", "/api/pod/marketplace/uninstall", {
+      itemId: args.id,
+      type: args.type,
+      deploymentId,
+    });
+
+    if (res.status === 404) {
+      return { isError: true, text: `This ${args.type} is not installed on this deployment.` };
+    }
+    if (res.status !== 200) {
+      return { isError: true, text: `Uninstall failed: ${JSON.stringify(res.data)}` };
+    }
+
+    return {
+      isError: false,
+      text: `Successfully uninstalled ${args.type} "${args.id}". ConfigSync is updating your configuration.`,
+    };
+  } catch (err) {
+    return { isError: true, text: `Failed to uninstall: ${err.message}` };
+  }
+}
+
+async function executeListInstalledMarketplace() {
+  const deploymentId = process.env.DEPLOYMENT_ID;
+  if (!deploymentId) {
+    return { isError: true, text: "Cannot list installed: DEPLOYMENT_ID not set in environment." };
+  }
+
+  try {
+    const res = await apiRequest("GET", `/api/pod/marketplace/installed`);
+    if (res.status !== 200) {
+      return { isError: true, text: `API error: ${JSON.stringify(res.data)}` };
+    }
+
+    const { components, services } = res.data;
+    const total = (components?.length || 0) + (services?.length || 0);
+
+    if (total === 0) {
+      return { isError: false, text: "No marketplace items installed on this deployment. Use browse_marketplace to discover items." };
+    }
+
+    const lines = [`${total} marketplace item(s) installed:\n`];
+
+    if (components && components.length > 0) {
+      lines.push(`### Components (${components.length})`);
+      for (const c of components) {
+        lines.push(`  - ${c.displayName || c.name} (${c.componentId})`);
+        if (c.description) lines.push(`    ${c.description}`);
+        lines.push(`    Tier: ${c.tier} | Installed: ${c.installedAt}`);
+      }
+      lines.push("");
+    }
+
+    if (services && services.length > 0) {
+      lines.push(`### Services (${services.length})`);
+      for (const s of services) {
+        lines.push(`  - ${s.displayName || s.name} (${s.serviceId})`);
+        if (s.description) lines.push(`    ${s.description}`);
+        lines.push(`    Hosting: ${s.hostingModel} | Installed: ${s.installedAt}`);
+      }
+    }
+
+    return { isError: false, text: lines.join("\n") };
+  } catch (err) {
+    return { isError: true, text: `Failed to list installed: ${err.message}` };
+  }
+}
+
+async function executeSetTheme(args) {
+  const body = {};
+  if (args.preset) body.preset = args.preset;
+  if (args.colors) body.colors = args.colors;
+  if (args.radius) body.radius = args.radius;
+  if (args.fontFamily) body.fontFamily = args.fontFamily;
+  if (args.headingFontFamily) body.headingFontFamily = args.headingFontFamily;
+
+  // If nothing specified, treat as reset
+  if (Object.keys(body).length === 0) {
+    body.preset = "default";
+  }
+
+  try {
+    const res = await apiRequest("POST", "/api/pod/theme", body);
+    if (res.status !== 200) {
+      return { isError: true, text: `Failed to set theme: ${JSON.stringify(res.data)}` };
+    }
+
+    const parts = [];
+    if (body.preset) parts.push(`Preset: ${body.preset}`);
+    if (body.colors) parts.push(`Custom colors: ${Object.keys(body.colors).join(", ")}`);
+    if (body.radius) parts.push(`Border radius: ${body.radius}`);
+    if (body.fontFamily) parts.push(`Font: ${body.fontFamily}`);
+    if (body.headingFontFamily) parts.push(`Heading font: ${body.headingFontFamily}`);
+
+    return {
+      isError: false,
+      text: `Theme updated! The chat page will reflect the new theme.\n${parts.join("\n")}`,
+    };
+  } catch (err) {
+    return { isError: true, text: `Failed to set theme: ${err.message}` };
+  }
+}
+
+async function executePublishComponent(args) {
+  const { name, displayName, description, tier, category, propsSchema, exampleProps, tags } = args;
+
+  if (!name) return { isError: true, text: "Missing component name." };
+  if (!displayName) return { isError: true, text: "Missing display name." };
+  if (!description || description.length < 10) return { isError: true, text: "Description must be at least 10 characters." };
+
+  const userId = process.env.USER_ID;
+  if (!userId) {
+    return { isError: true, text: "Cannot publish: USER_ID not set in environment." };
+  }
+
+  try {
+    const res = await apiRequest("POST", "/api/pod/marketplace/publish-component", {
+      name,
+      displayName,
+      description,
+      tier: tier || "template",
+      category: category || "utility",
+      propsSchema: propsSchema ? JSON.stringify(propsSchema) : null,
+      exampleProps: exampleProps ? JSON.stringify(exampleProps) : null,
+      tags: tags ? JSON.stringify(tags) : null,
+      pricingModel: "free",
+      priceUsdCents: 0,
+      creatorId: userId,
+    });
+
+    if (res.status !== 200) {
+      return { isError: true, text: `Publish failed: ${JSON.stringify(res.data)}` };
+    }
+
+    return {
+      isError: false,
+      text: [
+        `Component "${displayName}" submitted to marketplace!`,
+        `  ID: ${res.data.id}`,
+        `  Status: submitted (pending review)`,
+        ``,
+        `The automated review agent will evaluate your submission.`,
+        `Once approved, other bots can install it via install_marketplace_item.`,
+      ].join("\n"),
+    };
+  } catch (err) {
+    return { isError: true, text: `Failed to publish component: ${err.message}` };
+  }
+}
+
+// ── Shared helpers for web tools ───────────────────────────────────────
+
+const WEB_USER_AGENT = "JarbleBot/1.0 (https://jarble.ai)";
+const WEB_FETCH_TIMEOUT = 10000;
+
+/**
+ * Extract readable text from HTML by stripping tags, scripts, styles, nav, header, footer.
+ * Collapses whitespace and returns clean text.
+ */
+function extractTextFromHtml(html) {
+  let text = html;
+  // Remove script, style, nav, header, footer, noscript, svg elements and their contents
+  text = text.replace(/<(script|style|nav|header|footer|noscript|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, " ");
+  // Remove all remaining HTML tags
+  text = text.replace(/<[^>]+>/g, " ");
+  // Decode common HTML entities
+  text = text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&nbsp;/g, " ");
+  // Collapse whitespace
+  text = text.replace(/\s+/g, " ").trim();
+  return text;
+}
+
+/**
+ * Extract <title> from HTML.
+ */
+function extractTitle(html) {
+  const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return m ? m[1].replace(/<[^>]+>/g, "").trim() : null;
+}
+
+/**
+ * Fetch a URL with timeout and user-agent.
+ */
+async function webFetch(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs || WEB_FETCH_TIMEOUT);
+  try {
+    const resp = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": WEB_USER_AGENT },
+    });
+    return resp;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── Web & Search tool handlers ────────────────────────────────────────
+
+async function executeWebFetch(args) {
+  const { url, maxLength } = args;
+  if (!url) return { isError: true, text: "Missing 'url' parameter." };
+
+  const limit = Math.min(Math.max(maxLength || 10000, 100), 100000);
+
+  try {
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `HTTP ${resp.status}: ${resp.statusText}` };
+
+    const html = await resp.text();
+    const title = extractTitle(html) || "";
+    let content = extractTextFromHtml(html);
+    const fullLength = content.length;
+    if (content.length > limit) content = content.slice(0, limit) + "...";
+
+    return {
+      isError: false,
+      text: JSON.stringify({ title, content, url, contentLength: fullLength }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out after 10 seconds" : err.message;
+    return { isError: true, text: `Failed to fetch ${url}: ${msg}` };
+  }
+}
+
+async function executeWebSearch(args) {
+  const { query, maxResults } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 10);
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT);
+    let resp;
+    try {
+      resp = await fetch("https://lite.duckduckgo.com/lite", {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "User-Agent": WEB_USER_AGENT,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: "q=" + encodeURIComponent(query),
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!resp.ok) return { isError: true, text: `DuckDuckGo returned HTTP ${resp.status}` };
+
+    const html = await resp.text();
+    const results = [];
+
+    // DuckDuckGo lite returns results in table rows with class "result-link" for links
+    // and snippets in subsequent cells. Parse via regex.
+    // Pattern: <a rel="nofollow" href="URL" class='result-link'>TITLE</a> ... <td class="result-snippet">SNIPPET</td>
+    const linkRe = /<a[^>]+class='result-link'[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+    const snippetRe = /<td\s+class="result-snippet"[^>]*>([\s\S]*?)<\/td>/gi;
+
+    const links = [];
+    let m;
+    while ((m = linkRe.exec(html)) !== null) {
+      links.push({ url: m[1], title: extractTextFromHtml(m[2]).trim() });
+    }
+    const snippets = [];
+    while ((m = snippetRe.exec(html)) !== null) {
+      snippets.push(extractTextFromHtml(m[1]).trim());
+    }
+
+    for (let i = 0; i < Math.min(links.length, limit); i++) {
+      results.push({
+        title: links[i].title,
+        url: links[i].url,
+        snippet: snippets[i] || "",
+      });
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Search timed out after 10 seconds" : err.message;
+    return { isError: true, text: `Web search failed: ${msg}` };
+  }
+}
+
+async function executeHackerNews(args) {
+  const { query, maxResults, type } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 10);
+  const searchType = type === "comment" ? "comment" : "story";
+
+  try {
+    const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=${searchType}&hitsPerPage=${limit}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `Hacker News API returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    const results = (data.hits || []).map(hit => ({
+      title: hit.title || hit.story_title || "",
+      url: hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`,
+      points: hit.points || 0,
+      author: hit.author || "",
+      createdAt: hit.created_at || "",
+      numComments: hit.num_comments || 0,
+      ...(searchType === "comment" ? { commentText: (hit.comment_text || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 300) } : {}),
+    }));
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Hacker News search failed: ${msg}` };
+  }
+}
+
+async function executeGithubSearch(args) {
+  const { query, maxResults, sort } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 10);
+  const sortBy = sort || "stars";
+
+  try {
+    const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=${sortBy}&per_page=${limit}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+
+    if (resp.status === 403) {
+      return { isError: true, text: "GitHub API rate limit exceeded (10 requests/min for unauthenticated). Try again in a minute." };
+    }
+    if (!resp.ok) return { isError: true, text: `GitHub API returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    const results = (data.items || []).map(repo => ({
+      name: repo.name,
+      fullName: repo.full_name,
+      description: repo.description || "",
+      stars: repo.stargazers_count,
+      forks: repo.forks_count,
+      language: repo.language || "Unknown",
+      url: repo.html_url,
+      updatedAt: repo.updated_at,
+    }));
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, totalCount: data.total_count, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `GitHub search failed: ${msg}` };
+  }
+}
+
+async function executeNpmSearch(args) {
+  const { query, maxResults } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 20);
+
+  try {
+    const url = `https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(query)}&size=${limit}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `npm registry returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    const results = (data.objects || []).map(obj => {
+      const pkg = obj.package;
+      return {
+        name: pkg.name,
+        version: pkg.version,
+        description: pkg.description || "",
+        author: pkg.author ? pkg.author.name || pkg.author : "",
+        weeklyDownloads: obj.score ? Math.round((obj.score.detail?.popularity || 0) * 1000000) : 0,
+        url: `https://www.npmjs.com/package/${pkg.name}`,
+      };
+    });
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `npm search failed: ${msg}` };
+  }
+}
+
+async function executeAcademicSearch(args) {
+  const { query, maxResults } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 20);
+
+  try {
+    const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&max_results=${limit}&sortBy=relevance`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `arXiv API returned HTTP ${resp.status}` };
+
+    const xml = await resp.text();
+    const results = [];
+
+    // Parse <entry> blocks from Atom XML using regex
+    const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
+    let entryMatch;
+    while ((entryMatch = entryRe.exec(xml)) !== null && results.length < limit) {
+      const entry = entryMatch[1];
+
+      const titleM = entry.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      const summaryM = entry.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i);
+      const idM = entry.match(/<id[^>]*>([\s\S]*?)<\/id>/i);
+      const publishedM = entry.match(/<published[^>]*>([\s\S]*?)<\/published>/i);
+
+      // Extract all author names
+      const authors = [];
+      const authorRe = /<author>\s*<name>([\s\S]*?)<\/name>/gi;
+      let authorMatch;
+      while ((authorMatch = authorRe.exec(entry)) !== null) {
+        authors.push(authorMatch[1].trim());
+      }
+
+      const title = titleM ? titleM[1].replace(/\s+/g, " ").trim() : "";
+      const summary = summaryM ? summaryM[1].replace(/\s+/g, " ").trim().slice(0, 500) : "";
+      const arxivUrl = idM ? idM[1].trim() : "";
+      const published = publishedM ? publishedM[1].trim() : "";
+
+      if (title) {
+        results.push({ title, authors, summary, url: arxivUrl, published });
+      }
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `arXiv search failed: ${msg}` };
+  }
+}
+
+async function executeNewsSearch(args) {
+  const { query, maxResults } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 10);
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT);
+    let resp;
+    try {
+      resp = await fetch("https://lite.duckduckgo.com/lite", {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "User-Agent": WEB_USER_AGENT,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: "q=" + encodeURIComponent(query + " news") + "&df=w",
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!resp.ok) return { isError: true, text: `DuckDuckGo returned HTTP ${resp.status}` };
+
+    const html = await resp.text();
+    const results = [];
+
+    const linkRe = /<a[^>]+class='result-link'[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+    const snippetRe = /<td\s+class="result-snippet"[^>]*>([\s\S]*?)<\/td>/gi;
+
+    const links = [];
+    let m;
+    while ((m = linkRe.exec(html)) !== null) {
+      links.push({ url: m[1], title: extractTextFromHtml(m[2]).trim() });
+    }
+    const snippets = [];
+    while ((m = snippetRe.exec(html)) !== null) {
+      snippets.push(extractTextFromHtml(m[1]).trim());
+    }
+
+    for (let i = 0; i < Math.min(links.length, limit); i++) {
+      results.push({
+        title: links[i].title,
+        url: links[i].url,
+        snippet: snippets[i] || "",
+      });
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Search timed out" : err.message;
+    return { isError: true, text: `News search failed: ${msg}` };
+  }
+}
+
+async function executeDictionary(args) {
+  const { word } = args;
+  if (!word) return { isError: true, text: "Missing 'word' parameter." };
+
+  try {
+    const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+
+    if (resp.status === 404) return { isError: true, text: `Word "${word}" not found in dictionary.` };
+    if (!resp.ok) return { isError: true, text: `Dictionary API returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      return { isError: true, text: `No definitions found for "${word}".` };
+    }
+
+    const entry = data[0];
+    const result = {
+      word: entry.word,
+      phonetic: entry.phonetic || (entry.phonetics && entry.phonetics[0] ? entry.phonetics[0].text : ""),
+      meanings: (entry.meanings || []).map(m => ({
+        partOfSpeech: m.partOfSpeech,
+        definitions: (m.definitions || []).slice(0, 3).map(d => ({
+          definition: d.definition,
+          example: d.example || undefined,
+        })),
+      })),
+    };
+
+    return {
+      isError: false,
+      text: JSON.stringify(result),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Dictionary lookup failed: ${msg}` };
+  }
+}
+
+async function executeCurrencyExchange(args) {
+  const { from, to, amount } = args;
+  if (!from) return { isError: true, text: "Missing 'from' currency code." };
+
+  const fromCode = from.toUpperCase();
+
+  try {
+    let url = `https://api.frankfurter.app/latest?from=${encodeURIComponent(fromCode)}`;
+    if (to) url += `&to=${encodeURIComponent(to.toUpperCase())}`;
+    if (amount !== undefined && amount !== null) url += `&amount=${encodeURIComponent(String(amount))}`;
+
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) {
+      const body = await resp.text();
+      return { isError: true, text: `Currency API error (${resp.status}): ${body.slice(0, 200)}` };
+    }
+
+    const data = await resp.json();
+    return {
+      isError: false,
+      text: JSON.stringify({
+        from: data.base || fromCode,
+        date: data.date,
+        rates: data.rates,
+        ...(amount !== undefined ? { amount } : {}),
+      }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Currency exchange failed: ${msg}` };
+  }
+}
+
+async function executeTimezone(args) {
+  const { timezone } = args;
+  if (!timezone) return { isError: true, text: "Missing 'timezone' parameter." };
+
+  try {
+    if (timezone.toLowerCase() === "list") {
+      const resp = await webFetch("https://worldtimeapi.org/api/timezone", WEB_FETCH_TIMEOUT);
+      if (!resp.ok) return { isError: true, text: `WorldTimeAPI returned HTTP ${resp.status}` };
+      const zones = await resp.json();
+      return { isError: false, text: JSON.stringify({ timezones: zones }) };
+    }
+
+    const url = `https://worldtimeapi.org/api/timezone/${encodeURIComponent(timezone)}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+
+    if (resp.status === 404) return { isError: true, text: `Timezone "${timezone}" not found. Use timezone "list" to see available timezones.` };
+    if (!resp.ok) return { isError: true, text: `WorldTimeAPI returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    return {
+      isError: false,
+      text: JSON.stringify({
+        timezone: data.timezone,
+        datetime: data.datetime,
+        utcOffset: data.utc_offset,
+        dayOfWeek: data.day_of_week,
+        weekNumber: data.week_number,
+      }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Timezone lookup failed: ${msg}` };
+  }
+}
+
+async function executeCountryInfo(args) {
+  const { name } = args;
+  if (!name) return { isError: true, text: "Missing 'name' parameter." };
+
+  try {
+    const url = `https://restcountries.com/v3.1/name/${encodeURIComponent(name)}?fields=name,capital,population,region,subregion,currencies,languages,flags,timezones,area`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+
+    if (resp.status === 404) return { isError: true, text: `Country "${name}" not found.` };
+    if (!resp.ok) return { isError: true, text: `REST Countries API returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      return { isError: true, text: `No country found for "${name}".` };
+    }
+
+    const country = data[0];
+    const currencies = country.currencies
+      ? Object.entries(country.currencies).map(([code, c]) => ({ code, name: c.name, symbol: c.symbol }))
+      : [];
+    const languages = country.languages
+      ? Object.values(country.languages)
+      : [];
+
+    return {
+      isError: false,
+      text: JSON.stringify({
+        name: country.name?.common || name,
+        officialName: country.name?.official || "",
+        capital: Array.isArray(country.capital) ? country.capital : [],
+        population: country.population,
+        region: country.region,
+        subregion: country.subregion || "",
+        currencies,
+        languages,
+        flag: country.flags?.emoji || country.flags?.png || "",
+        timezones: country.timezones || [],
+        area: country.area,
+      }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Country lookup failed: ${msg}` };
+  }
+}
+
+async function executeOpenLibrary(args) {
+  const { query, maxResults } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(maxResults || 5, 1), 20);
+
+  try {
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=${limit}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `Open Library returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    const results = (data.docs || []).slice(0, limit).map(doc => ({
+      title: doc.title || "",
+      author: Array.isArray(doc.author_name) ? doc.author_name.join(", ") : "",
+      firstPublished: doc.first_publish_year || null,
+      isbn: Array.isArray(doc.isbn) ? doc.isbn[0] : null,
+      coverUrl: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg` : null,
+      subjects: Array.isArray(doc.subject) ? doc.subject.slice(0, 5) : [],
+    }));
+
+    return {
+      isError: false,
+      text: JSON.stringify({ query, results }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Open Library search failed: ${msg}` };
+  }
+}
+
+function executeCodeRunner(args) {
+  const { code, timeout } = args;
+  if (!code) return { isError: true, text: "Missing 'code' parameter." };
+
+  const vm = require("vm");
+  const maxTimeout = Math.min(Math.max(timeout || 5000, 100), 10000);
+
+  const logs = [];
+  const mockConsole = {
+    log: (...a) => logs.push(a.map(v => typeof v === "object" ? JSON.stringify(v) : String(v)).join(" ")),
+    warn: (...a) => logs.push("[warn] " + a.map(v => typeof v === "object" ? JSON.stringify(v) : String(v)).join(" ")),
+    error: (...a) => logs.push("[error] " + a.map(v => typeof v === "object" ? JSON.stringify(v) : String(v)).join(" ")),
+    info: (...a) => logs.push(a.map(v => typeof v === "object" ? JSON.stringify(v) : String(v)).join(" ")),
+  };
+
+  const sandbox = {
+    console: mockConsole,
+    Math, Date, JSON, Array, Object, String, Number, Boolean, RegExp,
+    Map, Set, parseInt, parseFloat, isNaN, isFinite,
+    encodeURIComponent, decodeURIComponent, encodeURI, decodeURI,
+    undefined, NaN, Infinity,
+    setTimeout: undefined, // blocked
+    setInterval: undefined, // blocked
+    fetch: undefined, // blocked
+    require: undefined, // blocked
+    process: undefined, // blocked
+  };
+
+  const startMs = Date.now();
+  try {
+    const result = vm.runInNewContext(code, sandbox, { timeout: maxTimeout, filename: "code_runner.js" });
+    const elapsed = Date.now() - startMs;
+
+    let resultStr;
+    try {
+      resultStr = result === undefined ? "undefined" : JSON.stringify(result);
+    } catch {
+      resultStr = String(result);
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({
+        result: resultStr,
+        logs,
+        executionTimeMs: elapsed,
+      }),
+    };
+  } catch (err) {
+    const elapsed = Date.now() - startMs;
+    return {
+      isError: true,
+      text: JSON.stringify({
+        error: err.message,
+        logs,
+        executionTimeMs: elapsed,
+      }),
+    };
+  }
+}
+
+async function executeUrlMetadata(args) {
+  const { url } = args;
+  if (!url) return { isError: true, text: "Missing 'url' parameter." };
+
+  try {
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `HTTP ${resp.status}: ${resp.statusText}` };
+
+    const html = await resp.text();
+
+    // Extract various meta tags
+    const title = extractTitle(html) || "";
+    const getMetaContent = (nameOrProp) => {
+      // Match both name= and property= attributes
+      const re = new RegExp(`<meta[^>]+(?:property|name)=["']${nameOrProp}["'][^>]+content=["']([^"']*)["']`, "i");
+      const m = html.match(re);
+      if (m) return m[1];
+      // Also try content before name/property
+      const re2 = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${nameOrProp}["']`, "i");
+      const m2 = html.match(re2);
+      return m2 ? m2[1] : "";
+    };
+
+    const ogTitle = getMetaContent("og:title");
+    const ogDesc = getMetaContent("og:description");
+    const ogImage = getMetaContent("og:image");
+    const ogSiteName = getMetaContent("og:site_name");
+    const ogType = getMetaContent("og:type");
+    const metaDesc = getMetaContent("description");
+
+    // Favicon
+    const faviconM = html.match(/<link[^>]+rel=["'](?:icon|shortcut icon)["'][^>]+href=["']([^"']*)["']/i);
+    let favicon = faviconM ? faviconM[1] : "";
+    if (favicon && !favicon.startsWith("http")) {
+      try {
+        favicon = new URL(favicon, url).href;
+      } catch { /* keep as-is */ }
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({
+        url,
+        title: ogTitle || title,
+        description: ogDesc || metaDesc,
+        image: ogImage,
+        siteName: ogSiteName,
+        type: ogType,
+        favicon,
+      }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out after 10 seconds" : err.message;
+    return { isError: true, text: `Failed to fetch metadata from ${url}: ${msg}` };
+  }
+}
+
+async function executeRssReader(args) {
+  const { url, maxItems } = args;
+  if (!url) return { isError: true, text: "Missing 'url' parameter." };
+
+  const limit = Math.min(Math.max(maxItems || 10, 1), 50);
+
+  try {
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+    if (!resp.ok) return { isError: true, text: `HTTP ${resp.status}: ${resp.statusText}` };
+
+    const xml = await resp.text();
+
+    // Detect if RSS or Atom
+    const isAtom = /<feed\b/i.test(xml);
+    const items = [];
+
+    // Extract feed title
+    let feedTitle = "";
+    if (isAtom) {
+      const ftM = xml.match(/<feed[^>]*>[\s\S]*?<title[^>]*>([\s\S]*?)<\/title>/i);
+      feedTitle = ftM ? ftM[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
+    } else {
+      const ftM = xml.match(/<channel[^>]*>[\s\S]*?<title[^>]*>([\s\S]*?)<\/title>/i);
+      feedTitle = ftM ? ftM[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
+    }
+
+    if (isAtom) {
+      // Atom: <entry> elements
+      const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
+      let match;
+      while ((match = entryRe.exec(xml)) !== null && items.length < limit) {
+        const e = match[1];
+        const titleM = e.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+        const linkM = e.match(/<link[^>]+href=["']([^"']*)["']/i);
+        const summaryM = e.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i) || e.match(/<content[^>]*>([\s\S]*?)<\/content>/i);
+        const publishedM = e.match(/<published[^>]*>([\s\S]*?)<\/published>/i) || e.match(/<updated[^>]*>([\s\S]*?)<\/updated>/i);
+
+        items.push({
+          title: titleM ? titleM[1].replace(/<!\[CDATA\[|\]\]>/g, "").replace(/<[^>]+>/g, "").trim() : "",
+          link: linkM ? linkM[1] : "",
+          description: summaryM ? extractTextFromHtml((summaryM[1] || summaryM[2] || "").replace(/<!\[CDATA\[|\]\]>/g, "")).slice(0, 300) : "",
+          publishedAt: publishedM ? (publishedM[1] || publishedM[2] || "").trim() : "",
+        });
+      }
+    } else {
+      // RSS: <item> elements
+      const itemRe = /<item>([\s\S]*?)<\/item>/gi;
+      let match;
+      while ((match = itemRe.exec(xml)) !== null && items.length < limit) {
+        const e = match[1];
+        const titleM = e.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+        const linkM = e.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
+        const descM = e.match(/<description[^>]*>([\s\S]*?)<\/description>/i);
+        const pubDateM = e.match(/<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i);
+
+        items.push({
+          title: titleM ? titleM[1].replace(/<!\[CDATA\[|\]\]>/g, "").replace(/<[^>]+>/g, "").trim() : "",
+          link: linkM ? linkM[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "",
+          description: descM ? extractTextFromHtml(descM[1].replace(/<!\[CDATA\[|\]\]>/g, "")).slice(0, 300) : "",
+          publishedAt: pubDateM ? pubDateM[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "",
+        });
+      }
+    }
+
+    return {
+      isError: false,
+      text: JSON.stringify({ feedTitle, items }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out after 10 seconds" : err.message;
+    return { isError: true, text: `RSS reader failed: ${msg}` };
+  }
+}
+
+async function executeWikipedia(args) {
+  const { query, sentences } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const numSentences = Math.min(Math.max(sentences || 5, 1), 20);
+
+  try {
+    // Try direct article lookup first
+    const articleTitle = query.replace(/\s+/g, "_");
+    const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(articleTitle)}`;
+    const resp = await webFetch(url, WEB_FETCH_TIMEOUT);
+
+    if (resp.ok) {
+      const data = await resp.json();
+      // Truncate summary to requested number of sentences
+      let summary = data.extract || "";
+      const sentenceEnds = [...summary.matchAll(/[.!?]\s+/g)];
+      if (sentenceEnds.length > numSentences && sentenceEnds[numSentences - 1]) {
+        summary = summary.slice(0, sentenceEnds[numSentences - 1].index + 1);
+      }
+
+      return {
+        isError: false,
+        text: JSON.stringify({
+          title: data.title || query,
+          summary,
+          url: data.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${articleTitle}`,
+          thumbnail: data.thumbnail?.source || null,
+          description: data.description || "",
+        }),
+      };
+    }
+
+    // Not found — try search
+    const searchUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=5&format=json`;
+    const searchResp = await webFetch(searchUrl, WEB_FETCH_TIMEOUT);
+    if (!searchResp.ok) return { isError: true, text: `Wikipedia API returned HTTP ${searchResp.status}` };
+
+    const searchData = await searchResp.json();
+    // opensearch returns [query, [titles], [descriptions], [urls]]
+    const titles = searchData[1] || [];
+    const descriptions = searchData[2] || [];
+    const urls = searchData[3] || [];
+
+    if (titles.length === 0) {
+      return { isError: true, text: `No Wikipedia article found for "${query}".` };
+    }
+
+    // Fetch the first result's summary
+    const firstUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(titles[0].replace(/\s+/g, "_"))}`;
+    const firstResp = await webFetch(firstUrl, WEB_FETCH_TIMEOUT);
+
+    if (firstResp.ok) {
+      const data = await firstResp.json();
+      let summary = data.extract || "";
+      const sentenceEnds = [...summary.matchAll(/[.!?]\s+/g)];
+      if (sentenceEnds.length > numSentences && sentenceEnds[numSentences - 1]) {
+        summary = summary.slice(0, sentenceEnds[numSentences - 1].index + 1);
+      }
+
+      const relatedTopics = titles.slice(1).map((t, i) => ({
+        title: t,
+        url: urls[i + 1] || "",
+      }));
+
+      return {
+        isError: false,
+        text: JSON.stringify({
+          title: data.title || titles[0],
+          summary,
+          url: data.content_urls?.desktop?.page || urls[0],
+          thumbnail: data.thumbnail?.source || null,
+          relatedTopics,
+        }),
+      };
+    }
+
+    // Fallback: return search results without summary
+    return {
+      isError: false,
+      text: JSON.stringify({
+        title: titles[0],
+        summary: descriptions[0] || "",
+        url: urls[0] || "",
+        thumbnail: null,
+        relatedTopics: titles.slice(1).map((t, i) => ({ title: t, url: urls[i + 1] || "" })),
+      }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Request timed out" : err.message;
+    return { isError: true, text: `Wikipedia lookup failed: ${msg}` };
+  }
+}
+
 // ── Tool dispatch (async-aware) ───────────────────────────────────────
 
 async function executeTool(name, args) {
@@ -1247,17 +4694,70 @@ async function executeTool(name, args) {
     case "render_ui": return executeRenderUi(args || {});
     case "define_component": return executeDefineComponent(args || {});
     case "list_components": return executeListComponents();
-    case "save_canvas_file": return executeSaveCanvasFile(args || {});
-    case "load_canvas_file": return executeLoadCanvasFile(args || {});
-    case "list_canvas_files": return executeListCanvasFiles(args || {});
-    case "delete_canvas_file": return executeDeleteCanvasFile(args || {});
+    // New artifact tools
+    case "save_artifact": return executeSaveArtifact(args || {});
+    case "load_artifact": return executeLoadArtifact(args || {});
+    case "list_artifacts": return executeListArtifacts();
+    case "delete_artifact": return executeDeleteArtifact(args || {});
+    // Legacy canvas file tools — redirect to artifact system
+    case "save_canvas_file": return executeSaveArtifact({
+      id: (args || {}).fileId,
+      component: (args || {}).component,
+      props: (args || {}).props,
+      title: (args || {}).name || (args || {}).fileId,
+    });
+    case "load_canvas_file": return executeLoadArtifact({ id: (args || {}).fileId });
+    case "list_canvas_files": return executeListArtifacts();
+    case "delete_canvas_file": return executeDeleteArtifact({ id: (args || {}).fileId });
     case "component_reference": return executeComponentReference(args || {});
+    case "skill_reference": return executeSkillReference(args || {});
     case "update_ui": return executeUpdateUi(args || {});
     case "store_memory": return executeStoreMemory(args || {});
     case "recall_memory": return executeRecallMemory(args || {});
     case "list_memories": return executeListMemories(args || {});
     case "forget_memory": return executeForgetMemory(args || {});
-    default: return null;
+    case "create_dashboard": return executeCreateDashboard(args || {});
+    // Service hosting tools
+    case "start_http_service": return executeStartHttpService(args || {});
+    case "stop_http_service": return executeStopHttpService(args || {});
+    case "list_http_services": return executeListHttpServices();
+    case "publish_to_marketplace": return executePublishToMarketplace(args || {});
+    case "register_service": return executeRegisterService(args || {});
+    // Marketplace browse/install tools
+    case "browse_marketplace": return executeBrowseMarketplace(args || {});
+    case "get_marketplace_item": return executeGetMarketplaceItem(args || {});
+    case "install_marketplace_item": return executeInstallMarketplaceItem(args || {});
+    case "uninstall_marketplace_item": return executeUninstallMarketplaceItem(args || {});
+    case "list_installed_marketplace": return executeListInstalledMarketplace();
+    case "publish_component": return executePublishComponent(args || {});
+    case "set_theme": return executeSetTheme(args || {});
+    // Web & Search tools
+    case "web_fetch": return executeWebFetch(args || {});
+    case "web_search": return executeWebSearch(args || {});
+    case "hacker_news": return executeHackerNews(args || {});
+    case "github_search": return executeGithubSearch(args || {});
+    case "npm_search": return executeNpmSearch(args || {});
+    case "academic_search": return executeAcademicSearch(args || {});
+    case "news_search": return executeNewsSearch(args || {});
+    // Reference & Data tools
+    case "dictionary": return executeDictionary(args || {});
+    case "currency_exchange": return executeCurrencyExchange(args || {});
+    case "timezone": return executeTimezone(args || {});
+    case "country_info": return executeCountryInfo(args || {});
+    case "open_library": return executeOpenLibrary(args || {});
+    // Utility tools
+    case "code_runner": return executeCodeRunner(args || {});
+    case "url_metadata": return executeUrlMetadata(args || {});
+    case "rss_reader": return executeRssReader(args || {});
+    case "wikipedia": return executeWikipedia(args || {});
+    default:
+      // Per-component tools: show_chart, show_data_table, etc.
+      // The tool's arguments ARE the props directly (not wrapped in {component, props}).
+      if (name.startsWith("show_")) {
+        const component = name.slice(5); // "show_chart" -> "chart"
+        return executeRenderUi({ component, props: args || {} });
+      }
+      return null;
   }
 }
 
@@ -1284,12 +4784,12 @@ async function handleMessage(msg) {
     return null;
   }
 
-  // List tools
+  // List tools — includes core TOOLS + per-component show_* tools
   if (method === "tools/list") {
     return {
       jsonrpc: "2.0",
       id,
-      result: { tools: TOOLS },
+      result: { tools: [...TOOLS, ...PER_COMPONENT_TOOLS] },
     };
   }
 

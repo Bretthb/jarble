@@ -25,6 +25,7 @@ import { listFilesTool } from "./listFiles.js";
 import { readFileTool } from "./readFile.js";
 import { writeFileTool } from "./writeFile.js";
 import { pairingListTool, pairingApproveTool } from "./pairing.js";
+import { setThemeTool } from "./setTheme.js";
 
 export const mcpRegistry = new ToolRegistry();
 
@@ -73,3 +74,6 @@ mcpRegistry.register(writeFileTool);
 // Pairing management
 mcpRegistry.register(pairingListTool);
 mcpRegistry.register(pairingApproveTool);
+
+// Theme
+mcpRegistry.register(setThemeTool);

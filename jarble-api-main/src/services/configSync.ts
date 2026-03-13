@@ -51,6 +51,39 @@ import { nanoid } from "nanoid";
 const { deployments, platformCredentials, deploymentSkills, skillsCatalog, serviceInstalls, marketplaceServices, componentInstalls, marketplaceComponents } = tables;
 
 /**
+ * Re-register the MCP server on the pod to point at the PVC-deployed version.
+ * The baked-in Docker image may have a stale jarble-ui-server.js; configSync
+ * deploys the current version to /data/config/mcp/. This exec re-registers
+ * mcporter so OpenClaw discovers the updated tool list (including set_theme, etc.).
+ */
+async function reRegisterMcpServer(
+  deploymentId: string,
+  managedBy: ManagedBy,
+): Promise<void> {
+  try {
+    const podName = await findPodForDeployment(deploymentId, { managedBy });
+    if (!podName) return;
+
+    const containerName = getContainerName(managedBy);
+    const pvcMount = getPvcMountPath(managedBy);
+    const mcpPath = `${pvcMount}/config/mcp/jarble-ui-server.js`;
+
+    // Re-register mcporter to use the PVC version
+    await execInPod(podName, [
+      "sh", "-c",
+      `/opt/openclaw/node_modules/.bin/mcporter config remove jarble-ui 2>/dev/null; ` +
+      `/opt/openclaw/node_modules/.bin/mcporter config add jarble-ui ` +
+      `--command node --arg "${mcpPath}" ` +
+      `--description "Jarble UI canvas components" --scope home 2>&1 || true`,
+    ], containerName);
+
+    log.info({ deploymentId }, "configSync: re-registered MCP server with PVC version");
+  } catch (err) {
+    log.warn({ deploymentId, err }, "configSync: MCP re-registration failed (non-fatal)");
+  }
+}
+
+/**
  * Retry a function once after a delay for transient failures.
  * Used for exec-based PVC writes that can fail if the pod is briefly unavailable.
  */
@@ -439,6 +472,12 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         for (const f of configFiles) {
           log.debug({ deploymentId, filePath: f.path, contentLength: f.content.length }, "ConfigSync: writing file to PVC");
         }
+
+        // If the MCP server script was deployed, re-register mcporter to use the PVC version
+        if (configFiles.some((f) => f.path.includes("jarble-ui-server"))) {
+          await reRegisterMcpServer(deploymentId, managedBy);
+        }
+
         const durationMs = Date.now() - syncStartMs;
         log.info(
           { deploymentId, durationMs, tier: 1, files: configFiles.map((f) => f.path) },
