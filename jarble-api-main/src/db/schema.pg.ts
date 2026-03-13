@@ -49,11 +49,20 @@ export const deployments = pgTable("deployments", {
   error: text("error"),
   messagingOnly: boolean("messaging_only").notNull().default(false),
   themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
+  // Fork & public profile fields
+  forkedFromId: varchar("forked_from_id", { length: 255 }),
+  isPublic: boolean("is_public").notNull().default(false),
+  forkCount: integer("fork_count").notNull().default(0),
+  featuredAt: timestamp("featured_at"),
+  specialties: text("specialties"),  // JSON array of domain slugs
+  bio: text("bio"),
+  showcasePrompts: text("showcase_prompts"),  // JSON array of example prompts
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   userIdIdx: index("idx_deployments_user_id").on(table.userId),
   statusIdx: index("idx_deployments_status").on(table.status),
+  isPublicIdx: index("idx_deployments_is_public").on(table.isPublic),
 }));
 
 export const runtimeCatalog = pgTable("runtime_catalog", {
@@ -455,6 +464,26 @@ export const serviceHeartbeats = pgTable("service_heartbeats", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// API keys for external agent/mesh access
+export const apiKeys = pgTable("api_keys", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("ak")),
+  userId: varchar("user_id", { length: 255 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  keyHash: varchar("key_hash", { length: 255 }).notNull().unique(),
+  keyPrefix: varchar("key_prefix", { length: 20 }).notNull(),
+  scopes: varchar("scopes", { length: 500 }).notNull().default("mesh:read,mesh:write"),
+  rateLimitPerMin: integer("rate_limit_per_min").notNull().default(60),
+  rateLimitPerDay: integer("rate_limit_per_day").notNull().default(10000),
+  lastUsedAt: timestamp("last_used_at"),
+  requestCount: integer("request_count").notNull().default(0),
+  expiresAt: timestamp("expires_at"),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index("idx_api_keys_user_id").on(table.userId),
+  keyHashIdx: uniqueIndex("idx_api_keys_key_hash").on(table.keyHash),
+}));
+
 // Async job queue for long-running skill executions
 export const serviceAsyncJobs = pgTable("service_async_jobs", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("sjb")),
@@ -472,4 +501,122 @@ export const serviceAsyncJobs = pgTable("service_async_jobs", {
 }, (table) => ({
   deploymentIdIdx: index("idx_service_async_jobs_deployment_id").on(table.deploymentId),
   expiresAtIdx: index("idx_service_async_jobs_expires_at").on(table.expiresAt),
+}));
+
+// ── Domain Taxonomy & Benchmark Tables ────────────────────────────────────
+
+export const domains = pgTable("domains", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("dom")),
+  name: varchar("name", { length: 100 }).notNull(),
+  displayName: varchar("display_name", { length: 255 }).notNull(),
+  description: text("description"),
+  parentId: varchar("parent_id", { length: 255 }),
+  icon: varchar("icon", { length: 100 }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  parentIdx: index("idx_domains_parent").on(table.parentId),
+  nameIdx: uniqueIndex("uq_domains_name").on(table.name),
+}));
+
+export const deploymentRatings = pgTable("deployment_ratings", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("drt")),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  domainId: varchar("domain_id", { length: 255 }).notNull().references(() => domains.id),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  accuracy: integer("accuracy").notNull(),
+  helpfulness: integer("helpfulness").notNull(),
+  creativity: integer("creativity").notNull(),
+  comment: text("comment"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  userDeploymentDomainIdx: uniqueIndex("uq_deployment_rating").on(table.userId, table.deploymentId, table.domainId),
+  deploymentDomainIdx: index("idx_drt_deployment_domain").on(table.deploymentId, table.domainId),
+}));
+
+export const deploymentDomainScores = pgTable("deployment_domain_scores", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("dds")),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  domainId: varchar("domain_id", { length: 255 }).notNull().references(() => domains.id),
+  avgAccuracy: integer("avg_accuracy"),
+  avgHelpfulness: integer("avg_helpfulness"),
+  avgCreativity: integer("avg_creativity"),
+  overallScore: integer("overall_score"),
+  ratingCount: integer("rating_count").notNull().default(0),
+  confidence: varchar("confidence", { length: 10 }).notNull().default("low"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  deploymentDomainIdx: uniqueIndex("uq_dds_deployment_domain").on(table.deploymentId, table.domainId),
+  domainScoreIdx: index("idx_dds_domain_score").on(table.domainId, table.overallScore),
+}));
+
+export const serviceBenchmarkSamples = pgTable("service_benchmark_samples", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("sbs")),
+  serviceId: varchar("service_id", { length: 255 }).notNull(),
+  skillName: varchar("skill_name", { length: 100 }).notNull(),
+  latencyMs: integer("latency_ms").notNull(),
+  statusCode: integer("status_code").notNull(),
+  success: boolean("success").notNull().default(true),
+  responseSizeBytes: integer("response_size_bytes"),
+  sampledAt: timestamp("sampled_at").defaultNow().notNull(),
+}, (table) => ({
+  serviceSkillIdx: index("idx_sbs_service_skill").on(table.serviceId, table.skillName),
+  sampledAtIdx: index("idx_sbs_sampled_at").on(table.sampledAt),
+}));
+
+export const serviceBenchmarkAggregates = pgTable("service_benchmark_aggregates", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("sba")),
+  serviceId: varchar("service_id", { length: 255 }).notNull(),
+  skillName: varchar("skill_name", { length: 100 }).notNull(),
+  period: varchar("period", { length: 10 }).notNull(),
+  latencyP50: integer("latency_p50"),
+  latencyP95: integer("latency_p95"),
+  latencyP99: integer("latency_p99"),
+  uptimePercent: integer("uptime_percent"),
+  errorRate: integer("error_rate"),
+  avgResponseSize: integer("avg_response_size"),
+  sampleCount: integer("sample_count").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  serviceSkillPeriodIdx: uniqueIndex("uq_sba_service_skill_period").on(table.serviceId, table.skillName, table.period),
+}));
+
+export const serviceReviews = pgTable("service_reviews", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("srv")),
+  serviceId: varchar("service_id", { length: 255 }).notNull().references(() => marketplaceServices.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  rating: integer("rating").notNull(),
+  title: varchar("title", { length: 255 }),
+  body: text("body"),
+  creatorResponse: text("creator_response"),
+  creatorRespondedAt: timestamp("creator_responded_at"),
+  helpful: integer("helpful").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  userServiceReviewIdx: uniqueIndex("uq_user_service_review").on(table.userId, table.serviceId),
+}));
+
+// ── Benchmark Relations ─────────────────────────────────────────────────
+
+export const domainsRelations = relations(domains, ({ many }) => ({
+  ratings: many(deploymentRatings),
+  scores: many(deploymentDomainScores),
+}));
+
+export const deploymentRatingsRelations = relations(deploymentRatings, ({ one }) => ({
+  deployment: one(deployments, { fields: [deploymentRatings.deploymentId], references: [deployments.id] }),
+  domain: one(domains, { fields: [deploymentRatings.domainId], references: [domains.id] }),
+  user: one(users, { fields: [deploymentRatings.userId], references: [users.id] }),
+}));
+
+export const deploymentDomainScoresRelations = relations(deploymentDomainScores, ({ one }) => ({
+  deployment: one(deployments, { fields: [deploymentDomainScores.deploymentId], references: [deployments.id] }),
+  domain: one(domains, { fields: [deploymentDomainScores.domainId], references: [domains.id] }),
+}));
+
+export const serviceReviewsRelations = relations(serviceReviews, ({ one }) => ({
+  service: one(marketplaceServices, { fields: [serviceReviews.serviceId], references: [marketplaceServices.id] }),
+  user: one(users, { fields: [serviceReviews.userId], references: [users.id] }),
 }));

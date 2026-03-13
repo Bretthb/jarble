@@ -26,6 +26,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type {
   RuntimeHandler,
@@ -45,13 +46,20 @@ const log = createModuleLogger("runtime:openclaw");
 // This script runs on bot pods (invoked via kubectl exec by the API's MCP proxy).
 // It handles render_ui, save/load/list/delete canvas files, component management, etc.
 let MCP_SERVER_SCRIPT = "";
+let MCP_SERVER_HASH = "";
 try {
   MCP_SERVER_SCRIPT = readFileSync(
     join(process.cwd(), "src", "mcp", "jarble-ui-server.js"),
     "utf-8"
   );
+  MCP_SERVER_HASH = createHash("sha256").update(MCP_SERVER_SCRIPT).digest("hex").slice(0, 12);
 } catch {
   // Script not found — pod will rely on whatever version was deployed at creation time
+}
+
+/** Returns the current MCP server script content and its content hash. */
+export function getMcpServerInfo(): { content: string; hash: string } {
+  return { content: MCP_SERVER_SCRIPT, hash: MCP_SERVER_HASH };
 }
 
 // ── Jarble UI prompt injected into soul.md ────────────────────────────────
@@ -81,7 +89,7 @@ To change the chat theme, use the \`exec\` tool to call the MCP server directly:
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"set_theme","arguments":{"preset":"PRESET_NAME","skin":"SKIN_NAME"}}}' | node /data/config/mcp/jarble-ui-server.js
 \`\`\`
 **Presets** (color palettes): midnight, forest, cyberpunk, ocean, rose, amber, terminal, retro (or "default" to reset).
-**Skins** (visual style/layout): default, minimal, terminal, neobrutalist, glass, retro, handdrawn.
+**Skins** (visual style/layout): default, minimal, terminal, neobrutalist, glass, retro, handdrawn, win98.
 Preset controls colors. Skin controls chat bubble shapes, fonts, and animations. Use both together for best results (e.g. preset "retro" + skin "retro" for 8-bit pixel art, preset "terminal" + skin "terminal" for CRT look, preset "midnight" + skin "glass" for frosted dark theme).
 You can also pass custom colors, fontFamily, headingFontFamily, and radius in the arguments object.
 This is a REAL, WORKING command — execute it directly, never say "not available".
@@ -118,7 +126,7 @@ Each block: \`{"component": "<name>", "props": {...}, "layout_hint": "<hint>"}\`
 - **Emit SEPARATE \`\`\`jarble_ui blocks** for each component — one block per card. Do NOT wrap multiple components inside a \`layout\` container. The grid arranges separate cards automatically.
 - **Single card for cohesive content** — guides, tutorials, Q&A. Use \`card\` (markdown body), \`accordion\`, or \`tabs\`.
 - **Compact by default**. No wasted space. Use all 37 component types — don't default to metric_card + chart + data_table.
-- **Sandbox is LAST RESORT** — only for 3D, games, custom animations, novel visualizations. NEVER for tables, charts, code, forms, maps.
+- **Sandbox is LAST RESORT** — only for 3D, games, custom animations, novel visualizations. NEVER for tables, charts, code, forms, maps. For complex sandbox components, use the \`create_component\` tool to delegate to a specialist agent instead of writing HTML yourself.
 
 ### Component Chooser
 | Want | Use | NOT |
@@ -130,7 +138,8 @@ Each block: \`{"component": "<name>", "props": {...}, "layout_hint": "<hint>"}\`
 | map / location | \`map\` | sandbox |
 | form / user input | \`form\` | sandbox |
 | third-party widget | \`embed\` | sandbox |
-| 3D / game / custom viz | \`sandbox\` | — |
+| theme / skin / visual style | \`set_theme\` (skins: win98, glass, terminal, retro, neobrutalist, handdrawn) | create_component / sandbox |
+| 3D / game / custom viz | \`create_component\` tool | writing sandbox HTML yourself |
 
 ### Layout Hints (REQUIRED on every component)
 ALWAYS set \`layout_hint\` on every \`jarble_ui\` block. The grid uses this to arrange cards:
@@ -148,8 +157,10 @@ Emit in this order — grid displays top-to-bottom: header → KPIs (metric_card
 **Chart data format** — Use recharts format, NOT Chart.js:
 ✅ \`{"data": [{"month": "Jan", "sales": 100}], "dataKeys": ["sales"], "xAxisKey": "month"}\`
 ❌ \`{"labels": ["Jan"], "datasets": [{"label": "Sales", "data": [100]}]}\`
-- \`dataKeys\` = numeric fields to plot. \`xAxisKey\` = category/label field. Both effectively required.
+- \`dataKeys\` = numeric fields to plot (MUST be numbers, not strings). \`xAxisKey\` = category/label field.
 - Chart types: \`bar\`, \`line\`, \`pie\`, \`area\` ONLY. For stacked: add \`stacked: true\`. For multi-line: add multiple \`dataKeys\`.
+- For stock/financial data: use \`type: "area"\` or \`"line"\`. Only plot 1-2 dataKeys (e.g. \`["close"]\`), NOT all OHLCV fields. Use \`xAxisKey: "date"\`.
+- Ensure all dataKeys values are raw numbers: ✅ \`{"price": 182.5}\` ❌ \`{"price": "$182.50"}\`
 
 **data_table rows** — Must be arrays, NOT objects:
 ✅ \`{"columns": ["Name", "Age"], "rows": [["Alice", 30], ["Bob", 25]]}\`
@@ -437,6 +448,50 @@ export const openclawHandler: RuntimeHandler = {
           path: `skills/${safeName}.json`,
           content: skillContent,
         });
+      }
+    }
+
+    // Write service-tools.json — aggregate MCP tool definitions for installed services.
+    // The MCP server reads this file to dynamically register service skills as first-class
+    // bot tools (e.g. "weather_forecast" instead of generic service_call).
+    if (deployment.remoteSkillConfigs && deployment.remoteSkillConfigs.length > 0) {
+      const serviceTools: Array<{
+        name: string;
+        description: string;
+        inputSchema: Record<string, unknown>;
+        proxyUrl: string;
+        serviceId: string;
+      }> = [];
+
+      // Parse each installed skill to extract tool definitions
+      if (deployment.skills) {
+        for (const skill of deployment.skills) {
+          try {
+            const skillJson = JSON.parse(skill.config);
+            const remoteConfig = deployment.remoteSkillConfigs.find(
+              (rc) => rc.skillName === skill.name
+            );
+            if (remoteConfig && skillJson.inputSchema) {
+              serviceTools.push({
+                name: skill.name.toLowerCase().replace(/[^a-z0-9_]/g, "_"),
+                description: skillJson.description || `Service skill: ${skill.name}`,
+                inputSchema: skillJson.inputSchema,
+                proxyUrl: remoteConfig.proxyUrl,
+                serviceId: remoteConfig.packageId,
+              });
+            }
+          } catch {
+            // Skip malformed skill JSON
+          }
+        }
+      }
+
+      if (serviceTools.length > 0) {
+        files.push({
+          path: "service-tools.json",
+          content: JSON.stringify(serviceTools, null, 2),
+        });
+        log.info({ toolCount: serviceTools.length }, "renderConfigs: wrote service-tools.json");
       }
     }
 

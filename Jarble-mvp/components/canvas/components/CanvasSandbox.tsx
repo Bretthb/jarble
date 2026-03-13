@@ -1,12 +1,14 @@
 "use client";
 
 import { memo, useEffect, useRef, useState, useCallback } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
 import { useCanvasAction } from "../CanvasActionContext";
 import { sanitizeHtmlProp, buildDocument } from "../sandbox/sandboxCore";
 import { useSandboxBridge } from "../sandbox/useSandboxBridge";
 import { SandboxShell } from "../sandbox/SandboxControls";
 import { SandboxConfigPanel } from "../sandbox/SandboxConfigPanel";
 import { useSandboxTheme } from "../SandboxThemeContext";
+import { useDeploymentId } from "../../DeploymentTamboProvider";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -42,6 +44,14 @@ function CanvasSandboxInner({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { dispatch } = useCanvasAction();
   const { themeVars } = useSandboxTheme();
+  const deploymentId = useDeploymentId();
+  const { getAccessTokenSilently } = useAuth0();
+  const [authToken, setAuthToken] = useState<string | undefined>();
+
+  // Fetch auth token for bridge data channel
+  useEffect(() => {
+    getAccessTokenSilently().then(setAuthToken).catch(() => {});
+  }, [getAccessTokenSilently]);
 
   // Config panel state — values from configSchema override sandbox props
   const [configValues, setConfigValues] = useState<Record<string, unknown>>({});
@@ -71,6 +81,8 @@ function CanvasSandboxInner({
     componentName: "sandbox",
     dispatch,
     logPrefix: "[Jarble:Sandbox]",
+    deploymentId: deploymentId || undefined,
+    authToken,
   });
 
   // Reset ready state when content changes (iframe will reload)

@@ -34,7 +34,7 @@ export const podApiRouter = Router();
 // In production (K8s available), reads the expected token from K8s Secret.
 // In dev mode (USE_SQLITE=true, no K8s), accepts any non-empty token if deployment exists.
 
-async function authenticatePod(req: Request, res: Response, next: NextFunction) {
+export async function authenticatePod(req: Request, res: Response, next: NextFunction) {
   // Ensure K8s client is initialized (no-op after first request)
   await k8sReady;
 

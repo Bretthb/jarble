@@ -27,12 +27,30 @@ export const DATA_FORMATTING_SKILL = {
 }
 \`\`\`
 - \`data\`: array of flat objects — every object has the SAME keys
-- \`dataKeys\`: numeric fields to plot (NOT the label field)
+- \`dataKeys\`: numeric fields to plot (NOT the label field). Values MUST be raw numbers (not "$182.50")
 - \`xAxisKey\`: the category/label field (string values)
 - Chart types: \`bar\`, \`line\`, \`pie\`, \`area\` ONLY
 - For multi-series: add multiple entries to \`dataKeys\`
 - For stacked: add \`"stacked": true\`
 - **NEVER** use Chart.js format (\`labels\` + \`datasets\`)
+
+#### Stock / Financial Data
+\`\`\`json
+{
+  "type": "area",
+  "title": "AAPL — 30 Day",
+  "data": [
+    {"date": "2024-11-01", "close": 225.91},
+    {"date": "2024-11-04", "close": 222.72}
+  ],
+  "dataKeys": ["close"],
+  "xAxisKey": "date"
+}
+\`\`\`
+- Use \`"area"\` or \`"line"\` for price charts (never bar/pie)
+- Plot only 1-2 numeric fields — e.g. \`["close"]\` or \`["close", "volume"]\`. Do NOT include open/high/low unless asked
+- All values must be raw numbers: ✅ \`182.5\` ❌ \`"$182.50"\`
+- Dates as ISO strings for xAxisKey — the chart auto-formats them
 
 ### data_table Rows (2D arrays, not objects)
 \`\`\`json

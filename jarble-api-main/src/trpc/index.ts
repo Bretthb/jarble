@@ -9,6 +9,8 @@ import { billingRouter } from "./routers/billing.js";
 import { skillsRouter } from "./routers/skills.js";
 import { marketplaceRouter } from "./routers/marketplace.js";
 import { servicesRouter } from "./routers/services.js";
+import { apiKeysRouter } from "./routers/apiKeys.js";
+import { benchmarksRouter } from "./routers/benchmarks.js";
 
 export const appRouter = router({
   user: userRouter,
@@ -21,6 +23,8 @@ export const appRouter = router({
   skills: skillsRouter,
   marketplace: marketplaceRouter,
   services: servicesRouter,
+  apiKeys: apiKeysRouter,
+  benchmarks: benchmarksRouter,
 });
 
 // Export type for frontend

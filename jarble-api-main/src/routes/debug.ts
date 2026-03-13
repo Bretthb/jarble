@@ -649,6 +649,47 @@ debugRouter.post("/deployment/:id/sync-config", async (req, res) => {
   }
 });
 
+// ── Update runtime (MCP server hot-push) ──────────────────────────────────────
+// Push the latest MCP server to a running pod without restart.
+// POST /debug/deployment/:id/update-runtime
+debugRouter.post("/deployment/:id/update-runtime", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deployment = await db.query.deployments.findFirst({
+      where: eq(tables.deployments.id, id),
+    });
+    if (!deployment) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+    if (deployment.status !== "running") {
+      res.status(400).json({ error: `Deployment is ${deployment.status}, must be running` });
+      return;
+    }
+
+    const { syncMcpServer } = await import("../services/configSync.js");
+    const managedBy = (deployment.managedBy ?? "legacy") as "legacy" | "operator";
+    const result = await syncMcpServer(id, managedBy);
+    res.json({ success: true, deploymentId: id, ...result });
+  } catch (err) {
+    logger.error({ err }, "Debug: update-runtime failed");
+    res.status(500).json({ error: "Update runtime failed", details: String(err) });
+  }
+});
+
+// ── Bulk update all running pods ──────────────────────────────────────────────
+// POST /debug/update-all-runtimes
+debugRouter.post("/update-all-runtimes", async (_req, res) => {
+  try {
+    const { syncMcpServerToAllRunning } = await import("../services/configSync.js");
+    const result = await syncMcpServerToAllRunning();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    logger.error({ err }, "Debug: update-all-runtimes failed");
+    res.status(500).json({ error: "Bulk runtime update failed", details: String(err) });
+  }
+});
+
 // ── Platform skills endpoint ──────────────────────────────────────────────────
 // Serves the latest platform skills so pods can fetch them on boot.
 // This is the single source of truth — update skills here, redeploy API,

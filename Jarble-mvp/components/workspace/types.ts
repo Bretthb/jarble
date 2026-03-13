@@ -54,6 +54,10 @@ export interface CanvasCard {
   llmModel?: string;
   /** Dashboard group this card belongs to */
   groupId?: string;
+  /** Whether this card auto-sizes its height to fit content (default: true) */
+  autoHeight?: boolean;
+  /** ID of the card this one was derived from (provenance tracking) */
+  parentCardId?: string;
 }
 
 export interface CanvasState {
@@ -104,7 +108,8 @@ export type CanvasAction =
   | { type: "PIN_CARD"; id: string }
   | { type: "UNPIN_CARD"; id: string }
   | { type: "CREATE_DASHBOARD_GROUP"; groupId: string; title: string; cardIds: string[] }
-  | { type: "UNGROUP_DASHBOARD"; groupId: string };
+  | { type: "UNGROUP_DASHBOARD"; groupId: string }
+  | { type: "AUTO_HEIGHT_CARD"; id: string; height: number };
 
 // ── Splittable components config ────────────────────────────────────────────
 

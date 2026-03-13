@@ -401,6 +401,26 @@ window.addEventListener("message", function(e) {
     var cb = window.jarble._pendingStorage[resp.id];
     if (cb) { delete window.jarble._pendingStorage[resp.id]; cb(resp); }
   }
+  if (e.data && e.data.type === "jarble:fetch-response") {
+    var fresp = e.data.response;
+    var fcb = window.jarble._pendingFetch[fresp.id];
+    if (fcb) { delete window.jarble._pendingFetch[fresp.id]; fcb(fresp); }
+  }
+  if (e.data && e.data.type === "jarble:ask-response") {
+    var aresp = e.data.response;
+    var acb = window.jarble._pendingAsk[aresp.id];
+    if (acb) { delete window.jarble._pendingAsk[aresp.id]; acb(aresp); }
+  }
+  if (e.data && e.data.type === "jarble:stream-event") {
+    var se = e.data;
+    var sh = window.jarble._activeStreams[se.streamId];
+    if (sh && sh.onmessage) { try { sh.onmessage(se.data); } catch(err) { console.error("${logPrefix} Stream handler error:", err); } }
+  }
+  if (e.data && e.data.type === "jarble:stream-error") {
+    var see = e.data;
+    var seh = window.jarble._activeStreams[see.streamId];
+    if (seh && seh.onerror) { try { seh.onerror(new Error(see.error)); } catch(err) { console.error("${logPrefix} Stream error handler error:", err); } }
+  }
   if (e.data && e.data.type === "jarble:event") {
     var handlers = window.jarble._eventHandlers[e.data.channel];
     if (handlers) { for (var i = 0; i < handlers.length; i++) { try { handlers[i](e.data.data); } catch(err) { console.error("${logPrefix} Event handler error:", err); } } }
@@ -466,6 +486,76 @@ window.jarble = {
     setTitle: function(title) {
       parent.postMessage({ type: "jarble:set-title", title: title }, "*");
     }
+  },
+  // Data channel — fetch data through the platform (MCP tools, services, etc.)
+  // Bypasses CSP restrictions by routing through the host bridge -> API
+  _pendingFetch: {},
+  _fetchIdCounter: 0,
+  fetch: function(tool, payload) {
+    return new Promise(function(resolve, reject) {
+      var id = "f" + (++window.jarble._fetchIdCounter);
+      var timer = setTimeout(function() {
+        delete window.jarble._pendingFetch[id];
+        reject(new Error("jarble.fetch timeout (30s)"));
+      }, 30000);
+      window.jarble._pendingFetch[id] = function(resp) {
+        clearTimeout(timer);
+        if (resp.ok) resolve(resp.data);
+        else reject(new Error(resp.error || "Fetch failed"));
+      };
+      parent.postMessage({ type: "jarble:fetch", request: { id: id, tool: tool, payload: payload } }, "*");
+    });
+  },
+  // Syntactic sugar: call an installed service directly (routes through service proxy)
+  service: function(name, endpoint, body) {
+    return window.jarble.fetch("service_call", { service: name, endpoint: endpoint, body: body || {} });
+  },
+  // Ask the bot a contextual question (isolated session, no UI blocks)
+  _pendingAsk: {},
+  _askIdCounter: 0,
+  _askRateWindow: [],
+  ask: function(question) {
+    return new Promise(function(resolve, reject) {
+      // Client-side rate limit: max 10 asks per minute
+      var now = Date.now();
+      window.jarble._askRateWindow = window.jarble._askRateWindow.filter(function(t) { return now - t < 60000; });
+      if (window.jarble._askRateWindow.length >= 10) {
+        reject(new Error("jarble.ask rate limit exceeded (10/min)"));
+        return;
+      }
+      window.jarble._askRateWindow.push(now);
+
+      var id = "a" + (++window.jarble._askIdCounter);
+      var timer = setTimeout(function() {
+        delete window.jarble._pendingAsk[id];
+        reject(new Error("jarble.ask timeout (60s)"));
+      }, 60000);
+      window.jarble._pendingAsk[id] = function(resp) {
+        clearTimeout(timer);
+        if (resp.ok) resolve(resp.answer);
+        else reject(new Error(resp.error || "Ask failed"));
+      };
+      parent.postMessage({ type: "jarble:ask", request: { id: id, question: question } }, "*");
+    });
+  },
+  // Real-time stream subscription from services
+  _activeStreams: {},
+  _streamIdCounter: 0,
+  stream: function(channel, params) {
+    var streamId = "st" + (++window.jarble._streamIdCounter);
+    var handlers = { onmessage: null, onerror: null };
+    window.jarble._activeStreams[streamId] = handlers;
+
+    parent.postMessage({ type: "jarble:stream-subscribe", request: { id: streamId, channel: channel, params: params || {} } }, "*");
+
+    return {
+      onmessage: function(fn) { handlers.onmessage = fn; return this; },
+      onerror: function(fn) { handlers.onerror = fn; return this; },
+      close: function() {
+        delete window.jarble._activeStreams[streamId];
+        parent.postMessage({ type: "jarble:stream-unsubscribe", request: { id: streamId } }, "*");
+      }
+    };
   }
 };
 // Auto-resize: when the iframe resizes, update ALL canvas drawing buffers
@@ -616,6 +706,10 @@ window.addEventListener("message", function(e) {
           msgType === "jarble:heartbeat" ||
           msgType === "jarble:progress" ||
           msgType === "jarble:storage-request" ||
+          msgType === "jarble:fetch" ||
+          msgType === "jarble:ask" ||
+          msgType === "jarble:stream-subscribe" ||
+          msgType === "jarble:stream-unsubscribe" ||
           msgType === "jarble:event-emit" ||
           msgType === "jarble:resize-request" ||
           msgType === "jarble:set-title") {

@@ -206,9 +206,26 @@ async function applyStatusFix(mismatch: StatusMismatch): Promise<void> {
 /**
  * Start the periodic status reconciliation.
  * Runs immediately on startup, then every `intervalMs` (default 30 seconds).
+ *
+ * Also starts a slower MCP server auto-sync (every 5 minutes) that pushes
+ * the latest MCP server to any running pods that have an outdated version.
+ * This ensures users get new tools (set_theme, etc.) without needing to
+ * restart their deployment after an API update.
  */
 export function startStatusReconciler(intervalMs: number = 30 * 1000): NodeJS.Timeout {
   logger.info({ intervalMs }, "statusReconciler: starting periodic status reconciliation");
   safeFireAndForget(reconcileStatuses(), { operation: "reconcileStatuses" });
+
+  // MCP server auto-sync — runs every 5 minutes, pushes latest MCP server to outdated pods
+  const mcpSyncIntervalMs = 5 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      const { syncMcpServerToAllRunning } = await import("./configSync.js");
+      await syncMcpServerToAllRunning();
+    } catch (err) {
+      logger.warn({ err }, "statusReconciler: MCP auto-sync failed (non-fatal)");
+    }
+  }, mcpSyncIntervalMs);
+
   return setInterval(() => safeFireAndForget(reconcileStatuses(), { operation: "reconcileStatuses" }), intervalMs);
 }

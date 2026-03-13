@@ -47,6 +47,10 @@ interface SandboxBridgeConfig {
   cardId?: string;
   /** Canvas dispatch for resize/title updates from sandbox. */
   canvasDispatch?: React.Dispatch<CanvasReducerAction>;
+  /** Deployment ID for bridge data fetch (jarble.fetch()). */
+  deploymentId?: string;
+  /** Auth token for bridge data fetch. */
+  authToken?: string;
 }
 
 interface SandboxBridgeState {
@@ -71,11 +75,14 @@ export function useSandboxBridge(config: SandboxBridgeConfig): SandboxBridgeStat
     logPrefix = "[Jarble:Sandbox]",
     cardId,
     canvasDispatch,
+    deploymentId,
+    authToken,
   } = config;
 
   const readyRef = useRef(false);
   const [stopped, setStopped] = useState(false);
   const lastHeartbeatRef = useRef<number>(Date.now());
+  const activeStreamSources = useRef<Record<string, EventSource>>({});
 
   // ── Storage proxy ─────────────────────────────────────────────────────────
 
@@ -184,6 +191,153 @@ export function useSandboxBridge(config: SandboxBridgeConfig): SandboxBridgeStat
         handleStorageRequest(e.data.request, e.source);
       }
 
+      // ── Bot ask relay ─────────────────────────────────────────────────────
+      if (e.data?.type === "jarble:ask" && e.data.request) {
+        const askReq = e.data.request;
+        const askSource = e.source as Window | null;
+        if (!askSource || !deploymentId) {
+          askSource?.postMessage(
+            { type: "jarble:ask-response", response: { id: askReq.id, ok: false, error: "Bridge not configured" } },
+            "*",
+          );
+          return;
+        }
+
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+        fetch(`${apiUrl}/api/deployments/${deploymentId}/bridge/ask`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          },
+          body: JSON.stringify({ question: askReq.question, cardId }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.error) {
+              askSource.postMessage(
+                { type: "jarble:ask-response", response: { id: askReq.id, ok: false, error: data.error } },
+                "*",
+              );
+            } else {
+              askSource.postMessage(
+                { type: "jarble:ask-response", response: { id: askReq.id, ok: true, answer: data.answer } },
+                "*",
+              );
+            }
+          })
+          .catch((err) => {
+            askSource.postMessage(
+              { type: "jarble:ask-response", response: { id: askReq.id, ok: false, error: String(err) } },
+              "*",
+            );
+          });
+      }
+
+      // ── Bridge data fetch relay ──────────────────────────────────────────
+      if (e.data?.type === "jarble:fetch" && e.data.request) {
+        const fetchReq = e.data.request;
+        const source = e.source as Window | null;
+        if (!source || !deploymentId) {
+          source?.postMessage(
+            { type: "jarble:fetch-response", response: { id: fetchReq.id, ok: false, error: "Bridge not configured" } },
+            "*",
+          );
+          return;
+        }
+
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+        fetch(`${apiUrl}/api/deployments/${deploymentId}/bridge/fetch`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          },
+          body: JSON.stringify({ tool: fetchReq.tool, payload: fetchReq.payload }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.error) {
+              source.postMessage(
+                { type: "jarble:fetch-response", response: { id: fetchReq.id, ok: false, error: data.error } },
+                "*",
+              );
+            } else {
+              source.postMessage(
+                { type: "jarble:fetch-response", response: { id: fetchReq.id, ok: true, data: data.result } },
+                "*",
+              );
+            }
+          })
+          .catch((err) => {
+            source.postMessage(
+              { type: "jarble:fetch-response", response: { id: fetchReq.id, ok: false, error: String(err) } },
+              "*",
+            );
+          });
+      }
+
+      // ── Stream subscription relay ─────────────────────────────────────
+      if (e.data?.type === "jarble:stream-subscribe" && e.data.request) {
+        const streamReq = e.data.request;
+        const streamSource = e.source as Window | null;
+        if (!streamSource || !deploymentId) return;
+
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+        const tokenParam = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
+        const sseUrl = `${apiUrl}/api/services/stream/${streamReq.channel}?deploymentId=${deploymentId}${tokenParam}`;
+
+        try {
+          const eventSource = new EventSource(sseUrl);
+
+          // Store for cleanup
+          if (!activeStreamSources.current[streamReq.id]) {
+            activeStreamSources.current[streamReq.id] = eventSource;
+          }
+
+          eventSource.addEventListener("mutation", (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              streamSource.postMessage(
+                { type: "jarble:stream-event", streamId: streamReq.id, data },
+                "*",
+              );
+            } catch { /* malformed event data */ }
+          });
+
+          eventSource.addEventListener("connected", (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              streamSource.postMessage(
+                { type: "jarble:stream-event", streamId: streamReq.id, data: { type: "connected", ...data } },
+                "*",
+              );
+            } catch { /* malformed event data */ }
+          });
+
+          eventSource.onerror = () => {
+            streamSource.postMessage(
+              { type: "jarble:stream-error", streamId: streamReq.id, error: "Stream connection error" },
+              "*",
+            );
+          };
+        } catch (err) {
+          streamSource.postMessage(
+            { type: "jarble:stream-error", streamId: streamReq.id, error: String(err) },
+            "*",
+          );
+        }
+      }
+
+      if (e.data?.type === "jarble:stream-unsubscribe" && e.data.request) {
+        const streamId = e.data.request.id;
+        const es = activeStreamSources.current[streamId];
+        if (es) {
+          es.close();
+          delete activeStreamSources.current[streamId];
+        }
+      }
+
       if (e.data?.type === "jarble:event-emit") {
         const channel = e.data.channel;
         const data = e.data.data;
@@ -219,7 +373,7 @@ export function useSandboxBridge(config: SandboxBridgeConfig): SandboxBridgeStat
         }
       }
     },
-    [props, dispatch, title, componentName, errorPayloadExtra, logPrefix, iframeRef, handleStorageRequest, cardId, canvasDispatch],
+    [props, dispatch, title, componentName, errorPayloadExtra, logPrefix, iframeRef, handleStorageRequest, cardId, canvasDispatch, deploymentId, authToken],
   );
 
   useEffect(() => {
@@ -278,6 +432,11 @@ export function useSandboxBridge(config: SandboxBridgeConfig): SandboxBridgeStat
     } else {
       setStopped(true);
       readyRef.current = false;
+      // Close all active stream subscriptions
+      for (const es of Object.values(activeStreamSources.current)) {
+        try { es.close(); } catch { /* ignore */ }
+      }
+      activeStreamSources.current = {};
       isDev && console.log(`${logPrefix} Stopped — iframe destroyed`);
     }
   }, [stopped, logPrefix]);

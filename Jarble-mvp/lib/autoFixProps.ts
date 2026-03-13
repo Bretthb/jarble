@@ -681,6 +681,30 @@ function applyStructuralFixes(
     }
   }
 
+  // Rule 21c: chart-data-coerce-numbers — coerce string numbers in chart data rows
+  if (component === "chart" && Array.isArray(props.data) && Array.isArray(props.dataKeys)) {
+    const keys = props.dataKeys as string[];
+    let coerced = false;
+    for (const row of props.data as Record<string, unknown>[]) {
+      if (!isPlainObject(row)) continue;
+      for (const k of keys) {
+        const v = row[k];
+        if (typeof v === "string") {
+          // Strip currency symbols, commas, percent signs, then parse
+          const cleaned = v.replace(/[$€£¥,\s%]/g, "");
+          const n = Number(cleaned);
+          if (cleaned !== "" && !isNaN(n)) {
+            row[k] = n;
+            coerced = true;
+          }
+        }
+      }
+    }
+    if (coerced) {
+      recordRepair(repairs, "chart-data-coerce-numbers", "props.data[*]", "[string values]", "[numbers]");
+    }
+  }
+
   // Rule 23: tree-node-normalize — fix tree node fields (name/label→title, auto-generate key)
   if (component === "tree" && Array.isArray(props.data)) {
     fixTreeNodes(props.data as unknown[], repairs);

@@ -52,11 +52,20 @@ export const deployments = sqliteTable("deployments", {
   messagingOnly: integer("messaging_only", { mode: "boolean" }).notNull().default(false),
   managedBy: text("managed_by").notNull().default("legacy"),  // "legacy" | "operator"
   themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
+  // Fork & public profile fields
+  forkedFromId: text("forked_from_id"),  // Source deployment ID (null = original)
+  isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
+  forkCount: integer("fork_count").notNull().default(0),
+  featuredAt: text("featured_at"),  // Non-null = featured in explore gallery
+  specialties: text("specialties"),  // JSON array of domain slugs
+  bio: text("bio"),  // Public description of what this bot does
+  showcasePrompts: text("showcase_prompts"),  // JSON array of example prompts
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 }, (table) => ({
   userIdIdx: index("idx_deployments_user_id").on(table.userId),
   statusIdx: index("idx_deployments_status").on(table.status),
+  isPublicIdx: index("idx_deployments_is_public").on(table.isPublic),
 }));
 
 export const runtimeCatalog = sqliteTable("runtime_catalog", {
@@ -459,6 +468,26 @@ export const serviceHeartbeats = sqliteTable("service_heartbeats", {
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 });
 
+// API keys for external agent/mesh access
+export const apiKeys = sqliteTable("api_keys", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("ak")),
+  userId: text("user_id").notNull().references(() => users.id),
+  name: text("name").notNull(), // Human-readable label (e.g. "My Python Script")
+  keyHash: text("key_hash").notNull().unique(), // SHA-256 hash of the key (key itself never stored)
+  keyPrefix: text("key_prefix").notNull(), // First 8 chars of key for identification (e.g. "jrbl_abc1")
+  scopes: text("scopes").notNull().default("mesh:read,mesh:write"), // Comma-separated scope list
+  rateLimitPerMin: integer("rate_limit_per_min").notNull().default(60),
+  rateLimitPerDay: integer("rate_limit_per_day").notNull().default(10000),
+  lastUsedAt: text("last_used_at"),
+  requestCount: integer("request_count").notNull().default(0),
+  expiresAt: text("expires_at"), // Optional expiration (ISO string)
+  revokedAt: text("revoked_at"), // Non-null = revoked
+  createdAt: text("created_at").notNull().$defaultFn(now),
+}, (table) => ({
+  userIdIdx: index("idx_api_keys_user_id").on(table.userId),
+  keyHashIdx: uniqueIndex("idx_api_keys_key_hash").on(table.keyHash),
+}));
+
 // Async job queue for long-running skill executions
 export const serviceAsyncJobs = sqliteTable("service_async_jobs", {
   id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("sjb")),
@@ -476,4 +505,128 @@ export const serviceAsyncJobs = sqliteTable("service_async_jobs", {
 }, (table) => ({
   deploymentIdIdx: index("idx_service_async_jobs_deployment_id").on(table.deploymentId),
   expiresAtIdx: index("idx_service_async_jobs_expires_at").on(table.expiresAt),
+}));
+
+// ── Domain Taxonomy & Benchmark Tables ────────────────────────────────────
+
+// Hierarchical domain categories for deployment specialization
+export const domains = sqliteTable("domains", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("dom")),
+  name: text("name").notNull(),  // slug: "stock-analysis"
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  parentId: text("parent_id"),  // self-ref, null = root category
+  icon: text("icon"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+}, (table) => ({
+  parentIdx: index("idx_domains_parent").on(table.parentId),
+  nameIdx: uniqueIndex("uq_domains_name").on(table.name),
+}));
+
+// Per-user ratings of deployments within a domain
+export const deploymentRatings = sqliteTable("deployment_ratings", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("drt")),
+  deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  domainId: text("domain_id").notNull().references(() => domains.id),
+  userId: text("user_id").notNull().references(() => users.id),
+  accuracy: integer("accuracy").notNull(),  // 1-5
+  helpfulness: integer("helpfulness").notNull(),  // 1-5
+  creativity: integer("creativity").notNull(),  // 1-5
+  comment: text("comment"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+}, (table) => ({
+  userDeploymentDomainIdx: uniqueIndex("uq_deployment_rating").on(table.userId, table.deploymentId, table.domainId),
+  deploymentDomainIdx: index("idx_drt_deployment_domain").on(table.deploymentId, table.domainId),
+}));
+
+// Materialized aggregate scores per deployment+domain (recomputed on new rating)
+export const deploymentDomainScores = sqliteTable("deployment_domain_scores", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("dds")),
+  deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  domainId: text("domain_id").notNull().references(() => domains.id),
+  avgAccuracy: integer("avg_accuracy"),  // 100-500 scaled (e.g. 425 = 4.25)
+  avgHelpfulness: integer("avg_helpfulness"),
+  avgCreativity: integer("avg_creativity"),
+  overallScore: integer("overall_score"),  // avg of the three, scaled 100-500
+  ratingCount: integer("rating_count").notNull().default(0),
+  confidence: text("confidence").notNull().default("low"),  // "low" | "medium" | "high"
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+}, (table) => ({
+  deploymentDomainIdx: uniqueIndex("uq_dds_deployment_domain").on(table.deploymentId, table.domainId),
+  domainScoreIdx: index("idx_dds_domain_score").on(table.domainId, table.overallScore),
+}));
+
+// Raw benchmark samples from service proxy calls (~5% sampling)
+export const serviceBenchmarkSamples = sqliteTable("service_benchmark_samples", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("sbs")),
+  serviceId: text("service_id").notNull(),
+  skillName: text("skill_name").notNull(),
+  latencyMs: integer("latency_ms").notNull(),
+  statusCode: integer("status_code").notNull(),
+  success: integer("success", { mode: "boolean" }).notNull().default(true),
+  responseSizeBytes: integer("response_size_bytes"),
+  sampledAt: text("sampled_at").notNull().$defaultFn(now),
+}, (table) => ({
+  serviceSkillIdx: index("idx_sbs_service_skill").on(table.serviceId, table.skillName),
+  sampledAtIdx: index("idx_sbs_sampled_at").on(table.sampledAt),
+}));
+
+// Materialized aggregate metrics per service+skill+period
+export const serviceBenchmarkAggregates = sqliteTable("service_benchmark_aggregates", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("sba")),
+  serviceId: text("service_id").notNull(),
+  skillName: text("skill_name").notNull(),
+  period: text("period").notNull(),  // "24h" | "7d" | "30d"
+  latencyP50: integer("latency_p50"),
+  latencyP95: integer("latency_p95"),
+  latencyP99: integer("latency_p99"),
+  uptimePercent: integer("uptime_percent"),  // 0-10000 scaled (e.g. 9975 = 99.75%)
+  errorRate: integer("error_rate"),  // 0-10000 scaled
+  avgResponseSize: integer("avg_response_size"),
+  sampleCount: integer("sample_count").notNull().default(0),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+}, (table) => ({
+  serviceSkillPeriodIdx: uniqueIndex("uq_sba_service_skill_period").on(table.serviceId, table.skillName, table.period),
+}));
+
+// Service reviews (mirrors componentReviews)
+export const serviceReviews = sqliteTable("service_reviews", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("srv")),
+  serviceId: text("service_id").notNull().references(() => marketplaceServices.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id),
+  rating: integer("rating").notNull(),  // 1-5
+  title: text("title"),
+  body: text("body"),
+  creatorResponse: text("creator_response"),
+  creatorRespondedAt: text("creator_responded_at"),
+  helpful: integer("helpful").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+}, (table) => ({
+  userServiceReviewIdx: uniqueIndex("uq_user_service_review").on(table.userId, table.serviceId),
+}));
+
+// ── Benchmark Relations ─────────────────────────────────────────────────
+
+export const domainsRelations = relations(domains, ({ many }) => ({
+  ratings: many(deploymentRatings),
+  scores: many(deploymentDomainScores),
+}));
+
+export const deploymentRatingsRelations = relations(deploymentRatings, ({ one }) => ({
+  deployment: one(deployments, { fields: [deploymentRatings.deploymentId], references: [deployments.id] }),
+  domain: one(domains, { fields: [deploymentRatings.domainId], references: [domains.id] }),
+  user: one(users, { fields: [deploymentRatings.userId], references: [users.id] }),
+}));
+
+export const deploymentDomainScoresRelations = relations(deploymentDomainScores, ({ one }) => ({
+  deployment: one(deployments, { fields: [deploymentDomainScores.deploymentId], references: [deployments.id] }),
+  domain: one(domains, { fields: [deploymentDomainScores.domainId], references: [domains.id] }),
+}));
+
+export const serviceReviewsRelations = relations(serviceReviews, ({ one }) => ({
+  service: one(marketplaceServices, { fields: [serviceReviews.serviceId], references: [marketplaceServices.id] }),
+  user: one(users, { fields: [serviceReviews.userId], references: [users.id] }),
 }));

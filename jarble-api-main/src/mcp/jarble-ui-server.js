@@ -146,6 +146,150 @@ try {
   console.error("[MCP] Failed to scan marketplace dir:", e.message);
 }
 
+// ── Load service tools from /data/config/service-tools.json ───────────
+// These are dynamically registered MCP tools for installed marketplace services.
+// Each entry has { name, description, inputSchema, proxyUrl, serviceId }.
+// Written by configSync's openclaw handler during Tier 1 updates.
+
+let SERVICE_TOOLS = []; // Array of MCP tool definitions
+const SERVICE_TOOLS_PATH = process.env.JARBLE_SERVICE_TOOLS_PATH || "/data/config/service-tools.json";
+
+function loadServiceTools() {
+  try {
+    if (fs.existsSync(SERVICE_TOOLS_PATH)) {
+      const raw = JSON.parse(fs.readFileSync(SERVICE_TOOLS_PATH, "utf-8"));
+      if (Array.isArray(raw)) {
+        SERVICE_TOOLS = raw.map(function(t) {
+          return {
+            name: "svc_" + t.name,
+            description: t.description || "Service skill: " + t.name,
+            inputSchema: t.inputSchema || { type: "object", properties: {} },
+            _proxyUrl: t.proxyUrl,
+            _serviceId: t.serviceId,
+          };
+        });
+        console.error("[MCP] Loaded " + SERVICE_TOOLS.length + " service tools from " + SERVICE_TOOLS_PATH);
+      }
+    }
+  } catch (e) {
+    console.error("[MCP] Failed to load service tools:", e.message);
+  }
+}
+loadServiceTools();
+
+// Watch for changes to service-tools.json (configSync writes this on service install/uninstall)
+try {
+  const serviceToolsDir = path.dirname(SERVICE_TOOLS_PATH);
+  if (fs.existsSync(serviceToolsDir)) {
+    fs.watch(serviceToolsDir, function(eventType, filename) {
+      if (filename === path.basename(SERVICE_TOOLS_PATH)) {
+        console.error("[MCP] service-tools.json changed, reloading...");
+        loadServiceTools();
+      }
+    });
+  }
+} catch (e) {
+  // fs.watch may fail on some platforms — non-fatal, tools reload on MCP restart
+  console.error("[MCP] Could not watch for service-tools.json changes:", e.message);
+}
+
+// ── Agent tools — per-agent MCP tools for delegation ─────────────────
+// These are statically defined tools that delegate to platform-level specialist agents.
+// Each agent runs on the API server (not in the pod) with its own system prompt.
+
+const AGENT_TOOLS = [
+  {
+    name: "delegate_to_data_agent",
+    description: "Delegate data analysis tasks to the Data Agent. Use for CSV parsing, statistical analysis, data cleaning, trend detection, and producing structured summaries.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "What to analyze or compute" },
+        data: { description: "The dataset to analyze (JSON array, CSV text, or structured object)" },
+        outputFormat: { type: "string", enum: ["json", "markdown", "chart_data"], description: "Desired output format" },
+      },
+      required: ["task"],
+    },
+    _agentName: "data",
+  },
+  {
+    name: "delegate_to_workflow_agent",
+    description: "Delegate workflow planning to the Workflow Agent. Use when a task requires orchestrating multiple service calls, data transformations, or conditional logic.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        goal: { type: "string", description: "The end goal of the workflow" },
+        availableServices: { type: "array", items: { type: "string" }, description: "Names of installed services" },
+        constraints: { type: "string", description: "Constraints like time budget, cost limits, etc." },
+      },
+      required: ["goal"],
+    },
+    _agentName: "workflow",
+  },
+];
+
+/**
+ * Execute an agent delegation by POSTing to the API server's agent endpoint.
+ */
+async function executeAgentTool(agentTool, args) {
+  try {
+    const http = require("http");
+    const https = require("https");
+
+    const apiBase = process.env.JARBLE_API_URL || process.env.API_BASE_URL || "http://localhost:3001";
+    const agentUrl = apiBase + "/api/pod/agent/" + agentTool._agentName;
+    const url = new URL(agentUrl);
+    const isHttps = url.protocol === "https:";
+    const lib = isHttps ? https : http;
+
+    const bodyJson = JSON.stringify(args);
+
+    return new Promise(function(resolve) {
+      const req = lib.request({
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(bodyJson),
+          "X-Gateway-Token": process.env.OPENCLAW_GATEWAY_TOKEN || "",
+          "X-Deployment-Id": process.env.DEPLOYMENT_ID || "",
+        },
+        timeout: 60000,
+      }, function(res) {
+        let data = "";
+        res.on("data", function(chunk) { data += chunk; });
+        res.on("end", function() {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              const parsed = JSON.parse(data);
+              resolve({ isError: false, text: JSON.stringify(parsed.result || parsed) });
+            } catch {
+              resolve({ isError: false, text: data });
+            }
+          } else {
+            resolve({ isError: true, text: "Agent call failed (" + res.statusCode + "): " + data.slice(0, 500) });
+          }
+        });
+      });
+
+      req.on("error", function(err) {
+        resolve({ isError: true, text: "Agent call error: " + err.message });
+      });
+      req.on("timeout", function() {
+        req.destroy();
+        resolve({ isError: true, text: "Agent call timed out (60s)" });
+      });
+
+      req.write(bodyJson);
+      req.end();
+    });
+  } catch (err) {
+    return { isError: true, text: "Agent tool error: " + err.message };
+  }
+}
+
 // ── JSON Schema Validator (zero dependencies) ─────────────────────────
 // Validates values against JSON Schema draft-07 subset produced by zod-to-json-schema.
 // Handles: type checks, required, enum, anyOf, nested objects, arrays, tuples, number ranges.
@@ -626,8 +770,8 @@ const TOOLS = [
         },
         skin: {
           type: "string",
-          enum: ["default", "minimal", "terminal", "neobrutalist", "glass", "retro", "handdrawn"],
-          description: "Chat skin/visual style. Changes bubble shapes, animations, and chat layout.",
+          enum: ["default", "minimal", "terminal", "neobrutalist", "glass", "retro", "handdrawn", "win98"],
+          description: "Chat skin/visual style. Changes bubble shapes, animations, and chat layout. 'win98' gives a classic Windows 98 look.",
         },
       },
     },
@@ -639,6 +783,12 @@ const TOOLS = [
       type: "object",
       properties: {
         title: { type: "string", description: "Dashboard title displayed above the grouped components" },
+        layout: {
+          type: "string",
+          enum: ["auto", "grid-2x2", "grid-3x2", "sidebar-main", "stacked"],
+          description: "Dashboard layout preset. 'auto' uses smart auto-layout based on component types. 'grid-2x2': 2 columns, 'grid-3x2': 3 columns, 'sidebar-main': narrow sidebar + wide main, 'stacked': single column.",
+          default: "auto",
+        },
         components: {
           type: "array",
           description: "Array of components to render in the dashboard",
@@ -647,6 +797,11 @@ const TOOLS = [
             properties: {
               component: { type: "string", description: "Component name (e.g. 'chart', 'stat_grid', 'data_table')" },
               props: { type: "object", description: "Props for the component" },
+              layout_hint: {
+                type: "string",
+                enum: ["full-width", "half", "third", "compact", "auto"],
+                description: "Column span hint for this component. Overrides the layout preset for this specific component.",
+              },
             },
             required: ["component", "props"],
           },
@@ -655,6 +810,29 @@ const TOOLS = [
         },
       },
       required: ["title", "components"],
+    },
+  },
+  // ── Component Agent tool ────────────────────────────────────────────
+  {
+    name: "create_component",
+    description: "Delegate complex component creation to Jarble's specialist Component Agent. Use this for sandbox components that need custom HTML/CSS/JS — dashboards, 3D scenes, interactive widgets, data visualizations. The agent produces production-quality code optimized for the Jarble sandbox environment. For simple built-in components (chart, data_table, form, etc.), use render_ui directly instead. NOT for theming — use set_theme for visual style changes (skins: win98, glass, terminal, retro, etc.). IMPORTANT: Do NOT call set_theme alongside this tool — only create the component itself.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        intent: {
+          type: "string",
+          description: "What component to create. Be specific: 'interactive 3D solar system with planet info on click' not just '3D thing'",
+        },
+        data: {
+          description: "Optional data to embed in the component (arrays, objects, etc.)",
+        },
+        render: {
+          type: "boolean",
+          default: true,
+          description: "If true (default), automatically render the component via render_ui. If false, return the HTML only.",
+        },
+      },
+      required: ["intent"],
     },
   },
   // ── Service hosting tools ───────────────────────────────────────────
@@ -910,6 +1088,20 @@ const TOOLS = [
       properties: {
         query: { type: "string", description: "News search query" },
         maxResults: { type: "number", description: "Maximum results (default 5, max 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  // ── Image search ────────────────────────────────────────────────────
+  {
+    name: "search_images",
+    description: "Search for images using Unsplash. Returns high-quality photo URLs you can use in cards, image galleries, and sandbox components. Each result includes the image URL, photographer credit, and alt text. ALWAYS credit the photographer when using images.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query (e.g. 'mountain sunset', 'modern architecture', 'great wall of china')" },
+        count: { type: "number", description: "Number of images (default 3, max 10)" },
+        orientation: { type: "string", enum: ["landscape", "portrait", "squarish"], description: "Image orientation (default: landscape)" },
       },
       required: ["query"],
     },
@@ -1229,8 +1421,19 @@ function executeRenderUi(args) {
   return { isError: false, text: "```jarble_ui\n" + layoutBlock + "\n```" };
 }
 
+function resolveHintFromPreset(preset, index, total, componentType) {
+  if (!preset || preset === "auto") return "auto";
+  switch (preset) {
+    case "grid-2x2": return "half";
+    case "grid-3x2": return "third";
+    case "sidebar-main": return index % 2 === 0 ? "third" : "half";
+    case "stacked": return "full-width";
+    default: return "auto";
+  }
+}
+
 function executeCreateDashboard(args) {
-  const { title, components } = args;
+  const { title, components, layout } = args;
   if (!title || !Array.isArray(components) || components.length === 0) {
     return { isError: true, text: "Missing 'title' or 'components' array." };
   }
@@ -1243,11 +1446,13 @@ function executeCreateDashboard(args) {
   const errors = [];
 
   for (let i = 0; i < components.length; i++) {
-    const { component, props } = components[i];
+    const { component, props, layout_hint: itemHint } = components[i];
     if (!component) {
       errors.push(`Component ${i + 1}: missing 'component' name.`);
       continue;
     }
+
+    const layout_hint = itemHint || resolveHintFromPreset(layout, i, components.length, component);
 
     if (BUILTIN_COMPONENTS.includes(component)) {
       const schema = BUILTIN_SCHEMAS[component];
@@ -1258,12 +1463,16 @@ function executeCreateDashboard(args) {
           continue;
         }
       }
-      blocks.push(JSON.stringify({
+      const block = {
         component,
         props: props || {},
         dashboardId,
         dashboardTitle: title,
-      }));
+      };
+      if (layout_hint && layout_hint !== "auto") {
+        block.layout_hint = layout_hint;
+      }
+      blocks.push(JSON.stringify(block));
     } else {
       const def = readComponent(component);
       if (!def) {
@@ -1271,12 +1480,16 @@ function executeCreateDashboard(args) {
         continue;
       }
       const children = resolveCustom(def, props || {});
-      blocks.push(JSON.stringify({
+      const block = {
         component: "layout",
         props: { title: def.description || undefined, children },
         dashboardId,
         dashboardTitle: title,
-      }));
+      };
+      if (layout_hint && layout_hint !== "auto") {
+        block.layout_hint = layout_hint;
+      }
+      blocks.push(JSON.stringify(block));
     }
   }
 
@@ -1289,8 +1502,49 @@ function executeCreateDashboard(args) {
     output += "\n\nNote: " + errors.length + " component(s) skipped due to errors:\n" + errors.join("\n");
   }
 
-  console.error(`[MCP] create_dashboard: "${title}" with ${blocks.length} components (dashboardId=${dashboardId})`);
+  console.error(`[MCP] create_dashboard: "${title}" (layout=${layout || "auto"}) with ${blocks.length} components (dashboardId=${dashboardId})`);
   return { isError: false, text: output };
+}
+
+async function executeCreateComponent(args) {
+  const { intent, data, render = true } = args;
+  if (!intent || typeof intent !== "string") {
+    return { isError: true, text: "Missing required 'intent' parameter." };
+  }
+
+  try {
+    const res = await apiRequest("POST", "/api/pod/agent/component", {
+      intent,
+      data,
+      theme: "dark",
+    });
+
+    if (res.status !== 200 || !res.data || res.data.error) {
+      const errMsg = res.data?.error || `HTTP ${res.status}`;
+      return { isError: true, text: `Component Agent error: ${errMsg}` };
+    }
+
+    const html = res.data.html;
+    if (!html) {
+      return { isError: true, text: "Component Agent returned empty HTML." };
+    }
+
+    console.error(`[MCP] create_component: "${intent}" (${html.length} chars)`);
+
+    if (render) {
+      // Auto-render via render_ui as a sandbox component
+      const block = JSON.stringify({
+        component: "sandbox",
+        props: { html, title: intent },
+        layout_hint: "full-width",
+      });
+      return { isError: false, text: "```jarble_ui\n" + block + "\n```" };
+    }
+
+    return { isError: false, text: html };
+  } catch (err) {
+    return { isError: true, text: `Component Agent request failed: ${err.message || err}` };
+  }
 }
 
 function executeDefineComponent(args) {
@@ -2058,11 +2312,38 @@ Memory: store_memory / recall_memory / list_memories / forget_memory (cross-plat
   },
 
   "dashboard-composition": {
-    description: "Dashboard ordering, layout hint strategy, data consistency, density guidelines, interactive dashboards",
+    description: "Dashboard ordering, layout presets, layout hint strategy, data consistency, density guidelines, interactive dashboards",
     content: `## Dashboard Composition Guide
 
 ### When to Build a Dashboard
 Build multi-component dashboards for: overviews/summaries/reports, analytics dashboards, status pages, comparison views. For single-topic responses, prefer one well-chosen component.
+
+### Layout Presets (create_dashboard \`layout\` parameter)
+The \`layout\` parameter controls default column spans for all components:
+- **auto** (default) — Smart auto-layout based on component types
+- **grid-2x2** — 2 equal columns (each component gets "half")
+- **grid-3x2** — 3 equal columns (each component gets "third")
+- **sidebar-main** — Alternating narrow/wide: odd components get "third", even get "half"
+- **stacked** — Single column, every component is "full-width"
+
+### Per-Component Layout Hints
+Each component can override the preset with \`layout_hint\`:
+- **full-width** — Spans entire row
+- **half** — Spans 2 of 3 columns (or 1 of 2 in 2-col grid)
+- **third** — Spans 1 of 3 columns
+- **compact** — Minimal width
+- **auto** — Use the preset default (or smart auto-layout)
+
+Explicit \`layout_hint\` on a component always overrides the dashboard \`layout\` preset.
+
+### Choosing a Layout Preset
+| Use Case | Preset | Why |
+|----------|--------|-----|
+| KPI overview with charts | grid-2x2 | Clean 2-col for metric/chart pairs |
+| Multi-metric dashboard | grid-3x2 | Fits 3 KPIs per row |
+| Sidebar nav + main content | sidebar-main | Nav list narrow, detail wide |
+| Step-by-step report | stacked | Each section full-width, reads top-to-bottom |
+| Mixed component types | auto | Let the system decide based on component types |
 
 ### Composition Order (emit in this order)
 1. Header (title/subtitle)
@@ -2076,17 +2357,21 @@ Build multi-component dashboards for: overviews/summaries/reports, analytics das
 9. Interactive — form, button_group, tabs, accordion
 10. Full-screen — sandbox, map, code_editor, spreadsheet
 
-### Layout Strategy (3-column grid)
-Classic KPI + Chart + Table:
-  [metric_card third] [metric_card third] [metric_card third]
-  [chart half] [list third]
-  [data_table full-width]
+### Layout Strategy Examples
+Classic KPI + Chart + Table (layout: "grid-3x2"):
+  [metric_card] [metric_card] [metric_card]
+  [chart layout_hint:"half"] [list layout_hint:"third"]
+  [data_table layout_hint:"full-width"]
 
-Status Dashboard:
+Status Dashboard (layout: "auto", override per-component):
   [header full-width]
   [stat_grid full-width]
   [chart half] [chart half]
   [alert third] [alert third] [alert third]
+
+Sidebar Report (layout: "sidebar-main"):
+  [list third] [chart half]
+  [key_value third] [data_table half]
 
 ### Data Consistency Rules
 - Same source, same numbers. If stat_grid shows "$1.2M", chart must include that data point.
@@ -2106,6 +2391,7 @@ Status Dashboard:
 3. Missing titles — Every component MUST have a specific, descriptive title.
 4. Random ordering — Follow composition order.
 5. Redundant components — Chart AND table showing exact same data without additional detail.
+6. Ignoring layout presets — Don't manually set layout_hint on every component when a preset does the job.
 
 ### Saving Dashboards
 For dashboards user will revisit: save_artifact + pinned: true. Descriptive IDs: "sales-dashboard-q4" not "dashboard-1". For live data, set dataSource with pollInterval.`
@@ -4279,6 +4565,117 @@ async function executeNewsSearch(args) {
   }
 }
 
+async function executeImageSearch(args) {
+  const { query, count, orientation } = args;
+  if (!query) return { isError: true, text: "Missing 'query' parameter." };
+
+  const limit = Math.min(Math.max(count || 3, 1), 10);
+  const unsplashKey = process.env.UNSPLASH_ACCESS_KEY;
+
+  // Primary: Unsplash API (if key is configured)
+  if (unsplashKey) {
+    try {
+      const params = new URLSearchParams({
+        query,
+        per_page: String(limit),
+        ...(orientation ? { orientation } : {}),
+      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT);
+      let resp;
+      try {
+        resp = await fetch(`https://api.unsplash.com/search/photos?${params}`, {
+          signal: controller.signal,
+          headers: { Authorization: `Client-ID ${unsplashKey}` },
+        });
+      } finally { clearTimeout(timer); }
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const results = (data.results || []).slice(0, limit).map((photo) => ({
+          url: photo.urls?.regular || photo.urls?.small,
+          thumbnail: photo.urls?.thumb,
+          alt: photo.alt_description || photo.description || query,
+          credit: photo.user?.name || "Unknown",
+          creditUrl: photo.user?.links?.html || "",
+          width: photo.width,
+          height: photo.height,
+        }));
+        return {
+          isError: false,
+          text: JSON.stringify({
+            query,
+            source: "unsplash",
+            results,
+            attribution: "Photos provided by Unsplash. Always credit photographers.",
+          }),
+        };
+      }
+    } catch (err) {
+      console.error("[MCP] Unsplash search failed, falling back to Wikimedia:", err.message);
+    }
+  }
+
+  // Fallback: Wikimedia Commons (free, no API key needed)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT);
+    const params = new URLSearchParams({
+      action: "query",
+      generator: "search",
+      gsrsearch: query,
+      gsrnamespace: "6",
+      gsrlimit: String(limit),
+      prop: "imageinfo",
+      iiprop: "url|size|extmetadata",
+      iiurlwidth: "800",
+      format: "json",
+      origin: "*",
+    });
+    let resp;
+    try {
+      resp = await fetch(`https://commons.wikimedia.org/w/api.php?${params}`, {
+        signal: controller.signal,
+        headers: { "User-Agent": WEB_USER_AGENT },
+      });
+    } finally { clearTimeout(timer); }
+
+    if (!resp.ok) return { isError: true, text: `Wikimedia API returned HTTP ${resp.status}` };
+
+    const data = await resp.json();
+    const pages = data.query?.pages || {};
+    const results = Object.values(pages)
+      .filter((p) => p.imageinfo?.[0])
+      .slice(0, limit)
+      .map((p) => {
+        const info = p.imageinfo[0];
+        const meta = info.extmetadata || {};
+        return {
+          url: info.thumburl || info.url,
+          fullUrl: info.url,
+          alt: (meta.ObjectName?.value || p.title || query).replace(/^File:/, ""),
+          credit: meta.Artist?.value?.replace(/<[^>]*>/g, "") || "Wikimedia Commons",
+          license: meta.LicenseShortName?.value || "CC",
+          width: info.thumbwidth || info.width,
+          height: info.thumbheight || info.height,
+        };
+      });
+
+    return {
+      isError: false,
+      text: JSON.stringify({
+        query,
+        source: "wikimedia",
+        results,
+        attribution: "Images from Wikimedia Commons. Check individual licenses.",
+      }),
+    };
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "Search timed out" : err.message;
+    return { isError: true, text: `Image search failed: ${msg}` };
+  }
+}
+
 async function executeDictionary(args) {
   const { word } = args;
   if (!word) return { isError: true, text: "Missing 'word' parameter." };
@@ -4749,6 +5146,66 @@ async function executeWikipedia(args) {
   }
 }
 
+// ── Service tool executor ─────────────────────────────────────────────
+
+/**
+ * Execute a dynamically registered service tool by POSTing to its proxy URL.
+ * The proxy URL points to the Jarble API service proxy which handles auth,
+ * rate limiting, circuit breaking, and HMAC signing.
+ */
+async function executeServiceTool(serviceTool, args) {
+  try {
+    const http = require("http");
+    const https = require("https");
+
+    const url = new URL(serviceTool._proxyUrl);
+    const isHttps = url.protocol === "https:";
+    const lib = isHttps ? https : http;
+
+    const bodyJson = JSON.stringify(args);
+
+    return new Promise(function(resolve) {
+      const req = lib.request({
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname + url.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(bodyJson),
+          // Use gateway token from environment for pod-to-API auth
+          "X-Gateway-Token": process.env.OPENCLAW_GATEWAY_TOKEN || "",
+          "X-Deployment-Id": process.env.DEPLOYMENT_ID || "",
+        },
+        timeout: 30000,
+      }, function(res) {
+        let data = "";
+        res.on("data", function(chunk) { data += chunk; });
+        res.on("end", function() {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve({ isError: false, text: data });
+          } else {
+            resolve({ isError: true, text: "Service call failed (" + res.statusCode + "): " + data.slice(0, 500) });
+          }
+        });
+      });
+
+      req.on("error", function(err) {
+        resolve({ isError: true, text: "Service call error: " + err.message });
+      });
+      req.on("timeout", function() {
+        req.destroy();
+        resolve({ isError: true, text: "Service call timed out (30s)" });
+      });
+
+      req.write(bodyJson);
+      req.end();
+    });
+  } catch (err) {
+    return { isError: true, text: "Service tool error: " + err.message };
+  }
+}
+
 // ── Tool dispatch (async-aware) ───────────────────────────────────────
 
 async function executeTool(name, args) {
@@ -4779,6 +5236,7 @@ async function executeTool(name, args) {
     case "list_memories": return executeListMemories(args || {});
     case "forget_memory": return executeForgetMemory(args || {});
     case "create_dashboard": return executeCreateDashboard(args || {});
+    case "create_component": return executeCreateComponent(args || {});
     // Service hosting tools
     case "start_http_service": return executeStartHttpService(args || {});
     case "stop_http_service": return executeStopHttpService(args || {});
@@ -4801,6 +5259,7 @@ async function executeTool(name, args) {
     case "npm_search": return executeNpmSearch(args || {});
     case "academic_search": return executeAcademicSearch(args || {});
     case "news_search": return executeNewsSearch(args || {});
+    case "search_images": return executeImageSearch(args || {});
     // Reference & Data tools
     case "dictionary": return executeDictionary(args || {});
     case "currency_exchange": return executeCurrencyExchange(args || {});
@@ -4819,6 +5278,25 @@ async function executeTool(name, args) {
         const component = name.slice(5); // "show_chart" -> "chart"
         return executeRenderUi({ component, props: args || {} });
       }
+
+      // Dynamic service tools: svc_weather_forecast, svc_stock_price, etc.
+      // These are registered from /data/config/service-tools.json and dispatch
+      // to the installed service's proxy URL.
+      if (name.startsWith("svc_")) {
+        const serviceTool = SERVICE_TOOLS.find(function(t) { return t.name === name; });
+        if (serviceTool) {
+          return executeServiceTool(serviceTool, args || {});
+        }
+      }
+
+      // Agent delegation tools: delegate_to_data_agent, delegate_to_workflow_agent, etc.
+      if (name.startsWith("delegate_to_")) {
+        const agentTool = AGENT_TOOLS.find(function(t) { return t.name === name; });
+        if (agentTool) {
+          return executeAgentTool(agentTool, args || {});
+        }
+      }
+
       return null;
   }
 }
@@ -4846,12 +5324,28 @@ async function handleMessage(msg) {
     return null;
   }
 
-  // List tools — includes core TOOLS + per-component show_* tools
+  // List tools — includes core TOOLS + per-component show_* + service tools + agent tools
   if (method === "tools/list") {
+    // Build MCP tool definitions from loaded service tools
+    const serviceToolDefs = SERVICE_TOOLS.map(function(t) {
+      return {
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      };
+    });
+    // Build agent tool definitions (static)
+    const agentToolDefs = AGENT_TOOLS.map(function(t) {
+      return {
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      };
+    });
     return {
       jsonrpc: "2.0",
       id,
-      result: { tools: [...TOOLS, ...PER_COMPONENT_TOOLS] },
+      result: { tools: [...TOOLS, ...PER_COMPONENT_TOOLS, ...serviceToolDefs, ...agentToolDefs] },
     };
   }
 

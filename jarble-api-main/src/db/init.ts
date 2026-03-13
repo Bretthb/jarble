@@ -3,6 +3,7 @@
  * Called at startup when USE_SQLITE=true
  */
 import { sqliteDb, sqliteRaw, sqliteSchema, USE_SQLITE } from "./index.js";
+import { generateMarketplaceId } from "./schema.sqlite.js";
 import { nanoid } from "nanoid";
 import { logger } from "../utils/logger.js";
 
@@ -293,6 +294,88 @@ const CREATE_TABLES_SQL = `
     billing_cycle_start TEXT NOT NULL,
     recorded_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS domains (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    description TEXT,
+    parent_id TEXT,
+    icon TEXT,
+    sort_order INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_domains_name ON domains(name);
+
+  CREATE TABLE IF NOT EXISTS deployment_ratings (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    domain_id TEXT NOT NULL REFERENCES domains(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    accuracy INTEGER NOT NULL,
+    helpfulness INTEGER NOT NULL,
+    creativity INTEGER NOT NULL,
+    comment TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_rating ON deployment_ratings(user_id, deployment_id, domain_id);
+
+  CREATE TABLE IF NOT EXISTS deployment_domain_scores (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    domain_id TEXT NOT NULL REFERENCES domains(id),
+    avg_accuracy INTEGER,
+    avg_helpfulness INTEGER,
+    avg_creativity INTEGER,
+    overall_score INTEGER,
+    rating_count INTEGER DEFAULT 0 NOT NULL,
+    confidence TEXT DEFAULT 'low' NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_dds_deployment_domain ON deployment_domain_scores(deployment_id, domain_id);
+
+  CREATE TABLE IF NOT EXISTS service_benchmark_samples (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    latency_ms INTEGER NOT NULL,
+    status_code INTEGER NOT NULL,
+    success INTEGER DEFAULT 1 NOT NULL,
+    response_size_bytes INTEGER,
+    sampled_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS service_benchmark_aggregates (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    period TEXT NOT NULL,
+    latency_p50 INTEGER,
+    latency_p95 INTEGER,
+    latency_p99 INTEGER,
+    uptime_percent INTEGER,
+    error_rate INTEGER,
+    avg_response_size INTEGER,
+    sample_count INTEGER DEFAULT 0 NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_sba_service_skill_period ON service_benchmark_aggregates(service_id, skill_name, period);
+
+  CREATE TABLE IF NOT EXISTS service_reviews (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL REFERENCES marketplace_packages(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    rating INTEGER NOT NULL,
+    title TEXT,
+    body TEXT,
+    creator_response TEXT,
+    creator_responded_at TEXT,
+    helpful INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_user_service_review ON service_reviews(user_id, service_id);
 `;
 
 export async function initDatabase() {
@@ -318,6 +401,29 @@ export async function initDatabase() {
     }
   } catch (err) {
     logger.warn({ err }, "Theme config migration skipped (may already exist)");
+  }
+
+  // Migration: add fork & public profile columns to deployments
+  try {
+    const cols = sqliteRaw.pragma("table_info(deployments)") as Array<{ name: string }>;
+    const colNames = new Set(cols.map((c: any) => c.name));
+    const newCols: Array<[string, string]> = [
+      ["forked_from_id", "ALTER TABLE deployments ADD COLUMN forked_from_id TEXT"],
+      ["is_public", "ALTER TABLE deployments ADD COLUMN is_public INTEGER DEFAULT 0 NOT NULL"],
+      ["fork_count", "ALTER TABLE deployments ADD COLUMN fork_count INTEGER DEFAULT 0 NOT NULL"],
+      ["featured_at", "ALTER TABLE deployments ADD COLUMN featured_at TEXT"],
+      ["specialties", "ALTER TABLE deployments ADD COLUMN specialties TEXT"],
+      ["bio", "ALTER TABLE deployments ADD COLUMN bio TEXT"],
+      ["showcase_prompts", "ALTER TABLE deployments ADD COLUMN showcase_prompts TEXT"],
+    ];
+    for (const [name, sql] of newCols) {
+      if (!colNames.has(name)) {
+        sqliteRaw.exec(sql);
+        logger.info(`Added ${name} column to deployments`);
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "Deployment fork/public columns migration skipped (may already exist)");
   }
 
   // Seed with test data
@@ -425,7 +531,43 @@ async function seedDatabase() {
     await sqliteDb.insert(sqliteSchema.skillsCatalog).values(skill);
   }
 
-  logger.info("Seeded: 2 runtimes, 1 user, 1 deployment, 21 skills");
+  // Seed domain taxonomy
+  const existingDomain = await sqliteDb.query.domains.findFirst();
+  let domainCount = 0;
+  if (!existingDomain) {
+    const domainSeeds = [
+      { name: "finance", displayName: "Finance", description: "Financial analysis, trading, and planning", icon: "\u{1F4B0}", sortOrder: 1 },
+      { name: "coding", displayName: "Coding", description: "Programming, debugging, and software development", icon: "\u{1F4BB}", sortOrder: 2 },
+      { name: "data-analysis", displayName: "Data Analysis", description: "Data visualization, statistics, and BI", icon: "\u{1F4CA}", sortOrder: 3 },
+      { name: "creative-writing", displayName: "Creative Writing", description: "Fiction, poetry, and content creation", icon: "\u270D\uFE0F", sortOrder: 4 },
+      { name: "customer-support", displayName: "Customer Support", description: "Help desk and customer service", icon: "\u{1F3A7}", sortOrder: 5 },
+      { name: "education", displayName: "Education", description: "Tutoring, learning, and exam prep", icon: "\u{1F4DA}", sortOrder: 6 },
+      { name: "research", displayName: "Research", description: "Academic and market research", icon: "\u{1F52C}", sortOrder: 7 },
+      { name: "marketing", displayName: "Marketing", description: "Content marketing, SEO, and campaigns", icon: "\u{1F4E2}", sortOrder: 8 },
+      { name: "legal", displayName: "Legal", description: "Contract review and compliance", icon: "\u2696\uFE0F", sortOrder: 9 },
+      { name: "healthcare", displayName: "Healthcare", description: "Health information and wellness", icon: "\u{1F3E5}", sortOrder: 10 },
+      { name: "gaming", displayName: "Gaming", description: "Game design, strategy, and entertainment", icon: "\u{1F3AE}", sortOrder: 11 },
+      { name: "music", displayName: "Music", description: "Music theory, production, and analysis", icon: "\u{1F3B5}", sortOrder: 12 },
+      { name: "weather", displayName: "Weather", description: "Weather forecasting and climate", icon: "\u{1F324}\uFE0F", sortOrder: 13 },
+      { name: "news", displayName: "News", description: "News aggregation and analysis", icon: "\u{1F4F0}", sortOrder: 14 },
+      { name: "travel", displayName: "Travel", description: "Travel planning and recommendations", icon: "\u2708\uFE0F", sortOrder: 15 },
+      { name: "food", displayName: "Food", description: "Recipes, nutrition, and restaurant recommendations", icon: "\u{1F37D}\uFE0F", sortOrder: 16 },
+      { name: "fitness", displayName: "Fitness", description: "Workout plans and exercise guidance", icon: "\u{1F4AA}", sortOrder: 17 },
+      { name: "productivity", displayName: "Productivity", description: "Task management and workflow optimization", icon: "\u{1F4CB}", sortOrder: 18 },
+      { name: "entertainment", displayName: "Entertainment", description: "Movies, TV, books, and pop culture", icon: "\u{1F3AC}", sortOrder: 19 },
+      { name: "science", displayName: "Science", description: "Scientific exploration and explanation", icon: "\u{1F9EA}", sortOrder: 20 },
+    ];
+
+    for (const domain of domainSeeds) {
+      await sqliteDb.insert(sqliteSchema.domains).values({
+        id: generateMarketplaceId("dom"),
+        ...domain,
+      });
+    }
+    domainCount = domainSeeds.length;
+  }
+
+  logger.info(`Seeded: 2 runtimes, 1 user, 1 deployment, 21 skills, ${domainCount} domains`);
 
   // Seed marketplace data
   await seedMarketplaceData(sqliteDb, userId, deploymentId);

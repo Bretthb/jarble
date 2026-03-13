@@ -33,7 +33,12 @@ import { serviceExecutionRouter } from "./routes/serviceExecution.js";
 import { serviceStreamRouter } from "./routes/serviceStream.js";
 import { serviceHeartbeatRouter } from "./routes/serviceHeartbeat.js";
 import { serviceJobsRouter, startJobCleanup } from "./routes/serviceJobs.js";
-import { podApiRouter } from "./routes/podApi.js";
+import { podApiRouter, authenticatePod } from "./routes/podApi.js";
+import { agentRouter } from "./routes/agentLlm.js";
+import { bridgeFetchRouter } from "./routes/bridgeFetch.js";
+import { botAskRouter } from "./routes/botAsk.js";
+import { meshGatewayRouter } from "./routes/meshGateway.js";
+import { meshDiscoveryRouter, registerAgentCard } from "./routes/meshDiscovery.js";
 import { filesRouter } from "./routes/files.js";
 import { attachTerminalWs } from "./routes/terminal.js";
 
@@ -106,13 +111,21 @@ app.use("/api/services", serviceStreamRouter);
 app.use("/api/services", serviceHeartbeatRouter);
 app.use("/api/services", serviceJobsRouter);
 app.use("/api/pod", podApiRouter);
+app.use("/api/pod/agent", authenticatePod, agentRouter);
+app.use("/api/deployments", bridgeFetchRouter);
+app.use("/api/deployments", botAskRouter);
 app.use("/api/deployments", filesRouter);
+app.use("/api/mesh", meshGatewayRouter);
+app.use("/api/mesh", meshDiscoveryRouter);
 
 // Debug endpoints — dev only
 if (env.NODE_ENV === "development") {
   app.use("/debug", debugRouter);
   logger.info("Debug endpoints enabled: /debug/db, /debug/deployment/:id/status, /debug/seed-deployment, /debug/deployment/:id/sync-config");
 }
+
+// A2A agent card — public discovery endpoint
+registerAgentCard(app);
 
 // Health check for K8s probes
 app.get("/health", (_req, res) => {

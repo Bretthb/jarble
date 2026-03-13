@@ -675,6 +675,9 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
               deploymentId={deploymentId}
               onHide={() => setShowCanvas(false)}
               dashboardGroups={state.dashboardGroups}
+              zoom={state.zoom}
+              onSendMessage={sendMessage}
+              isChatStreaming={isStreaming}
             />
           )}
         </div>

@@ -1,6 +1,9 @@
 import type { CanvasCard, LayoutHint } from "./types";
 import { DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE } from "./types";
 
+/** Minimum Y so cards never sit behind the toolbar */
+export const MIN_CARD_Y = 8;
+
 /**
  * Pure function: find a non-overlapping position for a new card.
  * Starts at viewport center, spirals outward.
@@ -13,12 +16,17 @@ export function findOpenPosition(
   containerHeight: number,
   cardSize: { width: number; height: number }
 ): { x: number; y: number } {
+  const clamp = (pos: { x: number; y: number }) => ({
+    x: Math.max(0, pos.x),
+    y: Math.max(MIN_CARD_Y, pos.y),
+  });
+
   // Center of visible viewport in canvas coordinates
   const cx = (-viewport.x + containerWidth / 2) / zoom - cardSize.width / 2;
   const cy = (-viewport.y + containerHeight / 2) / zoom - cardSize.height / 2;
 
   // If no cards, place at center
-  if (cards.length === 0) return { x: cx, y: cy };
+  if (cards.length === 0) return clamp({ x: cx, y: cy });
 
   // Check center first, then spiral outward to find non-overlapping position
   const step = 40;
@@ -32,7 +40,7 @@ export function findOpenPosition(
     );
 
   // Ring 0: check center position directly
-  if (!overlapsAny(cx, cy)) return { x: cx, y: cy };
+  if (!overlapsAny(cx, cy)) return clamp({ x: cx, y: cy });
 
   // Rings 1..N: spiral outward
   for (let ring = 1; ring <= 20; ring++) {
@@ -41,13 +49,13 @@ export function findOpenPosition(
       const x = cx + Math.cos(rad) * step * ring;
       const y = cy + Math.sin(rad) * step * ring;
 
-      if (!overlapsAny(x, y)) return { x, y };
+      if (!overlapsAny(x, y)) return clamp({ x, y });
     }
   }
 
   // Fallback: offset from last card
   const last = cards[cards.length - 1];
-  return { x: last.position.x + 50, y: last.position.y + 50 };
+  return clamp({ x: last.position.x + 50, y: last.position.y + 50 });
 }
 
 /** Get the default size for a component type. */

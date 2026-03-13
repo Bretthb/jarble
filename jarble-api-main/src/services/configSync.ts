@@ -871,6 +871,236 @@ async function syncPlatformCredentialsFromPvc(
   }
 }
 
+// ── Gateway Restart Helper ──────────────────────────────────────────────────
+
+/**
+ * Signal the OpenClaw gateway to restart and pick up new MCP tools.
+ *
+ * New entrypoint: Touches .reload marker + kills the gateway PID.
+ *   The entrypoint's reload loop detects this and restarts the process (~5-10s).
+ * Old entrypoint: No PID file exists, .reload is ignored. Returns false
+ *   so the caller knows a full pod restart is needed.
+ *
+ * Returns true if the gateway restart was signaled, false if not supported.
+ */
+async function signalGatewayRestart(
+  podName: string,
+  pvcMount: string,
+  containerName: string,
+): Promise<boolean> {
+  try {
+    // Check if the new entrypoint is running (has PID file)
+    const pidCheck = await execInPod(podName, [
+      "sh", "-c", `cat ${pvcMount}/.openclaw_pid 2>/dev/null || echo ""`,
+    ], containerName);
+
+    const pid = pidCheck.trim();
+    if (!pid) {
+      // Old entrypoint — no reload support
+      return false;
+    }
+
+    // Touch .reload marker and kill the gateway process
+    // The entrypoint's reload loop will detect .reload, re-source .env, and restart
+    await execInPod(podName, [
+      "sh", "-c",
+      `touch ${pvcMount}/.reload && kill ${pid} 2>/dev/null || true`,
+    ], containerName);
+
+    log.info({ podName, pid }, "signalGatewayRestart: sent reload signal");
+    return true;
+  } catch (err) {
+    log.warn({ podName, err }, "signalGatewayRestart: failed (non-fatal)");
+    return false;
+  }
+}
+
+// ── MCP Server Hot-Sync ─────────────────────────────────────────────────────
+// Push the latest MCP server script to a running pod's PVC and optionally
+// restart the gateway so it picks up new tools.
+//
+// Two modes:
+//   Stage-only (default): Write file + update ConfigMap. Non-disruptive.
+//     New tools activate on the pod's next natural restart (config change,
+//     user restart, pod eviction). Safe to run while users are chatting.
+//   Apply: Stage + restart gateway. Used when pod is idle (no active chat
+//     sessions) or when explicitly requested via updateRuntime mutation.
+
+/**
+ * Stage the latest MCP server on a running pod's PVC.
+ * Does NOT restart the gateway — safe to call while users are chatting.
+ * The update takes effect on the pod's next restart.
+ *
+ * Returns { staged, fromHash, toHash }.
+ */
+export async function stageMcpServer(
+  deploymentId: string,
+  managedBy: ManagedBy = "legacy",
+): Promise<{ staged: boolean; fromHash: string; toHash: string }> {
+  const { getMcpServerInfo } = await import("../runtimes/handlers/openclaw.js");
+  const { content, hash: currentHash } = getMcpServerInfo();
+
+  if (!content || !currentHash) {
+    throw new Error("MCP server script not available on API server");
+  }
+
+  const podName = await findPodForDeployment(deploymentId, { managedBy });
+  if (!podName) {
+    throw new Error(`No running pod found for deployment ${deploymentId}`);
+  }
+
+  const containerName = getContainerName(managedBy);
+  const pvcMount = getPvcMountPath(managedBy);
+  const mcpDir = `${pvcMount}/config/mcp`;
+
+  // Read current hash from pod (empty string if no marker file)
+  let podHash = "";
+  try {
+    podHash = (await execInPod(podName, [
+      "sh", "-c", `cat ${mcpDir}/.version 2>/dev/null || echo ""`,
+    ], containerName)).trim();
+  } catch {
+    // No version file — needs update
+  }
+
+  if (podHash === currentHash) {
+    log.debug({ deploymentId, hash: currentHash }, "stageMcpServer: pod already up-to-date");
+    return { staged: false, fromHash: podHash, toHash: currentHash };
+  }
+
+  // Write the MCP server script + version marker to PVC
+  log.info(
+    { deploymentId, fromHash: podHash || "(none)", toHash: currentHash },
+    "stageMcpServer: writing updated MCP server to PVC"
+  );
+
+  await execInPod(podName, ["mkdir", "-p", mcpDir], containerName);
+
+  const { execInPodWithStdin } = await import("../k8s/exec.js");
+  await execInPodWithStdin(
+    podName,
+    ["sh", "-c", `base64 -d > ${mcpDir}/jarble-ui-server.js`],
+    Buffer.from(content).toString("base64"),
+    30_000,
+    containerName,
+  );
+
+  await execInPod(podName, [
+    "sh", "-c", `echo "${currentHash}" > ${mcpDir}/.version`,
+  ], containerName);
+
+  // Update ConfigMap so next pod restart picks up the new MCP server
+  await updateDeploymentConfigMap(deploymentId, [
+    { path: "mcp/jarble-ui-server.js", content },
+  ], managedBy);
+
+  log.info({ deploymentId, hash: currentHash }, "stageMcpServer: staged successfully (activates on next restart)");
+  return { staged: true, fromHash: podHash || "(none)", toHash: currentHash };
+}
+
+/**
+ * Stage the latest MCP server AND restart the gateway so new tools
+ * take effect immediately. Use only when the pod is idle or when
+ * the user explicitly requests it (updateRuntime mutation).
+ *
+ * For new entrypoint: .reload signal (~5-10s, graceful).
+ * For old entrypoint: full pod restart (~30-60s).
+ */
+export async function syncMcpServer(
+  deploymentId: string,
+  managedBy: ManagedBy = "legacy",
+): Promise<{ updated: boolean; fromHash: string; toHash: string }> {
+  const stageResult = await stageMcpServer(deploymentId, managedBy);
+  if (!stageResult.staged) {
+    return { updated: false, fromHash: stageResult.fromHash, toHash: stageResult.toHash };
+  }
+
+  // Re-register mcporter
+  await reRegisterMcpServer(deploymentId, managedBy);
+
+  // Restart gateway so it re-reads the tool list
+  const podName = await findPodForDeployment(deploymentId, { managedBy });
+  if (podName) {
+    const containerName = getContainerName(managedBy);
+    const pvcMount = getPvcMountPath(managedBy);
+    const hasReloadSupport = await signalGatewayRestart(podName, pvcMount, containerName);
+    if (!hasReloadSupport) {
+      log.info({ deploymentId }, "syncMcpServer: old entrypoint, triggering full pod restart");
+      await restartDeployment(deploymentId, managedBy);
+    }
+  }
+
+  log.info({ deploymentId }, "syncMcpServer: updated and gateway restarted");
+  return { updated: true, fromHash: stageResult.fromHash, toHash: stageResult.toHash };
+}
+
+// ── Active session tracking ─────────────────────────────────────────────────
+// Track which deployments have active chat sessions so auto-sync can
+// skip busy pods and only restart idle ones.
+
+const activeDeployments = new Set<string>();
+
+/** Mark a deployment as having an active chat session. */
+export function markDeploymentActive(deploymentId: string): void {
+  activeDeployments.add(deploymentId);
+}
+
+/** Mark a deployment as idle (chat session ended). */
+export function markDeploymentIdle(deploymentId: string): void {
+  activeDeployments.delete(deploymentId);
+}
+
+/** Check if a deployment currently has active chat sessions. */
+export function isDeploymentActive(deploymentId: string): boolean {
+  return activeDeployments.has(deploymentId);
+}
+
+/**
+ * Auto-sync MCP server to all running deployments.
+ * - Active pods (users chatting): Stage only — no restart, no disruption.
+ * - Idle pods (no active sessions): Stage + restart gateway for immediate effect.
+ */
+export async function syncMcpServerToAllRunning(): Promise<{
+  total: number; staged: number; applied: number; skipped: number; failed: number;
+}> {
+  const { getMcpServerInfo } = await import("../runtimes/handlers/openclaw.js");
+  const { hash } = getMcpServerInfo();
+  if (!hash) return { total: 0, staged: 0, applied: 0, skipped: 0, failed: 0 };
+
+  const allDeployments = await db.query.deployments.findMany({
+    where: eq(deployments.status, "running"),
+  });
+
+  const results = { total: allDeployments.length, staged: 0, applied: 0, skipped: 0, failed: 0 };
+
+  for (const dep of allDeployments) {
+    try {
+      const managedBy = (dep.managedBy ?? "legacy") as ManagedBy;
+
+      if (isDeploymentActive(dep.id)) {
+        // User is chatting — stage only, don't interrupt
+        const result = await stageMcpServer(dep.id, managedBy);
+        if (result.staged) results.staged++;
+        else results.skipped++;
+      } else {
+        // Pod is idle — stage and apply (restart gateway)
+        const result = await syncMcpServer(dep.id, managedBy);
+        if (result.updated) results.applied++;
+        else results.skipped++;
+      }
+    } catch (err) {
+      results.failed++;
+      log.warn({ deploymentId: dep.id, err }, "syncMcpServerToAllRunning: failed for deployment");
+    }
+  }
+
+  if (results.staged > 0 || results.applied > 0) {
+    log.info(results, "syncMcpServerToAllRunning: batch update complete");
+  }
+
+  return results;
+}
+
 // ── Marketplace Component Sync ──────────────────────────────────────────────
 
 /**

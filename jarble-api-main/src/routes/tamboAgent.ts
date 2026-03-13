@@ -17,6 +17,7 @@ import { timingSafeEqual } from "crypto";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
+import { markDeploymentActive, markDeploymentIdle } from "../services/configSync.js";
 import { env } from "../utils/env.js";
 import { createModuleLogger } from "../utils/logger.js";
 
@@ -364,6 +365,9 @@ tamboAgentRouter.post("/", async (req, res) => {
     return;
   }
 
+  // Track active chat session so auto-sync doesn't restart the gateway mid-conversation
+  markDeploymentActive(deploymentId);
+
   // 4. Load deployment
   const deployment = await db.query.deployments.findFirst({
     where: eq(tables.deployments.id, deploymentId),
@@ -463,6 +467,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     log.debug({ deploymentId, threadId }, "Chat client disconnected");
     cleanupTimers();
     abortController.abort();
+    markDeploymentIdle(deploymentId);
   });
 
   req.on("error", (err: Error) => {

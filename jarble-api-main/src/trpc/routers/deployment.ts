@@ -1,6 +1,6 @@
 import { z } from "zod";
 import crypto from "crypto";
-import { router, protectedProcedure } from "../middleware.js";
+import { router, protectedProcedure, publicProcedure } from "../middleware.js";
 import { tables, dbDate, type DbClient } from "../../db/index.js";
 import { eq, and, or, isNull, sql } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc } from "../../k8s/index.js";
@@ -25,7 +25,7 @@ import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
 import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
 import { validateThemeConfig } from "@jarble/component-manifest";
 
-const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents } = tables;
 
 /**
  * Helper: Check free deployment status for a user.
@@ -1090,6 +1090,42 @@ export const deploymentRouter = router({
       return { success: true };
     }),
 
+  // Push the latest MCP server + tools to a running pod without restarting.
+  // Fixes the "old pod doesn't have set_theme" problem — zero downtime.
+  updateRuntime: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      if (deployment.status !== "running") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Cannot update runtime on a deployment that is ${deployment.status}`,
+        });
+      }
+
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+
+      try {
+        const { syncMcpServer } = await import("../../services/configSync.js");
+        const result = await syncMcpServer(input.id, managedBy);
+        logger.info({ deploymentId: input.id, ...result }, "updateRuntime completed");
+        return result;
+      } catch (err) {
+        logger.error({ deploymentId: input.id, err }, "updateRuntime failed");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: err instanceof Error ? err.message : "Failed to update runtime",
+        });
+      }
+    }),
+
   // Cancel subscription (deployment stays active until billing period ends)
   cancel: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -1410,5 +1446,194 @@ export const deploymentRouter = router({
       logger.info({ deploymentId: input.id, userId: ctx.user.id }, "delete: deployment fully deleted");
 
       return { success: true };
+    }),
+
+  // ── Fork & Public Profile Procedures ─────────────────────────────────────
+
+  // Fork a public (or owned) deployment into a new deployment for the current user
+  fork: protectedProcedure
+    .input(z.object({
+      sourceId: z.string(),
+      name: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // 1. Fetch source deployment — must be isPublic=true OR owned by user
+      const source = await ctx.db.query.deployments.findFirst({
+        where: eq(deployments.id, input.sourceId),
+      });
+
+      if (!source) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Source deployment not found" });
+      }
+
+      if (!source.isPublic && source.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Source deployment not found" });
+      }
+
+      // 2. Generate new deployment ID
+      const newId = nanoid();
+      const now = new Date().toISOString();
+
+      // 3. Clone selected fields from source (NOT: llmApiKey, stripeSubscriptionId, billing, status, credentials, llmApiKeyId)
+      await ctx.db.insert(deployments).values({
+        id: newId,
+        userId: ctx.user.id,
+        name: input.name,
+        description: source.description,
+        runtime: source.runtime,
+        runtimeCatalogId: source.runtimeCatalogId,
+        systemPrompt: source.systemPrompt,
+        llmProvider: source.llmProvider,
+        llmModel: source.llmModel,
+        themeConfig: source.themeConfig,
+        messagingOnly: source.messagingOnly,
+        image: source.image,
+        specialties: source.specialties,
+        bio: source.bio,
+        forkedFromId: input.sourceId,
+        status: "pending",
+      } as any);
+
+      // 6. Copy serviceInstalls (fresh install records)
+      const existingServiceInstalls = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.deploymentId, input.sourceId),
+      });
+      for (const si of existingServiceInstalls) {
+        await ctx.db.insert(serviceInstalls).values({
+          id: `pki_${nanoid()}`,
+          packageId: si.packageId,
+          deploymentId: newId,
+          userId: ctx.user.id,
+          installedAt: now,
+        } as any);
+      }
+
+      // 7. Copy componentInstalls (fresh install records)
+      const existingComponentInstalls = await ctx.db.query.componentInstalls.findMany({
+        where: eq(componentInstalls.deploymentId, input.sourceId),
+      });
+      for (const ci of existingComponentInstalls) {
+        await ctx.db.insert(componentInstalls).values({
+          id: `inst_${nanoid()}`,
+          componentId: ci.componentId,
+          versionId: ci.versionId,
+          deploymentId: newId,
+          userId: ctx.user.id,
+          pinnedVersion: ci.pinnedVersion,
+          autoUpdate: ci.autoUpdate,
+          installedAt: now,
+        } as any);
+      }
+
+      // 8. Copy deploymentSkills (fresh records)
+      const existingSkills = await ctx.db.query.deploymentSkills.findMany({
+        where: eq(deploymentSkills.deploymentId, input.sourceId),
+      });
+      for (const ds of existingSkills) {
+        await ctx.db.insert(deploymentSkills).values({
+          id: `dsk_${nanoid()}`,
+          deploymentId: newId,
+          skillId: ds.skillId,
+          installedAt: now,
+        } as any);
+      }
+
+      // 9. Increment source deployment's forkCount
+      await ctx.db.update(deployments)
+        .set({ forkCount: sql`${deployments.forkCount} + 1` } as any)
+        .where(eq(deployments.id, input.sourceId));
+
+      // 10. Return the new deployment
+      const newDeployment = await ctx.db.query.deployments.findFirst({
+        where: eq(deployments.id, newId),
+        with: { runtimeCatalogEntry: true },
+      });
+
+      logger.info({ sourceId: input.sourceId, newId, userId: ctx.user.id }, "Deployment forked");
+
+      return newDeployment;
+    }),
+
+  // Set deployment visibility (public/private)
+  setVisibility: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      isPublic: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify ownership
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      await ctx.db.update(deployments)
+        .set({ isPublic: input.isPublic } as any)
+        .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
+
+      return { success: true };
+    }),
+
+  // Get public profile for a deployment (no auth required)
+  getPublicProfile: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.isPublic, true)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Parse JSON fields safely
+      let specialties: string[] = [];
+      try {
+        specialties = deployment.specialties ? JSON.parse(deployment.specialties as string) : [];
+      } catch { /* ignore parse errors */ }
+
+      let showcasePrompts: string[] = [];
+      try {
+        showcasePrompts = (deployment as any).showcasePrompts ? JSON.parse((deployment as any).showcasePrompts as string) : [];
+      } catch { /* ignore parse errors */ }
+
+      // Fetch installed service names
+      const installedServices = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.deploymentId, input.id),
+        with: { package: true },
+      });
+      const serviceNames = installedServices
+        .map((si: any) => si.package?.name)
+        .filter(Boolean);
+
+      // Fetch installed component names
+      const installedComponents = await ctx.db.query.componentInstalls.findMany({
+        where: eq(componentInstalls.deploymentId, input.id),
+        with: { component: true },
+      });
+      const componentNames = installedComponents
+        .map((ci: any) => ci.component?.name)
+        .filter(Boolean);
+
+      // Return sanitized profile — never expose llmApiKey, stripeSubscriptionId, userId
+      return {
+        name: deployment.name,
+        description: deployment.description,
+        runtime: deployment.runtime,
+        systemPrompt: deployment.systemPrompt
+          ? (deployment.systemPrompt as string).slice(0, 200)
+          : null,
+        specialties,
+        forkCount: deployment.forkCount,
+        bio: (deployment as any).bio,
+        showcasePrompts,
+        forkedFromId: deployment.forkedFromId,
+        themeConfig: deployment.themeConfig,
+        installedServices: serviceNames,
+        installedComponents: componentNames,
+      };
     }),
 });

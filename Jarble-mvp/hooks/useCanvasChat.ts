@@ -121,6 +121,8 @@ export function useCanvasChat(
   const rafIdRef = useRef<number | null>(null);
   // Track current run's LLM provider/model from RUN_STARTED event (ref avoids stale closure)
   const currentLlmRef = useRef<{ provider?: string; model?: string }>({});
+  // Track which card was selected when the user sent the message (for provenance linking)
+  const selectedCardRef = useRef<string | null>(null);
 
   // Load chat history from localStorage on mount
   useEffect(() => {
@@ -177,6 +179,8 @@ export function useCanvasChat(
       // If a card is selected, prepend a clear reference so the bot knows which card to update
       let messageToSend = text;
       const selectedCard = currentState.cards.find((c) => c.selected);
+      // Track selected card ID so new cards rendered during this stream can be linked as children
+      selectedCardRef.current = selectedCard?.id ?? null;
       if (selectedCard && !isActionMessage) {
         const title = selectedCard.title || selectedCard.component.replace(/_/g, " ");
         const ref = `[EDITING ${selectedCard.id} "${title}"]`;
@@ -192,9 +196,10 @@ export function useCanvasChat(
         if (currentState.cards.length > 0) {
           const cardLines = currentState.cards.map((c) => {
             const title = c.title || c.component.replace(/_/g, " ");
-            return `- ${c.id}: ${c.component} (title: "${title}")`;
+            const meta = summarizeCardProps(c);
+            return `- ${c.id}: ${c.component} "${title}"${meta ? ` (${meta})` : ""}`;
           });
-          canvasBlock = `[CANVAS_STATE]\nCards on canvas:\n${cardLines.join("\n")}\n[/CANVAS_STATE]\n`;
+          canvasBlock = `[CANVAS_STATE]\nCards on canvas (${currentState.cards.length}):\n${cardLines.join("\n")}\n[/CANVAS_STATE]\n`;
         } else {
           canvasBlock = `[CANVAS_STATE]\nNo cards on canvas.\n[/CANVAS_STATE]\n`;
         }
@@ -360,7 +365,7 @@ export function useCanvasChat(
                 const block = pendingBlocks.get(event.toolCallId);
                 if (block) {
                   blockStartTimes.delete(event.toolCallId);
-                  const card = addComponentCard(block, messageId, stateRef.current, dispatch, cardsAddedThisStream, currentLlmRef.current);
+                  const card = addComponentCard(block, messageId, stateRef.current, dispatch, cardsAddedThisStream, currentLlmRef.current, selectedCardRef.current);
                   if (card) cardsAddedThisStream.push(card);
                   pendingBlocks.delete(event.toolCallId);
                   const cardId = `card-${block.id}`;
@@ -536,7 +541,8 @@ function addComponentCard(
   state: CanvasState,
   dispatch: React.Dispatch<CanvasAction>,
   extraCards: CanvasCard[] = [],
-  llmInfo: { provider?: string; model?: string } = {}
+  llmInfo: { provider?: string; model?: string } = {},
+  parentCardId?: string | null
 ): CanvasCard {
   const size = getDefaultSize(block.component);
   const container = getContainerSize();
@@ -570,6 +576,7 @@ function addComponentCard(
     llmProvider: llmInfo.provider,
     llmModel: llmInfo.model,
     groupId: block.dashboardId || undefined,
+    parentCardId: parentCardId || undefined,
   };
 
   if (state.cards.length >= MAX_CANVAS_CARDS) {
@@ -578,4 +585,77 @@ function addComponentCard(
 
   dispatch({ type: "ADD_CARD", card });
   return card;
+}
+
+// ── Helper: summarize card props for rich canvas context ──────────────────────
+
+/** Generate a concise metadata summary of a card's props for the bot's canvas context.
+ *  Keeps output short (~20-60 chars per card) to avoid token bloat. */
+function summarizeCardProps(card: CanvasCard): string {
+  const p = card.props;
+  const parts: string[] = [];
+
+  switch (card.component) {
+    case "chart": {
+      if (p.type) parts.push(`type: ${p.type}`);
+      if (Array.isArray(p.dataKeys)) parts.push(`keys: ${(p.dataKeys as string[]).join("/")}`);
+      if (p.xAxisKey) parts.push(`x: ${p.xAxisKey}`);
+      if (Array.isArray(p.data)) parts.push(`${p.data.length} points`);
+      break;
+    }
+    case "data_table": {
+      if (Array.isArray(p.columns)) parts.push(`cols: ${(p.columns as string[]).join("/")}`);
+      if (Array.isArray(p.rows)) parts.push(`${p.rows.length} rows`);
+      break;
+    }
+    case "metric_card":
+    case "statistic": {
+      if (p.label) parts.push(`label: ${p.label}`);
+      if (p.value != null) parts.push(`value: ${p.value}`);
+      break;
+    }
+    case "stat_grid": {
+      if (Array.isArray(p.stats)) {
+        const labels = (p.stats as Array<{ label?: string }>).map(s => s.label).filter(Boolean);
+        parts.push(`stats: ${labels.join(", ")}`);
+      }
+      break;
+    }
+    case "card": {
+      if (typeof p.body === "string" && p.body.length > 0) {
+        parts.push(`${p.body.length} chars`);
+      }
+      break;
+    }
+    case "sandbox": {
+      if (Array.isArray(p.libraries) && p.libraries.length > 0) {
+        parts.push(`libs: ${(p.libraries as string[]).slice(0, 3).join(", ")}`);
+      }
+      if (p.moduleJs) parts.push("module");
+      break;
+    }
+    case "list": {
+      if (Array.isArray(p.items)) parts.push(`${p.items.length} items`);
+      break;
+    }
+    case "progress": {
+      if (p.value != null) parts.push(`${p.value}%`);
+      break;
+    }
+    case "form": {
+      if (Array.isArray(p.fields)) parts.push(`${p.fields.length} fields`);
+      break;
+    }
+    case "tabs": {
+      if (Array.isArray(p.tabs)) {
+        const labels = (p.tabs as Array<{ label?: string }>).map(t => t.label).filter(Boolean);
+        parts.push(`tabs: ${labels.join(", ")}`);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return parts.join(", ");
 }

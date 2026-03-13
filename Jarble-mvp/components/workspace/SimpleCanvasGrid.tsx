@@ -9,7 +9,7 @@
  */
 
 import { memo, useCallback, useState, useRef, useEffect, type ReactNode, type KeyboardEvent } from "react";
-import { X, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Group, LayoutGrid, Pin } from "lucide-react";
+import { X, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Group, LayoutGrid, Pin, ZoomIn, ZoomOut, Sparkles, SendHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -21,6 +21,8 @@ import CanvasToolbar from "./CanvasToolbar";
 const MIN_WIDTH = 200;
 const MIN_HEIGHT = 120;
 const SNAP_SIZE = 20; // Grid snap increment in px
+const MIN_CARD_Y = 8; // Keep cards below toolbar edge
+const AUTO_HEIGHT_PADDING = 16; // Extra padding below content for auto-height
 
 interface SimpleCanvasGridProps {
   cards: CanvasCard[];
@@ -31,6 +33,11 @@ interface SimpleCanvasGridProps {
   deploymentId: string;
   onHide?: () => void;
   dashboardGroups: CanvasState["dashboardGroups"];
+  zoom?: number;
+  /** Optional: send a message from inline card chat */
+  onSendMessage?: (text: string, displayText?: string) => Promise<void>;
+  /** Whether the chat is currently streaming */
+  isChatStreaming?: boolean;
 }
 
 function SimpleCanvasGridInner({
@@ -42,6 +49,9 @@ function SimpleCanvasGridInner({
   deploymentId,
   onHide,
   dashboardGroups = {},
+  zoom = 1,
+  onSendMessage,
+  isChatStreaming = false,
 }: SimpleCanvasGridProps) {
   const { getAccessTokenSilently } = useAuth0();
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -64,6 +74,11 @@ function SimpleCanvasGridInner({
   const previewSizeRef = useRef(previewSize);
   previewSizeRef.current = previewSize;
 
+  // ── Inline card chat state ────────────────────────────────────────
+  const [inlineChatCardId, setInlineChatCardId] = useState<string | null>(null);
+  const [inlineChatInput, setInlineChatInput] = useState("");
+  const inlineChatRef = useRef<HTMLInputElement>(null);
+
   // ── Save-to-library state ──────────────────────────────────────────
   const [savingCardId, setSavingCardId] = useState<string | null>(null);
   const [saveNameInput, setSaveNameInput] = useState("");
@@ -76,6 +91,71 @@ function SimpleCanvasGridInner({
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [liveAnnouncement, setLiveAnnouncement] = useState("");
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // ── Auto-height: single ResizeObserver for content-driven card sizing ────
+  // Uses a single observer instance + data attributes to avoid callback ref churn.
+  const autoHeightObserverRef = useRef<ResizeObserver | null>(null);
+  const lastAutoHeightRef = useRef<Map<string, number>>(new Map());
+  const dispatchRef = useRef(dispatch);
+  dispatchRef.current = dispatch;
+
+  // Create the single observer once on mount
+  useEffect(() => {
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const el = entry.target as HTMLElement;
+        const cardId = el.dataset.autoHeightId;
+        if (!cardId) continue;
+
+        // Measure the first child's height to avoid flex feedback loop
+        const firstChild = el.firstElementChild as HTMLElement | null;
+        const contentH = (firstChild?.offsetHeight ?? el.scrollHeight) + AUTO_HEIGHT_PADDING;
+
+        // Deduplicate: skip if we already dispatched this height
+        const lastH = lastAutoHeightRef.current.get(cardId) ?? 0;
+        if (Math.abs(contentH - lastH) < 16) continue;
+        lastAutoHeightRef.current.set(cardId, contentH);
+
+        dispatchRef.current({ type: "AUTO_HEIGHT_CARD", id: cardId, height: contentH });
+      }
+    });
+    autoHeightObserverRef.current = observer;
+    return () => { observer.disconnect(); autoHeightObserverRef.current = null; };
+  }, []);
+
+  // Stable callback ref for content divs — uses data attribute instead of closure
+  const autoHeightRefCallback = useCallback((el: HTMLDivElement | null) => {
+    const observer = autoHeightObserverRef.current;
+    if (!observer) return;
+    if (el) {
+      observer.observe(el);
+    }
+    // Note: unobserve happens automatically when element is removed from DOM
+  }, []);
+
+  // ── Streaming viewport tracking ────────────────────────────────────
+  const prevStreamingRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (dragging || resizing) return; // Don't auto-scroll during interaction
+
+    // Find newly streaming cards (weren't streaming before)
+    const newlyStreaming = [...streamingCardIds].filter(id => !prevStreamingRef.current.has(id));
+    prevStreamingRef.current = new Set(streamingCardIds);
+
+    if (newlyStreaming.length === 0) return;
+
+    // Scroll to the last newly streaming card
+    const targetId = newlyStreaming[newlyStreaming.length - 1];
+    const targetCard = cards.find(c => c.id === targetId);
+    if (!targetCard || !canvasRef.current) return;
+
+    const container = canvasRef.current;
+    const scrollTarget = {
+      left: targetCard.position.x * zoom - container.clientWidth / 2 + (targetCard.size.width * zoom) / 2,
+      top: targetCard.position.y * zoom - container.clientHeight / 2 + (targetCard.size.height * zoom) / 2,
+    };
+    container.scrollTo({ left: Math.max(0, scrollTarget.left), top: Math.max(0, scrollTarget.top), behavior: "smooth" });
+  }, [streamingCardIds, cards, zoom, dragging, resizing]);
 
   // ── Card entrance animation tracking ──────────────────────────────
   // Cards already "seen" should not animate in (e.g. after RESTORE_STATE or initial mount).
@@ -142,6 +222,22 @@ function SimpleCanvasGridInner({
   // ── Snap helper ────────────────────────────────────────────────────
   const snap = useCallback((v: number) => gridSnap ? Math.round(v / SNAP_SIZE) * SNAP_SIZE : v, [gridSnap]);
 
+  // ── Pointer → canvas-space helper ────────────────────────────────────
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const pointerToCanvas = useCallback((clientX: number, clientY: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const sl = canvasRef.current?.scrollLeft ?? 0;
+    const st = canvasRef.current?.scrollTop ?? 0;
+    const ox = rect?.left ?? 0;
+    const oy = rect?.top ?? 0;
+    const z = zoomRef.current;
+    return {
+      x: (clientX - ox + sl) / z,
+      y: (clientY - oy + st) / z,
+    };
+  }, []);
+
   // ── Drag handlers (pointer events for iframe reliability) ──────────
   const handleDragStart = useCallback((e: React.PointerEvent, card: CanvasCard) => {
     // Only start drag from the grip handle or card background, not buttons
@@ -149,10 +245,11 @@ function SimpleCanvasGridInner({
     e.preventDefault();
     e.stopPropagation();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    setDragging({ cardId: card.id, offsetX: e.clientX - card.position.x, offsetY: e.clientY - card.position.y });
+    const p = pointerToCanvas(e.clientX, e.clientY);
+    setDragging({ cardId: card.id, offsetX: p.x - card.position.x, offsetY: p.y - card.position.y });
     setPreviewPos(null);
     dispatch({ type: "BRING_TO_FRONT", id: card.id });
-  }, [dispatch]);
+  }, [dispatch, pointerToCanvas]);
 
   useEffect(() => {
     if (!dragging) return;
@@ -161,8 +258,9 @@ function SimpleCanvasGridInner({
     const onMove = (e: PointerEvent) => {
       const d = draggingRef.current;
       if (!d) return;
-      const x = snap(Math.max(0, e.clientX - d.offsetX));
-      const y = snap(Math.max(0, e.clientY - d.offsetY));
+      const p = pointerToCanvas(e.clientX, e.clientY);
+      const x = snap(Math.max(0, p.x - d.offsetX));
+      const y = snap(Math.max(MIN_CARD_Y, p.y - d.offsetY));
       setPreviewPos({ x, y });
     };
     const onUp = () => {
@@ -197,10 +295,11 @@ function SimpleCanvasGridInner({
     e.preventDefault();
     e.stopPropagation();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    setResizing({ cardId: card.id, startX: e.clientX, startY: e.clientY, startW: card.size.width, startH: card.size.height });
+    const p = pointerToCanvas(e.clientX, e.clientY);
+    setResizing({ cardId: card.id, startX: p.x, startY: p.y, startW: card.size.width, startH: card.size.height });
     setPreviewSize(null);
     dispatch({ type: "BRING_TO_FRONT", id: card.id });
-  }, [dispatch]);
+  }, [dispatch, pointerToCanvas]);
 
   useEffect(() => {
     if (!resizing) return;
@@ -209,8 +308,9 @@ function SimpleCanvasGridInner({
     const onMove = (e: PointerEvent) => {
       const r = resizingRef.current;
       if (!r) return;
-      const w = snap(Math.max(MIN_WIDTH, r.startW + (e.clientX - r.startX)));
-      const h = snap(Math.max(MIN_HEIGHT, r.startH + (e.clientY - r.startY)));
+      const p = pointerToCanvas(e.clientX, e.clientY);
+      const w = snap(Math.max(MIN_WIDTH, r.startW + (p.x - r.startX)));
+      const h = snap(Math.max(MIN_HEIGHT, r.startH + (p.y - r.startY)));
       setPreviewSize({ w, h });
     };
     const onUp = () => {
@@ -251,6 +351,23 @@ function SimpleCanvasGridInner({
       dispatch({ type: "GROUP_CARDS", cardIds: selectedIds });
     }
   }, [cards, dispatch]);
+
+  // ── Inline chat handlers ──────────────────────────────────────────
+  const handleInlineChatOpen = useCallback((card: CanvasCard) => {
+    // Select the card so [EDITING ...] context is prepended automatically
+    dispatch({ type: "SELECT_CARD", id: card.id });
+    setInlineChatCardId(prev => prev === card.id ? null : card.id);
+    setInlineChatInput("");
+    setTimeout(() => inlineChatRef.current?.focus(), 50);
+  }, [dispatch]);
+
+  const handleInlineChatSubmit = useCallback(async (card: CanvasCard) => {
+    const text = inlineChatInput.trim();
+    if (!text || !onSendMessage || isChatStreaming) return;
+    setInlineChatInput("");
+    setInlineChatCardId(null);
+    await onSendMessage(text);
+  }, [inlineChatInput, onSendMessage, isChatStreaming]);
 
   const handleSaveClick = useCallback((card: CanvasCard) => {
     if (card.savedName) {
@@ -392,13 +509,15 @@ function SimpleCanvasGridInner({
         onKeyDown={handleGridKeyDown}
         className="flex-1 overflow-auto relative"
         style={{
-          // Dot grid background
+          // Dot grid background — adjust for zoom
           backgroundImage: gridSnap
             ? `radial-gradient(circle, hsl(var(--border) / 0.3) 1px, transparent 1px)`
             : `radial-gradient(circle, hsl(var(--border) / 0.15) 1px, transparent 1px)`,
-          backgroundSize: `${SNAP_SIZE}px ${SNAP_SIZE}px`,
+          backgroundSize: `${SNAP_SIZE * zoom}px ${SNAP_SIZE * zoom}px`,
         }}
       >
+        {/* Zoom wrapper — scales all canvas content */}
+        <div style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: `${100 / zoom}%` }}>
         {/* Spacer to make the canvas scrollable beyond the last card */}
         <div style={{ width: Math.max(1200, ...cards.map(c => c.position.x + c.size.width + 100)), height: Math.max(800, ...cards.map(c => c.position.y + c.size.height + 100)) }} />
 
@@ -432,6 +551,37 @@ function SimpleCanvasGridInner({
             </div>
           );
         })}
+
+        {/* Provenance arrows — connect child cards to their parent */}
+        <svg className="absolute inset-0 pointer-events-none" style={{ zIndex: 0, overflow: "visible" }}>
+          <defs>
+            <marker id="arrow-head" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L8,3 L0,6" fill="none" stroke="hsl(var(--muted-foreground) / 0.3)" strokeWidth="1.5" />
+            </marker>
+          </defs>
+          {cards.filter(c => !c.minimized && c.parentCardId).map((child) => {
+            const parent = cards.find(c => c.id === child.parentCardId);
+            if (!parent || parent.minimized) return null;
+            // Draw from parent's right edge center to child's left edge center
+            const x1 = parent.position.x + parent.size.width;
+            const y1 = parent.position.y + parent.size.height / 2;
+            const x2 = child.position.x;
+            const y2 = child.position.y + child.size.height / 2;
+            // Bezier control points for a smooth curve
+            const dx = Math.abs(x2 - x1) * 0.4;
+            return (
+              <path
+                key={`arrow-${parent.id}-${child.id}`}
+                d={`M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`}
+                fill="none"
+                stroke="hsl(var(--muted-foreground) / 0.25)"
+                strokeWidth="1.5"
+                strokeDasharray="6 4"
+                markerEnd="url(#arrow-head)"
+              />
+            );
+          })}
+        </svg>
 
         <AnimatePresence>
         {cards.filter(c => !c.minimized).map((card) => {
@@ -490,10 +640,8 @@ function SimpleCanvasGridInner({
                   : isDragging
                     ? "shadow-xl ring-1 ring-primary/40 cursor-grabbing"
                     : isStreaming
-                      ? "ring-1 ring-primary/50 shadow-md canvas-card-streaming"
-                      : card.id === focusedCardId
-                        ? "ring-1 ring-primary/20"
-                        : "hover:ring-1 hover:ring-border/50 cursor-grab"
+                      ? "shadow-md canvas-card-streaming"
+                      : "cursor-grab"
               }`}
             >
               {/* Card header — icons only, no title text */}
@@ -522,6 +670,14 @@ function SimpleCanvasGridInner({
                 <div className={`flex items-center gap-0.5 shrink-0 transition-opacity ${
                   card.selected ? "opacity-100" : "opacity-40 group-hover:opacity-100 group-focus-within:opacity-100"
                 }`}>
+                  {onSendMessage && (
+                    <button onClick={(e) => { e.stopPropagation(); handleInlineChatOpen(card); }}
+                      className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
+                        inlineChatCardId === card.id ? "bg-primary text-primary-foreground" : "hover:bg-primary/60 text-muted-foreground hover:text-white"
+                      }`} aria-label="Ask about this card" title="Ask about this card">
+                      <Sparkles className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   <button onClick={(e) => { e.stopPropagation(); handleSelect(card); }}
                     className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
                       card.selected ? "bg-blue-500 text-white" : "hover:bg-blue-500/60 text-muted-foreground hover:text-white"
@@ -601,6 +757,34 @@ function SimpleCanvasGridInner({
                 </div>
               )}
 
+              {/* Inline chat input — appears when card is selected and has the sparkle button */}
+              {inlineChatCardId === card.id && onSendMessage && (
+                <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center gap-1 px-2 py-1.5 bg-background/95 backdrop-blur-sm border-t border-primary/30 rounded-b-lg"
+                  onPointerDown={(e) => e.stopPropagation()}>
+                  <Sparkles className="w-3.5 h-3.5 text-primary/60 shrink-0" />
+                  <input
+                    ref={inlineChatRef}
+                    type="text"
+                    value={inlineChatInput}
+                    onChange={(e) => setInlineChatInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleInlineChatSubmit(card);
+                      else if (e.key === "Escape") { setInlineChatCardId(null); setInlineChatInput(""); }
+                    }}
+                    placeholder="Ask about this card..."
+                    disabled={isChatStreaming}
+                    className="flex-1 h-7 px-2 text-xs rounded border border-border/60 bg-secondary/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-50"
+                  />
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleInlineChatSubmit(card); }}
+                    disabled={!inlineChatInput.trim() || isChatStreaming}
+                    className="h-7 w-7 flex items-center justify-center rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 shrink-0"
+                  >
+                    {isChatStreaming ? <Loader2 className="w-3 h-3 animate-spin" /> : <SendHorizontal className="w-3 h-3" />}
+                  </button>
+                </div>
+              )}
+
               {/* Props-lost banner — shown for cards whose data was stripped during persistence */}
               {card.propsLost && (
                 <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs">
@@ -617,8 +801,12 @@ function SimpleCanvasGridInner({
                 </div>
               )}
 
-              {/* Card content — fills entire card */}
-              <div className="flex-1 min-h-0 overflow-hidden rounded-lg">
+              {/* Card content — fills entire card, auto-height measured */}
+              <div
+                ref={card.autoHeight !== false ? autoHeightRefCallback : undefined}
+                data-auto-height-id={card.autoHeight !== false ? card.id : undefined}
+                className="flex-1 min-h-0 overflow-hidden rounded-lg"
+              >
                 {renderCard(card)}
               </div>
 
@@ -645,6 +833,36 @@ function SimpleCanvasGridInner({
           );
         })}
         </AnimatePresence>
+        </div>{/* /zoom wrapper */}
+
+        {/* Zoom controls — bottom right of canvas */}
+        <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-background/90 backdrop-blur-sm px-1 py-0.5 shadow-sm">
+          <button
+            onClick={() => dispatch({ type: "SET_ZOOM", zoom: zoom - 0.1 })}
+            disabled={zoom <= 0.5}
+            className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Zoom out"
+            aria-label="Zoom out"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => dispatch({ type: "SET_ZOOM", zoom: 1 })}
+            className="px-1.5 h-6 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 rounded transition-colors min-w-[36px]"
+            title="Reset zoom"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <button
+            onClick={() => dispatch({ type: "SET_ZOOM", zoom: zoom + 0.1 })}
+            disabled={zoom >= 1.5}
+            className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Zoom in"
+            aria-label="Zoom in"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );
