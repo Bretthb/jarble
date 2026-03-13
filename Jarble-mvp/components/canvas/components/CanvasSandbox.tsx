@@ -6,6 +6,7 @@ import { sanitizeHtmlProp, buildDocument } from "../sandbox/sandboxCore";
 import { useSandboxBridge } from "../sandbox/useSandboxBridge";
 import { SandboxShell } from "../sandbox/SandboxControls";
 import { SandboxConfigPanel } from "../sandbox/SandboxConfigPanel";
+import { useSandboxTheme } from "../SandboxThemeContext";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -40,6 +41,7 @@ function CanvasSandboxInner({
   // Note: height prop is ignored - sandbox fills its parent container
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const { dispatch } = useCanvasAction();
+  const { themeVars } = useSandboxTheme();
 
   // Config panel state — values from configSchema override sandbox props
   const [configValues, setConfigValues] = useState<Record<string, unknown>>({});
@@ -55,10 +57,10 @@ function CanvasSandboxInner({
   // Sanitize: extract <script>/<style>/<link> tags from html prop into proper fields
   const sanitized = sanitizeHtmlProp(html, js, libraries, "[Jarble:Sandbox]", css);
 
-  // Build srcdoc string — changes when content changes
+  // Build srcdoc string — changes when content changes (includes parent theme vars)
   const srcdoc = buildDocument(sanitized.html, sanitized.css, sanitized.js, sanitized.libraries, {
     logPrefix: "[Jarble:Sandbox]",
-  }, sanitized.moduleJs || moduleJs, importMap);
+  }, sanitized.moduleJs || moduleJs, importMap, themeVars);
 
   isDev && console.log("[Jarble:Sandbox] Render — html:", html?.length, "chars, css:", css?.length || 0, "chars, js:", js?.length || 0, "chars, libraries:", libraries);
 

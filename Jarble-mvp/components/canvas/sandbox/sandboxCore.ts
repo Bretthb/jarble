@@ -203,6 +203,30 @@ export function sanitizeHtmlProp(
 }
 
 /**
+ * Build skin-specific default styles for sandbox content.
+ * These provide sensible defaults when a skin is active so AI-generated
+ * content automatically looks consistent with the parent chat UI.
+ */
+function buildSkinCSS(skinName: string): string {
+  switch (skinName) {
+    case "terminal":
+      return `    body { font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace); color: var(--foreground, #00ff00); }`;
+    case "retro":
+      return `    body { font-family: var(--font-pixel, 'Press Start 2P', monospace); image-rendering: pixelated; color: var(--foreground, #212529); }`;
+    case "glass":
+      return `    body { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: var(--foreground, inherit); }`;
+    case "handdrawn":
+      return `    body { font-family: var(--font-handdrawn, 'Caveat', 'Comic Sans MS', cursive); color: var(--foreground, inherit); }`;
+    case "neobrutalist":
+      return `    body { color: var(--foreground, inherit); }\n    body > * { border: 3px solid currentColor; box-shadow: 4px 4px 0 currentColor; }`;
+    case "win98":
+      return `    body { font-family: 'MS Sans Serif', 'Segoe UI', Tahoma, sans-serif; color: var(--foreground, #000000); }`;
+    default:
+      return "";
+  }
+}
+
+/**
  * Build the full HTML document for a sandbox iframe.
  *
  * Rendered via srcdoc — without allow-same-origin the iframe gets a unique
@@ -218,6 +242,7 @@ export function buildDocument(
   config: SandboxDocumentConfig = { logPrefix: "[Jarble:Sandbox]" },
   moduleJs?: string,
   importMap?: Record<string, string>,
+  themeVars?: Record<string, string>,
 ): string {
   const { logPrefix } = config;
 
@@ -263,11 +288,27 @@ export function buildDocument(
     `frame-src 'none'`,
   ].join("; ");
 
+  // Build theme CSS variable declarations from parent page's resolved theme
+  const themeVarDeclarations = themeVars && Object.keys(themeVars).length > 0
+    ? Object.entries(themeVars)
+        .map(([key, value]) => `      ${key}: ${value};`)
+        .join("\n")
+    : "";
+
+  // Detect skin name for skin-specific default styles
+  const skinName = themeVars?.["--jarble-skin"] || "";
+  const skinCSS = buildSkinCSS(skinName);
+
   const themeCSS = `
-    :root { color-scheme: light dark; font-family: system-ui, -apple-system, sans-serif; }
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, -apple-system, sans-serif;
+${themeVarDeclarations}
+    }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
     canvas { display: block; width: 100% !important; height: 100% !important; }
+${skinCSS}
   `;
 
   // User JS is executed AFTER all libraries are dynamically loaded

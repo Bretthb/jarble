@@ -425,6 +425,11 @@ export function useCanvasChat(
                 if (event.name === "jarble.sse.error" && event.value) {
                   console.error(`[Jarble:Chat] SSE serialization error from server: ${event.value.message}`);
                 }
+                if (event.name === "jarble.theme.updated") {
+                  // Theme was changed by the bot — trigger a deployment refetch
+                  // so useDeploymentTheme picks up the new themeConfig from the DB
+                  window.dispatchEvent(new CustomEvent("jarble:theme-updated", { detail: event.value }));
+                }
               }
 
               // Break both the for loop and the outer while loop cleanly

@@ -5,6 +5,7 @@ import { useCanvasAction } from "../CanvasActionContext";
 import { sanitizeHtmlProp, buildDocument, buildOuterDocument } from "../sandbox/sandboxCore";
 import { SandboxShell } from "../sandbox/SandboxControls";
 import type { SandboxErrorInfo } from "../sandbox/types";
+import { useSandboxTheme } from "../SandboxThemeContext";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -38,17 +39,21 @@ function MarketplaceSandboxInner({
   const [stopped, setStopped] = useState(false);
   const [badgeDismissed, setBadgeDismissed] = useState(false);
   const { dispatch } = useCanvasAction();
+  const { themeVars } = useSandboxTheme();
 
   // Sanitize: extract <script>/<style>/<link> tags from html prop into proper fields
   const sanitized = sanitizeHtmlProp(html, js, libraries, "[Jarble:MarketplaceSandbox]", css);
 
-  // Build the inner document (component content)
+  // Build the inner document (component content) — inject parent theme vars
   const innerSrcdoc = buildDocument(
     sanitized.html,
     sanitized.css,
     sanitized.js,
     sanitized.libraries,
     { logPrefix: "[Jarble:MarketplaceSandbox:Inner]" },
+    undefined,
+    undefined,
+    themeVars,
   );
 
   // Build the outer document (bridge)

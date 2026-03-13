@@ -108,6 +108,145 @@ function extractDeploymentId(body: any): string | null {
   return null;
 }
 
+// ── Theme/Skin intent detection + in-process handling ─────────────────────
+
+import { validateThemeConfig, THEME_PRESET_NAMES, SKIN_NAMES } from "@jarble/component-manifest";
+
+const THEME_PRESET_SET = new Set(THEME_PRESET_NAMES);
+const SKIN_SET = new Set(SKIN_NAMES as readonly string[]);
+
+/**
+ * Detect if the user's message is a theme/skin change request.
+ * If so, handle it directly (no pod needed) and return true.
+ */
+async function tryHandleThemeRequest(
+  userText: string,
+  deploymentId: string,
+  deployment: any,
+  res: any,
+  runId: string,
+  threadId: string,
+): Promise<boolean> {
+  const lower = userText.toLowerCase().trim();
+
+  // Quick gate: must mention theme, skin, or a known preset/skin name
+  const themeKeywords = /\b(theme|skin|set.?theme|change.?theme|switch.?theme|reset.?theme|default.?theme)\b/i;
+  const hasPresetName = THEME_PRESET_NAMES.some(p => lower.includes(p));
+  const hasSkinName = (SKIN_NAMES as readonly string[]).some(s => s !== "default" && lower.includes(s));
+
+  if (!themeKeywords.test(lower) && !hasPresetName && !hasSkinName) {
+    return false; // Not a theme request — let the pod handle it
+  }
+
+  // Parse intent
+  let preset: string | undefined;
+  let skin: string | undefined;
+  const isReset = /\b(reset|default|back to (default|normal|original))\b/i.test(lower);
+
+  if (isReset) {
+    preset = "default";
+    skin = "default";
+  } else {
+    // Find preset name
+    for (const p of THEME_PRESET_NAMES) {
+      if (lower.includes(p)) {
+        preset = p;
+        break;
+      }
+    }
+    // Find skin name
+    for (const s of SKIN_NAMES as readonly string[]) {
+      if (s !== "default" && lower.includes(s)) {
+        skin = s;
+        break;
+      }
+    }
+  }
+
+  // If we only matched keywords but no actual preset/skin, let the pod handle it
+  if (!preset && !skin) return false;
+
+  // Build theme config
+  const currentConfig = deployment.themeConfig
+    ? (() => { try { return JSON.parse(deployment.themeConfig); } catch { return {}; } })()
+    : {};
+
+  const newConfig = { ...currentConfig };
+  if (preset) newConfig.preset = preset;
+  if (skin) newConfig.skin = skin;
+
+  const isFullReset = preset === "default" && skin === "default";
+
+  // Send RUN_STARTED so the frontend knows we're handling this
+  sendEvent(res, { type: "RUN_STARTED", runId, threadId });
+
+  // Validate
+  if (!isFullReset) {
+    const error = validateThemeConfig(newConfig);
+    if (error) {
+      const mid = nanoid();
+      sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: mid, role: "assistant" });
+      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId: mid, delta: `Couldn't set that theme: ${error}` });
+      sendEvent(res, { type: "TEXT_MESSAGE_END", messageId: mid });
+      sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+      res.end();
+      return true;
+    }
+  }
+
+  // Persist to DB
+  await db.update(tables.deployments)
+    .set({ themeConfig: isFullReset ? null : JSON.stringify(newConfig) } as any)
+    .where(eq(tables.deployments.id, deploymentId));
+
+  // Send SSE events
+  const mid = nanoid();
+  sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: mid, role: "assistant" });
+
+  // Build friendly response
+  const parts: string[] = [];
+  if (isFullReset) {
+    parts.push("Reset to the default theme.");
+  } else {
+    if (preset) parts.push(`**Color preset**: ${preset}`);
+    if (skin) parts.push(`**Skin**: ${skin}`);
+  }
+
+  const skinDescriptions: Record<string, string> = {
+    terminal: "monospace font, CRT scanlines, command-line prompts",
+    retro: "8-bit pixel font, NES-style borders, classic gaming aesthetic",
+    handdrawn: "hand-drawn sketchy borders, wobbly elements, cursive font",
+    neobrutalist: "bold 3px borders, chunky offset shadows, playful rotations",
+    glass: "frosted glassmorphism with blur effects and subtle glow",
+    minimal: "clean and spacious — hidden avatars, borderless messages",
+    win98: "classic Windows 98 — silver gray, 3D beveled borders, blue title bar",
+  };
+
+  if (skin && skin !== "default" && skinDescriptions[skin]) {
+    parts.push(`\n*${skinDescriptions[skin]}*`);
+  }
+
+  const responseText = isFullReset
+    ? "Theme reset to default. Clean slate!"
+    : `Theme updated!\n\n${parts.join("\n")}`;
+
+  sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId: mid, delta: responseText });
+  sendEvent(res, { type: "TEXT_MESSAGE_END", messageId: mid });
+
+  // Fire live theme update event so frontend applies immediately
+  sendEvent(res, {
+    type: CUSTOM,
+    name: "jarble.theme.updated",
+    value: isFullReset ? null : newConfig,
+  });
+
+  log.info({ deploymentId, preset, skin, isReset: isFullReset }, "Chat: theme changed via in-process interception");
+
+  sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+  res.end();
+  return true;
+}
+
 /**
  * Resolve custom component references in UI blocks.
  * If a block references a custom component (not built-in), reads its definition
@@ -352,6 +491,11 @@ tamboAgentRouter.post("/", async (req, res) => {
     return;
   }
 
+  // ── Theme/skin interception — handle directly without pod ────────────────
+  // Detect theme/skin intent in user message and handle via in-process tool
+  const themeResult = await tryHandleThemeRequest(lastUserText, deploymentId, deployment, res, runId, threadId);
+  if (themeResult) return;
+
   if (deployment.status !== "running") {
     const classified = classifyError("", { deploymentStatus: deployment.status });
     const messageId = nanoid();
@@ -484,6 +628,41 @@ tamboAgentRouter.post("/", async (req, res) => {
         });
         log.info({ deploymentId, name: def.name, childCount: def.layout.length }, "Chat: component defined");
       }
+    }
+
+    // ── Check for pending theme change from MCP set_theme ─────────────
+    // The MCP server writes /data/config/pending-theme.json when set_theme
+    // is called. We pick it up here and persist to the DB so the frontend
+    // can apply it immediately.
+    try {
+      const podName = await findPodForDeployment(deploymentId, { requireReady: false, managedBy });
+      if (podName) {
+        const { execInPod } = await import("../k8s/index.js");
+        const containerName = getContainerName(managedBy);
+        const themeJson = await execInPod(podName, [
+          "sh", "-c",
+          "cat /data/config/pending-theme.json 2>/dev/null && rm -f /data/config/pending-theme.json",
+        ], containerName).catch(() => "");
+        if (themeJson.trim()) {
+          const { validateThemeConfig } = await import("@jarble/component-manifest");
+          const themeConfig = JSON.parse(themeJson.trim());
+          const error = validateThemeConfig(themeConfig);
+          if (!error) {
+            const isReset = themeConfig.preset === "default" && Object.keys(themeConfig).length === 1;
+            await db.update(tables.deployments)
+              .set({ themeConfig: isReset ? null : JSON.stringify(themeConfig) } as any)
+              .where(eq(tables.deployments.id, deploymentId));
+            sendEvent(res, {
+              type: CUSTOM,
+              name: "jarble.theme.updated",
+              value: isReset ? null : themeConfig,
+            });
+            log.info({ deploymentId, preset: themeConfig.preset }, "Chat: theme updated from MCP set_theme");
+          }
+        }
+      }
+    } catch (themeErr) {
+      log.warn({ deploymentId, err: themeErr }, "Chat: failed to check pending theme (non-fatal)");
     }
 
     const durationMs = Date.now() - requestStartMs;

@@ -3,6 +3,7 @@
 import { memo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useCanvasAction } from "../CanvasActionContext";
+import { useSandboxTheme } from "../SandboxThemeContext";
 
 // Lazy-load Sandpack (no SSR — needs browser APIs)
 const SandpackProvider = dynamic(
@@ -38,6 +39,7 @@ function CanvasSandpackSandboxInner({
   entryFile = "/App.tsx",
 }: CanvasSandpackSandboxProps) {
   const { dispatch } = useCanvasAction();
+  const { themeVars } = useSandboxTheme();
   const [loading, setLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -46,6 +48,20 @@ function CanvasSandpackSandboxInner({
   for (const [path, code] of Object.entries(files)) {
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
     sandpackFiles[normalizedPath] = code;
+  }
+
+  // Inject theme CSS variables as a virtual file so Sandpack content inherits the theme
+  if (themeVars && Object.keys(themeVars).length > 0) {
+    const themeVarDeclarations = Object.entries(themeVars)
+      .map(([key, value]) => `  ${key}: ${value};`)
+      .join("\n");
+    sandpackFiles["/jarble-theme.css"] = `:root {\n${themeVarDeclarations}\n}\n`;
+
+    // Ensure the theme CSS is imported in the entry file
+    const entryKey = sandpackFiles[entryFile] ? entryFile : (sandpackFiles["/App.tsx"] ? "/App.tsx" : "/App.js");
+    if (sandpackFiles[entryKey] && !sandpackFiles[entryKey].includes("jarble-theme.css")) {
+      sandpackFiles[entryKey] = `import "./jarble-theme.css";\n${sandpackFiles[entryKey]}`;
+    }
   }
 
   // Ensure entry file exists

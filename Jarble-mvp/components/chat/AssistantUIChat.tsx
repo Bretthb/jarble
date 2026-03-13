@@ -77,7 +77,7 @@ function UserBubble() {
   if (isActionRelay) {
     return (
       <MessagePrimitive.Root className="flex justify-end">
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50 border border-border/40 max-w-[70%]">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50 border border-border/40 max-w-[70%]" data-role="action-relay">
           <span className="text-xs italic text-muted-foreground">{content}</span>
         </div>
       </MessagePrimitive.Root>
@@ -87,13 +87,13 @@ function UserBubble() {
   return (
     <MessagePrimitive.Root className="flex gap-3 flex-row-reverse group" data-testid="user-message">
       {/* Avatar */}
-      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border bg-primary/90 text-primary-foreground border-primary/20">
+      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border bg-primary/90 text-primary-foreground border-primary/20" data-avatar="user">
         <span className="text-[10px] font-semibold">Y</span>
       </div>
 
       {/* Content + actions */}
       <div className="flex flex-col gap-0.5 items-end flex-1 max-w-[80%]">
-        <div className="rounded-lg px-4 py-3 bg-primary/90 text-primary-foreground shadow-sm">
+        <div className="rounded-lg px-4 py-3 bg-primary/90 text-primary-foreground shadow-sm" data-role="user">
           <p className="text-sm">{content}</p>
         </div>
         {/* Copy action - only shows on hover */}
@@ -122,13 +122,14 @@ function AssistantBubble() {
   return (
     <MessagePrimitive.Root className="flex gap-3 group" data-testid="assistant-message">
       {/* Avatar */}
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500/20 to-primary/20 border border-primary/10 flex items-center justify-center shrink-0">
+      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500/20 to-primary/20 border border-primary/10 flex items-center justify-center shrink-0" data-avatar="assistant">
         <Sparkles className="w-3.5 h-3.5 text-primary/70" />
       </div>
 
       {/* Content + actions */}
       <div className="flex flex-col gap-0.5 items-start flex-1 max-w-[80%]">
         <div
+          data-role="assistant"
           className={cn(
             "rounded-lg px-4 py-3 bg-secondary/30",
             isInProgress && "animate-[shimmer_2s_ease-in-out_infinite]",

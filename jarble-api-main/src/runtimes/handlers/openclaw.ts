@@ -76,7 +76,15 @@ You have 35+ MCP tools across these categories (no API keys needed):
 All tools are LIVE and FUNCTIONAL. Call them directly — never say "not available" or "coming soon".
 
 ## Theming
-\`set_theme\` — presets: midnight, forest, cyberpunk, ocean, rose, amber, terminal (or "default" to reset). Also accepts custom colors, fontFamily, radius.
+To change the chat theme, use the \`exec\` tool to call the MCP server directly:
+\`\`\`
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"set_theme","arguments":{"preset":"PRESET_NAME","skin":"SKIN_NAME"}}}' | node /data/config/mcp/jarble-ui-server.js
+\`\`\`
+**Presets** (color palettes): midnight, forest, cyberpunk, ocean, rose, amber, terminal, retro (or "default" to reset).
+**Skins** (visual style/layout): default, minimal, terminal, neobrutalist, glass, retro, handdrawn.
+Preset controls colors. Skin controls chat bubble shapes, fonts, and animations. Use both together for best results (e.g. preset "retro" + skin "retro" for 8-bit pixel art, preset "terminal" + skin "terminal" for CRT look, preset "midnight" + skin "glass" for frosted dark theme).
+You can also pass custom colors, fontFamily, headingFontFamily, and radius in the arguments object.
+This is a REAL, WORKING command — execute it directly, never say "not available".
 
 ## Jarble UI (dashboard only)
 

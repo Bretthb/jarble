@@ -29,6 +29,8 @@ import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } f
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
 import type { ThemeConfig } from "@jarble/component-manifest";
+import { SandboxThemeProvider } from "@/components/canvas/SandboxThemeContext";
+import "./chat-skins.css";
 import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import ChatErrorCard from "@/components/workspace/ChatErrorCard";
@@ -237,10 +239,43 @@ function WorkspacePage({
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
   const [hostedServicesOpen, setHostedServicesOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
-  const themeStyle = useDeploymentTheme(themeConfig);
+  const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
+  const themeStyle = useDeploymentTheme(liveThemeConfig);
+
+  const currentSkin = useMemo(() => {
+    if (!liveThemeConfig) return undefined;
+    try {
+      const config = JSON.parse(liveThemeConfig);
+      return config.skin || undefined;
+    } catch {
+      return undefined;
+    }
+  }, [liveThemeConfig]);
+
+  // Resolved theme vars for sandbox injection (same data as themeStyle but typed as Record)
+  const sandboxThemeVars = useMemo<Record<string, string>>(() => {
+    if (!liveThemeConfig) return {};
+    try {
+      const config: ThemeConfig = JSON.parse(liveThemeConfig);
+      return resolveThemeVars(config);
+    } catch {
+      return {};
+    }
+  }, [liveThemeConfig]);
+
+  // Listen for bot-triggered theme changes via SSE
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setLiveThemeConfig(detail ? JSON.stringify(detail) : null);
+    };
+    window.addEventListener("jarble:theme-updated", handler);
+    return () => window.removeEventListener("jarble:theme-updated", handler);
+  }, []);
 
   return (
-    <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden" style={themeStyle}>
+    <SandboxThemeProvider themeVars={sandboxThemeVars}>
+      <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden" data-skin={currentSkin} style={themeStyle}>
       {/* Header */}
       <header className="border-b border-border/60 bg-background/95 backdrop-blur-sm z-10 shrink-0">
         <div className="px-4 py-2 flex items-center justify-between">
@@ -348,6 +383,7 @@ function WorkspacePage({
         )}
       </div>
     </div>
+    </SandboxThemeProvider>
   );
 }
 

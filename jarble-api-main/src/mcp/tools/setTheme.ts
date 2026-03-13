@@ -7,13 +7,13 @@ import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 export const setThemeTool: McpTool = {
   name: "set_theme",
   description:
-    "Set the visual theme for this deployment's web chat page. Supports presets (midnight, forest, cyberpunk, ocean, rose, amber, terminal) and custom color overrides. Use 'default' preset to reset. Omit all params to view current theme.",
+    "Set the visual theme for this deployment's web chat page. Supports presets (midnight, forest, cyberpunk, ocean, rose, amber, terminal), skins (default, minimal, terminal, neobrutalist, glass) that change bubble shapes/animations/layout, and custom color overrides. Use 'default' preset to reset. Omit all params to view current theme.",
   parameters: {
     type: "object",
     properties: {
       preset: {
         type: "string",
-        enum: ["default", "midnight", "forest", "cyberpunk", "ocean", "rose", "amber", "terminal"],
+        enum: ["default", "midnight", "forest", "cyberpunk", "ocean", "rose", "amber", "terminal", "retro", "win98"],
         description: "Theme preset name. 'default' resets to platform defaults.",
       },
       colors: {
@@ -34,11 +34,16 @@ export const setThemeTool: McpTool = {
         type: "string",
         description: "CSS font-family for headings, e.g. \"'Playfair Display', serif\"",
       },
+      skin: {
+        type: "string",
+        enum: ["default", "minimal", "terminal", "neobrutalist", "glass", "retro", "handdrawn", "win98"],
+        description: "Chat skin/visual style. Changes bubble shapes, animations, and chat layout.",
+      },
     },
   },
   async execute(params: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
     // If nothing specified, return current theme
-    const hasParams = params.preset || params.colors || params.radius || params.fontFamily || params.headingFontFamily;
+    const hasParams = params.preset || params.colors || params.radius || params.fontFamily || params.headingFontFamily || params.skin;
     if (!hasParams) {
       const current = ctx.deployment.themeConfig;
       if (!current) {
@@ -63,6 +68,7 @@ export const setThemeTool: McpTool = {
     if (params.radius) themeConfig.radius = params.radius;
     if (params.fontFamily) themeConfig.fontFamily = params.fontFamily;
     if (params.headingFontFamily) themeConfig.headingFontFamily = params.headingFontFamily;
+    if (params.skin) themeConfig.skin = params.skin;
 
     // If preset is "default" and nothing else, reset
     if (themeConfig.preset === "default" && Object.keys(themeConfig).length === 1) {
@@ -91,6 +97,7 @@ export const setThemeTool: McpTool = {
     if (themeConfig.radius) parts.push(`Border radius: ${themeConfig.radius}`);
     if (themeConfig.fontFamily) parts.push(`Font: ${themeConfig.fontFamily}`);
     if (themeConfig.headingFontFamily) parts.push(`Heading font: ${themeConfig.headingFontFamily}`);
+    if (themeConfig.skin) parts.push(`Skin: ${themeConfig.skin}`);
 
     logger.info({ deploymentId: ctx.deploymentId, preset: themeConfig.preset }, "MCP: Theme updated");
 

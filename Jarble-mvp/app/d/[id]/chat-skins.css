@@ -1,0 +1,1045 @@
+/*
+ * Chat Skins — CSS-only visual overrides for deployment chat pages.
+ *
+ * Each skin is scoped under [data-skin="<name>"] on the root element.
+ * Targets stable data attributes:
+ *   [data-role="user"]       — user message bubble
+ *   [data-role="assistant"]  — assistant message bubble
+ *   [data-role="action-relay"] — action relay chip
+ *   [data-avatar="user"]    — user avatar circle
+ *   [data-avatar="assistant"] — assistant avatar circle
+ *   [data-testid="user-message"] — user message row
+ *   [data-testid="assistant-message"] — assistant message row
+ *
+ * Skins rely on CSS custom properties (--primary, --foreground, etc.)
+ * so they automatically adapt to any color theme.
+ *
+ * Skins: default | minimal | terminal | neobrutalist | glass
+ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   MINIMAL — Clean, spacious, modern
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Hide avatars */
+[data-skin="minimal"] [data-avatar] {
+  display: none;
+}
+
+/* Wider messages */
+[data-skin="minimal"] [data-testid="user-message"] > div:last-of-type,
+[data-skin="minimal"] [data-testid="assistant-message"] > div:last-of-type {
+  max-width: 90%;
+}
+
+/* Message bubbles: borderless, bottom-ruled */
+[data-skin="minimal"] [data-role="user"] {
+  background: transparent !important;
+  color: var(--foreground, inherit) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border-bottom: 1px solid var(--border, currentColor);
+  padding-bottom: 1rem;
+  font-size: 1.05rem;
+  animation: skin-minimal-fade-in 0.35s ease-out both;
+}
+
+[data-skin="minimal"] [data-role="assistant"] {
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border-bottom: 1px solid var(--border, currentColor);
+  padding-bottom: 1rem;
+  font-size: 1.05rem;
+  animation: skin-minimal-fade-in 0.35s ease-out both;
+}
+
+/* Action relay: even more subtle */
+[data-skin="minimal"] [data-role="action-relay"] {
+  background: transparent !important;
+  border: none !important;
+  opacity: 0.5;
+}
+
+/* Input: minimal underline */
+[data-skin="minimal"] textarea {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--border, currentColor) !important;
+  border-radius: 0 !important;
+  font-size: 1.05rem;
+  transition: border-color 0.2s ease;
+}
+
+[data-skin="minimal"] textarea:focus {
+  border-bottom-color: var(--primary, currentColor) !important;
+  outline: none !important;
+  box-shadow: none !important;
+  ring: none !important;
+}
+
+@keyframes skin-minimal-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TERMINAL — Full CRT terminal experience
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Force monospace everywhere + CRT ambient glow on the whole page */
+[data-skin="terminal"] {
+  font-family: var(--font-mono), 'JetBrains Mono', 'Fira Code', 'Courier New', monospace !important;
+  background: #000 !important;
+}
+
+[data-skin="terminal"] * {
+  font-family: inherit !important;
+}
+
+/* ── CRT screen effects ── */
+
+/* Scanlines — visible but not distracting */
+[data-skin="terminal"]::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 1px,
+    rgba(0, 0, 0, 0.15) 1px,
+    rgba(0, 0, 0, 0.15) 3px
+  );
+  animation: skin-terminal-flicker 6s infinite ease-in-out;
+}
+
+/* CRT vignette — dark edges like a curved screen */
+[data-skin="terminal"]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 60%,
+    rgba(0, 0, 0, 0.5) 100%
+  );
+}
+
+/* ── Chat panel — looks like a terminal window ── */
+
+/* The chat column */
+[data-skin="terminal"] .flex.flex-col.bg-background {
+  background: #0a0a0a !important;
+  border: 1px solid var(--primary, #00ff00) !important;
+  box-shadow:
+    0 0 15px rgba(var(--primary-rgb, 0 255 0), 0.1),
+    inset 0 0 60px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Terminal title bar on the header */
+[data-skin="terminal"] header {
+  background: #111 !important;
+  border-bottom: 1px solid var(--primary, #00ff00) !important;
+  box-shadow: 0 1px 10px rgba(var(--primary-rgb, 0 255 0), 0.08);
+}
+
+/* Glow on all text in the thread */
+[data-skin="terminal"] [data-role="user"],
+[data-skin="terminal"] [data-role="assistant"],
+[data-skin="terminal"] [data-role="user"] *,
+[data-skin="terminal"] [data-role="assistant"] * {
+  text-shadow:
+    0 0 4px currentColor,
+    0 0 8px rgba(var(--primary-rgb, 0 255 0), 0.3) !important;
+}
+
+/* ── Hide avatars — terminals don't have profile pics ── */
+[data-skin="terminal"] [data-avatar] {
+  display: none !important;
+}
+
+/* ── Message rows — full width like terminal output ── */
+[data-skin="terminal"] [data-testid="user-message"],
+[data-skin="terminal"] [data-testid="assistant-message"] {
+  flex-direction: column !important;
+}
+
+[data-skin="terminal"] [data-testid="user-message"] > div:last-of-type,
+[data-skin="terminal"] [data-testid="assistant-message"] > div:last-of-type {
+  max-width: 100% !important;
+  align-items: flex-start !important;
+}
+
+/* ── Message bubbles → terminal output blocks ── */
+[data-skin="terminal"] [data-role="user"],
+[data-skin="terminal"] [data-role="assistant"] {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: rgba(var(--primary-rgb, 0 255 0), 0.03) !important;
+  border: none !important;
+  border-left: 2px solid var(--primary, #00ff00) !important;
+  padding: 8px 12px 8px 16px !important;
+  position: relative;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  letter-spacing: 0.02em;
+  width: 100%;
+}
+
+[data-skin="terminal"] [data-role="user"] {
+  color: var(--foreground, #00ff00) !important;
+  border-left-color: var(--primary, #00ff00) !important;
+}
+
+[data-skin="terminal"] [data-role="assistant"] {
+  border-left-color: var(--muted-foreground, #00aa00) !important;
+  opacity: 0.9;
+}
+
+/* Prompt prefixes */
+[data-skin="terminal"] [data-role="user"]::before {
+  content: "user@jarble:~$ ";
+  color: var(--primary, #00ff00);
+  font-weight: 700;
+  opacity: 0.7;
+  font-size: 0.85em;
+}
+
+[data-skin="terminal"] [data-role="assistant"]::before {
+  content: "[system] ";
+  color: var(--muted-foreground, #00aa00);
+  font-weight: 700;
+  opacity: 0.6;
+  font-size: 0.85em;
+}
+
+/* ── Input area — command line prompt ── */
+
+/* Input wrapper */
+[data-skin="terminal"] .border-t {
+  background: #0a0a0a !important;
+  border-top: 1px solid rgba(var(--primary-rgb, 0 255 0), 0.3) !important;
+  position: relative;
+}
+
+/* The $ prompt before input */
+[data-skin="terminal"] form {
+  position: relative;
+}
+
+[data-skin="terminal"] form::before {
+  content: "$";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--primary, #00ff00);
+  font-weight: 700;
+  font-size: 1.1rem;
+  text-shadow: 0 0 8px currentColor;
+  z-index: 2;
+  pointer-events: none;
+}
+
+[data-skin="terminal"] textarea {
+  background: transparent !important;
+  border: 1px solid rgba(var(--primary-rgb, 0 255 0), 0.2) !important;
+  border-radius: 0 !important;
+  caret-color: var(--primary, #00ff00);
+  color: var(--foreground, #00ff00) !important;
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 4px currentColor;
+  padding-left: 24px !important;
+}
+
+[data-skin="terminal"] textarea::placeholder {
+  color: rgba(var(--primary-rgb, 0 255 0), 0.25) !important;
+}
+
+[data-skin="terminal"] textarea:focus {
+  outline: none !important;
+  box-shadow: 0 0 10px rgba(var(--primary-rgb, 0 255 0), 0.1) !important;
+  border-color: rgba(var(--primary-rgb, 0 255 0), 0.4) !important;
+}
+
+/* Send button — glowing terminal accent */
+[data-skin="terminal"] button[type="submit"] {
+  border-radius: 0 !important;
+  border: 1px solid var(--primary, #00ff00) !important;
+  box-shadow: 0 0 8px rgba(var(--primary-rgb, 0 255 0), 0.2);
+  background: rgba(var(--primary-rgb, 0 255 0), 0.1) !important;
+}
+
+[data-skin="terminal"] button[type="submit"]:hover {
+  box-shadow: 0 0 15px rgba(var(--primary-rgb, 0 255 0), 0.4) !important;
+}
+
+/* Action relay: command echo */
+[data-skin="terminal"] [data-role="action-relay"] {
+  border-radius: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-left: 2px solid rgba(var(--primary-rgb, 0 255 0), 0.3) !important;
+  text-shadow: 0 0 4px currentColor;
+  opacity: 0.5;
+}
+
+/* Canvas/dashboard area — dark terminal background */
+[data-skin="terminal"] .bg-secondary\/10 {
+  background: #050505 !important;
+}
+
+/* Resize handle — glowing line */
+[data-skin="terminal"] .cursor-col-resize > div {
+  background: var(--primary, #00ff00) !important;
+  box-shadow: 0 0 6px currentColor;
+  opacity: 0.4;
+}
+
+/* CRT flicker + glow pulse */
+@keyframes skin-terminal-flicker {
+  0%   { opacity: 1; }
+  3%   { opacity: 0.97; }
+  6%   { opacity: 1; }
+  50%  { opacity: 0.99; }
+  53%  { opacity: 0.96; }
+  56%  { opacity: 1; }
+  75%  { opacity: 1; }
+  78%  { opacity: 0.98; }
+  80%  { opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   NEOBRUTALIST — Bold, chunky, playful
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Heavier font weight */
+[data-skin="neobrutalist"] {
+  font-weight: 500;
+}
+
+/* Message bubbles: thick border, offset shadow, square */
+[data-skin="neobrutalist"] [data-role="user"],
+[data-skin="neobrutalist"] [data-role="assistant"] {
+  border-radius: 0 !important;
+  border: 3px solid currentColor !important;
+  box-shadow: 4px 4px 0 currentColor !important;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  font-weight: 500;
+}
+
+[data-skin="neobrutalist"] [data-role="user"]:hover,
+[data-skin="neobrutalist"] [data-role="assistant"]:hover {
+  box-shadow: 2px 2px 0 currentColor !important;
+  transform: translate(2px, 2px);
+}
+
+/* Slight rotation on alternating messages */
+[data-skin="neobrutalist"] [data-testid="user-message"]:nth-child(odd) [data-role="user"] {
+  transform: rotate(-0.5deg);
+}
+
+[data-skin="neobrutalist"] [data-testid="assistant-message"]:nth-child(even) [data-role="assistant"] {
+  transform: rotate(0.5deg);
+}
+
+[data-skin="neobrutalist"] [data-testid="user-message"]:nth-child(odd) [data-role="user"]:hover {
+  transform: rotate(-0.5deg) translate(2px, 2px);
+}
+
+[data-skin="neobrutalist"] [data-testid="assistant-message"]:nth-child(even) [data-role="assistant"]:hover {
+  transform: rotate(0.5deg) translate(2px, 2px);
+}
+
+/* Avatar: square, thick border */
+[data-skin="neobrutalist"] [data-avatar] {
+  border-radius: 0 !important;
+  border: 3px solid currentColor !important;
+  box-shadow: 2px 2px 0 currentColor;
+}
+
+/* Input: chunky */
+[data-skin="neobrutalist"] textarea {
+  border-radius: 0 !important;
+  border: 3px solid currentColor !important;
+  box-shadow: 4px 4px 0 currentColor;
+  font-weight: 500;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+[data-skin="neobrutalist"] textarea:focus {
+  box-shadow: 2px 2px 0 currentColor !important;
+  transform: translate(2px, 2px);
+  outline: none !important;
+}
+
+/* Action relay: brutalist chip */
+[data-skin="neobrutalist"] [data-role="action-relay"] {
+  border-radius: 0 !important;
+  border: 2px solid currentColor !important;
+  box-shadow: 2px 2px 0 currentColor;
+  font-weight: 600;
+}
+
+/* Send button: brutalist */
+[data-skin="neobrutalist"] button[type="submit"] {
+  border-radius: 0 !important;
+  border: 3px solid currentColor !important;
+  box-shadow: 3px 3px 0 currentColor;
+}
+
+[data-skin="neobrutalist"] button[type="submit"]:hover {
+  box-shadow: 1px 1px 0 currentColor !important;
+  transform: translate(2px, 2px);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   GLASS — Frosted glassmorphism
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* User bubble: frosted primary tint */
+[data-skin="glass"] [data-role="user"] {
+  background: rgba(var(--primary-rgb, 100 100 255), 0.15) !important;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-radius: 16px !important;
+  border: 1px solid rgba(var(--primary-rgb, 100 100 255), 0.25) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  color: var(--foreground, inherit) !important;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+/* Assistant bubble: frosted neutral */
+[data-skin="glass"] [data-role="assistant"] {
+  background: rgba(255, 255, 255, 0.08) !important;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-radius: 16px !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+/* Input: glassmorphic */
+[data-skin="glass"] textarea {
+  background: rgba(255, 255, 255, 0.06) !important;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-radius: 20px !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+[data-skin="glass"] textarea:focus {
+  border-color: rgba(var(--primary-rgb, 100 100 255), 0.4) !important;
+  box-shadow: 0 0 20px rgba(var(--primary-rgb, 100 100 255), 0.15) !important;
+  outline: none !important;
+}
+
+/* Avatar: glass circle */
+[data-skin="glass"] [data-avatar] {
+  background: rgba(255, 255, 255, 0.1) !important;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Action relay: glass chip */
+[data-skin="glass"] [data-role="action-relay"] {
+  background: rgba(255, 255, 255, 0.06) !important;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Send button: glass */
+[data-skin="glass"] button[type="submit"] {
+  border-radius: 16px !important;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   RETRO — 8-bit pixel art / NES.css inspired
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Pixel font + rendering */
+[data-skin="retro"] {
+  font-family: var(--font-pixel), 'Press Start 2P', 'VT323', 'Courier New', monospace !important;
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+}
+
+[data-skin="retro"] * {
+  font-family: inherit !important;
+}
+
+/* ── NES-style pixel borders via box-shadow ── */
+
+/* Message bubbles: pixel art speech boxes */
+[data-skin="retro"] [data-role="user"],
+[data-skin="retro"] [data-role="assistant"] {
+  border-radius: 0 !important;
+  border: none !important;
+  position: relative;
+  padding: 12px 16px !important;
+  font-size: 0.7rem !important;
+  line-height: 1.8 !important;
+  letter-spacing: 0.05em;
+  /* NES-style pixel border using box-shadow */
+  box-shadow:
+    /* outer border */
+    -4px 0 0 0 var(--foreground, #212529),
+    4px 0 0 0 var(--foreground, #212529),
+    0 -4px 0 0 var(--foreground, #212529),
+    0 4px 0 0 var(--foreground, #212529),
+    /* corner fills */
+    -4px -4px 0 0 transparent,
+    4px -4px 0 0 transparent,
+    -4px 4px 0 0 transparent,
+    4px 4px 0 0 transparent !important;
+  background: var(--background, #fff) !important;
+  color: var(--foreground, #212529) !important;
+  margin: 8px 4px !important;
+}
+
+[data-skin="retro"] [data-role="user"] {
+  background: var(--primary, #209cee) !important;
+  color: var(--primary-foreground, #fff) !important;
+  box-shadow:
+    -4px 0 0 0 var(--foreground, #212529),
+    4px 0 0 0 var(--foreground, #212529),
+    0 -4px 0 0 var(--foreground, #212529),
+    0 4px 0 0 var(--foreground, #212529) !important;
+}
+
+/* ── Pixel art avatars ── */
+[data-skin="retro"] [data-avatar] {
+  border-radius: 0 !important;
+  border: 3px solid var(--foreground, #212529) !important;
+  width: 32px !important;
+  height: 32px !important;
+  image-rendering: pixelated;
+  background: var(--secondary, #e8e8e8) !important;
+  box-shadow:
+    2px 2px 0 0 var(--foreground, #212529);
+}
+
+[data-skin="retro"] [data-avatar="user"] {
+  background: var(--primary, #209cee) !important;
+}
+
+/* ── NES-style input ── */
+[data-skin="retro"] textarea {
+  border-radius: 0 !important;
+  border: 4px solid var(--foreground, #212529) !important;
+  background: var(--background, #fff) !important;
+  font-size: 0.7rem !important;
+  line-height: 1.8 !important;
+  letter-spacing: 0.05em;
+  padding: 10px 12px !important;
+  box-shadow: none !important;
+}
+
+[data-skin="retro"] textarea:focus {
+  outline: none !important;
+  box-shadow:
+    0 0 0 4px var(--primary, #209cee) !important;
+}
+
+[data-skin="retro"] textarea::placeholder {
+  font-size: 0.65rem !important;
+  letter-spacing: 0.05em;
+}
+
+/* ── Send button: NES style ── */
+[data-skin="retro"] button[type="submit"] {
+  border-radius: 0 !important;
+  border: 4px solid var(--foreground, #212529) !important;
+  box-shadow: none;
+  font-size: 0.7rem;
+  position: relative;
+}
+
+[data-skin="retro"] button[type="submit"]:hover {
+  transform: scale(1.05);
+}
+
+[data-skin="retro"] button[type="submit"]:active {
+  transform: scale(0.95);
+}
+
+/* ── Action relay: pixel chip ── */
+[data-skin="retro"] [data-role="action-relay"] {
+  border-radius: 0 !important;
+  border: 3px solid var(--foreground, #212529) !important;
+  font-size: 0.6rem !important;
+  letter-spacing: 0.05em;
+  background: var(--secondary, #e8e8e8) !important;
+}
+
+/* ── Header bar: pixel style ── */
+[data-skin="retro"] header {
+  border-bottom: 4px solid var(--foreground, #212529) !important;
+}
+
+/* ── Chat panel border ── */
+[data-skin="retro"] .flex.flex-col.bg-background {
+  border-right: 4px solid var(--foreground, #212529) !important;
+}
+
+/* ── Resize handle: pixelated ── */
+[data-skin="retro"] .cursor-col-resize {
+  width: 6px !important;
+  background: repeating-linear-gradient(
+    180deg,
+    var(--foreground, #212529) 0px,
+    var(--foreground, #212529) 2px,
+    transparent 2px,
+    transparent 4px
+  ) !important;
+}
+
+/* ── Loading indicators: pixel blink ── */
+[data-skin="retro"] .animate-pulse {
+  animation: skin-retro-blink 0.6s steps(2) infinite !important;
+}
+
+[data-skin="retro"] .animate-spin {
+  animation: skin-retro-blink 0.6s steps(2) infinite !important;
+}
+
+@keyframes skin-retro-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   HANDDRAWN — PaperCSS / sketchy hand-drawn aesthetic
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Hand-drawn font */
+[data-skin="handdrawn"] {
+  font-family: var(--font-handdrawn), 'Caveat', 'Patrick Hand', 'Comic Neue', 'Comic Sans MS', cursive !important;
+}
+
+[data-skin="handdrawn"] * {
+  font-family: inherit !important;
+}
+
+/* ── Sketchy borders on message bubbles ── */
+
+[data-skin="handdrawn"] [data-role="user"],
+[data-skin="handdrawn"] [data-role="assistant"] {
+  border: 2px solid var(--foreground, #41403e) !important;
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px !important;
+  box-shadow: 2px 3px 0 rgba(0, 0, 0, 0.08) !important;
+  font-size: 1.1rem !important;
+  line-height: 1.7 !important;
+  padding: 12px 18px !important;
+  position: relative;
+  transition: transform 0.2s ease;
+}
+
+[data-skin="handdrawn"] [data-role="user"] {
+  background: var(--primary, #41a0d8) !important;
+  color: var(--primary-foreground, #fff) !important;
+  border-radius: 15px 225px 15px 255px / 225px 15px 255px 15px !important;
+  transform: rotate(-0.5deg);
+}
+
+[data-skin="handdrawn"] [data-role="assistant"] {
+  background: rgba(var(--primary-rgb, 100 100 255), 0.05) !important;
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px !important;
+  transform: rotate(0.3deg);
+}
+
+[data-skin="handdrawn"] [data-role="user"]:hover {
+  transform: rotate(0deg) scale(1.01);
+}
+
+[data-skin="handdrawn"] [data-role="assistant"]:hover {
+  transform: rotate(0deg) scale(1.01);
+}
+
+/* ── Sketchy avatars ── */
+[data-skin="handdrawn"] [data-avatar] {
+  border: 2px solid var(--foreground, #41403e) !important;
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px !important;
+  transform: rotate(3deg);
+}
+
+/* ── Input: hand-drawn text field ── */
+[data-skin="handdrawn"] textarea {
+  border: 2px solid var(--foreground, #41403e) !important;
+  border-radius: 15px 255px 15px 225px / 255px 15px 225px 15px !important;
+  background: var(--background, #fff) !important;
+  font-size: 1.1rem !important;
+  line-height: 1.6;
+  padding: 10px 16px !important;
+  transition: transform 0.2s ease;
+}
+
+[data-skin="handdrawn"] textarea:focus {
+  outline: none !important;
+  border-color: var(--primary, #41a0d8) !important;
+  box-shadow: 3px 4px 0 rgba(0, 0, 0, 0.1) !important;
+  transform: rotate(-0.3deg);
+}
+
+/* ── Send button: sketchy ── */
+[data-skin="handdrawn"] button[type="submit"] {
+  border: 2px solid var(--foreground, #41403e) !important;
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px !important;
+  transform: rotate(1deg);
+  transition: transform 0.15s ease;
+}
+
+[data-skin="handdrawn"] button[type="submit"]:hover {
+  transform: rotate(-1deg) scale(1.05);
+}
+
+[data-skin="handdrawn"] button[type="submit"]:active {
+  transform: rotate(0deg) scale(0.95);
+}
+
+/* ── Action relay: doodle chip ── */
+[data-skin="handdrawn"] [data-role="action-relay"] {
+  border: 2px dashed var(--foreground, #41403e) !important;
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px !important;
+  font-size: 0.9rem !important;
+  transform: rotate(-0.5deg);
+}
+
+/* ── Header: hand-drawn underline ── */
+[data-skin="handdrawn"] header {
+  border-bottom: 2px solid var(--foreground, #41403e) !important;
+  border-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='4'%3E%3Cpath d='M0,2 Q50,0 100,2 T200,2 T300,2 T400,2' fill='none' stroke='%2341403e' stroke-width='1.5'/%3E%3C/svg%3E") 0 0 2 0 stretch;
+}
+
+/* ── Chat panel border: wavy ── */
+[data-skin="handdrawn"] .cursor-col-resize > div {
+  width: 2px !important;
+  background: var(--foreground, #41403e) !important;
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+}
+
+/* ── Slightly wobbly messages on appear ── */
+[data-skin="handdrawn"] [data-testid="user-message"],
+[data-skin="handdrawn"] [data-testid="assistant-message"] {
+  animation: skin-handdrawn-wobble 0.3s ease-out both;
+}
+
+@keyframes skin-handdrawn-wobble {
+  0% {
+    opacity: 0;
+    transform: rotate(-2deg) translateY(8px);
+  }
+  60% {
+    transform: rotate(0.5deg) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(0deg) translateY(0);
+  }
+}
+
+/* ── Underline links in hand-drawn style ── */
+[data-skin="handdrawn"] a {
+  text-decoration-style: wavy !important;
+  text-underline-offset: 3px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   WIN98 — Windows 98 classic UI — inspired by 98.css
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* System font */
+[data-skin="win98"] {
+  font-family: 'MS Sans Serif', 'Microsoft Sans Serif', 'Segoe UI', Tahoma, Geneva, sans-serif !important;
+  font-size: 13px !important;
+}
+
+[data-skin="win98"] * {
+  font-family: inherit !important;
+}
+
+/* ── Win98 3D border helpers ──
+   Light edge: #dfdfdf (top/left)
+   Dark edge:  #808080 (bottom/right)
+   Darkest:    #000 (outer bottom/right for raised)
+   Lightest:   #fff (outer top/left for raised)
+*/
+
+/* ── Entire page: silver background ── */
+[data-skin="win98"] {
+  background: #c0c0c0 !important;
+}
+
+/* ── Header → Win98 title bar ── */
+[data-skin="win98"] header {
+  background: linear-gradient(90deg, #000080 0%, #1084d0 100%) !important;
+  border-bottom: none !important;
+  padding: 2px 4px !important;
+  box-shadow:
+    inset -1px -1px #0a0a0a,
+    inset 1px 1px #fff,
+    inset -2px -2px #808080,
+    inset 2px 2px #dfdfdf;
+}
+
+/* Title bar text should be white and bold */
+[data-skin="win98"] header * {
+  color: #fff !important;
+}
+
+[data-skin="win98"] header span {
+  font-weight: 700 !important;
+  font-size: 12px !important;
+}
+
+/* Header buttons → Win98 window controls */
+[data-skin="win98"] header button {
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow:
+    inset -1px -1px #0a0a0a,
+    inset 1px 1px #fff,
+    inset -2px -2px #808080,
+    inset 2px 2px #dfdfdf !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+}
+
+[data-skin="win98"] header button:active {
+  box-shadow:
+    inset -1px -1px #fff,
+    inset 1px 1px #0a0a0a,
+    inset -2px -2px #dfdfdf,
+    inset 2px 2px #808080 !important;
+}
+
+/* ── Chat panel → Win98 window body ── */
+[data-skin="win98"] .flex.flex-col.bg-background {
+  background: #c0c0c0 !important;
+  box-shadow:
+    inset -1px -1px #0a0a0a,
+    inset 1px 1px #fff,
+    inset -2px -2px #808080,
+    inset 2px 2px #dfdfdf !important;
+}
+
+/* ── Message thread area → sunken panel ── */
+[data-skin="win98"] .overflow-y-auto {
+  background: #fff !important;
+  box-shadow:
+    inset -1px -1px #fff,
+    inset 1px 1px #808080,
+    inset -2px -2px #dfdfdf,
+    inset 2px 2px #0a0a0a !important;
+  margin: 4px !important;
+}
+
+/* ── Message bubbles → flat Win98 style ── */
+[data-skin="win98"] [data-role="user"] {
+  background: #000080 !important;
+  color: #fff !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow:
+    inset -1px -1px #0a0a0a,
+    inset 1px 1px #fff,
+    inset -2px -2px #808080,
+    inset 2px 2px #dfdfdf !important;
+  padding: 6px 10px !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+[data-skin="win98"] [data-role="assistant"] {
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow:
+    inset -1px -1px #0a0a0a,
+    inset 1px 1px #fff,
+    inset -2px -2px #808080,
+    inset 2px 2px #dfdfdf !important;
+  padding: 6px 10px !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+/* ── Avatars → small Win98 icon frames ── */
+[data-skin="win98"] [data-avatar] {
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow:
+    inset -1px -1px #fff,
+    inset 1px 1px #808080,
+    inset -2px -2px #dfdfdf,
+    inset 2px 2px #0a0a0a !important;
+  background: #c0c0c0 !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+
+[data-skin="win98"] [data-avatar="user"] {
+  background: #000080 !important;
+  color: #fff !important;
+}
+
+/* ── Input → Win98 text field (sunken) ── */
+[data-skin="win98"] textarea {
+  background: #fff !important;
+  color: #000 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow:
+    inset -1px -1px #fff,
+    inset 1px 1px #808080,
+    inset -2px -2px #dfdfdf,
+    inset 2px 2px #0a0a0a !important;
+  font-size: 13px !important;
+  padding: 4px 6px !important;
+}
+
+[data-skin="win98"] textarea:focus {
+  outline: 1px dotted #000 !important;
+  outline-offset: -4px;
+  box-shadow:
+    inset -1px -1px #fff,
+    inset 1px 1px #808080,
+    inset -2px -2px #dfdfdf,
+    inset 2px 2px #0a0a0a !important;
+}
+
+/* ── Send button → Win98 raised button ── */
+[data-skin="win98"] button[type="submit"] {
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow:
+    inset -1px -1px #0a0a0a,
+    inset 1px 1px #fff,
+    inset -2px -2px #808080,
+    inset 2px 2px #dfdfdf !important;
+  font-size: 13px !important;
+  font-weight: 700;
+  min-width: 75px;
+  padding: 4px 12px !important;
+}
+
+[data-skin="win98"] button[type="submit"]:hover {
+  background: #d4d0c8 !important;
+}
+
+[data-skin="win98"] button[type="submit"]:active {
+  box-shadow:
+    inset -1px -1px #fff,
+    inset 1px 1px #0a0a0a,
+    inset -2px -2px #dfdfdf,
+    inset 2px 2px #808080 !important;
+  padding: 5px 11px 3px 13px !important;
+}
+
+/* ── Input area border: raised toolbar ── */
+[data-skin="win98"] .border-t {
+  background: #c0c0c0 !important;
+  border-top: none !important;
+  box-shadow:
+    inset 0 1px 0 #fff,
+    inset 0 -1px 0 #808080;
+  padding: 6px 8px !important;
+}
+
+/* ── Action relay → system message ── */
+[data-skin="win98"] [data-role="action-relay"] {
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border-radius: 0 !important;
+  border: 1px solid #808080 !important;
+  font-size: 11px !important;
+}
+
+/* ── Resize handle → Win98 gripper ── */
+[data-skin="win98"] .cursor-col-resize {
+  background: #c0c0c0 !important;
+  width: 4px !important;
+}
+
+[data-skin="win98"] .cursor-col-resize > div {
+  width: 2px !important;
+  background: #808080 !important;
+  box-shadow: 1px 0 0 #fff;
+}
+
+/* ── Canvas area ── */
+[data-skin="win98"] .bg-secondary\/10 {
+  background: #c0c0c0 !important;
+  box-shadow:
+    inset -1px -1px #fff,
+    inset 1px 1px #808080,
+    inset -2px -2px #dfdfdf,
+    inset 2px 2px #0a0a0a !important;
+  margin: 4px;
+}
+
+/* ── Scrollbar: thick Win98 style (Webkit) ── */
+[data-skin="win98"] ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+[data-skin="win98"] ::-webkit-scrollbar-track {
+  background: repeating-conic-gradient(#c0c0c0 0% 25%, #fff 0% 50%) 50% / 2px 2px;
+}
+
+[data-skin="win98"] ::-webkit-scrollbar-thumb {
+  background: #c0c0c0;
+  box-shadow:
+    inset -1px -1px #0a0a0a,
+    inset 1px 1px #fff,
+    inset -2px -2px #808080,
+    inset 2px 2px #dfdfdf;
+}
+
+[data-skin="win98"] ::-webkit-scrollbar-button {
+  background: #c0c0c0;
+  box-shadow:
+    inset -1px -1px #0a0a0a,
+    inset 1px 1px #fff,
+    inset -2px -2px #808080,
+    inset 2px 2px #dfdfdf;
+  display: block;
+  height: 16px;
+  width: 16px;
+}
+
+/* ── Hover actions: system button style ── */
+[data-skin="win98"] .opacity-0 button {
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border-radius: 0 !important;
+  box-shadow:
+    inset -1px -1px #0a0a0a,
+    inset 1px 1px #fff !important;
+}

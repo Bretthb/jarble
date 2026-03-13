@@ -19,6 +19,8 @@ export interface ThemeConfig {
   fontFamily?: string;
   /** CSS font-family for headings */
   headingFontFamily?: string;
+  /** Chat skin name — controls layout/style overrides on the chat UI */
+  skin?: string;
 }
 
 export type ThemeColorKey =
@@ -223,9 +225,62 @@ export const THEME_PRESETS: Record<string, Record<ThemeColorKey, string>> = {
     "chart-4": "#ff00ff",
     "chart-5": "#ff6600",
   },
+  retro: {
+    background: "#e0d8c0",
+    foreground: "#212529",
+    card: "#f0e8d0",
+    "card-foreground": "#212529",
+    primary: "#209cee",
+    "primary-foreground": "#ffffff",
+    secondary: "#d4cbb3",
+    "secondary-foreground": "#212529",
+    muted: "#c8bfa6",
+    "muted-foreground": "#6c6c6c",
+    accent: "#92cc41",
+    "accent-foreground": "#212529",
+    destructive: "#e76e55",
+    "destructive-foreground": "#ffffff",
+    border: "#212529",
+    input: "#f0e8d0",
+    ring: "#209cee",
+    "chart-1": "#209cee",
+    "chart-2": "#92cc41",
+    "chart-3": "#f7d51d",
+    "chart-4": "#e76e55",
+    "chart-5": "#9b59b6",
+  },
+  win98: {
+    background: "#c0c0c0",
+    foreground: "#000000",
+    card: "#c0c0c0",
+    "card-foreground": "#000000",
+    primary: "#000080",
+    "primary-foreground": "#ffffff",
+    secondary: "#c0c0c0",
+    "secondary-foreground": "#000000",
+    muted: "#808080",
+    "muted-foreground": "#404040",
+    accent: "#000080",
+    "accent-foreground": "#ffffff",
+    destructive: "#ff0000",
+    "destructive-foreground": "#ffffff",
+    border: "#808080",
+    input: "#ffffff",
+    ring: "#000080",
+    "chart-1": "#000080",
+    "chart-2": "#008080",
+    "chart-3": "#808000",
+    "chart-4": "#800080",
+    "chart-5": "#008000",
+  },
 };
 
 export const THEME_PRESET_NAMES = Object.keys(THEME_PRESETS);
+
+/** Available chat skin names */
+export const SKIN_NAMES = ["default", "minimal", "terminal", "neobrutalist", "glass", "retro", "handdrawn", "win98"] as const;
+
+export type SkinName = typeof SKIN_NAMES[number];
 
 // ── Validation helpers ───────────────────────────────────────────────────────
 
@@ -276,6 +331,14 @@ export function validateThemeConfig(config: unknown): string | null {
     }
   }
 
+  // Validate skin
+  if (c.skin !== undefined) {
+    if (typeof c.skin !== "string") return "skin must be a string";
+    if (!(SKIN_NAMES as readonly string[]).includes(c.skin)) {
+      return `Unknown skin "${c.skin}". Valid: ${SKIN_NAMES.join(", ")}`;
+    }
+  }
+
   return null;
 }
 
@@ -315,5 +378,35 @@ export function resolveThemeVars(config: ThemeConfig): Record<string, string> {
     vars["--font-serif"] = config.headingFontFamily;
   }
 
+  // Apply skin
+  if (config.skin) {
+    vars["--jarble-skin"] = config.skin;
+  }
+
+  // Derive RGB triplets for glass skin (backdrop-filter needs rgba())
+  const primaryHex = vars["--primary"];
+  if (primaryHex) {
+    const rgb = hexToRgb(primaryHex);
+    if (rgb) vars["--primary-rgb"] = rgb;
+  }
+
   return vars;
+}
+
+/** Convert #rrggbb hex to "r g b" string for use in rgba() */
+function hexToRgb(hex: string): string | null {
+  const h = hex.replace("#", "");
+  if (h.length === 3) {
+    const r = parseInt(h[0] + h[0], 16);
+    const g = parseInt(h[1] + h[1], 16);
+    const b = parseInt(h[2] + h[2], 16);
+    return `${r} ${g} ${b}`;
+  }
+  if (h.length >= 6) {
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `${r} ${g} ${b}`;
+  }
+  return null;
 }

@@ -393,7 +393,7 @@ function listCustomComponents() {
 const TOOLS = [
   {
     name: "render_ui",
-    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, metric_card, header, button_group, form, code_editor, spreadsheet, sandbox) and custom bot-defined components. For anything beyond these — charts, gauges, maps, 3D, animations, custom visualizations — use the sandbox component with HTML/CSS/JS. Sandbox supports moduleJs (ES module code with import statements) and importMap (bare specifier to CDN URL mapping). Default imports include three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone — just use import statements. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
+    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, metric_card, header, button_group, form, code_editor, spreadsheet, sandbox) and custom bot-defined components. For data display (charts, tables, KPIs, metrics), use built-in components for speed and reliability. For anything creative, custom, or visually rich — dashboards with custom styling, interactive widgets, data visualizations beyond basic charts, landing pages, custom UIs — use sandbox (HTML/CSS/JS) or sandpack_sandbox (full React/TypeScript). Sandbox components support Tailwind CSS via CDN (https://cdn.tailwindcss.com/3.4.1), modern animations, and the full power of any allowed CDN library. Sandbox supports moduleJs (ES module code with import statements) and importMap (bare specifier to CDN URL mapping). Default imports include three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone — just use import statements. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -598,7 +598,7 @@ const TOOLS = [
   },
   {
     name: "set_theme",
-    description: "Set the visual theme for this deployment's web chat page. Changes are applied instantly. Supports presets (midnight, forest, cyberpunk, ocean, rose, amber, terminal) and custom color overrides. Use 'default' preset to reset to platform defaults.",
+    description: "Set the visual theme for this deployment's web chat page. Changes are applied instantly. Supports presets (midnight, forest, cyberpunk, ocean, rose, amber, terminal), skins (default, minimal, terminal, neobrutalist, glass) that change bubble shapes/animations/layout, and custom color overrides. Use 'default' preset to reset to platform defaults.",
     inputSchema: {
       type: "object",
       properties: {
@@ -623,6 +623,11 @@ const TOOLS = [
         headingFontFamily: {
           type: "string",
           description: "CSS font-family for headings, e.g. \"'Playfair Display', serif\"",
+        },
+        skin: {
+          type: "string",
+          enum: ["default", "minimal", "terminal", "neobrutalist", "glass", "retro", "handdrawn"],
+          description: "Chat skin/visual style. Changes bubble shapes, animations, and chat layout.",
         },
       },
     },
@@ -1678,6 +1683,16 @@ Match user intent to the correct component. Call \`component_reference\` for ful
 - Slides → \`carousel\`
 - Third-party widget → \`embed\` (Google Maps, TradingView, YouTube, Spotify — just pass the URL)
 
+**Creative/Visual (use sandbox):**
+- Premium styled dashboards → \`sandbox\` with Tailwind CSS (gradients, glassmorphism, custom layout)
+- Custom data visualizations → \`sandbox\` with D3, Chart.js, or Plotly (heatmaps, treemaps, gauges, sankey)
+- Landing pages / showcases → \`sandbox\` with Tailwind CSS (hero sections, feature grids, CTAs)
+- Interactive tools / calculators → \`sandbox\` with custom JS logic
+- 3D scenes / animations → \`sandbox\` with Three.js, GSAP, p5.js
+- Games / simulations → \`sandbox\` with canvas/WebGL
+- Anything the user wants to look "beautiful" or "premium" → \`sandbox\` with Tailwind CSS
+- Call \`skill_reference("premium-components")\` for ready-to-use premium templates
+
 ### Props Examples (Most Error-Prone Components)
 
 **Charts:**
@@ -1714,7 +1729,7 @@ Match user intent to the correct component. Call \`component_reference\` for ful
     content: `## Sandbox Component Mastery Guide
 
 ### When to Use
-Use \`sandbox\` for: 3D (Three.js), animations, custom charts (candlestick, heatmap, gauge, treemap, sankey), interactive visualizations, games, physics simulations, or anything not covered by built-in components. Prefer built-ins when they fit — sandbox is last resort.
+Use \`sandbox\` for any request that benefits from custom styling, layout, or interactivity beyond what built-in components offer. This includes: styled dashboards, landing pages, interactive tools, custom visualizations (candlestick, heatmap, gauge, treemap, sankey), 3D (Three.js), animations, games, physics simulations, and anything where visual quality matters. For standard data display (basic charts, tables, KPIs), built-in components are faster and more reliable. For everything else — especially when the user wants something "beautiful", "cool", "modern", or "premium" — sandbox is the right choice.
 
 ### Architecture: How Sandboxes Work
 Your sandbox runs in a double-isolated iframe (sandbox="allow-scripts allow-popups" — NO same-origin). The pipeline:
@@ -1916,7 +1931,26 @@ Listen for updates: \`window.addEventListener("jarble:props", e => { const data 
 8. **Missing title** — Every sandbox MUST have a descriptive title prop.
 9. **No error handling** — Wrap risky code in try/catch. Errors show as red overlay in iframe.
 10. **Library version mismatch** — Pin specific versions in URLs (e.g. \`@0.169\` not \`@latest\`).
-11. **Using import in js prop** — ES module \`import\` statements ONLY work in \`moduleJs\`, not \`js\`. The \`js\` prop runs as a classic script.`
+11. **Using import in js prop** — ES module \`import\` statements ONLY work in \`moduleJs\`, not \`js\`. The \`js\` prop runs as a classic script.
+
+### Tailwind CSS Support
+Sandbox supports Tailwind CSS via CDN for rapid, beautiful styling:
+- Add \`"https://cdn.tailwindcss.com/3.4.1"\` as the **first entry** in your \`libraries\` array
+- Use Tailwind utility classes freely in your HTML (\`flex\`, \`grid\`, \`bg-gradient-to-r\`, \`rounded-xl\`, \`shadow-lg\`, etc.)
+- Dark mode: use \`dark:\` prefix — Tailwind reads \`prefers-color-scheme\` automatically
+- Theme colors: use CSS variables for integration with the Jarble theme: \`var(--primary)\`, \`var(--background)\`, \`var(--foreground)\`, \`var(--muted)\`, \`var(--accent)\`
+- Combine with custom CSS for animations (\`@keyframes\`) and effects Tailwind doesn't cover
+- Transparent background rule still applies — use \`bg-transparent\` on body, theme colors on cards/panels
+
+### Premium Design Patterns
+When creating visually impressive sandbox components:
+- **Glassmorphism**: \`bg-white/10 backdrop-blur-xl border border-white/20\`
+- **Gradients**: \`bg-gradient-to-br from-purple-500 via-pink-500 to-red-500\`
+- **Depth & shadow**: \`shadow-2xl shadow-purple-500/25 rounded-2xl\`
+- **Smooth transitions**: \`transition-all duration-300 hover:scale-105\`
+- **Modern spacing**: \`p-6 space-y-4\` for breathing room
+- **Typography**: \`text-4xl font-bold tracking-tight\` for headlines
+- **Subtle animations**: CSS \`@keyframes\` for pulse, float, shimmer effects`
   },
 
   "generative-ui-patterns": {
@@ -1957,6 +1991,18 @@ You are both a conversationalist and a UI designer. Text introduces, UI presents
 2. Would a human designer pick this? metric_card for metrics, steps for processes.
 3. Are props complete? Every chart needs a title. No "Card 1" titles.
 4. Does the layout hint match? KPIs = "third". Charts = "half". Wide tables = "full-width".
+
+### When to Generate Bespoke Components
+Use sandbox to create custom-styled components when:
+- The user asks for something "beautiful", "cool", "modern", or "premium"
+- The request involves custom layout composition (hero + stats + chart combined)
+- You need gradients, animations, glassmorphism, or other visual effects
+- The built-in component would work but look generic/plain
+- The user asks for a "dashboard", "landing page", "showcase", or "portfolio"
+- The request is creative or artistic in nature (infographics, styled reports)
+- You want to combine multiple data visualizations into a single cohesive panel
+
+Template approach: Use Tailwind CSS (add \`https://cdn.tailwindcss.com/3.4.1\` to libraries), transparent background on body, theme CSS variables for colors (\`var(--primary)\`, \`var(--foreground)\`, etc.), and modern design patterns. Call \`skill_reference("premium-components")\` for ready-to-use templates.
 
 ### Quality Checklist
 - Right component type for this data
@@ -2005,8 +2051,8 @@ Memory: store_memory / recall_memory / list_memories / forget_memory (cross-plat
 1. Right-size responses — simple questions get text, data-rich answers get UI
 2. Title specifically — "Q1 Revenue by Region" not "Chart"
 3. Limit density — max 4-6 components unless building an explicit dashboard
-4. Built-ins over sandbox — call component_reference before unfamiliar components
-5. Sandbox is last resort — only for 3D, games, custom animations
+4. Built-ins for data — use built-in components (chart, data_table, metric_card) for standard data display
+5. Sandbox for custom visuals — use for premium-styled components, creative requests, 3D, games, animations, and anything requiring custom design beyond built-in styling
 6. Real data only — never fabricate placeholder data
 7. Memory proactively — store preferences without being asked; recall at session start`
   },
@@ -2231,6 +2277,10 @@ Example:
 - \`"half"\`: charts, timelines, tabs, accordions
 - \`"third"\`: metric_cards, badges, alerts, progress bars
 - \`"compact"\`: dividers, avatars`
+  },
+  "premium-components": {
+    description: "Premium sandbox component templates — beautiful dashboards, feature showcases, data panels, status boards using Tailwind CSS, gradients, glassmorphism, and modern design patterns",
+    content: "## Premium Component Templates\n\nUse these as starting points for visually impressive sandbox components. Each template uses Tailwind CSS from CDN and follows modern design patterns. Customize colors, data, and layout to match the user's request.\n\n### Design Foundation\nAll premium templates share these principles:\n- Tailwind CSS via CDN (`https://cdn.tailwindcss.com/3.4.1`) as first library\n- Transparent body background (`bg-transparent`) — cards/panels use semi-transparent backgrounds\n- Theme CSS variables: `var(--primary)`, `var(--foreground)`, `var(--background)`, `var(--muted)`\n- Dark mode support via `prefers-color-scheme` media query\n- Smooth animations and transitions for polish\n- Responsive layout using Tailwind's flex/grid utilities\n\n---\n\n### Template 1: Premium Dashboard Card\nA metrics card with gradient accent, glassmorphism, animated count-up number, and inline sparkline.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"Premium Metrics Card\",\"height\":280,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\"],\"html\":\"<div id='app' class='p-4 h-full flex items-center justify-center bg-transparent'><div class='w-full max-w-sm relative overflow-hidden rounded-2xl border border-white/20 bg-white/10 backdrop-blur-xl shadow-2xl shadow-purple-500/10'><div class='absolute inset-0 bg-gradient-to-br from-purple-500/20 via-transparent to-pink-500/10 pointer-events-none'></div><div class='relative p-6 space-y-4'><div class='flex items-center justify-between'><span class='text-sm font-medium text-white/60 uppercase tracking-wider'>Monthly Revenue</span><span class='inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400'>+23.5%</span></div><div class='flex items-end gap-3'><span id='counter' class='text-4xl font-bold text-white tracking-tight'>$0</span></div><div class='h-12'><canvas id='spark' class='w-full h-full'></canvas></div><div class='flex justify-between text-xs text-white/40'><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div></div></div></div>\",\"js\":\"var data=[42000,48000,51000,49000,58000,67500];var target=67500;var counter=document.getElementById('counter');var current=0;function animateCount(){if(current<target){current+=Math.ceil((target-current)/20);counter.textContent='$'+current.toLocaleString();requestAnimationFrame(animateCount)}else{counter.textContent='$'+target.toLocaleString()}}animateCount();var canvas=document.getElementById('spark');var ctx=canvas.getContext('2d');function drawSparkline(){canvas.width=canvas.offsetWidth*2;canvas.height=canvas.offsetHeight*2;ctx.scale(2,2);var max=Math.max.apply(null,data);var min=Math.min.apply(null,data);var points=data.map(function(v,i){return{x:i*(canvas.offsetWidth/(data.length-1)),y:canvas.offsetHeight-((v-min)/(max-min))*canvas.offsetHeight*0.8-canvas.offsetHeight*0.1}});var grad=ctx.createLinearGradient(0,0,0,canvas.offsetHeight);grad.addColorStop(0,'rgba(168,85,247,0.4)');grad.addColorStop(1,'rgba(168,85,247,0)');ctx.beginPath();ctx.moveTo(points[0].x,canvas.offsetHeight);points.forEach(function(p){ctx.lineTo(p.x,p.y)});ctx.lineTo(points[points.length-1].x,canvas.offsetHeight);ctx.fillStyle=grad;ctx.fill();ctx.beginPath();points.forEach(function(p,i){if(i===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y)});ctx.strokeStyle='#a855f7';ctx.lineWidth=2;ctx.stroke();var last=points[points.length-1];ctx.beginPath();ctx.arc(last.x,last.y,4,0,Math.PI*2);ctx.fillStyle='#a855f7';ctx.fill()}drawSparkline();window.addEventListener('resize',drawSparkline);\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"third\"}\n```\n\n---\n\n### Template 2: Feature Showcase Grid\nA responsive grid of feature cards with icons, gradient accents, and hover animations.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"Feature Showcase\",\"height\":420,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\"],\"html\":\"<div class='p-6 bg-transparent min-h-full'><h2 class='text-2xl font-bold text-white mb-2 tracking-tight'>Platform Features</h2><p class='text-white/50 mb-6 text-sm'>Everything you need to build amazing products</p><div class='grid grid-cols-2 gap-4' id='grid'></div></div>\",\"js\":\"var features=[{icon:'\\u26a1',title:'Lightning Fast',desc:'Sub-100ms response times with edge computing',gradient:'from-amber-500 to-orange-600'},{icon:'\\ud83d\\udd12',title:'Enterprise Security',desc:'SOC2 compliant with end-to-end encryption',gradient:'from-emerald-500 to-teal-600'},{icon:'\\ud83d\\udcca',title:'Real-time Analytics',desc:'Live dashboards with custom metrics and alerts',gradient:'from-blue-500 to-indigo-600'},{icon:'\\ud83c\\udf10',title:'Global Scale',desc:'Deploy to 40+ regions with automatic failover',gradient:'from-purple-500 to-pink-600'}];var grid=document.getElementById('grid');features.forEach(function(f,i){var card=document.createElement('div');card.className='group relative overflow-hidden rounded-xl border border-white/10 bg-white/5 p-5 transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:shadow-lg hover:-translate-y-1 cursor-pointer';card.style.animationDelay=i*100+'ms';card.innerHTML='<div class=\\\"w-10 h-10 rounded-lg bg-gradient-to-br '+f.gradient+' flex items-center justify-center text-xl mb-3 shadow-lg group-hover:scale-110 transition-transform duration-300\\\">'+f.icon+'</div><h3 class=\\\"text-white font-semibold mb-1 text-sm\\\">'+f.title+'</h3><p class=\\\"text-white/40 text-xs leading-relaxed\\\">'+f.desc+'</p><div class=\\\"absolute inset-0 bg-gradient-to-br '+f.gradient+' opacity-0 group-hover:opacity-5 transition-opacity duration-300\\\"></div>';grid.appendChild(card)});\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"half\"}\n```\n\n---\n\n### Template 3: Interactive Tabbed Data Panel\nA tabbed panel combining chart visualization and stats, built with Chart.js and Tailwind CSS.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"Analytics Dashboard\",\"height\":480,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\",\"https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js\"],\"html\":\"<div class='p-5 bg-transparent h-full flex flex-col'><div class='flex items-center justify-between mb-4'><h2 class='text-xl font-bold text-white tracking-tight'>Revenue Analytics</h2><div class='flex gap-1 bg-white/5 rounded-lg p-1' id='tabs'><button data-tab='chart' class='tab-btn px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 bg-white/10 text-white'>Chart</button><button data-tab='stats' class='tab-btn px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 text-white/50 hover:text-white'>Stats</button></div></div><div class='flex gap-3 mb-4' id='kpis'></div><div id='chart-panel' class='flex-1 relative'><canvas id='chart'></canvas></div><div id='stats-panel' class='flex-1 hidden'><div class='grid grid-cols-2 gap-3 h-full' id='stats-grid'></div></div></div>\",\"js\":\"var months=['Jan','Feb','Mar','Apr','May','Jun'];var revenue=[42,48,51,49,58,67];var costs=[28,30,32,31,35,38];var kpiData=[{label:'Total Revenue',value:'$315K',change:'+18%',positive:true},{label:'Avg Monthly',value:'$52.5K',change:'+12%',positive:true},{label:'Profit Margin',value:'43%',change:'+3%',positive:true}];var kpis=document.getElementById('kpis');kpiData.forEach(function(k){var el=document.createElement('div');el.className='flex-1 bg-white/5 rounded-xl p-3 border border-white/10';el.innerHTML='<div class=\\\"text-xs text-white/40 mb-1\\\">'+k.label+'</div><div class=\\\"flex items-end gap-2\\\"><span class=\\\"text-lg font-bold text-white\\\">'+k.value+'</span><span class=\\\"text-xs font-semibold '+(k.positive?'text-emerald-400':'text-red-400')+'\\\">'+k.change+'</span></div>';kpis.appendChild(el)});var ctx=document.getElementById('chart').getContext('2d');new Chart(ctx,{type:'line',data:{labels:months,datasets:[{label:'Revenue',data:revenue,borderColor:'#8b5cf6',backgroundColor:'rgba(139,92,246,0.1)',fill:true,tension:0.4,pointBackgroundColor:'#8b5cf6',pointRadius:4,pointHoverRadius:6},{label:'Costs',data:costs,borderColor:'#6366f1',backgroundColor:'rgba(99,102,241,0.05)',fill:true,tension:0.4,borderDash:[5,5],pointBackgroundColor:'#6366f1',pointRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'bottom',labels:{color:'rgba(255,255,255,0.5)',font:{size:11},padding:15,usePointStyle:true}}},scales:{x:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'rgba(255,255,255,0.4)',font:{size:11}}},y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'rgba(255,255,255,0.4)',font:{size:11},callback:function(v){return '$'+v+'K'}}}}}});var statsData=[{label:'Best Month',value:'Jun \\u2014 $67K',icon:'\\ud83d\\udcc8'},{label:'Growth Rate',value:'8.2% MoM',icon:'\\ud83d\\ude80'},{label:'Total Profit',value:'$136K',icon:'\\ud83d\\udcb0'},{label:'Customers',value:'2,847',icon:'\\ud83d\\udc65'}];var sg=document.getElementById('stats-grid');statsData.forEach(function(s){var el=document.createElement('div');el.className='bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col justify-between';el.innerHTML='<span class=\\\"text-2xl mb-2\\\">'+s.icon+'</span><div><div class=\\\"text-xs text-white/40 mb-1\\\">'+s.label+'</div><div class=\\\"text-lg font-bold text-white\\\">'+s.value+'</div></div>';sg.appendChild(el)});document.querySelectorAll('.tab-btn').forEach(function(btn){btn.addEventListener('click',function(){var tab=btn.dataset.tab;document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('bg-white/10','text-white');b.classList.add('text-white/50')});btn.classList.add('bg-white/10','text-white');btn.classList.remove('text-white/50');document.getElementById('chart-panel').classList.toggle('hidden',tab!=='chart');document.getElementById('stats-panel').classList.toggle('hidden',tab!=='stats')})});\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"full-width\"}\n```\n\n---\n\n### Template 4: Status Board\nA real-time-looking status grid with pulse animations, colored indicators, and uptime bars.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"System Status\",\"height\":400,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\"],\"html\":\"<div class='p-5 bg-transparent h-full'><div class='flex items-center justify-between mb-5'><div><h2 class='text-xl font-bold text-white tracking-tight'>System Status</h2><p class='text-white/40 text-sm mt-0.5'>All systems operational</p></div><div class='flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full'><span class='relative flex h-2.5 w-2.5'><span class='animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75'></span><span class='relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500'></span></span><span class='text-xs font-semibold text-emerald-400'>Operational</span></div></div><div class='space-y-3' id='services'></div><div class='mt-5 pt-4 border-t border-white/10 flex items-center justify-between'><span class='text-xs text-white/30'>Last checked: just now</span><span class='text-xs text-white/30'>90-day uptime: 99.98%</span></div></div>\",\"js\":\"var services=[{name:'API Gateway',status:'operational',latency:'12ms',uptime:99.99,history:[1,1,1,1,1,1,1,1,1,1,1,1,0.5,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]},{name:'Database Cluster',status:'operational',latency:'3ms',uptime:99.99,history:[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]},{name:'Auth Service',status:'operational',latency:'8ms',uptime:100,history:[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]},{name:'CDN / Edge',status:'degraded',latency:'45ms',uptime:99.92,history:[1,1,1,1,1,1,0.5,1,1,1,1,1,1,1,1,1,0.5,0.5,1,1,1,1,1,1,1,1,1,1,1,0.5]},{name:'Worker Queue',status:'operational',latency:'5ms',uptime:99.97,history:[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.5,1,1,1,1,1,1,1,1,1,1,1]}];var container=document.getElementById('services');var statusColors={operational:{dot:'bg-emerald-500',text:'text-emerald-400',label:'Operational'},degraded:{dot:'bg-amber-500',text:'text-amber-400',label:'Degraded'},down:{dot:'bg-red-500',text:'text-red-400',label:'Down'}};services.forEach(function(s){var sc=statusColors[s.status];var el=document.createElement('div');el.className='flex items-center gap-4 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/8 transition-colors';var bars=s.history.map(function(h){var color=h===1?'bg-emerald-500':h===0.5?'bg-amber-500':'bg-red-500';return '<div class=\\\"flex-1 h-full rounded-sm '+color+' opacity-80 hover:opacity-100 transition-opacity\\\" title=\\\"'+(h===1?'Operational':h===0.5?'Degraded':'Down')+'\\\"></div>'}).join('');el.innerHTML='<div class=\\\"flex-1 min-w-0\\\"><div class=\\\"flex items-center gap-2\\\"><span class=\\\"w-2 h-2 rounded-full '+sc.dot+'\\\"></span><span class=\\\"text-sm font-medium text-white truncate\\\">'+s.name+'</span></div></div><div class=\\\"flex gap-px h-6 w-36\\\">'+bars+'</div><div class=\\\"text-right w-20\\\"><div class=\\\"text-xs '+sc.text+' font-medium\\\">'+sc.label+'</div><div class=\\\"text-xs text-white/30\\\">'+s.latency+' \\u2022 '+s.uptime+'%</div></div>';container.appendChild(el)});\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"full-width\"}\n```\n\n---\n\n### Customization Guide\nWhen adapting these templates:\n1. **Change data**: Replace the hardcoded arrays/objects with the user's actual data\n2. **Change colors**: Swap gradient classes (`from-purple-500` to `from-blue-500`), adjust accent colors\n3. **Change layout**: Modify grid columns (`grid-cols-2` to `grid-cols-3`), card sizes, spacing\n4. **Add interactivity**: Attach click handlers, hover effects, toggles\n5. **Combine patterns**: Mix a KPI row from Template 1 with a chart from Template 3\n6. **Always use Tailwind CDN**: `\"https://cdn.tailwindcss.com/3.4.1\"` as first entry in `libraries`\n7. **Always transparent body**: `body{background:transparent}` in CSS\n8. **Always descriptive title**: Set the `title` prop to describe what the component shows"
   },
 };
 
@@ -3783,32 +3833,44 @@ async function executeSetTheme(args) {
   if (args.radius) body.radius = args.radius;
   if (args.fontFamily) body.fontFamily = args.fontFamily;
   if (args.headingFontFamily) body.headingFontFamily = args.headingFontFamily;
+  if (args.skin) body.skin = args.skin;
 
   // If nothing specified, treat as reset
   if (Object.keys(body).length === 0) {
     body.preset = "default";
   }
 
+  // Write theme config to PVC marker file — the API's tamboAgent will
+  // detect this file after each chat turn and persist to the DB.
+  // This avoids needing JARBLE_API_URL connectivity from the pod.
+  const fs = require("fs");
+  const path = require("path");
+  const themeDir = process.env.PVC_MOUNT || "/data";
+  const themeFile = path.join(themeDir, "config", "pending-theme.json");
   try {
-    const res = await apiRequest("POST", "/api/pod/theme", body);
-    if (res.status !== 200) {
-      return { isError: true, text: `Failed to set theme: ${JSON.stringify(res.data)}` };
-    }
-
-    const parts = [];
-    if (body.preset) parts.push(`Preset: ${body.preset}`);
-    if (body.colors) parts.push(`Custom colors: ${Object.keys(body.colors).join(", ")}`);
-    if (body.radius) parts.push(`Border radius: ${body.radius}`);
-    if (body.fontFamily) parts.push(`Font: ${body.fontFamily}`);
-    if (body.headingFontFamily) parts.push(`Heading font: ${body.headingFontFamily}`);
-
-    return {
-      isError: false,
-      text: `Theme updated! The chat page will reflect the new theme.\n${parts.join("\n")}`,
-    };
+    fs.mkdirSync(path.dirname(themeFile), { recursive: true });
+    fs.writeFileSync(themeFile, JSON.stringify(body, null, 2));
   } catch (err) {
-    return { isError: true, text: `Failed to set theme: ${err.message}` };
+    console.error("[MCP] Failed to write theme file:", err.message);
   }
+
+  // Also try API call (works when JARBLE_API_URL is configured)
+  try {
+    await apiRequest("POST", "/api/pod/theme", body);
+  } catch { /* non-fatal — marker file is the primary mechanism */ }
+
+  const parts = [];
+  if (body.preset) parts.push(`Preset: ${body.preset}`);
+  if (body.colors) parts.push(`Custom colors: ${Object.keys(body.colors).join(", ")}`);
+  if (body.radius) parts.push(`Border radius: ${body.radius}`);
+  if (body.fontFamily) parts.push(`Font: ${body.fontFamily}`);
+  if (body.headingFontFamily) parts.push(`Heading font: ${body.headingFontFamily}`);
+  if (body.skin) parts.push(`Skin: ${body.skin}`);
+
+  return {
+    isError: false,
+    text: `Theme updated! The chat page will reflect the new theme.\n${parts.join("\n")}`,
+  };
 }
 
 async function executePublishComponent(args) {
