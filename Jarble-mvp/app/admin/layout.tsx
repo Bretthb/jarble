@@ -10,6 +10,7 @@ import {
   Store,
   CreditCard,
   Activity,
+  BarChart3,
   FileText,
   ArrowLeft,
 } from "lucide-react";
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { href: "/admin/marketplace", label: "Marketplace", icon: Store },
   { href: "/admin/billing", label: "Billing", icon: CreditCard },
   { href: "/admin/system", label: "System", icon: Activity },
+  { href: "/admin/metrics", label: "Metrics", icon: BarChart3 },
   { href: "/admin/audit", label: "Audit Logs", icon: FileText },
 ];
 

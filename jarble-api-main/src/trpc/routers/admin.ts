@@ -15,6 +15,13 @@ import {
 } from "../../services/stripe.js";
 import { logAdminAction } from "../../services/auditLog.js";
 import { logger } from "../../utils/logger.js";
+import {
+  queryInstant,
+  queryRange,
+  getActiveAlerts as getPrometheusAlerts,
+  isReachable as isPrometheusReachable,
+  QUERY_KEYS,
+} from "../../services/prometheus.js";
 
 const { users, deployments, chatSessions, auditLogs } = tables;
 
@@ -495,6 +502,98 @@ const getAuditLogs = adminProcedure
     };
   });
 
+// ── Cluster Metrics (Prometheus) ────────────────────────────────────────
+
+const RANGE_CONFIG: Record<string, { seconds: number; step: number }> = {
+  "1h": { seconds: 3600, step: 60 },
+  "6h": { seconds: 21600, step: 300 },
+  "24h": { seconds: 86400, step: 900 },
+  "7d": { seconds: 604800, step: 3600 },
+};
+
+const getClusterMetrics = adminProcedure.query(async () => {
+  const reachable = await isPrometheusReachable();
+  if (!reachable) {
+    return { available: false as const, nodes: [], runningPods: 0, recentRestarts: 0 };
+  }
+
+  const [cpuResults, memResults, diskResults, podCountResults, restartResults] =
+    await Promise.all([
+      queryInstant("node_cpu"),
+      queryInstant("node_memory"),
+      queryInstant("node_disk"),
+      queryInstant("running_pods"),
+      queryInstant("pod_restarts"),
+    ]);
+
+  // Build per-node metrics map
+  const nodeMap = new Map<string, { cpu: number; memory: number; disk: number }>();
+  for (const s of cpuResults) {
+    const inst = s.metric.instance ?? "unknown";
+    const entry = nodeMap.get(inst) ?? { cpu: 0, memory: 0, disk: 0 };
+    entry.cpu = Math.round(s.value * 10) / 10;
+    nodeMap.set(inst, entry);
+  }
+  for (const s of memResults) {
+    const inst = s.metric.instance ?? "unknown";
+    const entry = nodeMap.get(inst) ?? { cpu: 0, memory: 0, disk: 0 };
+    entry.memory = Math.round(s.value * 10) / 10;
+    nodeMap.set(inst, entry);
+  }
+  for (const s of diskResults) {
+    const inst = s.metric.instance ?? "unknown";
+    const entry = nodeMap.get(inst) ?? { cpu: 0, memory: 0, disk: 0 };
+    entry.disk = Math.round(s.value * 10) / 10;
+    nodeMap.set(inst, entry);
+  }
+
+  const nodes = Array.from(nodeMap.entries()).map(([instance, metrics]) => ({
+    instance,
+    ...metrics,
+  }));
+
+  const runningPods = podCountResults[0]?.value ?? 0;
+  const recentRestarts = restartResults.reduce((sum, s) => sum + s.value, 0);
+
+  return {
+    available: true as const,
+    nodes,
+    runningPods: Math.round(runningPods),
+    recentRestarts: Math.round(recentRestarts),
+  };
+});
+
+const getMetricsTimeSeries = adminProcedure
+  .input(
+    z.object({
+      queryKey: z.enum(QUERY_KEYS),
+      range: z.enum(["1h", "6h", "24h", "7d"]).default("1h"),
+    })
+  )
+  .query(async ({ input }) => {
+    const reachable = await isPrometheusReachable();
+    if (!reachable) {
+      return { available: false as const, series: [] };
+    }
+
+    const config = RANGE_CONFIG[input.range];
+    const end = Math.floor(Date.now() / 1000);
+    const start = end - config.seconds;
+
+    const series = await queryRange(input.queryKey, start, end, config.step);
+    return { available: true as const, series };
+  });
+
+const getClusterAlerts = adminProcedure.query(async () => {
+  const reachable = await isPrometheusReachable();
+  if (!reachable) {
+    return { available: false as const, alerts: [] };
+  }
+
+  const alerts = await getPrometheusAlerts();
+  return { available: true as const, alerts };
+});
+
 // ── Router ──────────────────────────────────────────────────────────────
 
 export const adminRouter = router({
@@ -511,4 +610,7 @@ export const adminRouter = router({
   getRevenueStats,
   getSystemHealth,
   getAuditLogs,
+  getClusterMetrics,
+  getMetricsTimeSeries,
+  getClusterAlerts,
 });
