@@ -70,12 +70,17 @@ export function MetricsChart({ title, series, unit, isLoading }: MetricsChartPro
     );
   }
 
+  // Sanitize labels — recharts interprets dots in dataKey as nested property
+  // access, so "10.0.1.10:9100" would fail. Replace dots/colons with safe chars.
+  const safeKey = (label: string) => label.replace(/[.:]/g, "_");
+
   // Merge all series into a unified data array keyed by timestamp
   const timeMap = new Map<number, Record<string, number>>();
   for (const s of series) {
+    const key = safeKey(s.label);
     for (const pt of s.data) {
       const row = timeMap.get(pt.time) ?? { time: pt.time };
-      row[s.label] = Math.round(pt.value * 100) / 100;
+      row[key] = Math.round(pt.value * 100) / 100;
       timeMap.set(pt.time, row);
     }
   }
@@ -83,7 +88,7 @@ export function MetricsChart({ title, series, unit, isLoading }: MetricsChartPro
 
   const chartConfig: ChartConfig = Object.fromEntries(
     series.map((s, i) => [
-      s.label,
+      safeKey(s.label),
       { label: s.label, color: COLORS[i % COLORS.length] },
     ])
   );
@@ -124,7 +129,7 @@ export function MetricsChart({ title, series, unit, isLoading }: MetricsChartPro
               <Line
                 key={s.label}
                 type="monotone"
-                dataKey={s.label}
+                dataKey={safeKey(s.label)}
                 stroke={COLORS[i % COLORS.length]}
                 strokeWidth={2}
                 dot={false}
