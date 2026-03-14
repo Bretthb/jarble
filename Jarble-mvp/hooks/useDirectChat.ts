@@ -126,7 +126,7 @@ export function useDirectChat(deploymentId: string) {
         let buffer = "";
         const pendingBlocks = new Map<string, UIBlock>();
 
-        // Throttled flushing — 50ms intervals (~20 updates/sec) for smooth streaming
+        // Flush every animation frame (~16ms, 60fps) for smooth streaming
         let pendingTextDelta = "";
         let pendingThinkingDelta = "";
         let flushTimer = 0;
@@ -154,7 +154,7 @@ export function useDirectChat(deploymentId: string) {
 
         const scheduleFlush = () => {
           if (!flushTimer) {
-            flushTimer = window.setTimeout(flushTextDeltas, 50);
+            flushTimer = requestAnimationFrame(flushTextDeltas);
           }
         };
 
@@ -258,7 +258,7 @@ export function useDirectChat(deploymentId: string) {
         }
 
         // Flush any remaining buffered deltas
-        if (flushTimer) clearTimeout(flushTimer);
+        if (flushTimer) cancelAnimationFrame(flushTimer);
         if (pendingTextDelta || pendingThinkingDelta) flushTextDeltas();
 
         isDev && console.log(`[Jarble:DirectChat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
