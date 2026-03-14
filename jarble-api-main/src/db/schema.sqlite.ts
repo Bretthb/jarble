@@ -298,6 +298,8 @@ export const betaSignups = sqliteTable("beta_signups", {
   email: text("email").notNull(),
   experience: text("experience"),
   useCase: text("use_case"),
+  status: text("status").notNull().default("pending"),
+  invitedAt: text("invited_at"),
   createdAt: text("created_at").notNull().$defaultFn(now),
 });
 

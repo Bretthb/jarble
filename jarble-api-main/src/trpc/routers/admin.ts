@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { router, adminProcedure } from "../middleware.js";
-import { tables, db } from "../../db/index.js";
+import { tables, db, dbDate } from "../../db/index.js";
 import { eq, and, like, sql, or, isNotNull, desc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import {
@@ -14,6 +14,7 @@ import {
   isStripeConfigured,
 } from "../../services/stripe.js";
 import { logAdminAction } from "../../services/auditLog.js";
+import { sendBetaWelcomeEmail, isEmailConfigured } from "../../services/email.js";
 import { logger } from "../../utils/logger.js";
 import {
   queryInstant,
@@ -594,6 +595,97 @@ const getClusterAlerts = adminProcedure.query(async () => {
   return { available: true as const, alerts };
 });
 
+// ── Beta Signups ─────────────────────────────────────────────────────────
+
+const listBetaSignups = adminProcedure
+  .input(
+    z.object({
+      status: z.enum(["pending", "invited", "all"]).default("all"),
+    }).optional()
+  )
+  .query(async ({ input }) => {
+    const filter = input?.status ?? "all";
+    const rows = filter === "all"
+      ? await db.select().from(tables.betaSignups).orderBy(desc(tables.betaSignups.createdAt))
+      : await db.select().from(tables.betaSignups)
+          .where(eq(tables.betaSignups.status, filter))
+          .orderBy(desc(tables.betaSignups.createdAt));
+    return { signups: rows, emailConfigured: isEmailConfigured() };
+  });
+
+const sendBetaInvite = adminProcedure
+  .input(z.object({ signupId: z.string() }))
+  .mutation(async ({ input, ctx }) => {
+    const [signup] = await db
+      .select()
+      .from(tables.betaSignups)
+      .where(eq(tables.betaSignups.id, input.signupId))
+      .limit(1);
+
+    if (!signup) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Signup not found" });
+    }
+
+    if ((signup as any).status === "invited") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Already invited" });
+    }
+
+    const sent = await sendBetaWelcomeEmail(signup.email, signup.name);
+    if (!sent) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to send email — check RESEND_API_KEY" });
+    }
+
+    await db
+      .update(tables.betaSignups)
+      .set({ status: "invited", invitedAt: dbDate() } as any)
+      .where(eq(tables.betaSignups.id, input.signupId));
+
+    await logAdminAction({
+      userId: ctx.user.id,
+      action: "send_beta_invite",
+      targetType: "beta_signup",
+      targetId: input.signupId,
+      metadata: { email: signup.email },
+      ipAddress: undefined,
+    });
+
+    return { success: true, email: signup.email };
+  });
+
+const sendBetaInviteAll = adminProcedure.mutation(async ({ ctx }) => {
+  const pending = await db
+    .select()
+    .from(tables.betaSignups)
+    .where(eq(tables.betaSignups.status, "pending"));
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const signup of pending) {
+    const ok = await sendBetaWelcomeEmail(signup.email, signup.name);
+    if (ok) {
+      await db
+        .update(tables.betaSignups)
+        .set({ status: "invited", invitedAt: dbDate() } as any)
+        .where(eq(tables.betaSignups.id, signup.id));
+      sent++;
+    } else {
+      failed++;
+    }
+  }
+
+  await logAdminAction({
+    userId: ctx.user.id,
+    action: "send_beta_invite_all",
+    targetType: "beta_signup",
+    targetId: "bulk",
+    metadata: { sent, failed, total: pending.length },
+    ipAddress: undefined,
+  });
+
+  return { sent, failed, total: pending.length };
+});
+
 // ── Router ──────────────────────────────────────────────────────────────
 
 export const adminRouter = router({
@@ -613,4 +705,7 @@ export const adminRouter = router({
   getClusterMetrics,
   getMetricsTimeSeries,
   getClusterAlerts,
+  listBetaSignups,
+  sendBetaInvite,
+  sendBetaInviteAll,
 });

@@ -296,6 +296,8 @@ export const betaSignups = pgTable("beta_signups", {
   email: varchar("email", { length: 255 }).notNull(),
   experience: varchar("experience", { length: 50 }),
   useCase: text("use_case"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  invitedAt: timestamp("invited_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

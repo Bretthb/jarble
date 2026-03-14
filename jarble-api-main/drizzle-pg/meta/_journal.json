@@ -29,6 +29,13 @@
       "when": 1741724400000,
       "tag": "0003_add_user_role_and_audit_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1773504476227,
+      "tag": "0004_melodic_donald_blake",
+      "breakpoints": true
     }
   ]
 }
