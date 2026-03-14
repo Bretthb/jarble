@@ -10,6 +10,7 @@ import { useJarbleRuntime } from "@/lib/assistantRuntime";
 import AssistantUIChat from "@/components/chat/AssistantUIChat";
 import EssentialControls from "@/components/workspace/EssentialControls";
 import ConfigPanel from "@/components/workspace/ConfigPanel";
+import DeploymentTamboProvider from "@/components/DeploymentTamboProvider";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, SendHorizontal, Settings, MessageSquare } from "lucide-react";
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
@@ -156,10 +157,12 @@ function WorkspacePage({
       {/* Main area: optional config panel + chat */}
       <div className="flex-1 flex overflow-hidden">
         {configOpen && (
-          <ConfigPanel
-            deploymentId={deploymentId}
-            onClose={() => setConfigOpen(false)}
-          />
+          <DeploymentTamboProvider deploymentId={deploymentId} deploymentName={deploymentName}>
+            <ConfigPanel
+              deploymentId={deploymentId}
+              onClose={() => setConfigOpen(false)}
+            />
+          </DeploymentTamboProvider>
         )}
         <ChatPanel
           deploymentId={deploymentId}
