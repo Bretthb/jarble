@@ -199,26 +199,27 @@ function AssistantBubble() {
             <ThinkingSection text={thinkingText} isStreaming={isInProgress} />
           )}
 
-          <div
-            className={cn(
-              "rounded-lg px-4 py-3 bg-secondary/30",
-              isInProgress && !content && "animate-[shimmer_2s_ease-in-out_infinite]",
-            )}
-            style={
-              isInProgress && !content
-                ? {
-                    backgroundSize: "200% 100%",
-                    backgroundImage:
-                      "linear-gradient(90deg, transparent 0%, hsl(var(--secondary)/0.15) 50%, transparent 100%)",
-                  }
-                : undefined
-            }
-          >
-            {content && <MarkdownMessage content={content} />}
-            {isInProgress && (
-              <span className="inline-block w-[2px] h-[1.1em] bg-primary/80 ml-0.5 align-middle animate-[blink_1s_steps(2,start)_infinite]" />
-            )}
-          </div>
+          {/* Thinking indicator — shown before first token arrives */}
+          {isInProgress && !content && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/20">
+              <div className="flex gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:0ms]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:150ms]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:300ms]" />
+              </div>
+              <span className="text-xs text-muted-foreground">Thinking...</span>
+            </div>
+          )}
+
+          {/* Message content */}
+          {content && (
+            <div className="rounded-lg px-4 py-3 bg-secondary/30">
+              <MarkdownMessage content={content} />
+              {isInProgress && (
+                <span className="inline-block w-[2px] h-[1.1em] bg-primary/80 ml-0.5 align-middle animate-[blink_1s_steps(2,start)_infinite]" />
+              )}
+            </div>
+          )}
           {/* Copy + Regenerate - only shows on hover after completion */}
           {isComplete && (
             <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
