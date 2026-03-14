@@ -82,7 +82,7 @@ The API exposes 9 routers at `/trpc`, plus 2 REST chat history endpoints (`GET /
 - `platformCredentials` - Encrypted messaging platform credentials, pairing flows
 - `template` - Bot configuration templates
 - `marketplace` - Component marketplace: browse, install, publish, review, creator tools, admin moderation
-- `admin` - Platform admin: stats, user management, all deployments, deployment control (start/stop/restart/delete), billing stats, system health, audit logs, cluster metrics via Prometheus (16 procedures, all `adminProcedure`-guarded)
+- `admin` - Platform admin: stats, user management, all deployments, deployment control (start/stop/restart/delete), billing stats, system health, audit logs, cluster metrics via Prometheus, beta signup management (19 procedures, all `adminProcedure`-guarded)
 
 ### Frontend-Backend Communication
 - **tRPC + React Query**: Type-safe API calls with automatic caching
@@ -108,6 +108,7 @@ Core tables in `jarble-api-main/src/db/schema.ts` (SQLite variant in `schema.sql
 - `chat_sessions` - Chat conversation sessions per deployment (auto-titled from first user message, tracks `createdAt`/`updatedAt`)
 - `chat_messages` - Individual messages per session (role: user/assistant, cleaned content, optional `thinkingText`)
 - `auditLogs` - Admin action audit trail (userId, action, targetType, targetId, metadata JSON, ipAddress, createdAt)
+- `betaSignups` - Beta tester applications (name, email, experience, useCase, status: pending/invited, invitedAt)
 
 SQLite dev DB is file-based at `jarble-api-main/local.db` (persists across tsx watch restarts). Seed data (test user, runtime catalog, skills) created on startup via `db/init.ts`.
 
@@ -354,6 +355,7 @@ OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_MANAGEMENT_KEY=...   # For included credits provisioning
 API_KEY_ENCRYPTION_KEY=...      # AES-256-GCM key for platform credentials
 PROMETHEUS_URL=http://...       # Prometheus server URL (default: http://prometheus.monitoring.svc.cluster.local:9090)
+RESEND_API_KEY=re_...           # Resend API key for beta invite emails (optional)
 ```
 
 ### Frontend (Jarble-mvp/.env.local)
@@ -409,8 +411,9 @@ Available when running locally:
 | `trpc/routers/platformCredentials.ts` | Credential CRUD, WhatsApp/Telegram pairing, pollTelegramPairing |
 | `trpc/routers/openrouter.ts` | Multi-provider LLM key validation, OpenRouter provisioning |
 | `trpc/routers/deployment.ts` | Deployment CRUD, lifecycle, K8s orchestration (admins bypass ownership via `deploymentWhere()`) |
-| `trpc/routers/admin.ts` | Admin router: 16 procedures for platform management (stats, users, deployments, billing, audit logs, cluster metrics) |
+| `trpc/routers/admin.ts` | Admin router: 19 procedures for platform management (stats, users, deployments, billing, audit logs, cluster metrics, beta signups) |
 | `services/prometheus.ts` | Prometheus HTTP API client — query allowlist, circuit breaker, instant/range queries, alerts |
+| `services/email.ts` | Resend email client — beta welcome emails with HTML template |
 | `trpc/middleware.ts` | tRPC middleware: `publicProcedure`, `protectedProcedure`, `adminProcedure` |
 | `utils/rbac.ts` | Role-based access control helper (`isAdmin()`, `UserRole` type) |
 | `services/auditLog.ts` | Fire-and-forget audit logging for admin actions (`logAdminAction()`) |

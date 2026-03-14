@@ -63,6 +63,7 @@ All API env vars in production live in K8s secret `jarble-api-secrets` in namesp
 | `API_KEY_ENCRYPTION_KEY` | AES-256-GCM key for platform credentials | Same patch pattern |
 | `FRONTEND_URL` | CORS origin (`https://jarble.ai`) | Same patch pattern |
 | `PROMETHEUS_URL` | Prometheus server URL (default: `http://prometheus.monitoring.svc.cluster.local:9090`) | Same patch pattern. Only needed if Prometheus runs outside `monitoring` namespace |
+| `RESEND_API_KEY` | Resend API key for beta welcome emails (optional — skips gracefully if not set) | Same patch pattern |
 
 After patching any secret, restart the API: `kubectl rollout restart deployment/jarble-api -n jarble`
 

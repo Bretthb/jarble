@@ -277,7 +277,7 @@ graph TB
         MKT22[rejectComponent - protected mutation]
     end
 
-    subgraph "Admin Router - 16 procedures"
+    subgraph "Admin Router - 19 procedures"
         A1[getStats - admin query]
         A2[listUsers - admin query]
         A3[getUserById - admin query]
@@ -294,6 +294,9 @@ graph TB
         A14[getClusterMetrics - admin query]
         A15[getMetricsTimeSeries - admin query]
         A16[getClusterAlerts - admin query]
+        A17[listBetaSignups - admin query]
+        A18[sendBetaInvite - admin mutation]
+        A19[sendBetaInviteAll - admin mutation]
     end
 
     subgraph "Template Router"
@@ -1047,6 +1050,7 @@ flowchart TD
 - [x]  **Admin router** — 16 `adminProcedure` procedures: getStats, listUsers, getUserById, updateUserRole, listAllDeployments, start/stop/restart/deleteDeployment, getRevenueStats, getSystemHealth, getAuditLogs, exportAuditLogs, getClusterMetrics, getMetricsTimeSeries, getClusterAlerts
 - [x]  **Prometheus monitoring stack** — `monitoring` namespace: Prometheus v2.48.0, node-exporter DaemonSet, kube-state-metrics, optional Grafana. Alert rules: HighNodeCPU, HighNodeMemory, NodeDiskAlmostFull, PodCrashLooping, PodNotReady
 - [x]  **Admin metrics dashboard** — `/admin/metrics` page with 4 stat cards, time-range selector (1h/6h/24h/7d), node CPU/memory/disk line charts, pod CPU/memory charts, active alerts table. Polls Prometheus via tRPC every 30s. Backend `services/prometheus.ts` with query allowlist and circuit breaker
+- [x]  **Resend email service** — `services/email.ts` with HTML beta welcome template. Admin procedures: `listBetaSignups` (filter by status), `sendBetaInvite` (single), `sendBetaInviteAll` (bulk pending). `beta_signups` table extended with `status` (pending/invited) and `invitedAt` columns
 
 ## Infrastructure ✅
 

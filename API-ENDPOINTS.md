@@ -1,6 +1,6 @@
 # Jarble API Endpoints Reference
 
-> Complete reference for every API endpoint in the Jarble platform. Covers all 91 tRPC procedures and 21 REST endpoints.
+> Complete reference for every API endpoint in the Jarble platform. Covers all 95 tRPC procedures and 21 REST endpoints.
 > Last updated: March 9, 2026 (Session 18)
 
 ---
@@ -20,7 +20,7 @@
    - [Template Router](#template-router-1-procedure)
    - [Skills Router](#skills-router-4-procedures)
    - [Marketplace Router](#marketplace-router-22-procedures)
-   - [Admin Router](#admin-router-16-procedures)
+   - [Admin Router](#admin-router-19-procedures)
 5. [REST Endpoints](#5-rest-endpoints)
    - [Webhooks](#webhooks)
    - [Payment Routes](#payment-routes)
@@ -535,7 +535,7 @@ graph TD
 
 ---
 
-### Admin Router (16 procedures)
+### Admin Router (19 procedures)
 
 Platform administration. All procedures require `adminProcedure` (authenticated + `super_admin` role).
 
@@ -557,6 +557,9 @@ Platform administration. All procedures require `adminProcedure` (authenticated 
 | `admin.getClusterMetrics` | query | admin | Instant node metrics (CPU, memory, disk) + running pod count + recent restarts from Prometheus |
 | `admin.getMetricsTimeSeries` | query | admin | Time-series data for charts. Input: `queryKey` (node_cpu, node_memory, node_disk, pod_cpu, pod_memory), `range` (1h, 6h, 24h, 7d) |
 | `admin.getClusterAlerts` | query | admin | Active firing alerts from Prometheus alert manager |
+| `admin.listBetaSignups` | query | admin | List beta signups, optionally filter by status (`pending`/`invited`/`all`). Returns `emailConfigured` flag |
+| `admin.sendBetaInvite` | mutation | admin | Send welcome email to a single beta signup via Resend. Input: `signupId`. Marks as `invited` |
+| `admin.sendBetaInviteAll` | mutation | admin | Bulk send welcome emails to all `pending` beta signups. Returns `{ sent, failed, total }` |
 
 ---
 
@@ -711,15 +714,15 @@ sequenceDiagram
 
 | Category | Count | Auth | Rate Limit | Streaming |
 |----------|-------|------|-----------|-----------|
-| tRPC Queries | 41 | public/protected/admin | 120 req/min | No |
-| tRPC Mutations | 42 | protected/admin | 120 req/min | No |
+| tRPC Queries | 49 | public/protected/admin | 120 req/min | No |
+| tRPC Mutations | 46 | protected/admin | 120 req/min | No |
 | REST Webhooks | 3 | signature/M2M/deploymentId | global/exempt | No |
 | REST Payment | 2 | JWT Bearer | 10 req/min | No |
 | REST Chat | 3 | JWT Bearer | 120 req/min | Chat POST is SSE; GET history endpoints are JSON |
 | SSE Streams | 3 | JWT (header or query) | 120 req/min | Yes |
 | MCP Endpoints | 5 | JWT Bearer | global | Mixed |
 | Health/Debug | 5 | none | exempt | No |
-| **Total** | **104** | -- | -- | -- |
+| **Total** | **108** | -- | -- | -- |
 
 ### Quick Reference by Router
 
@@ -734,10 +737,10 @@ sequenceDiagram
 | `template` | 1 | 0 | 1 |
 | `skills` | 2 | 2 | 4 |
 | `marketplace` | 11 | 11 | 22 |
-| `admin` | 10 | 6 | 16 |
-| **tRPC Total** | **46** | **45** | **91** |
+| `admin` | 12 | 7 | 19 |
+| **tRPC Total** | **49** | **46** | **95** |
 | REST endpoints (incl. 2 new chat history GET) | -- | -- | **13** |
-| **Grand Total** | -- | -- | **104** |
+| **Grand Total** | -- | -- | **108** |
 
 ### Key Files
 

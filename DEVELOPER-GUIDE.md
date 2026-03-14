@@ -356,7 +356,7 @@ src/trpc/routers/
   ├── runtimeCatalog.ts      ← 4 procedures (list available runtimes)
   ├── skills.ts              ← 4 procedures (skills catalog, install/uninstall)
   ├── marketplace.ts         ← 22 procedures (browse, install, review, creator, admin)
-  ├── admin.ts               ← 16 procedures (platform admin: stats, users, deployments, billing, metrics, audit)
+  ├── admin.ts               ← 19 procedures (platform admin: stats, users, deployments, billing, metrics, audit, beta signups)
   └── template.ts            ← 1 procedure (bot templates)
 ```
 
@@ -1948,6 +1948,9 @@ API_KEY_ENCRYPTION_KEY=0123456789abcdef...
 
 # Prometheus (optional — admin metrics dashboard)
 PROMETHEUS_URL=http://prometheus.monitoring.svc.cluster.local:9090
+
+# Resend (optional — beta invite emails)
+RESEND_API_KEY=re_xxxx
 ```
 
 ---
@@ -2262,6 +2265,7 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **PVC** | Persistent Volume Claim — durable disk storage in K8s |
 | **rAF throttle** | `requestAnimationFrame`-based update coalescing in `useCanvasChat.ts` — prevents excessive React renders during fast SSE delta streams |
 | **React Query** | Data fetching + caching library (powers tRPC hooks) |
+| **Resend** | Email API for transactional emails. Used for beta welcome invites. Requires `RESEND_API_KEY` env var |
 | **Runtime** | The bot engine (OpenClaw or ZeroClaw) |
 | **Secret** | K8s encrypted key-value store (env vars for pods) |
 | **Sentry** | Error monitoring platform. Client config: `sentry.client.config.ts`. Requires `NEXT_PUBLIC_SENTRY_DSN` |
