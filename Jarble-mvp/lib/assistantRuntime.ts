@@ -8,7 +8,7 @@
  * edit / regenerate / copy-to-clipboard features for free.
  */
 
-import { useMemo, useCallback } from "react";
+import { useCallback } from "react";
 import {
   useExternalStoreRuntime,
   type ThreadMessageLike,
@@ -17,8 +17,6 @@ import type { ChatMessage } from "@/hooks/useCanvasChat";
 
 interface JarbleRuntimeOptions {
   messages: ChatMessage[];
-  streamingText: string;
-  streamingThinkingText?: string;
   isStreaming: boolean;
   sendMessage: (text: string, displayText?: string) => Promise<void>;
 }
@@ -50,25 +48,9 @@ function convertMessage(msg: ChatMessage): ThreadMessageLike {
 
 export function useJarbleRuntime({
   messages,
-  streamingText,
-  streamingThinkingText,
   isStreaming,
   sendMessage,
 }: JarbleRuntimeOptions) {
-  // Build display messages: stored messages + optional streaming-in-progress message
-  const displayMessages = useMemo(() => {
-    const all = [...messages];
-    if (streamingText || streamingThinkingText) {
-      all.push({
-        id: "streaming-in-progress",
-        role: "assistant",
-        content: streamingText,
-        createdAt: Date.now(),
-        ...(streamingThinkingText ? { thinkingText: streamingThinkingText } : {}),
-      });
-    }
-    return all;
-  }, [messages, streamingText, streamingThinkingText]);
 
   const onNew = useCallback(
     async (message: { content: readonly { type: string; text?: string }[] }) => {
@@ -82,10 +64,9 @@ export function useJarbleRuntime({
   );
 
   return useExternalStoreRuntime<ChatMessage>({
-    messages: displayMessages,
+    messages,
     convertMessage,
-    // Show thinking indicator when streaming but no text or thinking yet
-    isRunning: isStreaming && !streamingText && !streamingThinkingText,
+    isRunning: isStreaming,
     onNew,
   });
 }

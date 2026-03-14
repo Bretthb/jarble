@@ -44,6 +44,8 @@ function secureCompare(a: string, b: string): boolean {
 function sendEvent(res: any, event: Record<string, unknown>) {
   if (!res.writableEnded) {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
+    // Flush immediately if compression middleware provides it
+    if (typeof res.flush === "function") res.flush();
   }
 }
 
@@ -296,6 +298,9 @@ tamboAgentRouter.post("/", async (req, res) => {
   });
   res.flushHeaders();
 
+  // Disable Nagle's algorithm for immediate TCP delivery of SSE events
+  res.socket?.setNoDelay(true);
+
   // 3. Extract deployment ID
   const deploymentId = extractDeploymentId(body);
   if (!deploymentId) {
@@ -404,6 +409,9 @@ tamboAgentRouter.post("/", async (req, res) => {
   // the WS gateway entirely and go straight to exec through the K8s API.
   const useExecOnly = process.env.USE_SQLITE === "true" || process.env.USE_SQLITE === "1";
 
+  // Pre-generate sessionId so we can return it immediately without awaiting DB writes
+  const sessionIdToReturn = requestSessionId || nanoid();
+
   // Helper: persist chat messages to DB (fire-and-forget)
   const persistChat = async (userText: string, assistantText: string, thinkingText?: string) => {
     try {
@@ -411,8 +419,8 @@ tamboAgentRouter.post("/", async (req, res) => {
       let sessionId = requestSessionId;
 
       if (!sessionId) {
-        // Create a new session
-        sessionId = nanoid();
+        // Use the pre-generated session ID
+        sessionId = sessionIdToReturn;
         // Auto-title from first user message (strip canvas state, truncate)
         let title = userText
           .replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]\s*/g, "")
@@ -545,10 +553,14 @@ tamboAgentRouter.post("/", async (req, res) => {
       "Chat: request completed"
     );
 
-    // Persist to DB fire-and-forget, include sessionId in RUN_FINISHED
-    const savedSessionId = await persistChat(lastUserText, gatewayResult.text, gatewayResult.thinkingText);
-    sendEvent(res, { type: "RUN_FINISHED", runId, threadId, ...(savedSessionId ? { sessionId: savedSessionId } : {}) });
+    // Send RUN_FINISHED immediately with pre-generated sessionId, persist chat in background
+    sendEvent(res, { type: "RUN_FINISHED", runId, threadId, sessionId: sessionIdToReturn });
     res.end();
+
+    // Fire-and-forget DB write — log errors but don't block the response
+    persistChat(lastUserText, gatewayResult.text, gatewayResult.thinkingText).catch((err) => {
+      logger.error({ err, deploymentId }, "[tamboAgent] Failed to persist chat in background");
+    });
   };
 
   // Helper: run chat via exec (kubectl exec into pod)

@@ -224,7 +224,7 @@ function ChatPanel({
     }),
     [messages]
   );
-  const runtime = useJarbleRuntime({ messages: adaptedMessages, streamingText: "", isStreaming, sendMessage });
+  const runtime = useJarbleRuntime({ messages: adaptedMessages, isStreaming, sendMessage });
   const { result: diagnosis, isLoading: isDiagnosing, runDiagnosis } = useDiagnose(deploymentId);
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
