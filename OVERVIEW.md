@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: March 9, 2026 (Session 18 — Chat History in Database, PVC Size Reduction, Real Message Counts)
+📅 Last updated: March 13, 2026 (Session 19 — Prometheus Monitoring Stack, Admin Metrics Dashboard, MetricsChart Fix)
 
 </aside>
 
@@ -25,7 +25,7 @@ Jarble is a **no-code AI deployment platform** that lets users deploy AI-powered
 | Infrastructure | Hetzner Cloud, Terraform IaC, K3s (Longhorn, Traefik) |
 | LLM Providers | OpenRouter, OpenAI, Anthropic, Google |
 | State Management | React Query + tRPC hooks |
-| Monitoring | Sentry (client + server), PostHog analytics |
+| Monitoring | Sentry (client + server), PostHog analytics, Prometheus + node-exporter + kube-state-metrics |
 | Shared Package | @jarble/component-manifest (single source of truth for all component definitions) |
 
 ### System Architecture Diagram
@@ -275,6 +275,25 @@ graph TB
         MKT20[getReviewQueue - protected query]
         MKT21[approveComponent - protected mutation]
         MKT22[rejectComponent - protected mutation]
+    end
+
+    subgraph "Admin Router - 16 procedures"
+        A1[getStats - admin query]
+        A2[listUsers - admin query]
+        A3[getUserById - admin query]
+        A4[updateUserRole - admin mutation]
+        A5[listAllDeployments - admin query]
+        A6[startDeployment - admin mutation]
+        A7[stopDeployment - admin mutation]
+        A8[restartDeployment - admin mutation]
+        A9[deleteDeployment - admin mutation]
+        A10[getRevenueStats - admin query]
+        A11[getSystemHealth - admin query]
+        A12[getAuditLogs - admin query]
+        A13[exportAuditLogs - admin query]
+        A14[getClusterMetrics - admin query]
+        A15[getMetricsTimeSeries - admin query]
+        A16[getClusterAlerts - admin query]
     end
 
     subgraph "Template Router"
@@ -1025,6 +1044,9 @@ flowchart TD
 - [x]  **`chatViaHttp` system message injection** — `openclawGateway.ts:chatViaHttp()` accepts optional `systemMessage` parameter, prepended as a `system` role message to the request's messages array
 - [x]  **Chat history in database** — `chat_sessions` + `chat_messages` tables store conversation history. Messages are cleaned before storage (canvas state stripped, `jarble_ui` fences removed). Sessions auto-titled from first user message. REST endpoints at `GET /api/tambo-agent/sessions/:deploymentId` and `GET /api/tambo-agent/sessions/:deploymentId/:sessionId`
 - [x]  **Default PVC reduced to 5Gi** — Default persistent storage per deployment reduced from 30 GB to 5 GB (actual unit is GB despite the `storageMb` column name). Storage class changed to `longhorn-1r` (1 replica instead of 3), increasing cluster deployment density significantly
+- [x]  **Admin router** — 16 `adminProcedure` procedures: getStats, listUsers, getUserById, updateUserRole, listAllDeployments, start/stop/restart/deleteDeployment, getRevenueStats, getSystemHealth, getAuditLogs, exportAuditLogs, getClusterMetrics, getMetricsTimeSeries, getClusterAlerts
+- [x]  **Prometheus monitoring stack** — `monitoring` namespace: Prometheus v2.48.0, node-exporter DaemonSet, kube-state-metrics, optional Grafana. Alert rules: HighNodeCPU, HighNodeMemory, NodeDiskAlmostFull, PodCrashLooping, PodNotReady
+- [x]  **Admin metrics dashboard** — `/admin/metrics` page with 4 stat cards, time-range selector (1h/6h/24h/7d), node CPU/memory/disk line charts, pod CPU/memory charts, active alerts table. Polls Prometheus via tRPC every 30s. Backend `services/prometheus.ts` with query allowlist and circuit breaker
 
 ## Infrastructure ✅
 
@@ -1039,6 +1061,7 @@ flowchart TD
 - [x]  **Rate limiting** — express-rate-limit with 3 tiers: global (300/min/IP), auth (120/min/user), stripe (10/min/user)
 - [x]  **Terraform CI/CD** — GitHub Actions for plan (PR comment), apply (approval gate), destroy (typed confirmation + approval)
 - [x]  **Terraform Cloud remote state** — Free tier, local execution mode, state + locking
+- [x]  **Prometheus monitoring** — `monitoring` namespace with Prometheus, node-exporter, kube-state-metrics, optional Grafana. 5 alert rules, 15-day retention
 
 ---
 

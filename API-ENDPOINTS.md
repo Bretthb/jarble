@@ -1,6 +1,6 @@
 # Jarble API Endpoints Reference
 
-> Complete reference for every API endpoint in the Jarble platform. Covers all 75 tRPC procedures and 21 REST endpoints.
+> Complete reference for every API endpoint in the Jarble platform. Covers all 91 tRPC procedures and 21 REST endpoints.
 > Last updated: March 9, 2026 (Session 18)
 
 ---
@@ -20,6 +20,7 @@
    - [Template Router](#template-router-1-procedure)
    - [Skills Router](#skills-router-4-procedures)
    - [Marketplace Router](#marketplace-router-22-procedures)
+   - [Admin Router](#admin-router-16-procedures)
 5. [REST Endpoints](#5-rest-endpoints)
    - [Webhooks](#webhooks)
    - [Payment Routes](#payment-routes)
@@ -534,6 +535,31 @@ graph TD
 
 ---
 
+### Admin Router (16 procedures)
+
+Platform administration. All procedures require `adminProcedure` (authenticated + `super_admin` role).
+
+| Procedure | Type | Auth | Description |
+|-----------|------|------|-------------|
+| `admin.getStats` | query | admin | Platform overview stats (user count, deployment count, active deployments, revenue) |
+| `admin.listUsers` | query | admin | Paginated, searchable user list with role badges |
+| `admin.getUserById` | query | admin | Single user detail with their deployments |
+| `admin.updateUserRole` | mutation | admin | Toggle user role between `user` and `super_admin` |
+| `admin.listAllDeployments` | query | admin | All deployments across all users, filterable by status |
+| `admin.startDeployment` | mutation | admin | Start a deployment (any user's) |
+| `admin.stopDeployment` | mutation | admin | Stop a deployment (any user's) |
+| `admin.restartDeployment` | mutation | admin | Restart a deployment (any user's) |
+| `admin.deleteDeployment` | mutation | admin | Delete a deployment (any user's) |
+| `admin.getRevenueStats` | query | admin | Billing stats: MRR, active subscriptions, free vs paid breakdown |
+| `admin.getSystemHealth` | query | admin | Pod status breakdown by state across the cluster |
+| `admin.getAuditLogs` | query | admin | Paginated audit log with action/user filters |
+| `admin.exportAuditLogs` | query | admin | Export audit logs as CSV |
+| `admin.getClusterMetrics` | query | admin | Instant node metrics (CPU, memory, disk) + running pod count + recent restarts from Prometheus |
+| `admin.getMetricsTimeSeries` | query | admin | Time-series data for charts. Input: `queryKey` (node_cpu, node_memory, node_disk, pod_cpu, pod_memory), `range` (1h, 6h, 24h, 7d) |
+| `admin.getClusterAlerts` | query | admin | Active firing alerts from Prometheus alert manager |
+
+---
+
 ## 5. REST Endpoints
 
 REST endpoints handle use cases that don't fit tRPC: webhooks (external POST), SSE streaming (long-lived connections), and file uploads.
@@ -685,15 +711,15 @@ sequenceDiagram
 
 | Category | Count | Auth | Rate Limit | Streaming |
 |----------|-------|------|-----------|-----------|
-| tRPC Queries | 31 | public/protected | 120 req/min | No |
-| tRPC Mutations | 36 | protected | 120 req/min | No |
+| tRPC Queries | 41 | public/protected/admin | 120 req/min | No |
+| tRPC Mutations | 42 | protected/admin | 120 req/min | No |
 | REST Webhooks | 3 | signature/M2M/deploymentId | global/exempt | No |
 | REST Payment | 2 | JWT Bearer | 10 req/min | No |
 | REST Chat | 3 | JWT Bearer | 120 req/min | Chat POST is SSE; GET history endpoints are JSON |
 | SSE Streams | 3 | JWT (header or query) | 120 req/min | Yes |
 | MCP Endpoints | 5 | JWT Bearer | global | Mixed |
 | Health/Debug | 5 | none | exempt | No |
-| **Total** | **88** | -- | -- | -- |
+| **Total** | **104** | -- | -- | -- |
 
 ### Quick Reference by Router
 
@@ -708,9 +734,10 @@ sequenceDiagram
 | `template` | 1 | 0 | 1 |
 | `skills` | 2 | 2 | 4 |
 | `marketplace` | 11 | 11 | 22 |
-| **tRPC Total** | **36** | **39** | **75** |
+| `admin` | 10 | 6 | 16 |
+| **tRPC Total** | **46** | **45** | **91** |
 | REST endpoints (incl. 2 new chat history GET) | -- | -- | **13** |
-| **Grand Total** | -- | -- | **88** |
+| **Grand Total** | -- | -- | **104** |
 
 ### Key Files
 

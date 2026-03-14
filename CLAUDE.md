@@ -82,7 +82,7 @@ The API exposes 9 routers at `/trpc`, plus 2 REST chat history endpoints (`GET /
 - `platformCredentials` - Encrypted messaging platform credentials, pairing flows
 - `template` - Bot configuration templates
 - `marketplace` - Component marketplace: browse, install, publish, review, creator tools, admin moderation
-- `admin` - Platform admin: stats, user management, all deployments, deployment control (start/stop/restart/delete), billing stats, system health, audit logs (13 procedures, all `adminProcedure`-guarded)
+- `admin` - Platform admin: stats, user management, all deployments, deployment control (start/stop/restart/delete), billing stats, system health, audit logs, cluster metrics via Prometheus (16 procedures, all `adminProcedure`-guarded)
 
 ### Frontend-Backend Communication
 - **tRPC + React Query**: Type-safe API calls with automatic caching
@@ -131,6 +131,15 @@ The monolithic `k8s/deployment.ts` was refactored into focused modules:
 - `k8s/client.ts` — K8s API client setup (CoreV1Api, AppsV1Api, CustomObjectsApi, Exec)
 - `k8s/config.ts` — Cluster configuration
 - `k8s/constants.ts` — Namespace, labels, etc.
+
+### Monitoring Stack (`jarble-api-main/k8s/monitoring/`)
+Deployed to `monitoring` namespace:
+- **Prometheus** (`prometheus.yaml`) — v2.48.0, scrapes kubelet, cAdvisor, node-exporter, kube-state-metrics. 15-day retention. Alert rules: HighNodeCPU (>80%), HighNodeMemory (>85%), NodeDiskAlmostFull (>85%), PodCrashLooping (>3 restarts/15m), PodNotReady (>10m)
+- **Node Exporter** (`node-exporter.yaml`) — DaemonSet, v1.7.0, host-level CPU/memory/disk/network metrics on port 9100
+- **Kube State Metrics** (`kube-state-metrics.yaml`) — v2.10.1, K8s object metrics (pod counts, restarts, PVC usage)
+- **Grafana** (`grafana.yaml`) — Optional, v10.2.2, pre-built "Jarble Cluster Overview" dashboard on port 3030
+
+Backend queries Prometheus via `services/prometheus.ts` (query allowlist, circuit breaker with 60s cooldown). Frontend admin dashboard (`/admin/metrics`) polls every 30s.
 
 ### Resources Per Deployment
 Each deployment creates 4 K8s resources in namespace `jarble`:
@@ -344,6 +353,7 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_MANAGEMENT_KEY=...   # For included credits provisioning
 API_KEY_ENCRYPTION_KEY=...      # AES-256-GCM key for platform credentials
+PROMETHEUS_URL=http://...       # Prometheus server URL (default: http://prometheus.monitoring.svc.cluster.local:9090)
 ```
 
 ### Frontend (Jarble-mvp/.env.local)
@@ -399,7 +409,8 @@ Available when running locally:
 | `trpc/routers/platformCredentials.ts` | Credential CRUD, WhatsApp/Telegram pairing, pollTelegramPairing |
 | `trpc/routers/openrouter.ts` | Multi-provider LLM key validation, OpenRouter provisioning |
 | `trpc/routers/deployment.ts` | Deployment CRUD, lifecycle, K8s orchestration (admins bypass ownership via `deploymentWhere()`) |
-| `trpc/routers/admin.ts` | Admin router: 13 procedures for platform management (stats, users, deployments, billing, audit logs) |
+| `trpc/routers/admin.ts` | Admin router: 16 procedures for platform management (stats, users, deployments, billing, audit logs, cluster metrics) |
+| `services/prometheus.ts` | Prometheus HTTP API client — query allowlist, circuit breaker, instant/range queries, alerts |
 | `trpc/middleware.ts` | tRPC middleware: `publicProcedure`, `protectedProcedure`, `adminProcedure` |
 | `utils/rbac.ts` | Role-based access control helper (`isAdmin()`, `UserRole` type) |
 | `services/auditLog.ts` | Fire-and-forget audit logging for admin actions (`logAdminAction()`) |
@@ -448,7 +459,8 @@ Available when running locally:
 | `hooks/useIsAdmin.ts` | Admin role check hook (`useIsAdmin()` → queries `user.getProfile`) |
 | `components/admin/AdminGuard.tsx` | Client-side admin guard — redirects non-admins to `/dashboard` |
 | `app/admin/layout.tsx` | Admin layout: top navbar + sidebar navigation (7 sections) |
-| `views/admin/Admin*.tsx` | 8 admin views: Overview, Users, UserDetail, Deployments, Marketplace, Billing, System, Audit |
+| `views/admin/Admin*.tsx` | 9 admin views: Overview, Users, UserDetail, Deployments, Marketplace, Billing, System, Metrics, Audit |
+| `components/admin/MetricsChart.tsx` | Reusable recharts line chart for Prometheus time-series data |
 
 ## Component Manifest (`shared/component-manifest/`)
 
@@ -525,7 +537,7 @@ Two roles stored in DB `users.role` column (DB is authoritative, not JWT):
 - Marketplace admin: replaced hardcoded `ADMIN_USER_IDS` set with `isAdmin()` check
 
 ### Admin Dashboard (`/admin`)
-8 pages with sidebar navigation, guarded by `AdminGuard`:
+9 pages with sidebar navigation, guarded by `AdminGuard`:
 
 | Route | View | Data Source |
 |-------|------|-------------|
@@ -536,6 +548,7 @@ Two roles stored in DB `users.role` column (DB is authoritative, not JWT):
 | `/admin/marketplace` | Moderation queue (placeholder) | — |
 | `/admin/billing` | Revenue stats: MRR, active subs, free vs paid | `admin.getRevenueStats` |
 | `/admin/system` | Pod status breakdown by state | `admin.getSystemHealth` |
+| `/admin/metrics` | Cluster metrics — node CPU/memory/disk charts, pod metrics, active alerts | `admin.getClusterMetrics`, `admin.getMetricsTimeSeries`, `admin.getClusterAlerts` |
 | `/admin/audit` | Audit log table with action/user filters | `admin.getAuditLogs` |
 
 ### Audit Logging

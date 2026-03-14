@@ -62,6 +62,7 @@ All API env vars in production live in K8s secret `jarble-api-secrets` in namesp
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification | Same patch pattern |
 | `API_KEY_ENCRYPTION_KEY` | AES-256-GCM key for platform credentials | Same patch pattern |
 | `FRONTEND_URL` | CORS origin (`https://jarble.ai`) | Same patch pattern |
+| `PROMETHEUS_URL` | Prometheus server URL (default: `http://prometheus.monitoring.svc.cluster.local:9090`) | Same patch pattern. Only needed if Prometheus runs outside `monitoring` namespace |
 
 After patching any secret, restart the API: `kubectl rollout restart deployment/jarble-api -n jarble`
 
@@ -208,6 +209,35 @@ c.connect()
 UPDATE deployments SET status = 'pending' WHERE id = '<deploymentId>';
 ```
 
+### Deploy/Update Monitoring Stack
+```bash
+export KUBECONFIG="C:\Users\tanne\kubeconfig.yaml"
+
+# Apply all monitoring manifests
+kubectl apply -f jarble-api-main/k8s/monitoring/namespace.yaml
+kubectl apply -f jarble-api-main/k8s/monitoring/prometheus.yaml
+kubectl apply -f jarble-api-main/k8s/monitoring/node-exporter.yaml
+kubectl apply -f jarble-api-main/k8s/monitoring/kube-state-metrics.yaml
+kubectl apply -f jarble-api-main/k8s/monitoring/grafana.yaml  # optional
+
+# Verify
+kubectl get pods -n monitoring
+kubectl get svc -n monitoring
+```
+
+### Check Prometheus Health
+```bash
+export KUBECONFIG="C:\Users\tanne\kubeconfig.yaml"
+kubectl get pods -n monitoring -l app=prometheus
+kubectl logs -n monitoring -l app=prometheus --tail=20
+
+# Test query from API pod
+kubectl exec -n jarble deployment/jarble-api -- node -e "
+fetch('http://prometheus.monitoring.svc.cluster.local:9090/api/v1/query?query=up')
+  .then(r => r.json()).then(j => console.log(JSON.stringify(j.data.result, null, 2)));
+"
+```
+
 ---
 
 ## Decision Log
@@ -219,6 +249,7 @@ Track key architectural and operational decisions. Newest first.
 | 2026-03-11 | Switched Auth0 prod tenant from `jarble-dev.us.auth0.com` to `jarble.us.auth0.com` | Separate dev and prod tenants for isolation. `jarble-dev` remains for local dev. |
 | 2026-03-11 | Added beta gating via Auth0 Post Login Action | Block public signups — only users with `app_metadata.beta_approved` can access the platform. |
 | 2026-03-11 | Implemented RBAC with `super_admin` / `user` roles | Need platform admin capabilities. DB is authoritative for roles, JWT claim is informational. |
+| 2026-03-13 | Added Prometheus monitoring stack + admin metrics dashboard | Cluster observability: node CPU/memory/disk, pod metrics, alert rules (crash loops, high resource usage). Prometheus v2.48.0 + node-exporter + kube-state-metrics in `monitoring` namespace. Frontend at `/admin/metrics` polls via tRPC every 30s. |
 | 2026-03-11 | Built admin dashboard at `/admin` (8 pages) | Platform visibility: manage users, deployments, billing, audit logs from one place. |
 | 2026-03-11 | Added audit logging on all admin mutations | Compliance and accountability. Logs to `audit_logs` table with userId, action, IP, metadata. |
 | 2026-03-11 | Security review: explicit column selects in admin queries | Prevent leaking `llmApiKey`, `auth0Id`, `stripeCustomerId` through admin endpoints. |

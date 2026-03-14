@@ -356,6 +356,7 @@ src/trpc/routers/
   ├── runtimeCatalog.ts      ← 4 procedures (list available runtimes)
   ├── skills.ts              ← 4 procedures (skills catalog, install/uninstall)
   ├── marketplace.ts         ← 22 procedures (browse, install, review, creator, admin)
+  ├── admin.ts               ← 16 procedures (platform admin: stats, users, deployments, billing, metrics, audit)
   └── template.ts            ← 1 procedure (bot templates)
 ```
 
@@ -1944,6 +1945,9 @@ OPENROUTER_MANAGEMENT_KEY=sk-or-...   # For tenant key provisioning
 
 # Encryption (32-byte hex = 64 hex chars)
 API_KEY_ENCRYPTION_KEY=0123456789abcdef...
+
+# Prometheus (optional — admin metrics dashboard)
+PROMETHEUS_URL=http://prometheus.monitoring.svc.cluster.local:9090
 ```
 
 ---
@@ -2254,6 +2258,7 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **OpenRouter** | LLM API aggregator (200+ models, one API key) |
 | **Pod** | Smallest K8s unit — one running container |
 | **PostHog** | Product analytics library. Initialized in `lib/posthog.ts`. Requires `NEXT_PUBLIC_POSTHOG_KEY` |
+| **Prometheus** | Open-source monitoring system. Deployed in `monitoring` namespace, scrapes node-exporter and kube-state-metrics. Admin dashboard at `/admin/metrics` queries it via `services/prometheus.ts` |
 | **PVC** | Persistent Volume Claim — durable disk storage in K8s |
 | **rAF throttle** | `requestAnimationFrame`-based update coalescing in `useCanvasChat.ts` — prevents excessive React renders during fast SSE delta streams |
 | **React Query** | Data fetching + caching library (powers tRPC hooks) |
