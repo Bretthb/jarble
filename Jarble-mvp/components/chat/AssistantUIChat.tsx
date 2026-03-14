@@ -214,12 +214,7 @@ function AssistantBubble() {
                 : undefined
             }
           >
-            {/* Plain text during streaming (fast, no layout shifts), markdown after completion */}
-            {isInProgress ? (
-              <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
-            ) : (
-              <MarkdownMessage content={content} />
-            )}
+            {content && <MarkdownMessage content={content} />}
             {isInProgress && (
               <span className="inline-block w-[2px] h-[1.1em] bg-primary/80 ml-0.5 align-middle animate-[blink_1s_steps(2,start)_infinite]" />
             )}

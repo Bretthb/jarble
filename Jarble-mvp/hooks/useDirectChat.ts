@@ -126,9 +126,7 @@ export function useDirectChat(deploymentId: string) {
         let buffer = "";
         const pendingBlocks = new Map<string, UIBlock>();
 
-        // Throttled flushing — 100ms intervals (~10 updates/sec) instead of rAF (60/sec).
-        // Text streaming doesn't need 60fps; 10fps looks equally smooth and massively
-        // reduces React re-renders and markdown re-parses.
+        // Throttled flushing — 50ms intervals (~20 updates/sec) for smooth streaming
         let pendingTextDelta = "";
         let pendingThinkingDelta = "";
         let flushTimer = 0;
@@ -156,7 +154,7 @@ export function useDirectChat(deploymentId: string) {
 
         const scheduleFlush = () => {
           if (!flushTimer) {
-            flushTimer = window.setTimeout(flushTextDeltas, 100);
+            flushTimer = window.setTimeout(flushTextDeltas, 50);
           }
         };
 
