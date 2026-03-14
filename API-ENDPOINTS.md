@@ -1,7 +1,7 @@
 # Jarble API Endpoints Reference
 
-> Complete reference for every API endpoint in the Jarble platform. Covers all 95 tRPC procedures and 21 REST endpoints.
-> Last updated: March 9, 2026 (Session 18)
+> Complete reference for every API endpoint in the Jarble platform. Covers all 98 tRPC procedures and 21 REST endpoints.
+> Last updated: March 14, 2026 (Session 20 — Managed Keys frontend wiring)
 
 ---
 
@@ -13,8 +13,8 @@
 4. [tRPC Procedures](#4-trpc-procedures)
    - [User Router](#user-router-5-procedures)
    - [Deployment Router](#deployment-router-21-procedures)
-   - [OpenRouter Router](#openrouter-router-8-procedures)
-   - [Billing Router](#billing-router-3-procedures)
+   - [OpenRouter Router](#openrouter-router-10-procedures)
+   - [Billing Router](#billing-router-4-procedures)
    - [Platform Credentials Router](#platform-credentials-router-7-procedures)
    - [Runtime Catalog Router](#runtime-catalog-router-4-procedures)
    - [Template Router](#template-router-1-procedure)
@@ -159,9 +159,9 @@ graph TD
     CLIENT["Frontend<br/>trpc.router.procedure.useQuery()"] -->|"HTTP POST/GET"| TRPC["/trpc endpoint"]
 
     TRPC --> DEPLOYMENT["deployment<br/>21 procedures"]
-    TRPC --> OPENROUTER["openrouter<br/>8 procedures"]
+    TRPC --> OPENROUTER["openrouter<br/>10 procedures"]
     TRPC --> USER["user<br/>5 procedures"]
-    TRPC --> BILLING["billing<br/>3 procedures"]
+    TRPC --> BILLING["billing<br/>4 procedures"]
     TRPC --> PLATCREDS["platformCredentials<br/>7 procedures"]
     TRPC --> RUNTIME_CAT["runtimeCatalog<br/>4 procedures"]
     TRPC --> TEMPLATE["template<br/>1 procedure"]
@@ -312,7 +312,7 @@ graph TD
 
 ---
 
-### OpenRouter Router (8 procedures)
+### OpenRouter Router (10 procedures)
 
 ```mermaid
 graph LR
@@ -324,6 +324,8 @@ graph LR
         PROV["provisionKey<br/>mutation"]
         USAGE["getKeyUsage<br/>query"]
         UPD["updateKeyLimit<br/>mutation"]
+        UPDM["updateManagedKeyPlan<br/>mutation"]
+        CANCEL["cancelManagedKey<br/>mutation"]
         REV["revokeKey<br/>mutation"]
     end
 
@@ -334,6 +336,10 @@ graph LR
     PROV --> MGMT["OpenRouter<br/>Management API"]
     USAGE --> MGMT
     UPD --> MGMT
+    UPDM --> MGMT
+    UPDM --> STRIPE["Stripe API"]
+    CANCEL --> MGMT
+    CANCEL --> STRIPE
     REV --> MGMT
 ```
 
@@ -345,12 +351,14 @@ graph LR
 | `openrouter.validateProviderKey` | mutation | `{ provider, apiKey }` | Multi-provider key validation (OpenAI, Anthropic, Google, OpenRouter). **Dev bypass:** accepts `dev-*` keys in SQLite/dev mode |
 | `openrouter.provisionKey` | mutation | `{ deploymentId, limitDollars? }` | Provision tenant API key via Management API. Encrypts + stores |
 | `openrouter.getKeyUsage` | query | `{ deploymentId }` | Credit usage for "included" mode deployments. Resolves to owner if linked |
-| `openrouter.updateKeyLimit` | mutation | `{ deploymentId, limitDollars: 1-1000 }` | Update monthly credit cap. Must be owner (not linked) |
-| `openrouter.revokeKey` | mutation | `{ deploymentId }` | Disable tenant key, clear from DB, switch to BYOK mode |
+| `openrouter.updateKeyLimit` | mutation | `{ deploymentId, limitDollars: 1-1000 }` | Update monthly credit cap on OpenRouter only. Must be owner (not linked) |
+| `openrouter.updateManagedKeyPlan` | mutation | `{ deploymentId, newLimitDollars: 1-1000 }` | Update both OpenRouter credit cap AND Stripe subscription line item price. Must be owner |
+| `openrouter.cancelManagedKey` | mutation | `{ deploymentId }` | Cancel managed key: removes Stripe line item, revokes OpenRouter key, switches to BYOK mode |
+| `openrouter.revokeKey` | mutation | `{ deploymentId }` | Revoke tenant key only (no Stripe changes). Used for key rotation (regenerate) |
 
 ---
 
-### Billing Router (3 procedures)
+### Billing Router (4 procedures)
 
 ```mermaid
 graph LR
@@ -358,6 +366,7 @@ graph LR
         OVERVIEW["getOverview<br/>query"]
         INV["getInvoices<br/>query"]
         SUBS["getSubscriptions<br/>query"]
+        MKU["getManagedKeyUsage<br/>query"]
     end
 
     OVERVIEW --> STRIPE["Stripe API"]
@@ -365,13 +374,16 @@ graph LR
     SUBS --> STRIPE
     OVERVIEW --> DB[("Database")]
     SUBS --> DB
+    MKU --> OR["OpenRouter API"]
+    MKU --> DB
 ```
 
 | Procedure | Type | Input | Description |
 |---|---|---|---|
 | `billing.getOverview` | query | -- | Billing summary: total monthly spend, active subs count, next billing date, payment method last4 |
 | `billing.getInvoices` | query | -- | All Stripe invoices (id, date, amount, status, PDF URL) |
-| `billing.getSubscriptions` | query | -- | Subscription details per deployment (Stripe status, billing period, cancellation info) |
+| `billing.getSubscriptions` | query | -- | Subscription details per deployment with per-item breakdown: `hardwareCents`, `managedKeyCents`, `managedKeyPlanDollars`, `llmMode`, `isLinked`, plus Stripe status and billing period |
+| `billing.getManagedKeyUsage` | query | `{ deploymentId }` | OpenRouter credit usage for a managed key deployment. Returns `{ usage, limit, disabled }` or null if BYOK |
 
 #### `billing.getOverview` Output
 
@@ -381,6 +393,26 @@ graph LR
   activeSubscriptionCount: number
   nextBillingDate: string | null    // ISO date from first active subscription
   paymentMethodLast4: string | null // card last 4 digits
+}
+```
+
+#### `billing.getSubscriptions` Output (per item)
+
+```typescript
+{
+  deploymentId: string
+  deploymentName: string
+  runtime: string
+  monthlyPriceCents: number          // total (hardware + managed keys)
+  hardwareCents: number              // hardware-only line item
+  managedKeyCents: number            // managed key line item (0 if BYOK)
+  managedKeyPlanDollars: number | null // credit cap in dollars
+  llmMode: "included" | "byok"
+  isLinked: boolean                  // true if sharing another deployment's credit pool
+  stripeStatus: string
+  periodStart: string | null
+  periodEnd: string | null
+  cancelledAt: string | null
 }
 ```
 
@@ -714,33 +746,33 @@ sequenceDiagram
 
 | Category | Count | Auth | Rate Limit | Streaming |
 |----------|-------|------|-----------|-----------|
-| tRPC Queries | 49 | public/protected/admin | 120 req/min | No |
-| tRPC Mutations | 46 | protected/admin | 120 req/min | No |
+| tRPC Queries | 50 | public/protected/admin | 120 req/min | No |
+| tRPC Mutations | 48 | protected/admin | 120 req/min | No |
 | REST Webhooks | 3 | signature/M2M/deploymentId | global/exempt | No |
 | REST Payment | 2 | JWT Bearer | 10 req/min | No |
 | REST Chat | 3 | JWT Bearer | 120 req/min | Chat POST is SSE; GET history endpoints are JSON |
 | SSE Streams | 3 | JWT (header or query) | 120 req/min | Yes |
 | MCP Endpoints | 5 | JWT Bearer | global | Mixed |
 | Health/Debug | 5 | none | exempt | No |
-| **Total** | **108** | -- | -- | -- |
+| **Total** | **111** | -- | -- | -- |
 
 ### Quick Reference by Router
 
 | Router | Queries | Mutations | Total |
 |--------|---------|-----------|-------|
 | `deployment` | 8 | 13 | 21 |
-| `openrouter` | 3 | 5 | 8 |
+| `openrouter` | 3 | 7 | 10 |
 | `user` | 2 | 3 | 5 |
 | `runtimeCatalog` | 4 | 0 | 4 |
-| `billing` | 3 | 0 | 3 |
+| `billing` | 4 | 0 | 4 |
 | `platformCredentials` | 2 | 5 | 7 |
 | `template` | 1 | 0 | 1 |
 | `skills` | 2 | 2 | 4 |
 | `marketplace` | 11 | 11 | 22 |
 | `admin` | 12 | 7 | 19 |
-| **tRPC Total** | **49** | **46** | **95** |
+| **tRPC Total** | **50** | **48** | **98** |
 | REST endpoints (incl. 2 new chat history GET) | -- | -- | **13** |
-| **Grand Total** | -- | -- | **108** |
+| **Grand Total** | -- | -- | **111** |
 
 ### Key Files
 
@@ -766,9 +798,9 @@ sequenceDiagram
 | `jarble-api-main/src/utils/uiBlockParser.ts` | Brace-depth jarble_ui parser + library URL validation |
 | `jarble-api-main/src/utils/pricing.ts` | Hardware-based pricing calculator ($10/vCPU, $2.50/GB RAM, $0.08/GB storage) |
 | `jarble-api-main/src/trpc/routers/deployment.ts` | 21 procedures (CRUD, lifecycle, billing, canvas components) |
-| `jarble-api-main/src/trpc/routers/openrouter.ts` | 8 procedures (LLM key management) |
+| `jarble-api-main/src/trpc/routers/openrouter.ts` | 10 procedures (LLM key management, Stripe-aware plan updates) |
 | `jarble-api-main/src/trpc/routers/user.ts` | 5 procedures (profile, email verification) |
-| `jarble-api-main/src/trpc/routers/billing.ts` | 3 procedures (overview, invoices, subscriptions) |
+| `jarble-api-main/src/trpc/routers/billing.ts` | 4 procedures (overview, invoices, subscriptions, managed key usage) |
 | `jarble-api-main/src/trpc/routers/platformCredentials.ts` | 7 procedures (credential CRUD, WhatsApp QR, Telegram pairing) |
 | `jarble-api-main/src/trpc/routers/runtimeCatalog.ts` | 4 procedures (runtime listing) |
 | `jarble-api-main/src/trpc/routers/skills.ts` | 4 procedures (skills catalog, install/uninstall) |

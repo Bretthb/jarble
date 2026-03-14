@@ -77,8 +77,8 @@ The API exposes 9 routers at `/trpc`, plus 2 REST chat history endpoints (`GET /
 - `user` - Profile management, auth state
 - `deployment` - CRUD, lifecycle (start/stop/restart), K8s operations (admins bypass ownership checks)
 - `runtimeCatalog` - Available bot runtimes
-- `openrouter` - LLM key provisioning, validation, multi-provider support
-- `billing` - Stripe checkout, subscriptions
+- `openrouter` - LLM key provisioning, validation, multi-provider support, Stripe-aware managed key plan updates (`updateManagedKeyPlan`, `cancelManagedKey`)
+- `billing` - Stripe checkout, subscriptions, managed key usage tracking (`getManagedKeyUsage`)
 - `platformCredentials` - Encrypted messaging platform credentials, pairing flows
 - `template` - Bot configuration templates
 - `marketplace` - Component marketplace: browse, install, publish, review, creator tools, admin moderation
@@ -409,7 +409,8 @@ Available when running locally:
 | `services/configSync.ts` | Two-way config sync between DB and PVC |
 | `runtimes/handlers/openclaw.ts` | OpenClaw runtime: renderConfigs, getSecretEntries, parseConfigs |
 | `trpc/routers/platformCredentials.ts` | Credential CRUD, WhatsApp/Telegram pairing, pollTelegramPairing |
-| `trpc/routers/openrouter.ts` | Multi-provider LLM key validation, OpenRouter provisioning |
+| `trpc/routers/openrouter.ts` | Multi-provider LLM key validation, OpenRouter provisioning, `updateManagedKeyPlan` (Stripe + OpenRouter), `cancelManagedKey` |
+| `trpc/routers/billing.ts` | Billing overview, invoices, subscriptions with managed key breakdown, `getManagedKeyUsage` |
 | `trpc/routers/deployment.ts` | Deployment CRUD, lifecycle, K8s orchestration (admins bypass ownership via `deploymentWhere()`) |
 | `trpc/routers/admin.ts` | Admin router: 19 procedures for platform management (stats, users, deployments, billing, audit logs, cluster metrics, beta signups) |
 | `services/prometheus.ts` | Prometheus HTTP API client — query allowlist, circuit breaker, instant/range queries, alerts |
@@ -417,6 +418,7 @@ Available when running locally:
 | `trpc/middleware.ts` | tRPC middleware: `publicProcedure`, `protectedProcedure`, `adminProcedure` |
 | `utils/rbac.ts` | Role-based access control helper (`isAdmin()`, `UserRole` type) |
 | `services/auditLog.ts` | Fire-and-forget audit logging for admin actions (`logAdminAction()`) |
+| `services/stripe.ts` | Stripe checkout, portal, multi-line-item subscriptions (`findManagedKeyItem`, `addManagedKeyLineItem`, `updateManagedKeyLineItem`, `removeManagedKeyLineItem`, `getSubscriptionBreakdown`) |
 | `db/schema.sqlite.ts` | SQLite schema (dev) |
 | `db/init.ts` | Seed data for local dev |
 | `utils/encryption.ts` | AES-256-GCM encrypt/decrypt for credentials |

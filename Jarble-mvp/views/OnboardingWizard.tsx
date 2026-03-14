@@ -23,7 +23,7 @@ import {
   detectProviderFromKey,
   getDefaultModelForProvider,
   DEFAULT_INCLUDED_MODEL,
-  DEFAULT_CREDIT_PLAN,
+  DEFAULT_MANAGED_KEY_PLAN,
   type LLMProviderDef,
 } from "./onboarding/wizardStepConfig";
 import type { KeyValidationStatus, RuntimeEntry } from "./onboarding/types";
@@ -74,7 +74,7 @@ export default function OnboardingWizard() {
   const [llmProvider, setLlmProvider] = useState<LLMProviderDef["id"]>("openrouter");
   const [llmModel, setLlmModel] = useState<string>(DEFAULT_INCLUDED_MODEL);
   const [llmApiKey, setLlmApiKey] = useState("");
-  const [creditLimitDollars, setCreditLimitDollars] = useState<number>(DEFAULT_CREDIT_PLAN);
+  const [creditLimitDollars, setCreditLimitDollars] = useState<number>(DEFAULT_MANAGED_KEY_PLAN);
   const [linkToDeploymentId, setLinkToDeploymentId] = useState<string | null>(null);
   const [keyValidation, setKeyValidation] = useState<KeyValidationStatus>("idle");
   const [telegramBotToken, setTelegramBotToken] = useState<string | null>(null);
@@ -292,6 +292,9 @@ export default function OnboardingWizard() {
           cpuLimit: cpuLimit || undefined,
           memoryMb: memoryMb || undefined,
           storageMb: storageMb || undefined,
+          llmMode,
+          creditLimitDollars: llmMode === "included" && !linkToDeploymentId ? creditLimitDollars : undefined,
+          linkToDeploymentId: llmMode === "included" && linkToDeploymentId ? linkToDeploymentId : undefined,
           inline: true,
         }),
       });
@@ -306,14 +309,14 @@ export default function OnboardingWizard() {
     } finally {
       setIsLoadingCheckout(false);
     }
-  }, [getAccessTokenSilently, selectedRuntimeSlug, cpuLimit, memoryMb, storageMb]);
+  }, [getAccessTokenSilently, selectedRuntimeSlug, cpuLimit, memoryMb, storageMb, llmMode, creditLimitDollars, linkToDeploymentId]);
 
   // Reset payment form when hardware config changes (price changes)
   useEffect(() => {
     if (stripeClientSecret) {
       setStripeClientSecret(null);
     }
-  }, [cpuLimit, memoryMb, storageMb]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cpuLimit, memoryMb, storageMb, llmMode, creditLimitDollars, linkToDeploymentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Extract deploy logic so both handleNext and payment form can call it
   const triggerDeploy = useCallback(() => {
@@ -527,6 +530,8 @@ export default function OnboardingWizard() {
                   llmMode={llmMode}
                   llmProvider={llmProvider}
                   llmModel={llmModel}
+                  creditLimitDollars={creditLimitDollars}
+                  linkToDeploymentId={linkToDeploymentId}
                   isFree={!!isFreeAvailable}
                   cpuLimit={cpuLimit}
                   setCpuLimit={setCpuLimit}

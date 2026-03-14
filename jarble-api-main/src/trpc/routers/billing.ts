@@ -1,11 +1,16 @@
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../middleware.js";
 import { tables } from "../../db/index.js";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   isStripeConfigured,
   listInvoices,
   getSubscriptionDetails,
+  sumSubscriptionItemsCents,
+  getSubscriptionBreakdown,
 } from "../../services/stripe.js";
+import { getOpenRouterKeyUsage } from "../../utils/openrouter.js";
 import { logger } from "../../utils/logger.js";
 
 const { users, deployments } = tables;
@@ -39,10 +44,8 @@ export const billingRouter = router({
         if (sub.status === "active" || sub.status === "past_due") {
           activeCount++;
 
-          // Use actual Stripe price as source of truth
-          const item = sub.items?.data?.[0];
-          const unitAmount = item?.price?.unit_amount ?? 0;
-          totalMonthlyCents += unitAmount;
+          // Sum ALL subscription items (hardware + managed keys)
+          totalMonthlyCents += sumSubscriptionItemsCents(sub);
 
           // Track earliest next billing date across all subscriptions
           const periodEnd = sub.current_period_end;
@@ -121,8 +124,9 @@ export const billingRouter = router({
         let periodStart: string | null = null;
         let periodEnd: string | null = null;
         let stripeStatus = "unknown";
-        // Default to DB price, override with Stripe if available
         let monthlyPriceCents = d.monthlyPriceCents || 0;
+        let hardwareCents = monthlyPriceCents;
+        let managedKeyCents = 0;
 
         if (isStripeConfigured()) {
           try {
@@ -131,11 +135,11 @@ export const billingRouter = router({
             periodEnd = new Date((sub as any).current_period_end * 1000).toISOString();
             stripeStatus = (sub as any).status;
 
-            // Use the actual Stripe price as source of truth
-            const item = (sub as any).items?.data?.[0];
-            if (item?.price?.unit_amount != null) {
-              monthlyPriceCents = item.price.unit_amount;
-            }
+            // Get per-item breakdown (hardware vs managed keys)
+            const breakdown = getSubscriptionBreakdown(sub);
+            hardwareCents = breakdown.hardwareCents;
+            managedKeyCents = breakdown.managedKeyCents;
+            monthlyPriceCents = breakdown.totalCents;
           } catch {
             // Fall through with DB defaults
           }
@@ -146,6 +150,11 @@ export const billingRouter = router({
           deploymentName: d.name,
           runtime: d.runtimeCatalogEntry?.name ?? d.runtime,
           monthlyPriceCents,
+          hardwareCents,
+          managedKeyCents,
+          managedKeyPlanDollars: d.llmCreditLimitDollars ?? null,
+          llmMode: d.llmMode ?? "byok",
+          isLinked: !!d.llmApiKeySourceDeploymentId,
           cancelledAt: d.cancelledAt ? new Date(d.cancelledAt).toISOString() : null,
           cancelAtPeriodEnd: d.cancelAtPeriodEnd ? new Date(d.cancelAtPeriodEnd).toISOString() : null,
           stripeStatus,
@@ -159,4 +168,40 @@ export const billingRouter = router({
       .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
       .map((r) => r.value);
   }),
+
+  // Get managed key usage for a deployment (OpenRouter credit usage)
+  getManagedKeyUsage: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(
+          eq(deployments.id, input.deploymentId),
+          eq(deployments.userId, ctx.user.id),
+        ),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      if (deployment.llmMode !== "included") {
+        return null;
+      }
+
+      // Resolve to pool owner's key if linked
+      let keyId = deployment.llmApiKeyId;
+      if (deployment.llmApiKeySourceDeploymentId) {
+        const owner = await ctx.db.query.deployments.findFirst({
+          where: and(
+            eq(deployments.id, deployment.llmApiKeySourceDeploymentId),
+            eq(deployments.userId, ctx.user.id),
+          ),
+        });
+        keyId = owner?.llmApiKeyId || keyId;
+      }
+
+      if (!keyId) return null;
+
+      return getOpenRouterKeyUsage(keyId);
+    }),
 });

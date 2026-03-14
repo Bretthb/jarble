@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: March 13, 2026 (Session 19 — Prometheus Monitoring Stack, Admin Metrics Dashboard, MetricsChart Fix)
+📅 Last updated: March 14, 2026 (Session 20 — Managed Keys: Stripe-aware mutations, frontend wiring, billing breakdown)
 
 </aside>
 
@@ -232,7 +232,9 @@ graph TB
         OR5[provisionKey - mutation]
         OR6[getKeyUsage - query + linked resolve]
         OR7[updateKeyLimit - mutation + owner guard]
-        OR8[revokeKey - mutation]
+        OR8[updateManagedKeyPlan - mutation + Stripe]
+        OR9[cancelManagedKey - mutation + Stripe]
+        OR10[revokeKey - mutation]
     end
 
     subgraph "Platform Credentials Router"
@@ -1026,7 +1028,7 @@ flowchart TD
 - [x]  **Dev BYOK bypass** — `dev-*` prefixed API keys accepted without validation in SQLite/dev mode
 - [x]  **Multi-provider key validation** — `validateProviderKey` validates keys against OpenRouter, OpenAI, Anthropic, and Google APIs
 - [x]  **DB_PROVIDER env var** — New explicit database provider selector (`sqlite` / `mysql` / `postgres`) alongside legacy `USE_SQLITE`
-- [x]  **Billing tRPC router** — `billing.getOverview`, `billing.getInvoices`, `billing.getSubscriptions` with Stripe API enrichment
+- [x]  **Billing tRPC router** — `billing.getOverview`, `billing.getInvoices`, `billing.getSubscriptions` (with per-item breakdown: hardware vs managed keys), `billing.getManagedKeyUsage`
 - [x]  **WhatsApp QR SSE endpoint** — `GET /api/deployments/:id/whatsapp/qr` streams Baileys QR via `streamExecInPod()`
 - [x]  **Rate limiting middleware** — Global (300/min/IP), auth (120/min/user), stripe (10/min/user) via express-rate-limit
 - [x]  **Production Docker image** — Multi-stage Dockerfile, entrypoint.sh (migrate → seed → start)
@@ -1313,9 +1315,9 @@ monorepo/
 │   │   │   └── debug.ts               # GET /debug/db, POST /debug/deployment/:id/status (dev only)
 │   │   ├── trpc/routers/
 │   │   │   ├── deployment.ts          # 21 procedures: CRUD + canvas components + linking
-│   │   │   ├── openrouter.ts          # 8 procedures: key provisioning, usage, validation
+│   │   │   ├── openrouter.ts          # 10 procedures: key provisioning, usage, validation, Stripe-aware plan updates
 │   │   │   ├── user.ts                # 5 procedures: profile management + email resend
-│   │   │   ├── billing.ts             # 3 procedures: overview, invoices, subscriptions
+│   │   │   ├── billing.ts             # 4 procedures: overview, invoices, subscriptions, managed key usage
 │   │   │   ├── runtimeCatalog.ts      # 4 procedures: runtime listing + capabilities
 │   │   │   ├── platformCredentials.ts # 7 procedures: cred CRUD + QR status + Telegram pairing
 │   │   │   ├── skills.ts              # 4 procedures: catalog, install, uninstall

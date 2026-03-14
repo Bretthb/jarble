@@ -32,6 +32,8 @@ import {
   FileText,
   ExternalLink,
   AlertCircle,
+  Zap,
+  Link2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import ProfileDropdown from "@/components/ProfileDropdown";
@@ -85,6 +87,25 @@ function statusBadge(status: string, cancelledAt?: string | null) {
     <Badge variant="outline" className="bg-muted text-muted-foreground capitalize">
       {status}
     </Badge>
+  );
+}
+
+// ─── Managed Key Usage Cell ──────────────────────────────────────────────
+
+function ManagedKeyUsageCell({ deploymentId, limitDollars }: { deploymentId: string; limitDollars: number | null }) {
+  const usageQuery = trpc.billing.getManagedKeyUsage.useQuery(
+    { deploymentId },
+    { staleTime: 60_000 }
+  );
+
+  if (usageQuery.isLoading) return <Skeleton className="h-4 w-16" />;
+  if (!usageQuery.data) return <span className="text-muted-foreground">—</span>;
+
+  const { usage, limit } = usageQuery.data;
+  return (
+    <span className="text-xs font-mono">
+      ${usage.toFixed(2)} / ${(limit ?? limitDollars ?? 0).toFixed(0)}
+    </span>
   );
 }
 
@@ -279,6 +300,7 @@ export default function Billing() {
                         <TableHead>Deployment</TableHead>
                         <TableHead>Runtime</TableHead>
                         <TableHead>Price/mo</TableHead>
+                        <TableHead>LLM Usage</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Current Period</TableHead>
                         <TableHead className="w-[60px]" />
@@ -289,6 +311,7 @@ export default function Billing() {
                         <TableRow key={i}>
                           <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-14" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-14" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-14" /></TableCell>
                           <TableCell><Skeleton className="h-4 w-28" /></TableCell>
@@ -318,6 +341,7 @@ export default function Billing() {
                         <TableHead>Deployment</TableHead>
                         <TableHead>Runtime</TableHead>
                         <TableHead>Price/mo</TableHead>
+                        <TableHead>LLM Usage</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Current Period</TableHead>
                         <TableHead className="w-[60px]" />
@@ -326,9 +350,41 @@ export default function Billing() {
                     <TableBody>
                       {subs.map((sub: any) => (
                         <TableRow key={sub.deploymentId}>
-                          <TableCell className="font-medium">{sub.deploymentName}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{sub.deploymentName}</span>
+                              {sub.llmMode === "included" && !sub.isLinked && (
+                                <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/20 text-[10px] py-0 px-1.5">
+                                  <Zap className="w-2.5 h-2.5 mr-0.5" />
+                                  Managed Keys
+                                </Badge>
+                              )}
+                              {sub.isLinked && (
+                                <Badge variant="outline" className="bg-violet-500/10 text-violet-500 border-violet-500/20 text-[10px] py-0 px-1.5">
+                                  <Link2 className="w-2.5 h-2.5 mr-0.5" />
+                                  Linked
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
                           <TableCell className="text-muted-foreground">{sub.runtime}</TableCell>
-                          <TableCell>{formatCents(sub.monthlyPriceCents)}</TableCell>
+                          <TableCell>
+                            <div>
+                              <span>{formatCents(sub.monthlyPriceCents)}</span>
+                              {sub.managedKeyCents > 0 && (
+                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                  Hardware: {formatCents(sub.hardwareCents)} | LLM: {formatCents(sub.managedKeyCents)}
+                                </p>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {sub.llmMode === "included" && !sub.isLinked ? (
+                              <ManagedKeyUsageCell deploymentId={sub.deploymentId} limitDollars={sub.managedKeyPlanDollars} />
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
                           <TableCell>{statusBadge(sub.stripeStatus, sub.cancelledAt)}</TableCell>
                           <TableCell className="text-muted-foreground text-sm">
                             {formatPeriod(sub.periodStart, sub.periodEnd)}

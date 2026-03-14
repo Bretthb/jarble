@@ -17,7 +17,7 @@ import {
 import type { KeyValidationStatus } from "../types";
 import {
   LLM_PROVIDERS,
-  CREDIT_PLANS,
+  MANAGED_KEY_PLANS,
   getProviderById,
   getModelsForProvider,
   type LLMProviderDef,
@@ -249,7 +249,7 @@ export default function StepLlmSetup({
                   Monthly Credit Plan
                 </Label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {CREDIT_PLANS.map((plan) => {
+                  {MANAGED_KEY_PLANS.map((plan) => {
                     const isActive = creditLimitDollars === plan.value;
                     return (
                       <button

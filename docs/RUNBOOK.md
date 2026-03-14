@@ -247,6 +247,7 @@ Track key architectural and operational decisions. Newest first.
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-03-14 | Managed Keys: multi-line-item Stripe subscriptions + frontend wiring | Subscriptions now have 2 line items (hardware + LLM credits). `updateManagedKeyPlan` updates both OpenRouter cap and Stripe price. `cancelManagedKey` removes Stripe line item + revokes key. Billing page shows per-item breakdown. |
 | 2026-03-11 | Switched Auth0 prod tenant from `jarble-dev.us.auth0.com` to `jarble.us.auth0.com` | Separate dev and prod tenants for isolation. `jarble-dev` remains for local dev. |
 | 2026-03-11 | Added beta gating via Auth0 Post Login Action | Block public signups — only users with `app_metadata.beta_approved` can access the platform. |
 | 2026-03-11 | Implemented RBAC with `super_admin` / `user` roles | Need platform admin capabilities. DB is authoritative for roles, JWT claim is informational. |

@@ -5,7 +5,7 @@ import { tables, dbDate, getRowsAffected, type DbClient } from "../../db/index.j
 import { eq, and, or, isNull } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc } from "../../k8s/index.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
-import { cancelSubscriptionAtPeriodEnd, cancelSubscriptionImmediately, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
+import { cancelSubscriptionAtPeriodEnd, cancelSubscriptionImmediately, reactivateSubscription, isStripeConfigured, listActiveSubscriptions, addManagedKeyLineItem, findManagedKeyItem, removeManagedKeyLineItem } from "../../services/stripe.js";
 import { customAlphabet } from "nanoid";
 
 // K8s-safe alphabet: lowercase alphanumeric only (RFC 1123)
@@ -780,6 +780,13 @@ export const deploymentRouter = router({
             updates.llmModel = updates.llmModel || "openrouter/auto";
             updates.llmCreditLimitDollars = 5; // Default plan on mode switch
             updates.llmApiKeySourceDeploymentId = null; // Own key, not linked
+
+            // Add managed key line item to Stripe subscription
+            if (existing.stripeSubscriptionId) {
+              addManagedKeyLineItem(existing.stripeSubscriptionId, 500).catch((err: unknown) => {
+                logger.warn({ err, deploymentId: id }, "Failed to add managed key line item during mode switch");
+              });
+            }
           } catch (err) {
             logger.error({ err, deploymentId: id }, "Failed to provision key during mode switch to included");
             throw new TRPCError({
@@ -820,6 +827,17 @@ export const deploymentRouter = router({
             revokeOpenRouterKey(oldKeyId).catch((err: unknown) => {
               logger.warn({ err, deploymentId: id, oldKeyId }, "Failed to revoke old OpenRouter key during mode switch");
             });
+          }
+
+          // Remove managed key line item from Stripe subscription
+          if (existing.stripeSubscriptionId) {
+            findManagedKeyItem(existing.stripeSubscriptionId).then((item) => {
+              if (item) {
+                removeManagedKeyLineItem(item.itemId).catch((err: unknown) => {
+                  logger.warn({ err, deploymentId: id }, "Failed to remove managed key line item during mode switch");
+                });
+              }
+            }).catch(() => {});
           }
 
           // Encrypt the new BYOK key

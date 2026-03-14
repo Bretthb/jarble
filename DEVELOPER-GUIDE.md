@@ -925,7 +925,7 @@ Included Credits (owner):
   │ Daily: $0.52  Weekly: $2.10     │
   │                                 │
   │ Credit Limit: [$25] [Update]    │
-  │ [Regenerate Key] [Revoke Key]   │
+  │ [Regenerate Key] [Revoke Key]   │  ← Stripe-aware mutations
   └─────────────────────────────────┘
 
 Linked (child):
@@ -942,6 +942,11 @@ BYOK:
   │ [New Key Input] [Validate]      │
   └─────────────────────────────────┘
 ```
+
+**Stripe-aware mutations (important distinction):**
+- **Update Limit** uses `updateManagedKeyPlan` — updates BOTH the OpenRouter credit cap AND the Stripe subscription line item price. This keeps billing in sync.
+- **Revoke Key** uses `cancelManagedKey` — removes the Stripe line item, revokes the OpenRouter key, and switches to BYOK mode. This is a billing cancellation.
+- **Regenerate Key** uses `revokeKey` + `provisionKey` — this is key rotation only. The Stripe line item stays unchanged because the billing plan hasn't changed.
 
 ---
 
@@ -1461,6 +1466,28 @@ Stripe may re-deliver events (retries, network issues). We prevent duplicate pro
 4. Concurrent inserts (multiple workers) are caught by primary key constraint → treated as "already being handled"
 
 This makes the webhook handler safe against duplicate deliveries across multiple API replicas.
+
+### Multi-Line-Item Subscriptions (Managed Keys)
+
+When a user picks "Included Credits" (managed keys), their Stripe subscription gets **two line items** instead of one:
+
+```
+Subscription for "My Bot":
+  ├── Hardware:    $25.60/mo  (based on CPU + RAM + storage)
+  └── LLM Credits: $10.00/mo (managed key spending cap)
+      Total:       $35.60/mo
+```
+
+**Analogy:** Think of a phone plan. You pay for the phone itself (hardware) and a separate data allowance (LLM credits). You can change your data plan without changing your phone.
+
+The `services/stripe.ts` file has helper functions to manage these line items:
+- `findManagedKeyItem(subscription)` — finds the managed key line item by metadata
+- `addManagedKeyLineItem(subscriptionId, cents)` — adds a new line item
+- `updateManagedKeyLineItem(subscriptionId, newCents)` — changes the price
+- `removeManagedKeyLineItem(subscriptionId)` — removes it (e.g., switching to BYOK)
+- `getSubscriptionBreakdown(subscription)` — returns `{ hardwareCents, managedKeyCents, totalCents }`
+
+The billing page shows this breakdown: total on the primary line, "Hardware: $X | LLM: $Y" on a secondary line.
 
 ---
 

@@ -49,6 +49,8 @@ interface StepDeployProps {
   llmMode: "included" | "byok";
   llmProvider: string;
   llmModel: string;
+  creditLimitDollars: number;
+  linkToDeploymentId: string | null;
   isFree: boolean;
   cpuLimit: string | null;
   setCpuLimit: (v: string | null) => void;
@@ -75,6 +77,8 @@ export default function StepDeploy({
   llmMode,
   llmProvider,
   llmModel,
+  creditLimitDollars,
+  linkToDeploymentId,
   isFree,
   cpuLimit,
   setCpuLimit,
@@ -154,7 +158,9 @@ export default function StepDeploy({
   const isCustomized = cpuLimit !== null || memoryMb !== null || storageMb !== null;
 
   // Dynamic price based on actual hardware selection
-  const dynamicPriceCents = calculateMonthlyPriceCents(effectiveCpu, effectiveMemory, effectiveStorage);
+  const hardwarePriceCents = calculateMonthlyPriceCents(effectiveCpu, effectiveMemory, effectiveStorage);
+  const managedKeyCents = llmMode === "included" && !linkToDeploymentId ? creditLimitDollars * 100 : 0;
+  const dynamicPriceCents = hardwarePriceCents + managedKeyCents;
   const needsPayment = !isFree && runtime && dynamicPriceCents > 0;
 
   const handleResetToRecommended = () => {
@@ -276,6 +282,11 @@ export default function StepDeploy({
           {!checkoutConfirmed && needsPayment && !stripeClientSecret && (
             <div className="rounded-xl border border-border bg-card p-6 text-center space-y-4">
               <p className="text-sm font-semibold">{formatPriceCents(dynamicPriceCents)}/mo</p>
+              {managedKeyCents > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Hardware: {formatPriceCents(hardwarePriceCents)}/mo + LLM Credits: {formatPriceCents(managedKeyCents)}/mo
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 Complete payment to deploy your bot
               </p>
@@ -304,6 +315,11 @@ export default function StepDeploy({
             <div className="rounded-xl border border-border bg-card p-6 space-y-4">
               <div className="text-center">
                 <p className="text-sm font-semibold">{formatPriceCents(dynamicPriceCents)}/mo</p>
+                {managedKeyCents > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Hardware: {formatPriceCents(hardwarePriceCents)}/mo + LLM Credits: {formatPriceCents(managedKeyCents)}/mo
+                  </p>
+                )}
               </div>
               <Elements
                 stripe={stripePromise}

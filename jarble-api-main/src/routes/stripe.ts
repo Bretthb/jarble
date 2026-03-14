@@ -11,6 +11,7 @@ import {
   createIncompleteSubscription,
   createPortalSession,
   constructWebhookEvent,
+  sumSubscriptionItemsCents,
 } from "../services/stripe.js";
 import { stopDeployment } from "../k8s/index.js";
 import { getUserFromRequest } from "../helpers/auth.js";
@@ -92,6 +93,13 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
           }
 
           const updates: Record<string, any> = {};
+
+          // Sum ALL subscription items for total monthly price (hardware + managed keys)
+          const totalMonthlyCents = sumSubscriptionItemsCents(subscription);
+          if (totalMonthlyCents > 0 && totalMonthlyCents !== (linked.monthlyPriceCents || 0)) {
+            updates.monthlyPriceCents = totalMonthlyCents;
+            logger.info({ deploymentId: linked.id, totalMonthlyCents }, "Updated monthlyPriceCents from subscription items");
+          }
 
           if (cancelAtPeriodEnd && !linked.cancelledAt) {
             updates.cancelledAt = new Date().toISOString();
@@ -235,7 +243,7 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     return;
   }
 
-  const { runtimeSlug, cpuLimit, memoryMb, storageMb, inline } = req.body;
+  const { runtimeSlug, cpuLimit, memoryMb, storageMb, inline, llmMode, creditLimitDollars, linkToDeploymentId } = req.body;
   if (!runtimeSlug) {
     res.status(400).json({ error: "Missing runtimeSlug" });
     return;
@@ -254,6 +262,11 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     res.status(400).json({ error: "Runtime has no configured price" });
     return;
   }
+
+  // Compute managed key cost: only when user picks "included" mode AND is NOT linking to an existing pool
+  const managedKeyCents = (llmMode === "included" && !linkToDeploymentId && creditLimitDollars > 0)
+    ? Math.round(creditLimitDollars * 100)
+    : 0;
 
   try {
     // Ensure user has a Stripe customer record
@@ -279,6 +292,7 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
         userEmail: user.email,
         runtimeSlug,
         monthlyPriceCents,
+        managedKeyCents: managedKeyCents > 0 ? managedKeyCents : undefined,
         stripeCustomerId,
       });
 
@@ -301,6 +315,7 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
       userEmail: user.email,
       runtimeSlug,
       monthlyPriceCents,
+      managedKeyCents: managedKeyCents > 0 ? managedKeyCents : undefined,
       stripeCustomerId,
       successUrl: `${frontendUrl}/onboarding/new?checkout=success`,
       cancelUrl: `${frontendUrl}/onboarding/new?checkout=cancel`,

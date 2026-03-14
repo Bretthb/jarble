@@ -12,6 +12,12 @@ import {
   updateOpenRouterKeyLimit,
 } from "../../utils/openrouter.js";
 import { encryptApiKey } from "../../utils/encryption.js";
+import {
+  findManagedKeyItem,
+  updateManagedKeyLineItem,
+  removeManagedKeyLineItem,
+  addManagedKeyLineItem,
+} from "../../services/stripe.js";
 
 const { deployments } = tables;
 
@@ -287,6 +293,153 @@ export const openrouterRouter = router({
           eq(deployments.id, input.deploymentId),
           eq(deployments.userId, ctx.user.id),
         ));
+
+      return { success: true };
+    }),
+
+  // Update managed key plan — changes both Stripe price and OpenRouter limit
+  updateManagedKeyPlan: protectedProcedure
+    .input(z.object({
+      deploymentId: z.string(),
+      newLimitDollars: z.number().min(1).max(1000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!env.OPENROUTER_MANAGEMENT_KEY) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Management API not configured.",
+        });
+      }
+
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(
+          eq(deployments.id, input.deploymentId),
+          eq(deployments.userId, ctx.user.id)
+        ),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Block linked deployments
+      if (deployment.llmApiKeySourceDeploymentId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This deployment is linked to a credit pool. Update the pool owner instead.",
+        });
+      }
+
+      if (deployment.llmMode !== "included" || !deployment.llmApiKeyId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This deployment does not use managed keys.",
+        });
+      }
+
+      // Update Stripe line item if subscription exists
+      const subscriptionId = deployment.stripeSubscriptionId;
+      if (subscriptionId) {
+        const managedItem = await findManagedKeyItem(subscriptionId);
+        if (managedItem) {
+          await updateManagedKeyLineItem(managedItem.itemId, input.newLimitDollars * 100);
+        } else {
+          // No managed key line item yet — add one
+          await addManagedKeyLineItem(subscriptionId, input.newLimitDollars * 100);
+        }
+      }
+
+      // Update OpenRouter key limit
+      const ok = await updateOpenRouterKeyLimit(deployment.llmApiKeyId, input.newLimitDollars);
+      if (!ok) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to update credit limit on OpenRouter.",
+        });
+      }
+
+      // Update DB
+      await ctx.db.update(deployments)
+        .set({ llmCreditLimitDollars: input.newLimitDollars })
+        .where(eq(deployments.id, input.deploymentId));
+
+      logger.info(
+        { deploymentId: input.deploymentId, newLimitDollars: input.newLimitDollars },
+        "Managed key plan updated"
+      );
+
+      return { success: true };
+    }),
+
+  // Cancel managed keys — removes Stripe line item, revokes OpenRouter key, switches to BYOK
+  cancelManagedKey: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(
+          eq(deployments.id, input.deploymentId),
+          eq(deployments.userId, ctx.user.id)
+        ),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      if (deployment.llmMode !== "included") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This deployment does not use managed keys.",
+        });
+      }
+
+      // Block if this is a pool owner with linked children
+      if (!deployment.llmApiKeySourceDeploymentId) {
+        const linkedChildren = await ctx.db.query.deployments.findMany({
+          where: and(
+            eq(deployments.llmApiKeySourceDeploymentId, input.deploymentId),
+            eq(deployments.userId, ctx.user.id),
+          ),
+        });
+
+        if (linkedChildren.length > 0) {
+          const names = linkedChildren.map((c) => c.name).join(", ");
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Cannot cancel managed keys: ${linkedChildren.length} deployment(s) are linked to this credit pool (${names}). Unlink them first.`,
+          });
+        }
+      }
+
+      // Remove Stripe managed key line item
+      const subscriptionId = deployment.stripeSubscriptionId;
+      if (subscriptionId) {
+        const managedItem = await findManagedKeyItem(subscriptionId);
+        if (managedItem) {
+          await removeManagedKeyLineItem(managedItem.itemId);
+        }
+      }
+
+      // Revoke OpenRouter key
+      const keyId = deployment.llmApiKeyId;
+      if (keyId) {
+        await revokeOpenRouterKey(keyId).catch((err: unknown) => {
+          logger.warn({ err, deploymentId: input.deploymentId }, "Failed to revoke OpenRouter key during managed key cancellation");
+        });
+      }
+
+      // Switch to BYOK in DB
+      await ctx.db.update(deployments)
+        .set({
+          llmMode: "byok",
+          llmApiKey: null,
+          llmApiKeyId: null,
+          llmCreditLimitDollars: null,
+          llmApiKeySourceDeploymentId: null,
+        })
+        .where(eq(deployments.id, input.deploymentId));
+
+      logger.info({ deploymentId: input.deploymentId }, "Managed keys cancelled, switched to BYOK");
 
       return { success: true };
     }),

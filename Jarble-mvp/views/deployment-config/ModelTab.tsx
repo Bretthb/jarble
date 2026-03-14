@@ -208,21 +208,27 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
     { staleTime: 30_000, refetchInterval: 60_000 }
   );
 
-  const updateLimitMutation = trpc.openrouter.updateKeyLimit.useMutation({
+  const updateLimitMutation = trpc.openrouter.updateManagedKeyPlan.useMutation({
     onSuccess: () => {
-      toast.success("Credit limit updated");
+      toast.success("Managed key plan updated");
       usageQuery.refetch();
     },
     onError: (err: { message?: string }) => {
-      toast.error(err.message || "Failed to update credit limit");
+      toast.error(err.message || "Failed to update managed key plan");
+    },
+  });
+
+  const cancelMutation = trpc.openrouter.cancelManagedKey.useMutation({
+    onSuccess: () => {
+      toast.success("Managed key cancelled — switched to BYOK mode");
+      window.location.reload();
+    },
+    onError: (err: { message?: string }) => {
+      toast.error(err.message || "Failed to cancel managed key");
     },
   });
 
   const revokeMutation = trpc.openrouter.revokeKey.useMutation({
-    onSuccess: () => {
-      toast.success("Key revoked — switched to BYOK mode");
-      window.location.reload();
-    },
     onError: (err: { message?: string }) => {
       toast.error(err.message || "Failed to revoke key");
     },
@@ -252,11 +258,11 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
       toast.error("Limit must be between $1 and $1,000");
       return;
     }
-    updateLimitMutation.mutate({ deploymentId, limitDollars: dollars });
+    updateLimitMutation.mutate({ deploymentId, newLimitDollars: dollars });
   };
 
   const handleRevoke = () => {
-    revokeMutation.mutate({ deploymentId });
+    cancelMutation.mutate({ deploymentId });
     setConfirmAction(null);
   };
 
@@ -395,7 +401,7 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
           size="sm"
           variant="outline"
           onClick={() => setConfirmAction("regenerate")}
-          disabled={isRegenerating || revokeMutation.isPending}
+          disabled={isRegenerating || cancelMutation.isPending}
           className="text-xs h-8"
         >
           {isRegenerating ? (
@@ -409,10 +415,10 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
           size="sm"
           variant="outline"
           onClick={() => setConfirmAction("revoke")}
-          disabled={revokeMutation.isPending || isRegenerating}
+          disabled={cancelMutation.isPending || isRegenerating}
           className="text-xs h-8 text-red-500 hover:text-red-600 hover:bg-red-500/5 border-red-500/20"
         >
-          {revokeMutation.isPending && !isRegenerating ? (
+          {cancelMutation.isPending ? (
             <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
           ) : (
             <Trash2 className="w-3 h-3 mr-1.5" />

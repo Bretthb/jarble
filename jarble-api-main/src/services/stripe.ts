@@ -22,38 +22,62 @@ export function isStripeConfigured(): boolean {
 /**
  * Create a Stripe Checkout session for a hardware-based subscription.
  * Price is calculated from the deployment's vCPU, RAM, and storage specs.
+ * Optionally adds a second line item for managed keys.
  */
 export async function createCheckoutSession(params: {
   userId: string;
   userEmail: string;
   runtimeSlug: string;
   monthlyPriceCents: number;
+  managedKeyCents?: number;
   stripeCustomerId?: string | null;
   successUrl: string;
   cancelUrl: string;
 }): Promise<Stripe.Checkout.Session> {
   const s = getStripe();
 
-  const sessionParams: Stripe.Checkout.SessionCreateParams = {
-    mode: "subscription",
-    payment_method_types: ["card"],
-    line_items: [{
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [{
+    price_data: {
+      currency: "usd",
+      unit_amount: params.monthlyPriceCents,
+      recurring: { interval: "month" },
+      product_data: {
+        name: `Jarble Hardware (${params.runtimeSlug})`,
+        metadata: { type: "hardware" },
+      },
+    },
+    quantity: 1,
+  }];
+
+  // Add managed key line item if applicable
+  if (params.managedKeyCents && params.managedKeyCents > 0) {
+    lineItems.push({
       price_data: {
         currency: "usd",
-        unit_amount: params.monthlyPriceCents,
+        unit_amount: params.managedKeyCents,
         recurring: { interval: "month" },
         product_data: {
-          name: `Jarble Deployment (${params.runtimeSlug})`,
+          name: "Jarble Managed Keys",
+          metadata: { type: "managed_key" },
         },
       },
       quantity: 1,
-    }],
+    });
+  }
+
+  const sessionParams: Stripe.Checkout.SessionCreateParams = {
+    mode: "subscription",
+    payment_method_types: ["card"],
+    line_items: lineItems,
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
     client_reference_id: params.userId,
     metadata: {
       userId: params.userId,
       runtimeSlug: params.runtimeSlug,
+      ...(params.managedKeyCents && params.managedKeyCents > 0
+        ? { hasManagedKeys: "true", managedKeyPlanDollars: String(params.managedKeyCents / 100) }
+        : {}),
     },
   };
 
@@ -65,7 +89,7 @@ export async function createCheckoutSession(params: {
   }
 
   const session = await s.checkout.sessions.create(sessionParams);
-  logger.info({ userId: params.userId, runtimeSlug: params.runtimeSlug, sessionId: session.id }, "Stripe checkout session created");
+  logger.info({ userId: params.userId, runtimeSlug: params.runtimeSlug, sessionId: session.id, managedKeyCents: params.managedKeyCents }, "Stripe checkout session created");
   return session;
 }
 
@@ -73,32 +97,53 @@ export async function createCheckoutSession(params: {
  * Create an incomplete Stripe subscription for use with Stripe Elements.
  * Returns the PaymentIntent client_secret so the frontend can confirm payment.
  * The subscription stays incomplete until confirmPayment() succeeds.
+ * Optionally adds a second line item for managed keys.
  */
 export async function createIncompleteSubscription(params: {
   userId: string;
   userEmail: string;
   runtimeSlug: string;
   monthlyPriceCents: number;
+  managedKeyCents?: number;
   stripeCustomerId: string;
 }): Promise<{ subscriptionId: string; clientSecret: string }> {
   const s = getStripe();
 
-  const product = await s.products.create({
-    name: `Jarble Deployment (${params.runtimeSlug})`,
-    metadata: { userId: params.userId, runtimeSlug: params.runtimeSlug },
+  // Create hardware product + price
+  const hardwareProduct = await s.products.create({
+    name: `Jarble Hardware (${params.runtimeSlug})`,
+    metadata: { userId: params.userId, runtimeSlug: params.runtimeSlug, type: "hardware" },
   });
 
-  // Create a Price object first (required for default_incomplete to generate a PaymentIntent)
-  const price = await s.prices.create({
+  const hardwarePrice = await s.prices.create({
     currency: "usd",
     unit_amount: params.monthlyPriceCents,
     recurring: { interval: "month" },
-    product: product.id,
+    product: hardwareProduct.id,
   });
+
+  const items: Stripe.SubscriptionCreateParams.Item[] = [{ price: hardwarePrice.id }];
+
+  // Optionally add managed key line item
+  if (params.managedKeyCents && params.managedKeyCents > 0) {
+    const managedKeyProduct = await s.products.create({
+      name: "Jarble Managed Keys",
+      metadata: { type: "managed_key" },
+    });
+
+    const managedKeyPrice = await s.prices.create({
+      currency: "usd",
+      unit_amount: params.managedKeyCents,
+      recurring: { interval: "month" },
+      product: managedKeyProduct.id,
+    });
+
+    items.push({ price: managedKeyPrice.id });
+  }
 
   const subscription = await s.subscriptions.create({
     customer: params.stripeCustomerId,
-    items: [{ price: price.id }],
+    items,
     payment_behavior: "default_incomplete",
     payment_settings: {
       payment_method_types: ["card"],
@@ -107,6 +152,9 @@ export async function createIncompleteSubscription(params: {
     metadata: {
       userId: params.userId,
       runtimeSlug: params.runtimeSlug,
+      ...(params.managedKeyCents && params.managedKeyCents > 0
+        ? { hasManagedKeys: "true", managedKeyPlanDollars: String(params.managedKeyCents / 100) }
+        : {}),
     },
     expand: ["latest_invoice.confirmation_secret"],
   });
@@ -262,6 +310,190 @@ export async function getSubscriptionDetails(
 ): Promise<Stripe.Subscription> {
   const s = getStripe();
   return s.subscriptions.retrieve(subscriptionId, {
-    expand: ["default_payment_method"],
+    expand: ["default_payment_method", "items.data.price.product"],
   });
+}
+
+// ─── Managed Key Line Item Helpers ─────────────────────────────────────
+
+/**
+ * Find the managed key line item on a subscription by checking product metadata.
+ * Returns null if the subscription has no managed key line item.
+ */
+export async function findManagedKeyItem(
+  subscriptionId: string
+): Promise<{ itemId: string; unitAmount: number } | null> {
+  const s = getStripe();
+  const subscription = await s.subscriptions.retrieve(subscriptionId, {
+    expand: ["items.data.price.product"],
+  });
+
+  for (const item of subscription.items.data) {
+    const product = item.price.product;
+    const metadata = typeof product === "object" && product !== null
+      ? (product as Stripe.Product).metadata
+      : null;
+
+    if (metadata?.type === "managed_key") {
+      return {
+        itemId: item.id,
+        unitAmount: item.price.unit_amount ?? 0,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Add a managed key line item to an existing subscription.
+ * Creates a new product + price and appends it as a subscription item.
+ */
+export async function addManagedKeyLineItem(
+  subscriptionId: string,
+  managedKeyCents: number
+): Promise<Stripe.SubscriptionItem> {
+  const s = getStripe();
+
+  const product = await s.products.create({
+    name: "Jarble Managed Keys",
+    metadata: { type: "managed_key" },
+  });
+
+  const price = await s.prices.create({
+    currency: "usd",
+    unit_amount: managedKeyCents,
+    recurring: { interval: "month" },
+    product: product.id,
+  });
+
+  const item = await s.subscriptionItems.create({
+    subscription: subscriptionId,
+    price: price.id,
+    proration_behavior: "create_prorations",
+  });
+
+  // Update subscription metadata
+  await s.subscriptions.update(subscriptionId, {
+    metadata: {
+      hasManagedKeys: "true",
+      managedKeyPlanDollars: String(managedKeyCents / 100),
+    },
+  });
+
+  logger.info(
+    { subscriptionId, itemId: item.id, managedKeyCents },
+    "Added managed key line item to subscription"
+  );
+
+  return item;
+}
+
+/**
+ * Update the price of an existing managed key line item (with proration).
+ */
+export async function updateManagedKeyLineItem(
+  subscriptionItemId: string,
+  newCents: number
+): Promise<void> {
+  const s = getStripe();
+
+  // Get current item to find the subscription
+  const currentItem = await s.subscriptionItems.retrieve(subscriptionItemId);
+  const subscriptionId = currentItem.subscription as string;
+
+  // Create a new price (Stripe prices are immutable)
+  const product = currentItem.price.product as string;
+  const newPrice = await s.prices.create({
+    currency: "usd",
+    unit_amount: newCents,
+    recurring: { interval: "month" },
+    product,
+  });
+
+  await s.subscriptionItems.update(subscriptionItemId, {
+    price: newPrice.id,
+    proration_behavior: "create_prorations",
+  });
+
+  // Update subscription metadata
+  await s.subscriptions.update(subscriptionId, {
+    metadata: {
+      managedKeyPlanDollars: String(newCents / 100),
+    },
+  });
+
+  logger.info(
+    { subscriptionItemId, newCents },
+    "Updated managed key line item price"
+  );
+}
+
+/**
+ * Remove a managed key line item from a subscription (with proration).
+ */
+export async function removeManagedKeyLineItem(
+  subscriptionItemId: string
+): Promise<void> {
+  const s = getStripe();
+
+  // Get the subscription ID before deleting the item
+  const item = await s.subscriptionItems.retrieve(subscriptionItemId);
+  const subscriptionId = item.subscription as string;
+
+  await s.subscriptionItems.del(subscriptionItemId, {
+    proration_behavior: "create_prorations",
+  });
+
+  // Update subscription metadata
+  await s.subscriptions.update(subscriptionId, {
+    metadata: {
+      hasManagedKeys: "false",
+      managedKeyPlanDollars: "",
+    },
+  });
+
+  logger.info(
+    { subscriptionItemId, subscriptionId },
+    "Removed managed key line item from subscription"
+  );
+}
+
+/**
+ * Sum the total monthly cost across ALL line items in a subscription.
+ */
+export function sumSubscriptionItemsCents(subscription: Stripe.Subscription): number {
+  return subscription.items.data.reduce(
+    (total, item) => total + (item.price.unit_amount ?? 0),
+    0
+  );
+}
+
+/**
+ * Get per-item breakdown of a subscription (hardware vs managed keys).
+ */
+export function getSubscriptionBreakdown(subscription: Stripe.Subscription): {
+  hardwareCents: number;
+  managedKeyCents: number;
+  totalCents: number;
+} {
+  let hardwareCents = 0;
+  let managedKeyCents = 0;
+
+  for (const item of subscription.items.data) {
+    const product = item.price.product;
+    const metadata = typeof product === "object" && product !== null
+      ? (product as Stripe.Product).metadata
+      : null;
+
+    const amount = item.price.unit_amount ?? 0;
+
+    if (metadata?.type === "managed_key") {
+      managedKeyCents += amount;
+    } else {
+      hardwareCents += amount;
+    }
+  }
+
+  return { hardwareCents, managedKeyCents, totalCents: hardwareCents + managedKeyCents };
 }
