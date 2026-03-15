@@ -259,8 +259,16 @@ export const openclawHandler: RuntimeHandler = {
     const openclawConfig: Record<string, any> = {};
 
     // Agent section (model config)
+    // When using OpenRouter (managed keys or BYOK with openrouter provider),
+    // prefix the model with "openrouter/" so OpenClaw routes through the
+    // OpenRouter API. Without this prefix, OpenClaw tries to use the model's
+    // native provider (e.g. "openai/gpt-4o-mini" → looks for OPENAI_API_KEY).
     if (deployment.llmModel) {
-      openclawConfig.agent = { model: deployment.llmModel };
+      let model = deployment.llmModel;
+      if (deployment.llmProvider === "openrouter" && !model.startsWith("openrouter/")) {
+        model = `openrouter/${model}`;
+      }
+      openclawConfig.agent = { model };
     }
 
     // Channels section — build from platformCredentials
@@ -420,7 +428,11 @@ export const openclawHandler: RuntimeHandler = {
       entries["LLM_PROVIDER"] = deployment.llmProvider;
     }
     if (deployment.llmModel) {
-      entries["LLM_MODEL"] = deployment.llmModel;
+      let model = deployment.llmModel;
+      if (deployment.llmProvider === "openrouter" && !model.startsWith("openrouter/")) {
+        model = `openrouter/${model}`;
+      }
+      entries["LLM_MODEL"] = model;
     }
 
     // Platform credential env var fallbacks (OpenClaw reads these as backup)
