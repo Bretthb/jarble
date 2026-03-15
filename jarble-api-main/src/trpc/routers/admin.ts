@@ -437,12 +437,12 @@ const getSystemHealth = adminProcedure.query(async () => {
     .from(deployments)
     .groupBy(deployments.status);
 
-  const podsByStatus: Record<string, number> = {};
-  for (const row of statusRows) {
-    podsByStatus[row.status] = Number(row.count);
-  }
+  const statusCounts = statusRows.map((row) => ({
+    status: row.status,
+    count: Number(row.count),
+  }));
 
-  return { podsByStatus };
+  return { statusCounts };
 });
 
 // ── Audit Logs ──────────────────────────────────────────────────────────
