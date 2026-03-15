@@ -259,16 +259,8 @@ export const openclawHandler: RuntimeHandler = {
     const openclawConfig: Record<string, any> = {};
 
     // Agent section (model config)
-    // When using OpenRouter (managed keys or BYOK with openrouter provider),
-    // prefix the model with "openrouter/" so OpenClaw routes through the
-    // OpenRouter API. Without this prefix, OpenClaw tries to use the model's
-    // native provider (e.g. "openai/gpt-4o-mini" → looks for OPENAI_API_KEY).
     if (deployment.llmModel) {
-      let model = deployment.llmModel;
-      if (deployment.llmProvider === "openrouter" && !model.startsWith("openrouter/")) {
-        model = `openrouter/${model}`;
-      }
-      openclawConfig.agent = { model };
+      openclawConfig.agent = { model: deployment.llmModel };
     }
 
     // Channels section — build from platformCredentials
@@ -415,24 +407,28 @@ export const openclawHandler: RuntimeHandler = {
 
     // LLM config — set the correct env var based on provider
     if (deployment.llmApiKey) {
-      const providerEnvMap: Record<string, string> = {
-        openrouter: "OPENROUTER_API_KEY",
-        anthropic: "ANTHROPIC_API_KEY",
-        openai: "OPENAI_API_KEY",
-        google: "GOOGLE_API_KEY",
-      };
-      const envVar = providerEnvMap[deployment.llmProvider ?? "openrouter"] ?? "OPENROUTER_API_KEY";
-      entries[envVar] = deployment.llmApiKey;
+      if (deployment.llmProvider === "openrouter") {
+        // OpenRouter acts as a unified gateway — set the key for ALL providers
+        // so OpenClaw can resolve any model prefix (openai/, anthropic/, etc.)
+        entries["OPENROUTER_API_KEY"] = deployment.llmApiKey;
+        entries["OPENAI_API_KEY"] = deployment.llmApiKey;
+        entries["ANTHROPIC_API_KEY"] = deployment.llmApiKey;
+        entries["GOOGLE_API_KEY"] = deployment.llmApiKey;
+      } else {
+        const providerEnvMap: Record<string, string> = {
+          anthropic: "ANTHROPIC_API_KEY",
+          openai: "OPENAI_API_KEY",
+          google: "GOOGLE_API_KEY",
+        };
+        const envVar = providerEnvMap[deployment.llmProvider ?? "openrouter"] ?? "OPENROUTER_API_KEY";
+        entries[envVar] = deployment.llmApiKey;
+      }
     }
     if (deployment.llmProvider) {
       entries["LLM_PROVIDER"] = deployment.llmProvider;
     }
     if (deployment.llmModel) {
-      let model = deployment.llmModel;
-      if (deployment.llmProvider === "openrouter" && !model.startsWith("openrouter/")) {
-        model = `openrouter/${model}`;
-      }
-      entries["LLM_MODEL"] = model;
+      entries["LLM_MODEL"] = deployment.llmModel;
     }
 
     // Platform credential env var fallbacks (OpenClaw reads these as backup)
