@@ -288,8 +288,11 @@ export const deploymentRouter = router({
         ));
 
       const claimRows = getRowsAffected(claimResult);
-      const isFree = claimRows > 0;
-      const freeExpiresAt = isFree ? dbDate(freeTrialExpiryDate) : null;
+      const adminBypass = isAdmin(ctx.user);
+      const isFree = claimRows > 0 || adminBypass;
+      const freeExpiresAt = adminBypass
+        ? dbDate(new Date("2099-12-31"))  // Admins get unlimited free deployments
+        : isFree ? dbDate(freeTrialExpiryDate) : null;
 
       // ── Link Stripe subscription if available ──────────────────────
       let stripeSubscriptionId: string | null = null;
