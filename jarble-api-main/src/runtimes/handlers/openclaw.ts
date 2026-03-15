@@ -259,8 +259,14 @@ export const openclawHandler: RuntimeHandler = {
     const openclawConfig: Record<string, any> = {};
 
     // Agent section (model config)
+    // When using OpenRouter, prefix model with "openrouter/" so OpenClaw
+    // routes through OpenRouter's API instead of the model's native provider.
     if (deployment.llmModel) {
-      openclawConfig.agent = { model: deployment.llmModel };
+      let model = deployment.llmModel;
+      if (deployment.llmProvider === "openrouter" && !model.startsWith("openrouter/")) {
+        model = `openrouter/${model}`;
+      }
+      openclawConfig.agent = { model };
     }
 
     // Channels section — build from platformCredentials
