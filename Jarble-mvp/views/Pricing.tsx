@@ -123,19 +123,19 @@ export default function Pricing() {
           </div>
 
           {runtimesQuery.isLoading ? (
-            <div className="grid md:grid-cols-2 gap-6">
-              {[1, 2].map((i) => (
-                <div key={i} className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border">
-                  <div className="flex items-center gap-4 mb-6">
-                    <Skeleton className="w-14 h-14 rounded-xl" />
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="rounded-2xl p-5 border bg-card/80 backdrop-blur-md border-border">
+                  <div className="flex items-center gap-3 mb-5">
+                    <Skeleton className="w-12 h-12 rounded-xl" />
                     <div className="flex-1">
-                      <Skeleton className="h-6 w-32 mb-2" />
-                      <Skeleton className="h-4 w-48" />
+                      <Skeleton className="h-5 w-28 mb-2" />
+                      <Skeleton className="h-3 w-40" />
                     </div>
                   </div>
-                  <Skeleton className="h-10 w-32 mx-auto mb-2" />
-                  <Skeleton className="h-4 w-24 mx-auto mb-6" />
-                  <Skeleton className="h-10 w-full rounded-full" />
+                  <Skeleton className="h-8 w-28 mx-auto mb-2" />
+                  <Skeleton className="h-3 w-20 mx-auto mb-5" />
+                  <Skeleton className="h-9 w-full rounded-full" />
                 </div>
               ))}
             </div>
@@ -147,7 +147,8 @@ export default function Pricing() {
               </button>
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {/* Live runtimes from API */}
               {(runtimesQuery.data ?? []).map((runtime: {
                 id: number;
                 slug: string;
@@ -159,57 +160,61 @@ export default function Pricing() {
                 monthlyPriceCents: number;
               }) => {
                 const isComingSoon = runtime.slug === "zeroclaw";
+                const logoMap: Record<string, string> = {
+                  openclaw: "/openclaw-logo.svg",
+                  zeroclaw: "/zeroclaw.png",
+                };
 
                 return (
                   <div
                     key={runtime.id}
-                    className={`relative rounded-2xl p-6 border bg-card/80 backdrop-blur-md transition-all animate-fade-in-up-fast ${
+                    className={`relative rounded-2xl p-5 border bg-card/80 backdrop-blur-md transition-all animate-fade-in-up-fast ${
                       isComingSoon
                         ? "border-border opacity-60"
                         : "border-border hover:border-primary/50"
                     }`}
                   >
                     {isComingSoon && (
-                      <div className="absolute top-4 right-4">
-                        <span className="px-2.5 py-1 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
+                      <div className="absolute top-3 right-3">
+                        <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
                           Coming Soon
                         </span>
                       </div>
                     )}
 
-                    <div className="flex items-center gap-4 mb-6">
+                    <div className="flex items-center gap-3 mb-5">
                       <Image
-                        src={runtime.slug === "openclaw" ? "/openclaw-logo.svg" : "/zeroclaw.png"}
+                        src={logoMap[runtime.slug] || "/zeroclaw.png"}
                         alt={`${runtime.name} logo`}
-                        width={56}
-                        height={56}
-                        className={`w-14 h-14 rounded-xl ${isComingSoon ? "grayscale" : ""}`}
+                        width={48}
+                        height={48}
+                        className={`w-12 h-12 rounded-xl ${isComingSoon ? "grayscale" : ""}`}
                       />
                       <div>
-                        <h3 className="text-xl font-serif font-medium">{runtime.name}</h3>
-                        <p className="text-sm text-muted-foreground">{runtime.description}</p>
+                        <h3 className="text-lg font-serif font-medium">{runtime.name}</h3>
+                        <p className="text-xs text-muted-foreground">{runtime.description}</p>
                       </div>
                     </div>
 
-                    {/* Price */}
                     <div className="text-center mb-2">
                       {isComingSoon ? (
-                        <span className="text-2xl font-bold text-muted-foreground">TBD</span>
+                        <span className="text-xl font-bold text-muted-foreground">TBD</span>
                       ) : (
                         <div className="flex items-baseline justify-center gap-1">
-                          <span className="text-sm text-muted-foreground">starting at</span>
-                          <span className="text-3xl font-bold">$32.40</span>
-                          <span className="text-muted-foreground">/mo</span>
+                          <span className="text-xs text-muted-foreground">starting at</span>
+                          <span className="text-2xl font-bold">$32.40</span>
+                          <span className="text-sm text-muted-foreground">/mo</span>
                         </div>
                       )}
                     </div>
-                    <p className="text-xs text-center text-muted-foreground mb-6">
+                    <p className="text-xs text-center text-muted-foreground mb-5">
                       {isComingSoon ? "Pricing announced at launch" : "Configurable during deployment"}
                     </p>
 
                     <Button
                       onClick={isComingSoon ? undefined : handleGetStarted}
                       disabled={isComingSoon}
+                      size="sm"
                       className={`w-full rounded-full font-medium ${
                         isComingSoon
                           ? "opacity-50"
@@ -222,6 +227,80 @@ export default function Pricing() {
                   </div>
                 );
               })}
+
+              {/* Coming Soon runtimes (static) */}
+              {[
+                {
+                  name: "NanoClaw",
+                  slug: "nanoclaw",
+                  logo: "/nanoclaw-logo.svg",
+                  description: "Lightweight fork of OpenClaw optimized for speed and low resource usage",
+                },
+                {
+                  name: "Nanobot",
+                  slug: "nanobot",
+                  logo: "/nanobot-logo.svg",
+                  description: "Ultra-lightweight agent framework with MCP tool orchestration in ~4,000 lines",
+                },
+                {
+                  name: "memU",
+                  slug: "memu",
+                  logo: "/memu-logo.svg",
+                  description: "Memory-first agent runtime for persistent, always-on agents with 90% lower token costs",
+                },
+                {
+                  name: "CrewAI",
+                  slug: "crewai",
+                  logo: "/crewai-logo.svg",
+                  description: "Multi-agent orchestration framework for teams of agents that collaborate on complex tasks",
+                },
+                {
+                  name: "AutoGPT",
+                  slug: "autogpt",
+                  logo: "/autogpt-logo.svg",
+                  description: "Autonomous agent platform that breaks down goals into sub-tasks and executes them independently",
+                },
+              ].map((runtime) => (
+                <div
+                  key={runtime.slug}
+                  className="relative rounded-2xl p-5 border bg-card/80 backdrop-blur-md border-border opacity-60 animate-fade-in-up-fast"
+                >
+                  <div className="absolute top-3 right-3">
+                    <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
+                      Coming Soon
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3 mb-5">
+                    <Image
+                      src={runtime.logo}
+                      alt={`${runtime.name} logo`}
+                      width={48}
+                      height={48}
+                      className="w-12 h-12 rounded-xl grayscale"
+                    />
+                    <div>
+                      <h3 className="text-lg font-serif font-medium">{runtime.name}</h3>
+                      <p className="text-xs text-muted-foreground">{runtime.description}</p>
+                    </div>
+                  </div>
+
+                  <div className="text-center mb-2">
+                    <span className="text-xl font-bold text-muted-foreground">TBD</span>
+                  </div>
+                  <p className="text-xs text-center text-muted-foreground mb-5">
+                    Pricing announced at launch
+                  </p>
+
+                  <Button
+                    disabled
+                    size="sm"
+                    className="w-full rounded-full font-medium opacity-50"
+                  >
+                    Coming Soon
+                  </Button>
+                </div>
+              ))}
             </div>
           )}
         </div>

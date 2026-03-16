@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import ProfileDropdown from "@/components/ProfileDropdown";
+import DeleteAccountSection from "@/components/DeleteAccountSection";
 
 export default function SettingsView() {
   const router = useRouter();
@@ -385,6 +386,9 @@ export default function SettingsView() {
               </div>
             )}
           </Card>
+
+          {/* Danger Zone */}
+          <DeleteAccountSection />
         </div>
       </div>
     </div>

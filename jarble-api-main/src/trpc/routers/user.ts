@@ -5,6 +5,7 @@ import { tables } from "../../db/index.js";
 import { eq } from "drizzle-orm";
 import { env } from "../../utils/env.js";
 import { logger } from "../../utils/logger.js";
+import { deleteAccount } from "../../services/accountDeletion.js";
 
 const { users } = tables;
 
@@ -122,6 +123,41 @@ export const userRouter = router({
       }
 
       logger.info({ userId: ctx.user.id, auth0Id }, "Verification email resent");
+      return { success: true };
+    }),
+
+  // Permanently delete the authenticated user's account and all associated data.
+  // Requires the user to type "DELETE MY ACCOUNT" as a safety confirmation.
+  deleteAccount: protectedProcedure
+    .input(z.object({
+      confirmation: z.literal("DELETE MY ACCOUNT"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Defense-in-depth: Zod validates the literal, but guard explicitly too
+      if (input.confirmation !== "DELETE MY ACCOUNT") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid confirmation" });
+      }
+
+      const user = await ctx.db.query.users.findFirst({
+        where: eq(users.id, ctx.user.id),
+      });
+
+      if (!user) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "User not found",
+        });
+      }
+
+      logger.info({ userId: user.id }, "User initiated account deletion");
+
+      await deleteAccount({
+        userId: user.id,
+        auth0Id: user.auth0Id,
+        email: user.email,
+        ipAddress: ctx.ip,
+      });
+
       return { success: true };
     }),
 });
