@@ -38,7 +38,7 @@ agentRouter.post("/component", async (req: Request, res: Response) => {
 
   const provider = env.AGENT_LLM_PROVIDER ?? "openrouter";
   const apiKey = env.AGENT_LLM_API_KEY ?? env.OPENROUTER_API_KEY;
-  const model = env.AGENT_LLM_MODEL ?? "anthropic/claude-haiku-4-5-20251001";
+  const model = env.AGENT_LLM_MODEL ?? "anthropic/claude-sonnet-4-20250514";
 
   if (!apiKey) {
     res.status(500).json({ error: "No LLM API key configured for component agent" });

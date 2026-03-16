@@ -8,17 +8,21 @@
  * keyboard navigation, auto-scroll, and full ARIA accessibility for free.
  */
 
-import { memo, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import {
   AssistantRuntimeProvider,
   ThreadPrimitive,
   MessagePrimitive,
   ComposerPrimitive,
   ActionBarPrimitive,
+  SuggestionPrimitive,
   useMessage,
+  useMessagePartReasoning,
   type AssistantRuntime,
+  type TextMessagePartProps,
+  type ReasoningMessagePartProps,
 } from "@assistant-ui/react";
-import { Sparkles, SendHorizontal, Loader2, Copy, RotateCcw } from "lucide-react";
+import { Sparkles, SendHorizontal, Loader2, Copy, RotateCcw, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
 
@@ -53,6 +57,13 @@ function AssistantUIChatInner({
               AssistantMessage: AssistantBubble,
             }}
           />
+
+          {/* Suggestion pills — rendered below the last message */}
+          <div className="flex flex-wrap gap-2 px-4 py-2">
+            <ThreadPrimitive.Suggestions
+              components={{ Suggestion: SuggestionPill }}
+            />
+          </div>
         </ThreadPrimitive.Viewport>
 
         {/* Composer — rendered separately by parent to include selected card chip */}
@@ -111,10 +122,6 @@ function UserBubble() {
 
 function AssistantBubble() {
   const message = useMessage();
-  const content = message?.content
-    ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
-    .map((p) => p.text)
-    .join("") || "";
   const isInProgress = message?.status?.type === "requires-action" || message?.status?.type === "incomplete"
     ? false
     : message?.status?.type !== "complete";
@@ -144,7 +151,12 @@ function AssistantBubble() {
               : undefined
           }
         >
-          <MarkdownMessage content={content} />
+          <MessagePrimitive.Parts
+            components={{
+              Text: TextPartRenderer,
+              Reasoning: ReasoningPartRenderer,
+            }}
+          />
           {isInProgress && (
             <span className="inline-block w-2 h-4 bg-primary/60 animate-pulse ml-1 align-middle" />
           )}
@@ -160,5 +172,64 @@ function AssistantBubble() {
         </div>
       </div>
     </MessagePrimitive.Root>
+  );
+}
+
+// ── Text Part Renderer ──────────────────────────────────────────────────────
+
+function TextPartRenderer(props: TextMessagePartProps) {
+  return <MarkdownMessage content={props.text} />;
+}
+
+// ── Reasoning Part Renderer ─────────────────────────────────────────────────
+
+function ReasoningPartRenderer(props: ReasoningMessagePartProps) {
+  const isRunning = props.status.type === "running";
+  const [expanded, setExpanded] = useState(isRunning);
+
+  return (
+    <div className="mb-2">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ChevronRight className={cn("size-3 transition-transform", expanded && "rotate-90")} />
+        <span className="font-medium">
+          {isRunning ? "Thinking..." : "Thought process"}
+        </span>
+        {!expanded && props.text && (
+          <span className="text-muted-foreground/60 truncate max-w-[200px]">
+            {props.text.slice(0, 60)}...
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="mt-1.5 pl-4 border-l-2 border-border/40 text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap">
+          {props.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Suggestion Pill ─────────────────────────────────────────────────────────
+
+function SuggestionPill() {
+  return (
+    <SuggestionPrimitive.Trigger
+      send
+      className={cn(
+        "inline-flex items-center rounded-full px-3.5 py-1.5",
+        "text-sm font-medium",
+        "bg-secondary/60 hover:bg-secondary text-foreground",
+        "border border-border/40 hover:border-border/60",
+        "shadow-sm hover:shadow",
+        "transition-all duration-200 cursor-pointer",
+        "hover:scale-[1.02]",
+      )}
+    >
+      <SuggestionPrimitive.Title />
+    </SuggestionPrimitive.Trigger>
   );
 }

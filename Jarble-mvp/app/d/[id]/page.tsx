@@ -392,8 +392,8 @@ function WorkspacePage({
 function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
   const startMutation = trpc.deployment.start.useMutation();
   const [state, dispatch] = useReducer(canvasReducer, INITIAL_CANVAS_STATE);
-  const { sendMessage, isStreaming, streamingCardIds, messages, streamingText, lastChatError, lastUserMessage, clearChatError } = useCanvasChat(deploymentId, state, dispatch);
-  const runtime = useJarbleRuntime({ messages, streamingText, isStreaming, sendMessage });
+  const { sendMessage, isStreaming, streamingCardIds, messages, streamingText, lastChatError, lastUserMessage, clearChatError, suggestions } = useCanvasChat(deploymentId, state, dispatch);
+  const runtime = useJarbleRuntime({ messages, streamingText, isStreaming, sendMessage, suggestions });
   useCanvasPersistence(deploymentId, state, dispatch);
   useArtifactSync(deploymentId, state, dispatch);
   const { result: diagnosis, isLoading: isDiagnosing, runDiagnosis } = useDiagnose(deploymentId);

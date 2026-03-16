@@ -741,6 +741,26 @@ const TOOLS = [
     },
   },
   {
+    name: "create_draft_service",
+    description: "Create a draft marketplace service from a canvas component. Called during the Publish flow when the user wants to package a component as a service. The bot should first ask about hosting model, define skills, and generate an instruction snippet before calling this tool.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Service name (lowercase, letters/digits/hyphens, 1-64 chars)" },
+        displayName: { type: "string", description: "Human-readable display name" },
+        description: { type: "string", description: "Service description (what it does, min 10 chars)" },
+        hostingModel: { type: "string", enum: ["self_hosted", "remote"], description: "'self_hosted' = skills run in buyer's pod. 'remote' = skills route through creator's deployment via proxy." },
+        instructionSnippet: { type: "string", description: "Text injected into installing bot's system prompt teaching it how to use the service" },
+        componentName: { type: "string", description: "The canvas component type (e.g. 'chart', 'sandbox', 'data_table')" },
+        skills: {
+          type: "array", description: "Skill names to include from this deployment",
+          items: { type: "object", properties: { name: { type: "string" }, description: { type: "string" } }, required: ["name"] },
+        },
+      },
+      required: ["name", "displayName", "description", "hostingModel"],
+    },
+  },
+  {
     name: "set_theme",
     description: "Set the visual theme for this deployment's web chat page. Changes are applied instantly. Supports presets (midnight, forest, cyberpunk, ocean, rose, amber, terminal), skins (default, minimal, terminal, neobrutalist, glass) that change bubble shapes/animations/layout, and custom color overrides. Use 'default' preset to reset to platform defaults.",
     inputSchema: {
@@ -4112,6 +4132,55 @@ async function executeListInstalledMarketplace() {
   }
 }
 
+async function executeCreateDraftService(args) {
+  const name = (args.name || "").trim();
+  const displayName = (args.displayName || "").trim();
+  const description = (args.description || "").trim();
+  const hostingModel = args.hostingModel || "self_hosted";
+
+  if (!name || !/^[a-z][a-z0-9-]{0,63}$/.test(name)) {
+    return { isError: true, text: "Invalid service name — must be lowercase alphanumeric with hyphens, starting with a letter." };
+  }
+  if (!displayName) return { isError: true, text: "displayName is required." };
+  if (!description || description.length < 10) return { isError: true, text: "description must be at least 10 characters." };
+
+  try {
+    const res = await apiRequest("POST", "/api/pod/services/create-draft", {
+      name,
+      displayName,
+      description,
+      hostingModel,
+      instructionSnippet: args.instructionSnippet || null,
+      componentName: args.componentName || null,
+      skills: args.skills || [],
+    });
+
+    if (res.status >= 400) {
+      return { isError: true, text: `Failed to create draft (${res.status}): ${res.data?.error || JSON.stringify(res.data)}` };
+    }
+
+    const d = res.data;
+    return {
+      isError: false,
+      text: [
+        `Draft service "${displayName}" created successfully!`,
+        ``,
+        `Service ID: ${d.serviceId}`,
+        `Status: draft`,
+        `Hosting: ${hostingModel === "remote" ? "Remote (you host)" : "Self-hosted (buyer hosts)"}`,
+        `Linked components: ${d.linkedComponents || 0}`,
+        `Linked skills: ${d.linkedSkills || 0}`,
+        ``,
+        `Next steps:`,
+        `- The creator can test this draft by installing it on a deployment from the My Services tab in the marketplace`,
+        `- When ready, submit it for admin review`,
+      ].join("\n"),
+    };
+  } catch (err) {
+    return { isError: true, text: `Failed to create draft: ${err.message}` };
+  }
+}
+
 async function executeSetTheme(args) {
   const body = {};
   if (args.preset) body.preset = args.preset;
@@ -5250,6 +5319,7 @@ async function executeTool(name, args) {
     case "uninstall_marketplace_item": return executeUninstallMarketplaceItem(args || {});
     case "list_installed_marketplace": return executeListInstalledMarketplace();
     case "publish_component": return executePublishComponent(args || {});
+    case "create_draft_service": return executeCreateDraftService(args || {});
     case "set_theme": return executeSetTheme(args || {});
     // Web & Search tools
     case "web_fetch": return executeWebFetch(args || {});

@@ -23,6 +23,12 @@ export const TOOL_CALL_END = "TOOL_CALL_END";
 
 export const CUSTOM = "CUSTOM";
 
+// ── AG-UI Reasoning Events ──────────────────────────────────────────────────
+
+export const REASONING_START = "REASONING_START";
+export const REASONING_CONTENT = "REASONING_CONTENT";
+export const REASONING_END = "REASONING_END";
+
 // ── Custom Event Names (used with CUSTOM type) ─────────────────────────────
 
 export const CUSTOM_CARD_UPDATE = "jarble.card.update";
@@ -30,3 +36,4 @@ export const CUSTOM_COMPONENT_DEFINED = "jarble.component.defined";
 export const CUSTOM_CHAT_ERROR = "jarble.chat.error";
 export const CUSTOM_DASHBOARD_CREATED = "jarble.dashboard.created";
 export const CUSTOM_ARTIFACT_UPDATED = "jarble.artifact.updated";
+export const CUSTOM_SUGGESTIONS = "jarble.suggestions";

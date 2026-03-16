@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import Link from "next/link";
 import {
   Package,
   Plus,
@@ -9,6 +10,8 @@ import {
   CheckCircle2,
   Loader2,
   LogIn,
+  Save,
+  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,12 +33,25 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
 import DeploymentPicker from "@/components/marketplace/DeploymentPicker";
 import DeploymentComponentBrowser from "@/components/marketplace/DeploymentComponentBrowser";
 import DeploymentSkillBrowser from "@/components/marketplace/DeploymentSkillBrowser";
 
-export function ServicePublishForm() {
+interface ServicePublishFormProps {
+  mode?: "create" | "edit";
+  serviceId?: string;
+  onSaved?: (serviceId: string) => void;
+}
+
+type SuccessState = "none" | "draft_saved" | "submitted_for_review";
+
+export function ServicePublishForm({
+  mode = "create",
+  serviceId,
+  onSaved,
+}: ServicePublishFormProps) {
   const { isAuthenticated, loginWithRedirect, isLoading: authLoading } = useAuth0();
 
   const [name, setName] = useState("");
@@ -50,16 +66,54 @@ export function ServicePublishForm() {
   // Source deployment for browsing installed components/skills
   const [selectedDeploymentId, setSelectedDeploymentId] = useState<string | null>(null);
 
+  // Creator deployment for hosted services (self_hosted / hybrid)
+  const [creatorDeploymentId, setCreatorDeploymentId] = useState<string | null>(null);
+
   // Component and skill IDs
   const [componentIdInput, setComponentIdInput] = useState("");
   const [componentIds, setComponentIds] = useState<string[]>([]);
   const [skillIdInput, setSkillIdInput] = useState("");
   const [skillIds, setSkillIds] = useState<string[]>([]);
 
-  const [submitted, setSubmitted] = useState(false);
+  const [successState, setSuccessState] = useState<SuccessState>("none");
+  const [savedServiceId, setSavedServiceId] = useState<string | null>(null);
 
+  // ── Fetch existing service for edit mode ──────────────────────────────
+  const serviceQuery = trpc.services.get.useQuery(
+    { serviceId: serviceId! },
+    { enabled: mode === "edit" && !!serviceId }
+  );
+
+  // Pre-populate form fields when editing
+  useEffect(() => {
+    if (mode !== "edit" || !serviceQuery.data) return;
+    const svc = serviceQuery.data;
+    setName(svc.name ?? "");
+    setDisplayName(svc.displayName ?? "");
+    setDescription(svc.description ?? "");
+    setHostingModel(svc.hostingModel ?? "self_hosted");
+    setInstructionSnippet(svc.instructionSnippet ?? "");
+    setRemoteApiEndpoint(svc.remoteApiEndpoint ?? "");
+    setPricingModel(svc.pricingModel ?? "free");
+    setPriceUsdCents(svc.priceUsdCents ?? 0);
+    setComponentIds(
+      (svc.components ?? []).map((c: { id: string }) => c.id)
+    );
+    setSkillIds(
+      (svc.skills ?? []).map((s: { id: string }) => s.id)
+    );
+    if (svc.creatorDeploymentId) {
+      setCreatorDeploymentId(svc.creatorDeploymentId);
+    }
+  }, [mode, serviceQuery.data]);
+
+  // ── Mutations ─────────────────────────────────────────────────────────
   const publishMutation = trpc.services.publish.useMutation();
+  const createDraftMutation = trpc.services.createDraft.useMutation();
+  const updateDraftMutation = trpc.services.updateDraft.useMutation();
+  const submitForReviewMutation = trpc.services.submitForReview.useMutation();
 
+  // ── Helpers ───────────────────────────────────────────────────────────
   const addComponentId = () => {
     const id = componentIdInput.trim();
     if (id && !componentIds.includes(id)) {
@@ -90,32 +144,114 @@ export function ServicePublishForm() {
     setSkillIds([]);
   };
 
-  const handleSubmit = async () => {
+  const buildPayload = () => ({
+    name,
+    displayName,
+    description: description || undefined,
+    hostingModel,
+    instructionSnippet: instructionSnippet || undefined,
+    remoteApiEndpoint: remoteApiEndpoint || undefined,
+    pricingModel,
+    priceUsdCents,
+    componentIds,
+    skillIds,
+    creatorDeploymentId: creatorDeploymentId || undefined,
+  });
+
+  // ── Save as Draft ─────────────────────────────────────────────────────
+  const handleSaveDraft = async () => {
     try {
-      await publishMutation.mutateAsync({
-        name,
-        displayName,
-        description: description || undefined,
-        hostingModel,
-        instructionSnippet: instructionSnippet || undefined,
-        remoteApiEndpoint: remoteApiEndpoint || undefined,
-        pricingModel,
-        priceUsdCents,
-        componentIds,
-        skillIds,
-      });
-      setSubmitted(true);
+      let resolvedId: string;
+      if (mode === "edit" && serviceId) {
+        await updateDraftMutation.mutateAsync({
+          serviceId,
+          ...buildPayload(),
+        });
+        resolvedId = serviceId;
+      } else {
+        const result = await createDraftMutation.mutateAsync(buildPayload());
+        resolvedId = result.serviceId;
+      }
+      setSavedServiceId(resolvedId);
+      setSuccessState("draft_saved");
+      onSaved?.(resolvedId);
     } catch {
       // Error shown via mutation state
     }
   };
 
-  const canSubmit =
+  // ── Submit for Review ─────────────────────────────────────────────────
+  const handleSubmitForReview = async () => {
+    try {
+      let resolvedId = serviceId;
+
+      // Save draft first to persist any unsaved changes
+      if (mode === "edit" && serviceId) {
+        await updateDraftMutation.mutateAsync({
+          serviceId,
+          ...buildPayload(),
+        });
+        resolvedId = serviceId;
+      } else {
+        const result = await createDraftMutation.mutateAsync(buildPayload());
+        resolvedId = result.serviceId;
+      }
+
+      // Now submit for review
+      await submitForReviewMutation.mutateAsync({ serviceId: resolvedId! });
+
+      setSavedServiceId(resolvedId!);
+      setSuccessState("submitted_for_review");
+      onSaved?.(resolvedId!);
+    } catch {
+      // Error shown via mutation state
+    }
+  };
+
+  // ── Validation ────────────────────────────────────────────────────────
+  const isMutating =
+    createDraftMutation.isPending ||
+    updateDraftMutation.isPending ||
+    submitForReviewMutation.isPending ||
+    publishMutation.isPending;
+
+  const canSaveDraft =
+    name.length > 0 &&
+    displayName.length > 0 &&
+    !isMutating;
+
+  const canSubmitForReview =
     name.length > 0 &&
     displayName.length > 0 &&
     (componentIds.length > 0 || skillIds.length > 0) &&
-    !publishMutation.isPending;
+    !isMutating;
 
+  // ── Mutation error ────────────────────────────────────────────────────
+  const mutationError =
+    createDraftMutation.error ??
+    updateDraftMutation.error ??
+    submitForReviewMutation.error ??
+    publishMutation.error;
+
+  // ── Reset form ────────────────────────────────────────────────────────
+  const resetForm = () => {
+    setSuccessState("none");
+    setSavedServiceId(null);
+    setName("");
+    setDisplayName("");
+    setDescription("");
+    setInstructionSnippet("");
+    setRemoteApiEndpoint("");
+    setComponentIds([]);
+    setSkillIds([]);
+    setPricingModel("free");
+    setPriceUsdCents(0);
+    setHostingModel("self_hosted");
+    setSelectedDeploymentId(null);
+    setCreatorDeploymentId(null);
+  };
+
+  // ── Auth gate ─────────────────────────────────────────────────────────
   if (!isAuthenticated && !authLoading) {
     return (
       <Card className="max-w-2xl mx-auto border border-border">
@@ -133,7 +269,60 @@ export function ServicePublishForm() {
     );
   }
 
-  if (submitted) {
+  // ── Loading skeleton (edit mode) ──────────────────────────────────────
+  if (mode === "edit" && serviceQuery.isLoading) {
+    return (
+      <Card className="max-w-2xl mx-auto border border-border">
+        <CardHeader>
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-72 mt-2" />
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-32 w-full" />
+          <div className="flex gap-3">
+            <Skeleton className="h-10 flex-1" />
+            <Skeleton className="h-10 flex-1" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ── Success: Draft Saved ──────────────────────────────────────────────
+  if (successState === "draft_saved") {
+    return (
+      <Card className="max-w-2xl mx-auto border border-border">
+        <CardContent className="pt-8 pb-8 flex flex-col items-center gap-4">
+          <CheckCircle2 className="size-12 text-emerald-600 dark:text-emerald-400" />
+          <h3 className="text-xl font-semibold">Draft Saved</h3>
+          <p className="text-muted-foreground text-center max-w-md">
+            Your service draft has been saved. You can test it on a deployment
+            or continue editing later.
+          </p>
+          <div className="flex gap-3">
+            {savedServiceId && (
+              <Button asChild variant="default">
+                <Link href={`/marketplace/services/${savedServiceId}/draft`}>
+                  Test on Deployment
+                </Link>
+              </Button>
+            )}
+            <Button variant="outline" onClick={resetForm}>
+              Create Another
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ── Success: Submitted for Review ─────────────────────────────────────
+  if (successState === "submitted_for_review") {
     return (
       <Card className="max-w-2xl mx-auto border border-border">
         <CardContent className="pt-8 pb-8 flex flex-col items-center gap-4">
@@ -143,23 +332,7 @@ export function ServicePublishForm() {
             Your service has been submitted for review. It will appear in the
             marketplace once approved by the moderation team.
           </p>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setSubmitted(false);
-              setName("");
-              setDisplayName("");
-              setDescription("");
-              setInstructionSnippet("");
-              setRemoteApiEndpoint("");
-              setComponentIds([]);
-              setSkillIds([]);
-              setPricingModel("free");
-              setPriceUsdCents(0);
-              setHostingModel("self_hosted");
-              setSelectedDeploymentId(null);
-            }}
-          >
+          <Button variant="outline" onClick={resetForm}>
             Publish another
           </Button>
         </CardContent>
@@ -167,16 +340,18 @@ export function ServicePublishForm() {
     );
   }
 
+  // ── Form ──────────────────────────────────────────────────────────────
   return (
     <Card className="max-w-2xl mx-auto border border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Package className="size-5" />
-          Publish a Service
+          {mode === "edit" ? "Edit Service Draft" : "Create a Service"}
         </CardTitle>
         <CardDescription>
-          Bundle components and skills together for one-click installation.
-          Services are submitted for review before appearing in the marketplace.
+          {mode === "edit"
+            ? "Update your service draft. Save changes or submit for review when ready."
+            : "Bundle components and skills together for one-click installation. Save as a draft to test, or submit directly for review."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -189,9 +364,12 @@ export function ServicePublishForm() {
             value={name}
             onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
             maxLength={100}
+            disabled={mode === "edit"}
           />
           <p className="text-xs text-muted-foreground">
-            Lowercase letters, numbers, and hyphens only.
+            {mode === "edit"
+              ? "The service name cannot be changed after creation."
+              : "Lowercase letters, numbers, and hyphens only."}
           </p>
         </div>
 
@@ -252,6 +430,21 @@ export function ServicePublishForm() {
               onChange={(e) => setRemoteApiEndpoint(e.target.value)}
               maxLength={500}
             />
+          </div>
+        )}
+
+        {/* Creator Deployment (shown for self_hosted/hybrid) */}
+        {(hostingModel === "self_hosted" || hostingModel === "hybrid") && (
+          <div className="space-y-2">
+            <Label>Host Deployment</Label>
+            <DeploymentPicker
+              selectedId={creatorDeploymentId}
+              onSelect={setCreatorDeploymentId}
+            />
+            <p className="text-xs text-muted-foreground">
+              Select the deployment that will host this service. Other deployments
+              will route requests to this pod.
+            </p>
           </div>
         )}
 
@@ -419,30 +612,50 @@ export function ServicePublishForm() {
         </div>
 
         {/* Error message */}
-        {publishMutation.error && (
+        {mutationError && (
           <p className="text-sm text-destructive">
-            {publishMutation.error.message}
+            {mutationError.message}
           </p>
         )}
 
-        {/* Submit */}
-        <Button
-          className="w-full"
-          disabled={!canSubmit}
-          onClick={handleSubmit}
-        >
-          {publishMutation.isPending ? (
-            <>
-              <Loader2 className="size-4 mr-2 animate-spin" />
-              Submitting...
-            </>
-          ) : (
-            <>
-              <Package className="size-4 mr-2" />
-              Submit for Review
-            </>
-          )}
-        </Button>
+        {/* Action buttons */}
+        <div className="flex gap-3">
+          <Button
+            className="flex-1"
+            variant="outline"
+            disabled={!canSaveDraft}
+            onClick={handleSaveDraft}
+          >
+            {(createDraftMutation.isPending || updateDraftMutation.isPending) ? (
+              <>
+                <Loader2 className="size-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="size-4 mr-2" />
+                Save as Draft
+              </>
+            )}
+          </Button>
+          <Button
+            className="flex-1"
+            disabled={!canSubmitForReview}
+            onClick={handleSubmitForReview}
+          >
+            {submitForReviewMutation.isPending ? (
+              <>
+                <Loader2 className="size-4 mr-2 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              <>
+                <Send className="size-4 mr-2" />
+                Submit for Review
+              </>
+            )}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

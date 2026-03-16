@@ -1535,6 +1535,680 @@ export const servicesRouter = router({
       return { success: true as const };
     }),
 
+  // ── Draft & Testing ──────────────────────────────────────────────────────
+
+  /** Create a service in draft status for testing before submitting for review. */
+  createDraft: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/, "Service name must be lowercase alphanumeric with hyphens"),
+      displayName: z.string().min(1).max(255),
+      description: z.string().max(2000).optional(),
+      hostingModel: z.enum(["self_hosted", "remote", "hybrid"]),
+      instructionSnippet: z.string().max(5000).optional(),
+      remoteApiEndpoint: z.string().url().max(500).optional(),
+      remoteApiConfig: z.string().optional(),
+      pricingModel: z.enum(["free", "paid", "freemium"]).default("free"),
+      priceUsdCents: z.number().int().min(0).default(0),
+      componentIds: z.array(z.string()).default([]),
+      skillIds: z.array(z.string()).default([]),
+      creatorDeploymentId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const profile = await ctx.db.query.creatorProfiles.findFirst({
+        where: eq(creatorProfiles.userId, ctx.user.id),
+      });
+      if (!profile) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "You must create a creator profile before creating services",
+        });
+      }
+
+      // Check uniqueness
+      const existing = await ctx.db.query.marketplaceServices.findFirst({
+        where: and(
+          eq(marketplaceServices.creatorId, profile.id),
+          eq(marketplaceServices.name, input.name),
+        ),
+      });
+      if (existing) {
+        throw new TRPCError({ code: "CONFLICT", message: "You already have a service with this name" });
+      }
+
+      // Validate components if provided (relaxed: allow draft to have invalid refs)
+      for (const compId of input.componentIds) {
+        const comp = await ctx.db.query.marketplaceComponents.findFirst({
+          where: eq(marketplaceComponents.id, compId),
+        });
+        if (!comp) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Component ${compId} not found` });
+        }
+      }
+
+      // Validate skills if provided
+      for (const skillId of input.skillIds) {
+        const skill = await ctx.db.query.skillsCatalog.findFirst({
+          where: eq(skillsCatalog.id, skillId),
+        });
+        if (!skill) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Skill ${skillId} not found` });
+        }
+      }
+
+      // Validate remoteApiConfig if provided
+      if ((input.hostingModel === "remote" || input.hostingModel === "hybrid") && input.remoteApiConfig) {
+        try {
+          serviceCardSchema.parse(JSON.parse(input.remoteApiConfig));
+        } catch (err) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Invalid ServiceCard config: ${err instanceof Error ? err.message : "parse error"}`,
+          });
+        }
+      }
+
+      // Validate creatorDeploymentId ownership if provided
+      if (input.creatorDeploymentId) {
+        const dep = await ctx.db.query.deployments.findFirst({
+          where: and(eq(deployments.id, input.creatorDeploymentId), eq(deployments.userId, ctx.user.id)),
+        });
+        if (!dep) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Host deployment not found or not owned by you" });
+        }
+      }
+
+      const serviceId = generateId("pkg");
+      await ctx.db.insert(marketplaceServices).values({
+        id: serviceId,
+        creatorId: profile.id,
+        name: input.name,
+        displayName: input.displayName,
+        description: input.description ?? null,
+        hostingModel: input.hostingModel,
+        instructionSnippet: input.instructionSnippet ?? null,
+        remoteApiEndpoint: input.remoteApiEndpoint ?? null,
+        remoteApiConfig: input.remoteApiConfig ?? null,
+        creatorDeploymentId: input.creatorDeploymentId ?? null,
+        status: "draft",
+        pricingModel: input.pricingModel,
+        priceUsdCents: input.priceUsdCents,
+        createdAt: dbDate(),
+        updatedAt: dbDate(),
+      });
+
+      for (const compId of input.componentIds) {
+        await ctx.db.insert(serviceComponents).values({
+          id: generateId("pkc"), packageId: serviceId, componentId: compId,
+        });
+      }
+
+      for (const skillId of input.skillIds) {
+        await ctx.db.insert(serviceSkills).values({
+          id: generateId("pks"), packageId: serviceId, skillId,
+        });
+      }
+
+      logger.info({
+        serviceId, name: input.name, userId: ctx.user.id,
+        components: input.componentIds.length, skills: input.skillIds.length,
+      }, "Draft service created");
+
+      return { serviceId };
+    }),
+
+  /** Update a draft (or rejected) service. Re-syncs to any test-installed deployments. */
+  updateDraft: protectedProcedure
+    .input(z.object({
+      serviceId: z.string(),
+      displayName: z.string().min(1).max(255).optional(),
+      description: z.string().max(2000).optional(),
+      hostingModel: z.enum(["self_hosted", "remote", "hybrid"]).optional(),
+      instructionSnippet: z.string().max(5000).optional(),
+      remoteApiEndpoint: z.string().url().max(500).optional(),
+      remoteApiConfig: z.string().optional(),
+      pricingModel: z.enum(["free", "paid", "freemium"]).optional(),
+      priceUsdCents: z.number().int().min(0).optional(),
+      componentIds: z.array(z.string()).optional(),
+      skillIds: z.array(z.string()).optional(),
+      creatorDeploymentId: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const profile = await ctx.db.query.creatorProfiles.findFirst({
+        where: eq(creatorProfiles.userId, ctx.user.id),
+      });
+      if (!profile) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Creator profile required" });
+      }
+
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
+      });
+      if (!pkg) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service not found" });
+      }
+      if (pkg.creatorId !== profile.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You do not own this service" });
+      }
+      if (pkg.status !== "draft" && pkg.status !== "rejected") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only draft or rejected services can be edited" });
+      }
+
+      // Build update set
+      const updateSet: Record<string, unknown> = { updatedAt: dbDate() };
+      if (input.displayName !== undefined) updateSet.displayName = input.displayName;
+      if (input.description !== undefined) updateSet.description = input.description;
+      if (input.hostingModel !== undefined) updateSet.hostingModel = input.hostingModel;
+      if (input.instructionSnippet !== undefined) updateSet.instructionSnippet = input.instructionSnippet;
+      if (input.remoteApiEndpoint !== undefined) updateSet.remoteApiEndpoint = input.remoteApiEndpoint;
+      if (input.remoteApiConfig !== undefined) updateSet.remoteApiConfig = input.remoteApiConfig;
+      if (input.pricingModel !== undefined) updateSet.pricingModel = input.pricingModel;
+      if (input.priceUsdCents !== undefined) updateSet.priceUsdCents = input.priceUsdCents;
+      if (input.creatorDeploymentId !== undefined) updateSet.creatorDeploymentId = input.creatorDeploymentId;
+
+      await ctx.db.update(marketplaceServices).set(updateSet as any).where(eq(marketplaceServices.id, input.serviceId));
+
+      // Replace components if provided
+      if (input.componentIds !== undefined) {
+        await ctx.db.delete(serviceComponents).where(eq(serviceComponents.packageId, input.serviceId));
+        for (const compId of input.componentIds) {
+          await ctx.db.insert(serviceComponents).values({
+            id: generateId("pkc"), packageId: input.serviceId, componentId: compId,
+          });
+        }
+      }
+
+      // Replace skills if provided
+      if (input.skillIds !== undefined) {
+        await ctx.db.delete(serviceSkills).where(eq(serviceSkills.packageId, input.serviceId));
+        for (const skillId of input.skillIds) {
+          await ctx.db.insert(serviceSkills).values({
+            id: generateId("pks"), packageId: input.serviceId, skillId,
+          });
+        }
+      }
+
+      // Re-sync to any test-installed deployments
+      let resynced = 0;
+      const testInstalls = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.packageId, input.serviceId),
+      });
+
+      for (const inst of testInstalls) {
+        const dep = await ctx.db.query.deployments.findFirst({
+          where: eq(deployments.id, inst.deploymentId),
+        });
+        if (dep?.status === "running") {
+          void syncConfigsToPvc(inst.deploymentId).catch((err) =>
+            logger.error({ err, deploymentId: inst.deploymentId }, "updateDraft: resync failed (non-fatal)")
+          );
+          resynced++;
+        }
+      }
+
+      logger.info({ serviceId: input.serviceId, resynced, userId: ctx.user.id }, "Draft service updated");
+      return { success: true as const, resynced };
+    }),
+
+  /** Install a draft service on the creator's own deployment for testing. */
+  testInstall: protectedProcedure
+    .input(z.object({ serviceId: z.string(), deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify deployment ownership
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Verify service ownership + draft/rejected status
+      const profile = await ctx.db.query.creatorProfiles.findFirst({
+        where: eq(creatorProfiles.userId, ctx.user.id),
+      });
+      if (!profile) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Creator profile required" });
+      }
+
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
+      });
+      if (!pkg) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service not found" });
+      }
+      if (pkg.creatorId !== profile.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only test-install your own services" });
+      }
+      if (pkg.status !== "draft" && pkg.status !== "rejected") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only draft or rejected services can be test-installed" });
+      }
+
+      // Check not already installed
+      const existingInstall = await ctx.db.query.serviceInstalls.findFirst({
+        where: and(
+          eq(serviceInstalls.packageId, input.serviceId),
+          eq(serviceInstalls.deploymentId, input.deploymentId),
+        ),
+      });
+      if (existingInstall) {
+        throw new TRPCError({ code: "CONFLICT", message: "Service is already installed on this deployment" });
+      }
+
+      const pkgComps = await ctx.db.query.serviceComponents.findMany({
+        where: eq(serviceComponents.packageId, pkg.id),
+      });
+      const pkgSkillRows = await ctx.db.query.serviceSkills.findMany({
+        where: eq(serviceSkills.packageId, pkg.id),
+      });
+
+      // Create install record
+      const installId = generateId("pki");
+      await ctx.db.insert(serviceInstalls).values({
+        id: installId,
+        packageId: input.serviceId,
+        deploymentId: input.deploymentId,
+        userId: ctx.user.id,
+        installedAt: dbDate(),
+      });
+
+      // Install components (skip already installed, no totalInstalls increment for tests)
+      const installedComponents: string[] = [];
+      for (const pc of pkgComps) {
+        const existing = await ctx.db.query.componentInstalls.findFirst({
+          where: and(
+            eq(componentInstalls.componentId, pc.componentId),
+            eq(componentInstalls.deploymentId, input.deploymentId),
+          ),
+        });
+        if (existing) continue;
+
+        const comp = await ctx.db.query.marketplaceComponents.findFirst({
+          where: eq(marketplaceComponents.id, pc.componentId),
+        });
+        if (!comp) continue;
+
+        const versions = await ctx.db.query.componentVersions.findMany({
+          where: eq(componentVersions.componentId, pc.componentId),
+        });
+        if (versions.length === 0) continue;
+
+        const sorted = versions.sort((a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+
+        await ctx.db.insert(componentInstalls).values({
+          id: generateId("ci"),
+          componentId: pc.componentId,
+          deploymentId: input.deploymentId,
+          versionId: sorted[0].id,
+          userId: ctx.user.id,
+          installedAt: dbDate(),
+        });
+
+        installedComponents.push(pc.componentId);
+      }
+
+      // Install skills (skip already installed)
+      const installedSkills: string[] = [];
+      for (const ps of pkgSkillRows) {
+        const existing = await ctx.db.query.deploymentSkills.findFirst({
+          where: and(
+            eq(deploymentSkills.skillId, ps.skillId),
+            eq(deploymentSkills.deploymentId, input.deploymentId),
+          ),
+        });
+        if (existing) continue;
+
+        await ctx.db.insert(deploymentSkills).values({
+          id: generateId("ds"),
+          skillId: ps.skillId,
+          deploymentId: input.deploymentId,
+          installedAt: dbDate(),
+        });
+
+        installedSkills.push(ps.skillId);
+      }
+
+      // NOTE: No totalInstalls increment for test installs
+      // NOTE: No remote handshake for test installs
+
+      logger.info({
+        packageId: input.serviceId, deploymentId: input.deploymentId,
+        userId: ctx.user.id, installedComponents: installedComponents.length,
+        installedSkills: installedSkills.length, isTest: true,
+      }, "Service test-installed");
+
+      // Sync to pod if running
+      if (deployment.status === "running") {
+        for (const compId of installedComponents) {
+          const comp = await ctx.db.query.marketplaceComponents.findFirst({
+            where: eq(marketplaceComponents.id, compId),
+          });
+          if (!comp) continue;
+
+          const versions = await ctx.db.query.componentVersions.findMany({
+            where: eq(componentVersions.componentId, compId),
+          });
+          const latestVersion = versions.sort((a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          )[0];
+
+          void syncMarketplaceComponent(
+            input.deploymentId, compId, comp.name,
+            {
+              name: comp.name, displayName: comp.displayName,
+              description: comp.description, tier: comp.tier,
+              category: comp.category,
+              propsSchema: comp.propsSchema ? JSON.parse(comp.propsSchema) : null,
+              version: latestVersion?.version ?? "1.0.0",
+            },
+            buildComponentDefinition(comp),
+            comp.tier as "template" | "sandbox",
+          ).catch((err) =>
+            logger.error({ err, componentId: compId, deploymentId: input.deploymentId },
+              "testInstall: failed to sync component (non-fatal)")
+          );
+        }
+
+        void syncConfigsToPvc(input.deploymentId).catch((err) =>
+          logger.error({ err, deploymentId: input.deploymentId },
+            "testInstall: failed to sync configs (non-fatal)")
+        );
+      }
+
+      return {
+        success: true as const,
+        installedComponents: installedComponents.length,
+        installedSkills: installedSkills.length,
+      };
+    }),
+
+  /** Remove a test-installed draft service from a deployment. */
+  testUninstall: protectedProcedure
+    .input(z.object({ serviceId: z.string(), deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      const profile = await ctx.db.query.creatorProfiles.findFirst({
+        where: eq(creatorProfiles.userId, ctx.user.id),
+      });
+      if (!profile) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Creator profile required" });
+      }
+
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
+      });
+      if (!pkg) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service not found" });
+      }
+      if (pkg.creatorId !== profile.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only test-uninstall your own services" });
+      }
+
+      const install = await ctx.db.query.serviceInstalls.findFirst({
+        where: and(
+          eq(serviceInstalls.packageId, input.serviceId),
+          eq(serviceInstalls.deploymentId, input.deploymentId),
+        ),
+      });
+      if (!install) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service is not installed on this deployment" });
+      }
+
+      const pkgComps = await ctx.db.query.serviceComponents.findMany({
+        where: eq(serviceComponents.packageId, input.serviceId),
+      });
+      const pkgSkillRows = await ctx.db.query.serviceSkills.findMany({
+        where: eq(serviceSkills.packageId, input.serviceId),
+      });
+
+      // Remove components
+      let removedComponents = 0;
+      for (const pc of pkgComps) {
+        const compInstall = await ctx.db.query.componentInstalls.findFirst({
+          where: and(
+            eq(componentInstalls.componentId, pc.componentId),
+            eq(componentInstalls.deploymentId, input.deploymentId),
+          ),
+        });
+        if (compInstall) {
+          await ctx.db.delete(componentInstalls).where(and(
+            eq(componentInstalls.componentId, pc.componentId),
+            eq(componentInstalls.deploymentId, input.deploymentId),
+          ));
+          // NOTE: No totalInstalls decrement for test uninstalls
+          removedComponents++;
+        }
+      }
+
+      // Remove skills
+      let removedSkills = 0;
+      for (const ps of pkgSkillRows) {
+        const skillInstall = await ctx.db.query.deploymentSkills.findFirst({
+          where: and(
+            eq(deploymentSkills.skillId, ps.skillId),
+            eq(deploymentSkills.deploymentId, input.deploymentId),
+          ),
+        });
+        if (skillInstall) {
+          await ctx.db.delete(deploymentSkills).where(and(
+            eq(deploymentSkills.skillId, ps.skillId),
+            eq(deploymentSkills.deploymentId, input.deploymentId),
+          ));
+          removedSkills++;
+        }
+      }
+
+      // NOTE: No remote webhook for test uninstalls
+      // Delete credentials if any exist
+      await ctx.db.delete(serviceCredentials).where(and(
+        eq(serviceCredentials.deploymentId, input.deploymentId),
+        eq(serviceCredentials.packageId, input.serviceId),
+      ));
+
+      await ctx.db.delete(serviceInstalls).where(and(
+        eq(serviceInstalls.packageId, input.serviceId),
+        eq(serviceInstalls.deploymentId, input.deploymentId),
+      ));
+
+      // NOTE: No totalInstalls decrement for test uninstalls
+
+      logger.info({
+        packageId: input.serviceId, deploymentId: input.deploymentId,
+        userId: ctx.user.id, removedComponents, removedSkills, isTest: true,
+      }, "Service test-uninstalled");
+
+      if (deployment.status === "running") {
+        void syncConfigsToPvc(input.deploymentId).catch((err) =>
+          logger.error({ err, deploymentId: input.deploymentId },
+            "testUninstall: failed to sync config (non-fatal)")
+        );
+      }
+
+      return { success: true as const, removedComponents, removedSkills };
+    }),
+
+  /** Move a draft service to pending_review. Validates completeness. */
+  submitForReview: protectedProcedure
+    .input(z.object({ serviceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const profile = await ctx.db.query.creatorProfiles.findFirst({
+        where: eq(creatorProfiles.userId, ctx.user.id),
+      });
+      if (!profile) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Creator profile required" });
+      }
+
+      const pkg = await ctx.db.query.marketplaceServices.findFirst({
+        where: eq(marketplaceServices.id, input.serviceId),
+      });
+      if (!pkg) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Service not found" });
+      }
+      if (pkg.creatorId !== profile.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You do not own this service" });
+      }
+      if (pkg.status !== "draft" && pkg.status !== "rejected") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only draft or rejected services can be submitted for review" });
+      }
+
+      // Validate completeness
+      const pkgComps = await ctx.db.query.serviceComponents.findMany({
+        where: eq(serviceComponents.packageId, input.serviceId),
+      });
+      const pkgSkillRows = await ctx.db.query.serviceSkills.findMany({
+        where: eq(serviceSkills.packageId, input.serviceId),
+      });
+
+      if (pkgComps.length === 0 && pkgSkillRows.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Service must contain at least one component or skill before submitting for review",
+        });
+      }
+
+      // Validate all components are still published
+      for (const pc of pkgComps) {
+        const comp = await ctx.db.query.marketplaceComponents.findFirst({
+          where: eq(marketplaceComponents.id, pc.componentId),
+        });
+        if (!comp || (comp.status !== "published" && comp.status !== "approved")) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Component ${pc.componentId} is not published (status: ${comp?.status ?? "missing"})`,
+          });
+        }
+      }
+
+      // Validate remoteApiConfig for remote/hybrid
+      if ((pkg.hostingModel === "remote" || pkg.hostingModel === "hybrid") && pkg.remoteApiConfig) {
+        try {
+          serviceCardSchema.parse(JSON.parse(pkg.remoteApiConfig));
+        } catch (err) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Service has invalid remote API config: ${err instanceof Error ? err.message : "parse error"}`,
+          });
+        }
+      }
+
+      // Clean up test installs
+      const testInstalls = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.packageId, input.serviceId),
+      });
+
+      for (const inst of testInstalls) {
+        // Remove components installed via this service
+        for (const pc of pkgComps) {
+          await ctx.db.delete(componentInstalls).where(and(
+            eq(componentInstalls.componentId, pc.componentId),
+            eq(componentInstalls.deploymentId, inst.deploymentId),
+          ));
+        }
+        // Remove skills installed via this service
+        for (const ps of pkgSkillRows) {
+          await ctx.db.delete(deploymentSkills).where(and(
+            eq(deploymentSkills.skillId, ps.skillId),
+            eq(deploymentSkills.deploymentId, inst.deploymentId),
+          ));
+        }
+        // Clean up credentials
+        await ctx.db.delete(serviceCredentials).where(and(
+          eq(serviceCredentials.deploymentId, inst.deploymentId),
+          eq(serviceCredentials.packageId, input.serviceId),
+        ));
+        // Delete install record
+        await ctx.db.delete(serviceInstalls).where(eq(serviceInstalls.id, inst.id));
+
+        // Re-sync deployment to remove service from pod
+        const dep = await ctx.db.query.deployments.findFirst({
+          where: eq(deployments.id, inst.deploymentId),
+        });
+        if (dep?.status === "running") {
+          void syncConfigsToPvc(inst.deploymentId).catch((err) =>
+            logger.error({ err, deploymentId: inst.deploymentId },
+              "submitForReview: resync failed (non-fatal)")
+          );
+        }
+      }
+
+      // Transition to pending_review
+      await ctx.db.update(marketplaceServices)
+        .set({ status: "pending_review", updatedAt: dbDate() } as any)
+        .where(eq(marketplaceServices.id, input.serviceId));
+
+      logger.info({
+        serviceId: input.serviceId, userId: ctx.user.id,
+        cleanedUpInstalls: testInstalls.length,
+      }, "Service submitted for review");
+
+      return { success: true as const };
+    }),
+
+  /** List all services created by the current user (all statuses). */
+  listMyServices: protectedProcedure
+    .input(z.object({
+      status: z.enum(["draft", "pending_review", "published", "rejected"]).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const profile = await ctx.db.query.creatorProfiles.findFirst({
+        where: eq(creatorProfiles.userId, ctx.user.id),
+      });
+      if (!profile) {
+        return { items: [] };
+      }
+
+      const allServices = await ctx.db.query.marketplaceServices.findMany({
+        where: eq(marketplaceServices.creatorId, profile.id),
+      });
+
+      let filtered = [...allServices];
+      if (input?.status) {
+        filtered = filtered.filter((s) => s.status === input.status);
+      }
+
+      filtered.sort((a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      );
+
+      const items = [];
+      for (const svc of filtered) {
+        const compCount = (await ctx.db.query.serviceComponents.findMany({
+          where: eq(serviceComponents.packageId, svc.id),
+        })).length;
+        const skillCount = (await ctx.db.query.serviceSkills.findMany({
+          where: eq(serviceSkills.packageId, svc.id),
+        })).length;
+        const testInstallCount = (await ctx.db.query.serviceInstalls.findMany({
+          where: eq(serviceInstalls.packageId, svc.id),
+        })).length;
+
+        items.push({
+          id: svc.id,
+          name: svc.name,
+          displayName: svc.displayName,
+          description: svc.description,
+          hostingModel: svc.hostingModel,
+          status: svc.status,
+          pricingModel: svc.pricingModel,
+          priceUsdCents: svc.priceUsdCents,
+          componentCount: compCount,
+          skillCount: skillCount,
+          testInstallCount: testInstallCount,
+          creatorDeploymentId: svc.creatorDeploymentId,
+          createdAt: svc.createdAt,
+          updatedAt: svc.updatedAt,
+        });
+      }
+
+      return { items };
+    }),
+
   // ── Admin Moderation ──────────────────────────────────────────────────────
 
   adminList: protectedProcedure

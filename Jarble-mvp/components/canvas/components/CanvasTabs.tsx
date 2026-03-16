@@ -50,37 +50,58 @@ function CanvasTabsInner({ tabs, defaultTab = 0 }: CanvasTabsProps) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="p-4 h-full"
+      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+      className={[
+        "overflow-hidden rounded-xl",
+        "border border-border/40",
+        "shadow-sm dark:shadow-md dark:shadow-black/15",
+      ].join(" ")}
     >
       <Tabs defaultValue={defaultValue} onValueChange={handleTabChange} aria-label="Content tabs">
-        <TabsList>
-          {tabs.map((tab, i) => (
-            <TabsTrigger key={`${tab.label}-${i}`} value={`tab-${i}`}>
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        {/* Custom TabsList styling */}
+        <div className="px-4 pt-4 pb-0">
+          <TabsList className="w-full bg-muted/50 dark:bg-white/[0.04] rounded-lg p-1 h-auto">
+            {tabs.map((tab, i) => (
+              <TabsTrigger
+                key={`${tab.label}-${i}`}
+                value={`tab-${i}`}
+                className="data-[state=active]:shadow-sm data-[state=active]:bg-background/90 dark:data-[state=active]:bg-white/[0.08] rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200"
+              >
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {/* Gradient accent line below tabs */}
+          <div className="mt-3 h-px w-full bg-gradient-to-r from-primary/20 via-border/30 to-transparent" />
+        </div>
+
+        {/* Tab content with fade transition */}
         {tabs.map((tab, i) => (
-          <TabsContent key={`${tab.label}-${i}`} value={`tab-${i}`}>
-            {tab.content && (
-              <p className="text-sm text-foreground whitespace-pre-wrap">{tab.content}</p>
-            )}
-            {tab.children?.map((child, j) => {
-              let resolvedProps: Record<string, unknown> = {};
-              if (child.props) resolvedProps = child.props;
-              else if (child.propsJson) {
-                try { resolvedProps = JSON.parse(child.propsJson); } catch { /* empty */ }
-              }
-              return (
-                <CanvasRenderer
-                  key={`tab-${i}-child-${j}`}
-                  block={{ id: `tab-${i}-child-${j}`, component: child.component, props: resolvedProps }}
-                />
-              );
-            })}
+          <TabsContent key={`${tab.label}-${i}`} value={`tab-${i}`} className="px-4 pb-4 pt-3">
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
+            >
+              {tab.content && (
+                <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-wrap">{tab.content}</p>
+              )}
+              {tab.children?.map((child, j) => {
+                let resolvedProps: Record<string, unknown> = {};
+                if (child.props) resolvedProps = child.props;
+                else if (child.propsJson) {
+                  try { resolvedProps = JSON.parse(child.propsJson); } catch { /* empty */ }
+                }
+                return (
+                  <CanvasRenderer
+                    key={`tab-${i}-child-${j}`}
+                    block={{ id: `tab-${i}-child-${j}`, component: child.component, props: resolvedProps }}
+                  />
+                );
+              })}
+            </motion.div>
           </TabsContent>
         ))}
       </Tabs>

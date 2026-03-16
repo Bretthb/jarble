@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import Link from "next/link";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Search, SlidersHorizontal, Package, X, Puzzle } from "lucide-react";
+import { Search, SlidersHorizontal, Package, X, Puzzle, Wrench } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,26 +25,24 @@ import { ComponentCard } from "@/components/marketplace/ComponentCard";
 import type { MarketplaceComponentData } from "@/components/marketplace/ComponentCard";
 import { ServiceList } from "@/components/marketplace/ServiceList";
 import { ServicePublishForm } from "@/components/marketplace/ServicePublishForm";
+import { MyServicesList } from "@/components/marketplace/MyServicesList";
 import {
   MARKETPLACE_CATEGORIES,
   SORT_OPTIONS,
 } from "@/components/marketplace/types";
-import ProfileDropdown from "@/components/ProfileDropdown";
 import { trpc } from "@/lib/trpc";
 
 const PAGE_SIZE = 20;
 
 export default function MarketplaceBrowsePage() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth0();
+  const { isAuthenticated } = useAuth0();
 
-  // Filter state
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [tier, setTier] = useState("all");
   const [pricing, setPricing] = useState("all");
   const [sort, setSort] = useState("popular");
 
-  // Cursor-based pagination: track current cursor + history for back navigation
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const cursorHistory = useRef<(string | undefined)[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
@@ -82,66 +79,8 @@ export default function MarketplaceBrowsePage() {
   }, [resetPagination]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Navigation */}
-      <nav className="fixed inset-x-0 top-0 z-50 bg-background/80 backdrop-blur-md border-b border-border/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <Link
-            href="/"
-            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-          >
-            <h1 className="font-serif font-bold text-2xl tracking-tight">
-              Jarble
-            </h1>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors hidden sm:inline"
-            >
-              Home
-            </Link>
-            <Link
-              href="/pricing"
-              className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors hidden sm:inline"
-            >
-              Pricing
-            </Link>
-            <Link
-              href="/marketplace"
-              className="text-sm font-medium text-primary transition-colors"
-            >
-              Marketplace
-            </Link>
-            {!authLoading && isAuthenticated ? (
-              <>
-                <Link
-                  href="/dashboard"
-                  className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors hidden sm:inline"
-                >
-                  Dashboard
-                </Link>
-                <ProfileDropdown />
-              </>
-            ) : (
-              !authLoading && (
-                <Button
-                  size="sm"
-                  asChild
-                  className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
-                >
-                  <Link href="/login">Sign in</Link>
-                </Button>
-              )
-            )}
-          </div>
-        </div>
-      </nav>
-
-      {/* Main content */}
-      <main className="pt-24 pb-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
+    <>
+      <div className="mb-8">
           <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
             Marketplace
           </h2>
@@ -150,7 +89,7 @@ export default function MarketplaceBrowsePage() {
           </p>
         </div>
 
-        {/* Tabs: Components | Services | Publish */}
+        {/* Tabs: Components | Services | My Services | Create */}
         <Tabs defaultValue="components" className="mb-8">
           <TabsList>
             <TabsTrigger value="components" className="gap-1.5">
@@ -162,8 +101,14 @@ export default function MarketplaceBrowsePage() {
               Services
             </TabsTrigger>
             {isAuthenticated && (
-              <TabsTrigger value="publish" className="gap-1.5">
-                Publish
+              <TabsTrigger value="my-services" className="gap-1.5">
+                <Wrench className="size-4" />
+                My Services
+              </TabsTrigger>
+            )}
+            {isAuthenticated && (
+              <TabsTrigger value="create" className="gap-1.5">
+                Create
               </TabsTrigger>
             )}
           </TabsList>
@@ -173,7 +118,13 @@ export default function MarketplaceBrowsePage() {
           </TabsContent>
 
           {isAuthenticated && (
-            <TabsContent value="publish">
+            <TabsContent value="my-services">
+              <MyServicesList />
+            </TabsContent>
+          )}
+
+          {isAuthenticated && (
+            <TabsContent value="create">
               <ServicePublishForm />
             </TabsContent>
           )}
@@ -352,8 +303,7 @@ export default function MarketplaceBrowsePage() {
 
           </TabsContent>
         </Tabs>
-      </main>
-    </div>
+    </>
   );
 }
 

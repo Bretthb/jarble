@@ -32,6 +32,8 @@ export interface ChatMessage {
   displayText?: string;
   /** If true, this message is an action relay — styled more compactly in chat */
   isActionRelay?: boolean;
+  /** Reasoning / thinking content from the LLM (shown as collapsible "Thought process") */
+  reasoning?: string;
 }
 
 const CHAT_STORAGE_PREFIX = "jarble-chat-";
@@ -123,6 +125,7 @@ export function useCanvasChat(
   const [streamingText, setStreamingText] = useState("");
   const [lastChatError, setLastChatError] = useState<ClassifiedChatError | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<Array<{ prompt: string }>>([]);
   const abortRef = useRef<AbortController | null>(null);
   const hasLoadedHistory = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -143,6 +146,9 @@ export function useCanvasChat(
   const currentLlmRef = useRef<{ provider?: string; model?: string }>({});
   // Track which card was selected when the user sent the message (for provenance linking)
   const selectedCardRef = useRef<string | null>(null);
+  // Track edit mode — when set, the next TOOL_CALL_END with matching component type
+  // updates the card in-place instead of creating a new one
+  const editModeRef = useRef<{ cardId: string; component: string } | null>(null);
 
   // Load chat history from localStorage on mount
   useEffect(() => {
@@ -186,12 +192,12 @@ export function useCanvasChat(
   }, []);
 
   const sendMessage = useCallback(
-    async (text: string, displayText?: string) => {
+    async (text: string, displayText?: string, mode?: "edit" | "branch") => {
       // Use ref guard — keeps sendMessage stable without isStreaming in deps
       if (!text.trim() || isStreamingRef.current) return;
 
       // Skip card reference prepend for action/error messages — these already contain card context
-      const isActionMessage = text.startsWith("[UI_ACTION]") || text.startsWith("[SANDBOX_ERROR]") || text.startsWith("[COMPONENT_ERROR]");
+      const isActionMessage = text.startsWith("[UI_ACTION]") || text.startsWith("[SANDBOX_ERROR]") || text.startsWith("[COMPONENT_ERROR]") || text.startsWith("[PUBLISH_SERVICE]");
 
       // Use stateRef.current for selectedCard and canvas state — keeps deps stable
       const currentState = stateRef.current;
@@ -201,10 +207,19 @@ export function useCanvasChat(
       const selectedCard = currentState.cards.find((c) => c.selected);
       // Track selected card ID so new cards rendered during this stream can be linked as children
       selectedCardRef.current = selectedCard?.id ?? null;
+      // Reset edit mode — will be set below only for "edit" mode
+      editModeRef.current = null;
       if (selectedCard && !isActionMessage) {
         const title = selectedCard.title || selectedCard.component.replace(/_/g, " ");
-        const ref = `[EDITING ${selectedCard.id} "${title}"]`;
-        messageToSend = `${ref}\n${text}`;
+        if (mode === "branch") {
+          const ref = `[BRANCH ${selectedCard.id} "${title}"]`;
+          messageToSend = `${ref}\n${text}`;
+        } else {
+          // "edit" mode (or default for backward compat)
+          const ref = `[EDITING ${selectedCard.id} "${title}"]`;
+          messageToSend = `${ref}\n${text}`;
+          editModeRef.current = { cardId: selectedCard.id, component: selectedCard.component };
+        }
         dispatch({ type: "DESELECT_CARD" });
       }
 
@@ -235,12 +250,15 @@ export function useCanvasChat(
       setStreamingText("");
       setLastChatError(null);
       setLastUserMessage(text);
+      setSuggestions([]); // Clear suggestions when user sends a new message
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
 
       const messageId = `msg-${Date.now()}`;
       let accumulatedText = "";
+      let reasoningText = "";
+      let inReasoning = false;
       const streamStart = Date.now();
       let eventCount = 0;
 
@@ -351,6 +369,18 @@ export function useCanvasChat(
                 };
               }
 
+              // ── Reasoning / thinking events ──
+              if (event.type === "REASONING_START") {
+                inReasoning = true;
+                reasoningText = "";
+              }
+              if (event.type === "REASONING_CONTENT" && event.delta) {
+                reasoningText += event.delta;
+              }
+              if (event.type === "REASONING_END") {
+                inReasoning = false;
+              }
+
               // ── AG-UI TOOL_CALL events (new — component rendering as tool calls) ──
               if (event.type === "TOOL_CALL_START" && event.toolCallName?.startsWith("show_")) {
                 const component = event.toolCallName.slice(5); // "show_chart" -> "chart"
@@ -385,11 +415,27 @@ export function useCanvasChat(
                 const block = pendingBlocks.get(event.toolCallId);
                 if (block) {
                   blockStartTimes.delete(event.toolCallId);
-                  const card = addComponentCard(block, messageId, stateRef.current, dispatch, cardsAddedThisStream, currentLlmRef.current, selectedCardRef.current);
-                  if (card) cardsAddedThisStream.push(card);
+
+                  // Edit mode: update existing card in-place if component type matches
+                  if (editModeRef.current && block.component === editModeRef.current.component) {
+                    const targetId = editModeRef.current.cardId;
+                    isDev && console.log(`[Jarble:Chat] Edit-in-place: updating ${targetId} (${block.component})`);
+                    dispatch({
+                      type: "UPDATE_CARD_PROPS",
+                      id: targetId,
+                      props: block.props,
+                      merge: false,
+                    });
+                    editModeRef.current = null; // Only update once per response
+                  } else {
+                    // Branch mode or component type differs: create new card
+                    const card = addComponentCard(block, messageId, stateRef.current, dispatch, cardsAddedThisStream, currentLlmRef.current, selectedCardRef.current);
+                    if (card) cardsAddedThisStream.push(card);
+                  }
+
                   pendingBlocks.delete(event.toolCallId);
                   const cardId = `card-${block.id}`;
-                  isDev && console.log(`[Jarble:Chat] Card created: ${cardId} (${block.component})`);
+                  isDev && console.log(`[Jarble:Chat] Card processed: ${cardId} (${block.component})`);
                   const timer = setTimeout(() => {
                     setStreamingCardIds((prev) => {
                       const next = new Set(prev);
@@ -450,6 +496,10 @@ export function useCanvasChat(
                 if (event.name === "jarble.sse.error" && event.value) {
                   console.error(`[Jarble:Chat] SSE serialization error from server: ${event.value.message}`);
                 }
+                if (event.name === "jarble.suggestions" && event.value?.suggestions) {
+                  isDev && console.log(`[Jarble:Chat] Suggestions received: ${event.value.suggestions.length}`);
+                  setSuggestions(event.value.suggestions as Array<{ prompt: string }>);
+                }
                 if (event.name === "jarble.theme.updated") {
                   // Theme was changed by the bot — trigger a deployment refetch
                   // so useDeploymentTheme picks up the new themeConfig from the DB
@@ -506,6 +556,7 @@ export function useCanvasChat(
               role: "assistant",
               content: cleanText,
               createdAt: Date.now(),
+              ...(reasoningText ? { reasoning: reasoningText } : {}),
             },
           ]);
         }
@@ -535,6 +586,7 @@ export function useCanvasChat(
             rafIdRef.current = null;
           }
           isStreamingRef.current = false;
+          editModeRef.current = null;
           setIsStreaming(false);
           setStreamingText("");
           setStreamingCardIds(new Set());
@@ -550,7 +602,7 @@ export function useCanvasChat(
 
   const clearChatError = useCallback(() => setLastChatError(null), []);
 
-  return { sendMessage, isStreaming, streamingCardIds, messages, streamingText, lastChatError, lastUserMessage, clearChatError };
+  return { sendMessage, isStreaming, streamingCardIds, messages, streamingText, lastChatError, lastUserMessage, clearChatError, suggestions };
 }
 
 // ── Helper: create canvas card for UI blocks only ────────────────────────────

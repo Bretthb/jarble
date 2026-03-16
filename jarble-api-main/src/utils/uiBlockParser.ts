@@ -442,23 +442,142 @@ export function extractComponentDefs(text: string): {
   return { cleanText, componentDefs };
 }
 
+// ── Suggestions Extraction ────────────────────────────────────────────────────
+
+/** Max suggestions per message */
+const MAX_SUGGESTIONS = 10;
+
+/**
+ * Extract ```jarble_suggestions fenced code blocks from bot text.
+ *
+ * Format:
+ *   ```jarble_suggestions
+ *   ["Option A", "Option B", "Option C"]
+ *   ```
+ *
+ * Returns the cleaned text (with suggestion blocks stripped) and an array
+ * of suggestion strings.
+ */
+export function extractSuggestions(text: string): {
+  cleanText: string;
+  suggestions: string[];
+} {
+  const suggestions: string[] = [];
+  const openPattern = "```jarble_suggestions";
+  const validBlocks: FencedBlock[] = [];
+  let searchFrom = 0;
+
+  while (searchFrom < text.length) {
+    const openIdx = text.indexOf(openPattern, searchFrom);
+    if (openIdx === -1) break;
+
+    const afterMarker = openIdx + openPattern.length;
+    // Marker must be followed by whitespace/newline or end of text
+    if (afterMarker < text.length) {
+      const nextChar = text[afterMarker];
+      if (nextChar !== " " && nextChar !== "\t" && nextChar !== "\n" && nextChar !== "\r") {
+        searchFrom = afterMarker;
+        continue;
+      }
+    }
+
+    // Find the opening bracket for the JSON array
+    let bracketStart = afterMarker;
+    while (bracketStart < text.length && text[bracketStart] !== "[") {
+      if (text[bracketStart] === "`") break; // Hit closing backticks before finding array
+      bracketStart++;
+    }
+    if (bracketStart >= text.length || text[bracketStart] !== "[") {
+      searchFrom = afterMarker;
+      continue;
+    }
+
+    // Find the matching closing bracket
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    let bracketEnd = -1;
+
+    for (let i = bracketStart; i < text.length; i++) {
+      const ch = text[i];
+      if (escape) { escape = false; continue; }
+      if (ch === "\\" && inString) { escape = true; continue; }
+      if (ch === '"' && !escape) { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === "[") depth++;
+      if (ch === "]") {
+        depth--;
+        if (depth === 0) {
+          bracketEnd = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (bracketEnd === -1) {
+      // Incomplete block (still streaming)
+      searchFrom = afterMarker;
+      continue;
+    }
+
+    // Find and consume closing ``` if present
+    let matchEnd = bracketEnd;
+    let closeSearch = bracketEnd;
+    while (closeSearch < text.length && (text[closeSearch] === " " || text[closeSearch] === "\t" || text[closeSearch] === "\n" || text[closeSearch] === "\r")) {
+      closeSearch++;
+    }
+    if (text.startsWith("```", closeSearch)) {
+      matchEnd = closeSearch + 3;
+    }
+
+    // Parse the JSON array
+    const jsonStr = text.slice(bracketStart, bracketEnd);
+    try {
+      const parsed = JSON.parse(jsonStr);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (typeof item === "string" && suggestions.length < MAX_SUGGESTIONS) {
+            suggestions.push(item);
+          }
+        }
+        validBlocks.push({ json: jsonStr, matchStart: openIdx, matchEnd });
+      }
+    } catch {
+      logger.warn("[uiBlockParser] Failed to parse jarble_suggestions block: %s", jsonStr.slice(0, 200));
+    }
+
+    searchFrom = matchEnd;
+  }
+
+  const cleanText = stripBlocks(text, validBlocks).replace(/\n{3,}/g, "\n\n").trim();
+
+  if (suggestions.length > 0) {
+    logger.debug(`[uiBlockParser] Extracted ${suggestions.length} suggestions`);
+  }
+
+  return { cleanText, suggestions };
+}
+
 /**
  * Extract all fenced block types from text.
  *
- * Order matters: define > update > render (each strips its blocks before the next).
+ * Order matters: suggestions > define > update > render (each strips its blocks before the next).
  */
 export function extractAllUIBlocks(text: string): {
   cleanText: string;
   uiBlocks: JarbleUIBlock[];
   uiUpdates: JarbleUIUpdate[];
   componentDefs: JarbleComponentDef[];
+  suggestions: string[];
 } {
-  // 1. Extract component definitions first
-  const { cleanText: afterDefs, componentDefs } = extractComponentDefs(text);
+  // 0. Extract suggestions first (lightweight, no overlap with UI blocks)
+  const { cleanText: afterSuggestions, suggestions } = extractSuggestions(text);
+  // 1. Extract component definitions
+  const { cleanText: afterDefs, componentDefs } = extractComponentDefs(afterSuggestions);
   // 2. Then updates (jarble_ui_update must be matched before jarble_ui)
   const { cleanText: afterUpdates, uiUpdates } = extractUIUpdates(afterDefs);
   // 3. Then render blocks from the remaining text
   const { cleanText, uiBlocks } = extractUIBlocks(afterUpdates);
 
-  return { cleanText, uiBlocks, uiUpdates, componentDefs };
+  return { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions };
 }

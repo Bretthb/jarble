@@ -9,7 +9,7 @@
  */
 
 import { memo, useCallback, useState, useRef, useEffect, type ReactNode, type KeyboardEvent } from "react";
-import { X, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Group, LayoutGrid, Pin, ZoomIn, ZoomOut, Sparkles, SendHorizontal } from "lucide-react";
+import { X, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Ungroup, Group, LayoutGrid, Upload, ZoomIn, ZoomOut, Sparkles, SendHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -39,7 +39,7 @@ interface SimpleCanvasGridProps {
   dashboardGroups: CanvasState["dashboardGroups"];
   zoom?: number;
   /** Optional: send a message from inline card chat */
-  onSendMessage?: (text: string, displayText?: string) => Promise<void>;
+  onSendMessage?: (text: string, displayText?: string, mode?: "edit" | "branch") => Promise<void>;
   /** Whether the chat is currently streaming */
   isChatStreaming?: boolean;
   /** Drawing strokes persisted in canvas state */
@@ -388,8 +388,20 @@ function SimpleCanvasGridInner({
     if (!text || !onSendMessage || isChatStreaming) return;
     setInlineChatInput("");
     setInlineChatCardId(null);
-    await onSendMessage(text);
+    await onSendMessage(text, undefined, "edit");
   }, [inlineChatInput, onSendMessage, isChatStreaming]);
+
+  const handlePublishClick = useCallback(async (card: CanvasCard) => {
+    if (!onSendMessage || isChatStreaming) return;
+    const componentInfo = JSON.stringify({
+      component: card.component,
+      title: card.title || card.component.replace(/_/g, " "),
+      props: card.props,
+    });
+    const message = `[PUBLISH_SERVICE] ${componentInfo}\nI want to publish this component as a marketplace service.`;
+    const displayText = `Publish "${card.title || card.component}" as service`;
+    await onSendMessage(message, displayText);
+  }, [onSendMessage, isChatStreaming]);
 
   const handleSaveClick = useCallback((card: CanvasCard) => {
     if (card.savedName) {
@@ -754,26 +766,30 @@ function SimpleCanvasGridInner({
                       <SplitSquareHorizontal className="w-3.5 h-3.5" />
                     </button>
                   )}
+                  {card.component === "layout" && Array.isArray(card.props?.children) && (card.props.children as unknown[]).length >= 2 && (
+                    <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UNGROUP_CARD", id: card.id }); }}
+                      className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-violet-500/60 text-muted-foreground hover:text-white"
+                      aria-label="Ungroup into individual cards" title="Ungroup into individual cards">
+                      <Ungroup className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   <button onClick={(e) => { e.stopPropagation(); handleSaveClick(card); }}
                     className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
                       card.savedName ? "bg-amber-500/80 text-white" : "hover:bg-amber-500/60 text-muted-foreground hover:text-white"
                     }`} aria-label={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"} title={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"}>
                     <Bookmark className={`w-3.5 h-3.5 ${card.savedName ? "fill-current" : ""}`} />
                   </button>
-                  {/* Pin / Unpin */}
+                  {/* Publish as Service */}
                   <button
-                    className="w-7 h-7 rounded-md flex items-center justify-center transition-colors hover:bg-accent text-muted-foreground-subtle hover:text-foreground"
+                    className="w-7 h-7 rounded-md flex items-center justify-center transition-colors hover:bg-primary/20 text-muted-foreground hover:text-primary"
                     onClick={(e) => {
                       e.stopPropagation();
-                      dispatch({
-                        type: card.pinned ? "UNPIN_CARD" : "PIN_CARD",
-                        id: card.id,
-                      });
+                      handlePublishClick(card);
                     }}
-                    title={card.pinned ? "Unpin card" : "Pin card"}
-                    aria-label={card.pinned ? "Unpin card" : "Pin card"}
+                    title="Publish as service"
+                    aria-label="Publish as marketplace service"
                   >
-                    <Pin className={cn("w-4 h-4", card.pinned && "fill-current")} />
+                    <Upload className="w-4 h-4" />
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); handleClose(card.id); }}
                     className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:bg-red-500/60 hover:text-white transition-colors"

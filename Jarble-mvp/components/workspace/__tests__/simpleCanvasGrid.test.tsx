@@ -10,6 +10,16 @@ import { render, screen, fireEvent, within } from "@testing-library/react";
 import React from "react";
 import type { CanvasCard, CanvasAction, CanvasState } from "../types";
 
+// ── Global polyfills ─────────────────────────────────────────────────────────
+
+// ResizeObserver is not available in jsdom
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
+
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 // Mock Auth0
@@ -68,15 +78,51 @@ vi.mock("lucide-react", () => {
     Check: Icon,
     Grid3X3: Icon,
     SplitSquareHorizontal: Icon,
+    Ungroup: Icon,
     Group: Icon,
     LayoutGrid: Icon,
-    Pin: Icon,
+    Upload: Icon,
+    ZoomIn: Icon,
+    ZoomOut: Icon,
+    Sparkles: Icon,
+    SendHorizontal: Icon,
   };
 });
 
 // Mock cn utility
 vi.mock("@/lib/utils", () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(" "),
+}));
+
+// Mock DrawingLayer
+vi.mock("../drawing/DrawingLayer", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
+// Mock useDrawing
+vi.mock("../drawing/useDrawing", () => ({
+  useDrawing: () => ({
+    strokes: [],
+    isDrawing: false,
+    startStroke: vi.fn(),
+    continueStroke: vi.fn(),
+    endStroke: vi.fn(),
+    undo: vi.fn(),
+    clear: vi.fn(),
+  }),
+}));
+
+// Mock SelectionBranch
+vi.mock("../SelectionBranch", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
+// Mock PromptOverlay
+vi.mock("../PromptOverlay", () => ({
+  __esModule: true,
+  default: () => null,
 }));
 
 // Now import the component
@@ -235,20 +281,19 @@ describe("SimpleCanvasGrid", () => {
       expect(savedBtn).toBeInTheDocument();
     });
 
-    it("pin button dispatches PIN_CARD", () => {
-      const dispatch = vi.fn();
-      renderGrid([makeCard({ id: "c1" })], dispatch);
-      const pinBtn = screen.getByRole("button", { name: /pin card/i });
-      fireEvent.click(pinBtn);
-      expect(dispatch).toHaveBeenCalledWith({ type: "PIN_CARD", id: "c1" });
+    it("publish button is rendered", () => {
+      renderGrid([makeCard({ id: "c1" })]);
+      const publishBtn = screen.getByRole("button", { name: /publish as marketplace service/i });
+      expect(publishBtn).toBeInTheDocument();
+      expect(publishBtn).toHaveAttribute("title", "Publish as service");
     });
 
-    it("unpin button dispatches UNPIN_CARD for pinned cards", () => {
-      const dispatch = vi.fn();
-      renderGrid([makeCard({ id: "c1", pinned: true })], dispatch);
-      const unpinBtn = screen.getByRole("button", { name: /unpin card/i });
-      fireEvent.click(unpinBtn);
-      expect(dispatch).toHaveBeenCalledWith({ type: "UNPIN_CARD", id: "c1" });
+    it("publish button calls onSendMessage when clicked", async () => {
+      const onSendMessage = vi.fn().mockResolvedValue(undefined);
+      renderGrid([makeCard({ id: "c1", component: "card", props: { title: "Test Card" } })], undefined, { onSendMessage });
+      const publishBtn = screen.getByRole("button", { name: /publish as marketplace service/i });
+      fireEvent.click(publishBtn);
+      expect(onSendMessage).toHaveBeenCalled();
     });
   });
 

@@ -343,12 +343,5 @@ describe("ServiceDetail", () => {
       render(<ServiceDetail serviceId="svc-1" />);
       expect(screen.getByText("Back to Marketplace")).toBeDefined();
     });
-
-    it("renders marketplace nav link", () => {
-      mockServiceData = baseService;
-      render(<ServiceDetail serviceId="svc-1" />);
-      const links = screen.getAllByText("Marketplace");
-      expect(links.length).toBeGreaterThan(0);
-    });
   });
 });

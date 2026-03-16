@@ -29,7 +29,7 @@ export const AGENT_REGISTRY: AgentConfig[] = [
     name: "component",
     description: "Creates production-quality sandbox HTML/CSS/JS components",
     systemPromptModule: "componentAgent",
-    defaultModel: "anthropic/claude-haiku-4-5-20251001",
+    defaultModel: "anthropic/claude-sonnet-4-20250514",
     toolName: "create_component",
     toolDescription: "Delegate complex component creation to the Component Agent. Use when the user needs a custom interactive visualization, dashboard, game, or widget that goes beyond the built-in components.",
     toolInputSchema: {

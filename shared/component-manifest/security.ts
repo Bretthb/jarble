@@ -22,6 +22,7 @@ export const TRUSTED_CDN_ORIGINS: readonly string[] = [
   "https://cdn.plot.ly",
   "https://fonts.googleapis.com",
   "https://fonts.gstatic.com",
+  "https://s3.tradingview.com",
 ] as const;
 
 /**

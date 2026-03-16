@@ -9,6 +9,9 @@ import CanvasHeader from "@/components/canvas/components/CanvasHeader";
 import CanvasCodeBlock from "@/components/canvas/components/CanvasCodeBlock";
 import CanvasMetricCard from "@/components/canvas/components/CanvasMetricCard";
 import CanvasStatGrid from "@/components/canvas/components/CanvasStatGrid";
+import CanvasKeyValue from "@/components/canvas/components/CanvasKeyValue";
+import CanvasTabs from "@/components/canvas/components/CanvasTabs";
+import CanvasAccordion from "@/components/canvas/components/CanvasAccordion";
 // ── Newly registered components ──────────────────────────────────────
 import CanvasAudio from "@/components/canvas/components/CanvasAudio";
 import CanvasAvatar from "@/components/canvas/components/CanvasAvatar";
@@ -128,7 +131,7 @@ export default function TestComponentsPage() {
       </section>
 
       {/* Blockquote */}
-      <section className="space-y-3">
+      <section data-testid="blockquote-section" className="space-y-3">
         <p className="text-xs text-muted-foreground mb-2">CanvasBlockquote</p>
         <div className="space-y-3 rounded-lg border border-border/40 p-4">
           <CanvasBlockquote text="The best way to predict the future is to invent it." attribution="Alan Kay" variant="default" />
@@ -414,6 +417,47 @@ export default function TestComponentsPage() {
             { text: "Run Test Suite", icon: "🧪", description: "142 tests" },
             { text: "Review PRs", icon: "📝", badge: "3 pending", badgeVariant: "warning" },
           ]}
+        />
+      </section>
+
+      {/* Key-Value */}
+      <section data-testid="keyvalue-section">
+        <p className="text-xs text-muted-foreground mb-2">CanvasKeyValue</p>
+        <CanvasKeyValue
+          title="Server Details"
+          items={[
+            { key: "Hostname", value: "prod-east-1.jarble.ai" },
+            { key: "CPU Cores", value: 8 },
+            { key: "Memory", value: "32 GB" },
+            { key: "Uptime", value: "99.97%" },
+            { key: "Region", value: "us-east-1" },
+          ]}
+        />
+      </section>
+
+      {/* Tabs */}
+      <section data-testid="tabs-section">
+        <p className="text-xs text-muted-foreground mb-2">CanvasTabs</p>
+        <CanvasTabs
+          tabs={[
+            { label: "Overview", content: "This is the overview tab with general information about the deployment." },
+            { label: "Metrics", content: "CPU: 42% | Memory: 6.2 GB | Network: 2.1 Gbps" },
+            { label: "Logs", content: "[2026-03-16 10:00:00] INFO: Server started\n[2026-03-16 10:00:01] INFO: Connected to database" },
+          ]}
+          defaultTab={0}
+        />
+      </section>
+
+      {/* Accordion */}
+      <section data-testid="accordion-section">
+        <p className="text-xs text-muted-foreground mb-2">CanvasAccordion</p>
+        <CanvasAccordion
+          items={[
+            { title: "What is Jarble?", content: "Jarble is a no-code AI bot deployment platform that lets users deploy LLM-powered bots to messaging platforms without coding.", defaultOpen: true },
+            { title: "Which platforms are supported?", content: "WhatsApp, Discord, Slack, and Telegram are all supported out of the box." },
+            { title: "How does billing work?", content: "We offer a free tier with basic features and paid plans for advanced usage. Check our pricing page for details." },
+          ]}
+          type="multiple"
         />
       </section>
     </div>

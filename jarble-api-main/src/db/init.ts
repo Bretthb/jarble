@@ -4,6 +4,7 @@
  */
 import { sqliteDb, sqliteRaw, sqliteSchema, USE_SQLITE } from "./index.js";
 import { generateMarketplaceId } from "./schema.sqlite.js";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { logger } from "../utils/logger.js";
 
@@ -376,6 +377,50 @@ const CREATE_TABLES_SQL = `
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
   CREATE UNIQUE INDEX IF NOT EXISTS uq_user_service_review ON service_reviews(user_id, service_id);
+
+  CREATE TABLE IF NOT EXISTS service_heartbeats (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL UNIQUE,
+    last_heartbeat_at TEXT NOT NULL,
+    heartbeat_interval_ms INTEGER DEFAULT 60000 NOT NULL,
+    payload TEXT,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    key_prefix TEXT NOT NULL,
+    scopes TEXT DEFAULT 'mesh:read,mesh:write' NOT NULL,
+    rate_limit_per_min INTEGER DEFAULT 60 NOT NULL,
+    rate_limit_per_day INTEGER DEFAULT 10000 NOT NULL,
+    last_used_at TEXT,
+    request_count INTEGER DEFAULT 0 NOT NULL,
+    expires_at TEXT,
+    revoked_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
+
+  CREATE TABLE IF NOT EXISTS service_async_jobs (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL,
+    service_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    request_body TEXT NOT NULL,
+    response_body TEXT,
+    response_status INTEGER,
+    error_message TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    completed_at TEXT,
+    expires_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_service_async_jobs_deployment_id ON service_async_jobs(deployment_id);
+  CREATE INDEX IF NOT EXISTS idx_service_async_jobs_expires_at ON service_async_jobs(expires_at);
 `;
 
 export async function initDatabase() {
@@ -424,6 +469,16 @@ export async function initDatabase() {
     }
   } catch (err) {
     logger.warn({ err }, "Deployment fork/public columns migration skipped (may already exist)");
+  }
+
+  // Migration: ensure 'general' domain exists
+  try {
+    sqliteRaw.exec(`
+      INSERT OR IGNORE INTO domains (id, name, display_name, description, icon, sort_order, created_at)
+      VALUES ('dom_general', 'general', 'General', 'General-purpose bots and assistants', '⭐', 0, datetime('now'))
+    `);
+  } catch (err) {
+    logger.warn({ err }, "General domain migration skipped");
   }
 
   // Seed with test data
@@ -536,6 +591,7 @@ async function seedDatabase() {
   let domainCount = 0;
   if (!existingDomain) {
     const domainSeeds = [
+      { name: "general", displayName: "General", description: "General-purpose bots and assistants", icon: "\u2B50", sortOrder: 0 },
       { name: "finance", displayName: "Finance", description: "Financial analysis, trading, and planning", icon: "\u{1F4B0}", sortOrder: 1 },
       { name: "coding", displayName: "Coding", description: "Programming, debugging, and software development", icon: "\u{1F4BB}", sortOrder: 2 },
       { name: "data-analysis", displayName: "Data Analysis", description: "Data visualization, statistics, and BI", icon: "\u{1F4CA}", sortOrder: 3 },
@@ -565,6 +621,22 @@ async function seedDatabase() {
       });
     }
     domainCount = domainSeeds.length;
+  } else {
+    // Migration: ensure 'general' domain exists for existing DBs
+    const generalDomain = await sqliteDb.query.domains.findFirst({
+      where: eq(sqliteSchema.domains.name, "general"),
+    });
+    if (!generalDomain) {
+      await sqliteDb.insert(sqliteSchema.domains).values({
+        id: generateMarketplaceId("dom"),
+        name: "general",
+        displayName: "General",
+        description: "General-purpose bots and assistants",
+        icon: "\u2B50",
+        sortOrder: 0,
+      });
+      logger.info("Added missing 'general' domain");
+    }
   }
 
   logger.info(`Seeded: 2 runtimes, 1 user, 1 deployment, 21 skills, ${domainCount} domains`);

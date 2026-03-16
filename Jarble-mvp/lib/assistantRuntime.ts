@@ -20,17 +20,24 @@ interface JarbleRuntimeOptions {
   streamingText: string;
   isStreaming: boolean;
   sendMessage: (text: string, displayText?: string) => Promise<void>;
+  suggestions?: Array<{ prompt: string }>;
 }
 
 function convertMessage(msg: ChatMessage): ThreadMessageLike {
+  // Build content parts — include reasoning before text if available
+  const contentParts: Array<
+    | { type: "text"; text: string }
+    | { type: "reasoning"; text: string }
+  > = [];
+
+  if (msg.reasoning) {
+    contentParts.push({ type: "reasoning" as const, text: msg.reasoning });
+  }
+  contentParts.push({ type: "text" as const, text: msg.displayText || msg.content });
+
   return {
     role: msg.role,
-    content: [
-      {
-        type: "text" as const,
-        text: msg.displayText || msg.content,
-      },
-    ],
+    content: contentParts,
     id: msg.id,
     createdAt: new Date(msg.createdAt),
     // Action relay messages are shown as compact user messages
@@ -49,6 +56,7 @@ export function useJarbleRuntime({
   streamingText,
   isStreaming,
   sendMessage,
+  suggestions = [],
 }: JarbleRuntimeOptions) {
   // Build display messages: stored messages + optional streaming-in-progress message
   const displayMessages = useMemo(() => {
@@ -81,5 +89,6 @@ export function useJarbleRuntime({
     // Show thinking indicator when streaming but no text yet
     isRunning: isStreaming && !streamingText,
     onNew,
+    suggestions,
   });
 }

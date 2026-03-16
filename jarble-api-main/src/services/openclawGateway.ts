@@ -90,6 +90,8 @@ export interface GatewayResponse {
   uiUpdates: JarbleUIUpdate[];
   /** Custom component definitions to register */
   componentDefs: JarbleComponentDef[];
+  /** Suggestion strings extracted from jarble_suggestions blocks */
+  suggestions: string[];
 }
 
 export async function chatViaGateway(
@@ -126,8 +128,8 @@ export async function chatViaGateway(
         log.warn({ wsUrl, timeoutMs, textLength: fullText.length }, "Gateway: response timed out");
         ws.close();
         if (fullText) {
-          const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
-          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs });
+          const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions } = extractAllUIBlocks(fullText);
+          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions });
         } else {
           reject(new Error("Gateway chat timed out after 120s"));
         }
@@ -285,17 +287,17 @@ export async function chatViaGateway(
             }
             finished = true;
             cleanup();
-            const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
+            const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions } = extractAllUIBlocks(fullText);
             // Skip blocks already emitted during streaming deltas (they appear in order)
             const remainingBlocks = uiBlocks.slice(emittedBlockCount);
             log.debug({ wsUrl, rawTextLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, updateCount: uiUpdates.length }, "Gateway: response summary");
-            resolve({ rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs });
+            resolve({ rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs, suggestions });
           } else if (state === "aborted") {
             finished = true;
             cleanup();
             const abortText = fullText || "The bot's response was interrupted.";
-            const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(abortText);
-            resolve({ rawText: abortText, text: cleanText, uiBlocks, uiUpdates, componentDefs });
+            const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions } = extractAllUIBlocks(abortText);
+            resolve({ rawText: abortText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions });
           }
         }
 
@@ -334,8 +336,8 @@ export async function chatViaGateway(
         clearTimeout(timeout);
         const reason = reasonBuf?.toString() || "";
         if (fullText) {
-          const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
-          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs });
+          const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions } = extractAllUIBlocks(fullText);
+          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions });
         } else if (!connected) {
           const detail = reason ? ` (${code}: ${reason})` : code ? ` (code ${code})` : "";
           reject(new Error(`Gateway WS closed before auth completed${detail}`));
@@ -422,7 +424,7 @@ export async function chatViaExec(
   // Deliver the full text as a single "delta" so the caller can emit it
   onDelta?.(rawText);
 
-  const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(rawText);
+  const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions } = extractAllUIBlocks(rawText);
   log.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "chatViaExec: response summary");
-  return { rawText, text: cleanText, uiBlocks, uiUpdates, componentDefs };
+  return { rawText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions };
 }

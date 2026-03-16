@@ -896,6 +896,140 @@ podApiRouter.post("/marketplace/register-service", async (req: Request, res: Res
   }
 });
 
+// ── Draft Service (from Publish button flow) ────────────────────────────────
+
+// POST /api/pod/services/create-draft — Create a draft service from the canvas
+// Called by the MCP create_draft_service tool when user clicks Publish on a card
+podApiRouter.post("/services/create-draft", async (req: Request, res: Response) => {
+  try {
+    const deployment = (req as any).podDeployment;
+    const deploymentId = (req as any).podDeploymentId as string;
+    const userId = (deployment as any).userId as string;
+    const creatorId = await resolveCreatorId(userId, (deployment as any).name);
+
+    const {
+      name, displayName, description, hostingModel,
+      instructionSnippet, componentName, skills,
+      creatorDeploymentId,
+    } = req.body;
+
+    if (!name || !displayName || !description || !hostingModel) {
+      res.status(400).json({ error: "Missing required fields: name, displayName, description, hostingModel" });
+      return;
+    }
+
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(name)) {
+      res.status(400).json({ error: "Invalid service name — must be lowercase alphanumeric with hyphens" });
+      return;
+    }
+
+    // Check duplicate name
+    const existing = await db.query.marketplaceServices.findFirst({
+      where: and(
+        eq(tables.marketplaceServices.creatorId, creatorId),
+        eq(tables.marketplaceServices.name, name),
+      ),
+    });
+    if (existing) {
+      res.status(409).json({ error: "You already have a service with this name" });
+      return;
+    }
+
+    // Resolve component name to ID if provided
+    const componentIds: string[] = [];
+    if (componentName) {
+      const installs = await db.query.componentInstalls.findMany({
+        where: eq(tables.componentInstalls.deploymentId, deploymentId),
+      });
+      for (const inst of installs) {
+        const comp = await db.query.marketplaceComponents.findFirst({
+          where: eq(tables.marketplaceComponents.id, inst.componentId),
+        });
+        if (comp && comp.name === componentName) {
+          componentIds.push(comp.id);
+          break;
+        }
+      }
+    }
+
+    // Resolve skill names to IDs if provided
+    const skillIds: string[] = [];
+    if (Array.isArray(skills)) {
+      const deployedSkills = await db.query.deploymentSkills.findMany({
+        where: eq(tables.deploymentSkills.deploymentId, deploymentId),
+      });
+      for (const skillDef of skills) {
+        const skillName = typeof skillDef === "string" ? skillDef : skillDef?.name;
+        if (!skillName) continue;
+        for (const ds of deployedSkills) {
+          const catalogSkill = await db.query.skillsCatalog.findFirst({
+            where: eq(tables.skillsCatalog.id, ds.skillId),
+          });
+          if (catalogSkill && catalogSkill.name === skillName) {
+            skillIds.push(catalogSkill.id);
+            break;
+          }
+        }
+      }
+    }
+
+    const serviceId = `pkg_${nanoid(16)}`;
+    const now = dbDate();
+
+    await db.insert(tables.marketplaceServices).values({
+      id: serviceId,
+      creatorId,
+      name,
+      displayName,
+      description,
+      hostingModel,
+      instructionSnippet: instructionSnippet || null,
+      remoteApiEndpoint: null,
+      remoteApiConfig: null,
+      creatorDeploymentId: creatorDeploymentId || (hostingModel === "remote" ? deploymentId : null),
+      status: "draft",
+      pricingModel: "free",
+      priceUsdCents: 0,
+      createdAt: now,
+      updatedAt: now,
+    } as any);
+
+    // Link components
+    for (const compId of componentIds) {
+      await db.insert(tables.serviceComponents).values({
+        id: `pkc_${nanoid(12)}`,
+        packageId: serviceId,
+        componentId: compId,
+      });
+    }
+
+    // Link skills
+    for (const skillId of skillIds) {
+      await db.insert(tables.serviceSkills).values({
+        id: `pks_${nanoid(12)}`,
+        packageId: serviceId,
+        skillId,
+      });
+    }
+
+    logger.info({
+      serviceId, name, creatorId, deploymentId,
+      componentName, componentIds, skillIds,
+    }, "Pod API: draft service created from canvas publish");
+
+    res.json({
+      success: true,
+      serviceId,
+      status: "draft",
+      linkedComponents: componentIds.length,
+      linkedSkills: skillIds.length,
+    });
+  } catch (err) {
+    logger.error({ err }, "Pod API: create draft service failed");
+    res.status(500).json({ error: "Failed to create draft", details: String(err) });
+  }
+});
+
 // ── Theme ───────────────────────────────────────────────────────────────────
 
 // POST /api/pod/theme — Set deployment theme (called by set_theme MCP tool)

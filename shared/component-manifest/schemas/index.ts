@@ -144,7 +144,13 @@ export const timelineSchema = z.object({
     // Accept "date" as alias for "timestamp"
     date: z.string().optional(),
     icon: z.string().optional(),
-    status: z.enum(["completed", "active", "pending"]).optional(),
+    status: z.string().optional().transform((s) => {
+      if (!s) return undefined;
+      const lower = s.toLowerCase();
+      if (["done", "success", "finished", "complete", "completed", "passed"].includes(lower)) return "completed";
+      if (["active", "current", "in_progress", "in-progress", "running", "started"].includes(lower)) return "active";
+      return "pending";
+    }),
     color: z.string().optional(),
   }).transform((e) => ({
     ...e,
@@ -158,7 +164,13 @@ export const timelineSchema = z.object({
     timestamp: z.string().optional(),
     date: z.string().optional(),
     icon: z.string().optional(),
-    status: z.enum(["completed", "active", "pending"]).optional(),
+    status: z.string().optional().transform((s) => {
+      if (!s) return undefined;
+      const lower = s.toLowerCase();
+      if (["done", "success", "finished", "complete", "completed", "passed"].includes(lower)) return "completed";
+      if (["active", "current", "in_progress", "in-progress", "running", "started"].includes(lower)) return "active";
+      return "pending";
+    }),
     color: z.string().optional(),
   }).transform((e) => ({
     ...e,

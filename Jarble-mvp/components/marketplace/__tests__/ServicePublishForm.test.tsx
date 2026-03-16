@@ -16,6 +16,9 @@ vi.mock("@auth0/auth0-react", () => ({
 }));
 
 const mockMutateAsync = vi.fn();
+const mockCreateDraftMutateAsync = vi.fn();
+const mockUpdateDraftMutateAsync = vi.fn();
+const mockSubmitForReviewMutateAsync = vi.fn();
 let mockMutationError: Error | null = null;
 let mockIsPending = false;
 
@@ -25,8 +28,35 @@ vi.mock("@/lib/trpc", () => ({
       publish: {
         useMutation: () => ({
           mutateAsync: mockMutateAsync,
+          error: null,
+          isPending: false,
+        }),
+      },
+      createDraft: {
+        useMutation: () => ({
+          mutateAsync: mockCreateDraftMutateAsync,
           error: mockMutationError,
           isPending: mockIsPending,
+        }),
+      },
+      updateDraft: {
+        useMutation: () => ({
+          mutateAsync: mockUpdateDraftMutateAsync,
+          error: null,
+          isPending: false,
+        }),
+      },
+      submitForReview: {
+        useMutation: () => ({
+          mutateAsync: mockSubmitForReviewMutateAsync,
+          error: null,
+          isPending: mockIsPending,
+        }),
+      },
+      get: {
+        useQuery: () => ({
+          data: null,
+          isLoading: false,
         }),
       },
     },
@@ -68,6 +98,9 @@ describe("ServicePublishForm", () => {
     vi.clearAllMocks();
     mockMutationError = null;
     mockIsPending = false;
+    mockCreateDraftMutateAsync.mockReset();
+    mockUpdateDraftMutateAsync.mockReset();
+    mockSubmitForReviewMutateAsync.mockReset();
     mockUseAuth0.mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
@@ -101,7 +134,7 @@ describe("ServicePublishForm", () => {
   describe("form rendering", () => {
     it("renders form title", () => {
       render(<ServicePublishForm />);
-      expect(screen.getByText("Publish a Service")).toBeDefined();
+      expect(screen.getByText("Create a Service")).toBeDefined();
     });
 
     it("renders name input", () => {
@@ -134,14 +167,17 @@ describe("ServicePublishForm", () => {
       expect(screen.getByText("Pricing Model")).toBeDefined();
     });
 
-    it("renders submit button", () => {
+    it("renders submit buttons", () => {
       render(<ServicePublishForm />);
+      expect(screen.getByText("Save as Draft")).toBeDefined();
       expect(screen.getByText("Submit for Review")).toBeDefined();
     });
 
-    it("renders deployment picker", () => {
+    it("renders deployment pickers", () => {
       render(<ServicePublishForm />);
-      expect(screen.getByTestId("deployment-picker")).toBeDefined();
+      // Two pickers: Host Deployment and Source Deployment
+      const pickers = screen.getAllByTestId("deployment-picker");
+      expect(pickers.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -187,14 +223,16 @@ describe("ServicePublishForm", () => {
   describe("deployment browser", () => {
     it("shows component browser when deployment selected", () => {
       render(<ServicePublishForm />);
-      // Select a deployment
-      fireEvent.click(screen.getByTestId("deployment-picker"));
+      // Click the Source Deployment picker (last one)
+      const pickers = screen.getAllByTestId("deployment-picker");
+      fireEvent.click(pickers[pickers.length - 1]);
       expect(screen.getByTestId("component-browser")).toBeDefined();
     });
 
     it("shows skill browser when deployment selected", () => {
       render(<ServicePublishForm />);
-      fireEvent.click(screen.getByTestId("deployment-picker"));
+      const pickers = screen.getAllByTestId("deployment-picker");
+      fireEvent.click(pickers[pickers.length - 1]);
       expect(screen.getByTestId("skill-browser")).toBeDefined();
     });
   });
@@ -208,16 +246,19 @@ describe("ServicePublishForm", () => {
   });
 
   describe("pending state", () => {
-    it("shows Submitting text when pending", () => {
+    it("shows pending text when mutations are active", () => {
       mockIsPending = true;
       render(<ServicePublishForm />);
+      // Both buttons show pending state: "Saving..." for draft, "Submitting..." for review
+      expect(screen.getByText("Saving...")).toBeDefined();
       expect(screen.getByText("Submitting...")).toBeDefined();
     });
   });
 
   describe("success state", () => {
-    it("shows success message after submit", async () => {
-      mockMutateAsync.mockResolvedValue({});
+    it("shows success message after submit for review", async () => {
+      mockCreateDraftMutateAsync.mockResolvedValue({ serviceId: "new-svc-1" });
+      mockSubmitForReviewMutateAsync.mockResolvedValue({});
       render(<ServicePublishForm />);
 
       // Fill required fields
@@ -226,11 +267,12 @@ describe("ServicePublishForm", () => {
       fireEvent.change(nameInput, { target: { value: "test-svc" } });
       fireEvent.change(displayInput, { target: { value: "Test Svc" } });
 
-      // Select deployment and add component
-      fireEvent.click(screen.getByTestId("deployment-picker"));
+      // Select source deployment (last picker) and add component
+      const pickers = screen.getAllByTestId("deployment-picker");
+      fireEvent.click(pickers[pickers.length - 1]);
       fireEvent.click(screen.getByText("Add Component"));
 
-      // Submit
+      // Submit for review
       const submitBtn = screen.getByText("Submit for Review").closest("button")!;
       fireEvent.click(submitBtn);
 
@@ -240,8 +282,28 @@ describe("ServicePublishForm", () => {
       });
     });
 
-    it("shows Publish another button after success", async () => {
-      mockMutateAsync.mockResolvedValue({});
+    it("shows Draft Saved after saving draft", async () => {
+      mockCreateDraftMutateAsync.mockResolvedValue({ serviceId: "new-svc-1" });
+      render(<ServicePublishForm />);
+
+      // Fill required fields (draft only needs name + displayName)
+      const nameInput = screen.getByLabelText("Service Name (slug)");
+      const displayInput = screen.getByLabelText("Display Name");
+      fireEvent.change(nameInput, { target: { value: "test-svc" } });
+      fireEvent.change(displayInput, { target: { value: "Test Svc" } });
+
+      // Save as draft
+      const draftBtn = screen.getByText("Save as Draft").closest("button")!;
+      fireEvent.click(draftBtn);
+
+      await vi.waitFor(() => {
+        expect(screen.getByText("Draft Saved")).toBeDefined();
+      });
+    });
+
+    it("shows Publish another button after submit for review", async () => {
+      mockCreateDraftMutateAsync.mockResolvedValue({ serviceId: "new-svc-1" });
+      mockSubmitForReviewMutateAsync.mockResolvedValue({});
       render(<ServicePublishForm />);
 
       const nameInput = screen.getByLabelText("Service Name (slug)");
@@ -249,12 +311,30 @@ describe("ServicePublishForm", () => {
       fireEvent.change(nameInput, { target: { value: "test-svc" } });
       fireEvent.change(displayInput, { target: { value: "Test Svc" } });
 
-      fireEvent.click(screen.getByTestId("deployment-picker"));
+      const pickers = screen.getAllByTestId("deployment-picker");
+      fireEvent.click(pickers[pickers.length - 1]);
       fireEvent.click(screen.getByText("Add Component"));
       fireEvent.click(screen.getByText("Submit for Review").closest("button")!);
 
       await vi.waitFor(() => {
         expect(screen.getByText("Publish another")).toBeDefined();
+      });
+    });
+
+    it("shows Create Another button after saving draft", async () => {
+      mockCreateDraftMutateAsync.mockResolvedValue({ serviceId: "new-svc-1" });
+      render(<ServicePublishForm />);
+
+      const nameInput = screen.getByLabelText("Service Name (slug)");
+      const displayInput = screen.getByLabelText("Display Name");
+      fireEvent.change(nameInput, { target: { value: "test-svc" } });
+      fireEvent.change(displayInput, { target: { value: "Test Svc" } });
+
+      const draftBtn = screen.getByText("Save as Draft").closest("button")!;
+      fireEvent.click(draftBtn);
+
+      await vi.waitFor(() => {
+        expect(screen.getByText("Create Another")).toBeDefined();
       });
     });
   });
