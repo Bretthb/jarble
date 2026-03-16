@@ -7,6 +7,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, Clock, DollarSign, Lock, MessageSquare, Cpu, Globe, Zap } from "lucide-react";
 import ProfileDropdown from "@/components/ProfileDropdown";
+import InteractiveHero from "@/components/InteractiveHero";
 
 
 export default function Home() {
@@ -77,7 +78,7 @@ export default function Home() {
       {/* Hero Section */}
       <div className="relative pt-16">
         <section className="relative z-10 pt-40 pb-20 lg:pt-56 lg:pb-32 px-4 scroll-mt-20">
-          <div className="max-w-6xl mx-auto relative lg:grid lg:grid-cols-[1fr_1fr] lg:gap-4 lg:items-start lg:pt-8">
+          <div className="max-w-6xl mx-auto relative lg:grid lg:grid-cols-[1fr_1fr] lg:gap-4 lg:items-center">
             {/* Mobile: static image */}
             <div className="absolute inset-0 flex items-start justify-end -top-6 -right-16 sm:hidden pointer-events-none animate-fade-in-scale">
               <div className="relative w-full max-w-sm aspect-square flex items-center justify-center">
@@ -147,22 +148,9 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Desktop: video */}
+            {/* Desktop: scroll-scrubbed video with mouse tilt */}
             <div className="hidden sm:flex justify-center lg:justify-start lg:-ml-4 animate-fade-in-scale">
-              <div className="relative w-full max-w-lg aspect-square flex items-center justify-center">
-                <div className="absolute inset-0 bg-gradient-to-tr from-muted to-transparent rounded-full blur-3xl opacity-25" />
-                <video
-                  autoPlay
-                  muted
-                  playsInline
-                  preload="metadata"
-                  className="relative w-full h-full object-contain"
-                  aria-label="Jarble thinker hero animation"
-                  poster="/hero-mobile.webp"
-                >
-                  <source src="/hero-animation.webm" type="video/webm" media="(min-width: 640px)" />
-                </video>
-              </div>
+              <InteractiveHero />
             </div>
           </div>
         </section>
