@@ -101,11 +101,11 @@ export default function Pricing() {
       <section className="pt-32 pb-16 relative z-10">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center animate-fade-in-up">
           <h1 className="text-5xl lg:text-6xl font-serif font-medium mb-6">
-            Simple, Pay-As-You-Go
+            Simple
             <span className="block text-primary">Pricing</span>
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-6">
-            Pick a runtime, deploy instantly. Pay only for what you use.
+            Pick a runtime, choose your specs, and know exactly what you pay. No hidden fees, no surprises.
           </p>
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary/50 border border-border text-foreground">
             <Zap className="w-5 h-5 text-primary" />
