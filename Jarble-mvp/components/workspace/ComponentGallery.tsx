@@ -337,10 +337,18 @@ function ComponentGalleryInner({ deploymentId, cards, dispatch, refetchTrigger }
                       key={item.fileId}
                       role="button"
                       tabIndex={0}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData(
+                          "application/x-jarble-component",
+                          JSON.stringify({ component: item.component, displayName: item.name, props: {} }),
+                        );
+                        e.dataTransfer.effectAllowed = "copy";
+                      }}
                       className="group relative flex flex-col gap-1 p-2 rounded-md border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 hover:border-amber-500/40 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-500/50"
                       onClick={() => handleLoad(item)}
                       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), handleLoad(item))}
-                      title={`Load "${item.name}" onto canvas`}
+                      title={`Load "${item.name}" onto canvas — or drag to drop`}
                     >
                       {/* Component type badge */}
                       <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400/80 self-start truncate max-w-full">
@@ -417,10 +425,18 @@ function ComponentGalleryInner({ deploymentId, cards, dispatch, refetchTrigger }
                         key={item.installId}
                         role="button"
                         tabIndex={0}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData(
+                            "application/x-jarble-component",
+                            JSON.stringify({ component: item.component.name, displayName: item.component.displayName, props: {} }),
+                          );
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
                         className="group relative flex flex-col gap-1 p-2 rounded-md border border-indigo-500/20 bg-indigo-500/5 hover:bg-indigo-500/10 hover:border-indigo-500/40 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
                         onClick={() => handleLoadMarketplace(item)}
                         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), handleLoadMarketplace(item))}
-                        title={`Add "${item.component.displayName}" to canvas`}
+                        title={`Add "${item.component.displayName}" to canvas — or drag to drop`}
                       >
                         {/* Tier + Category badges */}
                         <div className="flex items-center gap-1">

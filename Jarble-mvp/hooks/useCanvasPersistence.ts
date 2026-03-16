@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import type { CanvasState, CanvasAction, CanvasCard, CanvasMode } from "@/components/workspace/types";
+import type { CanvasState, CanvasAction, CanvasCard, CanvasMode, DrawStroke } from "@/components/workspace/types";
 
 const STORAGE_PREFIX = "jarble-canvas-";
 const MAX_BYTES = 2 * 1024 * 1024; // 2MB
@@ -118,6 +118,7 @@ interface PersistedState {
   zoom: number;
   savedAt: number;
   mode?: CanvasMode;
+  strokes?: DrawStroke[];
 }
 
 function serializeCard(card: CanvasCard): PersistedCard {
@@ -204,13 +205,15 @@ export function loadCanvasState(deploymentId: string): CanvasState | null {
       mode: persisted.mode || "dashboard",
       fixAttempts: {},
       dashboardGroups: {},
+      strokes: persisted.strokes || [],
     };
   } catch {
     return null;
   }
 }
 
-/** Save canvas state: small props to localStorage, large props to IndexedDB. */
+/** Save canvas state: small props to localStorage, large props to IndexedDB.
+ *  Positions are now always in CanvasState (no tldraw indirection). */
 function saveCanvasState(deploymentId: string, state: CanvasState): void {
   try {
     const persisted: PersistedState = {
@@ -219,6 +222,7 @@ function saveCanvasState(deploymentId: string, state: CanvasState): void {
       zoom: state.zoom,
       savedAt: Date.now(),
       mode: state.mode,
+      strokes: state.strokes.length > 0 ? state.strokes : undefined,
     };
 
     const json = JSON.stringify(persisted);
@@ -245,7 +249,7 @@ function saveCanvasState(deploymentId: string, state: CanvasState): void {
 export function useCanvasPersistence(
   deploymentId: string,
   state: CanvasState,
-  dispatch: React.Dispatch<CanvasAction>
+  dispatch: React.Dispatch<CanvasAction>,
 ) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasRestored = useRef(false);

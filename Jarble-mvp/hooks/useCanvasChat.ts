@@ -67,6 +67,26 @@ function saveChatHistory(deploymentId: string, messages: ChatMessage[]): void {
     );
     isDev && console.log(`[Jarble:Chat] Saved ${trimmed.length} messages to localStorage`);
   } catch (err) {
+    // Handle QuotaExceededError by trimming more aggressively
+    if (err instanceof DOMException && err.name === "QuotaExceededError") {
+      try {
+        const minimal = messages.slice(-10); // Keep only last 10 messages
+        localStorage.setItem(
+          `${CHAT_STORAGE_PREFIX}${deploymentId}`,
+          JSON.stringify({ messages: minimal, savedAt: Date.now() })
+        );
+        isDev && console.warn(`[Jarble:Chat] Quota exceeded, trimmed to ${minimal.length} messages`);
+        return;
+      } catch {
+        // Still failing — clear old deployments' chat history to free space
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key?.startsWith(CHAT_STORAGE_PREFIX) && key !== `${CHAT_STORAGE_PREFIX}${deploymentId}`) {
+            localStorage.removeItem(key);
+          }
+        }
+      }
+    }
     isDev && console.warn(`[Jarble:Chat] Failed to save chat history: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

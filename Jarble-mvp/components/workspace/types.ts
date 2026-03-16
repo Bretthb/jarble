@@ -60,6 +60,16 @@ export interface CanvasCard {
   parentCardId?: string;
 }
 
+export interface DrawStroke {
+  id: string;
+  points: Array<{ x: number; y: number }>;
+  color: string;
+  width: number;
+  opacity: number;       // 1.0 for pen, 0.4 for highlighter
+  pathData: string;      // Pre-computed SVG path d attribute
+  createdAt: number;
+}
+
 export interface CanvasState {
   cards: CanvasCard[];
   viewportOffset: { x: number; y: number };
@@ -71,6 +81,8 @@ export interface CanvasState {
   fixAttempts: Record<string, FixAttemptRecord>;
   /** Dashboard groups: groupId -> metadata */
   dashboardGroups: Record<string, { title: string; cardIds: string[] }>;
+  /** Freehand drawing strokes on the canvas */
+  strokes: DrawStroke[];
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -109,7 +121,10 @@ export type CanvasAction =
   | { type: "UNPIN_CARD"; id: string }
   | { type: "CREATE_DASHBOARD_GROUP"; groupId: string; title: string; cardIds: string[] }
   | { type: "UNGROUP_DASHBOARD"; groupId: string }
-  | { type: "AUTO_HEIGHT_CARD"; id: string; height: number };
+  | { type: "AUTO_HEIGHT_CARD"; id: string; height: number }
+  | { type: "ADD_STROKE"; stroke: DrawStroke }
+  | { type: "REMOVE_STROKE"; id: string }
+  | { type: "CLEAR_STROKES" };
 
 // ── Splittable components config ────────────────────────────────────────────
 
@@ -250,4 +265,5 @@ export const INITIAL_CANVAS_STATE: CanvasState = {
   mode: "dashboard",
   fixAttempts: {},
   dashboardGroups: {},
+  strokes: [],
 };

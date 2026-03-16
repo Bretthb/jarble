@@ -13,6 +13,13 @@
       "env": {
         "JARBLE_API_URL": "http://localhost:3001"
       }
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"],
+      "env": {
+        "CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS": "1"
+      }
     }
   },
   "hooks": {

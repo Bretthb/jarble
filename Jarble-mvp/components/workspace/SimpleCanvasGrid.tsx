@@ -17,6 +17,10 @@ import { API_URL } from "@/lib/trpc";
 import type { CanvasCard, CanvasAction, CanvasState } from "./types";
 import { canSplitCard } from "./types";
 import CanvasToolbar from "./CanvasToolbar";
+import DrawingLayer from "./drawing/DrawingLayer";
+import { useDrawing } from "./drawing/useDrawing";
+import SelectionBranch from "./SelectionBranch";
+import PromptOverlay from "./PromptOverlay";
 
 const MIN_WIDTH = 200;
 const MIN_HEIGHT = 120;
@@ -38,6 +42,8 @@ interface SimpleCanvasGridProps {
   onSendMessage?: (text: string, displayText?: string) => Promise<void>;
   /** Whether the chat is currently streaming */
   isChatStreaming?: boolean;
+  /** Drawing strokes persisted in canvas state */
+  strokes?: CanvasState["strokes"];
 }
 
 function SimpleCanvasGridInner({
@@ -52,10 +58,14 @@ function SimpleCanvasGridInner({
   zoom = 1,
   onSendMessage,
   isChatStreaming = false,
+  strokes = [],
 }: SimpleCanvasGridProps) {
   const { getAccessTokenSilently } = useAuth0();
   const canvasRef = useRef<HTMLDivElement>(null);
   const [refetchTrigger, setRefetchTrigger] = useState(0);
+
+  // ── Drawing state ────────────────────────────────────────────────
+  const drawing = useDrawing(dispatch);
 
   // ── Interaction state ──────────────────────────────────────────────
   const [gridSnap, setGridSnap] = useState(false);
@@ -337,8 +347,20 @@ function SimpleCanvasGridInner({
     };
   }, [resizing, dispatch, snap]);
 
+  // ── Undo-close toast state ───────────────────────────────────────
+  const [undoToast, setUndoToast] = useState<{ card: CanvasCard; timer: ReturnType<typeof setTimeout> } | null>(null);
+
   // ── Card action handlers ───────────────────────────────────────────
-  const handleClose = useCallback((id: string) => dispatch({ type: "REMOVE_CARD", id }), [dispatch]);
+  const handleClose = useCallback((id: string) => {
+    const card = cards.find(c => c.id === id);
+    dispatch({ type: "REMOVE_CARD", id });
+    if (card && !card.pinned) {
+      // Show undo toast for 5 seconds
+      if (undoToast?.timer) clearTimeout(undoToast.timer);
+      const timer = setTimeout(() => setUndoToast(null), 5000);
+      setUndoToast({ card, timer });
+    }
+  }, [dispatch, cards, undoToast]);
   const handleSelect = useCallback((card: CanvasCard) => {
     dispatch({ type: "TOGGLE_SELECT_CARD", id: card.id });
   }, [dispatch]);
@@ -448,6 +470,7 @@ function SimpleCanvasGridInner({
           gridSnap={gridSnap}
           onToggleGridSnap={() => setGridSnap((v) => !v)}
           refetchTrigger={refetchTrigger}
+          drawing={drawing}
         />
         <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
           <div className="w-12 h-12 rounded-xl bg-secondary/50 border border-border/40 flex items-center justify-center">
@@ -493,6 +516,7 @@ function SimpleCanvasGridInner({
           dispatch({ type: "TIDY_LAYOUT", containerWidth: w });
         }}
         refetchTrigger={refetchTrigger}
+        drawing={drawing}
       />
 
       {/* Aria live region for reorder announcements */}
@@ -551,6 +575,44 @@ function SimpleCanvasGridInner({
             </div>
           );
         })}
+
+        {/* Drawing layer — strokes rendered below cards */}
+        <DrawingLayer
+          strokes={strokes}
+          activePoints={drawing.activePoints}
+          isDrawing={drawing.isDrawing}
+          activeTool={drawing.activeTool}
+          penColor={drawing.penColor}
+          penWidth={drawing.penWidth}
+          onDeleteStroke={drawing.deleteStroke}
+        />
+
+        {/* Drawing capture div — intercepts pointer events when drawing tool is active */}
+        {drawing.activeTool && drawing.activeTool !== "eraser" && (
+          <div
+            className="absolute inset-0"
+            style={{ zIndex: 5, cursor: "crosshair" }}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              (e.target as HTMLElement).setPointerCapture(e.pointerId);
+              const p = pointerToCanvas(e.clientX, e.clientY);
+              drawing.handleDrawStart(p.x, p.y);
+            }}
+            onPointerMove={(e) => {
+              if (!drawing.isDrawing) return;
+              const p = pointerToCanvas(e.clientX, e.clientY);
+              drawing.handleDrawMove(p.x, p.y);
+            }}
+            onPointerUp={(e) => {
+              (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+              drawing.handleDrawEnd();
+            }}
+            onPointerCancel={(e) => {
+              (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+              drawing.handleDrawEnd();
+            }}
+          />
+        )}
 
         {/* Provenance arrows — connect child cards to their parent */}
         <svg className="absolute inset-0 pointer-events-none" style={{ zIndex: 0, overflow: "visible" }}>
@@ -631,6 +693,7 @@ function SimpleCanvasGridInner({
                 width: w,
                 height: h,
                 zIndex: card.zIndex,
+                pointerEvents: drawing.activeTool ? "none" : "auto",
               }}
               className={`group rounded-lg overflow-hidden flex flex-col ${
                 isInteracting && (isDragging || isResizingCard) ? "select-none" : "transition-shadow"
@@ -835,6 +898,51 @@ function SimpleCanvasGridInner({
         </AnimatePresence>
         </div>{/* /zoom wrapper */}
 
+        {/* Selection branch prompt — appears when a card is selected */}
+        {onSendMessage && (() => {
+          const selected = cards.find(c => c.selected);
+          return selected ? (
+            <SelectionBranch
+              selectedCard={selected}
+              zoom={zoom}
+              onSendMessage={onSendMessage}
+              isChatStreaming={isChatStreaming}
+            />
+          ) : null;
+        })()}
+
+        {/* Cmd+K prompt overlay */}
+        {onSendMessage && (
+          <PromptOverlay
+            hasCards={cards.length > 0}
+            onSendMessage={onSendMessage}
+            isChatStreaming={isChatStreaming}
+          />
+        )}
+
+        {/* Undo-close toast */}
+        {undoToast && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-lg bg-foreground text-background text-xs font-medium shadow-lg animate-fade-in-up-fast">
+            <span>Card removed</span>
+            <button
+              onClick={() => {
+                dispatch({ type: "ADD_CARD", card: undoToast.card });
+                clearTimeout(undoToast.timer);
+                setUndoToast(null);
+              }}
+              className="px-2 py-0.5 rounded bg-background/20 hover:bg-background/30 text-background font-semibold transition-colors"
+            >
+              Undo
+            </button>
+            <button
+              onClick={() => { clearTimeout(undoToast.timer); setUndoToast(null); }}
+              className="text-background/60 hover:text-background transition-colors"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
         {/* Zoom controls — bottom right of canvas */}
         <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-background/90 backdrop-blur-sm px-1 py-0.5 shadow-sm">
           <button
@@ -848,8 +956,20 @@ function SimpleCanvasGridInner({
           </button>
           <button
             onClick={() => dispatch({ type: "SET_ZOOM", zoom: 1 })}
+            onDoubleClick={() => {
+              // Double-click: zoom to fit all cards in view
+              if (cards.length === 0 || !canvasRef.current) return;
+              const cw = canvasRef.current.clientWidth;
+              const ch = canvasRef.current.clientHeight;
+              const maxX = Math.max(...cards.filter(c => !c.minimized).map(c => c.position.x + c.size.width));
+              const maxY = Math.max(...cards.filter(c => !c.minimized).map(c => c.position.y + c.size.height));
+              if (maxX <= 0 || maxY <= 0) return;
+              const fitZoom = Math.min(1.5, Math.max(0.25, Math.min(cw / (maxX + 40), ch / (maxY + 40))));
+              dispatch({ type: "SET_ZOOM", zoom: Math.round(fitZoom * 20) / 20 }); // Snap to 5% increments
+              canvasRef.current.scrollTo({ left: 0, top: 0, behavior: "smooth" });
+            }}
             className="px-1.5 h-6 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 rounded transition-colors min-w-[36px]"
-            title="Reset zoom"
+            title="Click: reset zoom / Double-click: fit all"
           >
             {Math.round(zoom * 100)}%
           </button>

@@ -352,17 +352,19 @@ export function useSandboxBridge(config: SandboxBridgeConfig): SandboxBridgeStat
         }
       }
 
-      if (e.data?.type === "jarble:resize-request" && cardId && canvasDispatch) {
+      if (e.data?.type === "jarble:resize-request" && cardId) {
         const { width, height } = e.data;
         if (typeof width === "number" || typeof height === "number") {
-          canvasDispatch({
-            type: "RESIZE_CARD",
-            id: cardId,
-            size: {
-              width: typeof width === "number" ? Math.max(200, Math.min(1200, width)) : 0,
-              height: typeof height === "number" ? Math.max(100, Math.min(800, height)) : 0,
-            },
-          });
+          const clampedW = typeof width === "number" ? Math.max(200, Math.min(1200, width)) : 0;
+          const clampedH = typeof height === "number" ? Math.max(100, Math.min(800, height)) : 0;
+
+          if (canvasDispatch && (clampedW > 0 || clampedH > 0)) {
+            canvasDispatch({
+              type: "RESIZE_CARD",
+              id: cardId,
+              size: { width: clampedW || 320, height: clampedH || 220 },
+            });
+          }
         }
       }
 

@@ -353,7 +353,7 @@
 /* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--border) / 0.5) transparent;
+  scrollbar-color: color-mix(in srgb, var(--border) 50%, transparent) transparent;
 }
 
 /* Webkit (Chrome, Edge, Safari) */

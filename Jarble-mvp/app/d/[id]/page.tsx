@@ -463,6 +463,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
       // Reset textarea height after clearing
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
+        textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + "px";
       }
       await sendMessage(text);
       textareaRef.current?.focus();
@@ -678,6 +679,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
               zoom={state.zoom}
               onSendMessage={sendMessage}
               isChatStreaming={isStreaming}
+              strokes={state.strokes}
             />
           )}
         </div>

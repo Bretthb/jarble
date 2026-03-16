@@ -392,7 +392,16 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       return { ...state, mode: action.mode };
 
     case "CLEAR_CANVAS":
-      return { ...INITIAL_CANVAS_STATE, mode: state.mode };
+      return { ...INITIAL_CANVAS_STATE, mode: state.mode, strokes: [] };
+
+    case "ADD_STROKE":
+      return { ...state, strokes: [...state.strokes, action.stroke] };
+
+    case "REMOVE_STROKE":
+      return { ...state, strokes: state.strokes.filter((s) => s.id !== action.id) };
+
+    case "CLEAR_STROKES":
+      return { ...state, strokes: [] };
 
     case "RECORD_FIX_ATTEMPT": {
       const now = Date.now();

@@ -14,7 +14,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
 import { API_URL } from "@/lib/trpc";
 import type { CanvasCard, CanvasAction } from "./types";
-import { canSplitCard } from "./types";
+import { canSplitCard, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE } from "./types";
 import { computeSpan, TYPE_ORDER } from "./autoLayout";
 import CanvasToolbar from "./CanvasToolbar";
 
@@ -311,6 +311,33 @@ function DashboardCanvasInner({
       <div
         ref={containerRef}
         className="flex-1 overflow-y-auto p-4"
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("application/x-jarble-component")) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+          }
+        }}
+        onDrop={(e) => {
+          const raw = e.dataTransfer.getData("application/x-jarble-component");
+          if (!raw) return;
+          e.preventDefault();
+          try {
+            const data = JSON.parse(raw) as { component: string; displayName?: string; props?: Record<string, unknown> };
+            const size = DEFAULT_CARD_SIZES[data.component] || DEFAULT_CARD_SIZE;
+            const card: CanvasCard = {
+              id: `card-drop-${Date.now()}`,
+              component: data.component,
+              props: data.props || {},
+              position: { x: 0, y: 0 },
+              size,
+              zIndex: 0,
+              minimized: false,
+              createdAt: Date.now(),
+              title: data.displayName || data.component.replace(/_/g, " "),
+            };
+            dispatch({ type: "ADD_CARD", card });
+          } catch { /* invalid drag data */ }
+        }}
       >
         <div
           role="grid"

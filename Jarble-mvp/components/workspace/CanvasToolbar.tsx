@@ -11,6 +11,8 @@ import { memo } from "react";
 import { X, Grid3X3, LayoutGrid, Group, LayoutDashboard, Move, Trash2 } from "lucide-react";
 import type { CanvasCard, CanvasAction, CanvasMode } from "./types";
 import ComponentGallery from "./ComponentGallery";
+import DrawingTools from "./drawing/DrawingTools";
+import type { useDrawing } from "./drawing/useDrawing";
 
 interface CanvasToolbarProps {
   cards: CanvasCard[];
@@ -25,6 +27,8 @@ interface CanvasToolbarProps {
   onOrganize?: () => void;
   /** Incremented each time an unsave happens — triggers gallery refetch */
   refetchTrigger?: number;
+  /** Drawing state (freeform only) */
+  drawing?: ReturnType<typeof useDrawing>;
 }
 
 function CanvasToolbarInner({
@@ -37,6 +41,7 @@ function CanvasToolbarInner({
   onToggleGridSnap,
   onOrganize,
   refetchTrigger,
+  drawing,
 }: CanvasToolbarProps) {
   const selectedCards = cards.filter((c) => c.selected);
   const selectedCount = selectedCards.length;
@@ -121,6 +126,20 @@ function CanvasToolbarInner({
           <Trash2 className="w-3.5 h-3.5" />
           Clear
         </button>
+      )}
+
+      {/* Drawing tools (freeform only) */}
+      {mode === "freeform" && drawing && (
+        <DrawingTools
+          activeTool={drawing.activeTool}
+          penColor={drawing.penColor}
+          penWidth={drawing.penWidth}
+          onSetTool={drawing.setTool}
+          onSetColor={drawing.setColor}
+          onSetWidth={drawing.setWidth}
+          onUndo={drawing.undo}
+          onRedo={drawing.redo}
+        />
       )}
 
       <ComponentGallery deploymentId={deploymentId} cards={cards} dispatch={dispatch} refetchTrigger={refetchTrigger} />
