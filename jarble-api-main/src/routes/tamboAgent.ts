@@ -705,7 +705,8 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   // Track the last delta text to compute incremental deltas for SSE
   let lastDeltaText = "";
-  const sessionKey = `jarble-web-${authenticatedUserId || "anon"}`;
+  const convId = body.conversationId || "";
+  const sessionKey = `jarble-web-${authenticatedUserId || "anon"}${convId ? `-${convId}` : ""}`;
 
   // Reasoning tag tracker — splits <think>/<reasoning> content from visible text
   const reasoningTracker = createReasoningTracker();

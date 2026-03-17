@@ -24,7 +24,8 @@ import CanvasRenderer from "@/components/canvas/CanvasRenderer";
 import EditableCanvas from "@/components/canvas/EditableCanvas";
 import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, SendHorizontal, Settings, Store, Server, FolderOpen, MessageSquare, Layout, X } from "lucide-react";
+import ConversationHistoryPanel from "@/components/workspace/ConversationHistoryPanel";
+import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -239,6 +240,7 @@ function WorkspacePage({
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
   const [hostedServicesOpen, setHostedServicesOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
   const themeStyle = useDeploymentTheme(liveThemeConfig);
 
@@ -298,11 +300,25 @@ function WorkspacePage({
             <EssentialControls deploymentId={deploymentId} status={liveStatus} />
             <div className="w-px h-5 bg-border/60" />
             <Button
+              variant={historyOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setHistoryOpen((v) => {
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); }
+                  return !v;
+                });
+              }}
+              className="h-8 w-8 p-0"
+              title="Conversation history"
+            >
+              <MessageSquareText className="w-4 h-4" />
+            </Button>
+            <Button
               variant={filesOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => {
                 setFilesOpen((v) => {
-                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); }
+                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); }
                   return !v;
                 });
               }}
@@ -374,7 +390,11 @@ function WorkspacePage({
             onClose={() => setHostedServicesOpen(false)}
           />
         )}
-        <CanvasWorkspace deploymentId={deploymentId} />
+        <CanvasWorkspace
+          deploymentId={deploymentId}
+          historyOpen={historyOpen}
+          onHistoryClose={() => setHistoryOpen(false)}
+        />
         {marketplaceOpen && (
           <MarketplacePanel
             deploymentId={deploymentId}
@@ -387,13 +407,84 @@ function WorkspacePage({
   );
 }
 
+// ── Keyed Chat Panel — remounts on conversation switch to reset assistant-ui runtime ──
+
+function KeyedChatPanel({
+  messages,
+  streamingText,
+  streamingReasoning,
+  isStreaming,
+  sendMessage,
+  suggestions,
+  stopGeneration,
+  editMessage,
+  onExamplePrompt,
+}: {
+  messages: import("@/hooks/useCanvasChat").ChatMessage[];
+  streamingText: string;
+  streamingReasoning: string;
+  isStreaming: boolean;
+  sendMessage: (text: string, displayText?: string) => Promise<void>;
+  suggestions: Array<{ prompt: string }>;
+  stopGeneration: () => void;
+  editMessage: (messageId: string, newText: string) => Promise<void>;
+  onExamplePrompt: (prompt: string) => void;
+}) {
+  const runtime = useJarbleRuntime({ messages, streamingText, streamingReasoning, isStreaming, sendMessage, suggestions, stopGeneration, editMessage });
+
+  return (
+    <AssistantUIChat
+      runtime={runtime}
+      isStreaming={isStreaming}
+      emptyState={
+        <div className="h-full flex flex-col items-center justify-center gap-4 px-4">
+          <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/10 flex items-center justify-center">
+            <MessageSquare className="w-6 h-6 text-primary/50" />
+          </div>
+          <div className="text-center space-y-1">
+            <p className="text-sm font-medium text-foreground/70">Start a conversation</p>
+            <p className="text-xs text-muted-foreground-subtle">
+              Send a message to interact with your bot
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 w-full max-w-xs mt-2">
+            {EXAMPLE_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => onExamplePrompt(prompt)}
+                className="text-left text-xs px-3 py-2 rounded-lg border border-border/60 bg-secondary/20 text-muted-foreground hover:bg-secondary/40 hover:text-foreground hover:border-border transition-colors"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+        </div>
+      }
+    />
+  );
+}
+
 // ── Canvas Workspace ──────────────────────────────────────────────────────────
 
-function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
+function CanvasWorkspace({
+  deploymentId,
+  historyOpen,
+  onHistoryClose,
+}: {
+  deploymentId: string;
+  historyOpen: boolean;
+  onHistoryClose: () => void;
+}) {
   const startMutation = trpc.deployment.start.useMutation();
   const [state, dispatch] = useReducer(canvasReducer, INITIAL_CANVAS_STATE);
-  const { sendMessage, isStreaming, streamingCardIds, messages, streamingText, lastChatError, lastUserMessage, clearChatError, suggestions } = useCanvasChat(deploymentId, state, dispatch);
-  const runtime = useJarbleRuntime({ messages, streamingText, isStreaming, sendMessage, suggestions });
+  const {
+    sendMessage, isStreaming, streamingCardIds, messages, streamingText, streamingReasoning,
+    lastChatError, lastUserMessage, clearChatError, suggestions,
+    stopGeneration, editMessage,
+    conversations, activeConversationId, switchConversation, newConversation, deleteConversation,
+  } = useCanvasChat(deploymentId, state, dispatch);
+  // runtime created inside KeyedChatPanel — keyed by activeConversationId
   useCanvasPersistence(deploymentId, state, dispatch);
   useArtifactSync(deploymentId, state, dispatch);
   const { result: diagnosis, isLoading: isDiagnosing, runDiagnosis } = useDiagnose(deploymentId);
@@ -457,7 +548,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
   const handleSubmit = useCallback(
     async (e?: React.FormEvent) => {
       e?.preventDefault();
-      if (!input.trim() || isStreaming) return;
+      if (!input.trim()) return;
       const text = input;
       setInput("");
       // Reset textarea height after clearing
@@ -468,7 +559,7 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
       await sendMessage(text);
       textareaRef.current?.focus();
     },
-    [input, isStreaming, sendMessage]
+    [input, sendMessage]
   );
 
   const handleKeyDown = useCallback(
@@ -520,6 +611,19 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
 
   return (
     <div className="flex-1 flex overflow-hidden relative">
+      {/* Conversation history panel */}
+      {historyOpen && (
+        <ConversationHistoryPanel
+          conversations={conversations}
+          activeConversationId={activeConversationId}
+          onSelectConversation={switchConversation}
+          onNewConversation={newConversation}
+          onDeleteConversation={deleteConversation}
+          onClose={onHistoryClose}
+          isStreaming={isStreaming}
+        />
+      )}
+
       {/* Chat Panel -- always visible */}
       <div
         className={cn(
@@ -528,35 +632,18 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
         )}
         style={canvasSidebarVisible ? { width: chatWidth } : undefined}
       >
-        {/* Chat messages via assistant-ui */}
-        <AssistantUIChat
-          runtime={runtime}
+        {/* Chat messages via assistant-ui — keyed so runtime resets on conversation switch */}
+        <KeyedChatPanel
+          key={activeConversationId ?? "default"}
+          messages={messages}
+          streamingText={streamingText}
+          streamingReasoning={streamingReasoning}
           isStreaming={isStreaming}
-          emptyState={
-            <div className="h-full flex flex-col items-center justify-center gap-4 px-4">
-              <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/10 flex items-center justify-center">
-                <MessageSquare className="w-6 h-6 text-primary/50" />
-              </div>
-              <div className="text-center space-y-1">
-                <p className="text-sm font-medium text-foreground/70">Start a conversation</p>
-                <p className="text-xs text-muted-foreground-subtle">
-                  Send a message to interact with your bot
-                </p>
-              </div>
-              <div className="flex flex-col gap-2 w-full max-w-xs mt-2">
-                {EXAMPLE_PROMPTS.map((prompt) => (
-                  <button
-                    key={prompt}
-                    type="button"
-                    onClick={() => handleExamplePrompt(prompt)}
-                    className="text-left text-xs px-3 py-2 rounded-lg border border-border/60 bg-secondary/20 text-muted-foreground hover:bg-secondary/40 hover:text-foreground hover:border-border transition-colors"
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-            </div>
-          }
+          sendMessage={sendMessage}
+          suggestions={suggestions}
+          stopGeneration={stopGeneration}
+          editMessage={editMessage}
+          onExamplePrompt={handleExamplePrompt}
         />
 
         {/* Chat error card with diagnostics */}
@@ -616,20 +703,27 @@ function CanvasWorkspace({ deploymentId }: { deploymentId: string }) {
                   : "border-border focus:ring-primary/50"
               )}
               style={{ maxHeight: 150 }}
-              disabled={isStreaming}
             />
-            <Button
-              type="submit"
-              size="sm"
-              disabled={!input.trim() || isStreaming}
-              className="h-10 w-10 p-0 transition-transform hover:scale-105 active:scale-95 shrink-0"
-            >
-              {isStreaming ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
+            {isStreaming && !input.trim() ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={stopGeneration}
+                className="h-10 w-10 p-0 transition-transform hover:scale-105 active:scale-95 shrink-0"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                size="sm"
+                disabled={!input.trim()}
+                className="h-10 w-10 p-0 transition-transform hover:scale-105 active:scale-95 shrink-0"
+              >
                 <SendHorizontal className="w-4 h-4" />
-              )}
-            </Button>
+              </Button>
+            )}
           </form>
         </div>
       </div>
@@ -719,6 +813,14 @@ const CardContent = memo(function CardContent({
     async (action: CanvasAction) => {
       const actionStart = Date.now();
       console.log(`[Jarble:ActionRelay] Action received: ${action.component} → ${action.action} (blockId: ${action.blockId})`);
+
+      // Content edit — user modified component content (code, text, etc.)
+      // Update card props silently without sending a chat message
+      if (action.action === "content_edit") {
+        console.log(`[Jarble:ActionRelay] Content edit: ${action.blockId} (${action.component})`);
+        canvasDispatch({ type: "UPDATE_CARD_PROPS", id: action.blockId, props: action.payload, merge: true });
+        return;
+      }
 
       // Component render error — user clicked "Fix Component"
       // Include card ID so the bot uses jarble_ui_update to fix in-place

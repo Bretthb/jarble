@@ -9,7 +9,7 @@
  */
 
 import { memo, useCallback, useState, useRef, useEffect, type ReactNode, type KeyboardEvent } from "react";
-import { X, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Ungroup, Group, LayoutGrid, Upload, ZoomIn, ZoomOut, Sparkles, SendHorizontal } from "lucide-react";
+import { X, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Ungroup, Group, LayoutGrid, Upload, ZoomIn, ZoomOut, Sparkles, SendHorizontal, MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -96,6 +96,18 @@ function SimpleCanvasGridInner({
   const saveInputRef = useRef<HTMLInputElement>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [unsavingCardId, setUnsavingCardId] = useState<string | null>(null);
+
+  // ── Card context menu state ──────────────────────────────────────
+  const [contextMenu, setContextMenu] = useState<{ cardId: string; x: number; y: number } | null>(null);
+
+  // Close context menu on click anywhere
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("contextmenu", close);
+    return () => { window.removeEventListener("click", close); window.removeEventListener("contextmenu", close); };
+  }, [contextMenu]);
 
   // ── Keyboard navigation state ────────────────────────────────────
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -697,6 +709,11 @@ function SimpleCanvasGridInner({
               exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
               transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
               data-card-id={card.id}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setContextMenu({ cardId: card.id, x: e.clientX, y: e.clientY });
+              }}
               onPointerDown={(e) => handleDragStart(e, card)}
               style={{
                 position: "absolute",
@@ -719,85 +736,41 @@ function SimpleCanvasGridInner({
                       : "cursor-grab"
               }`}
             >
-              {/* Card header — icons only, no title text */}
-              <div className="shrink-0 flex items-center justify-end px-1 py-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto transition-opacity absolute top-0 left-0 right-0 z-20">
-                {/* Saved badge + save status (left-aligned, only when present) */}
-                <div className="flex items-center gap-1 mr-auto">
-                  {card.savedName && (
-                    <span className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-amber-500/15 border border-amber-500/30">
-                      <Bookmark className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
-                      <span className="text-[9px] text-amber-300 font-medium max-w-[80px] truncate">{card.savedName}</span>
-                    </span>
-                  )}
-                  {saveStatus?.cardId === card.id && (
-                    <span className={`flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium ${
-                      saveStatus.status === "saving" ? "text-blue-300 bg-blue-500/15" :
-                      saveStatus.status === "saved" ? "text-green-300 bg-green-500/15" : "text-red-300 bg-red-500/15"
-                    }`}>
-                      {saveStatus.status === "saving" && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
-                      {saveStatus.status === "saved" && <Check className="w-2.5 h-2.5" />}
-                      {saveStatus.status === "saving" ? "Saving..." : saveStatus.status === "saved" ? "Saved!" : saveStatus.message || "Failed"}
-                    </span>
-                  )}
-                </div>
-
-                {/* Controls */}
-                <div className={`flex items-center gap-0.5 shrink-0 transition-opacity ${
-                  card.selected ? "opacity-100" : "opacity-40 group-hover:opacity-100 group-focus-within:opacity-100"
-                }`}>
-                  {onSendMessage && (
-                    <button onClick={(e) => { e.stopPropagation(); handleInlineChatOpen(card); }}
-                      className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                        inlineChatCardId === card.id ? "bg-primary text-primary-foreground" : "hover:bg-primary/60 text-muted-foreground hover:text-white"
-                      }`} aria-label="Ask about this card" title="Ask about this card">
-                      <Sparkles className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  <button onClick={(e) => { e.stopPropagation(); handleSelect(card); }}
-                    className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                      card.selected ? "bg-blue-500 text-white" : "hover:bg-blue-500/60 text-muted-foreground hover:text-white"
-                    }`} aria-label={card.selected ? "Deselect" : "Select (multi-select to group)"} title={card.selected ? "Deselect" : "Select (multi-select to group)"}>
-                    <MousePointerClick className="w-3.5 h-3.5" />
-                  </button>
-                  {canSplitCard(card) && (
-                    <button onClick={(e) => { e.stopPropagation(); handleSplit(card); }}
-                      className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-violet-500/60 text-muted-foreground hover:text-white"
-                      aria-label="Split into individual cards" title="Split into individual cards">
-                      <SplitSquareHorizontal className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  {card.component === "layout" && Array.isArray(card.props?.children) && (card.props.children as unknown[]).length >= 2 && (
-                    <button onClick={(e) => { e.stopPropagation(); dispatch({ type: "UNGROUP_CARD", id: card.id }); }}
-                      className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-violet-500/60 text-muted-foreground hover:text-white"
-                      aria-label="Ungroup into individual cards" title="Ungroup into individual cards">
-                      <Ungroup className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  <button onClick={(e) => { e.stopPropagation(); handleSaveClick(card); }}
-                    className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                      card.savedName ? "bg-amber-500/80 text-white" : "hover:bg-amber-500/60 text-muted-foreground hover:text-white"
-                    }`} aria-label={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"} title={card.savedName ? `Saved as "${card.savedName}"` : "Save to library"}>
-                    <Bookmark className={`w-3.5 h-3.5 ${card.savedName ? "fill-current" : ""}`} />
-                  </button>
-                  {/* Publish as Service */}
-                  <button
-                    className="w-7 h-7 rounded-md flex items-center justify-center transition-colors hover:bg-primary/20 text-muted-foreground hover:text-primary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handlePublishClick(card);
-                    }}
-                    title="Publish as service"
-                    aria-label="Publish as marketplace service"
-                  >
-                    <Upload className="w-4 h-4" />
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); handleClose(card.id); }}
-                    className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:bg-red-500/60 hover:text-white transition-colors"
-                    aria-label="Close card" title="Close">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+              {/* Card menu trigger — small ... button, top-right corner */}
+              <div
+                className="absolute top-1 right-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"
+                onContextMenu={(e) => e.stopPropagation()}
+              >
+                {/* Save status badge */}
+                {saveStatus?.cardId === card.id && (
+                  <span className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium backdrop-blur-sm ${
+                    saveStatus.status === "saving" ? "text-blue-300 bg-blue-500/20" :
+                    saveStatus.status === "saved" ? "text-green-300 bg-green-500/20" : "text-red-300 bg-red-500/20"
+                  }`}>
+                    {saveStatus.status === "saving" && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
+                    {saveStatus.status === "saved" && <Check className="w-2.5 h-2.5" />}
+                    {saveStatus.status === "saving" ? "Saving..." : saveStatus.status === "saved" ? "Saved!" : saveStatus.message || "Failed"}
+                  </span>
+                )}
+                {card.savedName && (
+                  <span className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-amber-500/20 backdrop-blur-sm">
+                    <Bookmark className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                  </span>
+                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setContextMenu({ cardId: card.id, x: rect.right, y: rect.bottom + 4 });
+                  }}
+                  className="w-6 h-6 flex items-center justify-center rounded bg-background/70 backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-background/90 transition-colors border border-border/30"
+                  aria-label="Card menu"
+                  title="Card menu (or right-click)"
+                >
+                  <MoreVertical className="w-3.5 h-3.5" />
+                </button>
               </div>
+
 
               {/* Save name input — overlay below header */}
               {savingCardId === card.id && (
@@ -958,6 +931,56 @@ function SimpleCanvasGridInner({
             </button>
           </div>
         )}
+
+        {/* Card context menu — rendered at canvas root to avoid transform issues */}
+        {contextMenu && (() => {
+          const card = cards.find(c => c.id === contextMenu.cardId);
+          if (!card) return null;
+          return (
+            <div
+              className="fixed z-[100] min-w-[180px] rounded-lg bg-popover border border-border shadow-xl py-1 text-sm animate-in fade-in-0 zoom-in-95 duration-100"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {onSendMessage && (
+                <button onClick={() => { setContextMenu(null); handleInlineChatOpen(card); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
+                  <Sparkles className="w-3.5 h-3.5 text-primary" /> Ask about this card
+                </button>
+              )}
+              <button onClick={() => { setContextMenu(null); handleSelect(card); }}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
+                <MousePointerClick className="w-3.5 h-3.5 text-blue-400" /> {card.selected ? "Deselect" : "Select"}
+              </button>
+              {canSplitCard(card) && (
+                <button onClick={() => { setContextMenu(null); handleSplit(card); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
+                  <SplitSquareHorizontal className="w-3.5 h-3.5 text-violet-400" /> Split
+                </button>
+              )}
+              {card.component === "layout" && Array.isArray(card.props?.children) && (card.props.children as unknown[]).length >= 2 && (
+                <button onClick={() => { setContextMenu(null); dispatch({ type: "UNGROUP_CARD", id: card.id }); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
+                  <Ungroup className="w-3.5 h-3.5 text-violet-400" /> Ungroup
+                </button>
+              )}
+              <div className="h-px bg-border/40 my-1" />
+              <button onClick={() => { setContextMenu(null); handleSaveClick(card); }}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
+                <Bookmark className={`w-3.5 h-3.5 text-amber-400 ${card.savedName ? "fill-amber-400" : ""}`} /> {card.savedName ? "Saved" : "Save to library"}
+              </button>
+              <button onClick={() => { setContextMenu(null); handlePublishClick(card); }}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
+                <Upload className="w-3.5 h-3.5 text-primary" /> Publish as service
+              </button>
+              <div className="h-px bg-border/40 my-1" />
+              <button onClick={() => { setContextMenu(null); handleClose(card.id); }}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-red-400 hover:bg-red-500/10 transition-colors">
+                <X className="w-3.5 h-3.5" /> Close
+              </button>
+            </div>
+          );
+        })()}
 
         {/* Zoom controls — bottom right of canvas */}
         <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-background/90 backdrop-blur-sm px-1 py-0.5 shadow-sm">

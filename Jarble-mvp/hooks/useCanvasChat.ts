@@ -19,6 +19,16 @@ import { MAX_CANVAS_CARDS } from "@/components/workspace/types";
 import { findOpenPosition, getDefaultSize, getContainerSize } from "@/components/workspace/autoLayout";
 import { useComponentCatalog } from "@/components/ComponentCatalogProvider";
 import type { ClassifiedChatError } from "@/components/workspace/ChatErrorCard";
+import type { ConversationMeta } from "@/lib/conversationStorage";
+import {
+  loadConversationIndex,
+  saveConversationIndex,
+  loadConversationMessages,
+  saveConversationMessages,
+  deleteConversation as deleteConv,
+  createConversation,
+  migrateFromLegacy,
+} from "@/lib/conversationStorage";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -36,62 +46,6 @@ export interface ChatMessage {
   reasoning?: string;
 }
 
-const CHAT_STORAGE_PREFIX = "jarble-chat-";
-const CHAT_MAX_MESSAGES = 100; // Keep last 100 messages
-const CHAT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-function loadChatHistory(deploymentId: string): ChatMessage[] {
-  try {
-    const raw = localStorage.getItem(`${CHAT_STORAGE_PREFIX}${deploymentId}`);
-    if (!raw) return [];
-    const { messages, savedAt } = JSON.parse(raw);
-    // Check expiry
-    if (Date.now() - savedAt > CHAT_EXPIRY_MS) {
-      isDev && console.log(`[Jarble:Chat] Chat history expired for ${deploymentId}, clearing`);
-      localStorage.removeItem(`${CHAT_STORAGE_PREFIX}${deploymentId}`);
-      return [];
-    }
-    isDev && console.log(`[Jarble:Chat] Loaded ${(messages || []).length} messages from localStorage`);
-    return messages || [];
-  } catch (err) {
-    isDev && console.warn(`[Jarble:Chat] Failed to load chat history: ${err instanceof Error ? err.message : String(err)}`);
-    return [];
-  }
-}
-
-function saveChatHistory(deploymentId: string, messages: ChatMessage[]): void {
-  try {
-    // Keep only the last N messages
-    const trimmed = messages.slice(-CHAT_MAX_MESSAGES);
-    localStorage.setItem(
-      `${CHAT_STORAGE_PREFIX}${deploymentId}`,
-      JSON.stringify({ messages: trimmed, savedAt: Date.now() })
-    );
-    isDev && console.log(`[Jarble:Chat] Saved ${trimmed.length} messages to localStorage`);
-  } catch (err) {
-    // Handle QuotaExceededError by trimming more aggressively
-    if (err instanceof DOMException && err.name === "QuotaExceededError") {
-      try {
-        const minimal = messages.slice(-10); // Keep only last 10 messages
-        localStorage.setItem(
-          `${CHAT_STORAGE_PREFIX}${deploymentId}`,
-          JSON.stringify({ messages: minimal, savedAt: Date.now() })
-        );
-        isDev && console.warn(`[Jarble:Chat] Quota exceeded, trimmed to ${minimal.length} messages`);
-        return;
-      } catch {
-        // Still failing — clear old deployments' chat history to free space
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-          const key = localStorage.key(i);
-          if (key?.startsWith(CHAT_STORAGE_PREFIX) && key !== `${CHAT_STORAGE_PREFIX}${deploymentId}`) {
-            localStorage.removeItem(key);
-          }
-        }
-      }
-    }
-    isDev && console.warn(`[Jarble:Chat] Failed to save chat history: ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
 
 interface UIBlockPending {
   id: string;
@@ -123,12 +77,17 @@ export function useCanvasChat(
   const [streamingCardIds, setStreamingCardIds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingText, setStreamingText] = useState("");
+  const [streamingReasoning, setStreamingReasoning] = useState("");
   const [lastChatError, setLastChatError] = useState<ClassifiedChatError | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Array<{ prompt: string }>>([]);
+  const [conversations, setConversations] = useState<ConversationMeta[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const hasLoadedHistory = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeConvRef = useRef<string | null>(null);
+  activeConvRef.current = activeConversationId;
   // Track streaming card animation timers so we can clear them on unmount
   const cardTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   // Keep a live ref to state so the SSE handler always reads the latest cards (avoids stale closure)
@@ -138,10 +97,15 @@ export function useCanvasChat(
   const isStreamingRef = useRef(false);
   // Generation counter — detects when a new request supersedes an aborted one in finally
   const generationRef = useRef(0);
-  // rAF-based throttle for streaming text updates — coalesces rapid deltas into
-  // a single React re-render per animation frame (~16ms / 60fps)
-  const pendingTextRef = useRef<string>("");
+  // Typewriter reveal: target text accumulates instantly, displayed text catches up
+  // by revealing CHARS_PER_FRAME characters per animation frame (~60fps)
+  const targetTextRef = useRef<string>("");
+  const displayedLenRef = useRef<number>(0);
   const rafIdRef = useRef<number | null>(null);
+  const targetReasoningRef = useRef<string>("");
+  const displayedReasoningLenRef = useRef<number>(0);
+  const reasoningRafIdRef = useRef<number | null>(null);
+  const CHARS_PER_FRAME = 8; // ~480 chars/sec at 60fps — fast but visible
   // Track current run's LLM provider/model from RUN_STARTED event (ref avoids stale closure)
   const currentLlmRef = useRef<{ provider?: string; model?: string }>({});
   // Track which card was selected when the user sent the message (for provenance linking)
@@ -150,34 +114,56 @@ export function useCanvasChat(
   // updates the card in-place instead of creating a new one
   const editModeRef = useRef<{ cardId: string; component: string } | null>(null);
 
-  // Load chat history from localStorage on mount
-  useEffect(() => {
-    if (hasLoadedHistory.current) return;
-    hasLoadedHistory.current = true;
-    const saved = loadChatHistory(deploymentId);
-    if (saved.length > 0) {
-      setMessages(saved);
+  const flushMessages = useCallback((convId: string | null, msgs: ChatMessage[]) => {
+    if (!convId || msgs.length === 0) return;
+    saveConversationMessages(deploymentId, convId, msgs);
+    const index = loadConversationIndex(deploymentId);
+    const meta = index.conversations.find((c) => c.id === convId);
+    if (meta) {
+      meta.messageCount = msgs.length;
+      meta.updatedAt = Date.now();
+      const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+      if (lastAssistant) meta.preview = lastAssistant.content.slice(0, 80);
+      saveConversationIndex(deploymentId, index);
+      setConversations([...index.conversations]);
     }
   }, [deploymentId]);
 
-  // Debounced save chat history when messages change (500ms delay)
+  // Load conversation index + migrate legacy on mount
   useEffect(() => {
-    if (!hasLoadedHistory.current || messages.length === 0) return;
+    if (hasLoadedHistory.current) return;
+    hasLoadedHistory.current = true;
+    migrateFromLegacy(deploymentId);
+    let index = loadConversationIndex(deploymentId);
+    if (index.conversations.length === 0) {
+      createConversation(deploymentId);
+      index = loadConversationIndex(deploymentId);
+    }
+    setConversations(index.conversations);
+    const activeId = index.activeId ?? index.conversations[0]?.id ?? null;
+    setActiveConversationId(activeId);
+    if (activeId) {
+      const saved = loadConversationMessages(deploymentId, activeId);
+      if (saved.length > 0) setMessages(saved);
+    }
+  }, [deploymentId]);
+
+  // Debounced save messages to conversation storage
+  useEffect(() => {
+    if (!hasLoadedHistory.current || messages.length === 0 || !activeConversationId) return;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      saveChatHistory(deploymentId, messages);
+      flushMessages(activeConvRef.current, messages);
     }, 500);
 
     return () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
-        // Flush synchronously on cleanup so messages aren't lost when
-        // the component unmounts or deploymentId changes
-        saveChatHistory(deploymentId, messages);
+        flushMessages(activeConvRef.current, messages);
       }
     };
-  }, [deploymentId, messages]);
+  }, [deploymentId, messages, activeConversationId, flushMessages]);
 
   // Clear card animation timers and rAF on unmount to prevent setState on unmounted component
   useEffect(() => {
@@ -188,13 +174,23 @@ export function useCanvasChat(
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
+      if (reasoningRafIdRef.current !== null) {
+        cancelAnimationFrame(reasoningRafIdRef.current);
+        reasoningRafIdRef.current = null;
+      }
     };
   }, []);
 
   const sendMessage = useCallback(
     async (text: string, displayText?: string, mode?: "edit" | "branch") => {
-      // Use ref guard — keeps sendMessage stable without isStreaming in deps
-      if (!text.trim() || isStreamingRef.current) return;
+      if (!text.trim()) return;
+
+      // If already streaming, abort the current generation so the new message can proceed
+      if (isStreamingRef.current) {
+        abortRef.current?.abort();
+        // Wait a microtick for the abort to propagate and clear streaming state
+        await new Promise((r) => setTimeout(r, 0));
+      }
 
       // Skip card reference prepend for action/error messages — these already contain card context
       const isActionMessage = text.startsWith("[UI_ACTION]") || text.startsWith("[SANDBOX_ERROR]") || text.startsWith("[COMPONENT_ERROR]") || text.startsWith("[PUBLISH_SERVICE]");
@@ -211,13 +207,14 @@ export function useCanvasChat(
       editModeRef.current = null;
       if (selectedCard && !isActionMessage) {
         const title = selectedCard.title || selectedCard.component.replace(/_/g, " ");
+        // Include the card's current content so the bot knows what the user sees/edited
+        const contentSnapshot = getCardContentSnapshot(selectedCard);
         if (mode === "branch") {
           const ref = `[BRANCH ${selectedCard.id} "${title}"]`;
-          messageToSend = `${ref}\n${text}`;
+          messageToSend = `${ref}${contentSnapshot}\n${text}`;
         } else {
-          // "edit" mode (or default for backward compat)
           const ref = `[EDITING ${selectedCard.id} "${title}"]`;
-          messageToSend = `${ref}\n${text}`;
+          messageToSend = `${ref}${contentSnapshot}\n${text}`;
           editModeRef.current = { cardId: selectedCard.id, component: selectedCard.component };
         }
         dispatch({ type: "DESELECT_CARD" });
@@ -248,6 +245,11 @@ export function useCanvasChat(
       isStreamingRef.current = true;
       setIsStreaming(true);
       setStreamingText("");
+      setStreamingReasoning("");
+      targetTextRef.current = "";
+      displayedLenRef.current = 0;
+      targetReasoningRef.current = "";
+      displayedReasoningLenRef.current = 0;
       setLastChatError(null);
       setLastUserMessage(text);
       setSuggestions([]); // Clear suggestions when user sends a new message
@@ -272,6 +274,17 @@ export function useCanvasChat(
       };
       setMessages((prev) => [...prev, userMessage]);
 
+      // Auto-title: update conversation title from first user message
+      if (activeConvRef.current) {
+        const index = loadConversationIndex(deploymentId);
+        const meta = index.conversations.find((c) => c.id === activeConvRef.current);
+        if (meta && meta.title === "New Conversation") {
+          meta.title = text.slice(0, 50);
+          saveConversationIndex(deploymentId, index);
+          setConversations([...index.conversations]);
+        }
+      }
+
       try {
         const token = await getAccessTokenSilently();
         const url = `${API_URL}/api/tambo-agent`;
@@ -285,6 +298,7 @@ export function useCanvasChat(
           },
           body: JSON.stringify({
             deploymentId,
+            conversationId: activeConvRef.current,
             messages: [{ role: "user", content: messageToSend }],
           }),
           signal: controller.signal,
@@ -321,14 +335,38 @@ export function useCanvasChat(
         const cardsAddedThisStream: CanvasCard[] = [];
         let textContentCount = 0;
 
-        // rAF-based throttle: coalesce rapid text deltas into one setState per frame
+        // Typewriter reveal: target accumulates instantly, displayed catches up per frame
         function scheduleTextUpdate(text: string) {
-          pendingTextRef.current = text;
+          targetTextRef.current = text;
           if (rafIdRef.current === null) {
-            rafIdRef.current = requestAnimationFrame(() => {
-              setStreamingText(pendingTextRef.current);
-              rafIdRef.current = null;
-            });
+            function tick() {
+              const target = targetTextRef.current;
+              if (displayedLenRef.current < target.length) {
+                displayedLenRef.current = Math.min(displayedLenRef.current + CHARS_PER_FRAME, target.length);
+                setStreamingText(target.slice(0, displayedLenRef.current));
+                rafIdRef.current = requestAnimationFrame(tick);
+              } else {
+                rafIdRef.current = null;
+              }
+            }
+            rafIdRef.current = requestAnimationFrame(tick);
+          }
+        }
+
+        function scheduleReasoningUpdate(text: string) {
+          targetReasoningRef.current = text;
+          if (reasoningRafIdRef.current === null) {
+            function tick() {
+              const target = targetReasoningRef.current;
+              if (displayedReasoningLenRef.current < target.length) {
+                displayedReasoningLenRef.current = Math.min(displayedReasoningLenRef.current + CHARS_PER_FRAME, target.length);
+                setStreamingReasoning(target.slice(0, displayedReasoningLenRef.current));
+                reasoningRafIdRef.current = requestAnimationFrame(tick);
+              } else {
+                reasoningRafIdRef.current = null;
+              }
+            }
+            reasoningRafIdRef.current = requestAnimationFrame(tick);
           }
         }
 
@@ -376,6 +414,7 @@ export function useCanvasChat(
               }
               if (event.type === "REASONING_CONTENT" && event.delta) {
                 reasoningText += event.delta;
+                scheduleReasoningUpdate(reasoningText);
               }
               if (event.type === "REASONING_END") {
                 inReasoning = false;
@@ -544,7 +583,12 @@ export function useCanvasChat(
           cancelAnimationFrame(rafIdRef.current);
           rafIdRef.current = null;
         }
+        if (reasoningRafIdRef.current !== null) {
+          cancelAnimationFrame(reasoningRafIdRef.current);
+          reasoningRafIdRef.current = null;
+        }
         setStreamingText(stripUIMarkers(accumulatedText));
+        setStreamingReasoning(reasoningText);
 
         // After streaming ends: add bot text to chat messages (NOT canvas)
         const cleanText = stripUIMarkers(accumulatedText);
@@ -563,6 +607,19 @@ export function useCanvasChat(
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
           isDev && console.log(`[Jarble:Chat] SSE aborted after ${Date.now() - streamStart}ms`);
+          const cleanText = stripUIMarkers(accumulatedText);
+          if (cleanText) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `${messageId}-assistant`,
+                role: "assistant",
+                content: cleanText,
+                createdAt: Date.now(),
+                ...(reasoningText ? { reasoning: reasoningText } : {}),
+              },
+            ]);
+          }
           return;
         }
         console.error(`[Jarble:Chat] SSE error: ${err instanceof Error ? err.message : String(err)}`);
@@ -585,10 +642,15 @@ export function useCanvasChat(
             cancelAnimationFrame(rafIdRef.current);
             rafIdRef.current = null;
           }
+          if (reasoningRafIdRef.current !== null) {
+            cancelAnimationFrame(reasoningRafIdRef.current);
+            reasoningRafIdRef.current = null;
+          }
           isStreamingRef.current = false;
           editModeRef.current = null;
           setIsStreaming(false);
           setStreamingText("");
+          setStreamingReasoning("");
           setStreamingCardIds(new Set());
         }
       }
@@ -602,7 +664,91 @@ export function useCanvasChat(
 
   const clearChatError = useCallback(() => setLastChatError(null), []);
 
-  return { sendMessage, isStreaming, streamingCardIds, messages, streamingText, lastChatError, lastUserMessage, clearChatError, suggestions };
+  const stopGeneration = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  const editMessage = useCallback(
+    async (messageId: string, newText: string) => {
+      if (isStreamingRef.current) {
+        abortRef.current?.abort();
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      const idx = messages.findIndex((m) => m.id === messageId);
+      if (idx === -1) return;
+      setMessages((prev) => prev.slice(0, idx));
+      await sendMessage(newText);
+    },
+    [messages, sendMessage]
+  );
+
+  const switchConversation = useCallback((id: string) => {
+    if (isStreamingRef.current || id === activeConvRef.current) return;
+    flushMessages(activeConvRef.current, messages);
+    const saved = loadConversationMessages(deploymentId, id);
+    setMessages(saved);
+    setActiveConversationId(id);
+    const index = loadConversationIndex(deploymentId);
+    index.activeId = id;
+    saveConversationIndex(deploymentId, index);
+    dispatch({ type: "CLEAR_CANVAS" });
+  }, [deploymentId, messages, dispatch, flushMessages]);
+
+  const newConversation = useCallback(() => {
+    if (isStreamingRef.current) return;
+    flushMessages(activeConvRef.current, messages);
+    const meta = createConversation(deploymentId);
+    const index = loadConversationIndex(deploymentId);
+    setConversations([...index.conversations]);
+    setActiveConversationId(meta.id);
+    setMessages([]);
+    dispatch({ type: "CLEAR_CANVAS" });
+  }, [deploymentId, messages, dispatch, flushMessages]);
+
+  const removeConversation = useCallback((id: string) => {
+    if (isStreamingRef.current) return;
+    deleteConv(deploymentId, id);
+    const index = loadConversationIndex(deploymentId);
+    if (index.conversations.length === 0) {
+      const meta = createConversation(deploymentId);
+      const updated = loadConversationIndex(deploymentId);
+      setConversations([...updated.conversations]);
+      setActiveConversationId(meta.id);
+      setMessages([]);
+    } else {
+      setConversations([...index.conversations]);
+      if (activeConvRef.current === id) {
+        const newActive = index.activeId ?? index.conversations[0]?.id ?? null;
+        setActiveConversationId(newActive);
+        if (newActive) {
+          setMessages(loadConversationMessages(deploymentId, newActive));
+        } else {
+          setMessages([]);
+        }
+      }
+    }
+    dispatch({ type: "CLEAR_CANVAS" });
+  }, [deploymentId, dispatch]);
+
+  return {
+    sendMessage,
+    isStreaming,
+    streamingCardIds,
+    messages,
+    streamingText,
+    streamingReasoning,
+    lastChatError,
+    lastUserMessage,
+    clearChatError,
+    suggestions,
+    stopGeneration,
+    editMessage,
+    conversations,
+    activeConversationId,
+    switchConversation,
+    newConversation,
+    deleteConversation: removeConversation,
+  };
 }
 
 // ── Helper: create canvas card for UI blocks only ────────────────────────────
@@ -730,4 +876,56 @@ function summarizeCardProps(card: CanvasCard): string {
   }
 
   return parts.join(", ");
+}
+
+// ── Helper: extract current content from a card for bot context ───────────────
+
+/** Get a snapshot of the card's current content to include when the user references it.
+ *  For code/sandbox components, includes the full code. For others, includes key props.
+ *  Truncates to avoid token bloat (max ~2000 chars). */
+function getCardContentSnapshot(card: CanvasCard): string {
+  const p = card.props;
+  const MAX_CONTENT = 2000;
+
+  switch (card.component) {
+    case "code_block":
+    case "code_editor": {
+      const code = (p.code as string) || "";
+      if (!code) return "";
+      const truncated = code.length > MAX_CONTENT ? code.slice(0, MAX_CONTENT) + "\n...(truncated)" : code;
+      const lang = (p.language as string) || "";
+      return `\nCurrent code${lang ? ` (${lang})` : ""}:\n\`\`\`${lang}\n${truncated}\n\`\`\``;
+    }
+    case "sandbox": {
+      const parts: string[] = [];
+      const html = (p.html as string) || "";
+      const css = (p.css as string) || "";
+      const js = (p.moduleJs as string) || (p.js as string) || "";
+      if (html) parts.push(`HTML:\n\`\`\`html\n${html.slice(0, MAX_CONTENT / 3)}\n\`\`\``);
+      if (css) parts.push(`CSS:\n\`\`\`css\n${css.slice(0, MAX_CONTENT / 3)}\n\`\`\``);
+      if (js) parts.push(`JS:\n\`\`\`javascript\n${js.slice(0, MAX_CONTENT / 3)}\n\`\`\``);
+      return parts.length > 0 ? `\nCurrent content:\n${parts.join("\n")}` : "";
+    }
+    case "card": {
+      const body = (p.body as string) || "";
+      if (!body) return "";
+      return `\nCurrent content:\n${body.slice(0, MAX_CONTENT)}`;
+    }
+    case "form": {
+      // Include current field values if present
+      const fields = p.fields as Array<{ name?: string; value?: unknown }> | undefined;
+      if (!fields?.length) return "";
+      const fieldSummary = fields
+        .filter(f => f.value != null && f.value !== "")
+        .map(f => `${f.name}: ${String(f.value).slice(0, 100)}`)
+        .join(", ");
+      return fieldSummary ? `\nCurrent values: ${fieldSummary}` : "";
+    }
+    default: {
+      // For other components, include a compact JSON of props (truncated)
+      const json = JSON.stringify(p);
+      if (json.length <= 200) return `\nCurrent props: ${json}`;
+      return "";
+    }
+  }
 }

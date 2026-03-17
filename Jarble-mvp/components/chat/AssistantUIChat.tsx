@@ -8,7 +8,7 @@
  * keyboard navigation, auto-scroll, and full ARIA accessibility for free.
  */
 
-import { memo, useState, type ReactNode } from "react";
+import { memo, useState, useEffect, type ReactNode } from "react";
 import {
   AssistantRuntimeProvider,
   ThreadPrimitive,
@@ -22,7 +22,7 @@ import {
   type TextMessagePartProps,
   type ReasoningMessagePartProps,
 } from "@assistant-ui/react";
-import { Sparkles, SendHorizontal, Loader2, Copy, RotateCcw, ChevronRight } from "lucide-react";
+import { Sparkles, SendHorizontal, Loader2, Copy, Pencil, RotateCcw, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
 
@@ -41,8 +41,8 @@ function AssistantUIChatInner({
 }: AssistantUIChatProps) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadPrimitive.Root className="flex flex-col h-full">
-        <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto p-4 space-y-3">
+      <ThreadPrimitive.Root className="flex flex-col h-full overflow-hidden">
+        <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3">
           <ThreadPrimitive.Empty>
             {emptyState || (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
@@ -103,12 +103,15 @@ function UserBubble() {
       </div>
 
       {/* Content + actions */}
-      <div className="flex flex-col gap-0.5 items-end flex-1 max-w-[80%]">
-        <div className="rounded-lg px-4 py-3 bg-primary/90 text-primary-foreground shadow-sm" data-role="user">
-          <p className="text-sm">{content}</p>
+      <div className="flex flex-col gap-0.5 items-end flex-1 max-w-[80%] min-w-0">
+        <div className="rounded-lg px-4 py-3 bg-primary/90 text-primary-foreground shadow-sm break-words overflow-hidden max-w-full" data-role="user">
+          <p className="text-sm break-words" style={{ overflowWrap: "anywhere" }}>{content}</p>
         </div>
-        {/* Copy action - only shows on hover */}
+        {/* Edit + Copy actions - only shows on hover */}
         <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+          <ActionBarPrimitive.Edit className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
+            <Pencil className="w-3 h-3" />
+          </ActionBarPrimitive.Edit>
           <ActionBarPrimitive.Copy className="p-1 rounded hover:bg-secondary/60 text-muted-foreground" copiedDuration={2000}>
             <Copy className="w-3 h-3" />
           </ActionBarPrimitive.Copy>
@@ -134,11 +137,11 @@ function AssistantBubble() {
       </div>
 
       {/* Content + actions */}
-      <div className="flex flex-col gap-0.5 items-start flex-1 max-w-[80%]">
+      <div className="flex flex-col gap-0.5 items-start flex-1 max-w-[80%] min-w-0">
         <div
           data-role="assistant"
           className={cn(
-            "rounded-lg px-4 py-3 bg-secondary/30",
+            "rounded-lg px-4 py-3 bg-secondary/30 break-words overflow-hidden max-w-full",
             isInProgress && "animate-[shimmer_2s_ease-in-out_infinite]",
           )}
           style={
@@ -187,6 +190,11 @@ function ReasoningPartRenderer(props: ReasoningMessagePartProps) {
   const isRunning = props.status.type === "running";
   const [expanded, setExpanded] = useState(isRunning);
 
+  // Auto-expand when reasoning starts streaming
+  useEffect(() => {
+    if (isRunning) setExpanded(true);
+  }, [isRunning]);
+
   return (
     <div className="mb-2">
       <button
@@ -198,7 +206,10 @@ function ReasoningPartRenderer(props: ReasoningMessagePartProps) {
         <span className="font-medium">
           {isRunning ? "Thinking..." : "Thought process"}
         </span>
-        {!expanded && props.text && (
+        {isRunning && (
+          <span className="inline-block w-1.5 h-3 bg-primary/50 animate-pulse ml-0.5" />
+        )}
+        {!expanded && !isRunning && props.text && (
           <span className="text-muted-foreground/60 truncate max-w-[200px]">
             {props.text.slice(0, 60)}...
           </span>
@@ -207,6 +218,7 @@ function ReasoningPartRenderer(props: ReasoningMessagePartProps) {
       {expanded && (
         <div className="mt-1.5 pl-4 border-l-2 border-border/40 text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap">
           {props.text}
+          {isRunning && <span className="inline-block w-1.5 h-3 bg-primary/40 animate-pulse ml-0.5 align-middle" />}
         </div>
       )}
     </div>

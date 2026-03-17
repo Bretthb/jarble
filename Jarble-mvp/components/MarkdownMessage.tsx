@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 
 export default function MarkdownMessage({ content }: { content: string }) {
   return (
+    <div className="break-words overflow-hidden" style={{ overflowWrap: "anywhere" }}>
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
@@ -25,7 +26,7 @@ export default function MarkdownMessage({ content }: { content: string }) {
           const isBlock = className?.includes("language-");
           if (isBlock) {
             return (
-              <pre className="rounded-lg bg-secondary p-3 my-2 overflow-x-auto text-xs">
+              <pre className="rounded-lg bg-secondary p-3 my-2 overflow-x-auto text-xs max-w-full">
                 <code>{children}</code>
               </pre>
             );
@@ -51,5 +52,6 @@ export default function MarkdownMessage({ content }: { content: string }) {
     >
       {content}
     </ReactMarkdown>
+    </div>
   );
 }

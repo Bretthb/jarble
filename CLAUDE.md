@@ -61,7 +61,7 @@ cd Jarble-mvp && npm run dev
 ```
 
 ## Tech Stack
-- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind v4, shadcn/ui, @assistant-ui/react, recharts, @xyflow/react, Monaco Editor
+- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind v4, shadcn/ui, @assistant-ui/react, recharts, @xyflow/react, Monaco Editor, shiki (syntax highlighting)
 - **API**: Express, tRPC, SuperJSON, Drizzle ORM
 - **MCP**: Custom stdio MCP server (`jarble-ui-server.js`) — `render_ui`, `define_component`, `list_components`, `component_reference`, `skill_reference`
 - **Database**: MySQL (prod), PostgreSQL (alt), SQLite (dev with USE_SQLITE=true)
@@ -74,8 +74,42 @@ cd Jarble-mvp && npm run dev
 ## Frontend-Backend Communication
 - **tRPC + React Query**: Type-safe API calls with automatic caching
 - **SSE Streams**: Real-time status (`useStatusStream`), logs (`useLogStream`), QR pairing (`useQrStream`)
-- **Chat SSE**: `POST /api/tambo-agent` streams bot responses (text deltas + UI blocks)
+- **Chat SSE**: `POST /api/tambo-agent` streams bot responses (text deltas + UI blocks + reasoning events)
 - **Auth0 Bearer tokens**: Automatically attached via tRPC link headers
+
+## Chat UX Features
+
+### Stop Generation
+Users can stop a running generation mid-stream. The send button transforms to a filled square stop button when streaming. Partial text is preserved as an assistant message. Users can also type and send a new message while the bot is responding — this auto-aborts the current generation and starts the new one.
+
+### Message Edit + Resend
+Users can hover over their messages to see a pencil icon. Clicking it opens an inline editor (powered by assistant-ui's `ActionBarPrimitive.Edit`). Editing truncates the conversation after that message and resends with the new text. Wired via `onEdit` callback in `useExternalStoreRuntime`.
+
+### Conversation History Sidebar
+Multi-conversation system backed by localStorage (`Jarble-mvp/lib/conversationStorage.ts`). Each conversation maps to a separate OpenClaw session via `conversationId` in the API request body → `sessionKey` in `tamboAgent.ts`. Toggle via `MessageSquareText` icon in header. Features:
+- **Storage**: Index at `jarble-conversations-{deploymentId}`, messages at `jarble-conv-{deploymentId}-{convId}`. 20 conv max, 100 msg each, 7-day expiry.
+- **Legacy migration**: `migrateFromLegacy()` transparently converts old `jarble-chat-{deploymentId}` keys on first load.
+- **Auto-title**: First user message (truncated to 50 chars) becomes the conversation title.
+- **Session isolation**: Each conversation gets its own OpenClaw session (`jarble-web-{userId}-{convId}`), so "New Chat" starts fresh.
+- **KeyedChatPanel**: The chat panel (`AssistantUIChat` + `useJarbleRuntime`) is wrapped in `KeyedChatPanel` keyed by `activeConversationId` to force full remount on switch, preventing assistant-ui index errors.
+
+### Streaming Reasoning (Think Tags)
+Bot reasoning streams live via `<think>` tags. The API (`tamboAgent.ts`) has a `createReasoningTracker()` that parses `<think>`/`<reasoning>` tags from the LLM response and emits `REASONING_START`/`REASONING_CONTENT`/`REASONING_END` SSE events. Frontend streams reasoning via rAF-based typewriter reveal. The system prompt in `openclaw.ts` instructs the bot to ALWAYS emit `<think>` tags before responding.
+
+### Typewriter Text Reveal
+Bot text streams character-by-character via a typewriter animation (`CHARS_PER_FRAME = 8` at 60fps ≈ 480 chars/sec). Target text accumulates instantly from SSE deltas; displayed text catches up progressively per animation frame. Prevents the "wall of text appearing at once" effect.
+
+### Component Edit Sync
+User edits to canvas components (code blocks, sandboxes, forms) are tracked and communicated to the bot:
+- **`content_edit` action**: Components emit `dispatch({ action: "content_edit", payload: { code: newCode } })` via `useCanvasAction()`. The `handleAction` callback in `page.tsx` catches this and dispatches `UPDATE_CARD_PROPS` silently (no chat message).
+- **Card content snapshot**: When the user selects a card and sends a message, `getCardContentSnapshot()` extracts the card's current content (code, HTML/CSS/JS, form values) and includes it in the `[EDITING cardId]` reference block sent to the bot.
+- **Editable code blocks**: `CanvasCodeBlock` has a pencil toggle for inline editing with Tab indent, Ctrl+S save, Escape cancel.
+
+### Canvas Card Controls
+Card actions (Ask, Select, Split, Save, Publish, Close) are accessed via:
+- **Right-click context menu** on any card — renders at cursor position
+- **Small `...` button** in top-right corner on hover — opens same menu
+- Context menu renders at the canvas root level (not inside cards) to avoid CSS transform positioning issues
 
 ## Path Aliases & Zod Version Split
 
@@ -116,6 +150,18 @@ cd Jarble-mvp && npm run dev
 
 ### Config-Driven UI
 Wizard steps and config tabs driven by `Jarble-mvp/views/onboarding/wizardStepConfig.ts`. Adding a new runtime only requires config changes + component implementation.
+
+### Key Chat/Canvas Files
+| File | Purpose |
+|------|---------|
+| `hooks/useCanvasChat.ts` | Chat hook — streaming, conversation management, stop/edit, typewriter reveal |
+| `lib/assistantRuntime.ts` | assistant-ui ExternalStoreRuntime — onNew, onCancel, onEdit, streaming message |
+| `lib/conversationStorage.ts` | localStorage multi-conversation CRUD, legacy migration |
+| `components/chat/AssistantUIChat.tsx` | Thread UI — user/assistant bubbles, reasoning renderer, edit button |
+| `components/workspace/ConversationHistoryPanel.tsx` | Conversation sidebar — list, new chat, delete, switch |
+| `components/workspace/SimpleCanvasGrid.tsx` | Freeform canvas — card rendering, context menu, drag/resize |
+| `components/canvas/CanvasActionContext.tsx` | Action dispatch context — `content_edit`, UI actions |
+| `components/canvas/components/CanvasCodeBlock.tsx` | Code block — shiki highlighting, inline edit, copy |
 
 ## Environment Variables
 

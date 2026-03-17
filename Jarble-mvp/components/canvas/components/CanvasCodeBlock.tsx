@@ -1,7 +1,8 @@
 "use client";
 
-import { memo, useState } from "react";
-import { motion } from "framer-motion";
+import { memo, useState, useEffect, useRef, useCallback } from "react";
+import { Copy, Check, ChevronDown, ChevronUp, Pencil, Eye } from "lucide-react";
+import { useCanvasAction } from "@/components/canvas/CanvasActionContext";
 
 export interface CanvasCodeBlockProps {
   code: string;
@@ -9,87 +10,228 @@ export interface CanvasCodeBlockProps {
   title?: string;
 }
 
-function CopyIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="4.5" y="4.5" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M9.5 4.5V3a1.5 1.5 0 00-1.5-1.5H3A1.5 1.5 0 001.5 3v5A1.5 1.5 0 003 9.5h1.5" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  );
-}
+const LANG_ALIASES: Record<string, string> = {
+  js: "javascript",
+  ts: "typescript",
+  py: "python",
+  rb: "ruby",
+  sh: "bash",
+  shell: "bash",
+  yml: "yaml",
+  md: "markdown",
+  rs: "rust",
+  cs: "csharp",
+  cpp: "cpp",
+  "c++": "cpp",
+  kt: "kotlin",
+  tf: "hcl",
+  dockerfile: "docker",
+};
 
-function CheckIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M3 7.5l3 3L11 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+function resolveLanguage(lang?: string): string {
+  if (!lang) return "text";
+  const lower = lang.toLowerCase().trim();
+  return LANG_ALIASES[lower] || lower;
 }
 
 function CanvasCodeBlockInner({ code, language, title }: CanvasCodeBlockProps) {
   const [copied, setCopied] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(code);
+  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const resolvedLang = resolveLanguage(language);
+  const lines = (editing ? editValue : code).split("\n");
+  const lineCount = lines.length;
+
+  let actionCtx: ReturnType<typeof useCanvasAction> | null = null;
+  try { actionCtx = useCanvasAction(); } catch { /* not in a CanvasActionProvider */ }
+
+  // Sync editValue when code prop changes from outside (bot update)
+  useEffect(() => {
+    if (!editing) setEditValue(code);
+  }, [code, editing]);
+
+  // Async syntax highlighting via shiki
+  useEffect(() => {
+    if (editing) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { codeToHtml } = await import("shiki");
+        const html = await codeToHtml(code, {
+          lang: resolvedLang,
+          theme: "github-dark-default",
+        });
+        if (!cancelled) setHighlightedHtml(html);
+      } catch {
+        if (!cancelled) setHighlightedHtml(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [code, resolvedLang, editing]);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(code).then(() => {
+    navigator.clipboard.writeText(editing ? editValue : code).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
   };
 
-  const lines = code.split("\n");
+  const handleStartEdit = () => {
+    setEditValue(code);
+    setEditing(true);
+    setCollapsed(false);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+
+  const handleSaveEdit = useCallback(() => {
+    if (editValue === code) {
+      setEditing(false);
+      return;
+    }
+    // Dispatch content_edit to update card props silently
+    if (actionCtx) {
+      actionCtx.dispatch({ action: "content_edit", payload: { code: editValue } });
+    }
+    setEditing(false);
+  }, [editValue, code, actionCtx]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Ctrl/Cmd+S to save
+    if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+      e.preventDefault();
+      handleSaveEdit();
+    }
+    // Escape to cancel
+    if (e.key === "Escape") {
+      setEditValue(code);
+      setEditing(false);
+    }
+    // Tab to indent
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const newVal = editValue.slice(0, start) + "  " + editValue.slice(end);
+      setEditValue(newVal);
+      requestAnimationFrame(() => {
+        ta.selectionStart = ta.selectionEnd = start + 2;
+      });
+    }
+  };
 
   return (
-    <motion.div
+    <div
       role="region"
-      aria-label={`Code${language ? `: ${language}` : ""}${title ? ` - ${title}` : ""}`}
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="h-full overflow-hidden rounded-xl bg-zinc-950 border border-zinc-800/60"
+      aria-label={`Code${language ? `: ${language}` : ""}${title ? ` — ${title}` : ""}`}
+      className="h-full flex flex-col overflow-hidden rounded-xl bg-[#0d1117] border border-zinc-800/50"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800/60 bg-zinc-900/80">
-        <div className="flex items-center gap-2">
-          {/* macOS-style dots */}
-          <div className="flex items-center gap-1.5 mr-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-            <span className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-            <span className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-800/50 bg-[#161b22]">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="w-[10px] h-[10px] rounded-full bg-[#ff5f57]" />
+            <span className="w-[10px] h-[10px] rounded-full bg-[#febc2e]" />
+            <span className="w-[10px] h-[10px] rounded-full bg-[#28c840]" />
           </div>
           {title && (
-            <span className="text-xs font-medium text-zinc-400">{title}</span>
+            <span className="text-[11px] font-medium text-zinc-400 truncate">{title}</span>
+          )}
+          {editing && (
+            <span className="text-[9px] font-medium text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">EDITING</span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 shrink-0">
           {language && (
-            <span className="inline-flex items-center rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-              {language}
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider text-zinc-500 bg-zinc-800/60">
+              {resolvedLang}
             </span>
+          )}
+          <span className="text-[9px] text-zinc-600 tabular-nums">{lineCount} line{lineCount !== 1 ? "s" : ""}</span>
+          {!editing && lineCount > 20 && (
+            <button
+              onClick={() => setCollapsed((v) => !v)}
+              className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+              title={collapsed ? "Expand" : "Collapse"}
+            >
+              {collapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+            </button>
+          )}
+          {/* Edit / View toggle */}
+          {editing ? (
+            <button
+              onClick={handleSaveEdit}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-green-400 hover:text-green-300 hover:bg-green-900/30 transition-colors"
+              title="Save changes (Ctrl+S)"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>Save</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleStartEdit}
+              className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+              title="Edit code"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
           )}
           <button
             onClick={handleCopy}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+            title="Copy code"
           >
-            {copied ? <CheckIcon /> : <CopyIcon />}
-            {copied ? "Copied" : "Copy"}
+            {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
 
-      {/* Code with line numbers */}
-      <pre className="overflow-x-auto text-[13px] leading-relaxed">
-        <code className="block py-3">
-          {lines.map((line, i) => (
-            <div key={i} className="flex hover:bg-zinc-800/40 transition-colors">
-              <span className="shrink-0 w-10 text-right pr-4 text-zinc-600 select-none text-xs leading-relaxed">
-                {i + 1}
-              </span>
-              <span className="text-zinc-200 pr-4">{line || " "}</span>
-            </div>
-          ))}
-        </code>
-      </pre>
-    </motion.div>
+      {/* Code body */}
+      {!collapsed && (
+        <div className="flex-1 overflow-auto min-h-0">
+          {editing ? (
+            <textarea
+              ref={textareaRef}
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onBlur={handleSaveEdit}
+              spellCheck={false}
+              className="w-full h-full min-h-[200px] bg-transparent text-[13px] leading-[1.6] p-3 text-zinc-200 font-mono resize-none outline-none border-none"
+              style={{ tabSize: 2 }}
+            />
+          ) : highlightedHtml ? (
+            <div
+              className="shiki-code-block text-[13px] leading-[1.6] p-3 [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_code]:!bg-transparent"
+              dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+            />
+          ) : (
+            <pre className="text-[13px] leading-[1.6] p-3 text-zinc-300">
+              <code>
+                {lines.map((line, i) => (
+                  <div key={i} className="flex hover:bg-zinc-800/30 transition-colors">
+                    <span className="shrink-0 w-8 text-right pr-3 text-zinc-600 select-none text-xs leading-[1.6]">
+                      {i + 1}
+                    </span>
+                    <span className="flex-1">{line || " "}</span>
+                  </div>
+                ))}
+              </code>
+            </pre>
+          )}
+        </div>
+      )}
+
+      {collapsed && (
+        <div className="px-3 py-2 text-[11px] text-zinc-600 italic">
+          {lineCount} lines collapsed
+        </div>
+      )}
+    </div>
   );
 }
 
