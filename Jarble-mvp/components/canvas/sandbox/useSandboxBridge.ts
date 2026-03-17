@@ -370,8 +370,9 @@ export function useSandboxBridge(config: SandboxBridgeConfig): SandboxBridgeStat
 
       if (e.data?.type === "jarble:set-title" && cardId) {
         const newTitle = String(e.data.title || "").slice(0, 100);
-        if (newTitle) {
-          isDev && console.log(`${logPrefix} Title update requested:`, newTitle);
+        if (newTitle && canvasDispatch) {
+          isDev && console.log(`${logPrefix} Title update:`, newTitle);
+          canvasDispatch({ type: "RENAME_CARD", id: cardId, title: newTitle });
         }
       }
     },

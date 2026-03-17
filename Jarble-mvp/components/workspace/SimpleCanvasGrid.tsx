@@ -9,7 +9,7 @@
  */
 
 import { memo, useCallback, useState, useRef, useEffect, type ReactNode, type KeyboardEvent } from "react";
-import { X, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Ungroup, Group, LayoutGrid, Upload, ZoomIn, ZoomOut, Sparkles, SendHorizontal, MoreVertical } from "lucide-react";
+import { X, MousePointerClick, Bookmark, Loader2, Check, Grid3X3, SplitSquareHorizontal, Ungroup, Upload, ZoomIn, ZoomOut, Sparkles, SendHorizontal, MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth0 } from "@auth0/auth0-react";

@@ -976,6 +976,8 @@ const FIELD_ALIAS_RULES: FieldAliasRule[] = [
   { components: ["text_message"], from: "assistant_message", to: "botText", rule: "field-assistant-to-botText" },
   { components: ["text_message"], from: "user_message", to: "userText", rule: "field-user_message-to-userText" },
   { components: ["text_message"], from: "user_text", to: "userText", rule: "field-user_text-to-userText" },
+  // Rule 35: data_table headers→columns — LLMs use "headers" instead of "columns"
+  { components: ["data_table"], from: "headers", to: "columns", rule: "field-headers-to-columns" },
 ];
 
 function applyFieldAliases(

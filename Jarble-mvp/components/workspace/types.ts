@@ -122,6 +122,7 @@ export type CanvasAction =
   | { type: "CREATE_DASHBOARD_GROUP"; groupId: string; title: string; cardIds: string[] }
   | { type: "UNGROUP_DASHBOARD"; groupId: string }
   | { type: "AUTO_HEIGHT_CARD"; id: string; height: number }
+  | { type: "RENAME_CARD"; id: string; title: string }
   | { type: "ADD_STROKE"; stroke: DrawStroke }
   | { type: "REMOVE_STROKE"; id: string }
   | { type: "CLEAR_STROKES" };

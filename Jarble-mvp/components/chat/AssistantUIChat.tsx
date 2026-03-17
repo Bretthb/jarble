@@ -13,16 +13,14 @@ import {
   AssistantRuntimeProvider,
   ThreadPrimitive,
   MessagePrimitive,
-  ComposerPrimitive,
   ActionBarPrimitive,
   SuggestionPrimitive,
   useMessage,
-  useMessagePartReasoning,
   type AssistantRuntime,
   type TextMessagePartProps,
   type ReasoningMessagePartProps,
 } from "@assistant-ui/react";
-import { Sparkles, SendHorizontal, Loader2, Copy, Pencil, RotateCcw, ChevronRight } from "lucide-react";
+import { Sparkles, Copy, Pencil, RotateCcw, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
 

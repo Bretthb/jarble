@@ -647,6 +647,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   const originalEnd = res.end.bind(res);
   res.end = ((...args: any[]) => {
     cleanupTimers();
+    markDeploymentIdle(deploymentId);
     return originalEnd(...args);
   }) as typeof res.end;
 

@@ -394,6 +394,14 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
     case "CLEAR_CANVAS":
       return { ...INITIAL_CANVAS_STATE, mode: state.mode, strokes: [] };
 
+    case "RENAME_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, title: action.title } : c
+        ),
+      };
+
     case "ADD_STROKE":
       return { ...state, strokes: [...state.strokes, action.stroke] };
 

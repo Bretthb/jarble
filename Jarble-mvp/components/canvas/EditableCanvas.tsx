@@ -65,13 +65,21 @@ export default function EditableCanvas({
   }, []);
 
   // Sync displayProps when block.props changes externally,
-  // but not if the user just saved local edits (those take precedence)
+  // but not if the user just saved local edits (those take precedence).
+  // Reset hasSavedLocally after a short delay so future bot updates are accepted.
   useEffect(() => {
     if (!isEditing && !hasSavedLocally) {
       isDev && console.log("[Jarble:Editable] Syncing displayProps from block.props for:", block.component);
       setDisplayProps(block.props);
     }
   }, [block.props, isEditing, hasSavedLocally]);
+
+  // Auto-reset hasSavedLocally after 2 seconds so bot updates resume
+  useEffect(() => {
+    if (!hasSavedLocally) return;
+    const timer = setTimeout(() => setHasSavedLocally(false), 2000);
+    return () => clearTimeout(timer);
+  }, [hasSavedLocally]);
 
   const handleEdit = useCallback(() => {
     isDev && console.log("[Jarble:Editable] Entering edit mode for:", block.component, block.id);

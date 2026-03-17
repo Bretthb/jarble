@@ -306,8 +306,8 @@ export function buildDocument(
 ${themeVarDeclarations}
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
-    canvas { display: block; width: 100% !important; height: 100% !important; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: transparent; overflow: auto; }
+    canvas { display: block; max-width: 100%; max-height: 100%; }
 ${skinCSS}
   `;
 

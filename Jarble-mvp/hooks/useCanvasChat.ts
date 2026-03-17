@@ -88,6 +88,8 @@ export function useCanvasChat(
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeConvRef = useRef<string | null>(null);
   activeConvRef.current = activeConversationId;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   // Track streaming card animation timers so we can clear them on unmount
   const cardTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   // Keep a live ref to state so the SSE handler always reads the latest cards (avoids stale closure)
@@ -260,7 +262,6 @@ export function useCanvasChat(
       const messageId = `msg-${Date.now()}`;
       let accumulatedText = "";
       let reasoningText = "";
-      let inReasoning = false;
       const streamStart = Date.now();
       let eventCount = 0;
 
@@ -409,16 +410,13 @@ export function useCanvasChat(
 
               // ── Reasoning / thinking events ──
               if (event.type === "REASONING_START") {
-                inReasoning = true;
                 reasoningText = "";
               }
               if (event.type === "REASONING_CONTENT" && event.delta) {
                 reasoningText += event.delta;
                 scheduleReasoningUpdate(reasoningText);
               }
-              if (event.type === "REASONING_END") {
-                inReasoning = false;
-              }
+              // REASONING_END is handled implicitly — reasoning text already accumulated
 
               // ── AG-UI TOOL_CALL events (new — component rendering as tool calls) ──
               if (event.type === "TOOL_CALL_START" && event.toolCallName?.startsWith("show_")) {
@@ -674,17 +672,22 @@ export function useCanvasChat(
         abortRef.current?.abort();
         await new Promise((r) => setTimeout(r, 0));
       }
-      const idx = messages.findIndex((m) => m.id === messageId);
-      if (idx === -1) return;
-      setMessages((prev) => prev.slice(0, idx));
-      await sendMessage(newText);
+      // Use setter callback to avoid stale messages closure
+      let found = false;
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === messageId);
+        if (idx === -1) return prev;
+        found = true;
+        return prev.slice(0, idx);
+      });
+      if (found) await sendMessage(newText);
     },
-    [messages, sendMessage]
+    [sendMessage]
   );
 
   const switchConversation = useCallback((id: string) => {
     if (isStreamingRef.current || id === activeConvRef.current) return;
-    flushMessages(activeConvRef.current, messages);
+    flushMessages(activeConvRef.current, messagesRef.current);
     const saved = loadConversationMessages(deploymentId, id);
     setMessages(saved);
     setActiveConversationId(id);
@@ -692,18 +695,18 @@ export function useCanvasChat(
     index.activeId = id;
     saveConversationIndex(deploymentId, index);
     dispatch({ type: "CLEAR_CANVAS" });
-  }, [deploymentId, messages, dispatch, flushMessages]);
+  }, [deploymentId, dispatch, flushMessages]);
 
   const newConversation = useCallback(() => {
     if (isStreamingRef.current) return;
-    flushMessages(activeConvRef.current, messages);
+    flushMessages(activeConvRef.current, messagesRef.current);
     const meta = createConversation(deploymentId);
     const index = loadConversationIndex(deploymentId);
     setConversations([...index.conversations]);
     setActiveConversationId(meta.id);
     setMessages([]);
     dispatch({ type: "CLEAR_CANVAS" });
-  }, [deploymentId, messages, dispatch, flushMessages]);
+  }, [deploymentId, dispatch, flushMessages]);
 
   const removeConversation = useCallback((id: string) => {
     if (isStreamingRef.current) return;
