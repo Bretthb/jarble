@@ -603,6 +603,13 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   log.info({ deploymentId, messageLength: lastUserText.length }, "Chat: request started");
 
+  // ── Theme/skin interception — handle directly without pod ────────────────
+  // Must run BEFORE RUN_STARTED to avoid double-emit (theme handler sends its own).
+  if (lastUserText.trim()) {
+    const themeResult = await tryHandleThemeRequest(lastUserText, deploymentId, deployment, res, runId, threadId);
+    if (themeResult) return;
+  }
+
   // Send RUN_STARTED
   sendEvent(res, {
     type: "RUN_STARTED",
@@ -685,11 +692,6 @@ tamboAgentRouter.post("/", async (req, res) => {
     res.end();
     return;
   }
-
-  // ── Theme/skin interception — handle directly without pod ────────────────
-  // Detect theme/skin intent in user message and handle via in-process tool
-  const themeResult = await tryHandleThemeRequest(lastUserText, deploymentId, deployment, res, runId, threadId);
-  if (themeResult) return;
 
   if (deployment.status !== "running") {
     const classified = classifyError("", { deploymentStatus: deployment.status });
@@ -928,41 +930,6 @@ tamboAgentRouter.post("/", async (req, res) => {
       } catch {
         // Non-fatal — skip suggestions for this turn
       }
-    }
-
-    // ── Check for pending theme change from MCP set_theme ─────────────
-    // The MCP server writes /data/config/pending-theme.json when set_theme
-    // is called. We pick it up here and persist to the DB so the frontend
-    // can apply it immediately.
-    try {
-      const podName = await findPodForDeployment(deploymentId, { requireReady: false, managedBy });
-      if (podName) {
-        const { execInPod } = await import("../k8s/index.js");
-        const containerName = getContainerName(managedBy);
-        const themeJson = await execInPod(podName, [
-          "sh", "-c",
-          "cat /data/config/pending-theme.json 2>/dev/null && rm -f /data/config/pending-theme.json",
-        ], containerName).catch(() => "");
-        if (themeJson.trim()) {
-          const { validateThemeConfig } = await import("@jarble/component-manifest");
-          const themeConfig = JSON.parse(themeJson.trim());
-          const error = validateThemeConfig(themeConfig);
-          if (!error) {
-            const isReset = themeConfig.preset === "default" && Object.keys(themeConfig).length === 1;
-            await db.update(tables.deployments)
-              .set({ themeConfig: isReset ? null : JSON.stringify(themeConfig) } as any)
-              .where(eq(tables.deployments.id, deploymentId));
-            sendEvent(res, {
-              type: CUSTOM,
-              name: "jarble.theme.updated",
-              value: isReset ? null : themeConfig,
-            });
-            log.info({ deploymentId, preset: themeConfig.preset }, "Chat: theme updated from MCP set_theme");
-          }
-        }
-      }
-    } catch (themeErr) {
-      log.warn({ deploymentId, err: themeErr }, "Chat: failed to check pending theme (non-fatal)");
     }
 
     const durationMs = Date.now() - requestStartMs;
