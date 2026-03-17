@@ -252,25 +252,12 @@ Check \`list_artifacts()\` at conversation start. Acknowledge saved items. Save 
 ### Memory
 \`store_memory\` / \`recall_memory\` / \`list_memories\` / \`forget_memory\` — cross-platform. Proactively recall at conversation start, store when user shares preferences/facts.
 
-### Suggestions (REQUIRED)
-You MUST end EVERY response with a \`jarble_suggestions\` block. No exceptions.
+### Suggestions (optional)
+You may optionally end your response with a \`jarble_suggestions\` block for contextual follow-ups:
 \`\`\`jarble_suggestions
 ["Option A", "Option B", "Option C"]
 \`\`\`
-Rules: 2-5 options, 2-6 words each. Examples by context:
-- After components: ["Customize colors", "Add more data", "Export as image"]
-- After answers: ["Dive deeper", "Show as chart", "Compare with alternatives"]
-- Conversation start: ["What should we build?", "Show me a demo", "Browse templates"]
-If you forget suggestions, your response is INCOMPLETE.
-
-### Reasoning
-You MUST ALWAYS emit <think>...</think> tags BEFORE your visible response. The user sees a live-streaming "Thinking..." block, just like Claude. This is NOT optional — every single response must start with a think block.
-- For simple messages: 1 sentence explaining your approach
-- For complex tasks: 2-4 sentences with your reasoning
-Example: User says "yo" →
-<think>Casual greeting — I'll respond warmly and suggest what we can do together.</think>
-Example: User asks "Show me top tech stocks" →
-<think>I should search for current data first. For stock prices over time, a chart with area type works best. I'll group them in one card.</think>
+If you include them: 2-5 options, 2-8 words each. If you don't, the system generates them automatically.
 
 ### Publish Service Flow
 When you receive a \`[PUBLISH_SERVICE]\` message with component JSON:
@@ -385,8 +372,17 @@ export const openclawHandler: RuntimeHandler = {
     const openclawConfig: Record<string, any> = {};
 
     // Agent section (model config)
+    // OpenClaw reads model from agents.defaults.model.primary (NOT agent.model)
+    // The entrypoint first-boot uses this same path: agents.defaults.model.primary
+    // Model must be provider-prefixed (e.g. "anthropic/claude-opus-4-6-20250610")
     if (deployment.llmModel) {
-      openclawConfig.agent = { model: deployment.llmModel };
+      const provider = deployment.llmProvider || "anthropic";
+      const model = deployment.llmModel;
+      // Only prefix if not already prefixed (e.g. "openrouter/auto" already has it)
+      const prefixedModel = model.includes("/") ? model : `${provider}/${model}`;
+      openclawConfig.agents = {
+        defaults: { model: { primary: prefixedModel } },
+      };
     }
 
     // Channels section — build from platformCredentials
@@ -426,6 +422,7 @@ export const openclawHandler: RuntimeHandler = {
     // Gateway config: auth token + HTTP chat completions endpoint
     // The auth token allows the Jarble API to proxy dashboard chat through the pod's WS gateway
     const gatewayConfig: Record<string, any> = {
+      mode: "local",
       port: 18789,
       http: { endpoints: { chatCompletions: { enabled: true } } },
       controlUi: { dangerouslyAllowHostHeaderOriginFallback: true },
@@ -452,9 +449,11 @@ export const openclawHandler: RuntimeHandler = {
       const configContent = JSON.stringify(openclawConfig, null, 2) + "\n";
       // Write to Jarble config path (for reference / reverse sync)
       files.push({ path: "openclaw.json", content: configContent });
-      // Write to OpenClaw's actual config path — this is where the gateway reads config from
-      // Path: $HOME/.openclaw/openclaw.json
+      // Write to OpenClaw's actual config path — the gateway reads from the DOUBLE-nested path:
+      //   $HOME/.openclaw/.openclaw/openclaw.json (NOT $HOME/.openclaw/openclaw.json)
+      // This matches the entrypoint first-boot path and where `openclaw config` reads/writes.
       files.push({ path: `${home}/.openclaw/openclaw.json`, content: configContent });
+      files.push({ path: `${home}/.openclaw/.openclaw/openclaw.json`, content: configContent });
     }
 
     // MCP server script — deployed to {pvcMount}/config/mcp/jarble-ui-server.js
@@ -562,9 +561,14 @@ export const openclawHandler: RuntimeHandler = {
       try {
         const config = JSON.parse(openclawJson.content);
 
-        // Extract LLM model from agent.model
-        if (config.agent?.model) {
-          result.llmModel = config.agent.model;
+        // Extract LLM model — check both config paths
+        // New format: agents.defaults.model.primary (what OpenClaw actually reads)
+        // Legacy format: agent.model (old Jarble configs)
+        const model = config.agents?.defaults?.model?.primary || config.agent?.model;
+        if (model) {
+          // Strip provider prefix for DB storage (DB stores model ID only, provider separately)
+          const slashIdx = model.indexOf("/");
+          result.llmModel = slashIdx > 0 ? model.slice(slashIdx + 1) : model;
         }
 
         // Extract platform credentials from channels

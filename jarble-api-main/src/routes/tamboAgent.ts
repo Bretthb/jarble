@@ -35,6 +35,8 @@ import {
   type ComponentDefinition,
 } from "../utils/componentResolver.js";
 import { classifyError } from "../utils/chatErrors.js";
+import { generateSuggestions } from "../services/suggestions.js";
+import { generateReasoning } from "../services/reasoning.js";
 import {
   TOOL_CALL_START,
   TOOL_CALL_ARGS,
@@ -709,25 +711,63 @@ tamboAgentRouter.post("/", async (req, res) => {
   const convId = body.conversationId || "";
   const sessionKey = `jarble-web-${authenticatedUserId || "anon"}${convId ? `-${convId}` : ""}`;
 
-  // Reasoning tag tracker — splits <think>/<reasoning> content from visible text
+  // ── External reasoning (GPT-4o-mini) ──────────────────────────────────────
+  // Fire immediately — resolves in ~1-2s while bot call takes 5-60s.
+  // Emits REASONING_START/CONTENT/END events before or alongside bot text.
+  const reasoningMsgId = nanoid();
+  let externalReasoningEmitted = false;
+  const reasoningPromise = generateReasoning(lastUserText);
+
+  /** Emit external reasoning events (once). Resolves when reasoning is sent. */
+  const emitExternalReasoning = async () => {
+    if (externalReasoningEmitted) return;
+    try {
+      const reasoning = await reasoningPromise;
+      if (reasoning && !externalReasoningEmitted) {
+        externalReasoningEmitted = true;
+        sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
+        sendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta: reasoning });
+        sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
+      }
+    } catch {
+      // Non-fatal — skip reasoning
+    }
+  };
+
+  // Reasoning tag tracker — still parses <think>/<reasoning> tags from bot text
+  // as a fallback. If external reasoning was already emitted, tag-based reasoning
+  // is suppressed to avoid duplicates.
   const reasoningTracker = createReasoningTracker();
-  const reasoningMsgId = nanoid(); // Stable ID for reasoning events within this run
 
   /** Process a streaming text delta through the reasoning tracker and emit appropriate events. */
   const emitStreamingDelta = (fullTextSoFar: string) => {
     const visibleDelta = reasoningTracker.process(fullTextSoFar, {
       onReasoningStart: () => {
-        sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
+        if (!externalReasoningEmitted) {
+          sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
+        }
       },
       onReasoningContent: (delta) => {
-        sendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta });
+        if (!externalReasoningEmitted) {
+          sendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta });
+        }
       },
       onReasoningEnd: () => {
-        sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
+        if (!externalReasoningEmitted) {
+          sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
+        }
       },
     });
     if (visibleDelta) {
-      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: visibleDelta });
+      // Strip jarble_suggestions blocks from streaming text so they don't render
+      // as code blocks in chat. The suggestions are extracted separately on the
+      // final response and emitted as CUSTOM_SUGGESTIONS events.
+      const cleaned = visibleDelta
+        .replace(/```jarble_suggestions\s*\n[\s\S]*?```/g, "")
+        .replace(/\n{3,}/g, "\n\n");
+      if (cleaned.trim()) {
+        sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: cleaned });
+      }
     }
     lastDeltaText = fullTextSoFar;
   };
@@ -744,22 +784,20 @@ tamboAgentRouter.post("/", async (req, res) => {
     }
 
     // If reasoning was still open when the response ended, close it
-    if (reasoningTracker.state.inReasoning && reasoningTracker.state.started) {
+    if (reasoningTracker.state.inReasoning && reasoningTracker.state.started && !externalReasoningEmitted) {
       sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
     }
 
     // For non-streaming paths (exec), reasoning tags may still be in rawText.
-    // Also handle reasoning blocks that arrived in a single non-streamed chunk.
-    // The tracker handles the streaming case; for the final result we also
-    // emit any reasoning that wasn't detected during streaming (e.g. exec path
-    // delivers everything at once and the tracker may not have been called).
-    const reasoningBlocks = extractReasoningBlocks(gatewayResult.rawText);
-    if (reasoningBlocks.length > 0 && !reasoningTracker.state.started) {
-      // Reasoning was present but never streamed — emit it as a batch
-      for (const block of reasoningBlocks) {
-        sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
-        sendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta: block });
-        sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
+    // Skip if external reasoning was already emitted (avoids duplicates).
+    if (!externalReasoningEmitted) {
+      const reasoningBlocks = extractReasoningBlocks(gatewayResult.rawText);
+      if (reasoningBlocks.length > 0 && !reasoningTracker.state.started) {
+        for (const block of reasoningBlocks) {
+          sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
+          sendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta: block });
+          sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
+        }
       }
     }
 
@@ -867,14 +905,29 @@ tamboAgentRouter.post("/", async (req, res) => {
       }
     }
 
-    // Emit suggestions if the bot included a jarble_suggestions block
+    // Emit suggestions — use bot's own suggestions if present, otherwise generate via secondary model
     if (gatewayResult.suggestions && gatewayResult.suggestions.length > 0) {
       sendEvent(res, {
         type: CUSTOM,
         name: CUSTOM_SUGGESTIONS,
         value: { suggestions: gatewayResult.suggestions.map(s => ({ prompt: s })) },
       });
-      log.debug({ deploymentId, count: gatewayResult.suggestions.length }, "Chat: emitted suggestions");
+      log.debug({ deploymentId, count: gatewayResult.suggestions.length, source: "bot" }, "Chat: emitted suggestions");
+    } else {
+      // Secondary model call — cheap GPT-4o-mini generates contextual follow-ups
+      try {
+        const generated = await generateSuggestions(lastUserText, gatewayResult.text);
+        if (generated.length > 0) {
+          sendEvent(res, {
+            type: CUSTOM,
+            name: CUSTOM_SUGGESTIONS,
+            value: { suggestions: generated.map(s => ({ prompt: s })) },
+          });
+          log.debug({ deploymentId, count: generated.length, source: "secondary" }, "Chat: emitted suggestions");
+        }
+      } catch {
+        // Non-fatal — skip suggestions for this turn
+      }
     }
 
     // ── Check for pending theme change from MCP set_theme ─────────────
@@ -943,6 +996,8 @@ tamboAgentRouter.post("/", async (req, res) => {
   if (useExecOnly) {
     try {
       log.debug({ deploymentId }, "Local dev: using exec-only path (skipping WS gateway)");
+      // Emit reasoning while bot processes (reasoning ~1-2s, bot ~5-60s)
+      await emitExternalReasoning();
       const result = await tryExec();
       await emitGatewayResult(result);
       return;
@@ -977,6 +1032,9 @@ tamboAgentRouter.post("/", async (req, res) => {
         res.end();
         return;
       }
+
+      // Emit reasoning before streaming starts (reasoning ~1-2s, gateway connects ~0.5s)
+      await emitExternalReasoning();
 
       const gatewayResult = await chatViaGateway(
         {

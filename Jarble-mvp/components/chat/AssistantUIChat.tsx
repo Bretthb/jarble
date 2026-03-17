@@ -14,7 +14,6 @@ import {
   ThreadPrimitive,
   MessagePrimitive,
   ActionBarPrimitive,
-  SuggestionPrimitive,
   useMessage,
   type AssistantRuntime,
   type TextMessagePartProps,
@@ -30,12 +29,16 @@ interface AssistantUIChatProps {
   runtime: AssistantRuntime;
   isStreaming: boolean;
   emptyState?: ReactNode;
+  suggestions?: Array<{ prompt: string; title?: string }>;
+  onSuggestionClick?: (prompt: string) => void;
 }
 
 function AssistantUIChatInner({
   runtime,
   isStreaming,
   emptyState,
+  suggestions = [],
+  onSuggestionClick,
 }: AssistantUIChatProps) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -56,12 +59,28 @@ function AssistantUIChatInner({
             }}
           />
 
-          {/* Suggestion pills — rendered below the last message */}
-          <div className="flex flex-wrap gap-2 px-4 py-2">
-            <ThreadPrimitive.Suggestions
-              components={{ Suggestion: SuggestionPill }}
-            />
-          </div>
+          {/* Suggestion pills — rendered directly from our state, bypassing assistant-ui store */}
+          {!isStreaming && suggestions.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-4 py-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => onSuggestionClick?.(s.prompt)}
+                  className={cn(
+                    "inline-flex items-center rounded-full px-3.5 py-1.5",
+                    "text-sm font-medium",
+                    "bg-secondary/60 hover:bg-secondary text-foreground",
+                    "border border-border/40 hover:border-border/60",
+                    "shadow-sm hover:shadow",
+                    "transition-all duration-200 cursor-pointer",
+                    "hover:scale-[1.02]",
+                  )}
+                >
+                  {s.title || s.prompt}
+                </button>
+              ))}
+            </div>
+          )}
         </ThreadPrimitive.Viewport>
 
         {/* Composer — rendered separately by parent to include selected card chip */}
@@ -223,23 +242,5 @@ function ReasoningPartRenderer(props: ReasoningMessagePartProps) {
   );
 }
 
-// ── Suggestion Pill ─────────────────────────────────────────────────────────
-
-function SuggestionPill() {
-  return (
-    <SuggestionPrimitive.Trigger
-      send
-      className={cn(
-        "inline-flex items-center rounded-full px-3.5 py-1.5",
-        "text-sm font-medium",
-        "bg-secondary/60 hover:bg-secondary text-foreground",
-        "border border-border/40 hover:border-border/60",
-        "shadow-sm hover:shadow",
-        "transition-all duration-200 cursor-pointer",
-        "hover:scale-[1.02]",
-      )}
-    >
-      <SuggestionPrimitive.Title />
-    </SuggestionPrimitive.Trigger>
-  );
-}
+// Suggestion pills are now rendered directly in AssistantUIChatInner
+// using our own state, bypassing assistant-ui's SuggestionPrimitive store.

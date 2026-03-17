@@ -617,6 +617,23 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
     // Either secrets were removed, or process restart wasn't supported.
     // Status is already "restarting" at this point.
 
+    // CRITICAL: Delete stale .env from PVC before restarting.
+    // The entrypoint sources /data/config/.env on every boot. If a previous
+    // Tier 2 sync wrote old values there, they would override the fresh K8s
+    // Secret env vars, causing model/key changes to not take effect.
+    try {
+      const podName = await findPodForDeployment(deploymentId, { managedBy });
+      if (podName) {
+        const containerName = getContainerName(managedBy);
+        const pvcMount = getPvcMountPath(managedBy);
+        await execInPod(podName, ["sh", "-c", `rm -f ${pvcMount}/config/.env`], containerName);
+        log.info({ deploymentId }, "ConfigSync: cleared stale .env before Tier 3 restart");
+      }
+    } catch {
+      // Pod may already be terminating — .env will be clean on next boot
+      // since the init container doesn't create one.
+    }
+
     // For operator mode, restartDeployment needs userId + config to recreate the CR
     log.info({ deploymentId, managedBy }, "ConfigSync: restarting deployment (full pod restart)");
     await restartDeployment(deploymentId, managedBy, deployment.userId, {
@@ -891,7 +908,7 @@ async function signalGatewayRestart(
   try {
     // Check if the new entrypoint is running (has PID file)
     const pidCheck = await execInPod(podName, [
-      "sh", "-c", `cat ${pvcMount}/.openclaw_pid 2>/dev/null || echo ""`,
+      "sh", "-c", `cat ${pvcMount}/.openclaw.pid 2>/dev/null || echo ""`,
     ], containerName);
 
     const pid = pidCheck.trim();

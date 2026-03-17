@@ -363,6 +363,41 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       };
     }
 
+    case "UNGROUP_CARD": {
+      const card = state.cards.find((c) => c.id === action.id);
+      if (!card || card.component !== "layout") return state;
+      const children = card.props.children;
+      if (!Array.isArray(children) || children.length < 2) return state;
+
+      const timestamp = Date.now();
+      const newCards: CanvasCard[] = [];
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i] as { component: string; props: Record<string, unknown> };
+        if (!child?.component) continue;
+        const offset = { x: (i % 3) * 340, y: Math.floor(i / 3) * 260 };
+        const size = DEFAULT_CARD_SIZES[child.component] || DEFAULT_CARD_SIZE;
+        newCards.push({
+          id: `${card.id}-ug-${i}-${timestamp}`,
+          component: child.component,
+          props: child.props || {},
+          position: { x: card.position.x + offset.x, y: card.position.y + offset.y },
+          size,
+          zIndex: state.nextZIndex + i,
+          minimized: false,
+          createdAt: timestamp,
+          title: (child.props?.title as string) || child.component.replace(/_/g, " "),
+        });
+      }
+
+      if (newCards.length === 0) return state;
+      if (process.env.NODE_ENV === "development") console.log(`[Jarble:Reducer] UNGROUP_CARD -> ${newCards.length} cards from layout`);
+      return {
+        ...state,
+        cards: [...state.cards.filter((c) => c.id !== action.id), ...newCards],
+        nextZIndex: state.nextZIndex + newCards.length,
+      };
+    }
+
     case "SAVE_CARD":
       return {
         ...state,

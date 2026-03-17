@@ -393,13 +393,17 @@ export async function chatViaExec(
 ): Promise<GatewayResponse> {
   log.info({ podName, messageLen: message.length }, "chatViaExec: falling back to npx openclaw agent");
 
+  // NOTE: Do NOT pass --thinking flag. OpenClaw 2026.2.x strips native thinking
+  // from --json output, so it's invisible to us. Instead we rely on <think> tags
+  // in the bot's text response (instructed via system prompt). The reasoning
+  // tracker in tamboAgent.ts parses those tags into REASONING_* SSE events.
   const output = await execInPod(podName, [
     "npx", "openclaw", "agent",
     "--message", message,
     "--session-id", sessionKey,
     "--json",
     "--timeout", "60",
-  ]);
+  ], undefined, 90_000); // 90s — cold start + LLM generation can take 30-60s
 
   // Parse JSON response (same as chatWithBot MCP tool)
   let parsed: any;
@@ -415,6 +419,12 @@ export async function chatViaExec(
   }
 
   const payloads = parsed.result?.payloads || parsed.payloads || [];
+  log.debug({
+    podName,
+    payloadCount: payloads.length,
+    model: parsed.result?.meta?.agentMeta?.model,
+  }, "chatViaExec: response structure");
+
   const rawText = payloads.map((p: any) => p.text || "").join("\n").trim();
 
   if (!rawText) {

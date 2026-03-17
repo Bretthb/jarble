@@ -14,7 +14,7 @@ import type { CanvasCard } from "./types";
 interface SelectionBranchProps {
   selectedCard: CanvasCard;
   zoom: number;
-  onSendMessage: (text: string, displayText?: string) => Promise<void>;
+  onSendMessage: (text: string, displayText?: string, mode?: "edit" | "branch") => Promise<void>;
   isChatStreaming: boolean;
 }
 
@@ -33,8 +33,9 @@ function SelectionBranchInner({
     if (!text || isChatStreaming) return;
 
     onSendMessage(
-      `[EDITING ${selectedCard.id}] Branch: ${text}`,
+      text,
       `Branch from card: ${text}`,
+      "branch",
     );
     setBranchPrompt("");
     setShowInput(false);

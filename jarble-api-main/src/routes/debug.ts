@@ -58,6 +58,112 @@ debugRouter.post("/deployment/:id/status", async (req, res) => {
   }
 });
 
+// Update OpenClaw version on a deployment's pod
+debugRouter.post("/deployment/:id/update-openclaw", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { version } = req.body || {};
+    const target = version || "latest";
+
+    const deployment = await db.query.deployments.findFirst({
+      where: eq(tables.deployments.id, id),
+    });
+    if (!deployment) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+    if (deployment.status !== "running") {
+      res.status(400).json({ error: `Deployment is ${deployment.status}, not running` });
+      return;
+    }
+
+    const managedBy = ((deployment as any).managedBy ?? "legacy") as any;
+    const { findPodForDeployment, execInPod } = await import("../k8s/index.js");
+    const podName = await findPodForDeployment(id, { managedBy });
+    if (!podName) {
+      res.status(503).json({ error: "No pod found" });
+      return;
+    }
+
+    // Get current version first
+    const { getContainerName } = await import("../k8s/constants.js");
+    const containerName = getContainerName(managedBy);
+    const currentVersion = await execInPod(podName, ["npx", "openclaw", "--version"], containerName, 10_000).catch(() => "unknown");
+
+    // Run npm install — needs sufficient memory (pods <1GB may OOM)
+    // Use --ignore-scripts --no-audit --no-fund to reduce overhead
+    const updateCmd = `cd /opt/openclaw && npm install openclaw@${target} --ignore-scripts --no-audit --no-fund 2>&1 | tail -10`;
+    let output: string;
+    try {
+      output = await execInPod(podName, ["sh", "-c", updateCmd], containerName, 120_000);
+    } catch (err: any) {
+      if (err.message?.includes("137") || err.message?.includes("OOM")) {
+        res.status(507).json({
+          error: "Out of memory during update",
+          suggestion: "Increase pod memory to 1GB+ in deployment config, restart, then retry. Or rebuild the Docker image with the new version.",
+          currentVersion: currentVersion.trim(),
+        });
+        return;
+      }
+      throw err;
+    }
+
+    // Get new version
+    const newVersion = await execInPod(podName, ["npx", "openclaw", "--version"], containerName, 10_000).catch(() => "unknown");
+
+    res.json({
+      success: true,
+      id,
+      previousVersion: currentVersion.trim(),
+      newVersion: newVersion.trim(),
+      target,
+      output: output.trim(),
+      note: "Restart the deployment to apply the update",
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Update failed", details: String(err) });
+  }
+});
+
+// Force restart a deployment (dev only — no auth)
+debugRouter.post("/deployment/:id/restart", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deployment = await db.query.deployments.findFirst({
+      where: eq(tables.deployments.id, id),
+    });
+    if (!deployment) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+    const { restartDeployment } = await import("../k8s/index.js");
+    const managedBy = ((deployment as any).managedBy ?? "legacy") as any;
+    await db.update(tables.deployments).set({ status: "restarting" }).where(eq(tables.deployments.id, id));
+    restartDeployment(id, managedBy, deployment.userId, {
+      name: deployment.name,
+      runtime: deployment.runtime,
+      image: (deployment as any).image,
+    }).then(async () => {
+      // Poll for readiness
+      const { getDeploymentPodStatus } = await import("../k8s/index.js");
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          const s = await getDeploymentPodStatus(id);
+          if (s.status === "running") {
+            await db.update(tables.deployments).set({ status: "running", error: null }).where(eq(tables.deployments.id, id));
+            return;
+          }
+        } catch {}
+      }
+      await db.update(tables.deployments).set({ status: "failed", error: "Pod did not recover" }).where(eq(tables.deployments.id, id));
+    }).catch(() => {});
+    res.json({ success: true, id, message: "Restart triggered" });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // Seed a test deployment for the currently authenticated user
 debugRouter.post("/seed-deployment", async (req, res) => {
   try {
@@ -790,6 +896,7 @@ debugRouter.post("/deployment/:id/chat", async (req, res) => {
       uiBlocks: result.uiBlocks,
       uiUpdates: result.uiUpdates,
       componentDefs: result.componentDefs,
+      suggestions: result.suggestions,
     });
   } catch (err) {
     res.status(500).json({ error: "Chat failed", details: String(err) });

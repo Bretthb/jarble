@@ -65,10 +65,19 @@ export function useJarbleRuntime({
   editMessage,
 }: JarbleRuntimeOptions) {
   // Build display messages: stored messages + optional streaming-in-progress message
+  // Deduplicate by id to prevent assistant-ui MessageRepository crashes from
+  // stale localStorage data containing duplicate message IDs.
   const displayMessages = useMemo(() => {
-    const all = [...messages];
+    const seen = new Set<string>();
+    const deduped: typeof messages = [];
+    for (const msg of messages) {
+      if (!seen.has(msg.id)) {
+        seen.add(msg.id);
+        deduped.push(msg);
+      }
+    }
     if (streamingText || streamingReasoning) {
-      all.push({
+      deduped.push({
         id: "streaming-in-progress",
         role: "assistant",
         content: streamingText,
@@ -76,7 +85,7 @@ export function useJarbleRuntime({
         ...(streamingReasoning ? { reasoning: streamingReasoning } : {}),
       });
     }
-    return all;
+    return deduped;
   }, [messages, streamingText, streamingReasoning]);
 
   const onNew = useCallback(

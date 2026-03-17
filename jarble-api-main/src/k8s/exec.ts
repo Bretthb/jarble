@@ -8,11 +8,14 @@ const log = createModuleLogger("k8s:exec");
 
 /**
  * Execute a command in a pod (no stdin, capture stdout/stderr).
+ * Defaults to a 15s timeout to prevent indefinite hangs when the
+ * K8s exec channel stalls (e.g. due to API server pressure).
  */
 export async function execInPod(
   podName: string,
   command: string[],
-  containerName: string = LEGACY_CONTAINER_NAME
+  containerName: string = LEGACY_CONTAINER_NAME,
+  timeoutMs: number = 15_000
 ): Promise<string> {
   log.debug({ podName, command: command.join(" ") }, "execInPod");
   const stdout = new stream.PassThrough();
@@ -25,6 +28,11 @@ export async function execInPod(
 
   try {
     await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        log.error({ podName, command: command.join(" "), timeoutMs }, "execInPod timed out");
+        reject(new Error(`execInPod timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
       execClient.exec(
         NAMESPACE,
         podName,
@@ -35,13 +43,17 @@ export async function execInPod(
         null,
         false,
         (status) => {
+          clearTimeout(timer);
           if (status.status === "Success") {
             resolve();
           } else {
             reject(new Error(`exec failed: ${status.message || stderrData || "unknown"}`));
           }
         }
-      ).catch(reject);
+      ).catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
     });
   } catch (err) {
     log.error({ err, podName, command: command.join(" ") }, "execInPod failed");

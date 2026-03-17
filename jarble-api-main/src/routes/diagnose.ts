@@ -15,7 +15,12 @@ import {
   getDeploymentPodStatus,
   getDeploymentStorageUsage,
   getPodAddress,
+  findPodForDeployment,
+  execInPod,
+  restartDeployment,
 } from "../k8s/index.js";
+import type { ManagedBy } from "../k8s/constants.js";
+import { getContainerName, getContainerHome } from "../k8s/constants.js";
 
 export const diagnoseRouter = Router();
 
@@ -214,6 +219,219 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
     detail: deployment.llmApiKey ? "Configured" : "Not configured",
     ...(deployment.llmApiKey ? {} : { suggestion: "Add an LLM API key in settings" }),
   });
+
+  // 6. OpenClaw In-Pod Diagnostics (exec into pod if running)
+  if (podRunning) {
+    const managedBy = ((deployment as any).managedBy ?? "legacy") as ManagedBy;
+    try {
+      const podName = await findPodForDeployment(deploymentId, { managedBy });
+      if (podName) {
+        const containerName = getContainerName(managedBy);
+        const home = getContainerHome(managedBy);
+        const pvcMount = managedBy === "operator" ? `${home}/.openclaw` : "/data";
+
+        // Run OpenClaw CLI diagnostics + system checks in a single exec
+        const script = [
+          `echo "===PROCESS==="`,
+          `ps aux 2>/dev/null | grep -E 'openclaw|gateway' | grep -v grep | head -3 || echo "NO_PROCESS"`,
+          `echo "===PORT==="`,
+          `(ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep 18789 || echo "NOT_LISTENING"`,
+          `echo "===CONFIG==="`,
+          `cat ${home}/.openclaw/openclaw.json 2>/dev/null || echo "NO_CONFIG"`,
+          `echo "===PID==="`,
+          `cat ${pvcMount}/.openclaw.pid 2>/dev/null || echo "NO_PID"`,
+          `echo "===HELP==="`,
+          `npx openclaw --help 2>&1 | head -30 || echo "NO_HELP"`,
+          `echo "===DOCTOR==="`,
+          `npx openclaw doctor 2>&1 || echo "NO_DOCTOR"`,
+          `echo "===DONE==="`,
+        ].join(" && ");
+
+        const raw = await withTimeout(
+          execInPod(podName, ["sh", "-c", script], containerName, 30_000),
+          35_000,
+        );
+
+        // Parse sections
+        const section = (tag: string) => {
+          const start = raw.indexOf(`===${tag}===`);
+          const end = raw.indexOf("===", start + tag.length + 6);
+          if (start === -1) return "";
+          return raw.slice(start + tag.length + 6, end === -1 ? undefined : end).trim();
+        };
+
+        // Gateway process
+        const proc = section("PROCESS");
+        const gatewayDown = proc === "NO_PROCESS" || !proc;
+        if (gatewayDown) {
+          checks.push({
+            name: "Gateway Process",
+            status: "error",
+            detail: "OpenClaw gateway process not running inside pod",
+          });
+        } else {
+          checks.push({ name: "Gateway Process", status: "ok", detail: proc.split("\n")[0] });
+        }
+
+        // Gateway port
+        const port = section("PORT");
+        const portDown = port === "NOT_LISTENING" || !port;
+        if (portDown) {
+          checks.push({
+            name: "Gateway Port",
+            status: "error",
+            detail: "Port 18789 not listening",
+          });
+        } else {
+          checks.push({ name: "Gateway Port", status: "ok", detail: "Port 18789 listening" });
+        }
+
+        // Config
+        const config = section("CONFIG");
+        if (config === "NO_CONFIG" || !config) {
+          checks.push({
+            name: "OpenClaw Config",
+            status: "error",
+            detail: "openclaw.json not found on pod",
+            suggestion: "Config sync may have failed — restart will re-init",
+          });
+        } else {
+          try {
+            const parsed = JSON.parse(config);
+            const podModel = parsed.agents?.defaults?.model?.primary || parsed.agent?.model || "not set";
+            const dbModel = (deployment as any).llmModel || "not set";
+            const modelMatch = podModel === dbModel;
+            checks.push({
+              name: "OpenClaw Config",
+              status: modelMatch ? "ok" : "warning",
+              detail: `Pod model: ${podModel}${!modelMatch ? ` (DB: ${dbModel})` : ""}`,
+              ...(!modelMatch ? { suggestion: "Model mismatch — restart to apply DB config" } : {}),
+            });
+          } catch {
+            checks.push({ name: "OpenClaw Config", status: "warning", detail: "Config exists but malformed" });
+          }
+        }
+
+        // Hot reload support
+        const pid = section("PID");
+        checks.push({
+          name: "Hot Reload",
+          status: pid && pid !== "NO_PID" ? "ok" : "warning",
+          detail: pid && pid !== "NO_PID"
+            ? `Supported (PID: ${pid})`
+            : "Not supported (old image)",
+        });
+
+        // OpenClaw CLI help (discover available commands)
+        const help = section("HELP");
+        if (help && help !== "NO_HELP") {
+          // Strip ANSI codes for clean display
+          const cleanHelp = help.replace(/\x1b\[[0-9;]*m/g, "");
+          checks.push({ name: "OpenClaw CLI", status: "ok", detail: cleanHelp.slice(0, 500) });
+        }
+
+        // OpenClaw doctor (full output — strip ASCII art banner)
+        const doctor = section("DOCTOR");
+        if (doctor && doctor !== "NO_DOCTOR") {
+          // Strip ANSI codes and the ASCII art banner (block chars)
+          const cleanDoctor = doctor
+            .replace(/\x1b\[[0-9;]*m/g, "")
+            .replace(/[▄▀█░▐▌▓▒]+/g, "")
+            .replace(/🦞.*🦞/g, "")
+            .replace(/OPENCLAW/g, "")
+            .replace(/\n{2,}/g, "\n")
+            .trim();
+          if (cleanDoctor) {
+            const hasIssues = /error|fail|critical|unhealthy/i.test(cleanDoctor);
+            checks.push({
+              name: "OpenClaw Doctor",
+              status: hasIssues ? "warning" : "ok",
+              detail: cleanDoctor.slice(0, 1000),
+            });
+          }
+        }
+
+        // ── Auto-Remediation ──
+        // If gateway process is down, try to fix it
+        if (gatewayDown || portDown) {
+          // Try to restart the gateway via OpenClaw CLI first
+          let fixed = false;
+          try {
+            // Attempt: npx openclaw gateway start (if the CLI supports it)
+            const startResult = await withTimeout(
+              execInPod(podName, ["sh", "-c", "npx openclaw gateway start 2>&1 || npx openclaw start 2>&1 || echo 'NO_START_CMD'"], containerName, 15_000),
+              20_000,
+            );
+            if (!startResult.includes("NO_START_CMD") && !startResult.includes("error")) {
+              checks.push({
+                name: "Auto-Fix",
+                status: "ok",
+                detail: `Attempted gateway restart via OpenClaw CLI: ${startResult.slice(0, 200)}`,
+              });
+              fixed = true;
+            }
+          } catch {
+            // CLI restart not available
+          }
+
+          if (!fixed) {
+            // Fallback: full pod restart
+            try {
+              log.info({ deploymentId }, "diagnose: gateway down, triggering pod restart");
+              await restartDeployment(deploymentId, managedBy);
+              await db.update(tables.deployments)
+                .set({ status: "restarting" })
+                .where(eq(tables.deployments.id, deploymentId));
+
+              // Poll for readiness so status doesn't get stuck at "restarting"
+              // (status reconciler skips in local dev)
+              const pollReady = async () => {
+                for (let i = 0; i < 30; i++) {
+                  await new Promise(r => setTimeout(r, 2000));
+                  try {
+                    const podStatus = await getDeploymentPodStatus(deploymentId);
+                    if (podStatus.status === "running") {
+                      await db.update(tables.deployments)
+                        .set({ status: "running", error: null })
+                        .where(eq(tables.deployments.id, deploymentId));
+                      log.info({ deploymentId, iterations: i + 1 }, "diagnose: pod recovered after restart");
+                      return;
+                    }
+                  } catch { /* keep polling */ }
+                }
+                // Timeout — mark as failed
+                await db.update(tables.deployments)
+                  .set({ status: "failed", error: "Pod did not become ready after restart" })
+                  .where(eq(tables.deployments.id, deploymentId));
+                log.warn({ deploymentId }, "diagnose: pod did not recover after restart (60s)");
+              };
+              // Fire-and-forget — don't block the response
+              pollReady().catch(err => log.warn({ deploymentId, err }, "diagnose: readiness poll failed"));
+
+              checks.push({
+                name: "Auto-Fix",
+                status: "ok",
+                detail: "Gateway was down — triggered pod restart. Should be back in 30-60s.",
+              });
+            } catch (restartErr) {
+              checks.push({
+                name: "Auto-Fix",
+                status: "error",
+                detail: `Tried to restart but failed: ${restartErr instanceof Error ? restartErr.message : String(restartErr)}`,
+                suggestion: "Try restarting manually from the config panel",
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      checks.push({
+        name: "In-Pod Diagnostics",
+        status: "warning",
+        detail: `Could not exec into pod: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
 
   // Compute overall health
   const hasError = checks.some((c) => c.status === "error");

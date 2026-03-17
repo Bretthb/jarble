@@ -117,12 +117,12 @@ export default function ExplorePage() {
   );
 
   const servicePopularQuery = trpc.benchmarks.serviceLeaderboard.useQuery(
-    { metric: "popular", limit: 10 },
+    { metric: "popularity", limit: 10 },
     { retry: false, refetchOnWindowFocus: false }
   );
 
   const trendingQuery = trpc.benchmarks.leaderboard.useQuery(
-    { domainSlug: "general", metric: "forks", limit: 6 },
+    { domainSlug: "general", metric: "overall", limit: 6 },
     { retry: false, refetchOnWindowFocus: false }
   );
 

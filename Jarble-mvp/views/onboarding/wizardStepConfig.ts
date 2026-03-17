@@ -278,26 +278,31 @@ export const LLM_PROVIDERS: LLMProviderDef[] = [
 
 export const LLM_MODELS: LLMModelDef[] = [
   // ── OpenRouter models ──
-  { id: "openrouter/auto",           name: "Auto (Best Available)",   provider: "openrouter", description: "OpenRouter picks the best model for each request", isDefault: true },
-  { id: "openai/gpt-4o",             name: "GPT-4o",                  provider: "openrouter", description: "OpenAI's flagship multimodal model" },
-  { id: "openai/gpt-4o-mini",        name: "GPT-4o Mini",             provider: "openrouter", description: "Fast and affordable for simple tasks" },
-  { id: "anthropic/claude-sonnet-4-20250514", name: "Claude Sonnet 4",  provider: "openrouter", description: "Anthropic's balanced model" },
-  { id: "anthropic/claude-haiku-3.5", name: "Claude Haiku 3.5",       provider: "openrouter", description: "Fast, cheap, and capable" },
-  { id: "google/gemini-2.0-flash-001", name: "Gemini 2.0 Flash",     provider: "openrouter", description: "Google's fast multimodal model" },
+  { id: "openrouter/auto",                      name: "Auto (Best Available)",   provider: "openrouter", description: "OpenRouter picks the best model for each request", isDefault: true },
+  { id: "anthropic/claude-opus-4-6",            name: "Claude Opus 4.6",         provider: "openrouter", description: "Most capable — 1M context" },
+  { id: "anthropic/claude-sonnet-4-6",          name: "Claude Sonnet 4.6",       provider: "openrouter", description: "Fast frontier intelligence" },
+  { id: "anthropic/claude-sonnet-4-20250514",   name: "Claude Sonnet 4",         provider: "openrouter", description: "Balanced model" },
+  { id: "anthropic/claude-haiku-4-5-20251001",  name: "Claude Haiku 4.5",        provider: "openrouter", description: "Fast and affordable" },
+  { id: "openai/gpt-4o",                        name: "GPT-4o",                  provider: "openrouter", description: "OpenAI multimodal model" },
+  { id: "openai/o3-mini",                       name: "o3-mini",                 provider: "openrouter", description: "Fast reasoning model" },
+  { id: "google/gemini-2.5-flash",              name: "Gemini 2.5 Flash",        provider: "openrouter", description: "Google's latest fast model" },
 
   // ── OpenAI direct models ──
   { id: "gpt-4o",                    name: "GPT-4o",                  provider: "openai", description: "Flagship multimodal model", isDefault: true },
   { id: "gpt-4o-mini",               name: "GPT-4o Mini",             provider: "openai", description: "Fast and affordable" },
-  { id: "o1",                        name: "o1",                      provider: "openai", description: "Advanced reasoning model" },
+  { id: "o3-mini",                   name: "o3-mini",                 provider: "openai", description: "Fast reasoning model" },
+  { id: "o3-pro",                    name: "o3-pro",                  provider: "openai", description: "Extended reasoning for hard problems" },
 
   // ── Anthropic direct models ──
-  { id: "claude-sonnet-4-20250514",  name: "Claude Sonnet 4",         provider: "anthropic", description: "Balanced performance and speed", isDefault: true },
-  { id: "claude-haiku-3.5",          name: "Claude Haiku 3.5",        provider: "anthropic", description: "Fast and affordable" },
-  { id: "claude-opus-4-20250514",    name: "Claude Opus 4",           provider: "anthropic", description: "Most capable model" },
+  { id: "claude-opus-4-6",           name: "Claude Opus 4.6",         provider: "anthropic", description: "Most capable — 1M context", isDefault: true },
+  { id: "claude-sonnet-4-6",         name: "Claude Sonnet 4.6",       provider: "anthropic", description: "Fast frontier intelligence" },
+  { id: "claude-sonnet-4-20250514",  name: "Claude Sonnet 4",         provider: "anthropic", description: "Balanced performance and speed" },
+  { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5",        provider: "anthropic", description: "Fast and affordable" },
 
   // ── Google direct models ──
-  { id: "gemini-2.0-flash",          name: "Gemini 2.0 Flash",        provider: "google", description: "Fast multimodal model", isDefault: true },
-  { id: "gemini-2.0-pro",            name: "Gemini 2.0 Pro",          provider: "google", description: "Most capable Google model" },
+  { id: "gemini-2.5-flash",          name: "Gemini 2.5 Flash",        provider: "google", description: "Fast multimodal model", isDefault: true },
+  { id: "gemini-2.5-flash-lite",     name: "Gemini 2.5 Flash-Lite",   provider: "google", description: "Ultra-efficient for high-throughput" },
+  { id: "gemini-2.0-flash",          name: "Gemini 2.0 Flash",        provider: "google", description: "Previous generation fast model" },
 ];
 
 // Default model for "Included Credits" mode (always via OpenRouter)

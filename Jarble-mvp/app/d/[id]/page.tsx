@@ -436,6 +436,8 @@ function KeyedChatPanel({
     <AssistantUIChat
       runtime={runtime}
       isStreaming={isStreaming}
+      suggestions={suggestions}
+      onSuggestionClick={(prompt) => sendMessage(prompt)}
       emptyState={
         <div className="h-full flex flex-col items-center justify-center gap-4 px-4">
           <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/10 flex items-center justify-center">

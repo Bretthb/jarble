@@ -110,6 +110,8 @@ interface PersistedCard {
   createdAt: number;
   /** Marker: large props are in IndexedDB, not here. */
   propsInIDB?: boolean;
+  /** ID of parent card for provenance arrows */
+  parentCardId?: string;
 }
 
 interface PersistedState {
@@ -135,6 +137,7 @@ function serializeCard(card: CanvasCard): PersistedCard {
   if (card.fileId) base.fileId = card.fileId;
   if (card.saveMethod) base.saveMethod = card.saveMethod;
   if (card.title) base.title = card.title;
+  if (card.parentCardId) base.parentCardId = card.parentCardId;
 
   // Large-prop components: mark for IndexedDB, don't inline props
   if (LARGE_PROP_COMPONENTS.has(card.component) && !card.editable) {
@@ -173,6 +176,7 @@ function deserializeCard(pc: PersistedCard): CanvasCard {
     createdAt: pc.createdAt,
     title: pc.title,
     propsLost: pc.propsInIDB ? true : undefined, // temporarily true until IDB loads
+    parentCardId: pc.parentCardId,
   };
 }
 

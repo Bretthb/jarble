@@ -535,7 +535,12 @@ export function useCanvasChat(
                 }
                 if (event.name === "jarble.suggestions" && event.value?.suggestions) {
                   isDev && console.log(`[Jarble:Chat] Suggestions received: ${event.value.suggestions.length}`);
-                  setSuggestions(event.value.suggestions as Array<{ prompt: string }>);
+                  // assistant-ui needs { prompt, title } — title is what SuggestionPrimitive.Title renders
+                  const normalized = (event.value.suggestions as Array<{ prompt: string; title?: string }>).map(s => ({
+                    prompt: s.prompt,
+                    title: s.title || s.prompt,
+                  }));
+                  setSuggestions(normalized);
                 }
                 if (event.name === "jarble.theme.updated") {
                   // Theme was changed by the bot — trigger a deployment refetch

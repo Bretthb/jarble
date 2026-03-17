@@ -3,9 +3,9 @@ import crypto from "crypto";
 import { router, protectedProcedure, publicProcedure } from "../middleware.js";
 import { tables, dbDate, type DbClient } from "../../db/index.js";
 import { eq, and, or, isNull, sql } from "drizzle-orm";
-import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc } from "../../k8s/index.js";
+import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod } from "../../k8s/index.js";
 import type { ManagedBy } from "../../k8s/constants.js";
-import { getPvcMountPath } from "../../k8s/constants.js";
+import { getPvcMountPath, getContainerName, getContainerHome } from "../../k8s/constants.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
 import { cancelSubscriptionAtPeriodEnd, cancelSubscriptionImmediately, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
 import { customAlphabet } from "nanoid";
@@ -1331,6 +1331,112 @@ export const deploymentRouter = router({
           message,
         });
       }
+    }),
+
+  // Update OpenClaw version on a running pod
+  updateOpenClawVersion: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      version: z.string().default("latest"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+      if (deployment.status !== "running") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Deployment must be running (currently ${deployment.status})` });
+      }
+
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      const podName = await findPodForDeployment(input.id, { managedBy }).catch(() => null);
+      if (!podName) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No pod found" });
+      }
+
+      const containerName = getContainerName(managedBy);
+
+      // Get current version
+      const currentVersion = await execInPod(podName, ["npx", "openclaw", "--version"], containerName).catch(() => "unknown");
+
+      // Run update with memory cap to avoid OOM
+      const target = input.version;
+      const updateCmd = `cd /opt/openclaw && NODE_OPTIONS='--max-old-space-size=256' npm install openclaw@${target} --prefer-offline 2>&1 | tail -10`;
+      let output: string;
+      try {
+        output = await execInPod(podName, ["sh", "-c", updateCmd], containerName, 120_000);
+      } catch (err) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Update failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+
+      // Get new version
+      const newVersion = await execInPod(podName, ["npx", "openclaw", "--version"], containerName).catch(() => "unknown");
+
+      logger.info({ deploymentId: input.id, from: currentVersion.trim(), to: newVersion.trim(), target }, "OpenClaw updated");
+
+      return {
+        previousVersion: currentVersion.trim(),
+        newVersion: newVersion.trim(),
+        output: output.trim(),
+      };
+    }),
+
+  // Read the actual config from the running pod (introspection)
+  getPodConfig: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      if (deployment.status !== "running") {
+        return { status: "unavailable" as const, model: null, channels: null };
+      }
+
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      const podName = await findPodForDeployment(input.id, { managedBy }).catch(() => null);
+      if (!podName) {
+        return { status: "unavailable" as const, model: null, channels: null };
+      }
+
+      const containerName = getContainerName(managedBy);
+      const home = getContainerHome(managedBy);
+      const configPath = `${home}/.openclaw/openclaw.json`;
+
+      let openclawRaw: string | null = null;
+      try {
+        openclawRaw = await execInPod(podName, ["cat", configPath], containerName);
+      } catch {
+        return { status: "unavailable" as const, model: null, channels: null };
+      }
+
+      let model: string | null = null;
+      let channels: Record<string, { enabled: boolean }> | null = null;
+
+      if (openclawRaw) {
+        try {
+          const config = JSON.parse(openclawRaw);
+          model = config.agents?.defaults?.model?.primary ?? config.agent?.model ?? null;
+          if (config.channels && typeof config.channels === "object") {
+            channels = {};
+            for (const [key, val] of Object.entries(config.channels)) {
+              channels[key] = { enabled: (val as any)?.enabled ?? true };
+            }
+          }
+        } catch {
+          // Malformed JSON
+        }
+      }
+
+      return { status: "live" as const, model, channels };
     }),
 
   // Set deployment theme

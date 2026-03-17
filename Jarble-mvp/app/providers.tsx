@@ -3,7 +3,7 @@
 import { trpc, API_URL } from "@/lib/trpc";
 import { setTokenGetter } from "@/lib/trpc-vanilla";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { httpBatchLink, TRPCClientError } from "@trpc/client";
+import { httpBatchLink, httpLink, splitLink, TRPCClientError } from "@trpc/client";
 import { useRef, useState, useEffect } from "react";
 import superjson from "superjson";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -92,24 +92,32 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
   const [trpcClient] = useState(() =>
     trpc.createClient({
       links: [
-        httpBatchLink({
-          // Point to external API service
-          url: `${API_URL}/trpc`,
-          transformer: superjson,
-          async headers() {
-            // Always attempt to get the token — getAccessTokenSilently() can
-            // resolve from the cache or refresh token even before isAuthenticated
-            // flips to true (e.g. during Auth0 callback processing).
-            try {
-              const token = await authRef.current.getAccessTokenSilently();
-              if (token) {
-                return { Authorization: `Bearer ${token}` };
-              }
-            } catch {
-              // No token available — send request without auth header
-            }
-            return {};
-          },
+        // Mutations must never be batched with queries — a slow query (e.g. getPodConfig
+        // doing K8s exec) would hold the entire batch hostage, making mutations hang.
+        splitLink({
+          condition: (op) => op.type === "mutation",
+          true: httpLink({
+            url: `${API_URL}/trpc`,
+            transformer: superjson,
+            async headers() {
+              try {
+                const token = await authRef.current.getAccessTokenSilently();
+                if (token) return { Authorization: `Bearer ${token}` };
+              } catch {}
+              return {};
+            },
+          }),
+          false: httpBatchLink({
+            url: `${API_URL}/trpc`,
+            transformer: superjson,
+            async headers() {
+              try {
+                const token = await authRef.current.getAccessTokenSilently();
+                if (token) return { Authorization: `Bearer ${token}` };
+              } catch {}
+              return {};
+            },
+          }),
         }),
       ],
     })
