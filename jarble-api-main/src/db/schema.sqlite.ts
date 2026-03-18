@@ -651,3 +651,47 @@ export const serviceReviewsRelations = relations(serviceReviews, ({ one }) => ({
   service: one(marketplaceServices, { fields: [serviceReviews.serviceId], references: [marketplaceServices.id] }),
   user: one(users, { fields: [serviceReviews.userId], references: [users.id] }),
 }));
+
+// ── Agent Credits & Calls Tables ──────────────────────────────────────
+
+// Append-only credits ledger
+export const agentCredits = sqliteTable("agent_credits", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("acr")),
+  userId: text("user_id").notNull().references(() => users.id),
+  amount: integer("amount").notNull(),        // positive = credit, negative = debit
+  balance: integer("balance").notNull(),       // running balance after this transaction
+  reason: text("reason").notNull(),            // "purchase", "agent_call", "earnings", "refund"
+  reference: text("reference"),                // stripe payment ID, call ID, etc.
+  createdAt: text("created_at").notNull().$defaultFn(now),
+}, (table) => ({
+  userIdIdx: index("idx_agent_credits_user_id").on(table.userId),
+}));
+
+// Agent-to-agent call tracking
+export const agentCalls = sqliteTable("agent_calls", {
+  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("acl")),
+  callerDeploymentId: text("caller_deployment_id").notNull().references(() => deployments.id),
+  calleeDeploymentId: text("callee_deployment_id").notNull().references(() => deployments.id),
+  skillName: text("skill_name").notNull(),
+  creditsCharged: integer("credits_charged").notNull().default(0),
+  status: text("status").notNull().default("pending"), // pending, completed, failed, refunded
+  requestBody: text("request_body"),
+  responseBody: text("response_body"),
+  latencyMs: integer("latency_ms"),
+  errorMessage: text("error_message"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+}, (table) => ({
+  callerIdx: index("idx_agent_calls_caller").on(table.callerDeploymentId),
+  calleeIdx: index("idx_agent_calls_callee").on(table.calleeDeploymentId),
+}));
+
+// ── Agent Credits & Calls Relations ───────────────────────────────────
+
+export const agentCreditsRelations = relations(agentCredits, ({ one }) => ({
+  user: one(users, { fields: [agentCredits.userId], references: [users.id] }),
+}));
+
+export const agentCallsRelations = relations(agentCalls, ({ one }) => ({
+  callerDeployment: one(deployments, { fields: [agentCalls.callerDeploymentId], references: [deployments.id] }),
+  calleeDeployment: one(deployments, { fields: [agentCalls.calleeDeploymentId], references: [deployments.id] }),
+}));

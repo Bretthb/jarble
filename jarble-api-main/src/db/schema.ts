@@ -624,6 +624,50 @@ export const serviceReviewsRelations = relations(serviceReviews, ({ one }) => ({
   user: one(users, { fields: [serviceReviews.userId], references: [users.id] }),
 }));
 
+// ── Agent Credits & Calls Tables ──────────────────────────────────────
+
+// Append-only credits ledger
+export const agentCredits = mysqlTable("agent_credits", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("acr")),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  amount: int("amount").notNull(),        // positive = credit, negative = debit
+  balance: int("balance").notNull(),       // running balance after this transaction
+  reason: varchar("reason", { length: 50 }).notNull(),  // "purchase", "agent_call", "earnings", "refund"
+  reference: varchar("reference", { length: 255 }),      // stripe payment ID, call ID, etc.
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index("idx_agent_credits_user_id").on(table.userId),
+}));
+
+// Agent-to-agent call tracking
+export const agentCalls = mysqlTable("agent_calls", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("acl")),
+  callerDeploymentId: varchar("caller_deployment_id", { length: 255 }).notNull().references(() => deployments.id),
+  calleeDeploymentId: varchar("callee_deployment_id", { length: 255 }).notNull().references(() => deployments.id),
+  skillName: varchar("skill_name", { length: 100 }).notNull(),
+  creditsCharged: int("credits_charged").notNull().default(0),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending, completed, failed, refunded
+  requestBody: text("request_body"),
+  responseBody: text("response_body"),
+  latencyMs: int("latency_ms"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  callerIdx: index("idx_agent_calls_caller").on(table.callerDeploymentId),
+  calleeIdx: index("idx_agent_calls_callee").on(table.calleeDeploymentId),
+}));
+
+// ── Agent Credits & Calls Relations ───────────────────────────────────
+
+export const agentCreditsRelations = relations(agentCredits, ({ one }) => ({
+  user: one(users, { fields: [agentCredits.userId], references: [users.id] }),
+}));
+
+export const agentCallsRelations = relations(agentCalls, ({ one }) => ({
+  callerDeployment: one(deployments, { fields: [agentCalls.callerDeploymentId], references: [deployments.id] }),
+  calleeDeployment: one(deployments, { fields: [agentCalls.calleeDeploymentId], references: [deployments.id] }),
+}));
+
 // ── Persona Templates ─────────────────────────────────────────────────────
 
 export const personaTemplates = mysqlTable("persona_templates", {

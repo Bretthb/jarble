@@ -27,7 +27,8 @@ import EditableCanvas from "@/components/canvas/EditableCanvas";
 import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
 import ConversationHistoryPanel from "@/components/workspace/ConversationHistoryPanel";
-import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain } from "lucide-react";
+import AgentCreditsPanel from "@/components/workspace/AgentCreditsPanel";
+import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Coins } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -245,6 +246,7 @@ function WorkspacePage({
   const [filesOpen, setFilesOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [creditsOpen, setCreditsOpen] = useState(false);
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
   const themeStyle = useDeploymentTheme(liveThemeConfig);
 
@@ -308,7 +310,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setHistoryOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setKnowledgeOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setKnowledgeOpen(false); setCreditsOpen(false); }
                   return !v;
                 });
               }}
@@ -322,7 +324,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setFilesOpen((v) => {
-                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setKnowledgeOpen(false); }
+                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setKnowledgeOpen(false); setCreditsOpen(false); }
                   return !v;
                 });
               }}
@@ -336,7 +338,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setKnowledgeOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setCreditsOpen(false); }
                   return !v;
                 });
               }}
@@ -346,11 +348,25 @@ function WorkspacePage({
               <Brain className="w-4 h-4" />
             </Button>
             <Button
+              variant={creditsOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setCreditsOpen((v) => {
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); }
+                  return !v;
+                });
+              }}
+              className="h-8 w-8 p-0"
+              title="Agent Credits"
+            >
+              <Coins className="w-4 h-4" />
+            </Button>
+            <Button
               variant={hostedServicesOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => {
                 setHostedServicesOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setCreditsOpen(false); }
                   return !v;
                 });
               }}
@@ -373,7 +389,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setConfigOpen((v) => {
-                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); }
+                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setCreditsOpen(false); }
                   return !v;
                 });
               }}
@@ -412,6 +428,11 @@ function WorkspacePage({
           <HostedServicesPanel
             deploymentId={deploymentId}
             onClose={() => setHostedServicesOpen(false)}
+          />
+        )}
+        {creditsOpen && (
+          <AgentCreditsPanel
+            onClose={() => setCreditsOpen(false)}
           />
         )}
         <CanvasWorkspace

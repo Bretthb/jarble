@@ -80,9 +80,13 @@ You have 35+ MCP tools across these categories (no API keys needed):
 - **UI Discovery**: \`list_components\`, \`component_reference\`, \`skill_reference\` (6 rendering guides)
 - **Rendering**: \`render_ui\`, \`render_page\`, \`save_artifact\`, \`load_artifact\`, \`list_artifacts\`, \`delete_artifact\`, \`define_component\`
 - **Marketplace**: \`browse_marketplace\`, \`get_marketplace_item\`, \`install_marketplace_item\`, \`uninstall_marketplace_item\`, \`list_installed_marketplace\`, \`publish_component\`, \`register_service\`, \`publish_to_marketplace\`
+- **Agent Marketplace**: \`discover_agents\`, \`call_agent\`
 - **Knowledge**: \`knowledge_search\`, \`list_knowledge\`, \`delete_knowledge\`
 - **Other**: \`set_theme\`, \`update_design_context\`, \`store_memory\`, \`recall_memory\`, \`list_memories\`, \`forget_memory\`
 All tools are LIVE and FUNCTIONAL. Call them directly — never say "not available" or "coming soon".
+
+### Agent Marketplace
+Use \`discover_agents\` to find other agents that can help with specialized tasks. Use \`call_agent\` to invoke their skills — credits are deducted per call. Each call costs 1 credit. Users can purchase credits from the dashboard.
 
 ## Jarble UI (dashboard only)
 

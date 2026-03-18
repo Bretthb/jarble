@@ -1378,6 +1378,32 @@ const TOOLS = [
       required: ["confirmationId"],
     },
   },
+  // ── Agent Marketplace Tools ──────────────────────────────────────────
+  {
+    name: "discover_agents",
+    description: "Search for other agents in the marketplace that can help with specialized tasks. Returns a list of available agents with their skills and pricing. Each call to another agent costs 1 credit.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query to filter agents by name/description" },
+        category: { type: "string", description: "Filter by category" },
+        limit: { type: "number", description: "Max results (default 10, max 50)" },
+      },
+    },
+  },
+  {
+    name: "call_agent",
+    description: "Invoke another agent's skill via the Agent Marketplace Hub. Each call costs 1 credit, deducted from the user's balance. Use discover_agents first to find available agents and their skills.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        serviceId: { type: "string", description: "The service/agent ID from discover_agents results" },
+        skillName: { type: "string", description: "The skill name to invoke" },
+        args: { type: "object", description: "Arguments to pass to the skill", additionalProperties: true },
+      },
+      required: ["serviceId", "skillName"],
+    },
+  },
 ];
 
 // ── Service hosting — process manager ─────────────────────────────────
@@ -4415,6 +4441,79 @@ function apiRequest(method, path, body) {
   });
 }
 
+// ── Agent Marketplace: discover_agents & call_agent ──────────────────
+
+async function executeDiscoverAgents(args) {
+  try {
+    const params = new URLSearchParams();
+    if (args.query) params.set("q", args.query);
+    if (args.category) params.set("category", args.category);
+    if (args.limit) params.set("limit", String(Math.min(args.limit, 50)));
+
+    const res = await apiRequest("GET", `/api/agent-hub/discover?${params.toString()}`);
+    if (res.status !== 200) {
+      return { isError: true, text: `Agent discovery failed: ${JSON.stringify(res.data)}` };
+    }
+
+    const { agents, count } = res.data;
+    if (count === 0) {
+      return { isError: false, text: "No agents found matching your criteria. Try a broader search or browse all agents with no query." };
+    }
+
+    const lines = [`Found ${count} agent(s) available in the marketplace:\n`];
+    for (const agent of agents) {
+      lines.push(`  **${agent.displayName}** (ID: ${agent.id})`);
+      lines.push(`    ${agent.description || "No description"}`);
+      lines.push(`    Hosting: ${agent.hostingModel} | Cost: ${agent.creditsPerCall} credit/call | Installs: ${agent.totalInstalls || 0}`);
+      if (agent.skills && agent.skills.length > 0) {
+        lines.push(`    Skills:`);
+        for (const skill of agent.skills) {
+          lines.push(`      - ${skill.name}: ${skill.description || "No description"}`);
+        }
+      }
+      lines.push("");
+    }
+    lines.push("Use `call_agent` with a serviceId and skillName to invoke an agent's skill.");
+    return { isError: false, text: lines.join("\n") };
+  } catch (err) {
+    return { isError: true, text: `Failed to discover agents: ${err.message}` };
+  }
+}
+
+async function executeCallAgent(args) {
+  if (!args.serviceId) return { isError: true, text: "Missing required field: serviceId" };
+  if (!args.skillName) return { isError: true, text: "Missing required field: skillName" };
+
+  try {
+    const deploymentId = process.env.DEPLOYMENT_ID || "";
+    const res = await apiRequest("POST", "/api/agent-hub/call", {
+      callerDeploymentId: deploymentId,
+      serviceId: args.serviceId,
+      skillName: args.skillName,
+      args: args.args || {},
+    });
+
+    if (res.status === 402) {
+      return { isError: true, text: "Insufficient credits. The user needs to purchase more credits from the dashboard to make agent calls." };
+    }
+    if (res.status === 404) {
+      return { isError: true, text: `Agent or skill not found: ${args.serviceId} / ${args.skillName}. Use discover_agents to find available agents.` };
+    }
+    if (res.status !== 200) {
+      return { isError: true, text: `Agent call failed (${res.status}): ${JSON.stringify(res.data).slice(0, 500)}` };
+    }
+
+    const { result, creditsCharged, callId } = res.data;
+    const resultText = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+    return {
+      isError: false,
+      text: `Agent call completed (${creditsCharged} credit charged, call ID: ${callId}).\n\nResult:\n${resultText}`,
+    };
+  } catch (err) {
+    return { isError: true, text: `Agent call error: ${err.message}` };
+  }
+}
+
 async function executeBrowseMarketplace(args) {
   try {
     const params = new URLSearchParams();
@@ -6042,6 +6141,9 @@ async function executeTool(name, args) {
     case "list_installed_marketplace": return executeListInstalledMarketplace();
     case "publish_component": return executePublishComponent(args || {});
     case "create_draft_service": return executeCreateDraftService(args || {});
+    // Agent marketplace tools
+    case "discover_agents": return executeDiscoverAgents(args || {});
+    case "call_agent": return executeCallAgent(args || {});
     case "set_theme": return executeSetTheme(args || {});
     case "update_design_context": return executeUpdateDesignContext(args || {});
     // Web & Search tools

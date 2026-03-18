@@ -425,6 +425,33 @@ const CREATE_TABLES_SQL = `
   CREATE INDEX IF NOT EXISTS idx_service_async_jobs_deployment_id ON service_async_jobs(deployment_id);
   CREATE INDEX IF NOT EXISTS idx_service_async_jobs_expires_at ON service_async_jobs(expires_at);
 
+  CREATE TABLE IF NOT EXISTS agent_credits (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    amount INTEGER NOT NULL,
+    balance INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    reference TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_credits_user_id ON agent_credits(user_id);
+
+  CREATE TABLE IF NOT EXISTS agent_calls (
+    id TEXT PRIMARY KEY,
+    caller_deployment_id TEXT NOT NULL REFERENCES deployments(id),
+    callee_deployment_id TEXT NOT NULL REFERENCES deployments(id),
+    skill_name TEXT NOT NULL,
+    credits_charged INTEGER DEFAULT 0 NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    request_body TEXT,
+    response_body TEXT,
+    latency_ms INTEGER,
+    error_message TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_caller ON agent_calls(caller_deployment_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_callee ON agent_calls(callee_deployment_id);
+
   CREATE TABLE IF NOT EXISTS persona_templates (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

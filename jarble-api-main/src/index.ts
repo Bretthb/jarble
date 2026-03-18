@@ -41,6 +41,7 @@ import { bridgeFetchRouter } from "./routes/bridgeFetch.js";
 import { botAskRouter } from "./routes/botAsk.js";
 import { meshGatewayRouter } from "./routes/meshGateway.js";
 import { meshDiscoveryRouter, registerAgentCard } from "./routes/meshDiscovery.js";
+import { agentHubRouter } from "./routes/agentHub.js";
 import { filesRouter } from "./routes/files.js";
 import { knowledgeRouter } from "./routes/knowledge.js";
 import { attachTerminalWs } from "./routes/terminal.js";
@@ -122,6 +123,7 @@ app.use("/api/deployments", filesRouter);
 app.use("/api/deployments", knowledgeRouter);
 app.use("/api/mesh", meshGatewayRouter);
 app.use("/api/mesh", meshDiscoveryRouter);
+app.use("/api/agent-hub", agentHubRouter);
 
 // Debug endpoints — dev only
 if (env.NODE_ENV === "development") {
