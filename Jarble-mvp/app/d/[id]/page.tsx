@@ -10,6 +10,7 @@ import DeploymentTamboProvider from "@/components/DeploymentTamboProvider";
 import { useCanvasChat } from "@/hooks/useCanvasChat";
 import { useJarbleRuntime } from "@/lib/assistantRuntime";
 import AssistantUIChat from "@/components/chat/AssistantUIChat";
+import { SlashCommandMenu, getFilteredCommandCount } from "@/components/chat/SlashCommandMenu";
 import { useCanvasPersistence } from "@/hooks/useCanvasPersistence";
 import { useArtifactSync } from "@/hooks/useArtifactSync";
 import { canvasReducer, INITIAL_CANVAS_STATE } from "@/components/workspace/canvasReducer";
@@ -494,6 +495,10 @@ function CanvasWorkspace({
   const [showCanvas, setShowCanvas] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Slash command menu state
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  const [slashMenuIndex, setSlashMenuIndex] = useState(0);
+
   // ── Resizable chat panel state ──
   const [chatWidth, setChatWidth] = useState(400);
   const [isResizingChat, setIsResizingChat] = useState(false);
@@ -564,14 +569,51 @@ function CanvasWorkspace({
     [input, sendMessage]
   );
 
+  const handleSlashSelect = useCallback((command: string) => {
+    setInput(command + " ");
+    setSlashMenuOpen(false);
+    textareaRef.current?.focus();
+  }, []);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Slash command menu navigation
+      if (slashMenuOpen) {
+        const query = input.slice(1); // strip "/"
+        const count = getFilteredCommandCount(query);
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSlashMenuIndex((prev) => (prev + 1) % count);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSlashMenuIndex((prev) => (prev - 1 + count) % count);
+          return;
+        }
+        if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+          e.preventDefault();
+          // Find the filtered command at the selected index
+          const commands = ["/theme", "/skin", "/reset", "/clear", "/commands"];
+          const filtered = commands.filter((cmd) => cmd.slice(1).startsWith(query.toLowerCase()));
+          if (filtered[slashMenuIndex]) {
+            handleSlashSelect(filtered[slashMenuIndex]);
+          }
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setSlashMenuOpen(false);
+          return;
+        }
+      }
+
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSubmit();
       }
     },
-    [handleSubmit]
+    [handleSubmit, slashMenuOpen, input, slashMenuIndex, handleSlashSelect]
   );
 
   // Render function for cards in the grid
@@ -668,7 +710,7 @@ function CanvasWorkspace({
         )}
 
         {/* Chat input */}
-        <div className="border-t border-border/60 bg-background/95 backdrop-blur-sm shrink-0 p-4">
+        <div className="border-t border-border/60 bg-background/95 backdrop-blur-sm shrink-0 p-4 relative">
           {/* Selected card reference chip */}
           {selectedCard && (
             <div className="flex items-center gap-1 mb-2">
@@ -688,11 +730,30 @@ function CanvasWorkspace({
               </span>
             </div>
           )}
+          {/* Slash command autocomplete menu */}
+          {slashMenuOpen && (
+            <SlashCommandMenu
+              query={input.slice(1)} // strip leading "/"
+              onSelect={handleSlashSelect}
+              onClose={() => setSlashMenuOpen(false)}
+              selectedIndex={slashMenuIndex}
+            />
+          )}
           <form onSubmit={handleSubmit} className="flex gap-2 items-end">
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setInput(val);
+                // Show slash command menu when input starts with "/"
+                if (val.startsWith("/") && !val.includes(" ")) {
+                  setSlashMenuOpen(true);
+                  setSlashMenuIndex(0);
+                } else {
+                  setSlashMenuOpen(false);
+                }
+              }}
               onKeyDown={handleKeyDown}
               placeholder={selectedCard ? `Message about ${selectedCard.title || selectedCard.component.replace(/_/g, " ")}...` : "Type a message..."}
               rows={1}
