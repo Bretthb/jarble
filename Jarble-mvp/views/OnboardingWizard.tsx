@@ -28,6 +28,8 @@ import {
 } from "./onboarding/wizardStepConfig";
 import type { KeyValidationStatus } from "./onboarding/types";
 import StepName from "./onboarding/steps/StepName";
+import StepChoosePersona from "./onboarding/steps/StepChoosePersona";
+import type { PersonaTemplate } from "./onboarding/steps/StepChoosePersona";
 import StepChooseRuntime from "./onboarding/steps/StepChooseRuntime";
 import StepLlmSetup from "./onboarding/steps/StepLlmSetup";
 import StepDeploy from "./onboarding/steps/StepDeploy";
@@ -80,6 +82,12 @@ export default function OnboardingWizard() {
   const [telegramBotUsername, setTelegramBotUsername] = useState<string | null>(null);
   const [createdDeploymentId, setCreatedDeploymentId] = useState<string | null>(null);
   const [deployPhase, setDeployPhase] = useState<"idle" | "deploying" | "pairing" | "paired">("idle");
+
+  // Persona template state
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
+  const [selectedPersona, setSelectedPersona] = useState<PersonaTemplate | null>(null);
+  const [systemPrompt, setSystemPrompt] = useState<string | undefined>(undefined);
+  const [themeConfig, setThemeConfig] = useState<string | undefined>(undefined);
 
   // Telegram pairing poll mutation (used in deploy step after deploy succeeds)
   const pollTelegramMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
@@ -248,6 +256,8 @@ export default function OnboardingWizard() {
     switch (currentStepId) {
       case "name":
         return deploymentName.trim().length >= 2;
+      case "persona":
+        return true; // Persona is optional — user can always proceed
       case "runtime":
         return selectedRuntimeId !== null;
       case "llm":
@@ -290,6 +300,8 @@ export default function OnboardingWizard() {
           cpuLimit: cpuLimit || undefined,
           memoryMb: memoryMb || undefined,
           storageMb: storageMb || undefined,
+          systemPrompt: systemPrompt || undefined,
+          personaTemplateId: selectedPersonaId || undefined,
         });
       }
     } else if (currentStepIndex < steps.length - 1) {
@@ -445,6 +457,37 @@ export default function OnboardingWizard() {
             >
               {currentStepId === "name" && (
                 <StepName name={deploymentName} setName={setDeploymentName} />
+              )}
+              {currentStepId === "persona" && (
+                <StepChoosePersona
+                  selectedPersonaId={selectedPersonaId}
+                  onSelect={(persona) => {
+                    if (persona) {
+                      setSelectedPersonaId(persona.id);
+                      setSelectedPersona(persona);
+                      setSystemPrompt(persona.systemPrompt);
+                      if (persona.defaultTheme) {
+                        setThemeConfig(JSON.stringify(persona.defaultTheme));
+                      }
+                      if (persona.suggestedLlm) {
+                        setLlmModel(persona.suggestedLlm);
+                      }
+                    } else {
+                      setSelectedPersonaId(null);
+                      setSelectedPersona(null);
+                      setSystemPrompt(undefined);
+                      setThemeConfig(undefined);
+                    }
+                  }}
+                  onSkip={() => {
+                    setSelectedPersonaId(null);
+                    setSelectedPersona(null);
+                    setSystemPrompt(undefined);
+                    setThemeConfig(undefined);
+                    // Advance to next step
+                    setCurrentStepIndex(currentStepIndex + 1);
+                  }}
+                />
               )}
               {currentStepId === "runtime" && (
                 <StepChooseRuntime

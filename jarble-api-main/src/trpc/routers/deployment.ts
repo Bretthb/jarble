@@ -25,7 +25,7 @@ import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
 import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
 import { validateThemeConfig } from "@jarble/component-manifest";
 
-const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, personaTemplates } = tables;
 
 /**
  * Helper: Check free deployment status for a user.
@@ -242,6 +242,7 @@ export const deploymentRouter = router({
       storageMb: z.number().int().positive().optional(),  // e.g. 30 — storage in GB (historical naming)
       telegramBotToken: z.string().optional(), // Pre-validated Telegram bot token (included in initial K8s Secret)
       messagingOnly: z.boolean().optional(), // If true, omit web-chat UI prompt (~1,250 tokens saved)
+      personaTemplateId: z.string().optional(), // Pre-selected persona template — overrides systemPrompt, llmModel, themeConfig
     }))
     .mutation(async ({ ctx, input }) => {
       // Look up the runtime catalog entry
@@ -268,6 +269,33 @@ export const deploymentRouter = router({
         });
         if (validationError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: validationError });
+        }
+      }
+
+      // ── Resolve persona template overrides ──────────────────────
+      let resolvedSystemPrompt = input.systemPrompt || null;
+      let resolvedThemeConfig: string | null = null;
+      let resolvedLlmModel = input.llmModel;
+
+      if (input.personaTemplateId) {
+        const persona = await ctx.db.query.personaTemplates.findFirst({
+          where: eq(personaTemplates.id, input.personaTemplateId),
+        });
+
+        if (persona) {
+          // Apply persona defaults — input values take precedence
+          if (!resolvedSystemPrompt) {
+            resolvedSystemPrompt = persona.systemPrompt;
+          }
+          if (persona.defaultTheme) {
+            resolvedThemeConfig = typeof persona.defaultTheme === "string"
+              ? persona.defaultTheme
+              : JSON.stringify(persona.defaultTheme);
+          }
+          if (!resolvedLlmModel && persona.suggestedLlm) {
+            resolvedLlmModel = persona.suggestedLlm;
+          }
+          logger.info({ personaId: input.personaTemplateId, personaSlug: persona.slug }, "Applied persona template to deployment");
         }
       }
 
@@ -473,12 +501,13 @@ export const deploymentRouter = router({
         storageMb: finalStorage,
         llmMode: input.llmMode,
         llmProvider: resolvedProvider,
-        llmModel: input.llmModel || (input.llmMode === "included" ? "openrouter/auto" : null),
+        llmModel: resolvedLlmModel || (input.llmMode === "included" ? "openrouter/auto" : null),
         llmApiKey: encryptedKey,
         llmApiKeyId: resolvedApiKeyId,
         llmCreditLimitDollars: resolvedCreditLimit,
         llmApiKeySourceDeploymentId: resolvedSourceDeploymentId,
-        systemPrompt: input.systemPrompt || null,
+        systemPrompt: resolvedSystemPrompt,
+        themeConfig: resolvedThemeConfig,
         stripeSubscriptionId,
         messagingOnly: input.messagingOnly ?? false,
         status: "pending",

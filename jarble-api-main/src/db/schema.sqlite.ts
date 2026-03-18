@@ -312,6 +312,26 @@ export const serviceCredentials = sqliteTable("package_credentials", {
   deploymentPackageCredIdx: uniqueIndex("uq_deployment_package_cred").on(table.deploymentId, table.packageId),
 }));
 
+// ── Persona Templates ─────────────────────────────────────────────────────
+
+export const personaTemplates = sqliteTable("persona_templates", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  category: text("category").notNull(), // "general" | "business" | "technical" | "creative" | "education"
+  description: text("description"),
+  systemPrompt: text("system_prompt").notNull(),
+  recommendedTools: text("recommended_tools"), // JSON array of tool names
+  defaultTheme: text("default_theme"), // JSON ThemeConfig
+  suggestedLlm: text("suggested_llm"), // e.g. "claude-sonnet-4-20250514"
+  icon: text("icon"), // emoji or icon name
+  exampleConversation: text("example_conversation"), // JSON array of example messages
+  showcasePrompts: text("showcase_prompts"), // JSON array of example user prompts
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many, one }) => ({
   deployments: many(deployments),

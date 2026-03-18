@@ -622,3 +622,23 @@ export const serviceReviewsRelations = relations(serviceReviews, ({ one }) => ({
   service: one(marketplaceServices, { fields: [serviceReviews.serviceId], references: [marketplaceServices.id] }),
   user: one(users, { fields: [serviceReviews.userId], references: [users.id] }),
 }));
+
+// ── Persona Templates ─────────────────────────────────────────────────────
+
+export const personaTemplates = mysqlTable("persona_templates", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 255 }).notNull().unique(),
+  category: varchar("category", { length: 64 }).notNull(),
+  description: text("description"),
+  systemPrompt: text("system_prompt").notNull(),
+  recommendedTools: text("recommended_tools"),
+  defaultTheme: text("default_theme"),
+  suggestedLlm: varchar("suggested_llm", { length: 255 }),
+  icon: varchar("icon", { length: 32 }),
+  exampleConversation: text("example_conversation"),
+  showcasePrompts: text("showcase_prompts"),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: int("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

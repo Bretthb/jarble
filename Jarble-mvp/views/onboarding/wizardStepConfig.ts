@@ -72,6 +72,7 @@ import {
   Shield,
   Terminal,
   Package,
+  User,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -105,6 +106,7 @@ export interface LLMModelDef {
 
 export const UNIVERSAL_STEPS: WizardStepDef[] = [
   { id: "name", title: "Name", icon: Bot },
+  { id: "persona", title: "Persona", icon: User },
   { id: "runtime", title: "Choose Runtime", icon: FileCode },
 ];
 
