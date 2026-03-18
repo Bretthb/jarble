@@ -298,18 +298,45 @@ function extractDeploymentId(body: any): string | null {
   return null;
 }
 
-// ── Theme/Skin intent detection + in-process handling ─────────────────────
+// ── Slash command system ──────────────────────────────────────────────────
 
 import { validateThemeConfig, THEME_PRESET_NAMES, SKIN_NAMES } from "@jarble/component-manifest";
 
-const THEME_PRESET_SET = new Set(THEME_PRESET_NAMES);
-const SKIN_SET = new Set(SKIN_NAMES as readonly string[]);
+const SKIN_DESCRIPTIONS: Record<string, string> = {
+  terminal: "monospace font, CRT scanlines, command-line prompts",
+  retro: "8-bit pixel font, NES-style borders, classic gaming aesthetic",
+  handdrawn: "hand-drawn sketchy borders, wobbly elements, cursive font",
+  neobrutalist: "bold 3px borders, chunky offset shadows, playful rotations",
+  glass: "frosted glassmorphism with blur effects and subtle glow",
+  minimal: "clean and spacious — hidden avatars, borderless messages",
+  win98: "classic Windows 98 — silver gray, 3D beveled borders, blue title bar",
+};
+
+/** Helper: send a quick text response via SSE and close. */
+function sendQuickResponse(res: any, runId: string, threadId: string, text: string, extra?: () => void) {
+  sendEvent(res, { type: "RUN_STARTED", runId, threadId });
+  const mid = nanoid();
+  sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: mid, role: "assistant" });
+  sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId: mid, delta: text });
+  sendEvent(res, { type: "TEXT_MESSAGE_END", messageId: mid });
+  if (extra) extra();
+  sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+  res.end();
+}
 
 /**
- * Detect if the user's message is a theme/skin change request.
- * If so, handle it directly (no pod needed) and return true.
+ * Handle slash commands. Only triggers when message starts with "/".
+ * Returns true if the command was handled (response already sent).
+ *
+ * Supported commands:
+ *   /theme <preset> [skin]  — Change color preset and/or skin
+ *   /color-preset <preset>  — Alias for /theme
+ *   /skin <skin>            — Change chat skin only
+ *   /commands, /help        — List available commands
+ *   /clear                  — Signal frontend to clear chat
+ *   /reset                  — Reset theme to default
  */
-async function tryHandleThemeRequest(
+async function tryHandleSlashCommand(
   userText: string,
   deploymentId: string,
   deployment: any,
@@ -317,44 +344,117 @@ async function tryHandleThemeRequest(
   runId: string,
   threadId: string,
 ): Promise<boolean> {
-  const lower = userText.toLowerCase().trim();
+  const trimmed = userText.trim();
+  if (!trimmed.startsWith("/")) return false;
 
-  // Quick gate: must mention theme, skin, or a known preset/skin name
-  const themeKeywords = /\b(theme|skin|set.?theme|change.?theme|switch.?theme|reset.?theme|default.?theme)\b/i;
-  const hasPresetName = THEME_PRESET_NAMES.some(p => lower.includes(p));
-  const hasSkinName = (SKIN_NAMES as readonly string[]).some(s => s !== "default" && lower.includes(s));
+  // Parse command and args
+  const parts = trimmed.split(/\s+/);
+  const command = parts[0].toLowerCase();
+  const args = parts.slice(1).map(a => a.toLowerCase());
 
-  if (!themeKeywords.test(lower) && !hasPresetName && !hasSkinName) {
-    return false; // Not a theme request — let the pod handle it
+  // ── /commands or /help ───────────────────────────────────────────────────
+  if (command === "/commands" || command === "/help") {
+    const presets = THEME_PRESET_NAMES.join(", ");
+    const skins = (SKIN_NAMES as readonly string[]).join(", ");
+    const text = `## Available Commands
+
+| Command | Description |
+|---------|------------|
+| \`/theme <preset>\` | Change color preset (${presets}) |
+| \`/skin <skin>\` | Change chat skin (${skins}) |
+| \`/color-preset <preset>\` | Alias for /theme |
+| \`/reset\` | Reset theme & skin to default |
+| \`/clear\` | Clear chat history |
+| \`/commands\` | Show this help |
+
+**Presets:** ${presets}
+**Skins:** ${skins}
+
+*Skin descriptions:*
+${Object.entries(SKIN_DESCRIPTIONS).map(([k, v]) => `- **${k}**: ${v}`).join("\n")}`;
+
+    sendQuickResponse(res, runId, threadId, text);
+    return true;
   }
 
-  // Parse intent
+  // ── /clear ───────────────────────────────────────────────────────────────
+  if (command === "/clear") {
+    sendEvent(res, { type: "RUN_STARTED", runId, threadId });
+    const mid = nanoid();
+    sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: mid, role: "assistant" });
+    sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId: mid, delta: "Chat cleared." });
+    sendEvent(res, { type: "TEXT_MESSAGE_END", messageId: mid });
+    sendEvent(res, { type: CUSTOM, name: "jarble.clear_chat", value: {} });
+    sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+    res.end();
+    return true;
+  }
+
+  // ── /reset ───────────────────────────────────────────────────────────────
+  if (command === "/reset") {
+    await db.update(tables.deployments)
+      .set({ themeConfig: null } as any)
+      .where(eq(tables.deployments.id, deploymentId));
+
+    sendQuickResponse(res, runId, threadId, "Theme reset to default. Clean slate!", () => {
+      sendEvent(res, { type: CUSTOM, name: "jarble.theme.updated", value: null });
+    });
+    log.info({ deploymentId }, "Slash: theme reset via /reset");
+    return true;
+  }
+
+  // ── /theme or /color-preset ──────────────────────────────────────────────
+  if (command === "/theme" || command === "/color-preset") {
+    if (args.length === 0) {
+      const presets = THEME_PRESET_NAMES.join(", ");
+      sendQuickResponse(res, runId, threadId,
+        `Usage: \`${command} <preset> [skin]\`\n\n**Presets:** ${presets}\n\nType \`/commands\` for full list.`);
+      return true;
+    }
+    return handleThemeChange(args, deploymentId, deployment, res, runId, threadId);
+  }
+
+  // ── /skin ────────────────────────────────────────────────────────────────
+  if (command === "/skin") {
+    if (args.length === 0) {
+      const skins = (SKIN_NAMES as readonly string[]).join(", ");
+      sendQuickResponse(res, runId, threadId,
+        `Usage: \`/skin <name>\`\n\n**Skins:** ${skins}\n\nType \`/commands\` for descriptions.`);
+      return true;
+    }
+    return handleThemeChange(args, deploymentId, deployment, res, runId, threadId, true);
+  }
+
+  // Unknown slash command — let the pod handle it
+  return false;
+}
+
+/** Apply a theme/skin change from slash command args. */
+async function handleThemeChange(
+  args: string[],
+  deploymentId: string,
+  deployment: any,
+  res: any,
+  runId: string,
+  threadId: string,
+  skinOnly = false,
+): Promise<boolean> {
   let preset: string | undefined;
   let skin: string | undefined;
-  const isReset = /\b(reset|default|back to (default|normal|original))\b/i.test(lower);
 
-  if (isReset) {
-    preset = "default";
-    skin = "default";
-  } else {
-    // Find preset name
-    for (const p of THEME_PRESET_NAMES) {
-      if (lower.includes(p)) {
-        preset = p;
-        break;
-      }
-    }
-    // Find skin name
-    for (const s of SKIN_NAMES as readonly string[]) {
-      if (s !== "default" && lower.includes(s)) {
-        skin = s;
-        break;
-      }
-    }
+  for (const arg of args) {
+    if (!skinOnly && THEME_PRESET_NAMES.includes(arg as any)) preset = arg;
+    if ((SKIN_NAMES as readonly string[]).includes(arg)) skin = arg;
   }
 
-  // If we only matched keywords but no actual preset/skin, let the pod handle it
-  if (!preset && !skin) return false;
+  if (!preset && !skin) {
+    const available = skinOnly
+      ? `**Skins:** ${(SKIN_NAMES as readonly string[]).join(", ")}`
+      : `**Presets:** ${THEME_PRESET_NAMES.join(", ")}\n**Skins:** ${(SKIN_NAMES as readonly string[]).join(", ")}`;
+    sendQuickResponse(res, runId, threadId,
+      `Unknown ${skinOnly ? "skin" : "preset"}. ${available}`);
+    return true;
+  }
 
   // Build theme config
   const currentConfig = deployment.themeConfig
@@ -365,75 +465,31 @@ async function tryHandleThemeRequest(
   if (preset) newConfig.preset = preset;
   if (skin) newConfig.skin = skin;
 
-  const isFullReset = preset === "default" && skin === "default";
-
-  // Send RUN_STARTED so the frontend knows we're handling this
-  sendEvent(res, { type: "RUN_STARTED", runId, threadId });
-
   // Validate
-  if (!isFullReset) {
-    const error = validateThemeConfig(newConfig);
-    if (error) {
-      const mid = nanoid();
-      sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: mid, role: "assistant" });
-      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId: mid, delta: `Couldn't set that theme: ${error}` });
-      sendEvent(res, { type: "TEXT_MESSAGE_END", messageId: mid });
-      sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-      res.end();
-      return true;
-    }
+  const error = validateThemeConfig(newConfig);
+  if (error) {
+    sendQuickResponse(res, runId, threadId, `Couldn't set that theme: ${error}`);
+    return true;
   }
 
   // Persist to DB
   await db.update(tables.deployments)
-    .set({ themeConfig: isFullReset ? null : JSON.stringify(newConfig) } as any)
+    .set({ themeConfig: JSON.stringify(newConfig) } as any)
     .where(eq(tables.deployments.id, deploymentId));
 
-  // Send SSE events
-  const mid = nanoid();
-  sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: mid, role: "assistant" });
-
-  // Build friendly response
+  // Build response
   const parts: string[] = [];
-  if (isFullReset) {
-    parts.push("Reset to the default theme.");
-  } else {
-    if (preset) parts.push(`**Color preset**: ${preset}`);
-    if (skin) parts.push(`**Skin**: ${skin}`);
+  if (preset) parts.push(`**Color preset**: ${preset}`);
+  if (skin) parts.push(`**Skin**: ${skin}`);
+  if (skin && skin !== "default" && SKIN_DESCRIPTIONS[skin]) {
+    parts.push(`\n*${SKIN_DESCRIPTIONS[skin]}*`);
   }
 
-  const skinDescriptions: Record<string, string> = {
-    terminal: "monospace font, CRT scanlines, command-line prompts",
-    retro: "8-bit pixel font, NES-style borders, classic gaming aesthetic",
-    handdrawn: "hand-drawn sketchy borders, wobbly elements, cursive font",
-    neobrutalist: "bold 3px borders, chunky offset shadows, playful rotations",
-    glass: "frosted glassmorphism with blur effects and subtle glow",
-    minimal: "clean and spacious — hidden avatars, borderless messages",
-    win98: "classic Windows 98 — silver gray, 3D beveled borders, blue title bar",
-  };
-
-  if (skin && skin !== "default" && skinDescriptions[skin]) {
-    parts.push(`\n*${skinDescriptions[skin]}*`);
-  }
-
-  const responseText = isFullReset
-    ? "Theme reset to default. Clean slate!"
-    : `Theme updated!\n\n${parts.join("\n")}`;
-
-  sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId: mid, delta: responseText });
-  sendEvent(res, { type: "TEXT_MESSAGE_END", messageId: mid });
-
-  // Fire live theme update event so frontend applies immediately
-  sendEvent(res, {
-    type: CUSTOM,
-    name: "jarble.theme.updated",
-    value: isFullReset ? null : newConfig,
+  sendQuickResponse(res, runId, threadId, `Theme updated!\n\n${parts.join("\n")}`, () => {
+    sendEvent(res, { type: CUSTOM, name: "jarble.theme.updated", value: newConfig });
   });
 
-  log.info({ deploymentId, preset, skin, isReset: isFullReset }, "Chat: theme changed via in-process interception");
-
-  sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-  res.end();
+  log.info({ deploymentId, preset, skin }, "Slash: theme changed via command");
   return true;
 }
 
@@ -603,11 +659,11 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   log.info({ deploymentId, messageLength: lastUserText.length }, "Chat: request started");
 
-  // ── Theme/skin interception — handle directly without pod ────────────────
-  // Must run BEFORE RUN_STARTED to avoid double-emit (theme handler sends its own).
+  // ── Slash command interception — handle /theme, /commands, etc. directly ──
+  // Must run BEFORE RUN_STARTED to avoid double-emit (command handler sends its own).
   if (lastUserText.trim()) {
-    const themeResult = await tryHandleThemeRequest(lastUserText, deploymentId, deployment, res, runId, threadId);
-    if (themeResult) return;
+    const commandResult = await tryHandleSlashCommand(lastUserText, deploymentId, deployment, res, runId, threadId);
+    if (commandResult) return;
   }
 
   // Send RUN_STARTED

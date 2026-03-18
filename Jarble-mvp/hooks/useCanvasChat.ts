@@ -547,6 +547,12 @@ export function useCanvasChat(
                   // so useDeploymentTheme picks up the new themeConfig from the DB
                   window.dispatchEvent(new CustomEvent("jarble:theme-updated", { detail: event.value }));
                 }
+                if (event.name === "jarble.clear_chat") {
+                  // /clear command — reset messages and canvas
+                  setMessages([]);
+                  messagesRef.current = [];
+                  dispatch({ type: "CLEAR_CANVAS" });
+                }
               }
 
               // Break both the for loop and the outer while loop cleanly
