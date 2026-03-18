@@ -7,7 +7,7 @@
 
 import type { ComponentManifestEntry } from "../types.js";
 
-/** The top 12 components to include inline in the prompt */
+/** Top components to include inline in the prompt for quick LLM reference */
 const TOP_10_NAMES = [
   "chart",
   "data_table",
@@ -19,7 +19,12 @@ const TOP_10_NAMES = [
   "alert",
   "code_block",
   "code_editor",
-  "layout",
+  "tabs",
+  "accordion",
+  "carousel",
+  "image_gallery",
+  "timeline",
+  "form",
   "sandbox",
 ];
 
