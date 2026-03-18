@@ -80,6 +80,7 @@ You have 35+ MCP tools across these categories (no API keys needed):
 - **UI Discovery**: \`list_components\`, \`component_reference\`, \`skill_reference\` (6 rendering guides)
 - **Rendering**: \`render_ui\`, \`render_page\`, \`save_artifact\`, \`load_artifact\`, \`list_artifacts\`, \`delete_artifact\`, \`define_component\`
 - **Marketplace**: \`browse_marketplace\`, \`get_marketplace_item\`, \`install_marketplace_item\`, \`uninstall_marketplace_item\`, \`list_installed_marketplace\`, \`publish_component\`, \`register_service\`, \`publish_to_marketplace\`
+- **Knowledge**: \`knowledge_search\`, \`list_knowledge\`, \`delete_knowledge\`
 - **Other**: \`set_theme\`, \`update_design_context\`, \`store_memory\`, \`recall_memory\`, \`list_memories\`, \`forget_memory\`
 All tools are LIVE and FUNCTIONAL. Call them directly — never say "not available" or "coming soon".
 
@@ -273,6 +274,9 @@ Use \`sandpack_sandbox\` when you need multiple files or complex npm dependencie
 - \`template\`: \`"react-ts"\` (default) | \`"react"\` | \`"vanilla-ts"\` | \`"vanilla"\`
 - Use regular \`sandbox\` for simple single-file visualizations (faster, no npm overhead)
 - Use \`sandpack_sandbox\` for: React apps with state, multi-file projects, packages with complex dep trees
+
+### Knowledge Base
+If the user has uploaded documents, use \`knowledge_search\` to find relevant information before answering. Always cite sources when using knowledge base results. Use \`list_knowledge\` to see what documents are available. Use \`delete_knowledge\` to remove a collection by ID.
 
 ### Workspace Persistence
 Check \`list_artifacts()\` at conversation start. Acknowledge saved items. Save substantial components with \`save_artifact\` (\`pinned: true\` for auto-restore). For live data, set \`dataSource\` with \`pollInterval\`.
@@ -674,6 +678,7 @@ export const openclawHandler: RuntimeHandler = {
       entries["JARBLE_COMPONENTS_DIR"] = "/home/openclaw/.openclaw/components";
       entries["JARBLE_FILES_DIR"] = "/home/openclaw/.openclaw/files";
       entries["JARBLE_MEMORY_DIR"] = "/home/openclaw/.openclaw/memory";
+      entries["JARBLE_KNOWLEDGE_DIR"] = "/home/openclaw/.openclaw/knowledge";
     }
 
     // Platform credential env var fallbacks (OpenClaw reads these as backup)

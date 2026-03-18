@@ -42,6 +42,7 @@ import { botAskRouter } from "./routes/botAsk.js";
 import { meshGatewayRouter } from "./routes/meshGateway.js";
 import { meshDiscoveryRouter, registerAgentCard } from "./routes/meshDiscovery.js";
 import { filesRouter } from "./routes/files.js";
+import { knowledgeRouter } from "./routes/knowledge.js";
 import { attachTerminalWs } from "./routes/terminal.js";
 import { attachChatControlWs } from "./routes/chatControl.js";
 
@@ -118,6 +119,7 @@ app.use("/api/pod/agent", authenticatePod, agentRouter);
 app.use("/api/deployments", bridgeFetchRouter);
 app.use("/api/deployments", botAskRouter);
 app.use("/api/deployments", filesRouter);
+app.use("/api/deployments", knowledgeRouter);
 app.use("/api/mesh", meshGatewayRouter);
 app.use("/api/mesh", meshDiscoveryRouter);
 

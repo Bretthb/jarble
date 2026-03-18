@@ -731,6 +731,37 @@ const TOOLS = [
     },
   },
   {
+    name: "knowledge_search",
+    description: "Search uploaded knowledge base documents for information relevant to a query. Uses keyword matching (TF-IDF) to find the most relevant chunks from ingested documents. Always cite sources when returning results. Use this when the user asks questions that might be answered by their uploaded documents.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query (natural language)" },
+        limit: { type: "number", description: "Max number of results to return (default 5, max 20)", default: 5 },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "list_knowledge",
+    description: "List all knowledge base collections (uploaded documents). Returns collection names, chunk counts, file types, and upload dates.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_knowledge",
+    description: "Delete a knowledge base collection by ID. Permanently removes the document and all its chunks.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        collection_id: { type: "string", description: "The collection ID to delete (from list_knowledge)" },
+      },
+      required: ["collection_id"],
+    },
+  },
+  {
     name: "skill_reference",
     description: "Get detailed rendering guides and best practices. Available skills: component-rendering (selection matrix, props examples, design principles), sandbox-mastery (CDN allowlist, bridge API, theme, heartbeat), generative-ui-patterns (when to render UI vs text, text+UI harmony), platform-awareness (canvas system, MCP tools, multi-platform), dashboard-composition (ordering, layout strategy, data consistency), service-hosting (create/host/publish HTTP services on your pod), page-composition (full-screen page layouts — dashboard, kanban, CRM, settings). Call without a name to list all, or with a specific skill name for full content.",
     inputSchema: {
@@ -3778,6 +3809,211 @@ async function executeForgetMemory(args) {
   }
 }
 
+// ── Knowledge Base tool execution ─────────────────────────────────────
+
+const KNOWLEDGE_DIR = process.env.JARBLE_KNOWLEDGE_DIR || "/data/knowledge";
+
+function ensureKnowledgeDir() {
+  if (!fs.existsSync(path.join(KNOWLEDGE_DIR, "chunks"))) {
+    fs.mkdirSync(path.join(KNOWLEDGE_DIR, "chunks"), { recursive: true });
+  }
+}
+
+function readKnowledgeManifest() {
+  const manifestPath = path.join(KNOWLEDGE_DIR, "manifest.json");
+  if (fs.existsSync(manifestPath)) {
+    try { return JSON.parse(fs.readFileSync(manifestPath, "utf-8")); }
+    catch { return { collections: [] }; }
+  }
+  return { collections: [] };
+}
+
+function writeKnowledgeManifest(manifest) {
+  ensureKnowledgeDir();
+  fs.writeFileSync(path.join(KNOWLEDGE_DIR, "manifest.json"), JSON.stringify(manifest, null, 2), "utf-8");
+}
+
+/**
+ * Simple TF-IDF keyword search over knowledge chunks.
+ * Tokenizes query into words, scores each chunk by keyword frequency.
+ */
+function knowledgeSearch(query, limit) {
+  ensureKnowledgeDir();
+  const chunksDir = path.join(KNOWLEDGE_DIR, "chunks");
+  if (!fs.existsSync(chunksDir)) return [];
+
+  // Tokenize query into lowercase keywords (strip common stop words)
+  const STOP_WORDS = new Set([
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "shall", "can", "need", "dare", "ought",
+    "used", "to", "of", "in", "for", "on", "with", "at", "by", "from",
+    "as", "into", "through", "during", "before", "after", "above", "below",
+    "between", "out", "off", "over", "under", "again", "further", "then",
+    "once", "here", "there", "when", "where", "why", "how", "all", "each",
+    "every", "both", "few", "more", "most", "other", "some", "such", "no",
+    "nor", "not", "only", "own", "same", "so", "than", "too", "very",
+    "just", "because", "but", "and", "or", "if", "while", "about", "what",
+    "which", "who", "whom", "this", "that", "these", "those", "i", "me",
+    "my", "myself", "we", "our", "ours", "you", "your", "yours", "he",
+    "him", "his", "she", "her", "hers", "it", "its", "they", "them",
+    "their", "theirs",
+  ]);
+
+  const queryWords = query.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(function(w) { return w.length > 1 && !STOP_WORDS.has(w); });
+
+  if (queryWords.length === 0) return [];
+
+  // Load all chunk files
+  var allChunks = [];
+  try {
+    var files = fs.readdirSync(chunksDir).filter(function(f) { return f.endsWith(".json"); });
+    for (var fi = 0; fi < files.length; fi++) {
+      try {
+        var chunks = JSON.parse(fs.readFileSync(path.join(chunksDir, files[fi]), "utf-8"));
+        if (Array.isArray(chunks)) {
+          for (var ci = 0; ci < chunks.length; ci++) {
+            allChunks.push(chunks[ci]);
+          }
+        }
+      } catch { /* skip malformed */ }
+    }
+  } catch { /* no chunks dir */ }
+
+  if (allChunks.length === 0) return [];
+
+  // Score each chunk via TF-IDF-like scoring
+  // TF = term frequency in chunk / chunk length
+  // IDF = log(totalChunks / chunks containing term)
+
+  // Pre-compute document frequency for each query word
+  var docFreq = {};
+  for (var qi = 0; qi < queryWords.length; qi++) {
+    docFreq[queryWords[qi]] = 0;
+  }
+
+  var chunkWordCounts = [];
+  for (var i = 0; i < allChunks.length; i++) {
+    var text = (allChunks[i].text || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ");
+    var words = text.split(/\s+/);
+    var wordCount = {};
+    for (var w = 0; w < words.length; w++) {
+      wordCount[words[w]] = (wordCount[words[w]] || 0) + 1;
+    }
+    chunkWordCounts.push({ wordCount: wordCount, totalWords: words.length });
+
+    // Count doc frequency
+    for (var qi2 = 0; qi2 < queryWords.length; qi2++) {
+      if (wordCount[queryWords[qi2]]) {
+        docFreq[queryWords[qi2]]++;
+      }
+    }
+  }
+
+  // Score chunks
+  var scored = [];
+  for (var s = 0; s < allChunks.length; s++) {
+    var score = 0;
+    var wc = chunkWordCounts[s];
+    for (var qi3 = 0; qi3 < queryWords.length; qi3++) {
+      var qw = queryWords[qi3];
+      var tf = (wc.wordCount[qw] || 0) / Math.max(wc.totalWords, 1);
+      var idf = Math.log((allChunks.length + 1) / (1 + (docFreq[qw] || 0)));
+      score += tf * idf;
+    }
+    if (score > 0) {
+      scored.push({ chunk: allChunks[s], score: score });
+    }
+  }
+
+  // Sort by score descending, return top-K
+  scored.sort(function(a, b) { return b.score - a.score; });
+  return scored.slice(0, limit);
+}
+
+function executeKnowledgeSearch(args) {
+  var query = args.query;
+  var limit = Math.min(Math.max(args.limit || 5, 1), 20);
+
+  if (!query || typeof query !== "string" || query.trim().length === 0) {
+    return { isError: true, text: "Please provide a search query." };
+  }
+
+  var results = knowledgeSearch(query.trim(), limit);
+
+  if (results.length === 0) {
+    return {
+      isError: false,
+      text: "No relevant knowledge base results found for that query. The knowledge base may be empty or the query may not match any uploaded documents.",
+    };
+  }
+
+  var lines = ["Found " + results.length + " relevant chunk(s):\n"];
+  for (var i = 0; i < results.length; i++) {
+    var r = results[i];
+    var meta = r.chunk.metadata || {};
+    var source = meta.source || "unknown";
+    var section = meta.section ? " > " + meta.section : "";
+    lines.push("---");
+    lines.push("**Source**: " + source + section + " (relevance: " + (r.score * 100).toFixed(1) + "%)");
+    lines.push(r.chunk.text);
+    lines.push("");
+  }
+
+  return { isError: false, text: lines.join("\n") };
+}
+
+function executeListKnowledge() {
+  ensureKnowledgeDir();
+  var manifest = readKnowledgeManifest();
+
+  if (!manifest.collections || manifest.collections.length === 0) {
+    return { isError: false, text: "No documents in the knowledge base. Upload documents through the Knowledge panel to give your bot knowledge." };
+  }
+
+  var lines = ["Knowledge base: " + manifest.collections.length + " document(s)\n"];
+  for (var i = 0; i < manifest.collections.length; i++) {
+    var c = manifest.collections[i];
+    var sizeKb = ((c.fileSize || 0) / 1024).toFixed(1);
+    lines.push("- **" + c.filename + "** (ID: `" + c.id + "`)");
+    lines.push("  Type: " + c.detectedType + " | Chunks: " + c.chunkCount + " | Size: " + sizeKb + " KB | Uploaded: " + c.uploadedAt);
+  }
+
+  return { isError: false, text: lines.join("\n") };
+}
+
+function executeDeleteKnowledge(args) {
+  var collectionId = args.collection_id;
+  if (!collectionId) {
+    return { isError: true, text: "Please provide a collection_id to delete. Use list_knowledge to see available collections." };
+  }
+
+  ensureKnowledgeDir();
+  var manifest = readKnowledgeManifest();
+  var idx = -1;
+  for (var i = 0; i < manifest.collections.length; i++) {
+    if (manifest.collections[i].id === collectionId) { idx = i; break; }
+  }
+
+  if (idx === -1) {
+    return { isError: true, text: "Collection \"" + collectionId + "\" not found. Use list_knowledge to see available collections." };
+  }
+
+  var removed = manifest.collections.splice(idx, 1)[0];
+  writeKnowledgeManifest(manifest);
+
+  // Delete chunk file
+  try {
+    var chunksPath = path.join(KNOWLEDGE_DIR, "chunks", collectionId + ".json");
+    if (fs.existsSync(chunksPath)) fs.unlinkSync(chunksPath);
+  } catch { /* file might be gone */ }
+
+  return { isError: false, text: "Deleted knowledge collection: \"" + removed.filename + "\" (" + removed.chunkCount + " chunks)" };
+}
+
 // ── Service hosting tool execution ────────────────────────────────────
 
 function executeStartHttpService(args) {
@@ -5831,6 +6067,10 @@ async function executeTool(name, args) {
     // Human-in-the-loop confirmation tools
     case "confirm_action": return executeConfirmAction(args || {});
     case "check_confirmation": return executeCheckConfirmation(args || {});
+    // Knowledge base tools
+    case "knowledge_search": return executeKnowledgeSearch(args || {});
+    case "list_knowledge": return executeListKnowledge();
+    case "delete_knowledge": return executeDeleteKnowledge(args || {});
     default:
       // Per-component tools: show_chart, show_data_table, etc.
       // The tool's arguments ARE the props directly (not wrapped in {component, props}).
