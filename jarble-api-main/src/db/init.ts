@@ -276,6 +276,8 @@ const CREATE_TABLES_SQL = `
     deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
     package_id TEXT NOT NULL REFERENCES marketplace_packages(id),
     signing_secret TEXT NOT NULL,
+    previous_signing_secret TEXT,
+    previous_secret_expires_at TEXT,
     handshake_status TEXT DEFAULT 'pending' NOT NULL,
     handshake_error TEXT,
     remote_install_id TEXT,
