@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { timingSafeEqual } from "crypto";
 import { eq, and, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db, tables, dbDate } from "../db/index.js";
@@ -67,7 +68,7 @@ export async function authenticatePod(req: Request, res: Response, next: NextFun
       const expected = tokenB64
         ? Buffer.from(tokenB64, "base64").toString("utf-8")
         : "";
-      if (gatewayToken !== expected) {
+      if (!expected || gatewayToken.length !== expected.length || !timingSafeEqual(Buffer.from(gatewayToken), Buffer.from(expected))) {
         res.status(401).json({ error: "Invalid gateway token" });
         return;
       }

@@ -1,5 +1,6 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
+import * as Sentry from "@sentry/node";
 import type { Context } from "./context.js";
 import { createModuleLogger } from "../utils/logger.js";
 
@@ -8,6 +9,10 @@ const log = createModuleLogger("trpc:middleware");
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
 });
+
+const sentryMiddleware = t.middleware(
+  Sentry.trpcMiddleware({ attachRpcInput: false })
+);
 
 const loggingMiddleware = t.middleware(async ({ ctx, next, path, type }) => {
   log.debug({ path, type, requestId: ctx.requestId }, "procedure start");
@@ -38,7 +43,7 @@ const authMiddleware = t.middleware(({ ctx, next, path }) => {
 });
 
 export const router = t.router;
-export const publicProcedure = t.procedure.use(loggingMiddleware);
+export const publicProcedure = t.procedure.use(sentryMiddleware).use(loggingMiddleware);
 
 // Protected procedure - requires authenticated user
-export const protectedProcedure = t.procedure.use(loggingMiddleware).use(authMiddleware);
+export const protectedProcedure = t.procedure.use(sentryMiddleware).use(loggingMiddleware).use(authMiddleware);

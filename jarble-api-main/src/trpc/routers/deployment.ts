@@ -654,12 +654,23 @@ export const deploymentRouter = router({
             extraSecretEntries,
             gatewayToken,
           }, managedBy);
-          logger.info({ deploymentId }, "K8s createDeployment returned, updating status...");
+          logger.info({ deploymentId }, "K8s createDeployment returned, polling for readiness...");
+
+          // Poll for pod readiness instead of immediately setting "running"
+          await new Promise((r) => setTimeout(r, 1500));
+          let ready = false;
+          for (let i = 0; i < 30; i++) {
+            const podStatus = await getDeploymentPodStatus(deploymentId, managedBy);
+            if (podStatus.status === "running") { ready = true; break; }
+            if (podStatus.status === "failed") break;
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+
           // Only update if still in transitional state (don't overwrite enforcement actions)
           await ctx.db.update(deployments)
-            .set({ status: "running" })
+            .set({ status: ready ? "running" : "failed", ...(ready ? { error: null } : { error: "Pod did not become ready" }) })
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
-          logger.info({ deploymentId }, "Deployment succeeded - status set to running");
+          logger.info({ deploymentId, ready }, "Deployment create completed");
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Unknown deployment error";
           await ctx.db.update(deployments)
@@ -985,6 +996,10 @@ export const deploymentRouter = router({
             await ctx.db.update(deployments)
               .set({ status: ready ? "running" : "failed" })
               .where(and(eq(deployments.id, input.id), eq(deployments.status, "creating")));
+            // Sync configs after start — picks up any changes made while stopped
+            if (ready) {
+              safeFireAndForget(syncConfigsToPvc(input.id), { operation: "syncConfigsToPvc", deploymentId: input.id });
+            }
             logger.info({ deploymentId: input.id, ready }, "Deployment start completed");
           } catch (err) {
             await ctx.db.update(deployments)

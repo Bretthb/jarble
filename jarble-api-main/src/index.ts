@@ -1,4 +1,6 @@
+import "./instrument.js";  // Sentry must be imported before all other modules
 import "dotenv/config";
+import * as Sentry from "@sentry/node";
 import express from "express";
 import cors from "cors";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -83,11 +85,11 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
 
-// Global rate limiter — 300 req/min per IP (skips /health, webhooks)
-app.use(globalLimiter);
-
-// ─── Stripe webhook (MUST be before express.json() — needs raw body) ───
+// ─── Stripe webhook (MUST be before express.json() AND rate limiter — needs raw body, must not be rate-limited) ───
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhookHandler);
+
+// Global rate limiter — 300 req/min per IP (after webhook route to avoid rate-limiting Stripe events)
+app.use(globalLimiter);
 
 // ─── JSON parsing (after webhook route) ───
 app.use(express.json());
@@ -121,6 +123,7 @@ app.use("/api/mesh", meshDiscoveryRouter);
 // Debug endpoints — dev only
 if (env.NODE_ENV === "development") {
   app.use("/debug", debugRouter);
+  app.get("/debug-sentry", (_req, _res) => { throw new Error("Sentry test error!"); });
   logger.info("Debug endpoints enabled: /debug/db, /debug/deployment/:id/status, /debug/seed-deployment, /debug/deployment/:id/sync-config");
 }
 
@@ -148,9 +151,21 @@ app.use("/trpc", authLimiter, createExpressMiddleware({
   }
 }));
 
+// Sentry error handler — must be before custom error handler
+Sentry.setupExpressErrorHandler(app);
+
 // Global error handler — catches unhandled sync errors in Express routes
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const log = req.log || logger;
+
+  // Malformed JSON body → 400 instead of 500
+  if (err instanceof SyntaxError && "body" in err) {
+    if (!res.headersSent) {
+      res.status(400).json({ error: "Malformed JSON in request body" });
+    }
+    return;
+  }
+
   log.error({ err: err.message, stack: err.stack, method: req.method, url: req.originalUrl }, "Unhandled error");
   if (!res.headersSent) {
     res.status(500).json({ error: "Internal server error" });

@@ -1,5 +1,5 @@
 {
-  "_generated": "2026-03-04T19:58:08.198Z",
+  "_generated": "2026-03-18T02:28:05.261Z",
   "_description": "Auto-generated from @jarble/component-manifest. Do not edit manually.",
   "componentNames": [
     "card",
@@ -26,6 +26,7 @@
     "spreadsheet",
     "sandbox",
     "marketplace_sandbox",
+    "sandpack_sandbox",
     "video",
     "embed",
     "audio",
@@ -70,6 +71,7 @@
     "spreadsheet": "Editable Excel-like spreadsheet grid",
     "sandbox": "Sandboxed iframe for custom HTML/CSS/JS mini-apps — render anything. Use for charts, 3D, animations, gauges, maps, or any visualization not covered by built-in components.",
     "marketplace_sandbox": "Double-iframe sandboxed container for marketplace (user-submitted) components. Provides an extra layer of isolation beyond the standard sandbox — inner iframe runs with opaque origin inside an outer about:blank iframe.",
+    "sandpack_sandbox": "Full npm sandbox for complex multi-file components (React, Three.js, etc.). Use for React apps with state, multi-file projects, or packages with complex dependency trees.",
     "video": "Video/livestream player — supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct URLs. Use for livestreams (NASA ISS, Twitch channels, YouTube Live).",
     "embed": "Third-party widget embed — renders Google Maps, TradingView, Spotify, CodePen, Figma, social posts, and more as interactive iframes",
     "audio": "HTML5 audio player with controls",
@@ -652,12 +654,7 @@
                 "type": "string"
               },
               "status": {
-                "type": "string",
-                "enum": [
-                  "completed",
-                  "active",
-                  "pending"
-                ]
+                "type": "string"
               },
               "color": {
                 "type": "string"
@@ -690,12 +687,7 @@
                 "type": "string"
               },
               "status": {
-                "type": "string",
-                "enum": [
-                  "completed",
-                  "active",
-                  "pending"
-                ]
+                "type": "string"
               },
               "color": {
                 "type": "string"
@@ -974,6 +966,15 @@
         "js": {
           "type": "string"
         },
+        "moduleJs": {
+          "type": "string"
+        },
+        "importMap": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "props": {
           "type": "object",
           "additionalProperties": {}
@@ -1012,6 +1013,15 @@
         "js": {
           "type": "string"
         },
+        "moduleJs": {
+          "type": "string"
+        },
+        "importMap": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "props": {
           "type": "object",
           "additionalProperties": {}
@@ -1034,6 +1044,45 @@
       },
       "required": [
         "html"
+      ],
+      "additionalProperties": true
+    },
+    "sandpack_sandbox": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "template": {
+          "type": "string",
+          "enum": [
+            "react",
+            "react-ts",
+            "vanilla",
+            "vanilla-ts"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "height": {
+          "type": "number"
+        },
+        "entryFile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "files"
       ],
       "additionalProperties": true
     },
@@ -2333,12 +2382,7 @@
                   "type": "string"
                 },
                 "status": {
-                  "type": "string",
-                  "enum": [
-                    "completed",
-                    "active",
-                    "pending"
-                  ]
+                  "type": "string"
                 },
                 "color": {
                   "type": "string"
@@ -2371,12 +2415,7 @@
                   "type": "string"
                 },
                 "status": {
-                  "type": "string",
-                  "enum": [
-                    "completed",
-                    "active",
-                    "pending"
-                  ]
+                  "type": "string"
                 },
                 "color": {
                   "type": "string"
@@ -2687,6 +2726,15 @@
           "js": {
             "type": "string"
           },
+          "moduleJs": {
+            "type": "string"
+          },
+          "importMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "props": {
             "type": "object",
             "additionalProperties": {}
@@ -2729,6 +2777,15 @@
           "js": {
             "type": "string"
           },
+          "moduleJs": {
+            "type": "string"
+          },
+          "importMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "props": {
             "type": "object",
             "additionalProperties": {}
@@ -2751,6 +2808,49 @@
         },
         "required": [
           "html"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "show_sandpack_sandbox",
+      "description": "Full npm sandbox for complex multi-file components (React, Three.js, etc.). Use for React apps with state, multi-file projects, or packages with complex dependency trees.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "dependencies": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "react",
+              "react-ts",
+              "vanilla",
+              "vanilla-ts"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "height": {
+            "type": "number"
+          },
+          "entryFile": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "files"
         ],
         "additionalProperties": true
       }

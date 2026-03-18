@@ -104,7 +104,7 @@ async function retryOnce<T>(
 // ── Per-deployment sync mutex ────────────────────────────────────────────
 // Prevents concurrent syncs for the same deployment from racing.
 // Each deployment chains its syncs sequentially; different deployments run in parallel.
-const syncMutexes = new Map<string, Promise<void>>();
+const syncMutexes = new Map<string, Promise<ConfigSyncResult>>();
 
 // ── Helper: Build DeploymentFields from DB row ──────────────────────────
 
@@ -321,9 +321,17 @@ function compareSecrets(
  *     Secret changed: Process restart via .reload marker — ~5-10s
  *     Secret removed or old image: Full pod restart — ~30-60s (fallback)
  */
-export function syncConfigsToPvc(deploymentId: string): Promise<void> {
+/** Result of a configSync→PVC operation */
+export interface ConfigSyncResult {
+  success: boolean;
+  tier?: number;
+  error?: string;
+  durationMs: number;
+}
+
+export function syncConfigsToPvc(deploymentId: string): Promise<ConfigSyncResult> {
   // Chain onto any existing sync for this deployment (mutex)
-  const prev = syncMutexes.get(deploymentId) ?? Promise.resolve();
+  const prev = syncMutexes.get(deploymentId) ?? Promise.resolve(undefined as unknown as ConfigSyncResult);
   const next = prev
     .catch(() => {}) // Don't let previous failure block next sync
     .then(() => syncConfigsToPvcInner(deploymentId));
@@ -336,7 +344,7 @@ export function syncConfigsToPvc(deploymentId: string): Promise<void> {
   return next;
 }
 
-async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
+async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncResult> {
   let previousStatus: string | null = null;
   const syncStartMs = Date.now();
 
@@ -352,7 +360,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
 
     if (!deployment) {
       log.warn({ deploymentId }, "configSync→PVC: deployment not found, skipping");
-      return;
+      return { success: true, tier: 0, durationMs: Date.now() - syncStartMs };
     }
 
     previousStatus = deployment.status;
@@ -372,13 +380,13 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
           log.info({ deploymentId }, "configSync→PVC: updated ConfigMap for creating deployment (init container will apply)");
         }
       }
-      return;
+      return { success: true, tier: 0, durationMs: Date.now() - syncStartMs };
     } else if (deployment.status !== "running") {
       log.info(
         { deploymentId, status: deployment.status },
         "configSync→PVC: deployment not running, skipping (config will apply on next deploy/start)"
       );
-      return;
+      return { success: true, tier: 0, durationMs: Date.now() - syncStartMs };
     }
 
     // 3. Verify pod is actually running in K8s.
@@ -396,7 +404,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         }
         if (podStatus.status === "failed") {
           log.warn({ deploymentId }, "configSync→PVC: pod failed while waiting for readiness, skipping");
-          return;
+          return { success: false, error: "Pod failed while waiting for readiness", durationMs: Date.now() - syncStartMs };
         }
       }
     }
@@ -405,7 +413,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         { deploymentId, podStatus: podStatus.status },
         "configSync→PVC: pod not ready after waiting, skipping"
       );
-      return;
+      return { success: false, error: "Pod not ready after waiting", durationMs: Date.now() - syncStartMs };
     }
 
     // 4. Get runtime handler
@@ -415,7 +423,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         { deploymentId, runtime: deployment.runtime },
         "configSync→PVC: no runtime handler, skipping"
       );
-      return;
+      return { success: true, tier: 0, durationMs: Date.now() - syncStartMs };
     }
 
     // 5. Read current K8s secret (needed for gateway token + comparison)
@@ -484,7 +492,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
           "ConfigSync: completed (file-only, zero downtime)"
         );
       }
-      return;
+      return { success: true, tier: 1, durationMs: Date.now() - syncStartMs };
     }
 
     if (!comparison.removed) {
@@ -523,7 +531,8 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         deployment.userId,
         deployment.name,
         deployment.runtime,
-        secretEntries
+        secretEntries,
+        (deployment as any).template || undefined,
       );
 
       // Build full env overrides for the .env file (base + runtime entries)
@@ -557,6 +566,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
           const durationMs = Date.now() - syncStartMs;
           log.info({ deploymentId, durationMs, tier: 2 }, "ConfigSync: completed (process restart)");
+          return { success: true, tier: 2, durationMs };
         } else {
           await db.update(deployments)
             .set({
@@ -565,8 +575,8 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
             })
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "reloading")));
           log.warn({ deploymentId, failureReason }, "configSync→PVC: process restart failed");
+          return { success: false, tier: 2, error: failureReason || "Process did not become ready after reload", durationMs: Date.now() - syncStartMs };
         }
-        return;
       }
 
       // Process restart not supported (old image without PID file) — fall through to Tier 3
@@ -609,7 +619,8 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         deployment.userId,
         deployment.name,
         deployment.runtime,
-        secretEntries
+        secretEntries,
+        (deployment as any).template || undefined,
       );
     }
 
@@ -679,6 +690,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         const durationMs = Date.now() - syncStartMs;
         log.info({ deploymentId, durationMs, tier: 3 }, "ConfigSync: completed (full pod restart)");
       }
+      return { success: true, tier: 3, durationMs: Date.now() - syncStartMs };
     } else {
       const result = await db.update(deployments)
         .set({
@@ -692,6 +704,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
       } else {
         log.warn({ deploymentId, failureReason }, "configSync→PVC: pod failed to become ready");
       }
+      return { success: false, tier: 3, error: failureReason || "Pod did not become ready after config sync", durationMs: Date.now() - syncStartMs };
     }
 
   } catch (err) {
@@ -721,6 +734,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<void> {
         "configSync→PVC: failed to rollback DB status"
       );
     }
+    return { success: false, error: errorMessage, durationMs };
   }
 }
 

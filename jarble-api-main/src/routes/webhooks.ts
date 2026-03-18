@@ -79,22 +79,18 @@ webhooksRouter.post("/auth0/email-verified", async (req, res) => {
 // Auth: Shared secret in Authorization header (CONFIG_WEBHOOK_SECRET).
 webhooksRouter.post("/config-changed", async (req, res) => {
   try {
-    // Validate shared secret - REQUIRED in production
-    // In development without the secret, skip auth (convenience)
-    const isDev = process.env.NODE_ENV === "development";
-    if (!env.CONFIG_WEBHOOK_SECRET && !isDev) {
+    // Validate shared secret - REQUIRED in all environments
+    if (!env.CONFIG_WEBHOOK_SECRET) {
       log.warn("Config webhook called but CONFIG_WEBHOOK_SECRET is not configured");
       res.status(503).json({ error: "Webhook not configured" });
       return;
     }
 
-    if (env.CONFIG_WEBHOOK_SECRET) {
-      const authHeader = req.headers.authorization;
-      const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-      if (!token || !secureCompare(token, env.CONFIG_WEBHOOK_SECRET)) {
-        res.status(401).json({ error: "Unauthorized" });
-        return;
-      }
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!token || !secureCompare(token, env.CONFIG_WEBHOOK_SECRET)) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
     }
 
     const { deploymentId } = req.body;

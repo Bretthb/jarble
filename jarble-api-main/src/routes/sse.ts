@@ -202,8 +202,9 @@ sseRouter.get("/:id/logs/stream", async (req, res) => {
 
 // ─── SSE: WhatsApp QR code pairing ──────────────────────────────────────────
 sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
+  let user: Awaited<ReturnType<typeof authenticateSSE>> = null;
   try {
-    const user = await authenticateSSE(req);
+    user = await authenticateSSE(req);
     if (!user) {
       res.status(401).json({ error: "Unauthorized" });
       return;
@@ -403,6 +404,10 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
     log.error({ err }, "WhatsApp QR stream error");
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error" });
+    } else {
+      // Headers already sent — SSE connection open but broken, must close it
+      if (user) releaseConnection(user.id);
+      res.end();
     }
   }
 });

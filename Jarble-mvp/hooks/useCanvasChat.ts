@@ -677,15 +677,14 @@ export function useCanvasChat(
         abortRef.current?.abort();
         await new Promise((r) => setTimeout(r, 0));
       }
-      // Use setter callback to avoid stale messages closure
-      let found = false;
-      setMessages((prev) => {
-        const idx = prev.findIndex((m) => m.id === messageId);
-        if (idx === -1) return prev;
-        found = true;
-        return prev.slice(0, idx);
-      });
-      if (found) await sendMessage(newText);
+      // Compute truncated list directly and update ref before sendMessage
+      const current = messagesRef.current;
+      const idx = current.findIndex((m) => m.id === messageId);
+      if (idx === -1) return;
+      const truncated = current.slice(0, idx);
+      messagesRef.current = truncated;
+      setMessages(truncated);
+      await sendMessage(newText);
     },
     [sendMessage]
   );

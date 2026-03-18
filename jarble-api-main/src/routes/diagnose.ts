@@ -300,7 +300,9 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
             const parsed = JSON.parse(config);
             const podModel = parsed.agents?.defaults?.model?.primary || parsed.agent?.model || "not set";
             const dbModel = (deployment as any).llmModel || "not set";
-            const modelMatch = podModel === dbModel;
+            // Strip provider prefix (e.g., "anthropic/claude-sonnet-4-20250514" → "claude-sonnet-4-20250514")
+            const normalizedPodModel = podModel.includes("/") ? podModel.split("/").slice(1).join("/") : podModel;
+            const modelMatch = normalizedPodModel === dbModel || podModel === dbModel;
             checks.push({
               name: "OpenClaw Config",
               status: modelMatch ? "ok" : "warning",
