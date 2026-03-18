@@ -113,17 +113,20 @@ export default function StepChoosePersona({
                   : "border-border hover:border-primary/50 bg-secondary/30 hover:bg-secondary/40"
               }`}
             >
-              {/* Preview button */}
-              <button
+              {/* Preview toggle */}
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={(e) => {
                   e.stopPropagation();
                   setPreviewId(previewId === persona.id ? null : persona.id);
                 }}
-                className="absolute top-2 right-2 p-1.5 rounded-lg bg-background/80 border border-border/50 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background"
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setPreviewId(previewId === persona.id ? null : persona.id); } }}
+                className="absolute top-2 right-2 p-1.5 rounded-lg bg-background/80 border border-border/50 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background cursor-pointer"
                 title="Preview persona"
               >
                 <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-              </button>
+              </div>
 
               <div className="flex items-start gap-3">
                 <span className="text-2xl shrink-0 mt-0.5" role="img">
