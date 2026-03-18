@@ -75,19 +75,43 @@ export async function writeConfigsToPvc(
   // Single mkdir -p for all directories
   scriptParts.push(`mkdir -p ${Array.from(dirs).map(d => `'${d}'`).join(" ")}`);
 
-  // Write each file via base64 decode
+  // Write each file via base64 decode.
+  // Split into "small" files (inline in batch) and "large" files (separate exec call each)
+  // to avoid exceeding WebSocket/shell command limits (~500KB total).
+  const LARGE_FILE_THRESHOLD = 64 * 1024; // 64KB raw → ~85KB base64
+  const smallWriteParts: string[] = [];
+  const largeFiles: { filePath: string; b64: string }[] = [];
+
   for (const file of files) {
     const filePath = file.path.startsWith("/") ? file.path : `${pvcMount}/config/${file.path}`;
     const b64 = Buffer.from(file.content).toString("base64");
-    scriptParts.push(`echo '${b64}' | base64 -d > '${filePath}'`);
+    if (file.content.length > LARGE_FILE_THRESHOLD) {
+      largeFiles.push({ filePath, b64 });
+    } else {
+      smallWriteParts.push(`echo '${b64}' | base64 -d > '${filePath}'`);
+    }
   }
 
-  const batchScript = scriptParts.join(" && ");
+  // Phase 1: mkdir + small file writes (joined with ; so one failure doesn't abort others)
+  const mkdirScript = scriptParts.join(" && ");
+  const writeScript = smallWriteParts.join("; ");
+  const batchScript = writeScript
+    ? `${mkdirScript} && { ${writeScript}; true; }`
+    : mkdirScript;
 
   await execInPod(podName, ["sh", "-c", batchScript], containerName);
 
+  // Phase 2: large files written individually (avoids command-line size limits)
+  for (const { filePath, b64 } of largeFiles) {
+    try {
+      await execInPod(podName, ["sh", "-c", `echo '${b64}' | base64 -d > '${filePath}'`], containerName);
+    } catch (err) {
+      log.warn({ deploymentId, filePath, err }, "writeConfigsToPvc: large file write failed (non-fatal)");
+    }
+  }
+
   log.info(
-    { deploymentId, fileCount: files.length, paths: files.map(f => f.path) },
+    { deploymentId, fileCount: files.length, largeFileCount: largeFiles.length, paths: files.map(f => f.path) },
     "Wrote config files to PVC (batched)"
   );
 }

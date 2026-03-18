@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 import { db, tables, dbDate } from "../db/index.js";
 import { logger } from "../utils/logger.js";
 import { verifyToken } from "../services/auth.js";
-import { syncConfigsToPvc } from "../services/configSync.js";
+import { syncConfigsToPvc, type ConfigSyncResult } from "../services/configSync.js";
 import { safeFireAndForget } from "../utils/safeAsync.js";
 import { validateThemeConfig, THEME_PRESET_NAMES } from "@jarble/component-manifest";
 
@@ -748,9 +748,34 @@ debugRouter.post("/deployment/:id/sync-config", async (req, res) => {
     // Trigger config sync (fire and forget - don't block the request)
     safeFireAndForget(syncConfigsToPvc(id), { operation: "syncConfigsToPvc", deploymentId: id });
 
-    res.json({ success: true, deploymentId: id, message: "Config sync triggered (running in background)" });
+    res.json({ success: true, deploymentId: id, message: "Config sync triggered (running in background). Use POST /debug/deployment/:id/sync-config-await for synchronous result." });
   } catch (err) {
     logger.error({ err }, "Debug: configSync failed");
+    res.status(500).json({ error: "Config sync failed", details: String(err) });
+  }
+});
+
+// Trigger configSync for a deployment (synchronous — awaits completion and returns result)
+debugRouter.post("/deployment/:id/sync-config-await", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const deployment = await db.query.deployments.findFirst({
+      where: eq(tables.deployments.id, id),
+    });
+
+    if (!deployment) {
+      res.status(404).json({ error: "Deployment not found" });
+      return;
+    }
+
+    logger.info({ deploymentId: id }, "Debug: triggering configSync (awaiting result)");
+
+    const result: ConfigSyncResult = await syncConfigsToPvc(id);
+
+    res.json({ deploymentId: id, ...result });
+  } catch (err) {
+    logger.error({ err }, "Debug: configSync-await failed");
     res.status(500).json({ error: "Config sync failed", details: String(err) });
   }
 });
