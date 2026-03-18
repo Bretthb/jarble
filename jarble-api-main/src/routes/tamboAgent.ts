@@ -806,9 +806,13 @@ tamboAgentRouter.post("/", async (req, res) => {
   // ── External reasoning (GPT-4o-mini) ──────────────────────────────────────
   // Fire immediately — resolves in ~1-2s while bot call takes 5-60s.
   // Emits REASONING_START/CONTENT/END events before or alongside bot text.
+  // Skip for Claude models with native extended thinking — they emit real thinking blocks.
+  const hasNativeThinking = deployment.llmProvider === "anthropic" && (
+    (deployment.llmModel || "").includes("sonnet-4") || (deployment.llmModel || "").includes("opus-4")
+  );
   const reasoningMsgId = nanoid();
-  let externalReasoningEmitted = false;
-  const reasoningPromise = generateReasoning(lastUserText);
+  let externalReasoningEmitted = hasNativeThinking; // pre-mark as emitted to skip
+  const reasoningPromise = hasNativeThinking ? Promise.resolve("") : generateReasoning(lastUserText);
 
   /** Emit external reasoning events (once). Resolves when reasoning is sent. */
   const emitExternalReasoning = async () => {

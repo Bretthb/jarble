@@ -416,8 +416,20 @@ export const openclawHandler: RuntimeHandler = {
       const model = deployment.llmModel;
       // Only prefix if not already prefixed (e.g. "openrouter/auto" already has it)
       const prefixedModel = model.includes("/") ? model : `${provider}/${model}`;
+
+      // Enable extended thinking for Claude models that support it
+      // (Sonnet 4+, Opus 4+). This gives real reasoning instead of faked reasoning.
+      const supportsThinking = provider === "anthropic" && (
+        model.includes("sonnet-4") || model.includes("opus-4")
+      );
+
       openclawConfig.agents = {
-        defaults: { model: { primary: prefixedModel } },
+        defaults: {
+          model: {
+            primary: prefixedModel,
+            ...(supportsThinking ? { thinking: { type: "enabled", budget_tokens: 8192 } } : {}),
+          },
+        },
       };
     }
 
