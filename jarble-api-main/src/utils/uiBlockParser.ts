@@ -558,10 +558,37 @@ export function extractSuggestions(text: string): {
   return { cleanText, suggestions };
 }
 
+// ── Design Context extraction ────────────────────────────────────────────────
+
+const DESIGN_CONTEXT_FENCE_RE = /```jarble_design_context\s*\n([\s\S]*?)```/g;
+
+/**
+ * Extract ```jarble_design_context blocks from bot text.
+ * Returns the last context found (most recent wins) and cleaned text.
+ */
+function extractDesignContext(text: string): {
+  cleanText: string;
+  designContext: Record<string, unknown> | null;
+} {
+  let designContext: Record<string, unknown> | null = null;
+  const cleanText = text.replace(DESIGN_CONTEXT_FENCE_RE, (_match, jsonStr: string) => {
+    try {
+      const parsed = JSON.parse(jsonStr.trim());
+      if (parsed && typeof parsed === "object") {
+        designContext = parsed as Record<string, unknown>;
+      }
+    } catch {
+      logger.warn("[uiBlockParser] Failed to parse design context JSON");
+    }
+    return "";
+  }).replace(/\n{3,}/g, "\n\n").trim();
+  return { cleanText, designContext };
+}
+
 /**
  * Extract all fenced block types from text.
  *
- * Order matters: suggestions > define > update > render (each strips its blocks before the next).
+ * Order matters: suggestions > design context > define > update > render (each strips its blocks before the next).
  */
 export function extractAllUIBlocks(text: string): {
   cleanText: string;
@@ -569,15 +596,18 @@ export function extractAllUIBlocks(text: string): {
   uiUpdates: JarbleUIUpdate[];
   componentDefs: JarbleComponentDef[];
   suggestions: string[];
+  designContext: Record<string, unknown> | null;
 } {
   // 0. Extract suggestions first (lightweight, no overlap with UI blocks)
   const { cleanText: afterSuggestions, suggestions } = extractSuggestions(text);
+  // 0.5. Extract design context blocks
+  const { cleanText: afterDesignCtx, designContext } = extractDesignContext(afterSuggestions);
   // 1. Extract component definitions
-  const { cleanText: afterDefs, componentDefs } = extractComponentDefs(afterSuggestions);
+  const { cleanText: afterDefs, componentDefs } = extractComponentDefs(afterDesignCtx);
   // 2. Then updates (jarble_ui_update must be matched before jarble_ui)
   const { cleanText: afterUpdates, uiUpdates } = extractUIUpdates(afterDefs);
   // 3. Then render blocks from the remaining text
   const { cleanText, uiBlocks } = extractUIBlocks(afterUpdates);
 
-  return { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions };
+  return { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext };
 }

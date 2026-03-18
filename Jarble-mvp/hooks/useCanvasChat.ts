@@ -107,6 +107,8 @@ export function useCanvasChat(
   const targetReasoningRef = useRef<string>("");
   const displayedReasoningLenRef = useRef<number>(0);
   const reasoningRafIdRef = useRef<number | null>(null);
+  // Design intent tracking — persists style choices across the session
+  const designContextRef = useRef<Record<string, unknown> | null>(null);
   const CHARS_PER_FRAME = 8; // ~480 chars/sec at 60fps — fast but visible
   // Track current run's LLM provider/model from RUN_STARTED event (ref avoids stale closure)
   const currentLlmRef = useRef<{ provider?: string; model?: string }>({});
@@ -239,6 +241,12 @@ export function useCanvasChat(
         }
         messageToSend = `${canvasBlock}${messageToSend}`;
         isDev && console.log(`[Jarble:Chat] Prepended canvas state with ${currentState.cards.length} card(s)`);
+
+        // Include design context if the bot has established style preferences
+        if (designContextRef.current && Object.keys(designContextRef.current).length > 0) {
+          const dcJson = JSON.stringify(designContextRef.current);
+          messageToSend = `[DESIGN_CONTEXT]\n${dcJson}\n[/DESIGN_CONTEXT]\n${messageToSend}`;
+        }
       }
 
       // Track this request's generation — used in finally to avoid the abort race where
@@ -546,6 +554,10 @@ export function useCanvasChat(
                   // Theme was changed by the bot — trigger a deployment refetch
                   // so useDeploymentTheme picks up the new themeConfig from the DB
                   window.dispatchEvent(new CustomEvent("jarble:theme-updated", { detail: event.value }));
+                }
+                if (event.name === "jarble.design.context" && event.value) {
+                  isDev && console.log("[Jarble:Chat] Design context updated:", event.value);
+                  designContextRef.current = event.value as Record<string, unknown>;
                 }
                 if (event.name === "jarble.clear_chat") {
                   // /clear command — reset messages and canvas

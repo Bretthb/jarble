@@ -37,3 +37,4 @@ export const CUSTOM_CHAT_ERROR = "jarble.chat.error";
 export const CUSTOM_DASHBOARD_CREATED = "jarble.dashboard.created";
 export const CUSTOM_ARTIFACT_UPDATED = "jarble.artifact.updated";
 export const CUSTOM_SUGGESTIONS = "jarble.suggestions";
+export const CUSTOM_DESIGN_CONTEXT = "jarble.design.context";

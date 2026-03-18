@@ -797,6 +797,41 @@ const TOOLS = [
     },
   },
   {
+    name: "update_design_context",
+    description: "Save your current design choices (color palette, chart style, typography, layout preferences) so they persist across the session. Call this after rendering your first charts/components to lock in a consistent visual style. The saved context is automatically included in subsequent messages via [DESIGN_CONTEXT] so you can maintain consistency without re-specifying styles.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        colorPalette: {
+          type: "array",
+          items: { type: "string" },
+          description: "Array of hex color strings used across charts and components (e.g. ['#8884d8', '#82ca9d', '#ffc658'])",
+        },
+        chartStyle: {
+          type: "string",
+          description: "Preferred chart type for similar data (e.g. 'bar', 'line', 'area', 'pie')",
+        },
+        typography: {
+          type: "object",
+          properties: {
+            heading: { type: "string", description: "Font family for headings" },
+            body: { type: "string", description: "Font family for body text" },
+          },
+          description: "Typography preferences",
+        },
+        layoutPreference: {
+          type: "string",
+          description: "Preferred layout style (e.g. 'grid-2x2', 'stacked', 'sidebar-main')",
+        },
+        customStyles: {
+          type: "object",
+          description: "Any additional style preferences (e.g. { borderRadius: '8px', gradientFills: true })",
+          additionalProperties: true,
+        },
+      },
+    },
+  },
+  {
     name: "create_dashboard",
     description: "Render a multi-component dashboard. Emits multiple UI components as a visual group with a shared title. Use when the user asks for a dashboard, overview, or summary with multiple data views. Max 8 components.",
     inputSchema: {
@@ -1424,7 +1459,15 @@ function executeRenderUi(args) {
       }
     }
     const block = JSON.stringify({ component, props: props || {} });
-    return { isError: false, text: "```jarble_ui\n" + block + "\n```" };
+    // Auto-infer design context from rendered component (non-blocking)
+    let designContextBlock = "";
+    try {
+      const inferred = inferDesignContext(component, props);
+      if (inferred) {
+        designContextBlock = "\n```jarble_design_context\n" + JSON.stringify(inferred) + "\n```";
+      }
+    } catch (_) { /* best-effort */ }
+    return { isError: false, text: "```jarble_ui\n" + block + "\n```" + designContextBlock };
   }
 
   // Custom — resolve from PVC
@@ -4228,6 +4271,122 @@ async function executeSetTheme(args) {
   };
 }
 
+// ── Design Context (session-level style tracking) ───────────────────────
+
+const DESIGN_CONTEXT_PATH = (() => {
+  const fs = require("fs");
+  const path = require("path");
+  const base = process.env.PVC_MOUNT || "/data";
+  return path.join(base, "workspace", "design-context.json");
+})();
+
+function readDesignContext() {
+  const fs = require("fs");
+  try {
+    const raw = fs.readFileSync(DESIGN_CONTEXT_PATH, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function writeDesignContext(ctx) {
+  const fs = require("fs");
+  const path = require("path");
+  try {
+    fs.mkdirSync(path.dirname(DESIGN_CONTEXT_PATH), { recursive: true });
+    fs.writeFileSync(DESIGN_CONTEXT_PATH, JSON.stringify(ctx, null, 2));
+  } catch (err) {
+    console.error("[MCP] Failed to write design context:", err.message);
+  }
+}
+
+function mergeDesignContext(incoming) {
+  const existing = readDesignContext();
+  // Shallow merge top-level keys; arrays and objects replace, not deep-merge
+  const merged = Object.assign({}, existing);
+  if (incoming.colorPalette) merged.colorPalette = incoming.colorPalette;
+  if (incoming.chartStyle) merged.chartStyle = incoming.chartStyle;
+  if (incoming.layoutPreference) merged.layoutPreference = incoming.layoutPreference;
+  if (incoming.typography) {
+    merged.typography = Object.assign({}, merged.typography || {}, incoming.typography);
+  }
+  if (incoming.customStyles) {
+    merged.customStyles = Object.assign({}, merged.customStyles || {}, incoming.customStyles);
+  }
+  merged.updatedAt = new Date().toISOString();
+  writeDesignContext(merged);
+  return merged;
+}
+
+function executeUpdateDesignContext(args) {
+  if (!args || Object.keys(args).length === 0) {
+    // Return current context
+    const ctx = readDesignContext();
+    if (Object.keys(ctx).length === 0) {
+      return { isError: false, text: "No design context saved yet. Call with colorPalette, chartStyle, typography, layoutPreference, or customStyles to save your design choices." };
+    }
+    return { isError: false, text: "Current design context:\n" + JSON.stringify(ctx, null, 2) };
+  }
+  const merged = mergeDesignContext(args);
+  const parts = [];
+  if (merged.colorPalette) parts.push(`Color palette: ${merged.colorPalette.join(", ")}`);
+  if (merged.chartStyle) parts.push(`Chart style: ${merged.chartStyle}`);
+  if (merged.typography) parts.push(`Typography: heading=${merged.typography.heading || "default"}, body=${merged.typography.body || "default"}`);
+  if (merged.layoutPreference) parts.push(`Layout: ${merged.layoutPreference}`);
+  if (merged.customStyles) parts.push(`Custom styles: ${Object.keys(merged.customStyles).join(", ")}`);
+
+  // Emit a fenced block so the gateway can relay the context to the frontend
+  const contextBlock = "```jarble_design_context\n" + JSON.stringify(merged) + "\n```";
+
+  return {
+    isError: false,
+    text: `Design context updated! These styles will be included in subsequent messages via [DESIGN_CONTEXT].\n${parts.join("\n")}\n${contextBlock}`,
+  };
+}
+
+/**
+ * Auto-infer design intent from rendered component props.
+ * Called after each successful render_ui to passively build up the design context.
+ */
+function inferDesignContext(component, props) {
+  if (!props || typeof props !== "object") return;
+
+  const inferred = {};
+
+  // Extract colors from chart components
+  if (component === "chart" && props.colors && Array.isArray(props.colors)) {
+    inferred.colorPalette = props.colors;
+  }
+  // Infer chart style preference
+  if (component === "chart" && props.type) {
+    inferred.chartStyle = props.type;
+  }
+  // Extract colors from stat_grid items with color fields
+  if (component === "stat_grid" && Array.isArray(props.stats)) {
+    const colors = props.stats
+      .map(function(s) { return s.color; })
+      .filter(function(c) { return c && typeof c === "string" && c.startsWith("#"); });
+    if (colors.length >= 2) {
+      inferred.colorPalette = colors;
+    }
+  }
+  // Extract color palette from metric_card
+  if (component === "metric_card" && props.color && typeof props.color === "string" && props.color.startsWith("#")) {
+    // Single color — only update if we have no palette yet
+    const existing = readDesignContext();
+    if (!existing.colorPalette || existing.colorPalette.length === 0) {
+      inferred.colorPalette = [props.color];
+    }
+  }
+
+  // Only merge if we inferred something; return merged context for embedding
+  if (Object.keys(inferred).length > 0) {
+    return mergeDesignContext(inferred);
+  }
+  return null;
+}
+
 async function executePublishComponent(args) {
   const { name, displayName, description, tier, category, propsSchema, exampleProps, tags } = args;
 
@@ -5321,6 +5480,7 @@ async function executeTool(name, args) {
     case "publish_component": return executePublishComponent(args || {});
     case "create_draft_service": return executeCreateDraftService(args || {});
     case "set_theme": return executeSetTheme(args || {});
+    case "update_design_context": return executeUpdateDesignContext(args || {});
     // Web & Search tools
     case "web_fetch": return executeWebFetch(args || {});
     case "web_search": return executeWebSearch(args || {});

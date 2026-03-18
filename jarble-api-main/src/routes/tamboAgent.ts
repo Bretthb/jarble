@@ -48,6 +48,7 @@ import {
   CUSTOM_DASHBOARD_CREATED,
   CUSTOM_ARTIFACT_UPDATED,
   CUSTOM_SUGGESTIONS,
+  CUSTOM_DESIGN_CONTEXT,
   REASONING_START,
   REASONING_CONTENT,
   REASONING_END,
@@ -961,6 +962,16 @@ tamboAgentRouter.post("/", async (req, res) => {
         });
         log.info({ deploymentId, name: def.name, childCount: def.layout.length }, "Chat: component defined");
       }
+    }
+
+    // Emit design context if the bot updated it this turn
+    if (gatewayResult.designContext) {
+      sendEvent(res, {
+        type: CUSTOM,
+        name: CUSTOM_DESIGN_CONTEXT,
+        value: gatewayResult.designContext,
+      });
+      log.debug({ deploymentId }, "Chat: emitted design context update");
     }
 
     // Emit suggestions — use bot's own suggestions if present, otherwise generate via secondary model
