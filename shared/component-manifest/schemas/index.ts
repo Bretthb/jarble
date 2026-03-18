@@ -486,6 +486,25 @@ export const sourcesSchema = z.object({
   title: z.string().optional(),
 });
 
+// ── Page Layout ───────────────────────────────────────────────────────
+
+const pageChildSchema = z.object({
+  component: z.string().describe("Canvas component name (chart, data_table, metric_card, etc.)"),
+  props: z.record(z.string(), z.unknown()).optional().describe("Props object for the child component"),
+  propsJson: z.string().optional().describe("JSON-stringified props (alternative to props)"),
+});
+
+export const pageSchema = z.object({
+  type: z.enum(["dashboard", "settings", "kanban", "crm", "landing", "data_explorer", "form_wizard"]),
+  title: z.string(),
+  subtitle: z.string().optional(),
+  sections: z.record(z.string(), z.array(pageChildSchema)).describe("Map of section ID to array of child components"),
+  navigation: z.object({
+    tabs: z.array(z.string()).optional(),
+    activeTab: z.string().optional(),
+  }).optional(),
+});
+
 // ── Schema Record ─────────────────────────────────────────────────────────────
 
 /**
@@ -537,4 +556,5 @@ export const COMPONENT_SCHEMAS: Record<string, ZodType> = {
   reasoning: reasoningSchema,
   tool: toolSchema,
   sources: sourcesSchema,
+  page: pageSchema,
 };

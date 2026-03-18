@@ -427,7 +427,7 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       return { ...state, mode: action.mode };
 
     case "CLEAR_CANVAS":
-      return { ...INITIAL_CANVAS_STATE, mode: state.mode, strokes: [] };
+      return { ...INITIAL_CANVAS_STATE, mode: state.mode, strokes: [], fullscreenPageId: null };
 
     case "RENAME_CARD":
       return {
@@ -465,6 +465,55 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
     case "RESET_FIX_ATTEMPTS": {
       const { [action.id]: _, ...rest } = state.fixAttempts;
       return { ...state, fixAttempts: rest };
+    }
+
+    case "OPEN_PAGE_FULLSCREEN": {
+      const pageCard = state.cards.find((c) => c.id === action.id);
+      if (!pageCard || pageCard.component !== "page") return state;
+      return { ...state, fullscreenPageId: action.id };
+    }
+
+    case "CLOSE_PAGE_FULLSCREEN":
+      return { ...state, fullscreenPageId: null };
+
+    case "UNGROUP_PAGE": {
+      const card = state.cards.find((c) => c.id === action.cardId);
+      if (!card || card.component !== "page") return state;
+      const sections = card.props.sections as Record<string, Array<{ component: string; props: Record<string, unknown> }>> | undefined;
+      if (!sections || typeof sections !== "object") return state;
+
+      const timestamp = Date.now();
+      const newCards: CanvasCard[] = [];
+      let idx = 0;
+      for (const [_sectionKey, items] of Object.entries(sections)) {
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+          if (!item?.component) continue;
+          const offset = { x: (idx % 3) * 340, y: Math.floor(idx / 3) * 260 };
+          const size = DEFAULT_CARD_SIZES[item.component] || DEFAULT_CARD_SIZE;
+          newCards.push({
+            id: `${card.id}-pg-${idx}-${timestamp}`,
+            component: item.component,
+            props: item.props || {},
+            position: { x: card.position.x + offset.x, y: card.position.y + offset.y },
+            size,
+            zIndex: state.nextZIndex + idx,
+            minimized: false,
+            createdAt: timestamp,
+            title: (item.props?.title as string) || item.component.replace(/_/g, " "),
+          });
+          idx++;
+        }
+      }
+
+      if (newCards.length === 0) return state;
+      if (process.env.NODE_ENV === "development") console.log(`[Jarble:Reducer] UNGROUP_PAGE -> ${newCards.length} cards from page`);
+      return {
+        ...state,
+        cards: [...state.cards.filter((c) => c.id !== action.cardId), ...newCards],
+        nextZIndex: state.nextZIndex + newCards.length,
+        fullscreenPageId: null,
+      };
     }
 
     case "PIN_CARD":

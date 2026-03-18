@@ -8,7 +8,7 @@
  * This file only handles the React component mapping.
  */
 
-import type { ZodType } from "zod";
+import { type ZodType, z } from "zod";
 import type { ComponentType } from "react";
 import dynamic from "next/dynamic";
 
@@ -58,6 +58,7 @@ import {
   reasoningSchema,
   toolSchema,
   sourcesSchema,
+  pageSchema,
 } from "@jarble/component-manifest";
 
 // Re-export schemas for consumers that import them directly from registry.ts
@@ -135,6 +136,7 @@ import CanvasTextMessage from "./components/CanvasTextMessage";
 import CanvasReasoning from "./components/CanvasReasoning";
 import CanvasTool from "./components/CanvasTool";
 import CanvasSources from "./components/CanvasSources";
+import CanvasPage from "./components/CanvasPage";
 
 // ── Heavy components — lazy-loaded (ssr: false) ─────────────────────────────
 
@@ -223,4 +225,5 @@ export const CANVAS_COMPONENTS: Record<string, CanvasComponentEntry> = {
   reasoning: { component: CanvasReasoning, propsSchema: reasoningSchema },
   tool: { component: CanvasTool, propsSchema: toolSchema },
   sources: { component: CanvasSources, propsSchema: sourcesSchema },
+  page: { component: CanvasPage, propsSchema: pageSchema },
 };

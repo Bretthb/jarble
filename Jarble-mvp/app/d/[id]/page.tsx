@@ -36,6 +36,7 @@ import "./chat-skins.css";
 import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import ChatErrorCard from "@/components/workspace/ChatErrorCard";
+import PageFullscreenOverlay from "@/components/workspace/PageFullscreenOverlay";
 import { useDiagnose } from "@/hooks/useDiagnose";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -839,6 +840,19 @@ function CanvasWorkspace({
               strokes={state.strokes}
             />
           )}
+
+          {/* Page fullscreen overlay */}
+          {state.fullscreenPageId && (() => {
+            const pageCard = state.cards.find((c) => c.id === state.fullscreenPageId);
+            if (!pageCard || pageCard.component !== "page") return null;
+            return (
+              <PageFullscreenOverlay
+                card={pageCard}
+                onClose={() => dispatch({ type: "CLOSE_PAGE_FULLSCREEN" })}
+                onUngroup={() => dispatch({ type: "UNGROUP_PAGE", cardId: pageCard.id })}
+              />
+            );
+          })()}
         </div>
       )}
 

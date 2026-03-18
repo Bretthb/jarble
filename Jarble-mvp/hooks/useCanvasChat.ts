@@ -475,7 +475,13 @@ export function useCanvasChat(
                   } else {
                     // Branch mode or component type differs: create new card
                     const card = addComponentCard(block, messageId, stateRef.current, dispatch, cardsAddedThisStream, currentLlmRef.current, selectedCardRef.current);
-                    if (card) cardsAddedThisStream.push(card);
+                    if (card) {
+                      cardsAddedThisStream.push(card);
+                      // Auto-open page components in fullscreen
+                      if (block.component === "page") {
+                        dispatch({ type: "OPEN_PAGE_FULLSCREEN", id: card.id });
+                      }
+                    }
                   }
 
                   pendingBlocks.delete(event.toolCallId);

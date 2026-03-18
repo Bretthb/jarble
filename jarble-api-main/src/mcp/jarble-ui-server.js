@@ -732,7 +732,7 @@ const TOOLS = [
   },
   {
     name: "skill_reference",
-    description: "Get detailed rendering guides and best practices. Available skills: component-rendering (selection matrix, props examples, design principles), sandbox-mastery (CDN allowlist, bridge API, theme, heartbeat), generative-ui-patterns (when to render UI vs text, text+UI harmony), platform-awareness (canvas system, MCP tools, multi-platform), dashboard-composition (ordering, layout strategy, data consistency), service-hosting (create/host/publish HTTP services on your pod). Call without a name to list all, or with a specific skill name for full content.",
+    description: "Get detailed rendering guides and best practices. Available skills: component-rendering (selection matrix, props examples, design principles), sandbox-mastery (CDN allowlist, bridge API, theme, heartbeat), generative-ui-patterns (when to render UI vs text, text+UI harmony), platform-awareness (canvas system, MCP tools, multi-platform), dashboard-composition (ordering, layout strategy, data consistency), service-hosting (create/host/publish HTTP services on your pod), page-composition (full-screen page layouts — dashboard, kanban, CRM, settings). Call without a name to list all, or with a specific skill name for full content.",
     inputSchema: {
       type: "object",
       properties: {
@@ -865,6 +865,46 @@ const TOOLS = [
         },
       },
       required: ["title", "components"],
+    },
+  },
+  // ── Full-screen page layout tool ─────────────────────────────────────
+  {
+    name: "render_page",
+    description: "Render a full-screen multi-section page layout (dashboard, kanban, CRM, settings, etc.). Pages auto-open in a fullscreen overlay. Each section contains standard components (chart, data_table, metric_card, etc.). Users can UNGROUP a page back to individual canvas cards. Use this instead of create_dashboard when you need a structured multi-section layout with sidebar, grid, or stacked sections.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          enum: ["dashboard", "settings", "kanban", "crm", "landing", "data_explorer", "form_wizard"],
+          description: "Page layout type. Each type has predefined sections.",
+        },
+        title: { type: "string", description: "Page title displayed in the header" },
+        subtitle: { type: "string", description: "Optional subtitle" },
+        sections: {
+          type: "object",
+          description: "Map of section ID to array of child components. Section IDs must match the page type's template (e.g., dashboard has: header, kpi_row, charts, tables).",
+          additionalProperties: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                component: { type: "string", description: "Component name (chart, data_table, metric_card, etc.)" },
+                props: { type: "object", description: "Props for the component" },
+              },
+              required: ["component", "props"],
+            },
+          },
+        },
+        navigation: {
+          type: "object",
+          description: "Optional navigation config (used by settings pages)",
+          properties: {
+            tabs: { type: "array", items: { type: "string" }, description: "Tab labels for navigation" },
+          },
+        },
+      },
+      required: ["type", "title", "sections"],
     },
   },
   // ── Component Agent tool ────────────────────────────────────────────
@@ -1566,6 +1606,72 @@ function executeCreateDashboard(args) {
   }
 
   console.error(`[MCP] create_dashboard: "${title}" (layout=${layout || "auto"}) with ${blocks.length} components (dashboardId=${dashboardId})`);
+  return { isError: false, text: output };
+}
+
+function executeRenderPage(args) {
+  var type = args.type;
+  var title = args.title;
+  var subtitle = args.subtitle;
+  var sections = args.sections;
+  var navigation = args.navigation;
+
+  var validTypes = ["dashboard", "settings", "kanban", "crm", "landing", "data_explorer", "form_wizard"];
+  if (!type || validTypes.indexOf(type) === -1) {
+    return { isError: true, text: "Invalid or missing 'type'. Must be one of: " + validTypes.join(", ") };
+  }
+  if (!title) {
+    return { isError: true, text: "Missing required 'title' parameter." };
+  }
+  if (!sections || typeof sections !== "object" || Object.keys(sections).length === 0) {
+    return { isError: true, text: "Missing or empty 'sections'. Provide at least one section with child components." };
+  }
+
+  // Validate each section's children have component + props
+  var errors = [];
+  var totalChildren = 0;
+  for (var sectionId in sections) {
+    if (!Array.isArray(sections[sectionId])) {
+      errors.push("Section '" + sectionId + "' must be an array of components.");
+      continue;
+    }
+    var children = sections[sectionId];
+    for (var i = 0; i < children.length; i++) {
+      var child = children[i];
+      if (!child.component) {
+        errors.push("Section '" + sectionId + "' child " + (i + 1) + ": missing 'component' name.");
+        continue;
+      }
+      // Validate built-in child props against schema
+      if (BUILTIN_COMPONENTS.includes(child.component)) {
+        var schema = BUILTIN_SCHEMAS[child.component];
+        if (schema && child.props && typeof child.props === "object") {
+          var result = validateJsonSchema(child.props, schema, "props");
+          if (!result.valid) {
+            errors.push("Section '" + sectionId + "' child " + (i + 1) + " (\"" + child.component + "\"): " + result.errors[0]);
+          }
+        }
+      }
+      totalChildren++;
+    }
+  }
+
+  if (totalChildren === 0) {
+    return { isError: true, text: "All sections are empty or invalid:\n" + errors.join("\n") };
+  }
+
+  var pageProps = { type: type, title: title, sections: sections };
+  if (subtitle) pageProps.subtitle = subtitle;
+  if (navigation) pageProps.navigation = navigation;
+
+  var block = JSON.stringify({ component: "page", props: pageProps });
+  var output = "```jarble_ui\n" + block + "\n```";
+
+  if (errors.length > 0) {
+    output += "\n\nNote: " + errors.length + " issue(s) found:\n" + errors.join("\n");
+  }
+
+  console.error("[MCP] render_page: \"" + title + "\" (type=" + type + ") with " + totalChildren + " children across " + Object.keys(sections).length + " sections");
   return { isError: false, text: output };
 }
 
@@ -2354,7 +2460,7 @@ Canvas holds up to 100 cards. Older unpinned cards are evicted at limit.
 Components flow top-to-bottom in emission order. Users can drag to reorder.
 
 ### Your MCP Tools
-Rendering: render_ui (new card), update_ui (edit existing), create_dashboard (grouped, max 8)
+Rendering: render_ui (new card), update_ui (edit existing), create_dashboard (grouped, max 8), render_page (full-screen multi-section layout)
 Discovery: list_components (all 37+ types), component_reference (prop schema), skill_reference (guides)
 Templates: define_component (reusable templates with {{variable}} placeholders)
 Persistence: save_artifact / load_artifact / list_artifacts / delete_artifact
@@ -2627,6 +2733,71 @@ Example:
 - \`"third"\`: metric_cards, badges, alerts, progress bars
 - \`"compact"\`: dividers, avatars`
   },
+  "page-composition": {
+    description: "Guide for building full-screen page layouts with render_page — page types, sections, composition patterns, when to use pages vs cards",
+    content: `## Page Composition Guide
+
+### Overview
+\`render_page\` creates full-screen multi-section layouts. Pages auto-open in a fullscreen overlay (chat stays visible on the left). Users can UNGROUP a page back to individual canvas cards.
+
+### Page Types & Sections
+
+#### dashboard
+KPI overview + analytics. Sections:
+- \`header\` (row) — 1-2 components: header, breadcrumbs
+- \`kpi_row\` (row) — 1-6 components: metric_card, statistic
+- \`charts\` (grid) — 1-6 components: chart (bar, line, area, pie)
+- \`tables\` (stack) — 0-4 components: data_table, spreadsheet
+
+Example:
+\\\`\\\`\\\`json
+{"type":"dashboard","title":"Sales Dashboard","sections":{"header":[{"component":"header","props":{"title":"Sales Dashboard","subtitle":"Q1 2025"}}],"kpi_row":[{"component":"metric_card","props":{"label":"Revenue","value":"$1.2M","change":"+15%"}},{"component":"metric_card","props":{"label":"Orders","value":"3,847","change":"+8%"}}],"charts":[{"component":"chart","props":{"type":"area","title":"Revenue Trend","data":[{"month":"Jan","revenue":380000}],"dataKeys":["revenue"],"xAxisKey":"month"}}],"tables":[{"component":"data_table","props":{"title":"Top Deals","columns":["Deal","Value","Stage"],"rows":[["Acme Corp","$120K","Closing"]]}}]}}
+\\\`\\\`\\\`
+
+#### settings
+Config panel with sidebar nav. Sections:
+- \`sidebar_nav\` (sidebar) — 1 component: list or button_group for navigation
+- \`content_area\` (stack) — 1-10 components: form, card, accordion, key_value
+Supports \`navigation.tabs\` for tab-based navigation.
+
+#### kanban
+Task/project board. Sections:
+- \`header\` (row) — 1-2 components: header, button_group
+- \`columns\` (row) — 2-8 components: each is a list or card representing a column
+
+#### crm
+Contact management. Sections:
+- \`header\` (row) — 1-2 components
+- \`summary\` (row) — 1-6 metric_cards
+- \`contacts\` (grid) — 1-4 components: data_table, list, card
+- \`activity\` (stack) — 0-4 components: timeline, list
+
+#### landing
+Marketing page. Sections:
+- \`hero\` (stack) — 1-3 components: header, image, card
+- \`features\` (grid) — 1-8 components: card, metric_card
+- \`testimonials\` (row) — 0-6 components: blockquote, card
+- \`cta\` (stack) — 1-2 components: card, button_group, form
+
+#### data_explorer
+Data browsing. Sections:
+- \`filters\` (sidebar) — 1-4 components: form, list, button_group
+- \`data_view\` (stack) — 1-4 components: data_table, spreadsheet, chart
+- \`detail\` (stack) — 0-4 components: key_value, descriptions, card
+
+#### form_wizard
+Multi-step form. Sections:
+- \`steps\` (row) — 1 component: steps (step indicator)
+- \`form_area\` (stack) — 1-6 components: form, card, alert
+- \`actions\` (row) — 1-3 components: button_group
+
+### Composition Rules
+1. Section IDs must match the template's section definitions
+2. Each section contains an array of standard components (chart, data_table, metric_card, etc.)
+3. Section layout determines arrangement: row = horizontal, grid = 2-3 col grid, sidebar = narrow left panel, stack = vertical
+4. Use \`render_page\` for 4+ related components forming a cohesive view; use individual \`render_ui\` for single visualizations`
+  },
+
   "premium-components": {
     description: "Premium sandbox component templates — beautiful dashboards, feature showcases, data panels, status boards using Tailwind CSS, gradients, glassmorphism, and modern design patterns",
     content: "## Premium Component Templates\n\nUse these as starting points for visually impressive sandbox components. Each template uses Tailwind CSS from CDN and follows modern design patterns. Customize colors, data, and layout to match the user's request.\n\n### Design Foundation\nAll premium templates share these principles:\n- Tailwind CSS via CDN (`https://cdn.tailwindcss.com/3.4.1`) as first library\n- Transparent body background (`bg-transparent`) — cards/panels use semi-transparent backgrounds\n- Theme CSS variables: `var(--primary)`, `var(--foreground)`, `var(--background)`, `var(--muted)`\n- Dark mode support via `prefers-color-scheme` media query\n- Smooth animations and transitions for polish\n- Responsive layout using Tailwind's flex/grid utilities\n\n---\n\n### Template 1: Premium Dashboard Card\nA metrics card with gradient accent, glassmorphism, animated count-up number, and inline sparkline.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"Premium Metrics Card\",\"height\":280,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\"],\"html\":\"<div id='app' class='p-4 h-full flex items-center justify-center bg-transparent'><div class='w-full max-w-sm relative overflow-hidden rounded-2xl border border-white/20 bg-white/10 backdrop-blur-xl shadow-2xl shadow-purple-500/10'><div class='absolute inset-0 bg-gradient-to-br from-purple-500/20 via-transparent to-pink-500/10 pointer-events-none'></div><div class='relative p-6 space-y-4'><div class='flex items-center justify-between'><span class='text-sm font-medium text-white/60 uppercase tracking-wider'>Monthly Revenue</span><span class='inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400'>+23.5%</span></div><div class='flex items-end gap-3'><span id='counter' class='text-4xl font-bold text-white tracking-tight'>$0</span></div><div class='h-12'><canvas id='spark' class='w-full h-full'></canvas></div><div class='flex justify-between text-xs text-white/40'><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div></div></div></div>\",\"js\":\"var data=[42000,48000,51000,49000,58000,67500];var target=67500;var counter=document.getElementById('counter');var current=0;function animateCount(){if(current<target){current+=Math.ceil((target-current)/20);counter.textContent='$'+current.toLocaleString();requestAnimationFrame(animateCount)}else{counter.textContent='$'+target.toLocaleString()}}animateCount();var canvas=document.getElementById('spark');var ctx=canvas.getContext('2d');function drawSparkline(){canvas.width=canvas.offsetWidth*2;canvas.height=canvas.offsetHeight*2;ctx.scale(2,2);var max=Math.max.apply(null,data);var min=Math.min.apply(null,data);var points=data.map(function(v,i){return{x:i*(canvas.offsetWidth/(data.length-1)),y:canvas.offsetHeight-((v-min)/(max-min))*canvas.offsetHeight*0.8-canvas.offsetHeight*0.1}});var grad=ctx.createLinearGradient(0,0,0,canvas.offsetHeight);grad.addColorStop(0,'rgba(168,85,247,0.4)');grad.addColorStop(1,'rgba(168,85,247,0)');ctx.beginPath();ctx.moveTo(points[0].x,canvas.offsetHeight);points.forEach(function(p){ctx.lineTo(p.x,p.y)});ctx.lineTo(points[points.length-1].x,canvas.offsetHeight);ctx.fillStyle=grad;ctx.fill();ctx.beginPath();points.forEach(function(p,i){if(i===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y)});ctx.strokeStyle='#a855f7';ctx.lineWidth=2;ctx.stroke();var last=points[points.length-1];ctx.beginPath();ctx.arc(last.x,last.y,4,0,Math.PI*2);ctx.fillStyle='#a855f7';ctx.fill()}drawSparkline();window.addEventListener('resize',drawSparkline);\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"third\"}\n```\n\n---\n\n### Template 2: Feature Showcase Grid\nA responsive grid of feature cards with icons, gradient accents, and hover animations.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"Feature Showcase\",\"height\":420,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\"],\"html\":\"<div class='p-6 bg-transparent min-h-full'><h2 class='text-2xl font-bold text-white mb-2 tracking-tight'>Platform Features</h2><p class='text-white/50 mb-6 text-sm'>Everything you need to build amazing products</p><div class='grid grid-cols-2 gap-4' id='grid'></div></div>\",\"js\":\"var features=[{icon:'\\u26a1',title:'Lightning Fast',desc:'Sub-100ms response times with edge computing',gradient:'from-amber-500 to-orange-600'},{icon:'\\ud83d\\udd12',title:'Enterprise Security',desc:'SOC2 compliant with end-to-end encryption',gradient:'from-emerald-500 to-teal-600'},{icon:'\\ud83d\\udcca',title:'Real-time Analytics',desc:'Live dashboards with custom metrics and alerts',gradient:'from-blue-500 to-indigo-600'},{icon:'\\ud83c\\udf10',title:'Global Scale',desc:'Deploy to 40+ regions with automatic failover',gradient:'from-purple-500 to-pink-600'}];var grid=document.getElementById('grid');features.forEach(function(f,i){var card=document.createElement('div');card.className='group relative overflow-hidden rounded-xl border border-white/10 bg-white/5 p-5 transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:shadow-lg hover:-translate-y-1 cursor-pointer';card.style.animationDelay=i*100+'ms';card.innerHTML='<div class=\\\"w-10 h-10 rounded-lg bg-gradient-to-br '+f.gradient+' flex items-center justify-center text-xl mb-3 shadow-lg group-hover:scale-110 transition-transform duration-300\\\">'+f.icon+'</div><h3 class=\\\"text-white font-semibold mb-1 text-sm\\\">'+f.title+'</h3><p class=\\\"text-white/40 text-xs leading-relaxed\\\">'+f.desc+'</p><div class=\\\"absolute inset-0 bg-gradient-to-br '+f.gradient+' opacity-0 group-hover:opacity-5 transition-opacity duration-300\\\"></div>';grid.appendChild(card)});\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"half\"}\n```\n\n---\n\n### Template 3: Interactive Tabbed Data Panel\nA tabbed panel combining chart visualization and stats, built with Chart.js and Tailwind CSS.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"Analytics Dashboard\",\"height\":480,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\",\"https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js\"],\"html\":\"<div class='p-5 bg-transparent h-full flex flex-col'><div class='flex items-center justify-between mb-4'><h2 class='text-xl font-bold text-white tracking-tight'>Revenue Analytics</h2><div class='flex gap-1 bg-white/5 rounded-lg p-1' id='tabs'><button data-tab='chart' class='tab-btn px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 bg-white/10 text-white'>Chart</button><button data-tab='stats' class='tab-btn px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 text-white/50 hover:text-white'>Stats</button></div></div><div class='flex gap-3 mb-4' id='kpis'></div><div id='chart-panel' class='flex-1 relative'><canvas id='chart'></canvas></div><div id='stats-panel' class='flex-1 hidden'><div class='grid grid-cols-2 gap-3 h-full' id='stats-grid'></div></div></div>\",\"js\":\"var months=['Jan','Feb','Mar','Apr','May','Jun'];var revenue=[42,48,51,49,58,67];var costs=[28,30,32,31,35,38];var kpiData=[{label:'Total Revenue',value:'$315K',change:'+18%',positive:true},{label:'Avg Monthly',value:'$52.5K',change:'+12%',positive:true},{label:'Profit Margin',value:'43%',change:'+3%',positive:true}];var kpis=document.getElementById('kpis');kpiData.forEach(function(k){var el=document.createElement('div');el.className='flex-1 bg-white/5 rounded-xl p-3 border border-white/10';el.innerHTML='<div class=\\\"text-xs text-white/40 mb-1\\\">'+k.label+'</div><div class=\\\"flex items-end gap-2\\\"><span class=\\\"text-lg font-bold text-white\\\">'+k.value+'</span><span class=\\\"text-xs font-semibold '+(k.positive?'text-emerald-400':'text-red-400')+'\\\">'+k.change+'</span></div>';kpis.appendChild(el)});var ctx=document.getElementById('chart').getContext('2d');new Chart(ctx,{type:'line',data:{labels:months,datasets:[{label:'Revenue',data:revenue,borderColor:'#8b5cf6',backgroundColor:'rgba(139,92,246,0.1)',fill:true,tension:0.4,pointBackgroundColor:'#8b5cf6',pointRadius:4,pointHoverRadius:6},{label:'Costs',data:costs,borderColor:'#6366f1',backgroundColor:'rgba(99,102,241,0.05)',fill:true,tension:0.4,borderDash:[5,5],pointBackgroundColor:'#6366f1',pointRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'bottom',labels:{color:'rgba(255,255,255,0.5)',font:{size:11},padding:15,usePointStyle:true}}},scales:{x:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'rgba(255,255,255,0.4)',font:{size:11}}},y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'rgba(255,255,255,0.4)',font:{size:11},callback:function(v){return '$'+v+'K'}}}}}});var statsData=[{label:'Best Month',value:'Jun \\u2014 $67K',icon:'\\ud83d\\udcc8'},{label:'Growth Rate',value:'8.2% MoM',icon:'\\ud83d\\ude80'},{label:'Total Profit',value:'$136K',icon:'\\ud83d\\udcb0'},{label:'Customers',value:'2,847',icon:'\\ud83d\\udc65'}];var sg=document.getElementById('stats-grid');statsData.forEach(function(s){var el=document.createElement('div');el.className='bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col justify-between';el.innerHTML='<span class=\\\"text-2xl mb-2\\\">'+s.icon+'</span><div><div class=\\\"text-xs text-white/40 mb-1\\\">'+s.label+'</div><div class=\\\"text-lg font-bold text-white\\\">'+s.value+'</div></div>';sg.appendChild(el)});document.querySelectorAll('.tab-btn').forEach(function(btn){btn.addEventListener('click',function(){var tab=btn.dataset.tab;document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('bg-white/10','text-white');b.classList.add('text-white/50')});btn.classList.add('bg-white/10','text-white');btn.classList.remove('text-white/50');document.getElementById('chart-panel').classList.toggle('hidden',tab!=='chart');document.getElementById('stats-panel').classList.toggle('hidden',tab!=='stats')})});\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"full-width\"}\n```\n\n---\n\n### Template 4: Status Board\nA real-time-looking status grid with pulse animations, colored indicators, and uptime bars.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"System Status\",\"height\":400,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\"],\"html\":\"<div class='p-5 bg-transparent h-full'><div class='flex items-center justify-between mb-5'><div><h2 class='text-xl font-bold text-white tracking-tight'>System Status</h2><p class='text-white/40 text-sm mt-0.5'>All systems operational</p></div><div class='flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full'><span class='relative flex h-2.5 w-2.5'><span class='animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75'></span><span class='relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500'></span></span><span class='text-xs font-semibold text-emerald-400'>Operational</span></div></div><div class='space-y-3' id='services'></div><div class='mt-5 pt-4 border-t border-white/10 flex items-center justify-between'><span class='text-xs text-white/30'>Last checked: just now</span><span class='text-xs text-white/30'>90-day uptime: 99.98%</span></div></div>\",\"js\":\"var services=[{name:'API Gateway',status:'operational',latency:'12ms',uptime:99.99,history:[1,1,1,1,1,1,1,1,1,1,1,1,0.5,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]},{name:'Database Cluster',status:'operational',latency:'3ms',uptime:99.99,history:[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]},{name:'Auth Service',status:'operational',latency:'8ms',uptime:100,history:[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]},{name:'CDN / Edge',status:'degraded',latency:'45ms',uptime:99.92,history:[1,1,1,1,1,1,0.5,1,1,1,1,1,1,1,1,1,0.5,0.5,1,1,1,1,1,1,1,1,1,1,1,0.5]},{name:'Worker Queue',status:'operational',latency:'5ms',uptime:99.97,history:[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.5,1,1,1,1,1,1,1,1,1,1,1]}];var container=document.getElementById('services');var statusColors={operational:{dot:'bg-emerald-500',text:'text-emerald-400',label:'Operational'},degraded:{dot:'bg-amber-500',text:'text-amber-400',label:'Degraded'},down:{dot:'bg-red-500',text:'text-red-400',label:'Down'}};services.forEach(function(s){var sc=statusColors[s.status];var el=document.createElement('div');el.className='flex items-center gap-4 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/8 transition-colors';var bars=s.history.map(function(h){var color=h===1?'bg-emerald-500':h===0.5?'bg-amber-500':'bg-red-500';return '<div class=\\\"flex-1 h-full rounded-sm '+color+' opacity-80 hover:opacity-100 transition-opacity\\\" title=\\\"'+(h===1?'Operational':h===0.5?'Degraded':'Down')+'\\\"></div>'}).join('');el.innerHTML='<div class=\\\"flex-1 min-w-0\\\"><div class=\\\"flex items-center gap-2\\\"><span class=\\\"w-2 h-2 rounded-full '+sc.dot+'\\\"></span><span class=\\\"text-sm font-medium text-white truncate\\\">'+s.name+'</span></div></div><div class=\\\"flex gap-px h-6 w-36\\\">'+bars+'</div><div class=\\\"text-right w-20\\\"><div class=\\\"text-xs '+sc.text+' font-medium\\\">'+sc.label+'</div><div class=\\\"text-xs text-white/30\\\">'+s.latency+' \\u2022 '+s.uptime+'%</div></div>';container.appendChild(el)});\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"full-width\"}\n```\n\n---\n\n### Customization Guide\nWhen adapting these templates:\n1. **Change data**: Replace the hardcoded arrays/objects with the user's actual data\n2. **Change colors**: Swap gradient classes (`from-purple-500` to `from-blue-500`), adjust accent colors\n3. **Change layout**: Modify grid columns (`grid-cols-2` to `grid-cols-3`), card sizes, spacing\n4. **Add interactivity**: Attach click handlers, hover effects, toggles\n5. **Combine patterns**: Mix a KPI row from Template 1 with a chart from Template 3\n6. **Always use Tailwind CDN**: `\"https://cdn.tailwindcss.com/3.4.1\"` as first entry in `libraries`\n7. **Always transparent body**: `body{background:transparent}` in CSS\n8. **Always descriptive title**: Set the `title` prop to describe what the component shows"
@@ -5464,6 +5635,7 @@ async function executeTool(name, args) {
     case "list_memories": return executeListMemories(args || {});
     case "forget_memory": return executeForgetMemory(args || {});
     case "create_dashboard": return executeCreateDashboard(args || {});
+    case "render_page": return executeRenderPage(args || {});
     case "create_component": return executeCreateComponent(args || {});
     // Service hosting tools
     case "start_http_service": return executeStartHttpService(args || {});

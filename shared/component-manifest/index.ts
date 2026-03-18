@@ -55,6 +55,7 @@ import { treeEntry } from "./components/tree.js";
 import { reasoningEntry } from "./components/reasoning.js";
 import { toolEntry } from "./components/tool.js";
 import { sourcesEntry } from "./components/sources.js";
+import { pageEntry } from "./components/page.js";
 
 import type { ComponentManifestEntry } from "./types.js";
 
@@ -110,6 +111,7 @@ export const COMPONENT_MANIFEST: Record<string, ComponentManifestEntry> = {
   reasoning: reasoningEntry,
   tool: toolEntry,
   sources: sourcesEntry,
+  page: pageEntry,
 };
 
 // ── Derived exports ───────────────────────────────────────────────────────────
@@ -153,6 +155,8 @@ export type { ComponentManifestEntry, LayoutHintType, ComponentCategory, Loading
 export { TRUSTED_CDN_ORIGINS, TRUSTED_EMBED_ORIGINS } from "./security.js";
 export { SANDBOX_SDK_VERSION } from "./components/sandbox.js";
 export { BOT_SKILLS } from "./skills/index.js";
+export { PAGE_TEMPLATES } from "./pages/templates.js";
+export type { PageType, PageSectionDef, PageTemplateDef } from "./pages/types.js";
 export { THEME_PRESETS, THEME_PRESET_NAMES, THEME_COLOR_KEYS, SKIN_NAMES, resolveThemeVars, validateThemeConfig } from "./themes.js";
 export type { ThemeConfig, ThemeColorKey, SkinName } from "./themes.js";
 
@@ -201,4 +205,5 @@ export {
   reasoningSchema,
   toolSchema,
   sourcesSchema,
+  pageSchema,
 } from "./schemas/index.js";

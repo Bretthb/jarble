@@ -715,6 +715,11 @@ function SimpleCanvasGridInner({
                 setContextMenu({ cardId: card.id, x: e.clientX, y: e.clientY });
               }}
               onPointerDown={(e) => handleDragStart(e, card)}
+              onDoubleClick={() => {
+                if (card.component === "page") {
+                  dispatch({ type: "OPEN_PAGE_FULLSCREEN", id: card.id });
+                }
+              }}
               style={{
                 position: "absolute",
                 left: x,
@@ -736,6 +741,15 @@ function SimpleCanvasGridInner({
                       : "cursor-grab"
               }`}
             >
+              {/* Page badge — always visible on page-type cards */}
+              {card.component === "page" && (
+                <div className="absolute top-1 left-1 z-20 pointer-events-none">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 text-[9px] font-semibold uppercase tracking-wider backdrop-blur-sm border border-purple-500/20">
+                    Page
+                  </span>
+                </div>
+              )}
+
               {/* Card menu trigger — small ... button, top-right corner */}
               <div
                 className="absolute top-1 right-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"

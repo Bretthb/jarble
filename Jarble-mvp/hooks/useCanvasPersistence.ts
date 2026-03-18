@@ -210,6 +210,7 @@ export function loadCanvasState(deploymentId: string): CanvasState | null {
       fixAttempts: {},
       dashboardGroups: {},
       strokes: persisted.strokes || [],
+      fullscreenPageId: null,
     };
   } catch {
     return null;

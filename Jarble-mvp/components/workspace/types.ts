@@ -83,6 +83,8 @@ export interface CanvasState {
   dashboardGroups: Record<string, { title: string; cardIds: string[] }>;
   /** Freehand drawing strokes on the canvas */
   strokes: DrawStroke[];
+  /** ID of a page card currently shown in fullscreen overlay (null = none) */
+  fullscreenPageId: string | null;
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -126,7 +128,10 @@ export type CanvasAction =
   | { type: "UNGROUP_CARD"; id: string }
   | { type: "ADD_STROKE"; stroke: DrawStroke }
   | { type: "REMOVE_STROKE"; id: string }
-  | { type: "CLEAR_STROKES" };
+  | { type: "CLEAR_STROKES" }
+  | { type: "OPEN_PAGE_FULLSCREEN"; id: string }
+  | { type: "CLOSE_PAGE_FULLSCREEN" }
+  | { type: "UNGROUP_PAGE"; cardId: string };
 
 // ── Splittable components config ────────────────────────────────────────────
 
@@ -268,4 +273,5 @@ export const INITIAL_CANVAS_STATE: CanvasState = {
   fixAttempts: {},
   dashboardGroups: {},
   strokes: [],
+  fullscreenPageId: null,
 };
