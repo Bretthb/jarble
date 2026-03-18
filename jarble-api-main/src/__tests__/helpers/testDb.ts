@@ -297,6 +297,24 @@ const CREATE_TABLES_SQL = `
     billing_cycle_start TEXT NOT NULL,
     recorded_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS persona_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL,
+    description TEXT,
+    system_prompt TEXT NOT NULL,
+    recommended_tools TEXT,
+    default_theme TEXT,
+    suggested_llm TEXT,
+    icon TEXT,
+    example_conversation TEXT,
+    showcase_prompts TEXT,
+    is_active INTEGER DEFAULT 1 NOT NULL,
+    sort_order INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
 `;
 
 export interface TestDbContext {
@@ -330,6 +348,15 @@ export function createTestDb(): TestDbContext {
     VALUES
       ('openclaw', 'OpenClaw', 'AI assistant', 'bot', 'ghcr.io/jarble-ai/openclaw:latest', '2.0', 2048, 30, 0),
       ('zeroclaw', 'ZeroClaw', 'Lightweight bot', 'bot', 'ghcr.io/jarble-ai/zeroclaw:latest', '2.0', 2048, 30, 0);
+  `);
+
+  // Seed persona templates
+  raw.exec(`
+    INSERT INTO persona_templates (id, name, slug, category, description, system_prompt, showcase_prompts, is_active, sort_order)
+    VALUES
+      ('persona-general', 'General Assistant', 'general-assistant', 'general', 'A helpful AI assistant', 'You are a helpful, knowledgeable AI assistant.', '["Help me with...", "Explain..."]', 1, 0),
+      ('persona-dev', 'Full-Stack Developer', 'full-stack-developer', 'technical', 'Code review and architecture', 'You are an expert full-stack developer.', '["Review this code", "Design an API"]', 1, 1),
+      ('persona-sales', 'Sales Coach', 'sales-coach', 'business', 'B2B/B2C sales strategy', 'You are an experienced sales coach.', '["Help me close a deal", "Write a pitch"]', 1, 2);
   `);
 
   // Seed test user (free deployment NOT used — fresh user)

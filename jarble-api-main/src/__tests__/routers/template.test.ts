@@ -1,8 +1,7 @@
 /**
  * Integration tests for the template tRPC router.
  *
- * Tests the list procedure (the only procedure in this router).
- * Templates are hardcoded constants, not DB-backed.
+ * Tests the DB-backed persona template system.
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { createTestDb, type TestDbContext } from "../helpers/testDb.js";
@@ -77,7 +76,7 @@ afterAll(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("template.list", () => {
-  it("returns an array of templates", async () => {
+  it("returns an array of persona templates", async () => {
     const caller = createAnonymousCaller(ctx.db);
     const result = await caller.template.list();
 
@@ -92,45 +91,28 @@ describe("template.list", () => {
     for (const t of result) {
       expect(t).toHaveProperty("id");
       expect(t).toHaveProperty("name");
-      expect(t).toHaveProperty("description");
-      expect(t).toHaveProperty("defaultModel");
+      expect(t).toHaveProperty("slug");
+      expect(t).toHaveProperty("category");
+      expect(t).toHaveProperty("systemPrompt");
       expect(typeof t.id).toBe("string");
       expect(typeof t.name).toBe("string");
-      expect(typeof t.description).toBe("string");
-      expect(typeof t.defaultModel).toBe("string");
+      expect(typeof t.category).toBe("string");
+      expect(typeof t.systemPrompt).toBe("string");
     }
   });
 
-  it("includes personal template", async () => {
+  it("includes seeded persona templates", async () => {
     const caller = createAnonymousCaller(ctx.db);
     const result = await caller.template.list();
 
-    const personal = result.find((t: any) => t.id === "personal");
-    expect(personal).toBeDefined();
-    expect(personal!.name).toBe("Personal Assistant");
-  });
-
-  it("includes business template", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.list();
-
-    const business = result.find((t: any) => t.id === "business");
-    expect(business).toBeDefined();
-    expect(business!.name).toBe("Business Helper");
-  });
-
-  it("includes support template", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.list();
-
-    const support = result.find((t: any) => t.id === "support");
-    expect(support).toBeDefined();
-    expect(support!.name).toBe("Support Agent");
+    const general = result.find((t: any) => t.slug === "general-assistant");
+    expect(general).toBeDefined();
+    expect(general!.name).toBe("General Assistant");
+    expect(general!.category).toBe("general");
   });
 
   it("is accessible without authentication (public procedure)", async () => {
     const caller = createAnonymousCaller(ctx.db);
-    // Should not throw
     const result = await caller.template.list();
     expect(result.length).toBeGreaterThan(0);
   });
@@ -148,10 +130,9 @@ describe("template.list", () => {
     expect(result.length).toBeGreaterThan(0);
   });
 
-  it("returns exactly 3 templates", async () => {
+  it("returns exactly 3 seeded templates", async () => {
     const caller = createAnonymousCaller(ctx.db);
     const result = await caller.template.list();
-
     expect(result).toHaveLength(3);
   });
 
@@ -163,13 +144,13 @@ describe("template.list", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("all templates use a valid model", async () => {
+  it("parses JSON fields correctly", async () => {
     const caller = createAnonymousCaller(ctx.db);
     const result = await caller.template.list();
 
     for (const t of result) {
-      // Model should follow provider/model format
-      expect(t.defaultModel).toMatch(/^[a-z]+\/[a-z0-9-]+$/);
+      expect(Array.isArray(t.showcasePrompts)).toBe(true);
+      expect(Array.isArray(t.recommendedTools)).toBe(true);
     }
   });
 
@@ -177,7 +158,51 @@ describe("template.list", () => {
     const caller = createAnonymousCaller(ctx.db);
     const result1 = await caller.template.list();
     const result2 = await caller.template.list();
-
     expect(result1).toEqual(result2);
+  });
+});
+
+describe("template.getById", () => {
+  it("returns a persona by id", async () => {
+    const caller = createAnonymousCaller(ctx.db);
+    const result = await caller.template.getById({ id: "persona-general" });
+    expect(result).toBeDefined();
+    expect(result!.name).toBe("General Assistant");
+  });
+
+  it("returns null for nonexistent id", async () => {
+    const caller = createAnonymousCaller(ctx.db);
+    const result = await caller.template.getById({ id: "nonexistent" });
+    expect(result).toBeNull();
+  });
+});
+
+describe("template.listByCategory", () => {
+  it("returns personas filtered by category", async () => {
+    const caller = createAnonymousCaller(ctx.db);
+    const result = await caller.template.listByCategory({ category: "technical" });
+    expect(result.length).toBe(1);
+    expect(result[0].slug).toBe("full-stack-developer");
+  });
+
+  it("returns empty array for unknown category", async () => {
+    const caller = createAnonymousCaller(ctx.db);
+    const result = await caller.template.listByCategory({ category: "nonexistent" });
+    expect(result).toHaveLength(0);
+  });
+});
+
+describe("template.getCategories", () => {
+  it("returns categories with counts", async () => {
+    const caller = createAnonymousCaller(ctx.db);
+    const result = await caller.template.getCategories();
+
+    expect(result.length).toBeGreaterThan(0);
+    for (const cat of result) {
+      expect(cat).toHaveProperty("category");
+      expect(cat).toHaveProperty("count");
+      expect(typeof cat.category).toBe("string");
+      expect(typeof cat.count).toBe("number");
+    }
   });
 });
