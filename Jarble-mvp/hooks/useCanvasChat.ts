@@ -81,6 +81,7 @@ export function useCanvasChat(
   const [lastChatError, setLastChatError] = useState<ClassifiedChatError | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Array<{ prompt: string }>>([]);
+  const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -263,6 +264,7 @@ export function useCanvasChat(
       setLastChatError(null);
       setLastUserMessage(text);
       setSuggestions([]); // Clear suggestions when user sends a new message
+      setToolStatus(null); // Clear tool status from previous run
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -544,6 +546,10 @@ export function useCanvasChat(
                     component,
                   });
                 }
+                if (event.name === "jarble.tool.status" && event.value?.status) {
+                  isDev && console.log(`[Jarble:Chat] Tool status: ${event.value.status}`);
+                  setToolStatus(event.value.status as string);
+                }
                 if (event.name === "jarble.sse.error" && event.value) {
                   console.error(`[Jarble:Chat] SSE serialization error from server: ${event.value.message}`);
                 }
@@ -679,6 +685,7 @@ export function useCanvasChat(
           setStreamingText("");
           setStreamingReasoning("");
           setStreamingCardIds(new Set());
+          setToolStatus(null);
         }
       }
     },
@@ -772,6 +779,7 @@ export function useCanvasChat(
     lastUserMessage,
     clearChatError,
     suggestions,
+    toolStatus,
     stopGeneration,
     editMessage,
     conversations,

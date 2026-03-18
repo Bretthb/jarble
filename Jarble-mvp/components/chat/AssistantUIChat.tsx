@@ -19,7 +19,7 @@ import {
   type TextMessagePartProps,
   type ReasoningMessagePartProps,
 } from "@assistant-ui/react";
-import { Sparkles, Copy, Pencil, RotateCcw, ChevronRight } from "lucide-react";
+import { Sparkles, Copy, Pencil, RotateCcw, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
 
@@ -31,6 +31,8 @@ interface AssistantUIChatProps {
   emptyState?: ReactNode;
   suggestions?: Array<{ prompt: string; title?: string }>;
   onSuggestionClick?: (prompt: string) => void;
+  /** Current tool status (e.g. "Rendering chart...") shown during streaming */
+  toolStatus?: string | null;
 }
 
 function AssistantUIChatInner({
@@ -39,6 +41,7 @@ function AssistantUIChatInner({
   emptyState,
   suggestions = [],
   onSuggestionClick,
+  toolStatus,
 }: AssistantUIChatProps) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -58,6 +61,16 @@ function AssistantUIChatInner({
               AssistantMessage: AssistantBubble,
             }}
           />
+
+          {/* Tool status indicator — shows what the bot is doing during streaming */}
+          {isStreaming && toolStatus && (
+            <div className="flex items-center gap-2 px-4 py-1.5 animate-in fade-in slide-in-from-bottom-1 duration-200">
+              <Loader2 className="w-3 h-3 text-primary/60 animate-spin" />
+              <span className="text-xs text-muted-foreground/70 font-medium">
+                {toolStatus}
+              </span>
+            </div>
+          )}
 
           {/* Suggestion pills — rendered directly from our state, bypassing assistant-ui store */}
           {!isStreaming && suggestions.length > 0 && (

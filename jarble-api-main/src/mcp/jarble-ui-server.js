@@ -1308,6 +1308,45 @@ const TOOLS = [
       required: ["query"],
     },
   },
+  // ── Human-in-the-Loop Confirmation ──────────────────────────────────
+  {
+    name: "confirm_action",
+    description: "Request user confirmation before executing a sensitive or destructive action. Renders a confirmation card on the user's canvas with Approve/Reject buttons. The bot should wait for the user's response (delivered as a [CONFIRMATION_RESPONSE] message) before proceeding.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Short title describing the action (e.g. 'Delete all records')" },
+        description: { type: "string", description: "Detailed explanation of what will happen" },
+        severity: { type: "string", enum: ["info", "warning", "danger"], description: "info = routine, warning = reversible but important, danger = irreversible/destructive" },
+        actions: {
+          type: "array",
+          description: "Action buttons. First action is treated as the primary/approve action.",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "Unique action ID" },
+              label: { type: "string", description: "Button label" },
+            },
+            required: ["id", "label"],
+          },
+        },
+        timeout: { type: "number", description: "Optional timeout in seconds. Confirmation expires if user doesn't respond in time." },
+        metadata: { type: "object", description: "Optional metadata to attach (passed back in the response)", additionalProperties: true },
+      },
+      required: ["title", "description", "severity", "actions"],
+    },
+  },
+  {
+    name: "check_confirmation",
+    description: "Check the status of a pending confirmation request. Returns whether the user has approved, rejected, or if it expired.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        confirmationId: { type: "string", description: "The confirmation ID returned by confirm_action" },
+      },
+      required: ["confirmationId"],
+    },
+  },
 ];
 
 // ── Service hosting — process manager ─────────────────────────────────
@@ -5605,6 +5644,122 @@ async function executeServiceTool(serviceTool, args) {
   }
 }
 
+// ── Confirmation tools ────────────────────────────────────────────────
+
+const CONFIRMATIONS_PATH = path.join(WORKSPACE_DIR, "confirmations.json");
+
+function loadConfirmations() {
+  try {
+    if (fs.existsSync(CONFIRMATIONS_PATH)) {
+      return JSON.parse(fs.readFileSync(CONFIRMATIONS_PATH, "utf-8"));
+    }
+  } catch { /* ignore */ }
+  return {};
+}
+
+function saveConfirmations(data) {
+  try {
+    fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
+    fs.writeFileSync(CONFIRMATIONS_PATH, JSON.stringify(data, null, 2), "utf-8");
+  } catch (e) {
+    console.error("[MCP] Failed to save confirmations:", e.message);
+  }
+}
+
+function executeConfirmAction(args) {
+  var title = args.title;
+  var description = args.description;
+  var severity = args.severity;
+  var actions = args.actions;
+  var timeout = args.timeout;
+  var metadata = args.metadata;
+
+  if (!title || !description || !severity) {
+    return { isError: true, text: "Missing required fields: title, description, severity." };
+  }
+  if (!Array.isArray(actions) || actions.length === 0) {
+    return { isError: true, text: "Must provide at least one action." };
+  }
+  if (!["info", "warning", "danger"].includes(severity)) {
+    return { isError: true, text: "severity must be one of: info, warning, danger." };
+  }
+
+  var confirmationId = "conf-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  var now = new Date().toISOString();
+
+  // Store confirmation state
+  var confirmations = loadConfirmations();
+  confirmations[confirmationId] = {
+    confirmationId: confirmationId,
+    title: title,
+    description: description,
+    severity: severity,
+    actions: actions,
+    timeout: timeout || null,
+    metadata: metadata || null,
+    status: "pending",
+    createdAt: now,
+    respondedAt: null,
+    actionId: null,
+  };
+  saveConfirmations(confirmations);
+
+  // Emit a jarble_ui block for the confirmation card
+  var block = JSON.stringify({
+    component: "confirmation",
+    props: {
+      title: title,
+      description: description,
+      severity: severity,
+      actions: actions,
+      confirmationId: confirmationId,
+      timeout: timeout || undefined,
+      status: "pending",
+      metadata: metadata || undefined,
+    },
+  });
+
+  return {
+    isError: false,
+    text: "```jarble_ui\n" + block + "\n```\n\nConfirmation requested. Waiting for user response. confirmationId=" + confirmationId,
+  };
+}
+
+function executeCheckConfirmation(args) {
+  var confirmationId = args.confirmationId;
+  if (!confirmationId) {
+    return { isError: true, text: "Missing required field: confirmationId." };
+  }
+
+  var confirmations = loadConfirmations();
+  var record = confirmations[confirmationId];
+  if (!record) {
+    return { isError: true, text: "Confirmation '" + confirmationId + "' not found." };
+  }
+
+  // Check timeout expiry
+  if (record.status === "pending" && record.timeout) {
+    var createdMs = new Date(record.createdAt).getTime();
+    var expiresMs = createdMs + (record.timeout * 1000);
+    if (Date.now() > expiresMs) {
+      record.status = "expired";
+      record.respondedAt = new Date().toISOString();
+      confirmations[confirmationId] = record;
+      saveConfirmations(confirmations);
+    }
+  }
+
+  return {
+    isError: false,
+    text: JSON.stringify({
+      confirmationId: record.confirmationId,
+      status: record.status,
+      actionId: record.actionId,
+      respondedAt: record.respondedAt,
+    }),
+  };
+}
+
 // ── Tool dispatch (async-aware) ───────────────────────────────────────
 
 async function executeTool(name, args) {
@@ -5673,6 +5828,9 @@ async function executeTool(name, args) {
     case "url_metadata": return executeUrlMetadata(args || {});
     case "rss_reader": return executeRssReader(args || {});
     case "wikipedia": return executeWikipedia(args || {});
+    // Human-in-the-loop confirmation tools
+    case "confirm_action": return executeConfirmAction(args || {});
+    case "check_confirmation": return executeCheckConfirmation(args || {});
     default:
       // Per-component tools: show_chart, show_data_table, etc.
       // The tool's arguments ARE the props directly (not wrapped in {component, props}).

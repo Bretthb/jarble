@@ -37,6 +37,7 @@ import {
 import { classifyError } from "../utils/chatErrors.js";
 import { generateSuggestions } from "../services/suggestions.js";
 import { generateReasoning } from "../services/reasoning.js";
+import { sessionManager } from "../services/chatSessionManager.js";
 import {
   TOOL_CALL_START,
   TOOL_CALL_ARGS,
@@ -49,12 +50,39 @@ import {
   CUSTOM_ARTIFACT_UPDATED,
   CUSTOM_SUGGESTIONS,
   CUSTOM_DESIGN_CONTEXT,
+  CUSTOM_TOOL_STATUS,
   REASONING_START,
   REASONING_CONTENT,
   REASONING_END,
 } from "../utils/eventTypes.js";
 
 export const tamboAgentRouter = Router();
+
+// ── Tool status descriptions ─────────────────────────────────────────────────
+// Maps component names to human-readable status for the frontend indicator
+
+const TOOL_STATUS_MAP: Record<string, string> = {
+  chart: "Rendering chart...",
+  data_table: "Building table...",
+  sandbox: "Creating sandbox...",
+  code_block: "Writing code...",
+  code_editor: "Opening editor...",
+  card: "Creating card...",
+  form: "Building form...",
+  metric_card: "Computing metrics...",
+  statistic: "Computing statistics...",
+  stat_grid: "Building stat grid...",
+  page: "Creating page...",
+  tabs: "Arranging tabs...",
+  list: "Building list...",
+  progress: "Tracking progress...",
+  layout: "Arranging layout...",
+  image: "Loading image...",
+};
+
+function getToolStatus(component: string): string {
+  return TOOL_STATUS_MAP[component] || `Rendering ${component.replace(/_/g, " ")}...`;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -679,6 +707,9 @@ tamboAgentRouter.post("/", async (req, res) => {
   // Handle client disconnect and resource cleanup
   const abortController = new AbortController();
 
+  // Register with session manager so WS control channel can abort this run
+  sessionManager.registerRun(deploymentId, runId, abortController);
+
   // Keep-alive ping every 25s to prevent proxy/load-balancer timeouts
   const keepAliveInterval = setInterval(() => {
     if (!res.writableEnded) {
@@ -709,10 +740,11 @@ tamboAgentRouter.post("/", async (req, res) => {
     clearTimeout(masterTimeout);
   };
 
-  // Wrap res.end to always clean up timers
+  // Wrap res.end to always clean up timers and unregister from session manager
   const originalEnd = res.end.bind(res);
   res.end = ((...args: any[]) => {
     cleanupTimers();
+    sessionManager.unregisterRun(deploymentId);
     markDeploymentIdle(deploymentId);
     return originalEnd(...args);
   }) as typeof res.end;
@@ -721,6 +753,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     log.debug({ deploymentId, threadId }, "Chat client disconnected");
     cleanupTimers();
     abortController.abort();
+    sessionManager.unregisterRun(deploymentId);
     markDeploymentIdle(deploymentId);
   });
 
@@ -880,6 +913,13 @@ tamboAgentRouter.post("/", async (req, res) => {
     for (const block of resolvedBlocks) {
       // AG-UI standard: component rendering = tool call
       const toolCallId = block.id;
+      // Emit tool status for frontend indicator
+      const toolStatus = getToolStatus(block.component);
+      sendEvent(res, {
+        type: CUSTOM,
+        name: CUSTOM_TOOL_STATUS,
+        value: { status: toolStatus, component: block.component, toolCallId },
+      });
       sendEvent(res, {
         type: TOOL_CALL_START,
         toolCallId,
@@ -1089,6 +1129,13 @@ tamboAgentRouter.post("/", async (req, res) => {
           try {
             const resolved = await resolveUIBlocks([block], deploymentId, managedBy);
             for (const b of resolved) {
+              // Emit tool status for frontend indicator
+              const toolStatus = getToolStatus(b.component);
+              sendEvent(res, {
+                type: CUSTOM,
+                name: CUSTOM_TOOL_STATUS,
+                value: { status: toolStatus, component: b.component, toolCallId: b.id },
+              });
               // AG-UI TOOL_CALL events
               const toolCallId = b.id;
               sendEvent(res, {

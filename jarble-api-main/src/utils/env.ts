@@ -47,6 +47,9 @@ const envSchema = z.object({
   // Sentry — optional, error tracking disabled if not set
   SENTRY_DSN: z.string().optional(),
 
+  // Chat WebSocket control channel — optional, disabled by default
+  ENABLE_CHAT_WS: z.string().optional(),
+
   // Stripe — all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),

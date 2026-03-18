@@ -43,6 +43,7 @@ import { meshGatewayRouter } from "./routes/meshGateway.js";
 import { meshDiscoveryRouter, registerAgentCard } from "./routes/meshDiscovery.js";
 import { filesRouter } from "./routes/files.js";
 import { attachTerminalWs } from "./routes/terminal.js";
+import { attachChatControlWs } from "./routes/chatControl.js";
 
 const app = express();
 
@@ -197,6 +198,12 @@ async function start() {
 
   // Attach WebSocket terminal server to the HTTP server
   attachTerminalWs(server);
+
+  // Attach chat control WebSocket (feature-gated)
+  if (env.ENABLE_CHAT_WS === "true" || env.ENABLE_CHAT_WS === "1") {
+    attachChatControlWs(server);
+    logger.info(`   Chat WS:  ws://localhost:${PORT}/ws/chat`);
+  }
 }
 
 start().catch((err) => {

@@ -59,6 +59,7 @@ import {
   toolSchema,
   sourcesSchema,
   pageSchema,
+  confirmationSchema,
 } from "@jarble/component-manifest";
 
 // Re-export schemas for consumers that import them directly from registry.ts
@@ -106,6 +107,7 @@ export {
   reasoningSchema,
   toolSchema,
   sourcesSchema,
+  confirmationSchema,
 };
 
 // ── Lightweight components — static imports ──────────────────────────────────
@@ -137,6 +139,7 @@ import CanvasReasoning from "./components/CanvasReasoning";
 import CanvasTool from "./components/CanvasTool";
 import CanvasSources from "./components/CanvasSources";
 import CanvasPage from "./components/CanvasPage";
+import CanvasConfirmation from "./components/CanvasConfirmation";
 
 // ── Heavy components — lazy-loaded (ssr: false) ─────────────────────────────
 
@@ -226,4 +229,5 @@ export const CANVAS_COMPONENTS: Record<string, CanvasComponentEntry> = {
   tool: { component: CanvasTool, propsSchema: toolSchema },
   sources: { component: CanvasSources, propsSchema: sourcesSchema },
   page: { component: CanvasPage, propsSchema: pageSchema },
+  confirmation: { component: CanvasConfirmation, propsSchema: confirmationSchema },
 };

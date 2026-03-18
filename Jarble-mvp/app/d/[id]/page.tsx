@@ -418,6 +418,7 @@ function KeyedChatPanel({
   isStreaming,
   sendMessage,
   suggestions,
+  toolStatus,
   stopGeneration,
   editMessage,
   onExamplePrompt,
@@ -428,6 +429,7 @@ function KeyedChatPanel({
   isStreaming: boolean;
   sendMessage: (text: string, displayText?: string) => Promise<void>;
   suggestions: Array<{ prompt: string }>;
+  toolStatus?: string | null;
   stopGeneration: () => void;
   editMessage: (messageId: string, newText: string) => Promise<void>;
   onExamplePrompt: (prompt: string) => void;
@@ -440,6 +442,7 @@ function KeyedChatPanel({
       isStreaming={isStreaming}
       suggestions={suggestions}
       onSuggestionClick={(prompt) => sendMessage(prompt)}
+      toolStatus={toolStatus}
       emptyState={
         <div className="h-full flex flex-col items-center justify-center gap-4 px-4">
           <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/10 flex items-center justify-center">
@@ -484,7 +487,7 @@ function CanvasWorkspace({
   const [state, dispatch] = useReducer(canvasReducer, INITIAL_CANVAS_STATE);
   const {
     sendMessage, isStreaming, streamingCardIds, messages, streamingText, streamingReasoning,
-    lastChatError, lastUserMessage, clearChatError, suggestions,
+    lastChatError, lastUserMessage, clearChatError, suggestions, toolStatus,
     stopGeneration, editMessage,
     conversations, activeConversationId, switchConversation, newConversation, deleteConversation,
   } = useCanvasChat(deploymentId, state, dispatch);
@@ -686,6 +689,7 @@ function CanvasWorkspace({
           isStreaming={isStreaming}
           sendMessage={sendMessage}
           suggestions={suggestions}
+          toolStatus={toolStatus}
           stopGeneration={stopGeneration}
           editMessage={editMessage}
           onExamplePrompt={handleExamplePrompt}
@@ -896,6 +900,32 @@ const CardContent = memo(function CardContent({
       if (action.action === "content_edit") {
         console.log(`[Jarble:ActionRelay] Content edit: ${action.blockId} (${action.component})`);
         canvasDispatch({ type: "UPDATE_CARD_PROPS", id: action.blockId, props: action.payload, merge: true });
+        return;
+      }
+
+      // Confirmation response — user approved/rejected a confirm_action card
+      if (action.action === "confirmation_response") {
+        const { confirmationId, actionId, status: responseStatus } = action.payload as {
+          confirmationId: string;
+          actionId: string | null;
+          status: "approved" | "rejected" | "expired";
+        };
+        console.log(`[Jarble:ActionRelay] Confirmation response: ${confirmationId} → ${responseStatus} (action: ${actionId})`);
+        // Update the card props to reflect the resolved state
+        canvasDispatch({
+          type: "UPDATE_CARD_PROPS",
+          id: action.blockId,
+          props: { status: responseStatus, selectedActionId: actionId },
+          merge: true,
+        });
+        // Send the response to the bot as a specially formatted message
+        const confirmMsg = `[CONFIRMATION_RESPONSE] confirmationId=${confirmationId} action=${actionId ?? "none"} status=${responseStatus}`;
+        const displayText = responseStatus === "approved" ? "Approved" : responseStatus === "rejected" ? "Rejected" : "Expired";
+        try {
+          await sendMessage(confirmMsg, displayText);
+        } catch (err) {
+          console.error(`[Jarble:ActionRelay] Failed to send confirmation response: ${err instanceof Error ? err.message : String(err)}`);
+        }
         return;
       }
 

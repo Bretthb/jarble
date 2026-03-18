@@ -56,6 +56,7 @@ import { reasoningEntry } from "./components/reasoning.js";
 import { toolEntry } from "./components/tool.js";
 import { sourcesEntry } from "./components/sources.js";
 import { pageEntry } from "./components/page.js";
+import { confirmationEntry } from "./components/confirmation.js";
 
 import type { ComponentManifestEntry } from "./types.js";
 
@@ -112,6 +113,7 @@ export const COMPONENT_MANIFEST: Record<string, ComponentManifestEntry> = {
   tool: toolEntry,
   sources: sourcesEntry,
   page: pageEntry,
+  confirmation: confirmationEntry,
 };
 
 // ── Derived exports ───────────────────────────────────────────────────────────
@@ -206,4 +208,5 @@ export {
   toolSchema,
   sourcesSchema,
   pageSchema,
+  confirmationSchema,
 } from "./schemas/index.js";

@@ -505,6 +505,23 @@ export const pageSchema = z.object({
   }).optional(),
 });
 
+// ── Confirmation ──────────────────────────────────────────────────────────────
+
+export const confirmationSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+  severity: z.enum(["info", "warning", "danger"]),
+  actions: z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+  })),
+  confirmationId: z.string(),
+  timeout: z.number().optional(),
+  status: z.enum(["pending", "approved", "rejected", "expired"]).optional(),
+  selectedActionId: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
 // ── Schema Record ─────────────────────────────────────────────────────────────
 
 /**
@@ -557,4 +574,5 @@ export const COMPONENT_SCHEMAS: Record<string, ZodType> = {
   tool: toolSchema,
   sources: sourcesSchema,
   page: pageSchema,
+  confirmation: confirmationSchema,
 };
