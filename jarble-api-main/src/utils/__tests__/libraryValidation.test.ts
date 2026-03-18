@@ -87,8 +87,8 @@ describe("validateLibraryUrl", () => {
 // ── TRUSTED_CDN_ORIGINS ─────────────────────────────────────────────────────
 
 describe("TRUSTED_CDN_ORIGINS", () => {
-  it("contains exactly 11 trusted origins", () => {
-    expect(TRUSTED_CDN_ORIGINS.size).toBe(11);
+  it("contains exactly 12 trusted origins", () => {
+    expect(TRUSTED_CDN_ORIGINS.size).toBe(12);
   });
 
   it("is a Set for O(1) lookups", () => {

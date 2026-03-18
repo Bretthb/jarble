@@ -86,6 +86,8 @@ vi.mock("lucide-react", () => {
     ZoomOut: Icon,
     Sparkles: Icon,
     SendHorizontal: Icon,
+    MoreVertical: Icon,
+    Maximize2: Icon,
   };
 });
 
