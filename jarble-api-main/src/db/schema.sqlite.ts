@@ -51,6 +51,7 @@ export const deployments = sqliteTable("deployments", {
   error: text("error"),
   messagingOnly: integer("messaging_only", { mode: "boolean" }).notNull().default(false),
   managedBy: text("managed_by").notNull().default("legacy"),  // "legacy" | "operator"
+  isolationLevel: text("isolation_level").notNull().default("standard"),  // "standard" | "gvisor" | "kata"
   themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
   // Fork & public profile fields
   forkedFromId: text("forked_from_id"),  // Source deployment ID (null = original)

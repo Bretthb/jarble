@@ -6,6 +6,30 @@ export const NAMESPACE = "jarble";
 // should always set DEFAULT_POD_IMAGE to a versioned tag (e.g. :2026.3.2).
 export const DEFAULT_IMAGE = process.env.DEFAULT_POD_IMAGE || "ghcr.io/jarble-ai/openclaw:latest";
 
+/** Runtime isolation levels for deployments */
+export type IsolationLevel = "standard" | "gvisor" | "kata";
+
+/** Maps isolation level to K8s RuntimeClass name */
+export const RUNTIME_CLASS_MAP: Record<IsolationLevel, string | undefined> = {
+  standard: undefined, // default container runtime (runc)
+  gvisor: "gvisor",    // gVisor (runsc) — syscall interception
+  kata: "kata-clh",    // Kata + Cloud Hypervisor — MicroVM
+};
+
+/** Resource overhead per RuntimeClass (for scheduling accuracy) */
+export const RUNTIME_OVERHEAD: Record<IsolationLevel, { cpu: string; memoryMi: number }> = {
+  standard: { cpu: "0", memoryMi: 0 },
+  gvisor: { cpu: "100m", memoryMi: 40 },
+  kata: { cpu: "250m", memoryMi: 160 },
+};
+
+/** Node selector labels for RuntimeClass scheduling */
+export const RUNTIME_NODE_SELECTOR: Record<IsolationLevel, Record<string, string> | undefined> = {
+  standard: undefined,
+  gvisor: undefined, // gVisor works on any node
+  kata: { "jarble.ai/runtime-capable": "kata" }, // Kata needs bare metal with /dev/kvm
+};
+
 export interface DeploymentConfig {
   name: string;
   template?: string;
@@ -19,6 +43,7 @@ export interface DeploymentConfig {
   initialConfigs?: ConfigFile[];              // Config files to write to PVC after pod starts
   extraSecretEntries?: Record<string, string>; // Additional K8s Secret env vars from runtime handler
   gatewayToken?: string;                       // Pre-generated gateway token (generated if omitted)
+  isolationLevel?: IsolationLevel;             // Runtime sandbox isolation (default: "standard")
 }
 
 // Default gateway ports per runtime

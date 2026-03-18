@@ -58,3 +58,28 @@ output "longhorn_volume_size_gb" {
   description = "Size (GB) of each Longhorn block storage volume"
   value       = var.longhorn_volume_size
 }
+
+# ─── Sandbox Isolation ──────────────────────────────────────────────────────
+
+output "runtime_classes" {
+  description = "Available Kubernetes RuntimeClasses for sandbox isolation"
+  value = compact([
+    var.enable_gvisor ? "gvisor" : "",
+    var.enable_kata   ? "kata-clh" : "",
+  ])
+}
+
+output "gvisor_install_command" {
+  description = "Command to install gVisor on a worker node"
+  value       = var.enable_gvisor ? "ssh root@<worker-ip> 'bash -s' < infrastructure/scripts/install-gvisor.sh" : null
+}
+
+output "kata_install_command" {
+  description = "Command to install Kata on the dedicated server"
+  value       = var.enable_kata ? "ssh root@<dedicated-ip> 'bash -s' < infrastructure/scripts/install-kata.sh" : null
+}
+
+output "dedicated_setup_script" {
+  description = "Path to the generated dedicated server setup script"
+  value       = var.enable_dedicated_server ? "infrastructure/scripts/generated/dedicated-setup.sh" : null
+}

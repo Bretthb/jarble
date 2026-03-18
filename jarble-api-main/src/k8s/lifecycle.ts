@@ -3,14 +3,65 @@ import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("k8s:lifecycle");
 import { coreApi, appsApi } from "./client.js";
-import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS } from "./constants.js";
-import type { DeploymentConfig, ManagedBy } from "./constants.js";
+import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS, RUNTIME_CLASS_MAP, RUNTIME_OVERHEAD, RUNTIME_NODE_SELECTOR } from "./constants.js";
+import type { DeploymentConfig, ManagedBy, IsolationLevel } from "./constants.js";
 import { getDeploymentPodStatus } from "./status.js";
 import { createDeploymentConfigMap, deleteDeploymentConfigMap } from "./configmap.js";
 import {
   createOpenClawInstance,
   deleteOpenClawInstance,
 } from "./operator.js";
+
+// ── Security Context Builder ─────────────────────────────────────────────
+
+/**
+ * Build pod-level and container-level security contexts based on isolation level.
+ *
+ * - "standard": Minimal changes for backwards compat (existing behavior).
+ * - "gvisor" / "kata": Full hardening — runAsNonRoot, drop all capabilities,
+ *   seccomp RuntimeDefault profile, no privilege escalation.
+ */
+export function buildSecurityContext(isolationLevel: IsolationLevel = "standard") {
+  if (isolationLevel === "standard") {
+    // Backwards-compatible: keep existing behavior for standard deployments
+    return {
+      pod: {
+        runAsNonRoot: false,
+        fsGroup: 1000,
+      },
+      initContainer: {
+        runAsUser: 0,
+      },
+      container: {
+        runAsUser: 0,
+        runAsGroup: 0,
+        allowPrivilegeEscalation: false,
+      },
+    };
+  }
+
+  // Hardened context for gVisor / Kata isolated deployments
+  return {
+    pod: {
+      runAsNonRoot: true,
+      runAsUser: 1000,
+      runAsGroup: 1000,
+      fsGroup: 1000,
+      seccompProfile: { type: "RuntimeDefault" },
+    },
+    initContainer: {
+      // Init container still needs root to set up PVC directory permissions
+      runAsUser: 0,
+    },
+    container: {
+      runAsUser: 1000,
+      runAsGroup: 1000,
+      allowPrivilegeEscalation: false,
+      readOnlyRootFilesystem: false, // pods need to write to PVC
+      capabilities: { drop: ["ALL"] },
+    },
+  };
+}
 
 // ── Create ──────────────────────────────────────────────────────────────
 
@@ -214,6 +265,16 @@ async function createDeploymentLegacy(
   const cpuLimitVal = parseFloat(cpuLimit);
   const cpuRequestMillicores = `${Math.max(250, Math.round(cpuLimitVal * 500))}m`; // 50% of limit, min 250m
 
+  // ── Isolation level: runtimeClass, security hardening, node selectors ──
+  const isolationLevel: IsolationLevel = config.isolationLevel || "standard";
+  const runtimeClassName = RUNTIME_CLASS_MAP[isolationLevel];
+  const nodeSelector = RUNTIME_NODE_SELECTOR[isolationLevel];
+  const overhead = RUNTIME_OVERHEAD[isolationLevel];
+  const secCtx = buildSecurityContext(isolationLevel);
+
+  // Adjust memory request to account for runtime overhead (gVisor/Kata use extra RAM)
+  const adjustedMemoryMi = `${memoryMb + overhead.memoryMi}Mi`;
+
   await appsApi.createNamespacedDeployment(NAMESPACE, {
     metadata: {
       name: `dep-${deploymentId}`,
@@ -228,18 +289,15 @@ async function createDeploymentLegacy(
         spec: {
           automountServiceAccountToken: false,
           terminationGracePeriodSeconds: 10,
-          securityContext: {
-            runAsNonRoot: false,
-            fsGroup: 1000,
-          },
+          ...(runtimeClassName ? { runtimeClassName } : {}),
+          ...(nodeSelector ? { nodeSelector } : {}),
+          securityContext: secCtx.pod,
           initContainers: [
             {
               name: "config-init",
               image: "busybox:1.36",
               command: ["sh", "-c", configInitScript],
-              securityContext: {
-                runAsUser: 0,
-              },
+              securityContext: secCtx.initContainer,
               resources: {
                 requests: { cpu: "50m", memory: "32Mi" },
                 limits: { cpu: "200m", memory: "64Mi" },
@@ -259,13 +317,9 @@ async function createDeploymentLegacy(
             }],
             resources: {
               requests: { cpu: cpuRequestMillicores, memory: "512Mi", "ephemeral-storage": "100Mi" },
-              limits: { cpu: cpuMillicores, memory: memoryMi, "ephemeral-storage": "1Gi" },
+              limits: { cpu: cpuMillicores, memory: adjustedMemoryMi, "ephemeral-storage": "1Gi" },
             },
-            securityContext: {
-              runAsUser: 0,
-              runAsGroup: 0,
-              allowPrivilegeEscalation: false,
-            },
+            securityContext: secCtx.container,
             envFrom: [{ secretRef: { name: `secret-${deploymentId}` } }],
             volumeMounts: [
               { name: "data", mountPath: "/data" },

@@ -4,7 +4,7 @@ import { router, protectedProcedure, publicProcedure } from "../middleware.js";
 import { tables, dbDate, type DbClient } from "../../db/index.js";
 import { eq, and, or, isNull, sql } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod } from "../../k8s/index.js";
-import type { ManagedBy } from "../../k8s/constants.js";
+import type { ManagedBy, IsolationLevel } from "../../k8s/constants.js";
 import { getPvcMountPath, getContainerName, getContainerHome } from "../../k8s/constants.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
 import { cancelSubscriptionAtPeriodEnd, cancelSubscriptionImmediately, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
@@ -243,6 +243,7 @@ export const deploymentRouter = router({
       telegramBotToken: z.string().optional(), // Pre-validated Telegram bot token (included in initial K8s Secret)
       messagingOnly: z.boolean().optional(), // If true, omit web-chat UI prompt (~1,250 tokens saved)
       personaTemplateId: z.string().optional(), // Pre-selected persona template — overrides systemPrompt, llmModel, themeConfig
+      isolationLevel: z.enum(["standard", "gvisor", "kata"]).optional(), // Runtime sandbox isolation (default: "standard")
     }))
     .mutation(async ({ ctx, input }) => {
       // Look up the runtime catalog entry
@@ -510,6 +511,7 @@ export const deploymentRouter = router({
         themeConfig: resolvedThemeConfig,
         stripeSubscriptionId,
         messagingOnly: input.messagingOnly ?? false,
+        isolationLevel: input.isolationLevel || "standard",
         status: "pending",
       });
 
@@ -682,6 +684,7 @@ export const deploymentRouter = router({
             initialConfigs,
             extraSecretEntries,
             gatewayToken,
+            isolationLevel: ((deployment as any).isolationLevel || "standard") as IsolationLevel,
           }, managedBy);
           logger.info({ deploymentId }, "K8s createDeployment returned, polling for readiness...");
 

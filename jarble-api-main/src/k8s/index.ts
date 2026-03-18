@@ -5,8 +5,11 @@ export { coreApi, appsApi, customApi, execClient, kc } from "./client.js";
 
 export { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS } from "./constants.js";
 export { CRD_GROUP, CRD_VERSION, CRD_PLURAL } from "./constants.js";
+export { RUNTIME_CLASS_MAP, RUNTIME_OVERHEAD, RUNTIME_NODE_SELECTOR } from "./constants.js";
 export { getContainerName, getPvcMountPath, getContainerHome, podLabelSelector } from "./constants.js";
-export type { DeploymentConfig, ManagedBy } from "./constants.js";
+export type { DeploymentConfig, ManagedBy, IsolationLevel } from "./constants.js";
+
+export { buildSecurityContext } from "./lifecycle.js";
 
 export { execInPod, execInPodWithStdin, execInPodStreaming, streamExecInPod, findPodForDeployment, escapeShellValue } from "./exec.js";
 

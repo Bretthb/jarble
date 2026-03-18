@@ -69,6 +69,7 @@ const CREATE_TABLES_SQL = `
     error TEXT,
     messaging_only INTEGER DEFAULT 0 NOT NULL,
     managed_by TEXT DEFAULT 'legacy' NOT NULL,
+    isolation_level TEXT DEFAULT 'standard' NOT NULL,
     theme_config TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL

@@ -49,6 +49,7 @@ export const deployments = mysqlTable("deployments", {
   error: text("error"),
   messagingOnly: boolean("messaging_only").notNull().default(false),
   managedBy: varchar("managed_by", { length: 20 }).notNull().default("legacy"),  // "legacy" | "operator"
+  isolationLevel: varchar("isolation_level", { length: 20 }).notNull().default("standard"),  // "standard" | "gvisor" | "kata"
   themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
   // Fork & public profile fields
   forkedFromId: varchar("forked_from_id", { length: 255 }),
