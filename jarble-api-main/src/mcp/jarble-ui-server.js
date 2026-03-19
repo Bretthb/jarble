@@ -23,6 +23,67 @@ const PROTOCOL_VERSION = "2024-11-05";
 
 const FILE_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 
+// ── Protected paths — platform-managed, must not be modified by bot/user ──
+const PVC_MOUNT = process.env.PVC_MOUNT || "/data";
+const PROTECTED_PATHS = [
+  `${PVC_MOUNT}/config/mcp`,
+  `${PVC_MOUNT}/config/soul.md`,
+  `${PVC_MOUNT}/config/openclaw.json`,
+  `${PVC_MOUNT}/config/service-tools.json`,
+  `${PVC_MOUNT}/config/platform-skills.json`,
+  `${PVC_MOUNT}/config/skills`,
+  `${PVC_MOUNT}/config/.env`,
+  `${PVC_MOUNT}/.openclaw`,
+  `${PVC_MOUNT}/.openclaw.pid`,
+  `${PVC_MOUNT}/.reload`,
+  `${PVC_MOUNT}/soul.md`,
+  `${PVC_MOUNT}/openclaw.json`,
+  `${PVC_MOUNT}/.initialized`,
+  `${PVC_MOUNT}/runtime`,
+  `${PVC_MOUNT}/.npm`,
+];
+
+/**
+ * Returns true if the given absolute path is platform-protected.
+ * Checks for exact match or prefix match (directory containment).
+ */
+function isProtectedPath(filePath) {
+  if (!filePath) return false;
+  const resolved = path.resolve(filePath);
+  if (resolved.includes("..")) return true;
+  for (const blocked of PROTECTED_PATHS) {
+    if (resolved === blocked || resolved.startsWith(blocked + "/") || resolved.startsWith(blocked + path.sep)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Safe wrappers for fs operations — reject writes/deletes to protected paths.
+ * All bot-accessible code paths should use these instead of raw fs calls.
+ */
+function safeWriteFileSync(filePath, data, options) {
+  if (isProtectedPath(filePath)) {
+    throw new Error(`Cannot write to protected path: ${filePath}`);
+  }
+  return fs.writeFileSync(filePath, data, options);
+}
+
+function safeUnlinkSync(filePath) {
+  if (isProtectedPath(filePath)) {
+    throw new Error(`Cannot delete protected path: ${filePath}`);
+  }
+  return fs.unlinkSync(filePath);
+}
+
+function safeRmSync(dirPath, options) {
+  if (isProtectedPath(dirPath)) {
+    throw new Error(`Cannot remove protected path: ${dirPath}`);
+  }
+  return fs.rmSync(dirPath, options);
+}
+
 // ── Migrate old /data/files/ to /data/workspace/artifacts/ ──────────
 // One-time migration on first run after upgrade.
 try {
@@ -513,7 +574,7 @@ function writeComponent(name, def) {
   ensureDir();
   const fp = path.join(COMPONENTS_DIR, `${name}.json`);
   console.error("[MCP] File write:", fp);
-  fs.writeFileSync(fp, JSON.stringify(def, null, 2), "utf8");
+  safeWriteFileSync(fp, JSON.stringify(def, null, 2), "utf8");
 }
 
 function listCustomComponents() {
@@ -763,7 +824,7 @@ const TOOLS = [
   },
   {
     name: "skill_reference",
-    description: "Get detailed rendering guides and best practices. Available skills: component-rendering (selection matrix, props examples, design principles), sandbox-mastery (CDN allowlist, bridge API, theme, heartbeat), generative-ui-patterns (when to render UI vs text, text+UI harmony), platform-awareness (canvas system, MCP tools, multi-platform), dashboard-composition (ordering, layout strategy, data consistency), service-hosting (create/host/publish HTTP services on your pod), page-composition (full-screen page layouts — dashboard, kanban, CRM, settings). Call without a name to list all, or with a specific skill name for full content.",
+    description: "Get detailed rendering guides and best practices. Available skills: component-rendering (selection matrix, props examples, design principles), sandbox-mastery (CDN allowlist, bridge API, theme, heartbeat), generative-ui-patterns (when to render UI vs text, text+UI harmony), platform-awareness (canvas system, MCP tools, multi-platform), dashboard-composition (ordering, layout strategy, data consistency), service-hosting (create/host/publish HTTP services on your pod), page-composition (full-screen page layouts — dashboard, kanban, CRM, settings), premium-dashboard-design (agency-quality dark dashboard design system with tokens, CSS patterns, charts, and complete template). Call without a name to list all, or with a specific skill name for full content.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1434,7 +1495,7 @@ function readServiceManifest() {
 
 function writeServiceManifest(manifest) {
   fs.mkdirSync(SERVICES_DIR, { recursive: true });
-  fs.writeFileSync(SERVICE_MANIFEST_PATH, JSON.stringify(manifest, null, 2), "utf-8");
+  safeWriteFileSync(SERVICE_MANIFEST_PATH, JSON.stringify(manifest, null, 2), "utf-8");
 }
 
 function getUsedPorts(manifest) {
@@ -1886,7 +1947,7 @@ function executeSaveCanvasFile(args) {
     }
     const filePath = path.join(FILES_DIR, `${fileId}.json`);
     console.error("[MCP] File write:", filePath);
-    fs.writeFileSync(filePath, payload, "utf8");
+    safeWriteFileSync(filePath, payload, "utf8");
     const displayName = name || fileId;
     return { isError: false, text: `Saved "${displayName}" (${component}) to library as "${fileId}".` };
   } catch (err) {
@@ -1967,7 +2028,7 @@ function executeDeleteCanvasFile(args) {
     return { isError: true, text: `File "${fileId}" not found.` };
   }
   try {
-    fs.unlinkSync(fp);
+    safeUnlinkSync(fp);
     return { isError: false, text: `Deleted "${fileId}" from library.` };
   } catch (err) {
     return { isError: true, text: `Failed to delete: ${err.message}` };
@@ -1987,7 +2048,7 @@ function ensureArtifactWorkspace() {
   if (!fs.existsSync(artDir)) fs.mkdirSync(artDir, { recursive: true });
   const mPath = path.join(WORKSPACE_DIR, "manifest.json");
   if (!fs.existsSync(mPath)) {
-    fs.writeFileSync(mPath, JSON.stringify({ version: 1, artifacts: [] }, null, 2), "utf-8");
+    safeWriteFileSync(mPath, JSON.stringify({ version: 1, artifacts: [] }, null, 2), "utf-8");
   }
 }
 
@@ -2024,7 +2085,7 @@ function rebuildArtifactManifest() {
 function writeArtifactManifest(manifest) {
   const mPath = path.join(WORKSPACE_DIR, "manifest.json");
   const tmpPath = mPath + ".tmp";
-  fs.writeFileSync(tmpPath, JSON.stringify(manifest, null, 2), "utf-8");
+  safeWriteFileSync(tmpPath, JSON.stringify(manifest, null, 2), "utf-8");
   fs.renameSync(tmpPath, mPath);
 }
 
@@ -2085,7 +2146,7 @@ function executeSaveArtifact(args) {
 
   // Atomic write: artifact file
   const tmpFilePath = filePath + ".tmp";
-  fs.writeFileSync(tmpFilePath, serialized, "utf-8");
+  safeWriteFileSync(tmpFilePath, serialized, "utf-8");
   fs.renameSync(tmpFilePath, filePath);
 
   // Update manifest
@@ -2150,7 +2211,7 @@ function executeDeleteArtifact(args) {
   const idx = manifest.artifacts.findIndex(a => a.id === id);
 
   const filePath = path.join(WORKSPACE_DIR, "artifacts", `${id}.json`);
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  if (fs.existsSync(filePath)) safeUnlinkSync(filePath);
 
   if (idx !== -1) {
     manifest.artifacts.splice(idx, 1);
@@ -2910,6 +2971,201 @@ Multi-step form. Sections:
     description: "Premium sandbox component templates — beautiful dashboards, feature showcases, data panels, status boards using Tailwind CSS, gradients, glassmorphism, and modern design patterns",
     content: "## Premium Component Templates\n\nUse these as starting points for visually impressive sandbox components. Each template uses Tailwind CSS from CDN and follows modern design patterns. Customize colors, data, and layout to match the user's request.\n\n### Design Foundation\nAll premium templates share these principles:\n- Tailwind CSS via CDN (`https://cdn.tailwindcss.com/3.4.1`) as first library\n- Transparent body background (`bg-transparent`) — cards/panels use semi-transparent backgrounds\n- Theme CSS variables: `var(--primary)`, `var(--foreground)`, `var(--background)`, `var(--muted)`\n- Dark mode support via `prefers-color-scheme` media query\n- Smooth animations and transitions for polish\n- Responsive layout using Tailwind's flex/grid utilities\n\n---\n\n### Template 1: Premium Dashboard Card\nA metrics card with gradient accent, glassmorphism, animated count-up number, and inline sparkline.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"Premium Metrics Card\",\"height\":280,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\"],\"html\":\"<div id='app' class='p-4 h-full flex items-center justify-center bg-transparent'><div class='w-full max-w-sm relative overflow-hidden rounded-2xl border border-white/20 bg-white/10 backdrop-blur-xl shadow-2xl shadow-purple-500/10'><div class='absolute inset-0 bg-gradient-to-br from-purple-500/20 via-transparent to-pink-500/10 pointer-events-none'></div><div class='relative p-6 space-y-4'><div class='flex items-center justify-between'><span class='text-sm font-medium text-white/60 uppercase tracking-wider'>Monthly Revenue</span><span class='inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400'>+23.5%</span></div><div class='flex items-end gap-3'><span id='counter' class='text-4xl font-bold text-white tracking-tight'>$0</span></div><div class='h-12'><canvas id='spark' class='w-full h-full'></canvas></div><div class='flex justify-between text-xs text-white/40'><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div></div></div></div>\",\"js\":\"var data=[42000,48000,51000,49000,58000,67500];var target=67500;var counter=document.getElementById('counter');var current=0;function animateCount(){if(current<target){current+=Math.ceil((target-current)/20);counter.textContent='$'+current.toLocaleString();requestAnimationFrame(animateCount)}else{counter.textContent='$'+target.toLocaleString()}}animateCount();var canvas=document.getElementById('spark');var ctx=canvas.getContext('2d');function drawSparkline(){canvas.width=canvas.offsetWidth*2;canvas.height=canvas.offsetHeight*2;ctx.scale(2,2);var max=Math.max.apply(null,data);var min=Math.min.apply(null,data);var points=data.map(function(v,i){return{x:i*(canvas.offsetWidth/(data.length-1)),y:canvas.offsetHeight-((v-min)/(max-min))*canvas.offsetHeight*0.8-canvas.offsetHeight*0.1}});var grad=ctx.createLinearGradient(0,0,0,canvas.offsetHeight);grad.addColorStop(0,'rgba(168,85,247,0.4)');grad.addColorStop(1,'rgba(168,85,247,0)');ctx.beginPath();ctx.moveTo(points[0].x,canvas.offsetHeight);points.forEach(function(p){ctx.lineTo(p.x,p.y)});ctx.lineTo(points[points.length-1].x,canvas.offsetHeight);ctx.fillStyle=grad;ctx.fill();ctx.beginPath();points.forEach(function(p,i){if(i===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y)});ctx.strokeStyle='#a855f7';ctx.lineWidth=2;ctx.stroke();var last=points[points.length-1];ctx.beginPath();ctx.arc(last.x,last.y,4,0,Math.PI*2);ctx.fillStyle='#a855f7';ctx.fill()}drawSparkline();window.addEventListener('resize',drawSparkline);\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"third\"}\n```\n\n---\n\n### Template 2: Feature Showcase Grid\nA responsive grid of feature cards with icons, gradient accents, and hover animations.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"Feature Showcase\",\"height\":420,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\"],\"html\":\"<div class='p-6 bg-transparent min-h-full'><h2 class='text-2xl font-bold text-white mb-2 tracking-tight'>Platform Features</h2><p class='text-white/50 mb-6 text-sm'>Everything you need to build amazing products</p><div class='grid grid-cols-2 gap-4' id='grid'></div></div>\",\"js\":\"var features=[{icon:'\\u26a1',title:'Lightning Fast',desc:'Sub-100ms response times with edge computing',gradient:'from-amber-500 to-orange-600'},{icon:'\\ud83d\\udd12',title:'Enterprise Security',desc:'SOC2 compliant with end-to-end encryption',gradient:'from-emerald-500 to-teal-600'},{icon:'\\ud83d\\udcca',title:'Real-time Analytics',desc:'Live dashboards with custom metrics and alerts',gradient:'from-blue-500 to-indigo-600'},{icon:'\\ud83c\\udf10',title:'Global Scale',desc:'Deploy to 40+ regions with automatic failover',gradient:'from-purple-500 to-pink-600'}];var grid=document.getElementById('grid');features.forEach(function(f,i){var card=document.createElement('div');card.className='group relative overflow-hidden rounded-xl border border-white/10 bg-white/5 p-5 transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:shadow-lg hover:-translate-y-1 cursor-pointer';card.style.animationDelay=i*100+'ms';card.innerHTML='<div class=\\\"w-10 h-10 rounded-lg bg-gradient-to-br '+f.gradient+' flex items-center justify-center text-xl mb-3 shadow-lg group-hover:scale-110 transition-transform duration-300\\\">'+f.icon+'</div><h3 class=\\\"text-white font-semibold mb-1 text-sm\\\">'+f.title+'</h3><p class=\\\"text-white/40 text-xs leading-relaxed\\\">'+f.desc+'</p><div class=\\\"absolute inset-0 bg-gradient-to-br '+f.gradient+' opacity-0 group-hover:opacity-5 transition-opacity duration-300\\\"></div>';grid.appendChild(card)});\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"half\"}\n```\n\n---\n\n### Template 3: Interactive Tabbed Data Panel\nA tabbed panel combining chart visualization and stats, built with Chart.js and Tailwind CSS.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"Analytics Dashboard\",\"height\":480,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\",\"https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js\"],\"html\":\"<div class='p-5 bg-transparent h-full flex flex-col'><div class='flex items-center justify-between mb-4'><h2 class='text-xl font-bold text-white tracking-tight'>Revenue Analytics</h2><div class='flex gap-1 bg-white/5 rounded-lg p-1' id='tabs'><button data-tab='chart' class='tab-btn px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 bg-white/10 text-white'>Chart</button><button data-tab='stats' class='tab-btn px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 text-white/50 hover:text-white'>Stats</button></div></div><div class='flex gap-3 mb-4' id='kpis'></div><div id='chart-panel' class='flex-1 relative'><canvas id='chart'></canvas></div><div id='stats-panel' class='flex-1 hidden'><div class='grid grid-cols-2 gap-3 h-full' id='stats-grid'></div></div></div>\",\"js\":\"var months=['Jan','Feb','Mar','Apr','May','Jun'];var revenue=[42,48,51,49,58,67];var costs=[28,30,32,31,35,38];var kpiData=[{label:'Total Revenue',value:'$315K',change:'+18%',positive:true},{label:'Avg Monthly',value:'$52.5K',change:'+12%',positive:true},{label:'Profit Margin',value:'43%',change:'+3%',positive:true}];var kpis=document.getElementById('kpis');kpiData.forEach(function(k){var el=document.createElement('div');el.className='flex-1 bg-white/5 rounded-xl p-3 border border-white/10';el.innerHTML='<div class=\\\"text-xs text-white/40 mb-1\\\">'+k.label+'</div><div class=\\\"flex items-end gap-2\\\"><span class=\\\"text-lg font-bold text-white\\\">'+k.value+'</span><span class=\\\"text-xs font-semibold '+(k.positive?'text-emerald-400':'text-red-400')+'\\\">'+k.change+'</span></div>';kpis.appendChild(el)});var ctx=document.getElementById('chart').getContext('2d');new Chart(ctx,{type:'line',data:{labels:months,datasets:[{label:'Revenue',data:revenue,borderColor:'#8b5cf6',backgroundColor:'rgba(139,92,246,0.1)',fill:true,tension:0.4,pointBackgroundColor:'#8b5cf6',pointRadius:4,pointHoverRadius:6},{label:'Costs',data:costs,borderColor:'#6366f1',backgroundColor:'rgba(99,102,241,0.05)',fill:true,tension:0.4,borderDash:[5,5],pointBackgroundColor:'#6366f1',pointRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'bottom',labels:{color:'rgba(255,255,255,0.5)',font:{size:11},padding:15,usePointStyle:true}}},scales:{x:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'rgba(255,255,255,0.4)',font:{size:11}}},y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'rgba(255,255,255,0.4)',font:{size:11},callback:function(v){return '$'+v+'K'}}}}}});var statsData=[{label:'Best Month',value:'Jun \\u2014 $67K',icon:'\\ud83d\\udcc8'},{label:'Growth Rate',value:'8.2% MoM',icon:'\\ud83d\\ude80'},{label:'Total Profit',value:'$136K',icon:'\\ud83d\\udcb0'},{label:'Customers',value:'2,847',icon:'\\ud83d\\udc65'}];var sg=document.getElementById('stats-grid');statsData.forEach(function(s){var el=document.createElement('div');el.className='bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col justify-between';el.innerHTML='<span class=\\\"text-2xl mb-2\\\">'+s.icon+'</span><div><div class=\\\"text-xs text-white/40 mb-1\\\">'+s.label+'</div><div class=\\\"text-lg font-bold text-white\\\">'+s.value+'</div></div>';sg.appendChild(el)});document.querySelectorAll('.tab-btn').forEach(function(btn){btn.addEventListener('click',function(){var tab=btn.dataset.tab;document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('bg-white/10','text-white');b.classList.add('text-white/50')});btn.classList.add('bg-white/10','text-white');btn.classList.remove('text-white/50');document.getElementById('chart-panel').classList.toggle('hidden',tab!=='chart');document.getElementById('stats-panel').classList.toggle('hidden',tab!=='stats')})});\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"full-width\"}\n```\n\n---\n\n### Template 4: Status Board\nA real-time-looking status grid with pulse animations, colored indicators, and uptime bars.\n\n```json\n{\"component\":\"sandbox\",\"props\":{\"title\":\"System Status\",\"height\":400,\"libraries\":[\"https://cdn.tailwindcss.com/3.4.1\"],\"html\":\"<div class='p-5 bg-transparent h-full'><div class='flex items-center justify-between mb-5'><div><h2 class='text-xl font-bold text-white tracking-tight'>System Status</h2><p class='text-white/40 text-sm mt-0.5'>All systems operational</p></div><div class='flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full'><span class='relative flex h-2.5 w-2.5'><span class='animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75'></span><span class='relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500'></span></span><span class='text-xs font-semibold text-emerald-400'>Operational</span></div></div><div class='space-y-3' id='services'></div><div class='mt-5 pt-4 border-t border-white/10 flex items-center justify-between'><span class='text-xs text-white/30'>Last checked: just now</span><span class='text-xs text-white/30'>90-day uptime: 99.98%</span></div></div>\",\"js\":\"var services=[{name:'API Gateway',status:'operational',latency:'12ms',uptime:99.99,history:[1,1,1,1,1,1,1,1,1,1,1,1,0.5,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]},{name:'Database Cluster',status:'operational',latency:'3ms',uptime:99.99,history:[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]},{name:'Auth Service',status:'operational',latency:'8ms',uptime:100,history:[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]},{name:'CDN / Edge',status:'degraded',latency:'45ms',uptime:99.92,history:[1,1,1,1,1,1,0.5,1,1,1,1,1,1,1,1,1,0.5,0.5,1,1,1,1,1,1,1,1,1,1,1,0.5]},{name:'Worker Queue',status:'operational',latency:'5ms',uptime:99.97,history:[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.5,1,1,1,1,1,1,1,1,1,1,1]}];var container=document.getElementById('services');var statusColors={operational:{dot:'bg-emerald-500',text:'text-emerald-400',label:'Operational'},degraded:{dot:'bg-amber-500',text:'text-amber-400',label:'Degraded'},down:{dot:'bg-red-500',text:'text-red-400',label:'Down'}};services.forEach(function(s){var sc=statusColors[s.status];var el=document.createElement('div');el.className='flex items-center gap-4 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/8 transition-colors';var bars=s.history.map(function(h){var color=h===1?'bg-emerald-500':h===0.5?'bg-amber-500':'bg-red-500';return '<div class=\\\"flex-1 h-full rounded-sm '+color+' opacity-80 hover:opacity-100 transition-opacity\\\" title=\\\"'+(h===1?'Operational':h===0.5?'Degraded':'Down')+'\\\"></div>'}).join('');el.innerHTML='<div class=\\\"flex-1 min-w-0\\\"><div class=\\\"flex items-center gap-2\\\"><span class=\\\"w-2 h-2 rounded-full '+sc.dot+'\\\"></span><span class=\\\"text-sm font-medium text-white truncate\\\">'+s.name+'</span></div></div><div class=\\\"flex gap-px h-6 w-36\\\">'+bars+'</div><div class=\\\"text-right w-20\\\"><div class=\\\"text-xs '+sc.text+' font-medium\\\">'+sc.label+'</div><div class=\\\"text-xs text-white/30\\\">'+s.latency+' \\u2022 '+s.uptime+'%</div></div>';container.appendChild(el)});\",\"css\":\"body{margin:0;background:transparent;font-family:system-ui,-apple-system,sans-serif}\"},\"layout_hint\":\"full-width\"}\n```\n\n---\n\n### Customization Guide\nWhen adapting these templates:\n1. **Change data**: Replace the hardcoded arrays/objects with the user's actual data\n2. **Change colors**: Swap gradient classes (`from-purple-500` to `from-blue-500`), adjust accent colors\n3. **Change layout**: Modify grid columns (`grid-cols-2` to `grid-cols-3`), card sizes, spacing\n4. **Add interactivity**: Attach click handlers, hover effects, toggles\n5. **Combine patterns**: Mix a KPI row from Template 1 with a chart from Template 3\n6. **Always use Tailwind CDN**: `\"https://cdn.tailwindcss.com/3.4.1\"` as first entry in `libraries`\n7. **Always transparent body**: `body{background:transparent}` in CSS\n8. **Always descriptive title**: Set the `title` prop to describe what the component shows"
   },
+
+  "premium-dashboard-design": {
+    description: "Agency-quality dark dashboard design system — design tokens, CSS patterns, typography, chart styling, and a complete template (base044-inspired)",
+    content: `## Premium Dashboard Design System
+
+A complete design system for building ultra-polished dark-mode SaaS dashboards in sandbox components. Inspired by top design agencies (base044 aesthetic).
+
+### Design Tokens (CSS Custom Properties)
+
+Paste this \`:root\` block into your sandbox CSS. All patterns below reference these tokens.
+
+\\\`\\\`\\\`css
+:root {
+  /* Backgrounds (elevation scale — lighter = higher) */
+  --bg-base: #0A0A0F;
+  --bg-surface-1: #111118;
+  --bg-surface-2: #1A1A24;
+  --bg-surface-3: #232330;
+
+  /* Borders */
+  --border-subtle: rgba(255,255,255,0.06);
+  --border-medium: rgba(255,255,255,0.10);
+  --border-accent: rgba(124,58,237,0.4);
+
+  /* Text */
+  --text-primary: rgba(255,255,255,0.92);
+  --text-secondary: rgba(255,255,255,0.55);
+  --text-muted: rgba(255,255,255,0.30);
+
+  /* Accents */
+  --purple: #7C3AED; --purple-glow: rgba(124,58,237,0.15);
+  --cyan: #06B6D4;   --cyan-glow: rgba(6,182,212,0.15);
+  --emerald: #10B981; --emerald-glow: rgba(16,185,129,0.15);
+  --amber: #F59E0B;  --amber-glow: rgba(245,158,11,0.15);
+  --rose: #F43F5E;   --rose-glow: rgba(244,63,94,0.15);
+
+  /* Gradients */
+  --gradient-accent: linear-gradient(135deg, #7C3AED, #A855F7);
+  --gradient-cyan: linear-gradient(135deg, #06B6D4, #22D3EE);
+  --gradient-surface: linear-gradient(180deg, var(--bg-surface-2), var(--bg-surface-1));
+
+  /* Spacing */
+  --space-card: 24px;
+  --space-section: 32px;
+  --radius: 16px;
+}
+\\\`\\\`\\\`
+
+### Typography Scale
+
+| Role | Size | Weight | Letter-spacing | Color |
+|------|------|--------|---------------|-------|
+| Page title | 28px | 700 | -0.02em | --text-primary |
+| Section heading | 18px | 600 | -0.01em | --text-primary |
+| Card title | 14px | 600 | 0 | --text-primary |
+| KPI number | 36px | 600 | -0.02em | gradient text |
+| Body | 14px | 400 | 0 | --text-secondary |
+| Caption / label | 12px | 500 | 0.04em | --text-muted, uppercase |
+| Overline | 11px | 600 | 0.06em | --text-muted, uppercase |
+
+### CSS Patterns (copy-paste ready)
+
+**1. Page background with ambient glow:**
+\\\`\\\`\\\`css
+body {
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+.page {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, var(--purple-glow), transparent),
+    radial-gradient(ellipse 60% 50% at 80% 80%, var(--cyan-glow), transparent),
+    var(--bg-base);
+}
+\\\`\\\`\\\`
+
+**2. Card / surface:**
+\\\`\\\`\\\`css
+.card {
+  background: var(--bg-surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: var(--space-card);
+}
+.card:hover { border-color: var(--border-medium); }
+\\\`\\\`\\\`
+
+**3. Gradient KPI number:**
+\\\`\\\`\\\`css
+.kpi-value {
+  font-size: 36px; font-weight: 600; letter-spacing: -0.02em;
+  background: var(--gradient-accent);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+\\\`\\\`\\\`
+
+**4. Trend badge:**
+\\\`\\\`\\\`css
+.trend-up { color: var(--emerald); background: var(--emerald-glow); }
+.trend-down { color: var(--rose); background: var(--rose-glow); }
+.trend { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:6px; font-size:12px; font-weight:600; }
+\\\`\\\`\\\`
+
+**5. Subtle table rows:**
+\\\`\\\`\\\`css
+.table-row {
+  display: grid; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px; color: var(--text-secondary); transition: background 0.15s;
+}
+.table-row:hover { background: rgba(255,255,255,0.02); }
+.table-header { color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+\\\`\\\`\\\`
+
+**6. Accent glow button:**
+\\\`\\\`\\\`css
+.btn-accent {
+  background: var(--gradient-accent); color: #fff; border: none;
+  padding: 10px 20px; border-radius: 10px; font-weight: 600; font-size: 13px;
+  cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 0 20px var(--purple-glow);
+}
+.btn-accent:hover { transform: scale(1.02); box-shadow: 0 0 30px rgba(124,58,237,0.3); }
+\\\`\\\`\\\`
+
+### Chart Styling (Chart.js in sandbox)
+
+\\\`\\\`\\\`js
+// Gradient area fill
+var gradient = ctx.createLinearGradient(0, 0, 0, chartHeight);
+gradient.addColorStop(0, 'rgba(124,58,237,0.25)');
+gradient.addColorStop(1, 'rgba(124,58,237,0)');
+
+// Chart.js dataset config
+{ borderColor: '#7C3AED', backgroundColor: gradient, fill: true,
+  borderWidth: 2, tension: 0.4, pointRadius: 0, pointHoverRadius: 5,
+  pointBackgroundColor: '#7C3AED' }
+
+// Axes & grid
+scales: {
+  x: { grid: { color: 'rgba(255,255,255,0.05)', drawBorder: false },
+       ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 11 } } },
+  y: { grid: { color: 'rgba(255,255,255,0.05)', drawBorder: false },
+       ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 11 } } }
+}
+
+// Tooltip
+plugins: { tooltip: {
+  backgroundColor: '#1A1A24', titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.7)',
+  borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, cornerRadius: 10,
+  padding: 12, titleFont: { weight: '600' }
+}}
+
+// Data series palette (use in order)
+var PALETTE = ['#7C3AED','#06B6D4','#10B981','#F59E0B','#F43F5E','#A855F7'];
+\\\`\\\`\\\`
+
+### Complete Dashboard Template
+
+A full working sandbox with 4 KPI cards, area chart, data table, and activity feed. Use as a starting point — swap data and colors as needed.
+
+\\\`\\\`\\\`json
+{"component":"sandbox","props":{"title":"Analytics Dashboard","height":720,"libraries":["https://cdn.tailwindcss.com/3.4.1","https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"],"css":":root{--bg:#0A0A0F;--s1:#111118;--s2:#1A1A24;--brd:rgba(255,255,255,0.06);--t1:rgba(255,255,255,0.92);--t2:rgba(255,255,255,0.55);--t3:rgba(255,255,255,0.30);--purple:#7C3AED;--cyan:#06B6D4;--emerald:#10B981;--rose:#F43F5E}*{margin:0;box-sizing:border-box}body{background:var(--bg);color:var(--t1);font-family:Inter,system-ui,sans-serif}.page{min-height:100vh;padding:32px;background:radial-gradient(ellipse 80% 60% at 15% 5%,rgba(124,58,237,0.08),transparent),radial-gradient(ellipse 60% 50% at 85% 90%,rgba(6,182,212,0.06),transparent),var(--bg)}.card{background:var(--s1);border:1px solid var(--brd);border-radius:16px;padding:24px}.kpi-val{font-size:32px;font-weight:600;letter-spacing:-0.02em;background:linear-gradient(135deg,var(--purple),#A855F7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}.trend{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600}.up{color:var(--emerald);background:rgba(16,185,129,0.12)}.down{color:var(--rose);background:rgba(244,63,94,0.12)}.label{font-size:12px;font-weight:500;color:var(--t3);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px}.th{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;padding:10px 16px}.tr{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:12px 16px;border-bottom:1px solid var(--brd);font-size:13px;color:var(--t2);transition:background .15s}.tr:hover{background:rgba(255,255,255,0.02)}","html":"<div class='page'><div class='flex items-center justify-between mb-8'><div><h1 style='font-size:28px;font-weight:700;letter-spacing:-0.02em'>Analytics Overview</h1><p style='color:var(--t3);font-size:14px;margin-top:4px'>Real-time performance metrics</p></div></div><div class='grid grid-cols-4 gap-5 mb-6' id='kpis'></div><div class='grid grid-cols-3 gap-5'><div class='col-span-2 card'><div class='flex items-center justify-between mb-5'><span style='font-size:14px;font-weight:600'>Revenue Trend</span><div class='flex gap-1' id='chart-tabs'></div></div><canvas id='chart' height='260'></canvas></div><div class='card flex flex-col'><span style='font-size:14px;font-weight:600;margin-bottom:16px'>Recent Activity</span><div id='feed' class='flex-1 overflow-y-auto space-y-3'></div></div></div><div class='card mt-5'><div class='flex items-center justify-between mb-4'><span style='font-size:14px;font-weight:600'>Top Customers</span></div><div class='th' style='display:grid;grid-template-columns:2fr 1fr 1fr 1fr'>Customer<span>Revenue</span><span>Growth</span><span>Status</span></div><div id='table'></div></div></div>","js":"var kpis=[{label:'Total Revenue',value:'$128.4K',trend:'+12.5%',up:true,gradient:'linear-gradient(135deg,#7C3AED,#A855F7)'},{label:'Active Users',value:'8,429',trend:'+23.1%',up:true,gradient:'linear-gradient(135deg,#06B6D4,#22D3EE)'},{label:'Conversion',value:'3.24%',trend:'-0.8%',up:false,gradient:'linear-gradient(135deg,#10B981,#34D399)'},{label:'Avg Order',value:'$64.20',trend:'+5.3%',up:true,gradient:'linear-gradient(135deg,#F59E0B,#FBBF24)'}];var kC=document.getElementById('kpis');kpis.forEach(function(k,i){var d=document.createElement('div');d.className='card';d.style.opacity='0';d.style.animation='fadeUp 0.4s ease '+(i*80)+'ms forwards';d.innerHTML='<div class=\\\"label\\\">'+k.label+'</div><div style=\\\"font-size:32px;font-weight:600;letter-spacing:-0.02em;background:'+k.gradient+';-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px\\\">'+k.value+'</div><span class=\\\"trend '+(k.up?'up':'down')+'\\\">'+(k.up?'\\u2191':'\\u2193')+' '+k.trend+'</span>';kC.appendChild(d)});var style=document.createElement('style');style.textContent='@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}';document.head.appendChild(style);var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var rev=[42,48,51,49,58,67,72,68,78,85,92,98];var cost=[28,30,32,31,35,38,40,37,42,45,48,52];var cvs=document.getElementById('chart');var cx=cvs.getContext('2d');var g1=cx.createLinearGradient(0,0,0,260);g1.addColorStop(0,'rgba(124,58,237,0.25)');g1.addColorStop(1,'rgba(124,58,237,0)');var g2=cx.createLinearGradient(0,0,0,260);g2.addColorStop(0,'rgba(6,182,212,0.15)');g2.addColorStop(1,'rgba(6,182,212,0)');new Chart(cx,{type:'line',data:{labels:months,datasets:[{label:'Revenue',data:rev,borderColor:'#7C3AED',backgroundColor:g1,fill:true,borderWidth:2,tension:0.4,pointRadius:0,pointHoverRadius:5,pointBackgroundColor:'#7C3AED'},{label:'Costs',data:cost,borderColor:'#06B6D4',backgroundColor:g2,fill:true,borderWidth:2,tension:0.4,pointRadius:0,pointHoverRadius:5,pointBackgroundColor:'#06B6D4',borderDash:[5,5]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'bottom',labels:{color:'rgba(255,255,255,0.4)',font:{size:11},padding:20,usePointStyle:true,pointStyleWidth:8}},tooltip:{backgroundColor:'#1A1A24',titleColor:'#fff',bodyColor:'rgba(255,255,255,0.7)',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,cornerRadius:10,padding:12}},scales:{x:{grid:{color:'rgba(255,255,255,0.04)',drawBorder:false},ticks:{color:'rgba(255,255,255,0.3)',font:{size:11}}},y:{grid:{color:'rgba(255,255,255,0.04)',drawBorder:false},ticks:{color:'rgba(255,255,255,0.3)',font:{size:11},callback:function(v){return '$'+v+'K'}}}}}});var activity=[{text:'New enterprise deal closed',time:'2m ago',color:'#10B981'},{text:'Dashboard export completed',time:'15m ago',color:'#06B6D4'},{text:'Payment processed #4821',time:'1h ago',color:'#7C3AED'},{text:'Alert: CPU spike on us-east',time:'2h ago',color:'#F59E0B'},{text:'User onboarding milestone',time:'3h ago',color:'#A855F7'}];var feed=document.getElementById('feed');activity.forEach(function(a){var d=document.createElement('div');d.style.cssText='display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04)';d.innerHTML='<div style=\\\"width:8px;height:8px;border-radius:50%;background:'+a.color+';margin-top:5px;flex-shrink:0\\\"></div><div><div style=\\\"font-size:13px;color:var(--t2)\\\">'+a.text+'</div><div style=\\\"font-size:11px;color:var(--t3);margin-top:2px\\\">'+a.time+'</div></div>';feed.appendChild(d)});var rows=[['Acme Corporation','$24,500','+18.2%','Active'],['Globex Industries','$19,200','+12.7%','Active'],['Initech Systems','$15,800','-3.1%','At Risk'],['Umbrella Corp','$12,400','+8.9%','Active'],['Stark Industries','$10,100','+22.5%','Active']];var table=document.getElementById('table');rows.forEach(function(r){var d=document.createElement('div');d.className='tr';var statusColor=r[3]==='Active'?'var(--emerald)':'var(--rose)';d.innerHTML='<span style=\\\"color:var(--t1);font-weight:500\\\">'+r[0]+'</span><span>'+r[1]+'</span><span style=\\\"color:'+(r[2].startsWith('+')?'var(--emerald)':'var(--rose)')+'\\\">'+r[2]+'</span><span style=\\\"color:'+statusColor+'\\\">'+r[3]+'</span>';table.appendChild(d)})"},"layout_hint":"full-width"}
+\\\`\\\`\\\`
+
+### Adaptation Rules
+
+**Swap accent colors:** Replace \\\`--purple\\\` values with any accent. Common combos:
+- Purple/Cyan (default): \\\`#7C3AED\\\` + \\\`#06B6D4\\\` — tech/SaaS
+- Emerald/Teal: \\\`#10B981\\\` + \\\`#14B8A6\\\` — finance/health
+- Amber/Orange: \\\`#F59E0B\\\` + \\\`#F97316\\\` — commerce/energy
+- Rose/Pink: \\\`#F43F5E\\\` + \\\`#EC4899\\\` — social/creative
+
+**Add/remove sections:** The template uses CSS Grid. Change \\\`grid-cols-3\\\` to \\\`grid-cols-2\\\` for fewer columns. Add new \\\`.card\\\` divs for extra sections.
+
+**Responsive:** Use \\\`@media(max-width:768px){.grid{grid-template-columns:1fr !important}}\\\` for mobile.
+
+**Light mode variant:** Invert the elevation scale:
+\\\`\\\`\\\`css
+--bg-base: #F8F9FA; --bg-surface-1: #FFFFFF; --bg-surface-2: #F1F3F5;
+--border-subtle: rgba(0,0,0,0.06); --text-primary: rgba(0,0,0,0.87);
+--text-secondary: rgba(0,0,0,0.55); --text-muted: rgba(0,0,0,0.30);
+\\\`\\\`\\\`
+Keep accents unchanged — they work on both dark and light backgrounds.
+
+**Chart.js tips:**
+- Always use \\\`pointRadius: 0\\\` (show on hover only) for clean lines
+- Use \\\`tension: 0.4\\\` for smooth curves, \\\`0\\\` for sharp data
+- Gradient fills: top stop at 20-25% opacity, bottom at 0%
+- Grid lines: \\\`rgba(255,255,255,0.04)\\\` — almost invisible
+- Keep legend at bottom with \\\`usePointStyle: true\\\` for dot indicators`
+  },
 };
 
 // ── Dynamic skill loading from API ────────────────────────────────────────────
@@ -2955,7 +3211,7 @@ async function fetchAndMergeSkills() {
     // Cache to PVC for offline fallback
     try {
       fs.mkdirSync(path.dirname(SKILLS_CACHE_PATH), { recursive: true });
-      fs.writeFileSync(SKILLS_CACHE_PATH, JSON.stringify(data, null, 2));
+      safeWriteFileSync(SKILLS_CACHE_PATH, JSON.stringify(data, null, 2));
       console.error("[MCP] Cached skills to", SKILLS_CACHE_PATH);
     } catch (cacheErr) {
       console.error("[MCP] Failed to cache skills:", cacheErr.message);
@@ -3531,7 +3787,7 @@ function saveMemoryStore(store) {
   if (!fs.existsSync(MEMORY_DIR)) {
     fs.mkdirSync(MEMORY_DIR, { recursive: true });
   }
-  fs.writeFileSync(MEMORY_FILE, JSON.stringify(store), "utf8");
+  safeWriteFileSync(MEMORY_FILE, JSON.stringify(store), "utf8");
 }
 
 function generateId() {
@@ -3881,7 +4137,7 @@ function readKnowledgeManifest() {
 
 function writeKnowledgeManifest(manifest) {
   ensureKnowledgeDir();
-  fs.writeFileSync(path.join(KNOWLEDGE_DIR, "manifest.json"), JSON.stringify(manifest, null, 2), "utf-8");
+  safeWriteFileSync(path.join(KNOWLEDGE_DIR, "manifest.json"), JSON.stringify(manifest, null, 2), "utf-8");
 }
 
 /**
@@ -4059,7 +4315,7 @@ function executeDeleteKnowledge(args) {
   // Delete chunk file
   try {
     var chunksPath = path.join(KNOWLEDGE_DIR, "chunks", collectionId + ".json");
-    if (fs.existsSync(chunksPath)) fs.unlinkSync(chunksPath);
+    if (fs.existsSync(chunksPath)) safeUnlinkSync(chunksPath);
   } catch { /* file might be gone */ }
 
   return { isError: false, text: "Deleted knowledge collection: \"" + removed.filename + "\" (" + removed.chunkCount + " chunks)" };
@@ -4113,7 +4369,7 @@ function executeStartHttpService(args) {
   const codeFile = path.join(serviceDir, "server.js");
   try {
     fs.mkdirSync(serviceDir, { recursive: true });
-    fs.writeFileSync(codeFile, code, "utf-8");
+    safeWriteFileSync(codeFile, code, "utf-8");
   } catch (e) {
     return { isError: true, text: `Failed to write service code: ${e.message}` };
   }
@@ -4173,7 +4429,7 @@ function executeStopHttpService(args) {
   const serviceDir = path.join(SERVICES_DIR, name);
   try {
     if (fs.existsSync(serviceDir)) {
-      fs.rmSync(serviceDir, { recursive: true, force: true });
+      safeRmSync(serviceDir, { recursive: true, force: true });
     }
   } catch { /* ignore cleanup failures */ }
 
@@ -4365,12 +4621,12 @@ async function executeRegisterService(args) {
       category: args.category || "utility",
       registeredAt: new Date().toISOString(),
     };
-    fs.writeFileSync(path.join(serviceDir, "registration.json"), JSON.stringify(registration, null, 2));
+    safeWriteFileSync(path.join(serviceDir, "registration.json"), JSON.stringify(registration, null, 2));
 
     // Save handler code files
     for (const skill of skills) {
       if (skill.handlerCode) {
-        fs.writeFileSync(path.join(handlersDir, `${skill.name}.js`), skill.handlerCode);
+        safeWriteFileSync(path.join(handlersDir, `${skill.name}.js`), skill.handlerCode);
       }
     }
   } catch (err) {
@@ -4817,7 +5073,7 @@ async function executeSetTheme(args) {
   const themeFile = path.join(themeDir, "config", "pending-theme.json");
   try {
     fs.mkdirSync(path.dirname(themeFile), { recursive: true });
-    fs.writeFileSync(themeFile, JSON.stringify(body, null, 2));
+    safeWriteFileSync(themeFile, JSON.stringify(body, null, 2));
   } catch (err) {
     console.error("[MCP] Failed to write theme file:", err.message);
   }
@@ -4865,7 +5121,7 @@ function writeDesignContext(ctx) {
   const path = require("path");
   try {
     fs.mkdirSync(path.dirname(DESIGN_CONTEXT_PATH), { recursive: true });
-    fs.writeFileSync(DESIGN_CONTEXT_PATH, JSON.stringify(ctx, null, 2));
+    safeWriteFileSync(DESIGN_CONTEXT_PATH, JSON.stringify(ctx, null, 2));
   } catch (err) {
     console.error("[MCP] Failed to write design context:", err.message);
   }
@@ -6020,7 +6276,7 @@ function loadConfirmations() {
 function saveConfirmations(data) {
   try {
     fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
-    fs.writeFileSync(CONFIRMATIONS_PATH, JSON.stringify(data, null, 2), "utf-8");
+    safeWriteFileSync(CONFIRMATIONS_PATH, JSON.stringify(data, null, 2), "utf-8");
   } catch (e) {
     console.error("[MCP] Failed to save confirmations:", e.message);
   }

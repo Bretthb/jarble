@@ -230,12 +230,15 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
         const home = getContainerHome(managedBy);
         const pvcMount = managedBy === "operator" ? `${home}/.openclaw` : "/data";
 
-        // Run OpenClaw CLI diagnostics + system checks in a single exec
+        // Run OpenClaw CLI diagnostics + system checks in a single exec.
+        // The HTTP health check is authoritative — process/port checks are informational only.
         const script = [
+          `echo "===HTTP_HEALTH==="`,
+          `curl -s -o /dev/null -w "%{http_code}" http://localhost:18789/ 2>/dev/null || echo "CURL_FAILED"`,
           `echo "===PROCESS==="`,
-          `ps aux 2>/dev/null | grep -E 'openclaw|gateway' | grep -v grep | head -3 || echo "NO_PROCESS"`,
-          `echo "===PORT==="`,
-          `(ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep 18789 || echo "NOT_LISTENING"`,
+          `ps aux 2>/dev/null | head -20 || echo "NO_PS"`,
+          `echo "===VERSION==="`,
+          `cat /opt/openclaw/package.json 2>/dev/null || echo "NO_VERSION"`,
           `echo "===CONFIG==="`,
           `cat ${home}/.openclaw/openclaw.json 2>/dev/null || echo "NO_CONFIG"`,
           `echo "===PID==="`,
@@ -260,30 +263,69 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
           return raw.slice(start + tag.length + 6, end === -1 ? undefined : end).trim();
         };
 
-        // Gateway process
-        const proc = section("PROCESS");
-        const gatewayDown = proc === "NO_PROCESS" || !proc;
-        if (gatewayDown) {
+        // HTTP health check — authoritative gateway liveness signal
+        const httpHealth = section("HTTP_HEALTH");
+        const httpOk = httpHealth === "200";
+        const curlMissing = httpHealth === "CURL_FAILED" || !httpHealth;
+        if (httpOk) {
           checks.push({
-            name: "Gateway Process",
-            status: "error",
-            detail: "OpenClaw gateway process not running inside pod",
+            name: "Gateway HTTP",
+            status: "ok",
+            detail: "Gateway responded HTTP 200 on port 18789",
+          });
+        } else if (curlMissing) {
+          checks.push({
+            name: "Gateway HTTP",
+            status: "warning",
+            detail: "curl not available in container — falling back to process detection",
           });
         } else {
-          checks.push({ name: "Gateway Process", status: "ok", detail: proc.split("\n")[0] });
+          checks.push({
+            name: "Gateway HTTP",
+            status: "error",
+            detail: `Gateway HTTP check returned ${httpHealth}`,
+          });
         }
 
-        // Gateway port
-        const port = section("PORT");
-        const portDown = port === "NOT_LISTENING" || !port;
-        if (portDown) {
-          checks.push({
-            name: "Gateway Port",
-            status: "error",
-            detail: "Port 18789 not listening",
-          });
+        // Process list — informational only (not used for restart decisions)
+        const proc = section("PROCESS");
+        if (proc && proc !== "NO_PS") {
+          checks.push({ name: "Process List", status: "ok", detail: proc.split("\n").slice(0, 3).join("; ") });
         } else {
-          checks.push({ name: "Gateway Port", status: "ok", detail: "Port 18789 listening" });
+          checks.push({ name: "Process List", status: "warning", detail: "ps not available in container" });
+        }
+
+        // OpenClaw version detection
+        const versionRaw = section("VERSION");
+        if (versionRaw && versionRaw !== "NO_VERSION") {
+          try {
+            const pkg = JSON.parse(versionRaw);
+            checks.push({
+              name: "OpenClaw Version",
+              status: "ok",
+              detail: `${pkg.name ?? "openclaw"}@${pkg.version ?? "unknown"}`,
+            });
+          } catch {
+            checks.push({ name: "OpenClaw Version", status: "warning", detail: "package.json exists but malformed" });
+          }
+        } else {
+          checks.push({ name: "OpenClaw Version", status: "warning", detail: "Version not detected (no /opt/openclaw/package.json)" });
+        }
+
+        // Determine gateway liveness for auto-remediation:
+        // - If HTTP check succeeded → gateway is alive (regardless of process/port detection)
+        // - If curl was missing → fall back to process-based heuristic
+        // - If HTTP check failed with a non-200 status → gateway is down
+        let gatewayDown: boolean;
+        if (httpOk) {
+          gatewayDown = false;
+        } else if (curlMissing) {
+          // Fallback: check if any recognizable process is running
+          const hasProcess = proc && proc !== "NO_PS" && /node|openclaw|gateway/i.test(proc);
+          gatewayDown = !hasProcess;
+        } else {
+          // HTTP returned a non-200 code — gateway is down
+          gatewayDown = true;
         }
 
         // Config
@@ -354,8 +396,9 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
         }
 
         // ── Auto-Remediation ──
-        // If gateway process is down, try to fix it
-        if (gatewayDown || portDown) {
+        // Only restart if the HTTP health check (or fallback heuristic) says gateway is down.
+        // This prevents false-negative restarts when process names or port tools change.
+        if (gatewayDown) {
           // Try to restart the gateway via OpenClaw CLI first
           let fixed = false;
           try {

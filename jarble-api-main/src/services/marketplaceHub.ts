@@ -89,35 +89,48 @@ export async function executeAgentCall(
 
   const calleeUserId = creatorProfile.length > 0 ? creatorProfile[0].userId : null;
 
-  // 2. Check caller has sufficient credits
-  const balance = await getCurrentBalance(params.callerUserId);
-  if (balance < CREDITS_PER_CALL) {
-    // Record the failed call
-    await db.insert(tables.agentCalls).values({
-      id: callId,
-      callerDeploymentId: params.callerDeploymentId,
-      calleeDeploymentId: calleeDeploymentId,
-      skillName: params.skillName,
-      creditsCharged: 0,
-      status: "failed",
-      requestBody: JSON.stringify(params.args),
-      errorMessage: `Insufficient credits. Balance: ${balance}, required: ${CREDITS_PER_CALL}`,
-      latencyMs: Date.now() - startTime,
-      createdAt: dbDate(),
-    } as any);
+  // Determine if this is a free/platform service (skip credits)
+  // Note: SQLite returns 0/1 for booleans, so check both true and 1
+  const isFreeService =
+    svc.pricingModel === "free" || svc.priceUsdCents === 0 ||
+    (svc as any).isPlatform === true || (svc as any).isPlatform === 1;
 
-    throw new Error(
-      `Insufficient credits. Balance: ${balance}, required: ${CREDITS_PER_CALL}`
+  if (!isFreeService) {
+    // 2. Check caller has sufficient credits
+    const balance = await getCurrentBalance(params.callerUserId);
+    if (balance < CREDITS_PER_CALL) {
+      // Record the failed call
+      await db.insert(tables.agentCalls).values({
+        id: callId,
+        callerDeploymentId: params.callerDeploymentId,
+        calleeDeploymentId: calleeDeploymentId,
+        skillName: params.skillName,
+        creditsCharged: 0,
+        status: "failed",
+        requestBody: JSON.stringify(params.args),
+        errorMessage: `Insufficient credits. Balance: ${balance}, required: ${CREDITS_PER_CALL}`,
+        latencyMs: Date.now() - startTime,
+        createdAt: dbDate(),
+      } as any);
+
+      throw new Error(
+        `Insufficient credits. Balance: ${balance}, required: ${CREDITS_PER_CALL}`
+      );
+    }
+
+    // 3. Debit credits from caller
+    await addLedgerEntry({
+      userId: params.callerUserId,
+      amount: -CREDITS_PER_CALL,
+      reason: "agent_call",
+      reference: callId,
+    });
+  } else {
+    logger.info(
+      { callId, serviceId: params.calleeServiceId },
+      "Agent call: free/platform service — skipping credit debit"
     );
   }
-
-  // 3. Debit credits from caller
-  await addLedgerEntry({
-    userId: params.callerUserId,
-    amount: -CREDITS_PER_CALL,
-    reason: "agent_call",
-    reference: callId,
-  });
 
   // 4. Execute the skill via HTTP to the service execution endpoint
   let result: any;
@@ -149,13 +162,15 @@ export async function executeAgentCall(
   } catch (err: any) {
     error = error || err.message;
 
-    // Refund credits on failure
-    await addLedgerEntry({
-      userId: params.callerUserId,
-      amount: CREDITS_PER_CALL,
-      reason: "refund",
-      reference: callId,
-    });
+    // Refund credits on failure (only if they were charged)
+    if (!isFreeService) {
+      await addLedgerEntry({
+        userId: params.callerUserId,
+        amount: CREDITS_PER_CALL,
+        reason: "refund",
+        reference: callId,
+      });
+    }
 
     // Record the failed call
     await db.insert(tables.agentCalls).values({
@@ -174,8 +189,10 @@ export async function executeAgentCall(
     throw new Error(`Agent call failed: ${error}`);
   }
 
-  // 5. Credit the callee's owner (70% revenue share)
-  if (calleeUserId) {
+  const creditsCharged = isFreeService ? 0 : CREDITS_PER_CALL;
+
+  // 5. Credit the callee's owner (70% revenue share) — skip for free/platform services
+  if (!isFreeService && calleeUserId) {
     const creatorCredits = Math.floor(CREDITS_PER_CALL * CREATOR_REVENUE_SHARE);
     if (creatorCredits > 0) {
       try {
@@ -195,14 +212,14 @@ export async function executeAgentCall(
     }
   }
 
-  // 6. Record the successful call
+  // 6. Record the successful call (always recorded for analytics, even if free)
   const latencyMs = Date.now() - startTime;
   await db.insert(tables.agentCalls).values({
     id: callId,
     callerDeploymentId: params.callerDeploymentId,
     calleeDeploymentId: calleeDeploymentId,
     skillName: params.skillName,
-    creditsCharged: CREDITS_PER_CALL,
+    creditsCharged,
     status: "completed",
     requestBody: JSON.stringify(params.args),
     responseBody: JSON.stringify(result).slice(0, 10_000), // truncate large responses
@@ -211,13 +228,13 @@ export async function executeAgentCall(
   } as any);
 
   logger.info(
-    { callId, latencyMs, creditsCharged: CREDITS_PER_CALL },
+    { callId, latencyMs, creditsCharged },
     "Agent call: completed"
   );
 
   return {
     result,
-    creditsCharged: CREDITS_PER_CALL,
+    creditsCharged,
     callId,
   };
 }

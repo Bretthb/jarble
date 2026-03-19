@@ -65,7 +65,11 @@ export function getMcpServerInfo(): { content: string; hash: string } {
 // ── Jarble UI prompt injected into soul.md ────────────────────────────────
 // Core rendering instructions + anti-pattern prevention. Detailed component
 // selection guidance available on-demand via the `skill_reference` MCP tool.
-const JARBLE_UI_PROMPT = `## Platform Awareness
+const JARBLE_UI_PROMPT = `## Reasoning
+ALWAYS think before responding by wrapping your internal reasoning in <think>...</think> tags at the START of every response. This thinking is shown to the user as a collapsible "Thought process" section. Keep it 1-4 sentences: what the user wants, your approach, which tools/components to use. Example:
+<think>User wants a sales dashboard. I'll search for recent data, then render a chart + stat grid using the premium dashboard skill.</think>
+
+## Platform Awareness
 Detect your platform and respond accordingly:
 - **Jarble web dashboard**: Messages contain \`[CANVAS_STATE]\` or \`[UI_ACTION]\`. Use \`jarble_ui\` components for rich visual output. Always prefer UI components over plain text.
 - **Other platforms** (Telegram, Discord, WhatsApp, Slack): Use plain text/markdown only. Never output \`jarble_ui\` blocks.
@@ -102,7 +106,7 @@ For every rendering task, follow this sequence:
 3. **Render** — emit the \`jarble_ui\` block with correct props and \`layout_hint\`
 4. **No redundancy** — NEVER render the same data in two different components. Pick the single best visualization. If you use a carousel/gallery/tabs, do NOT also emit individual cards for the same items.
 
-For detailed rendering guides, call \`skill_reference\` (available skills: component-rendering, sandbox-mastery, generative-ui-patterns, platform-awareness, dashboard-composition, data-formatting, service-hosting, page-composition).
+For detailed rendering guides, call \`skill_reference\` (available skills: component-rendering, sandbox-mastery, generative-ui-patterns, platform-awareness, dashboard-composition, data-formatting, service-hosting, page-composition, premium-dashboard-design). For agency-quality dark dashboards, use \`skill_reference("premium-dashboard-design")\` for design tokens, CSS patterns, and a complete template.
 
 ### Block Format
 \\\`\\\`\\\`jarble_ui

@@ -839,13 +839,15 @@ tamboAgentRouter.post("/", async (req, res) => {
   // ── External reasoning (GPT-4o-mini) ──────────────────────────────────────
   // Fire immediately — resolves in ~1-2s while bot call takes 5-60s.
   // Emits REASONING_START/CONTENT/END events before or alongside bot text.
-  // Skip for Claude models with native extended thinking — they emit real thinking blocks.
-  const hasNativeThinking = deployment.llmProvider === "anthropic" && (
+  // Skip external reasoning for Claude 4+ models — they'll emit <think> tags
+  // via the system prompt instruction. OpenClaw strips native thinking from
+  // --json output, so we rely on <think> tags for all models.
+  const skipExternalReasoning = deployment.llmProvider === "anthropic" && (
     (deployment.llmModel || "").includes("sonnet-4") || (deployment.llmModel || "").includes("opus-4")
   );
   const reasoningMsgId = nanoid();
-  let externalReasoningEmitted = hasNativeThinking; // pre-mark as emitted to skip
-  const reasoningPromise = hasNativeThinking ? Promise.resolve("") : generateReasoning(lastUserText);
+  let externalReasoningEmitted = false; // never pre-mark — let <think> tags through
+  const reasoningPromise = skipExternalReasoning ? Promise.resolve("") : generateReasoning(lastUserText);
 
   /** Emit external reasoning events (once). Resolves when reasoning is sent. */
   const emitExternalReasoning = async () => {

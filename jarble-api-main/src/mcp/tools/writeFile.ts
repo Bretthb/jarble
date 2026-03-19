@@ -38,7 +38,28 @@ export const writeFileTool: McpTool = {
     const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
     const pvcMount = getPvcMountPath(managedBy);
     const containerName = getContainerName(managedBy);
-    const blockedPaths = [`${pvcMount}/.initialized`, `${pvcMount}/runtime`, `${pvcMount}/.npm`];
+    const blockedPaths = [
+      // Infrastructure
+      `${pvcMount}/.initialized`,
+      `${pvcMount}/runtime`,
+      `${pvcMount}/.npm`,
+      // Platform config (managed by configSync)
+      `${pvcMount}/config/mcp`,
+      `${pvcMount}/config/soul.md`,
+      `${pvcMount}/config/openclaw.json`,
+      `${pvcMount}/config/service-tools.json`,
+      `${pvcMount}/config/platform-skills.json`,
+      `${pvcMount}/config/skills`,
+      `${pvcMount}/config/.env`,
+      // OpenClaw internal config
+      `${pvcMount}/.openclaw`,
+      // Process control
+      `${pvcMount}/.openclaw.pid`,
+      `${pvcMount}/.reload`,
+      // Soul.md at root (legacy path)
+      `${pvcMount}/soul.md`,
+      `${pvcMount}/openclaw.json`,
+    ];
 
     // Validate path is under PVC mount
     if (!path.startsWith(`${pvcMount}/`) && path !== pvcMount) {

@@ -122,6 +122,7 @@ const CREATE_TABLES_SQL = `
     stripe_connect_account_id TEXT,
     stripe_connect_onboarded INTEGER DEFAULT 0 NOT NULL,
     is_verified INTEGER DEFAULT 0 NOT NULL,
+    is_platform INTEGER DEFAULT 0 NOT NULL,
     total_earnings_cents INTEGER DEFAULT 0 NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
@@ -237,6 +238,7 @@ const CREATE_TABLES_SQL = `
     status TEXT DEFAULT 'draft' NOT NULL,
     pricing_model TEXT DEFAULT 'free' NOT NULL,
     price_usd_cents INTEGER DEFAULT 0 NOT NULL,
+    is_platform INTEGER DEFAULT 0 NOT NULL,
     total_installs INTEGER DEFAULT 0 NOT NULL,
     avg_rating TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
@@ -519,6 +521,22 @@ export async function initDatabase() {
     logger.warn({ err }, "Deployment fork/public columns migration skipped (may already exist)");
   }
 
+  // Migration: add is_platform column to creator_profiles and marketplace_packages
+  try {
+    const cpCols = sqliteRaw.pragma("table_info(creator_profiles)") as Array<{ name: string }>;
+    if (!new Set(cpCols.map((c: any) => c.name)).has("is_platform")) {
+      sqliteRaw.exec("ALTER TABLE creator_profiles ADD COLUMN is_platform INTEGER DEFAULT 0 NOT NULL");
+      logger.info("Added is_platform column to creator_profiles");
+    }
+    const mpCols = sqliteRaw.pragma("table_info(marketplace_packages)") as Array<{ name: string }>;
+    if (!new Set(mpCols.map((c: any) => c.name)).has("is_platform")) {
+      sqliteRaw.exec("ALTER TABLE marketplace_packages ADD COLUMN is_platform INTEGER DEFAULT 0 NOT NULL");
+      logger.info("Added is_platform column to marketplace_packages");
+    }
+  } catch (err) {
+    logger.warn({ err }, "is_platform migration skipped (may already exist)");
+  }
+
   // Migration: ensure 'general' domain exists
   try {
     sqliteRaw.exec(`
@@ -527,6 +545,26 @@ export async function initDatabase() {
     `);
   } catch (err) {
     logger.warn({ err }, "General domain migration skipped");
+  }
+
+  // Migration: ensure platform agent exists for existing databases
+  if (sqliteDb) {
+    try {
+      const platformService = sqliteRaw?.prepare(
+        "SELECT id FROM marketplace_packages WHERE id = 'pkg_dashboard_designer'"
+      ).get();
+      if (!platformService) {
+        // Find existing creator profile and deployment
+        const creator = sqliteRaw?.prepare("SELECT id, user_id FROM creator_profiles LIMIT 1").get() as any;
+        const deployment = sqliteRaw?.prepare("SELECT id FROM deployments LIMIT 1").get() as any;
+        if (creator && deployment) {
+          await seedPlatformAgent(sqliteDb, creator.id, deployment.id);
+          logger.info("Migrated: seeded platform agent (Dashboard Designer Pro)");
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, "Platform agent migration skipped");
+    }
   }
 
   // Seed with test data
@@ -1081,4 +1119,327 @@ async function seedMarketplaceData(
   });
 
   logger.info("Seeded marketplace: 1 creator, 3 components, 3 versions, 1 install, 1 review");
+
+  // ── Platform Agent: Dashboard Designer Pro ─────────────────────────────────
+  await seedPlatformAgent(db, creatorId, deploymentId);
+}
+
+// ── Handler code templates for Dashboard Designer skills ───────────────────
+
+const DASHBOARD_HANDLER_CODE = `
+// Dashboard Designer Pro — create_dashboard handler
+// Input: { title, metrics, chartData, theme }
+const { title, metrics, chartData, theme } = args;
+const dashTitle = title || "Dashboard";
+const dashMetrics = metrics || [
+  { label: "Revenue", value: "$48,250", change: "+12.5%", up: true },
+  { label: "Users", value: "2,847", change: "+8.2%", up: true },
+  { label: "Conversion", value: "3.24%", change: "-0.5%", up: false },
+  { label: "Avg Order", value: "$127", change: "+4.1%", up: true },
+];
+const dashChartData = chartData || [
+  { label: "Jan", value: 4200 }, { label: "Feb", value: 3800 },
+  { label: "Mar", value: 5100 }, { label: "Apr", value: 4700 },
+  { label: "May", value: 6200 }, { label: "Jun", value: 5800 },
+];
+const accent = (theme === "blue") ? "#3b82f6" : (theme === "green") ? "#10b981" : "#8b5cf6";
+const accentDim = accent + "33";
+
+const metricsHtml = dashMetrics.map(m => \`
+  <div style="background:linear-gradient(135deg,#1e1e2e,#252540);border-radius:12px;padding:20px;border:1px solid #2a2a4a">
+    <div style="color:#888;font-size:12px;text-transform:uppercase;letter-spacing:1px">\${m.label}</div>
+    <div style="font-size:28px;font-weight:700;color:#f0f0f0;margin:8px 0">\${m.value}</div>
+    <div style="font-size:13px;color:\${m.up ? '#10b981' : '#ef4444'}">\${m.change} \${m.up ? '↑' : '↓'}</div>
+  </div>\`).join("");
+
+const chartLabels = JSON.stringify(dashChartData.map(d => d.label));
+const chartValues = JSON.stringify(dashChartData.map(d => d.value));
+
+return {
+  type: "sandbox",
+  props: {
+    html: \`<div id="app" style="font-family:Inter,system-ui,sans-serif;background:#0f0f1a;color:#f0f0f0;min-height:100vh;padding:24px">
+      <h1 style="font-size:24px;font-weight:700;margin-bottom:24px;background:linear-gradient(90deg,\${accent},#f0f0f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent">\${dashTitle}</h1>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px">\${metricsHtml}</div>
+      <div style="background:linear-gradient(135deg,#1e1e2e,#252540);border-radius:12px;padding:24px;border:1px solid #2a2a4a">
+        <canvas id="chart" height="260"></canvas>
+      </div>
+    </div>\`,
+    js: \`
+      const ctx = document.getElementById('chart').getContext('2d');
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: \${chartLabels},
+          datasets: [{
+            data: \${chartValues},
+            backgroundColor: '\${accentDim}',
+            borderColor: '\${accent}',
+            borderWidth: 2, borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { grid: { color: '#1a1a2e' }, ticks: { color: '#888' } },
+            x: { grid: { display: false }, ticks: { color: '#888' } }
+          }
+        }
+      });
+    \`,
+    css: \`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');\`,
+    libraries: ["https://cdn.jsdelivr.net/npm/chart.js@4"]
+  }
+};
+`;
+
+const CHART_HANDLER_CODE = `
+// Dashboard Designer Pro — create_chart handler
+// Input: { type, data, title, color }
+const chartType = args.type || "line";
+const data = args.data || [
+  { label: "Mon", value: 120 }, { label: "Tue", value: 190 },
+  { label: "Wed", value: 150 }, { label: "Thu", value: 210 },
+  { label: "Fri", value: 280 }, { label: "Sat", value: 240 },
+  { label: "Sun", value: 310 },
+];
+const chartTitle = args.title || "Chart";
+const color = args.color || "#8b5cf6";
+const colorDim = color + "33";
+
+const labels = JSON.stringify(data.map(d => d.label));
+const values = JSON.stringify(data.map(d => d.value));
+
+const datasetConfig = chartType === "bar"
+  ? \`{ data: \${values}, backgroundColor: '\${colorDim}', borderColor: '\${color}', borderWidth: 2, borderRadius: 8 }\`
+  : chartType === "doughnut" || chartType === "pie"
+    ? \`{ data: \${values}, backgroundColor: \${JSON.stringify(data.map((_, i) => \`hsl(\${i * 360 / data.length}, 70%, 60%)\`))} }\`
+    : \`{ data: \${values}, borderColor: '\${color}', backgroundColor: '\${colorDim}', fill: true, tension: 0.4, pointRadius: 4 }\`;
+
+return {
+  type: "sandbox",
+  props: {
+    html: \`<div style="font-family:Inter,system-ui,sans-serif;background:#0f0f1a;padding:24px;min-height:100vh">
+      <h2 style="color:#f0f0f0;font-size:18px;margin-bottom:16px">\${chartTitle}</h2>
+      <div style="background:#1e1e2e;border-radius:12px;padding:20px;border:1px solid #2a2a4a">
+        <canvas id="chart" height="300"></canvas>
+      </div>
+    </div>\`,
+    js: \`
+      const ctx = document.getElementById('chart').getContext('2d');
+      new Chart(ctx, {
+        type: '\${chartType}',
+        data: { labels: \${labels}, datasets: [\${datasetConfig}] },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: \${chartType === "doughnut" || chartType === "pie" ? "true" : "false"}, labels: { color: '#ccc' } } },
+          scales: \${chartType === "doughnut" || chartType === "pie" ? "{}" : "{ y: { grid: { color: '#1a1a2e' }, ticks: { color: '#888' } }, x: { grid: { display: false }, ticks: { color: '#888' } } }"}
+        }
+      });
+    \`,
+    css: \`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');\`,
+    libraries: ["https://cdn.jsdelivr.net/npm/chart.js@4"]
+  }
+};
+`;
+
+const KPI_HANDLER_CODE = `
+// Dashboard Designer Pro — create_kpi_cards handler
+// Input: { cards, columns }
+const cards = args.cards || [
+  { label: "Total Revenue", value: "$128,430", change: "+14.2%", up: true, icon: "💰" },
+  { label: "Active Users", value: "12,847", change: "+23.1%", up: true, icon: "👥" },
+  { label: "Conversion Rate", value: "3.82%", change: "+0.4%", up: true, icon: "📈" },
+  { label: "Churn Rate", value: "2.1%", change: "-0.3%", up: false, icon: "📉" },
+];
+const columns = args.columns || Math.min(cards.length, 4);
+
+const cardsHtml = cards.map(c => \`
+  <div style="background:linear-gradient(135deg,#1e1e2e,#252540);border-radius:14px;padding:22px;border:1px solid #2a2a4a;display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="color:#888;font-size:12px;text-transform:uppercase;letter-spacing:1px">\${c.label}</span>
+      <span style="font-size:20px">\${c.icon || ''}</span>
+    </div>
+    <div style="font-size:32px;font-weight:700;color:#f0f0f0">\${c.value}</div>
+    <div style="font-size:13px;font-weight:600;color:\${c.up !== false ? '#10b981' : '#ef4444'};display:flex;align-items:center;gap:4px">
+      <span>\${c.up !== false ? '▲' : '▼'}</span> \${c.change || ''}
+    </div>
+  </div>\`).join("");
+
+return {
+  type: "sandbox",
+  props: {
+    html: \`<div style="font-family:Inter,system-ui,sans-serif;background:#0f0f1a;padding:24px;min-height:100vh">
+      <div style="display:grid;grid-template-columns:repeat(\${columns},1fr);gap:16px">\${cardsHtml}</div>
+    </div>\`,
+    css: \`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');\`,
+    libraries: []
+  }
+};
+`;
+
+async function seedPlatformAgent(
+  db: NonNullable<typeof sqliteDb>,
+  creatorProfileId: string,
+  deploymentId: string,
+) {
+  const platformServiceId = `pkg_dashboard_designer`;
+
+  // 1. Mark the existing creator profile as platform
+  await db.update(sqliteSchema.creatorProfiles)
+    .set({ isPlatform: true })
+    .where(eq(sqliteSchema.creatorProfiles.id, creatorProfileId));
+
+  // 2. Skills for the Dashboard Designer
+  const skillDashboard = {
+    id: `skill_dd_dashboard`,
+    name: "create_dashboard",
+    description: "Creates a professional dark-mode dashboard with KPI cards and charts. Args: { title, metrics: [{ label, value, change, up }], chartData: [{ label, value }], theme: 'purple'|'blue'|'green' }",
+    runtime: "openclaw",
+    config: JSON.stringify({
+      tool: "create_dashboard",
+      executionMode: "handler",
+      handlerCode: DASHBOARD_HANDLER_CODE,
+      inputSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Dashboard title" },
+          metrics: { type: "array", description: "KPI metric cards", items: { type: "object", properties: { label: { type: "string" }, value: { type: "string" }, change: { type: "string" }, up: { type: "boolean" } } } },
+          chartData: { type: "array", description: "Chart data points", items: { type: "object", properties: { label: { type: "string" }, value: { type: "number" } } } },
+          theme: { type: "string", enum: ["purple", "blue", "green"], description: "Color accent theme" },
+        },
+      },
+    }),
+    author: "Jarble Platform",
+    isOfficial: true,
+  };
+
+  const skillChart = {
+    id: `skill_dd_chart`,
+    name: "create_chart",
+    description: "Creates a single premium Chart.js visualization. Args: { type: 'line'|'bar'|'doughnut'|'pie', data: [{ label, value }], title, color }",
+    runtime: "openclaw",
+    config: JSON.stringify({
+      tool: "create_chart",
+      executionMode: "handler",
+      handlerCode: CHART_HANDLER_CODE,
+      inputSchema: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["line", "bar", "doughnut", "pie"], description: "Chart type" },
+          data: { type: "array", description: "Data points", items: { type: "object", properties: { label: { type: "string" }, value: { type: "number" } } } },
+          title: { type: "string", description: "Chart title" },
+          color: { type: "string", description: "Primary color (hex)" },
+        },
+      },
+    }),
+    author: "Jarble Platform",
+    isOfficial: true,
+  };
+
+  const skillKpi = {
+    id: `skill_dd_kpi`,
+    name: "create_kpi_cards",
+    description: "Creates a grid of premium KPI metric cards. Args: { cards: [{ label, value, change, up, icon }], columns }",
+    runtime: "openclaw",
+    config: JSON.stringify({
+      tool: "create_kpi_cards",
+      executionMode: "handler",
+      handlerCode: KPI_HANDLER_CODE,
+      inputSchema: {
+        type: "object",
+        properties: {
+          cards: { type: "array", description: "KPI cards", items: { type: "object", properties: { label: { type: "string" }, value: { type: "string" }, change: { type: "string" }, up: { type: "boolean" }, icon: { type: "string" } } } },
+          columns: { type: "number", description: "Grid columns (1-6)" },
+        },
+      },
+    }),
+    author: "Jarble Platform",
+    isOfficial: true,
+  };
+
+  for (const skill of [skillDashboard, skillChart, skillKpi]) {
+    await db.insert(sqliteSchema.skillsCatalog).values(skill);
+  }
+
+  // 3. ServiceCard JSON for the marketplace package
+  const serviceCard = {
+    version: "1.0.0",
+    creatorDeploymentId: deploymentId,
+    auth: { type: "bearer" as const },
+    skills: [
+      {
+        name: "create_dashboard",
+        description: skillDashboard.description,
+        executionMode: "handler" as const,
+        handlerCode: DASHBOARD_HANDLER_CODE,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            title: { type: "string" },
+            metrics: { type: "array" },
+            chartData: { type: "array" },
+            theme: { type: "string" },
+          },
+        },
+      },
+      {
+        name: "create_chart",
+        description: skillChart.description,
+        executionMode: "handler" as const,
+        handlerCode: CHART_HANDLER_CODE,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            type: { type: "string" },
+            data: { type: "array" },
+            title: { type: "string" },
+            color: { type: "string" },
+          },
+        },
+      },
+      {
+        name: "create_kpi_cards",
+        description: skillKpi.description,
+        executionMode: "handler" as const,
+        handlerCode: KPI_HANDLER_CODE,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            cards: { type: "array" },
+            columns: { type: "number" },
+          },
+        },
+      },
+    ],
+  };
+
+  // 4. Dashboard Designer service in marketplace_packages
+  await db.insert(sqliteSchema.marketplaceServices).values({
+    id: platformServiceId,
+    creatorId: creatorProfileId,
+    name: "dashboard-designer-pro",
+    displayName: "Dashboard Designer Pro",
+    description: "Creates professional, premium-quality dashboards with polished dark-mode aesthetics, gradient accents, and premium data visualizations",
+    hostingModel: "self_hosted",
+    creatorDeploymentId: deploymentId,
+    remoteApiConfig: JSON.stringify(serviceCard),
+    status: "published",
+    pricingModel: "free",
+    priceUsdCents: 0,
+    isPlatform: true,
+  });
+
+  // 5. Link skills to the service (package_skills)
+  const skillLinks = [
+    { id: generateMarketplaceId("pks"), packageId: platformServiceId, skillId: skillDashboard.id },
+    { id: generateMarketplaceId("pks"), packageId: platformServiceId, skillId: skillChart.id },
+    { id: generateMarketplaceId("pks"), packageId: platformServiceId, skillId: skillKpi.id },
+  ];
+  for (const link of skillLinks) {
+    await db.insert(sqliteSchema.serviceSkills).values(link);
+  }
+
+  logger.info("Seeded platform agent: Dashboard Designer Pro (1 service, 3 skills)");
 }

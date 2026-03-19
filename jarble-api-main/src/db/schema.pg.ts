@@ -134,6 +134,7 @@ export const creatorProfiles = pgTable("creator_profiles", {
   stripeConnectAccountId: varchar("stripe_connect_account_id", { length: 255 }),
   stripeConnectOnboarded: boolean("stripe_connect_onboarded").notNull().default(false),
   isVerified: boolean("is_verified").notNull().default(false),
+  isPlatform: boolean("is_platform").notNull().default(false),
   totalEarningsCents: integer("total_earnings_cents").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -254,9 +255,11 @@ export const marketplaceServices = pgTable("marketplace_packages", {
   remoteApiConfig: text("remote_api_config"),       // JSON PackageCard for remote/hybrid
   remoteHealth: varchar("remote_health", { length: 20 }).default("unknown"), // healthy | degraded | offline | unknown
   remoteLastCheck: timestamp("remote_last_check"),
+  creatorDeploymentId: varchar("creator_deployment_id", { length: 255 }),  // links service to creator's deployment for skill execution
   status: varchar("status", { length: 20 }).notNull().default("draft"),
   pricingModel: varchar("pricing_model", { length: 20 }).notNull().default("free"),
   priceUsdCents: integer("price_usd_cents").notNull().default(0),
+  isPlatform: boolean("is_platform").notNull().default(false),
   totalInstalls: integer("total_installs").notNull().default(0),
   avgRating: varchar("avg_rating", { length: 10 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),

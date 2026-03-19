@@ -191,6 +191,7 @@ agentHubRouter.get("/discover", async (req, res) => {
         hostingModel: tables.marketplaceServices.hostingModel,
         pricingModel: tables.marketplaceServices.pricingModel,
         priceUsdCents: tables.marketplaceServices.priceUsdCents,
+        isPlatform: tables.marketplaceServices.isPlatform,
         totalInstalls: tables.marketplaceServices.totalInstalls,
         avgRating: tables.marketplaceServices.avgRating,
       })
@@ -213,9 +214,22 @@ agentHubRouter.get("/discover", async (req, res) => {
           )
           .where(eq(tables.serviceSkills.packageId, svc.id));
 
+        // Platform/free services cost 0 credits
+        const platformFlag = svc.isPlatform === true || (svc.isPlatform as any) === 1;
+        const isFree = svc.pricingModel === "free" || svc.priceUsdCents === 0 || platformFlag;
+
         return {
-          ...svc,
-          creditsPerCall: 1, // flat rate for MVP
+          id: svc.id,
+          name: svc.name,
+          displayName: svc.displayName,
+          description: svc.description,
+          hostingModel: svc.hostingModel,
+          pricingModel: svc.pricingModel,
+          priceUsdCents: svc.priceUsdCents,
+          totalInstalls: svc.totalInstalls,
+          avgRating: svc.avgRating,
+          isPlatform: platformFlag,
+          creditsPerCall: isFree ? 0 : 1,
           skills: skills.map((s) => ({
             name: s.skillName,
             description: s.skillDescription,

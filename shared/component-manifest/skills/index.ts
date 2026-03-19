@@ -21,3 +21,8 @@ export interface BotSkill {
  * Pods and the API populate skills at runtime from the MCP server file.
  */
 export const BOT_SKILLS: Record<string, BotSkill> = {};
+
+// ── Skill content re-exports (for tooling / tests) ────────────────────────────
+export { PREMIUM_DASHBOARD_DESIGN_SKILL } from "./premium-dashboard-design.js";
+export { DATA_FORMATTING_SKILL } from "./data-formatting.js";
+export { PAGE_COMPOSITION_SKILL } from "./page-composition.js";
