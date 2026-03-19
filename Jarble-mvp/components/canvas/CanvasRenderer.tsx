@@ -256,23 +256,14 @@ function CanvasRendererInner({
   if (entry) {
     const result = entry.propsSchema.safeParse(fixed.props);
 
+    // Log validation issues but render anyway — LLMs often send slightly
+    // mismatched types (number instead of string) that components handle fine.
     if (!result.success) {
-      const errorMsg = result.error.issues.map((i) => i.message).join(", ");
-      isDev && console.warn("[Jarble:Render] Zod validation FAILED for", fixed.component, ":", result.error.issues, "\n  Raw props:", fixed.props);
-      return (
-        <ComponentErrorCard
-          componentName={fixed.component}
-          error={`Invalid props: ${errorMsg}`}
-          blockId={block.id}
-          onAction={wrappedOnAction}
-          fixAttempt={fixAttempt}
-          onResetFixAttempts={onResetFixAttempts}
-        />
-      );
+      isDev && console.warn("[Jarble:Render] Zod validation warning for", fixed.component, ":", result.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; "));
     }
 
     const Component = entry.component;
-    const validatedProps = result.data as Record<string, unknown>;
+    const validatedProps = (result.success ? result.data : fixed.props) as Record<string, unknown>;
     const isExpensive = EXPENSIVE_COMPONENTS.has(fixed.component);
 
     isDev && console.log("[Jarble:Render] Rendering", fixed.component, "— props keys:", Object.keys(validatedProps), "block:", block.id);
