@@ -22,6 +22,26 @@ import { env } from "../utils/env.js";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("chat");
+
+// ── Per-session exec lock ────────────────────────────────────────────────────
+// Prevents concurrent `npx openclaw agent` calls on the same session, which
+// corrupts OpenClaw's session history (duplicate/out-of-order entries).
+// The second message waits for the first exec to finish before starting.
+const sessionExecLocks = new Map<string, Promise<void>>();
+
+function withSessionLock(sessionKey: string, fn: () => Promise<void>): Promise<void> {
+  const prev = sessionExecLocks.get(sessionKey) || Promise.resolve();
+  const next = prev.then(fn, fn); // Run after previous completes (even if it failed)
+  sessionExecLocks.set(sessionKey, next);
+  // Clean up after completion to avoid memory leak
+  next.finally(() => {
+    if (sessionExecLocks.get(sessionKey) === next) {
+      sessionExecLocks.delete(sessionKey);
+    }
+  });
+  return next;
+}
+
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { getPodAddress, findPodForDeployment } from "../k8s/index.js";
 import type { ManagedBy } from "../k8s/constants.js";
@@ -1106,26 +1126,28 @@ tamboAgentRouter.post("/", async (req, res) => {
   };
 
   // ── Exec-only path (local dev) ──────────────────────────────────────────────
+  // Uses a per-session lock to prevent concurrent `npx openclaw agent` calls
+  // from corrupting OpenClaw's session history. Second message waits for first.
   if (useExecOnly) {
-    try {
-      log.debug({ deploymentId }, "Local dev: using exec-only path (skipping WS gateway)");
-      // Emit reasoning while bot processes (reasoning ~1-2s, bot ~5-60s)
-      await emitExternalReasoning();
-      const result = await tryExec();
-      await emitGatewayResult(result);
-      return;
-    } catch (err: unknown) {
-      const e = err instanceof Error ? err : new Error(String(err));
-      if (e.name === "AbortError" || abortController.signal.aborted) return;
-      log.error({ deploymentId, error: e.message }, "Exec-only chat failed");
-      const classified = classifyError(e.message, { deploymentStatus: deployment.status });
-      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot. ${classified.suggestion}` });
-      sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-      sendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
-      sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-      res.end();
-      return;
-    }
+    await withSessionLock(sessionKey, async () => {
+      try {
+        log.debug({ deploymentId }, "Local dev: using exec-only path (skipping WS gateway)");
+        await emitExternalReasoning();
+        const result = await tryExec();
+        await emitGatewayResult(result);
+      } catch (err: unknown) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        if (e.name === "AbortError" || abortController.signal.aborted) return;
+        log.error({ deploymentId, error: e.message }, "Exec-only chat failed");
+        const classified = classifyError(e.message, { deploymentStatus: deployment.status });
+        sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot. ${classified.suggestion}` });
+        sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+        sendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
+        sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+        res.end();
+      }
+    });
+    return;
   }
 
   // ── Standard path: WS gateway with exec fallback ────────────────────────────
