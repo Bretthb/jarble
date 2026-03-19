@@ -75,6 +75,10 @@ export const COMPONENT_NAME_MAP: Record<string, string> = {
   stepper: "steps",
   tree_view: "tree",
   status: "result",
+  // Page aliases
+  render_page: "page",
+  dashboard: "page",
+  fullscreen: "page",
   // Sandpack aliases
   sandpack: "sandpack_sandbox",
   npm_sandbox: "sandpack_sandbox",
