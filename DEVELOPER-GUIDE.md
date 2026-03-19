@@ -103,6 +103,8 @@ Think of Jarble as a **restaurant franchise system**:
 | **Marketplace** | A cookbook store — browse and install new dish recipes |
 | **AutoFix** | The chef correcting a misread order before it goes to the kitchen |
 | **@jarble/component-manifest** | The master ingredient list shared by kitchen, dining room, and menu printer |
+| **Agent Hub** | A catering partner network — your restaurant can call in a specialist caterer (another agent) to handle specific orders |
+| **agentCallEvents** | The intercom between the catering dispatch desk and the floor staff, so servers know a specialist is on the way |
 
 When a user "deploys" a bot, they're essentially **opening a new restaurant location** — we set up the building (K8s Pod), stock the fridge (PVC), put the supplier passwords in the safe (Secret), and print the menus (config files).
 
@@ -255,12 +257,13 @@ trpc.services.list              → Browse service marketplace
 trpc.services.install           → Install a service bundle on a deployment
 ```
 
-**2. REST Endpoints** (24 total)
+**2. REST Endpoints** (26 total)
 Plain HTTP routes for things that can't use tRPC:
 - **Webhooks** (Stripe, Auth0, config-changed) — external services POST to us
 - **SSE Streams** (logs, status, WhatsApp QR, chat) — long-lived connections that push data
 - **Artifact endpoints** (workspace artifact sync) — exec into pod to read/write workspace JSON
 - **Service proxy** (HMAC-signed skill routing) — forwards buyer skill calls to creator remote APIs
+- **Agent Hub** (`POST /api/agent-hub/call`, `GET /api/agent-hub/discover`) — agent-to-agent delegation; call endpoint fans out SSE events via `agentCallEvents` EventEmitter
 - **MCP endpoints** (Streamable HTTP + proxy) — for external MCP clients
 - **Diagnostic endpoint** — structured health checks for a deployment
 - **Health check** — for Kubernetes to know we're alive
@@ -1240,6 +1243,19 @@ graph TD
 - `COMPONENT_SCHEMAS` — Zod schemas for all components
 - `DEFAULT_CARD_SIZES`, `MANIFEST_SPLITTABLE` — derived from manifest, replace old hardcoded objects
 
+### Sandbox-First Rendering Strategy
+
+The bot system prompt now designates the **sandbox component as the default** for dashboards, analytics, charts, and any visualization involving two or more visual elements. The `promptGuidance` fields in the component manifest encode this policy directly so every LLM sees it:
+
+| Component | Guidance |
+|---|---|
+| `sandbox` | "YOUR DEFAULT for dashboards, analytics, charts, data viz, and any request needing 2+ visual elements. Build the ENTIRE UI in ONE sandbox with Tailwind + Chart.js/D3." |
+| `chart` | "AVOID — use sandbox instead for better results. Only use as a last resort for the simplest possible single chart." |
+| `metric_card` | "ONLY for a standalone single KPI display. For dashboards or requests with charts+metrics together, use sandbox instead." |
+| `stat_grid` | "ONLY for a standalone metrics display with no charts. For dashboards or analytics requests, use sandbox instead." |
+
+The sandbox `defaultSize` is 800×650. Combined with Tailwind (loaded via CDN) and Chart.js or D3, one sandbox can replace what previously required 3-5 separate typed components. This reduces token usage in system prompts and produces more coherent layouts.
+
 ### AutoFix Prop Repair (`lib/autoFixProps.ts`)
 
 LLMs frequently produce props that are _close_ but not quite right. AutoFix runs before Zod validation to silently repair common mistakes:
@@ -1250,12 +1266,16 @@ flowchart LR
     AUTOFIX["autoFixProps.ts<br/>20 repair rules"]
     ZOD["Zod schema validation<br/>(@jarble/component-manifest)"]
     RENDER["Render component"]
-    ERROR["Show error card"]
+    WARN["Log warning, render with<br/>raw props anyway"]
 
     INPUT --> AUTOFIX --> ZOD
     ZOD -->|Pass| RENDER
-    ZOD -->|Fail| ERROR
+    ZOD -->|Fail| WARN --> RENDER
 ```
+
+**Zod-tolerant rendering (Session 18):** `CanvasRenderer` no longer shows an error card for Zod validation failures. Instead, it logs a warning and renders with the post-AutoFix props. This fixes cases like `metric_card` receiving a numeric `change` field (a valid runtime type) that Zod's string schema rejects. Error cards are still shown for actual React render crashes (caught by the component's error boundary).
+
+The `COMPONENT_NAME_MAP` in `autoFixProps.ts` also maps several common LLM misnames to the correct component: `render_page`, `dashboard`, and `fullscreen` all resolve to the `page` component.
 
 Sentry breadcrumbs record every repair that fires, so we can identify which rules are most needed and add new ones.
 
@@ -1369,6 +1389,37 @@ sequenceDiagram
 ```
 
 Think of it like `tail -f` but in your browser.
+
+### Agent Orchestration Events
+
+When one bot calls another through the marketplace Agent Hub, the chat SSE stream surfaces that delegation in real time. The flow uses an **in-process EventEmitter bridge** so the Agent Hub HTTP handler can notify active SSE streams without shared state or a message broker:
+
+```mermaid
+sequenceDiagram
+    participant Pod as Bot Pod<br/>(MCP call_agent)
+    participant HUB as POST /api/agent-hub/call
+    participant EE as agentCallEvents<br/>(EventEmitter, in-process)
+    participant SSE as POST /api/tambo-agent<br/>(active stream)
+    participant FE as Frontend<br/>(useCanvasChat)
+
+    Pod->>HUB: {callerDeploymentId, serviceId, skillName}
+    HUB->>EE: emit("start", event)
+    EE-->>SSE: listener fires (if deploymentId matches)
+    SSE-->>FE: CUSTOM jarble.agent.call.start
+    Note over FE: setActiveAgentCall({serviceId, skillName})
+
+    HUB->>HUB: executeAgentCall()
+    HUB->>EE: emit("end", {creditsCharged, success})
+    EE-->>SSE: listener fires
+    SSE-->>FE: CUSTOM jarble.agent.call.end
+    Note over FE: setActiveAgentCall(null)
+```
+
+**Key implementation details:**
+- `agentCallEvents` is a module-level `EventEmitter` (`src/utils/agentCallEvents.ts`) shared by the same Node.js process. Works because the API is single-process (not multi-worker).
+- The SSE handler registers `onAgentCallStart` / `onAgentCallEnd` listeners when the stream opens and removes them on `close`/`finish` to prevent listener leaks.
+- `setMaxListeners(100)` is set to accommodate many concurrent chat streams without Node.js warnings.
+- The frontend `useCanvasChat` hook updates `activeAgentCall` state, which the chat UI can use to render an inline delegation indicator while the sub-agent is working.
 
 ### Why `?token=` Instead of Headers?
 
@@ -2057,6 +2108,7 @@ The API starts with an **in-memory SQLite database** pre-seeded with test data. 
 | Canvas chat (/d/[id]) | Partial | Needs a running pod for actual chat. UI renders without it |
 | Sentry / PostHog | No | Omit `NEXT_PUBLIC_SENTRY_DSN` and `NEXT_PUBLIC_POSTHOG_KEY` to disable |
 | Manifest CI check | Yes | Run `npm run check:manifest` from `jarble-api-main/` |
+| Agent hub | Yes | `/api/agent-hub/discover` works immediately. `/api/agent-hub/call` requires published marketplace services |
 
 ---
 
@@ -2272,6 +2324,8 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | Field aliases | `content` → `body`, `description` → `message` |
 | Data normalization | Strip `%` from progress values |
 
+**Zod-tolerant rendering:** Even after AutoFix, if Zod validation still fails (e.g., minor type mismatch), the renderer logs a warning and renders with the post-AutoFix props. This prevents benign LLM quirks from producing error cards. Components that can't render due to missing required data will still throw a React error and show the error boundary UI.
+
 ---
 
 ## 23. Glossary
@@ -2279,6 +2333,8 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | Term | What It Means |
 |---|---|
 | **Auth0** | Third-party login service. We never store passwords. |
+| **Agent Hub** | `POST /api/agent-hub/call` — allows one bot to delegate work to another published marketplace service. Uses `agentCallEvents` EventEmitter to fan SSE events to the active chat stream |
+| **agentCallEvents** | Module-level EventEmitter (`src/utils/agentCallEvents.ts`) that bridges the Agent Hub HTTP handler with active chat SSE streams in the same Node.js process |
 | **AutoFix** | Pre-Zod prop repair system. 20 rules in `lib/autoFixProps.ts` fix common LLM output errors before validation |
 | **@assistant-ui/react** | React library for chat UI. We use `ExternalStoreRuntime` to wrap our `useCanvasChat` hook |
 | **@jarble/component-manifest** | Shared package (`shared/component-manifest/`) — single source of truth for all canvas component definitions, schemas, and derive functions |
@@ -2329,4 +2385,6 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **Service Proxy** | `POST /api/services/proxy/:deploymentId/:serviceId/:skillName` — the Jarble API gateway between buyer pods and creator remote APIs. Handles HMAC auth, rate limiting, circuit breaking, and input/output schema validation |
 | **Tiered Config Sync** | Three-tier strategy in `syncConfigsToPvc()`: Tier 1 = file-only (zero downtime), Tier 2 = process restart (~5-10s), Tier 3 = pod restart (~30-60s). Selects minimum disruption tier needed |
 | **Webhook Idempotency** | `processedWebhookEvents` table prevents duplicate Stripe event processing |
+| **Sandbox-first** | Architectural policy encoded in `promptGuidance` fields: sandbox is the default for dashboards, analytics, and multi-element visualizations. Chart/metric_card/stat_grid redirect to sandbox for combined requests |
 | **ZIP export** | Download bot configs as a ZIP file (for backup/migration) |
+| **Zod-tolerant renderer** | `CanvasRenderer` logs Zod validation warnings but renders with raw props rather than showing error cards; components that handle minor type mismatches gracefully continue to render |

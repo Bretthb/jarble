@@ -13,6 +13,7 @@ import { db, tables } from "../db/index.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { executeAgentCall } from "../services/marketplaceHub.js";
+import { agentCallEvents } from "../utils/agentCallEvents.js";
 
 const logger = createModuleLogger("agent-hub");
 
@@ -90,12 +91,38 @@ agentHubRouter.post("/call", async (req, res) => {
       return;
     }
 
+    // Look up the service display name for the frontend indicator
+    const svcLookup = await db
+      .select({ displayName: tables.marketplaceServices.displayName })
+      .from(tables.marketplaceServices)
+      .where(eq(tables.marketplaceServices.id, serviceId))
+      .limit(1);
+    const agentName = svcLookup[0]?.displayName || undefined;
+
+    // Notify SSE listeners that an agent call is starting
+    agentCallEvents.emit("start", {
+      deploymentId: callerDeploymentId,
+      serviceId,
+      skillName,
+      agentName,
+    });
+
     const result = await executeAgentCall({
       callerDeploymentId,
       calleeServiceId: serviceId,
       skillName,
       args: args || {},
       callerUserId: userId,
+    });
+
+    // Notify SSE listeners that the agent call completed
+    agentCallEvents.emit("end", {
+      deploymentId: callerDeploymentId,
+      serviceId,
+      skillName,
+      agentName,
+      creditsCharged: result.creditsCharged,
+      success: true,
     });
 
     res.json({
@@ -105,6 +132,17 @@ agentHubRouter.post("/call", async (req, res) => {
       callId: result.callId,
     });
   } catch (err: any) {
+    // Notify SSE listeners that the agent call failed (use req.body since destructured vars may be out of scope)
+    if (req.body?.callerDeploymentId) {
+      agentCallEvents.emit("end", {
+        deploymentId: req.body.callerDeploymentId,
+        serviceId: req.body.serviceId,
+        skillName: req.body.skillName,
+        creditsCharged: 0,
+        success: false,
+      });
+    }
+
     logger.error({ err: err.message }, "Agent hub call failed");
     const status = err.message.includes("Insufficient credits")
       ? 402

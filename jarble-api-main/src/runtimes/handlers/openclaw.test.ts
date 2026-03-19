@@ -129,13 +129,14 @@ describe("openclawHandler.renderConfigs", () => {
     expect(soulPaths[1].path).toBe("/home/openclaw/.openclaw/.openclaw/workspace/SOUL.md");
   });
 
-  it("generates openclaw.json with agent.model", () => {
-    const deployment = makeDeployment({ llmModel: "anthropic/claude-opus-4-6" });
+  it("generates openclaw.json with agents.defaults.model.primary", () => {
+    const deployment = makeDeployment({ llmModel: "claude-opus-4-6" });
     const files = openclawHandler.renderConfigs(deployment);
 
     const configFile = files.find((f) => f.path === "openclaw.json")!;
     const config = JSON.parse(configFile.content);
-    expect(config.agent.model).toBe("anthropic/claude-opus-4-6");
+    // OpenClaw reads from agents.defaults.model.primary with provider prefix
+    expect(config.agents.defaults.model.primary).toBe("anthropic/claude-opus-4-6");
   });
 
   it("generates openclaw.json with gateway config", () => {
@@ -574,5 +575,45 @@ describe("openclawHandler.validateCreate", () => {
   it("returns null for empty input", () => {
     const result = openclawHandler.validateCreate({});
     expect(result).toBeNull();
+  });
+});
+
+// ── Phase 1: Sandbox-First Prompt Pivot ──────────────────────────────────────
+
+describe("Phase 1 — sandbox-first prompt language", () => {
+  it("soul.md contains 'SANDBOX-FIRST RULE' (not LAST RESORT)", () => {
+    const deployment = makeDeployment();
+    const files = openclawHandler.renderConfigs(deployment);
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+
+    expect(soulMd.content).toContain("SANDBOX-FIRST RULE");
+    expect(soulMd.content).not.toContain("LAST RESORT");
+  });
+
+  it("Component Chooser table has sandbox as the first recommendation", () => {
+    const deployment = makeDeployment();
+    const files = openclawHandler.renderConfigs(deployment);
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+
+    // Extract the Component Chooser table
+    const chooserStart = soulMd.content.indexOf("### Component Chooser");
+    expect(chooserStart).toBeGreaterThan(-1);
+
+    const tableSection = soulMd.content.slice(chooserStart, chooserStart + 2000);
+    const lines = tableSection.split("\n").filter((l) => l.startsWith("|"));
+    // lines[0] = header, lines[1] = separator, lines[2..] = data rows
+    const dataRows = lines.filter((l) => !l.includes("---") && !l.includes("Want"));
+
+    // First data row should recommend sandbox
+    expect(dataRows[0]).toContain("sandbox");
+  });
+
+  it("messaging-only prompt has no sandbox-first language", () => {
+    const deployment = makeDeployment({ messagingOnly: true });
+    const files = openclawHandler.renderConfigs(deployment);
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+
+    expect(soulMd.content).not.toContain("SANDBOX-FIRST RULE");
+    expect(soulMd.content).not.toContain("Component Chooser");
   });
 });

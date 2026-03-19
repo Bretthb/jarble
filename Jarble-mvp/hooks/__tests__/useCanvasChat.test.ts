@@ -616,4 +616,80 @@ describe("useCanvasChat", () => {
       );
     });
   });
+
+  // ── Phase 2: Agent Call Events ────────────────────────────────────────────
+
+  describe("CUSTOM agent call events", () => {
+    it("starts with null activeAgentCall", () => {
+      const state = makeState();
+      const { result } = renderHook(() => useCanvasChat("dep-1", state, dispatch));
+      expect(result.current.activeAgentCall).toBeNull();
+    });
+
+    it("clears activeAgentCall after stream completes (finally cleanup)", async () => {
+      // activeAgentCall is set during streaming but cleaned up in the finally block
+      // when the stream ends. This test verifies the full lifecycle.
+      mockFetchOk([
+        { type: "CUSTOM", name: "jarble.agent.call.start", value: { serviceId: "svc-1", skillName: "summarize", agentName: "Summarizer" } },
+        { type: "RUN_FINISHED" },
+      ]);
+      const state = makeState();
+      const { result } = renderHook(() => useCanvasChat("dep-1", state, dispatch));
+
+      await act(async () => {
+        await result.current.sendMessage("Use agent");
+      });
+
+      // After streaming completes, activeAgentCall is cleaned up in the finally block
+      expect(result.current.activeAgentCall).toBeNull();
+    });
+
+    it("clears activeAgentCall on jarble.agent.call.end event mid-stream", async () => {
+      // When both start and end events are in the stream, end explicitly clears
+      // the state (before the finally block also does cleanup).
+      mockFetchOk([
+        { type: "CUSTOM", name: "jarble.agent.call.start", value: { serviceId: "svc-1", skillName: "summarize", agentName: "Summarizer" } },
+        { type: "CUSTOM", name: "jarble.agent.call.end", value: { serviceId: "svc-1", skillName: "summarize", creditsCharged: 1, success: true } },
+        { type: "TEXT_MESSAGE_CONTENT", delta: "Here is the summary." },
+        { type: "RUN_FINISHED" },
+      ]);
+      const state = makeState();
+      const { result } = renderHook(() => useCanvasChat("dep-1", state, dispatch));
+
+      await act(async () => {
+        await result.current.sendMessage("Use agent");
+      });
+
+      // activeAgentCall should be null (cleared by end event AND finally block)
+      expect(result.current.activeAgentCall).toBeNull();
+      // The text from after the agent call should still be present
+      const assistantMsg = result.current.messages.find((m) => m.role === "assistant");
+      expect(assistantMsg?.content).toContain("Here is the summary.");
+    });
+
+    it("agent call events do not interfere with normal CUSTOM events", async () => {
+      // Verify that agent call events coexist with other CUSTOM events
+      mockFetchOk([
+        { type: "CUSTOM", name: "jarble.agent.call.start", value: { serviceId: "svc-1", skillName: "summarize" } },
+        { type: "CUSTOM", name: "jarble.card.update", value: { cardId: "card-1", props: { title: "Updated" }, merge: true } },
+        { type: "CUSTOM", name: "jarble.agent.call.end", value: { serviceId: "svc-1", skillName: "summarize", creditsCharged: 1, success: true } },
+        { type: "RUN_FINISHED" },
+      ]);
+      const state = makeState();
+      const { result } = renderHook(() => useCanvasChat("dep-1", state, dispatch));
+
+      await act(async () => {
+        await result.current.sendMessage("Use agent and update");
+      });
+
+      // Card update should still be dispatched
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "UPDATE_CARD_PROPS",
+        id: "card-1",
+        props: { title: "Updated" },
+        merge: true,
+        component: undefined,
+      });
+    });
+  });
 });

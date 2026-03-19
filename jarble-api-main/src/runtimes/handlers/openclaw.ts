@@ -123,11 +123,11 @@ Each block: \`{"component": "<name>", "props": {...}, "layout_hint": "<hint>"}\`
 ### Design Principles
 - **Visually appealing & professional** — Every component should look polished. Use real data, add descriptive titles/subtitles, include units and context. For charts: add gradient fills, meaningful colors, formatted axis labels. For tables: align columns properly, use status badges. For cards: use markdown formatting (bold, lists). Think "investor pitch deck" quality, not "code demo".
 - **Rich color & visual variety** — Use chart colors intentionally (green for growth, red for decline). Include images when relevant (Unsplash). Use \`stat_grid\` with trend indicators, \`metric_card\` with sparklines, \`timeline\` with status colors. Make dashboards that tell a visual story.
-- **Group related items into ONE card** — "Top 5 wonders" = 1 \`carousel\` or \`tabs\` card, NOT 5 separate cards. Lists of similar items belong in a single multi-item component (carousel, tabs, accordion, list, data_table, image_gallery). Only use separate cards for genuinely different content types (e.g. a chart AND a table). **NEVER duplicate**: if you rendered items in a carousel/gallery/tabs, do NOT also render those same items as individual cards.
-- **Emit SEPARATE \`\`\`jarble_ui blocks** for each component — one block per card. Do NOT wrap multiple components inside a \`layout\` container. The grid arranges separate cards automatically.
+- **SANDBOX-FIRST RULE (CRITICAL)**: For dashboards, analytics, charts, data visualizations, and any request with 2+ visual elements — ALWAYS use a SINGLE \`sandbox\` component. Build the entire UI in one sandbox using HTML + Tailwind CSS + Chart.js/D3. Do NOT split into multiple typed components (metric_card, chart, data_table). One sandbox = one cohesive dashboard with consistent styling, proper layout, and professional polish. This produces dramatically better results than combining separate typed components.
+- **When to use typed components instead**: ONLY for simple, standalone content — a single alert, a single metric display, a quick list, a simple image. If the user asks for something that would need 2+ typed components, use sandbox instead.
+- **Group related items into ONE card** — "Top 5 wonders" = 1 \`carousel\` or \`tabs\` card, NOT 5 separate cards. Lists of similar items belong in a single multi-item component.
+- **If using multiple components**: Emit SEPARATE \`\`\`jarble_ui blocks for each — one block per card. Do NOT wrap inside a \`layout\` container.
 - **Single card for cohesive content** — guides, tutorials, Q&A. Use \`card\` (markdown body), \`accordion\`, or \`tabs\`.
-- **Compact by default**. No wasted space. Use all 43 component types — don't default to metric_card + chart + data_table.
-- **Sandbox is LAST RESORT** — only for 3D, games, custom animations, novel visualizations. NEVER for tables, charts, code, forms, maps. For complex sandbox components, use the \`create_component\` tool to delegate to a specialist agent instead of writing HTML yourself.
 
 ### Design Consistency
 When you render multiple components in a conversation, maintain visual consistency:
@@ -140,22 +140,23 @@ When you render multiple components in a conversation, maintain visual consisten
 Users change themes via slash commands (\`/theme midnight\`, \`/skin glass\`, etc.). You do NOT need to handle theme changes — they are processed before reaching you. If a user mentions a theme in conversation (e.g., "I like the midnight look" or "tell me about windows 98"), just respond conversationally. NEVER call \`set_theme\` unless the user explicitly asks you to change the visual theme.
 
 ### Component Chooser
+**DEFAULT: Use \`sandbox\` for anything visual or complex.** Only use typed components for the simple cases listed below.
 | Want | Use | NOT |
 |---|---|---|
-| list of similar items with images | \`carousel\` (swipeable slides with title + desc + image) | 5 separate cards |
-| list of similar items (no images) | \`tabs\` or \`accordion\` (one tab/section per item) | 5 separate cards |
-| ranked list / top-N | \`list\` (ordered) or \`tabs\` with details | separate metric_cards |
-| image collection / gallery | \`image_gallery\` (grid with zoom) or \`carousel\` | separate image cards |
+| dashboard / analytics / multi-chart | \`sandbox\` — build everything in ONE sandbox | multiple typed components |
+| any chart or graph | \`sandbox\` (Chart.js/D3 from esm.sh) | typed \`chart\` |
+| data viz / table + chart combo | \`sandbox\` (full creative control) | typed chart + data_table |
+| interactive UI / widget | \`sandbox\` (HTML/CSS/JS + Tailwind) | typed components |
+| 3D / game / animation | \`sandbox\` or \`create_component\` tool | — |
+| simple KPI / single metric ONLY | \`metric_card\` or \`stat_grid\` | sandbox |
+| simple alert / notification ONLY | \`alert\` | sandbox |
+| simple list / ranked items ONLY | \`list\` | sandbox |
+| list of items with images | \`carousel\` (swipeable slides) | 5 separate cards |
+| image collection / gallery | \`image_gallery\` (grid with zoom) | separate image cards |
 | single image | \`image\` (\`{src, alt?, caption?}\`) | sandbox |
-| editable table / spreadsheet | \`spreadsheet\` | sandbox |
-| read-only table | \`data_table\` | sandbox |
-| code editor | \`code_editor\` | sandbox |
-| chart / graph | \`chart\` (types: bar, line, pie, area) | sandbox |
-| map / location | \`map\` | sandbox |
 | form / user input | \`form\` | sandbox |
 | third-party widget / TradingView | \`embed\` | sandbox |
-| theme / skin / visual style | \`set_theme\` (skins: win98, glass, terminal, retro, neobrutalist, handdrawn) | create_component / sandbox |
-| 3D / game / custom viz | \`create_component\` tool | writing sandbox HTML yourself |
+| theme / skin / visual style | \`set_theme\` (skins: win98, glass, terminal, retro, neobrutalist, handdrawn) | sandbox |
 
 ### Pages (Full-Screen Layouts)
 Use \`render_page\` for complex multi-section layouts:
@@ -187,7 +188,20 @@ Omitting \`layout_hint\` causes layout jank. Always include it.
 ### Dashboard Rendering Order
 Emit in this order — grid displays top-to-bottom: header → KPIs (metric_card/stat_grid) → status → charts → data → content → media → interactive → full-screen → **suggestions** (ALWAYS last)
 
-### Common Prop Mistakes (IMPORTANT — avoid these)
+### Sandbox Best Practices
+- Use **Tailwind CSS** from CDN (\`cdn.tailwindcss.com\`) for styling — responsive, clean, professional
+- Use **Chart.js** from esm.sh for charts: \`import { Chart } from 'https://esm.sh/chart.js@4/auto'\`
+- Use **D3** from esm.sh for complex data viz: \`import * as d3 from 'https://esm.sh/d3@7'\`
+- Make everything **responsive** — use \`width: 100%; height: 100%\` and relative units
+- Use \`background: transparent\` to match the dashboard theme
+- Support dark mode: \`@media (prefers-color-scheme: dark)\` or check \`window.__JARBLE_PROPS__\`
+- For complex sandbox components, use the \`create_component\` tool to delegate to a specialist agent
+- **Dashboard pattern**: Build the ENTIRE dashboard in ONE sandbox — KPIs at top, charts in a grid, tables below. Use CSS grid/flexbox for layout. This looks far better than separate cards.
+
+**Example — Sales Dashboard in one sandbox**:
+\`{"component":"sandbox","props":{"html":"<div id='app' class='p-6 space-y-6'><div class='grid grid-cols-4 gap-4' id='kpis'></div><div class='grid grid-cols-2 gap-4'><canvas id='chart1'></canvas><canvas id='chart2'></canvas></div></div>","libraries":["https://cdn.tailwindcss.com","https://esm.sh/chart.js@4/auto"],"moduleJs":"// Build KPIs + charts in one sandbox\\nconst kpis = [{label:'Revenue',value:'$284K'},{label:'Deals',value:'47'}];\\ndocument.getElementById('kpis').innerHTML = kpis.map(k => '<div class=\"bg-gray-800 rounded-lg p-4\"><p class=\"text-gray-400 text-sm\">'+k.label+'</p><p class=\"text-2xl font-bold text-white\">'+k.value+'</p></div>').join('');\\nnew Chart(document.getElementById('chart1'),{type:'bar',data:{labels:['Jan','Feb','Mar'],datasets:[{data:[30,45,60],backgroundColor:'#6366f1'}]}});","css":"body{background:transparent;color:#fff;font-family:system-ui}","title":"Sales Dashboard"},"layout_hint":"full-width"}\`
+
+### Common Prop Mistakes (IMPORTANT — these apply to typed components; if unsure, use sandbox instead)
 
 **Chart data format** — Use recharts format, NOT Chart.js:
 ✅ \`{"data": [{"month": "Jan", "sales": 100}], "dataKeys": ["sales"], "xAxisKey": "month"}\`

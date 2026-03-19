@@ -1835,8 +1835,20 @@ function executeDefineComponent(args) {
 
 function executeListComponents() {
   const custom = listCustomComponents();
-  const lines = ["**Built-in components:**"];
+  const lines = [
+    "**IMPORTANT:** For dashboards, analytics, charts, or any response needing 2+ visual elements, use `sandbox` (Tailwind + Chart.js/D3 in one component). Only use typed components below for simple standalone displays.",
+    "",
+    "**Built-in components:**",
+  ];
+  // List sandbox first, then the rest
+  const sandboxFirst = ["sandbox", "sandpack_sandbox"];
+  for (const name of sandboxFirst) {
+    if (BUILTIN_COMPONENTS.includes(name)) {
+      lines.push(`- \`${name}\` — ${BUILTIN_DESCRIPTIONS[name]} ★ PREFERRED for rich content`);
+    }
+  }
   for (const name of BUILTIN_COMPONENTS) {
+    if (sandboxFirst.includes(name)) continue;
     lines.push(`- \`${name}\` — ${BUILTIN_DESCRIPTIONS[name]}`);
   }
   if (custom.length > 0) {
@@ -3042,13 +3054,26 @@ const COMPONENT_EXAMPLES = {
   alert: '```jarble_ui\n{"component": "alert", "props": {"title": "Deploy Complete", "message": "v2.3.1 is live", "variant": "success"}, "layout_hint": "third"}\n```',
 };
 
+// Components that should redirect to sandbox for dashboard/multi-viz use cases
+const SANDBOX_REDIRECT_COMPONENTS = new Set(["chart", "data_table", "metric_card", "stat_grid", "spreadsheet"]);
+
 function executeComponentReference(args) {
   const name = args?.component;
 
   if (name) {
     // Check built-in components first
     if (COMPONENT_REFERENCE[name]) {
-      const lines = [`**${name}** — props: ${COMPONENT_REFERENCE[name]}`];
+      const lines = [];
+
+      // For chart-like components, prepend a strong sandbox redirect
+      if (SANDBOX_REDIRECT_COMPONENTS.has(name)) {
+        lines.push(`**RECOMMENDATION:** For dashboards, analytics, or any response with 2+ visual elements, use **sandbox** instead of ${name}. Build the entire UI in one sandbox with Tailwind CSS (cdn.tailwindcss.com) + Chart.js (esm.sh/chart.js@4/auto). This produces dramatically better, more cohesive results.`);
+        lines.push("");
+        lines.push(`Only use the typed \`${name}\` component for simple standalone displays. Here are its props if you still need them:`);
+        lines.push("");
+      }
+
+      lines.push(`**${name}** — props: ${COMPONENT_REFERENCE[name]}`);
       if (BUILTIN_SCHEMAS[name]) {
         lines.push("");
         lines.push("**JSON Schema:**");

@@ -152,21 +152,3 @@ export type ServiceCardRateLimits = z.infer<typeof serviceCardRateLimitsSchema>;
 /** A ServiceCard that is guaranteed to have a creatorDeploymentId (platform-managed). */
 export type PlatformServiceCard = ServiceCard & { creatorDeploymentId: string; };
 
-// ── Backward-compatible aliases ─────────────────────────────────────────────
-// Keep old names available for any code that hasn't been updated yet.
-/** @deprecated Use serviceCardSchema */
-export const packageCardSchema = serviceCardSchema;
-/** @deprecated Use serviceCardSkillSchema */
-export const packageCardSkillSchema = serviceCardSkillSchema;
-/** @deprecated Use serviceCardAuthSchema */
-export const packageCardAuthSchema = serviceCardAuthSchema;
-/** @deprecated Use serviceCardRateLimitsSchema */
-export const packageCardRateLimitsSchema = serviceCardRateLimitsSchema;
-/** @deprecated Use ServiceCard */
-export type PackageCard = ServiceCard;
-/** @deprecated Use ServiceCardSkill */
-export type PackageCardSkill = ServiceCardSkill;
-/** @deprecated Use ServiceCardAuth */
-export type PackageCardAuth = ServiceCardAuth;
-/** @deprecated Use ServiceCardRateLimits */
-export type PackageCardRateLimits = ServiceCardRateLimits;

@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: March 9, 2026 (Session 17 — Test Suite Growth, Error Resilience, Pod Performance, Security Hardening, Services Router, Hosted Packages)
+📅 Last updated: March 18, 2026 (Session 18 — Sandbox-First Rendering, Agent Orchestration Events, Credits Badge, Zod-Tolerant Renderer)
 
 </aside>
 
@@ -323,6 +323,8 @@ graph TB
 | POST | /api/deployments/:id/artifact/sync | JWT | Upsert an artifact from the frontend to pod workspace |
 | DELETE | /api/deployments/:id/artifact/:artifactId | JWT | Delete an artifact from pod workspace |
 | POST | /api/services/proxy/:deploymentId/:serviceId/:skillName | JWT | Proxy skill-call to creator's remote API (HMAC-signed) |
+| POST | /api/agent-hub/call | JWT or gateway token | Execute an agent-to-agent call via the marketplace hub; emits agentCallEvents for SSE fan-out |
+| GET | /api/agent-hub/discover | None | Search published marketplace services by name/description/category |
 | GET | /debug/db | None | View DB tables (dev only) |
 
 ---
@@ -1084,6 +1086,13 @@ flowchart TD
 - [x]  **Server-side HTML sanitize fallback** — `lib/sanitize.ts` strips all HTML tags on the server (where DOMPurify DOM is unavailable) instead of passing through unsanitized content
 - [x]  **Internal error message leakage plugged** — `tamboAgent.ts` redacts internal error details in two locations before sending to the client
 - [x]  **Skills shared package** — `shared/component-manifest/skills/index.ts` exports `BotSkill` type and `BOT_SKILLS` placeholder consumed by both API and MCP server
+- [x]  **Agent orchestration events** — `agentCallEvents.ts` EventEmitter bridge emits `jarble.agent.call.start` / `jarble.agent.call.end` SSE events from `POST /api/agent-hub/call` through the chat SSE stream to the frontend; `useCanvasChat` surfaces `activeAgentCall` state for inline delegation indicators
+- [x]  **Credits badge** — `CreditsBadgeButton` in the deployment page header shows live credit balance next to a Coins icon; queries `agentCredits.getBalance` (stale: 30s), formats balance as `k` suffix above 1000; clicking opens `AgentCreditsPanel`
+- [x]  **Sandbox-first prompt guidance** — `sandbox.promptGuidance` updated to direct bots to use sandbox as the default for dashboards, analytics, charts, and any multi-element visualization. `chart.promptGuidance` now reads "AVOID — use sandbox instead for better results." `metric_card` and `stat_grid` guidance now steers to sandbox for combined dashboard requests
+- [x]  **Sandbox defaultSize updated** — `sandbox` manifest entry `defaultSize` changed to `{ w: 800, h: 650 }` (was `{ w: 600, h: 400 }`)
+- [x]  **Zod-tolerant renderer** — `CanvasRenderer.tsx` now logs Zod validation warnings but renders with raw (post-AutoFix) props instead of showing an error card; fixes `metric_card` failures when the bot sends numeric values for string fields like `change` / `changeLabel`
+- [x]  **Page component aliases** — `autoFixProps.ts` COMPONENT_NAME_MAP now maps `render_page`, `dashboard`, and `fullscreen` to the `page` component; prevents broken cards when the bot misnames a full-screen layout component
+- [x]  **Agent Hub REST routes** — `POST /api/agent-hub/call` executes agent-to-agent calls (JWT or gateway token auth); `GET /api/agent-hub/discover` (public) searches published marketplace services by name/description
 
 ## Infrastructure ✅
 
@@ -1149,6 +1158,12 @@ flowchart TD
 11. ~~Pod performance optimizations~~ — ✅ Done (Session 17). Removed validate-config init container, batched PVC writes (~4s→300ms), adaptive readiness polling, tuned probes + grace period
 12. ~~Deeper security hardening~~ — ✅ Done (Session 17). HSTS, X-Frame-Options, client-side CDN validation, server-side HTML sanitize fallback, error leakage prevention
 13. ~~Test suite growth~~ — ✅ Done (Session 17). 934 API tests (32 files) + 367 frontend tests = 1,301 total. New: artifact tools, service proxy, serviceCard, circuitBreaker, HMAC, jsonSchema, componentResolver, schemaValidation, serviceRateLimit, serviceHealthCheck
+14. ~~Sandbox-first rendering strategy~~ — ✅ Done (Session 18). `sandbox.promptGuidance` designates sandbox as the default for dashboards and multi-element visualizations; `chart`, `metric_card`, `stat_grid` guidance redirects to sandbox for complex requests; `sandbox` defaultSize updated to 800×650
+15. ~~Agent orchestration SSE events~~ — ✅ Done (Session 18). `agentCallEvents.ts` EventEmitter bridge; `jarble.agent.call.start` / `end` events flow from Agent Hub → chat SSE → `useCanvasChat`; `activeAgentCall` state drives inline delegation indicators in the chat UI
+16. ~~Credits badge in deployment header~~ — ✅ Done (Session 18). `CreditsBadgeButton` queries `agentCredits.getBalance`, shows compact balance next to Coins icon, opens `AgentCreditsPanel` on click
+17. ~~Zod-tolerant renderer~~ — ✅ Done (Session 18). `CanvasRenderer` logs validation warnings but renders with raw props instead of showing error cards for minor type mismatches
+18. ~~Page component aliases~~ — ✅ Done (Session 18). `render_page`, `dashboard`, `fullscreen` mapped to `page` in `autoFixProps.ts` COMPONENT_NAME_MAP
+19. ~~Agent Hub REST routes~~ — ✅ Done (Session 18). `POST /api/agent-hub/call` and `GET /api/agent-hub/discover` routes for agent-to-agent delegation
 
 ## 🟢 Nice-to-Have (Future)
 
@@ -1179,7 +1194,7 @@ Libraries: lib/trpc.ts, lib/assistantRuntime.ts, lib/posthog.ts, lib/sanitize.ts
 
 UI Library: 40+ shadcn/ui components (Button, Card, Dialog, Tabs, Toast, Badge, etc.)
 
-Shared Package: @jarble/component-manifest — 37+ component entries with Zod schemas, layout hints, derive functions (generatePromptReference, generateMcpReference, deriveComponentNames)
+Shared Package: @jarble/component-manifest — 37+ component entries with Zod schemas, layout hints, derive functions (generatePromptReference, generateMcpReference, deriveComponentNames). Sandbox is the designated default component for dashboards and multi-element visualizations; chart/metric_card/stat_grid promptGuidance explicitly redirects to sandbox for combined requests. Sandbox defaultSize is 800×650.
 
 ---
 

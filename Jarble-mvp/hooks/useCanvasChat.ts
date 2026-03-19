@@ -82,6 +82,7 @@ export function useCanvasChat(
   const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Array<{ prompt: string }>>([]);
   const [toolStatus, setToolStatus] = useState<string | null>(null);
+  const [activeAgentCall, setActiveAgentCall] = useState<{ serviceId: string; skillName: string; agentName?: string } | null>(null);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -550,6 +551,18 @@ export function useCanvasChat(
                   isDev && console.log(`[Jarble:Chat] Tool status: ${event.value.status}`);
                   setToolStatus(event.value.status as string);
                 }
+                if (event.name === "jarble.agent.call.start" && event.value) {
+                  isDev && console.log(`[Jarble:Chat] Agent call started: ${event.value.skillName} on ${event.value.serviceId}`);
+                  setActiveAgentCall({
+                    serviceId: event.value.serviceId as string,
+                    skillName: event.value.skillName as string,
+                    agentName: event.value.agentName as string | undefined,
+                  });
+                }
+                if (event.name === "jarble.agent.call.end" && event.value) {
+                  isDev && console.log(`[Jarble:Chat] Agent call ended: ${event.value.skillName} (${event.value.creditsCharged} credits)`);
+                  setActiveAgentCall(null);
+                }
                 if (event.name === "jarble.sse.error" && event.value) {
                   console.error(`[Jarble:Chat] SSE serialization error from server: ${event.value.message}`);
                 }
@@ -686,6 +699,7 @@ export function useCanvasChat(
           setStreamingReasoning("");
           setStreamingCardIds(new Set());
           setToolStatus(null);
+          setActiveAgentCall(null);
         }
       }
     },
@@ -780,6 +794,7 @@ export function useCanvasChat(
     clearChatError,
     suggestions,
     toolStatus,
+    activeAgentCall,
     stopGeneration,
     editMessage,
     conversations,

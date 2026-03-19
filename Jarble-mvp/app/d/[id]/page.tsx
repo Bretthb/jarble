@@ -102,6 +102,32 @@ function formatActionDisplay(action: CanvasAction): string {
   }
 }
 
+// ── Credits Badge Button ─────────────────────────────────────────────────────
+
+function CreditsBadgeButton({ isOpen, onClick }: { isOpen: boolean; onClick: () => void }) {
+  const balanceQuery = trpc.agentCredits.getBalance.useQuery(undefined, {
+    staleTime: 30_000, // Cache for 30s to avoid excessive polling
+  });
+  const balance = balanceQuery.data?.balance;
+
+  return (
+    <Button
+      variant={isOpen ? "secondary" : "ghost"}
+      size="sm"
+      onClick={onClick}
+      className={cn("h-8 p-0 gap-1", balance != null ? "px-2" : "w-8")}
+      title="Agent Credits"
+    >
+      <Coins className="w-4 h-4" />
+      {balance != null && (
+        <span className="text-xs font-medium tabular-nums">
+          {balance >= 1000 ? `${(balance / 1000).toFixed(1)}k` : balance}
+        </span>
+      )}
+    </Button>
+  );
+}
+
 // ── Example prompts for empty state ──────────────────────────────────────────
 
 const EXAMPLE_PROMPTS = [
@@ -347,20 +373,15 @@ function WorkspacePage({
             >
               <Brain className="w-4 h-4" />
             </Button>
-            <Button
-              variant={creditsOpen ? "secondary" : "ghost"}
-              size="sm"
+            <CreditsBadgeButton
+              isOpen={creditsOpen}
               onClick={() => {
                 setCreditsOpen((v) => {
                   if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); }
                   return !v;
                 });
               }}
-              className="h-8 w-8 p-0"
-              title="Agent Credits"
-            >
-              <Coins className="w-4 h-4" />
-            </Button>
+            />
             <Button
               variant={hostedServicesOpen ? "secondary" : "ghost"}
               size="sm"
@@ -462,6 +483,7 @@ function KeyedChatPanel({
   sendMessage,
   suggestions,
   toolStatus,
+  activeAgentCall,
   stopGeneration,
   editMessage,
   onExamplePrompt,
@@ -473,6 +495,7 @@ function KeyedChatPanel({
   sendMessage: (text: string, displayText?: string) => Promise<void>;
   suggestions: Array<{ prompt: string }>;
   toolStatus?: string | null;
+  activeAgentCall?: { serviceId: string; skillName: string; agentName?: string } | null;
   stopGeneration: () => void;
   editMessage: (messageId: string, newText: string) => Promise<void>;
   onExamplePrompt: (prompt: string) => void;
@@ -486,6 +509,7 @@ function KeyedChatPanel({
       suggestions={suggestions}
       onSuggestionClick={(prompt) => sendMessage(prompt)}
       toolStatus={toolStatus}
+      activeAgentCall={activeAgentCall}
       emptyState={
         <div className="h-full flex flex-col items-center justify-center gap-4 px-4">
           <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/10 flex items-center justify-center">
@@ -530,7 +554,7 @@ function CanvasWorkspace({
   const [state, dispatch] = useReducer(canvasReducer, INITIAL_CANVAS_STATE);
   const {
     sendMessage, isStreaming, streamingCardIds, messages, streamingText, streamingReasoning,
-    lastChatError, lastUserMessage, clearChatError, suggestions, toolStatus,
+    lastChatError, lastUserMessage, clearChatError, suggestions, toolStatus, activeAgentCall,
     stopGeneration, editMessage,
     conversations, activeConversationId, switchConversation, newConversation, deleteConversation,
   } = useCanvasChat(deploymentId, state, dispatch);
@@ -733,6 +757,7 @@ function CanvasWorkspace({
           sendMessage={sendMessage}
           suggestions={suggestions}
           toolStatus={toolStatus}
+          activeAgentCall={activeAgentCall}
           stopGeneration={stopGeneration}
           editMessage={editMessage}
           onExamplePrompt={handleExamplePrompt}

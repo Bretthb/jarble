@@ -31,9 +31,7 @@ if (adminUserIds.size === 0) {
   );
 }
 
-/**
- * Returns the set of admin user IDs parsed from the environment.
- */
+/** Returns the set of admin user IDs (used for testing). */
 export function getAdminUserIds(): Set<string> {
   return adminUserIds;
 }

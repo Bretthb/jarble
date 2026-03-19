@@ -12,4 +12,5 @@ export const buttonGroupEntry: ComponentManifestEntry = {
   tags: ["interactive", "buttons", "actions"],
   builtin: true,
   renderOrder: 9,
+  promptGuidance: "Row of clickable action buttons. Each click dispatches a UI_ACTION event with the button's id. Use for option selection, quick actions, or navigation.",
 };

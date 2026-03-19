@@ -12,4 +12,5 @@ export const confirmationEntry: ComponentManifestEntry = {
   tags: ["confirmation", "approval", "action", "interactive"],
   builtin: true,
   renderOrder: 1,
+  promptGuidance: "Human-in-the-loop confirmation for sensitive actions. Use confirm_action MCP tool to create these — do NOT render directly via jarble_ui. Shows approve/reject buttons, returns user choice via CONFIRMATION_RESPONSE.",
 };

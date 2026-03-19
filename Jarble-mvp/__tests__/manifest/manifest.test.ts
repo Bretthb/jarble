@@ -35,7 +35,7 @@ const CANONICAL_COMPONENTS = [
   "video", "embed", "audio", "avatar", "blockquote",
   "text_message", "image_gallery", "map", "descriptions", "steps",
   "result", "carousel", "statistic", "tag_cloud", "tree",
-  "reasoning", "tool", "sources",
+  "reasoning", "tool", "sources", "confirmation", "page",
 ];
 
 const ALIAS_COMPONENTS = ["canvas"];
@@ -411,10 +411,12 @@ describe("generatePromptReference", () => {
 
   it("with top10Only includes top components", () => {
     const result = generatePromptReference(COMPONENT_MANIFEST, { top10Only: true });
-    expect(result).toContain("chart");
-    expect(result).toContain("data_table");
-    expect(result).toContain("card");
+    // Sandbox-first: sandbox and sandpack_sandbox are first, chart/data_table removed from top
     expect(result).toContain("sandbox");
+    expect(result).toContain("sandpack_sandbox");
+    expect(result).toContain("card");
+    expect(result).toContain("metric_card");
+    expect(result).toContain("stat_grid");
   });
 
   it("with top10Only includes component_reference pointer", () => {

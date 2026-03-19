@@ -11,6 +11,6 @@ export const pageEntry: ComponentManifestEntry = {
   aliases: ["dashboard", "fullscreen", "app"],
   tags: ["page", "layout", "dashboard", "fullscreen"],
   builtin: true,
-  renderOrder: 0,
+  renderOrder: 1,
   promptGuidance: "Use for complex multi-section layouts like dashboards, settings panels, kanban boards. Opens in fullscreen overlay. Can be ungrouped back to individual cards.",
 };

@@ -219,7 +219,7 @@ describe("chatViaExec", () => {
       "--session-id", "ses-key",
       "--json",
       "--timeout", "60",
-    ]);
+    ], undefined, 90_000);
   });
 
   it("propagates exec errors", async () => {

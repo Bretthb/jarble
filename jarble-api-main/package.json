@@ -28,7 +28,6 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@sentry/node": "^10.44.0",
     "@trpc/server": "^11.10.0",
-    "@types/archiver": "^7.0.0",
     "archiver": "^7.0.1",
     "better-sqlite3": "^12.6.2",
     "busboy": "^1.6.0",

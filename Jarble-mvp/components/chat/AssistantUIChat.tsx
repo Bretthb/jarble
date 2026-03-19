@@ -19,7 +19,7 @@ import {
   type TextMessagePartProps,
   type ReasoningMessagePartProps,
 } from "@assistant-ui/react";
-import { Sparkles, Copy, Pencil, RotateCcw, ChevronRight, Loader2 } from "lucide-react";
+import { Sparkles, Copy, Pencil, RotateCcw, ChevronRight, Loader2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
 
@@ -33,6 +33,8 @@ interface AssistantUIChatProps {
   onSuggestionClick?: (prompt: string) => void;
   /** Current tool status (e.g. "Rendering chart...") shown during streaming */
   toolStatus?: string | null;
+  /** Active agent-to-agent call in progress */
+  activeAgentCall?: { serviceId: string; skillName: string; agentName?: string } | null;
 }
 
 function AssistantUIChatInner({
@@ -42,6 +44,7 @@ function AssistantUIChatInner({
   suggestions = [],
   onSuggestionClick,
   toolStatus,
+  activeAgentCall,
 }: AssistantUIChatProps) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -62,8 +65,24 @@ function AssistantUIChatInner({
             }}
           />
 
+          {/* Agent delegation indicator — shows when bot is calling another agent */}
+          {isStreaming && activeAgentCall && (
+            <div className="flex items-center gap-2 px-4 py-2 animate-in fade-in slide-in-from-bottom-1 duration-200">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                <Zap className="w-3.5 h-3.5 text-violet-500 animate-pulse" />
+                <span className="text-xs font-medium text-violet-600 dark:text-violet-400">
+                  Delegating to {activeAgentCall.agentName || activeAgentCall.serviceId}
+                </span>
+                <span className="text-xs text-muted-foreground/60">
+                  {activeAgentCall.skillName}
+                </span>
+                <Loader2 className="w-3 h-3 text-violet-500/60 animate-spin" />
+              </div>
+            </div>
+          )}
+
           {/* Tool status indicator — shows what the bot is doing during streaming */}
-          {isStreaming && toolStatus && (
+          {isStreaming && toolStatus && !activeAgentCall && (
             <div className="flex items-center gap-2 px-4 py-1.5 animate-in fade-in slide-in-from-bottom-1 duration-200">
               <Loader2 className="w-3 h-3 text-primary/60 animate-spin" />
               <span className="text-xs text-muted-foreground/70 font-medium">

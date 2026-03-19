@@ -12,5 +12,5 @@ export const metricCardEntry: ComponentManifestEntry = {
   tags: ["metrics", "kpi", "number", "trend"],
   builtin: true,
   renderOrder: 2,
-  promptGuidance: "Single KPI with trend. Use 1-4 individual metric_cards for small metric sets. For 5+, use stat_grid.",
+  promptGuidance: "ONLY for a standalone single KPI display. For dashboards or requests with charts+metrics together, use sandbox instead — build everything in one sandbox.",
 };

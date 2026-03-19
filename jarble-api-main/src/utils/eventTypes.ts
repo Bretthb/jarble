@@ -39,3 +39,5 @@ export const CUSTOM_ARTIFACT_UPDATED = "jarble.artifact.updated";
 export const CUSTOM_SUGGESTIONS = "jarble.suggestions";
 export const CUSTOM_DESIGN_CONTEXT = "jarble.design.context";
 export const CUSTOM_TOOL_STATUS = "jarble.tool.status";
+export const CUSTOM_AGENT_CALL_START = "jarble.agent.call.start";
+export const CUSTOM_AGENT_CALL_END = "jarble.agent.call.end";

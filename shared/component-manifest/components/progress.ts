@@ -12,4 +12,5 @@ export const progressEntry: ComponentManifestEntry = {
   tags: ["progress", "percentage", "status"],
   builtin: true,
   renderOrder: 3,
+  promptGuidance: "Simple progress bar (0-100). Use for completion status, loading indicators, or quota usage displays.",
 };

@@ -1,7 +1,7 @@
 # Jarble API Endpoints Reference
 
-> Complete reference for every API endpoint in the Jarble platform. Covers all 81 tRPC procedures and 25 REST endpoints.
-> Last updated: March 9, 2026 (Session 17)
+> Complete reference for every API endpoint in the Jarble platform. Covers all 81 tRPC procedures and 27 REST endpoints.
+> Last updated: March 18, 2026 (Session 18)
 
 ---
 
@@ -726,7 +726,7 @@ sequenceDiagram
 | GET | `/api/deployments/status/stream` | JWT (header or `?token=`) | `snapshot`, delta `data`, `: ping` | Real-time status for all user deployments. Polls K8s every 5s, sends deltas |
 | GET | `/api/deployments/:id/logs/stream` | JWT (header or `?token=`) | `data` (log lines), `end`, `error`, `: ping` | Live pod log streaming. `?tailLines=` (default 100, max 1000) |
 | GET | `/api/deployments/:id/whatsapp/qr` | JWT (header or `?token=`) | `qr`, `connected`, `log`, `timeout`, `error`, `: ping` | WhatsApp QR pairing via K8s exec. 90-second timeout |
-| POST | `/api/tambo-agent` | JWT Bearer | `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT` (delta), `TEXT_MESSAGE_END`, `UI_BLOCK_START`, `UI_BLOCK_PROPS`, `UI_BLOCK_END`, `RUN_FINISHED` | Chat SSE. Proxies to OpenClaw gateway. Library URLs validated server-side against TRUSTED_CDN_ORIGINS |
+| POST | `/api/tambo-agent` | JWT Bearer | `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT` (delta), `TEXT_MESSAGE_END`, `UI_BLOCK_START`, `UI_BLOCK_PROPS`, `UI_BLOCK_END`, `RUN_FINISHED`, `CUSTOM` (`jarble.agent.call.start` / `jarble.agent.call.end`) | Chat SSE. Proxies to OpenClaw gateway. Library URLs validated server-side against TRUSTED_CDN_ORIGINS. Agent call events are fanned out from `agentCallEvents` EventEmitter |
 
 ---
 
@@ -746,6 +746,38 @@ The bot pods maintain a `/data/workspace/` directory with a `manifest.json` (arr
 | Method | Path | Auth | Rate Limit | Description |
 |---|---|---|---|---|
 | POST | `/api/services/proxy/:deploymentId/:serviceId/:skillName` | JWT Bearer | Per ServiceCard limits | Proxies skill-call requests from buyer deployments to creator remote APIs. Validates `deploymentId` ownership, checks circuit breaker, validates input against skill schema, adds HMAC-SHA256 signature, forwards to creator API. Max response: 1 MB, timeout: 30s |
+
+### Agent Hub
+
+The agent hub enables bot pods to delegate work to other marketplace agents. When `POST /api/agent-hub/call` is handled, it emits on `agentCallEvents` (an in-process EventEmitter), which the active chat SSE handler picks up and forwards to the frontend as `CUSTOM` events named `jarble.agent.call.start` / `jarble.agent.call.end`.
+
+| Method | Path | Auth | Rate Limit | Description |
+|---|---|---|---|---|
+| POST | `/api/agent-hub/call` | JWT Bearer or `X-Gateway-Token` + `X-Deployment-ID` (pod auth) | global | Execute an agent-to-agent call. Verifies caller deployment ownership, runs `executeAgentCall()`, emits start/end events on `agentCallEvents`. Returns `{ success, result, creditsCharged, callId }`. 402 on insufficient credits, 404 on unknown agent |
+| GET | `/api/agent-hub/discover` | None | global | Search published marketplace services. Query params: `q` (text search), `category`, `limit` (max 50, default 20). Returns services with their skill list and `creditsPerCall` |
+
+#### Agent Call SSE Event Flow
+
+```mermaid
+sequenceDiagram
+    participant Pod as Bot Pod<br/>(via MCP call_agent)
+    participant HUB as POST /api/agent-hub/call
+    participant EE as agentCallEvents<br/>(EventEmitter)
+    participant SSE as POST /api/tambo-agent<br/>(active SSE stream)
+    participant FE as Frontend<br/>(useCanvasChat)
+
+    Pod->>HUB: POST /api/agent-hub/call<br/>{callerDeploymentId, serviceId, skillName}
+    HUB->>EE: emit("start", {deploymentId, serviceId, skillName})
+    EE-->>SSE: onAgentCallStart (if deploymentId matches)
+    SSE-->>FE: CUSTOM jarble.agent.call.start<br/>{serviceId, skillName, agentName?}
+    FE-->>FE: setActiveAgentCall(...)
+
+    HUB->>HUB: executeAgentCall() — proxy to creator API
+    HUB->>EE: emit("end", {deploymentId, ..., creditsCharged, success})
+    EE-->>SSE: onAgentCallEnd
+    SSE-->>FE: CUSTOM jarble.agent.call.end<br/>{creditsCharged, success}
+    FE-->>FE: setActiveAgentCall(null)
+```
 
 ### Diagnostic & MCP
 
@@ -780,10 +812,11 @@ The bot pods maintain a `/data/workspace/` directory with a `manifest.json` (arr
 | REST Chat | 1 | JWT Bearer | 120 req/min | Yes |
 | REST Artifact | 4 | JWT Bearer | global/1/s | No |
 | REST Service Proxy | 1 | JWT Bearer | Per ServiceCard | No |
+| REST Agent Hub | 2 | JWT/gateway or none | global | No |
 | SSE Streams | 3 | JWT (header or query) | 120 req/min | Yes |
 | MCP Endpoints | 5 | JWT Bearer | global | Mixed |
 | Health/Debug | 5 | none | exempt | No |
-| **Total** | **105** | -- | -- | -- |
+| **Total** | **107** | -- | -- | -- |
 
 ### Quick Reference by Router
 
@@ -800,8 +833,8 @@ The bot pods maintain a `/data/workspace/` directory with a `manifest.json` (arr
 | `marketplace` | 11 | 11 | 22 |
 | `services` | 3 | 3 | 6 |
 | **tRPC Total** | **39** | **42** | **81** |
-| REST endpoints | -- | -- | **24** |
-| **Grand Total** | -- | -- | **105** |
+| REST endpoints | -- | -- | **26** |
+| **Grand Total** | -- | -- | **107** |
 
 ### Key Files
 
@@ -842,6 +875,8 @@ The bot pods maintain a `/data/workspace/` directory with a `manifest.json` (arr
 | `jarble-api-main/src/services/circuitBreaker.ts` | Per-service circuit breaker (5 failures → open, 60s reset) |
 | `jarble-api-main/src/services/serviceHealthCheck.ts` | Background health pinger for remote services (5-min cycle) |
 | `jarble-api-main/src/utils/hmac.ts` | HMAC-SHA256 request signing (generateSigningSecret, signRequest) |
+| `jarble-api-main/src/utils/agentCallEvents.ts` | In-process EventEmitter bridge for agent-to-agent call notifications (start/end events) |
+| `jarble-api-main/src/routes/agentHub.ts` | POST /api/agent-hub/call and GET /api/agent-hub/discover |
 | `jarble-api-main/src/utils/jsonSchemaValidation.ts` | JSON Schema validator for service skill input/output |
 | `jarble-api-main/src/middleware/serviceRateLimit.ts` | Per-deployment+service rate limiter (from ServiceCard limits) |
 | `shared/component-manifest/index.ts` | COMPONENT_MANIFEST + derived exports — consumed by all layers |

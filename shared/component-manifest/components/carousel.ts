@@ -12,4 +12,5 @@ export const carouselEntry: ComponentManifestEntry = {
   tags: ["media", "carousel", "slides", "gallery"],
   builtin: true,
   renderOrder: 8,
+  promptGuidance: "Use for lists of similar items WITH images (places, products, people). Each slide has title + description + image. For items without images, use tabs or accordion instead.",
 };

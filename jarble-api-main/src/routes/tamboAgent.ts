@@ -51,10 +51,13 @@ import {
   CUSTOM_SUGGESTIONS,
   CUSTOM_DESIGN_CONTEXT,
   CUSTOM_TOOL_STATUS,
+  CUSTOM_AGENT_CALL_START,
+  CUSTOM_AGENT_CALL_END,
   REASONING_START,
   REASONING_CONTENT,
   REASONING_END,
 } from "../utils/eventTypes.js";
+import { agentCallEvents, type AgentCallStartEvent, type AgentCallEndEvent } from "../utils/agentCallEvents.js";
 
 export const tamboAgentRouter = Router();
 
@@ -797,6 +800,36 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   const messageId = nanoid();
   sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
+
+  // ── Agent call event listeners ─────────────────────────────────────────────
+  // When the MCP server inside the pod calls /api/agent-hub/call, the agent-hub
+  // route emits events. We forward them to the SSE stream so the frontend
+  // can show an inline "Delegating to X Agent..." indicator.
+  const onAgentCallStart = (evt: AgentCallStartEvent) => {
+    if (evt.deploymentId !== deploymentId) return;
+    sendEvent(res, {
+      type: CUSTOM,
+      name: CUSTOM_AGENT_CALL_START,
+      value: { serviceId: evt.serviceId, skillName: evt.skillName, agentName: evt.agentName },
+    });
+  };
+  const onAgentCallEnd = (evt: AgentCallEndEvent) => {
+    if (evt.deploymentId !== deploymentId) return;
+    sendEvent(res, {
+      type: CUSTOM,
+      name: CUSTOM_AGENT_CALL_END,
+      value: { serviceId: evt.serviceId, skillName: evt.skillName, agentName: evt.agentName, creditsCharged: evt.creditsCharged, success: evt.success },
+    });
+  };
+  agentCallEvents.on("start", onAgentCallStart);
+  agentCallEvents.on("end", onAgentCallEnd);
+
+  // Clean up agent call listeners when the SSE stream closes
+  const cleanupAgentListeners = () => {
+    agentCallEvents.off("start", onAgentCallStart);
+    agentCallEvents.off("end", onAgentCallEnd);
+  };
+  res.on("close", cleanupAgentListeners);
 
   // Track the last delta text to compute incremental deltas for SSE
   let lastDeltaText = "";

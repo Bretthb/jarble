@@ -12,22 +12,12 @@ export {
   serviceCardSkillSchema,
   serviceCardAuthSchema,
   serviceCardRateLimitsSchema,
-  // Backward-compatible aliases
-  packageCardSchema,
-  packageCardSkillSchema,
-  packageCardAuthSchema,
-  packageCardRateLimitsSchema,
 } from "./serviceCard.js";
 export type {
   ServiceCard,
   ServiceCardSkill,
   ServiceCardAuth,
   ServiceCardRateLimits,
-  // Backward-compatible aliases
-  PackageCard,
-  PackageCardSkill,
-  PackageCardAuth,
-  PackageCardRateLimits,
 } from "./serviceCard.js";
 
 // ── Categories ──────────────────────────────────────────────────────────────
@@ -46,38 +36,3 @@ export const MARKETPLACE_CATEGORIES = [
 
 export type MarketplaceCategory = (typeof MARKETPLACE_CATEGORIES)[number];
 
-// ── Manifest ────────────────────────────────────────────────────────────────
-
-export interface MarketplaceManifest {
-  name: string;
-  displayName: string;
-  description: string;
-  version: string;
-  tier: "template" | "sandbox";
-  author?: { id: string; name: string; url?: string };
-  category: string;
-  tags?: string[];
-  propsSchema?: Record<string, unknown>;
-  exampleProps?: Record<string, unknown>;
-  examplePrompts?: string[];
-  botDescription?: string;
-  pricingModel?: "free" | "one_time" | "subscription";
-  priceUsdCents?: number;
-  sandbox?: {
-    entrypoint?: string;
-    libraries?: string[];
-    maxHeight?: number;
-    permissions?: string[];
-  };
-}
-
-// ── Template Layout ─────────────────────────────────────────────────────────
-
-export interface TemplateLayout {
-  name: string;
-  description?: string;
-  layout: Array<{
-    component: string;
-    props: Record<string, unknown>;
-  }>;
-}
