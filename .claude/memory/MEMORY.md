@@ -1,5 +1,8 @@
 # Memory
 
+## Feedback & Fixes
+- [tRPC splitLink for mutations](feedback_splitlink.md) — Never batch mutations with queries
+
 ## Current Work — Bot-Side Skills System IMPLEMENTED (Mar 6, 2026)
 
 ### Bot-Side Skills — 4-Step Implementation Complete
@@ -51,6 +54,20 @@
 
 ---
 
+## OpenClaw Thinking Blocks (Mar 19, 2026)
+- OpenClaw 2026.2.25 strips native thinking from `--json` output and WS protocol
+- Fix: System prompt now instructs bot to emit `<think>` tags + `--thinking medium` flag for quality
+- `hasNativeThinking` guard removed — `<think>` tags work for all models including Opus 4.6
+- External reasoning (GPT-4o-mini) still available as supplement when OPENROUTER_API_KEY is set
+
+## Bug Audit & Playwright Testing (Mar 20, 2026)
+- [Proactive bug audit](project_bug_audit_mar20.md) — 134 bugs found, 21 fixed and committed (fed8bb9), 12 high-priority remaining
+- [Page routing & sandbox issues](project_page_routing.md) — Sandbox tabs broken (bot forgets onclick), page component needs runtime routing
+
+## Upcoming Features
+- [Canvas Vision](project_canvas_vision.md) — Bot sees its own canvas via html2canvas screenshots + multimodal LLM
+- [OpenClaw CLI slash commands](project_openclaw_slash_commands.md) — Wire pod CLI commands into chat slash menu
+
 ## Key Architecture
 - **Chat flow:** User message -> POST /api/tambo-agent -> WS to OpenClaw gateway -> AG-UI SSE events -> frontend renders
 - **UI blocks:** Bot emits `jarble_ui` fenced blocks -> backend parses -> TOOL_CALL events -> SSE -> frontend
@@ -74,5 +91,9 @@
 - **Frontend**: 319 tests across 12 files
 - **Total**: 1,253 tests
 
+## Competitive Research & Infrastructure
+- [Blink.new comparison & improvement roadmap](project_blink_comparison.md) — Page-level UI, RAG, agent templates, Components+Pages architecture proposal
+- [Agent marketplace infrastructure research](project_agent_marketplace_infra.md) — gVisor/Kata/Firecracker, Marketplace Hub pattern, A2A protocol, credit billing
+
 # currentDate
-Today's date is 2026-03-06.
+Today's date is 2026-03-20.
