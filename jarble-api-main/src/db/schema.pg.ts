@@ -48,6 +48,7 @@ export const deployments = pgTable("deployments", {
   status: varchar("status", { length: 50 }).notNull().default("creating"),
   error: text("error"),
   messagingOnly: boolean("messaging_only").notNull().default(false),
+  managedBy: varchar("managed_by", { length: 20 }).notNull().default("legacy"),  // "legacy" | "operator"
   isolationLevel: varchar("isolation_level", { length: 20 }).notNull().default("standard"),  // "standard" | "gvisor" | "kata"
   isPlatform: boolean("is_platform").notNull().default(false),  // Platform-owned agent (bypasses subscription/storage enforcement)
   resourceTier: varchar("resource_tier", { length: 20 }),  // Named resource preset: "small" | "medium" | "large"

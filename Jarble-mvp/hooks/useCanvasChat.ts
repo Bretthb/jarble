@@ -340,6 +340,41 @@ export function useCanvasChat(
       };
       setMessages((prev) => [...prev, userMessage]);
 
+      // Predictive orchestration: detect component-like requests and show agent steps
+      // immediately so the user sees activity during the 10-60s bot generation time
+      const COMPONENT_INTENT_RE = /\b(create|make|build|generate|render|show|drop|design|compose)\b.*\b(landing\s*page|dashboard|chart|table|form|card|component|widget|page|visualization|3d|graph|site|website|app|layout|sandbox)\b/i;
+      const DASHBOARD_INTENT_RE = /\b(dashboard|analytics|overview|report|metrics|kpi)\b/i;
+      if (!isActionMessage && COMPONENT_INTENT_RE.test(text)) {
+        const isDashboard = DASHBOARD_INTENT_RE.test(text);
+        const steps: typeof orchestrationSteps = [
+          { id: "think", label: "Analyzing request", status: "running", agent: "planner" },
+        ];
+        if (isDashboard) {
+          steps.push({ id: "plan", label: "Planning dashboard layout", status: "pending", agent: "planner" });
+          steps.push({ id: "gen", label: "Generating components", status: "pending", agent: "component" });
+          steps.push({ id: "qa", label: "Running QA validation", status: "pending", agent: "qa" });
+        } else {
+          steps.push({ id: "gen", label: "Generating component", status: "pending", agent: "component" });
+          steps.push({ id: "render", label: "Rendering on canvas", status: "pending", agent: "tool" });
+        }
+        setOrchestrationSteps(steps);
+
+        // Progress the steps over time to show activity
+        const t1 = setTimeout(() => {
+          setOrchestrationSteps((prev) => prev.map((s) =>
+            s.id === "think" ? { ...s, status: "complete" as const, duration: 2000 } :
+            s.id === "plan" || s.id === "gen" ? { ...s, status: "running" as const } : s
+          ));
+        }, 2000);
+        const t2 = setTimeout(() => {
+          setOrchestrationSteps((prev) => prev.map((s) =>
+            s.id === "plan" ? { ...s, status: "complete" as const, duration: 3000 } :
+            s.id === "gen" ? { ...s, status: "running" as const } : s
+          ));
+        }, 5000);
+        cardTimersRef.current.push(t1, t2);
+      }
+
       // Auto-title: update conversation title from first user message
       if (activeConvRef.current) {
         const index = loadConversationIndex(deploymentId);
@@ -574,16 +609,17 @@ export function useCanvasChat(
                 }
               }
 
-              // Mark individual orchestration steps as complete on each TOOL_CALL_END
+              // Mark orchestration steps as complete on each TOOL_CALL_END
               if (event.type === "TOOL_CALL_END" && event.toolCallId) {
                 setOrchestrationSteps((prev) => {
                   if (prev.length === 0) return prev;
                   const updated = prev.map((s) =>
-                    s.id === `render-${event.toolCallId}` ? { ...s, status: "complete" as const } : s
+                    s.id === `render-${event.toolCallId}` ? { ...s, status: "complete" as const } :
+                    s.id === "render" ? { ...s, status: "complete" as const, duration: Date.now() - streamStart } : s
                   );
                   // If all steps complete, clear after delay
                   if (updated.every((s) => s.status === "complete")) {
-                    const clearTimer = setTimeout(() => setOrchestrationSteps([]), 2000);
+                    const clearTimer = setTimeout(() => setOrchestrationSteps([]), 3000);
                     cardTimersRef.current.push(clearTimer);
                   }
                   return updated;
@@ -595,6 +631,15 @@ export function useCanvasChat(
                 const component = event.toolCallName.slice(5); // "show_chart" -> "chart"
                 const blockId = event.toolCallId;
                 blockStartTimes.set(blockId, Date.now());
+                // Transition predictive orchestration: gen→complete, render→running
+                setOrchestrationSteps((prev) => {
+                  if (prev.length === 0) return prev;
+                  return prev.map((s) =>
+                    s.id === "gen" ? { ...s, status: "complete" as const, duration: Date.now() - streamStart } :
+                    s.id === "render" ? { ...s, status: "running" as const } :
+                    s.id === "qa" && s.status === "pending" as any ? { ...s, status: "complete" as const, duration: 200 } : s
+                  );
+                });
                 pendingBlocks.set(blockId, {
                   id: blockId,
                   component,

@@ -118,6 +118,9 @@ function extractJsonFromBlock(text: string, startIndex: number): { json: string;
   let inString = false;
   let escape = false;
   const start = i;
+  // Track the last position where depth was 1 and we just closed a value —
+  // this is a potential truncation repair point
+  let lastDepth1Close = -1;
 
   for (; i < text.length; i++) {
     const ch = text[i];
@@ -131,10 +134,46 @@ function extractJsonFromBlock(text: string, startIndex: number): { json: string;
       if (depth === 0) {
         return { json: text.slice(start, i + 1), endIndex: i + 1 };
       }
+      // Track last close at depth 1 (inside the root object)
+      if (depth === 1) lastDepth1Close = i;
     }
   }
 
-  return null; // Incomplete block
+  // Incomplete block — try to repair truncated JSON.
+  // Large sandbox components often get truncated by OpenClaw CLI timeout.
+  // Strategy: find the last point where the "props" object was somewhat valid
+  // and close all open braces.
+  if (depth > 0 && !inString) {
+    // Close all remaining braces
+    const truncated = text.slice(start, text.length);
+    const closingBraces = "}".repeat(depth);
+    const repaired = truncated + closingBraces;
+    try {
+      JSON.parse(repaired);
+      logger.debug("[uiBlockParser] Repaired truncated JSON (%d chars, added %d closing braces)", repaired.length, depth);
+      return { json: repaired, endIndex: text.length };
+    } catch {
+      // Repair failed — might be mid-string. Try closing the string first.
+      const repairedWithString = truncated + '"' + closingBraces;
+      try {
+        JSON.parse(repairedWithString);
+        logger.debug("[uiBlockParser] Repaired truncated JSON with string close (%d chars)", repairedWithString.length);
+        return { json: repairedWithString, endIndex: text.length };
+      } catch {
+        // Last resort: truncate to the last clean depth-1 close point
+        if (lastDepth1Close > start) {
+          const safeJson = text.slice(start, lastDepth1Close + 1) + "}";
+          try {
+            JSON.parse(safeJson);
+            logger.debug("[uiBlockParser] Repaired truncated JSON by truncating to last safe point (%d chars)", safeJson.length);
+            return { json: safeJson, endIndex: lastDepth1Close + 1 };
+          } catch { /* truly unrecoverable */ }
+        }
+      }
+    }
+  }
+
+  return null; // Truly incomplete/unrecoverable
 }
 
 /**

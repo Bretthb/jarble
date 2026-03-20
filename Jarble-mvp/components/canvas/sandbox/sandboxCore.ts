@@ -259,7 +259,11 @@ export function buildDocument(
       return false;
     }
   });
-  const libsJson = JSON.stringify(safeLibs);
+  // Tailwind CDN must be in <head> as a static script (not dynamically loaded)
+  // because its JIT scanner needs to run before the body renders
+  const tailwindUrl = safeLibs.find((u) => u.includes("tailwindcss.com"));
+  const nonTailwindLibs = safeLibs.filter((u) => !u.includes("tailwindcss.com"));
+  const libsJson = JSON.stringify(nonTailwindLibs);
 
   // Merge default imports with user-supplied importMap (user takes precedence)
   const mergedMap = { ...DEFAULT_SANDBOX_IMPORTS, ...(importMap ?? {}) };
@@ -333,6 +337,7 @@ ${skinCSS}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${escapeAttr(csp)}">
+${tailwindUrl ? `<script src="${escapeAttr(tailwindUrl)}"><\/script>` : ""}
 <style>${themeCSS}\n${css || ""}</style>${importMapTag}
 </head>
 <body>
