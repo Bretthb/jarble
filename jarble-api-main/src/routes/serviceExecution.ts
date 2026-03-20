@@ -399,7 +399,7 @@ serviceExecutionRouter.post(
       const { execInPod } = await import("../k8s/exec.js");
 
       // execInPod has no built-in timeout, so we use Promise.race with a timer
-      const execPromise = execInPod(podName, ["node", "-e", wrapperScript]);
+      const execPromise = execInPod(podName!, ["node", "-e", wrapperScript]);
       const timeoutPromise = new Promise<never>((_, reject) => {
         const tid = setTimeout(() => {
           reject(new Error(`Skill execution timed out after ${timeoutMs}ms`));

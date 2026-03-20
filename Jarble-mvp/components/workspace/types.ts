@@ -58,6 +58,13 @@ export interface CanvasCard {
   autoHeight?: boolean;
   /** ID of the card this one was derived from (provenance tracking) */
   parentCardId?: string;
+  /** Accumulated CSP violations from sandbox iframe bridge (max 10) */
+  cspViolations?: Array<{
+    blockedURI: string;
+    violatedDirective: string;
+  }>;
+  /** Last render error message (from error boundary or sandbox) */
+  lastRenderError?: string;
 }
 
 export interface DrawStroke {
@@ -131,7 +138,9 @@ export type CanvasAction =
   | { type: "CLEAR_STROKES" }
   | { type: "OPEN_PAGE_FULLSCREEN"; id: string }
   | { type: "CLOSE_PAGE_FULLSCREEN" }
-  | { type: "UNGROUP_PAGE"; cardId: string };
+  | { type: "UNGROUP_PAGE"; cardId: string }
+  | { type: "RECORD_CSP_VIOLATION"; id: string; violation: { blockedURI: string; violatedDirective: string } }
+  | { type: "RECORD_RENDER_ERROR"; id: string; error: string };
 
 // ── Splittable components config ────────────────────────────────────────────
 

@@ -151,7 +151,12 @@ export const servicesRouter = router({
       const page = filtered.slice(startIdx, startIdx + limit);
       const nextCursor = page.length === limit ? page[page.length - 1]?.id : undefined;
 
-      const items = [];
+      const items: Array<{
+        id: string; name: string; displayName: string; description: string | null;
+        hostingModel: string; status: string; pricingModel: string; priceUsdCents: number;
+        totalInstalls: number; avgRating: string | null; componentCount: number; skillCount: number;
+        creator: { id: string; displayName: string } | null; createdAt: Date;
+      }> = [];
       for (const pkg of page) {
         const compCount = (await ctx.db.query.serviceComponents.findMany({
           where: eq(serviceComponents.packageId, pkg.id),
@@ -190,7 +195,9 @@ export const servicesRouter = router({
       const pkgComps = await ctx.db.query.serviceComponents.findMany({
         where: eq(serviceComponents.packageId, pkg.id),
       });
-      const components = [];
+      const components: Array<{
+        id: string; name: string; displayName: string; description: string; tier: string; category: string;
+      }> = [];
       for (const pc of pkgComps) {
         const comp = await ctx.db.query.marketplaceComponents.findFirst({
           where: eq(marketplaceComponents.id, pc.componentId),
@@ -206,7 +213,7 @@ export const servicesRouter = router({
       const pkgSkills = await ctx.db.query.serviceSkills.findMany({
         where: eq(serviceSkills.packageId, pkg.id),
       });
-      const skills = [];
+      const skills: Array<{ id: string; name: string; description: string | null }> = [];
       for (const ps of pkgSkills) {
         const skill = await ctx.db.query.skillsCatalog.findFirst({
           where: eq(skillsCatalog.id, ps.skillId),
@@ -677,7 +684,10 @@ export const servicesRouter = router({
         where: eq(serviceInstalls.deploymentId, input.deploymentId),
       });
 
-      const results = [];
+      const results: Array<{
+        installId: string; installedAt: Date;
+        package: { id: string; name: string; displayName: string; description: string | null; hostingModel: string };
+      }> = [];
       for (const inst of installs) {
         const pkg = await ctx.db.query.marketplaceServices.findFirst({
           where: eq(marketplaceServices.id, inst.packageId),
@@ -2176,7 +2186,12 @@ export const servicesRouter = router({
         new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
       );
 
-      const items = [];
+      const items: Array<{
+        id: string; name: string; displayName: string; description: string | null;
+        hostingModel: string; status: string; pricingModel: string; priceUsdCents: number;
+        componentCount: number; skillCount: number; testInstallCount: number;
+        creatorDeploymentId: string | null; createdAt: Date; updatedAt: Date;
+      }> = [];
       for (const svc of filtered) {
         const compCount = (await ctx.db.query.serviceComponents.findMany({
           where: eq(serviceComponents.packageId, svc.id),

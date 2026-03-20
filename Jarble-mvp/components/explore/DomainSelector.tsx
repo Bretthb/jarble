@@ -58,11 +58,11 @@ export function DomainSelector({ value, onChange }: DomainSelectorProps) {
         <SelectValue placeholder="Select domain" />
       </SelectTrigger>
       <SelectContent>
-        {domains.map((domain: { slug: string; name: string; icon?: string }) => (
-          <SelectItem key={domain.slug} value={domain.slug}>
+        {domains.map((domain) => (
+          <SelectItem key={domain.name} value={domain.name}>
             <span className="flex items-center gap-2">
               {domain.icon && <span>{domain.icon}</span>}
-              {domain.name}
+              {domain.displayName || domain.name}
             </span>
           </SelectItem>
         ))}

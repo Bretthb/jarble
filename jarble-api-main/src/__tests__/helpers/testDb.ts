@@ -33,7 +33,6 @@ const CREATE_TABLES_SQL = `
     email_verified INTEGER DEFAULT 0 NOT NULL,
     stripe_customer_id TEXT,
     pending_stripe_subscription_id TEXT,
-    pending_stripe_tier TEXT,
     free_deployment_used INTEGER DEFAULT 0 NOT NULL,
     free_trial_expires_at TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
@@ -331,6 +330,198 @@ const CREATE_TABLES_SQL = `
     sort_order INTEGER DEFAULT 0 NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS service_rate_limits (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL,
+    service_id TEXT NOT NULL,
+    window_type TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    count INTEGER DEFAULT 0 NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_srl_deployment_service_window ON service_rate_limits(deployment_id, service_id, window_type, window_start);
+
+  CREATE TABLE IF NOT EXISTS service_circuit_breakers (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL UNIQUE,
+    state TEXT DEFAULT 'CLOSED' NOT NULL,
+    consecutive_failures INTEGER DEFAULT 0 NOT NULL,
+    last_failure_at TEXT,
+    opened_at TEXT,
+    half_open_claimed_by TEXT,
+    half_open_claimed_at TEXT,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS service_heartbeats (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL UNIQUE,
+    last_heartbeat_at TEXT NOT NULL,
+    heartbeat_interval_ms INTEGER DEFAULT 60000 NOT NULL,
+    payload TEXT,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    key_prefix TEXT NOT NULL,
+    scopes TEXT DEFAULT 'mesh:read,mesh:write' NOT NULL,
+    rate_limit_per_min INTEGER DEFAULT 60 NOT NULL,
+    rate_limit_per_day INTEGER DEFAULT 10000 NOT NULL,
+    last_used_at TEXT,
+    request_count INTEGER DEFAULT 0 NOT NULL,
+    expires_at TEXT,
+    revoked_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
+
+  CREATE TABLE IF NOT EXISTS service_async_jobs (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL,
+    service_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    request_body TEXT NOT NULL,
+    response_body TEXT,
+    response_status INTEGER,
+    error_message TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    completed_at TEXT,
+    expires_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_service_async_jobs_deployment_id ON service_async_jobs(deployment_id);
+  CREATE INDEX IF NOT EXISTS idx_service_async_jobs_expires_at ON service_async_jobs(expires_at);
+
+  CREATE TABLE IF NOT EXISTS domains (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    description TEXT,
+    parent_id TEXT,
+    icon TEXT,
+    sort_order INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_domains_parent ON domains(parent_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_domains_name ON domains(name);
+
+  CREATE TABLE IF NOT EXISTS deployment_ratings (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    domain_id TEXT NOT NULL REFERENCES domains(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    accuracy INTEGER NOT NULL,
+    helpfulness INTEGER NOT NULL,
+    creativity INTEGER NOT NULL,
+    comment TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_rating ON deployment_ratings(user_id, deployment_id, domain_id);
+  CREATE INDEX IF NOT EXISTS idx_drt_deployment_domain ON deployment_ratings(deployment_id, domain_id);
+
+  CREATE TABLE IF NOT EXISTS deployment_domain_scores (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    domain_id TEXT NOT NULL REFERENCES domains(id),
+    avg_accuracy INTEGER,
+    avg_helpfulness INTEGER,
+    avg_creativity INTEGER,
+    overall_score INTEGER,
+    rating_count INTEGER DEFAULT 0 NOT NULL,
+    confidence TEXT DEFAULT 'low' NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_dds_deployment_domain ON deployment_domain_scores(deployment_id, domain_id);
+  CREATE INDEX IF NOT EXISTS idx_dds_domain_score ON deployment_domain_scores(domain_id, overall_score);
+
+  CREATE TABLE IF NOT EXISTS service_benchmark_samples (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    latency_ms INTEGER NOT NULL,
+    status_code INTEGER NOT NULL,
+    success INTEGER DEFAULT 1 NOT NULL,
+    response_size_bytes INTEGER,
+    sampled_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_sbs_service_skill ON service_benchmark_samples(service_id, skill_name);
+  CREATE INDEX IF NOT EXISTS idx_sbs_sampled_at ON service_benchmark_samples(sampled_at);
+
+  CREATE TABLE IF NOT EXISTS service_benchmark_aggregates (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    period TEXT NOT NULL,
+    latency_p50 INTEGER,
+    latency_p95 INTEGER,
+    latency_p99 INTEGER,
+    uptime_percent INTEGER,
+    error_rate INTEGER,
+    avg_response_size INTEGER,
+    sample_count INTEGER DEFAULT 0 NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_sba_service_skill_period ON service_benchmark_aggregates(service_id, skill_name, period);
+
+  CREATE TABLE IF NOT EXISTS service_reviews (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL REFERENCES marketplace_packages(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    rating INTEGER NOT NULL,
+    title TEXT,
+    body TEXT,
+    creator_response TEXT,
+    creator_responded_at TEXT,
+    helpful INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_user_service_review ON service_reviews(user_id, service_id);
+
+  CREATE TABLE IF NOT EXISTS agent_credits (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    amount INTEGER NOT NULL,
+    balance INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    reference TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_agent_credits_user_id ON agent_credits(user_id);
+
+  CREATE TABLE IF NOT EXISTS agent_calls (
+    id TEXT PRIMARY KEY,
+    caller_deployment_id TEXT NOT NULL REFERENCES deployments(id),
+    callee_deployment_id TEXT NOT NULL REFERENCES deployments(id),
+    skill_name TEXT NOT NULL,
+    credits_charged INTEGER DEFAULT 0 NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    request_body TEXT,
+    response_body TEXT,
+    latency_ms INTEGER,
+    error_message TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_caller ON agent_calls(caller_deployment_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_callee ON agent_calls(callee_deployment_id);
 `;
 
 export interface TestDbContext {

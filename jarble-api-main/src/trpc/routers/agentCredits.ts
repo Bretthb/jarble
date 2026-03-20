@@ -26,9 +26,13 @@ const CREDIT_TIERS = {
 /**
  * Get the current credit balance for a user by reading the most recent
  * ledger entry. Returns 0 if no entries exist.
+ *
+ * Accepts an optional `tx` (transaction handle) so the read can participate
+ * in an outer transaction — critical for atomic balance-check-then-debit flows.
  */
-async function getCurrentBalance(userId: string): Promise<number> {
-  const latest = await db
+async function getCurrentBalance(userId: string, tx?: typeof db): Promise<number> {
+  const conn = tx ?? db;
+  const latest = await conn
     .select({ balance: agentCredits.balance })
     .from(agentCredits)
     .where(eq(agentCredits.userId, userId))
@@ -40,14 +44,19 @@ async function getCurrentBalance(userId: string): Promise<number> {
 
 /**
  * Add a credit ledger entry (append-only). Computes the new running balance.
+ *
+ * Accepts an optional `tx` (transaction handle) so the write can participate
+ * in an outer transaction — critical for atomic balance-check-then-debit flows.
  */
 async function addLedgerEntry(params: {
   userId: string;
   amount: number;
   reason: string;
   reference?: string;
+  tx?: typeof db;
 }): Promise<{ balance: number; entryId: string }> {
-  const currentBalance = await getCurrentBalance(params.userId);
+  const conn = params.tx ?? db;
+  const currentBalance = await getCurrentBalance(params.userId, conn);
   const newBalance = currentBalance + params.amount;
 
   if (newBalance < 0) {
@@ -57,7 +66,7 @@ async function addLedgerEntry(params: {
     });
   }
 
-  const result = await db.insert(agentCredits).values({
+  const result = await conn.insert(agentCredits).values({
     userId: params.userId,
     amount: params.amount,
     balance: newBalance,
@@ -68,7 +77,7 @@ async function addLedgerEntry(params: {
 
   // For SQLite, we need to get the inserted ID differently
   // The $defaultFn on the id column auto-generates it, so query the latest entry
-  const latest = await db
+  const latest = await conn
     .select({ id: agentCredits.id, balance: agentCredits.balance })
     .from(agentCredits)
     .where(eq(agentCredits.userId, params.userId))

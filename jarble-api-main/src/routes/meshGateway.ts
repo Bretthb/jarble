@@ -17,6 +17,7 @@ import { eq, and } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { authenticateApiKey, requireScope, type ApiKeyContext } from "../middleware/apiKeyAuth.js";
 import { createModuleLogger } from "../utils/logger.js";
+import { meshGatewayToken } from "./meshGatewayToken.js";
 
 const log = createModuleLogger("meshGateway");
 
@@ -71,9 +72,10 @@ meshGatewayRouter.post(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // Use the deployment's gateway token for internal auth
-          // Since we've validated the API key, we can use internal credentials
-          "X-Gateway-Token": "mesh-gateway-internal",
+          // Authenticate to the service proxy using the shared mesh gateway secret.
+          // This token is either configured via MESH_GATEWAY_SECRET or generated
+          // randomly per process — see meshGatewayToken.ts for details.
+          "X-Gateway-Token": meshGatewayToken,
           "X-Request-Id": req.headers["x-request-id"] as string || crypto.randomUUID(),
         },
         body: JSON.stringify(req.body ?? {}),

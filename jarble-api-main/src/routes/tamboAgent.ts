@@ -699,6 +699,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   const managedBy = ((deployment as any).managedBy ?? "legacy") as ManagedBy;
   const requestStartMs = Date.now();
   const agMessages = body.messages || [];
+  const canvasImage: string | undefined = body.canvasImage; // base64 JPEG from frontend canvas screenshot
 
   // Extract last user message
   const lastUserMsg = [...agMessages].reverse().find((m: any) => m.role === "user");
@@ -710,7 +711,15 @@ tamboAgentRouter.post("/", async (req, res) => {
         : "")
     : "";
 
-  log.info({ deploymentId, messageLength: lastUserText.length }, "Chat: request started");
+  // If canvas image is provided, append a vision context note to the message
+  // so the bot knows it can see the canvas
+  let messageWithVision = lastUserText;
+  if (canvasImage) {
+    messageWithVision += "\n\n[CANVAS_SCREENSHOT attached — you can see the current canvas layout, rendered components, and any drawings the user made. Describe what you see if relevant to the request.]";
+    log.info({ deploymentId, imageSize: Math.round(canvasImage.length / 1024) + "KB" }, "Chat: canvas image attached");
+  }
+
+  log.info({ deploymentId, messageLength: lastUserText.length, hasCanvasImage: !!canvasImage }, "Chat: request started");
 
   // ── Slash command interception — handle /theme, /commands, etc. directly ──
   // Must run BEFORE RUN_STARTED to avoid double-emit (command handler sends its own).
@@ -896,12 +905,16 @@ tamboAgentRouter.post("/", async (req, res) => {
   // is suppressed to avoid duplicates.
   const reasoningTracker = createReasoningTracker();
 
-  /** Process a streaming text delta through the reasoning tracker and emit appropriate events. */
+  /** Process a streaming text delta through the reasoning tracker and emit appropriate events.
+   *  Also suppresses jarble_ui/jarble_suggestions fenced blocks from the text stream —
+   *  UI blocks are emitted separately as TOOL_CALL events via onBlockDetected. */
+  let inFencedBlock = false; // tracks whether we're mid-way through a ```jarble_* fence
+  let fenceBuffer = ""; // accumulates text when we might be entering a fence
   const emitStreamingDelta = (fullTextSoFar: string) => {
     const visibleDelta = reasoningTracker.process(fullTextSoFar, {
       onReasoningStart: () => {
         if (!reasoningEmitted) {
-          reasoningEmitted = true; // Mark early so external reasoning doesn't also emit
+          reasoningEmitted = true;
           sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
         }
       },
@@ -917,12 +930,49 @@ tamboAgentRouter.post("/", async (req, res) => {
       },
     });
     if (visibleDelta) {
-      // Strip jarble_suggestions blocks from streaming text so they don't render
-      // as code blocks in chat. The suggestions are extracted separately on the
-      // final response and emitted as CUSTOM_SUGGESTIONS events.
-      const cleaned = visibleDelta
-        .replace(/```jarble_suggestions\s*\n[\s\S]*?```/g, "")
-        .replace(/\n{3,}/g, "\n\n");
+      // Suppress text inside ```jarble_ui/jarble_suggestions/jarble_ui_update/jarble_ui_define fences.
+      // These are extracted separately as TOOL_CALL events and must not leak into chat.
+      let textToSend = "";
+      const combined = fenceBuffer + visibleDelta;
+      fenceBuffer = "";
+
+      if (inFencedBlock) {
+        // We're inside a fence — look for the closing ```
+        const closeIdx = combined.indexOf("```");
+        if (closeIdx !== -1) {
+          inFencedBlock = false;
+          // Continue processing text after the closing fence
+          const afterFence = combined.slice(closeIdx + 3);
+          textToSend = afterFence;
+        }
+        // else: still inside fence, suppress everything
+      } else {
+        // Look for opening fence markers
+        const fenceMatch = combined.match(/```jarble_(?:ui|ui_update|ui_define|suggestions)\s*\n/);
+        if (fenceMatch && fenceMatch.index !== undefined) {
+          // Send text before the fence
+          textToSend = combined.slice(0, fenceMatch.index);
+          const afterOpen = combined.slice(fenceMatch.index + fenceMatch[0].length);
+          // Check if closing ``` is in the same delta
+          const closeIdx = afterOpen.indexOf("```");
+          if (closeIdx !== -1) {
+            textToSend += afterOpen.slice(closeIdx + 3);
+          } else {
+            inFencedBlock = true;
+          }
+        } else {
+          // Check for partial fence at the end (e.g. text ends with "```jarble" but no \n yet)
+          const partialMatch = combined.match(/```jarble[_a-z]*$/);
+          if (partialMatch && partialMatch.index !== undefined) {
+            textToSend = combined.slice(0, partialMatch.index);
+            fenceBuffer = partialMatch[0]; // buffer until next delta completes the match
+          } else {
+            textToSend = combined;
+          }
+        }
+      }
+
+      const cleaned = textToSend.replace(/\n{3,}/g, "\n\n");
       if (cleaned.trim()) {
         sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: cleaned });
       }
@@ -980,6 +1030,20 @@ tamboAgentRouter.post("/", async (req, res) => {
     const customCount = resolvedBlocks.filter(b => b.component === "layout" && !gatewayResult.uiBlocks.find(orig => orig.id === b.id && orig.component === "layout")).length;
     if (resolvedBlocks.length > 0) {
       log.debug({ deploymentId, blockCount: resolvedBlocks.length, customCount }, "Chat: resolved UI blocks");
+      // Emit orchestration steps so the frontend shows what's being rendered
+      sendEvent(res, {
+        type: CUSTOM,
+        name: "jarble.orchestration.steps",
+        value: {
+          tool: "render_components",
+          steps: resolvedBlocks.map((b, i) => ({
+            id: `render-${b.id}`,
+            label: (b.props.title as string) || b.component.replace(/_/g, " "),
+            status: "pending",
+            agent: b.component === "sandbox" ? "component" : "tool",
+          })),
+        },
+      });
     }
 
     for (const block of resolvedBlocks) {
@@ -1129,12 +1193,13 @@ tamboAgentRouter.post("/", async (req, res) => {
     return chatViaExec(
       podName,
       sessionKey,
-      lastUserText,
+      messageWithVision,
       (fullTextSoFar) => {
         if (fullTextSoFar.length > lastDeltaText.length) {
           emitStreamingDelta(fullTextSoFar);
         }
       },
+      canvasImage,
     );
   };
 
@@ -1194,7 +1259,7 @@ tamboAgentRouter.post("/", async (req, res) => {
           gatewayToken: podAddr.gatewayToken,
           sessionKey,
         },
-        lastUserText,
+        messageWithVision,
         (fullTextSoFar) => {
           if (fullTextSoFar.length > lastDeltaText.length) {
             emitStreamingDelta(fullTextSoFar);

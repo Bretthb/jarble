@@ -601,10 +601,18 @@ export const marketplaceRouter = router({
         where: eq(componentInstalls.deploymentId, input.deploymentId),
       });
 
-      if (installs.length === 0) return [];
+      if (installs.length === 0) return [] as Array<{
+        installId: string; installedAt: Date; versionId: string;
+        version: string | null;
+        component: { id: string; name: string; displayName: string; description: string; tier: string; category: string } | null;
+      }>;
 
       // Fetch component and version details for each install
-      const results = [];
+      const results: Array<{
+        installId: string; installedAt: Date; versionId: string;
+        version: string | null;
+        component: { id: string; name: string; displayName: string; description: string; tier: string; category: string } | null;
+      }> = [];
       for (const install of installs) {
         const component = await ctx.db.query.marketplaceComponents.findFirst({
           where: eq(marketplaceComponents.id, install.componentId),
@@ -771,7 +779,10 @@ export const marketplaceRouter = router({
     });
 
     // Fetch component details for each purchase
-    const results = [];
+    const results: Array<{
+      id: string; componentId: string; amountCents: number; status: string; purchasedAt: Date;
+      component: { id: string; name: string; displayName: string } | null;
+    }> = [];
     for (const purchase of purchases) {
       const component = await ctx.db.query.marketplaceComponents.findFirst({
         where: eq(marketplaceComponents.id, purchase.componentId),

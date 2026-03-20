@@ -95,7 +95,7 @@ export function DeploymentCard({ deployment, className }: DeploymentCardProps) {
             size="sm"
             className="h-7 text-xs gap-1"
             disabled={forkMutation.isPending}
-            onClick={() => forkMutation.mutate({ id: deployment.id })}
+            onClick={() => forkMutation.mutate({ sourceId: deployment.id, name: `${deployment.name} (fork)` })}
           >
             {forkMutation.isPending ? (
               <Loader2 className="size-3 animate-spin" />

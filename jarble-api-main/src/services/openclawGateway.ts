@@ -434,21 +434,42 @@ export async function chatViaExec(
   sessionKey: string,
   message: string,
   onDelta?: (fullText: string) => void,
+  canvasImage?: string,
 ): Promise<GatewayResponse> {
-  log.info({ podName, messageLen: message.length }, "chatViaExec: falling back to npx openclaw agent");
+  log.info({ podName, messageLen: message.length, hasImage: !!canvasImage }, "chatViaExec: starting");
+
+  // If canvas image is provided, write it to a temp file on the pod so it persists for the session
+  if (canvasImage) {
+    try {
+      // Strip data URL prefix to get raw base64
+      const base64Data = canvasImage.replace(/^data:image\/\w+;base64,/, "");
+      // Write to pod filesystem via exec (base64 → file)
+      await execInPod(podName, [
+        "sh", "-c", `echo '${base64Data}' | base64 -d > /tmp/canvas-screenshot.jpg`,
+      ], undefined, 10_000);
+      log.debug({ podName }, "chatViaExec: canvas screenshot written to pod");
+    } catch (err) {
+      log.warn({ podName, err: (err as Error).message }, "chatViaExec: failed to write canvas screenshot to pod");
+    }
+  }
 
   // Pass --thinking medium for higher quality answers. OpenClaw 2026.2.x strips
   // native thinking from --json output, so it's not visible in the response.
   // For user-facing reasoning display, the system prompt instructs the bot to emit
   // <think> tags which tamboAgent.ts parses into REASONING_* SSE events.
-  const output = await execInPod(podName, [
+  const args = [
     "npx", "openclaw", "agent",
     "--message", message,
     "--session-id", sessionKey,
     "--thinking", "medium",
     "--json",
     "--timeout", "60",
-  ], undefined, 90_000); // 90s — cold start + LLM generation can take 30-60s
+  ];
+  // If image was written, add --image flag (OpenClaw 2026.2.25+ supports this)
+  if (canvasImage) {
+    args.push("--image", "/tmp/canvas-screenshot.jpg");
+  }
+  const output = await execInPod(podName, args, undefined, 90_000); // 90s — cold start + LLM generation can take 30-60s
 
   // Parse JSON response (same as chatWithBot MCP tool)
   let parsed: any;

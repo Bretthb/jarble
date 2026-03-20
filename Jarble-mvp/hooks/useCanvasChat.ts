@@ -62,14 +62,26 @@ interface UIBlockPending {
 /** Regex to strip ```jarble_ui ... ```, ```jarble_ui_update ... ```, and ```jarble_ui_define ... ``` fenced blocks from displayed text */
 const JARBLE_UI_FENCE = /```jarble_ui(?:_update|_define)?\s*\n[\s\S]*?```/g;
 
+/** Regex to strip raw component JSON that leaked into text (e.g. on abort before TOOL_CALL_END) */
+const RAW_COMPONENT_JSON = /\{"component"\s*:\s*"[a-z_]+"\s*,\s*"props"\s*:\s*\{[\s\S]{50,}\}\s*\}/g;
+
+/** Strip "Request was aborted." and similar gateway error messages from chat text */
+const ABORT_MESSAGE_RE = /Request was aborted\.?\s*/gi;
+
 function stripUIMarkers(text: string): string {
-  return text.replace(JARBLE_UI_FENCE, "").replace(/\n{3,}/g, "\n\n").trim();
+  return text
+    .replace(JARBLE_UI_FENCE, "")
+    .replace(RAW_COMPONENT_JSON, "")
+    .replace(ABORT_MESSAGE_RE, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function useCanvasChat(
   deploymentId: string,
   state: CanvasState,
-  dispatch: React.Dispatch<CanvasAction>
+  dispatch: React.Dispatch<CanvasAction>,
+  liveStatus?: string,
 ) {
   const { getAccessTokenSilently } = useAuth0();
   const { registerComponent } = useComponentCatalog();
@@ -83,6 +95,7 @@ export function useCanvasChat(
   const [suggestions, setSuggestions] = useState<Array<{ prompt: string }>>([]);
   const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [activeAgentCall, setActiveAgentCall] = useState<{ serviceId: string; skillName: string; agentName?: string } | null>(null);
+  const [orchestrationSteps, setOrchestrationSteps] = useState<Array<import("@/components/chat/OrchestrationSteps").OrchestrationStep>>([]);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -154,7 +167,9 @@ export function useCanvasChat(
     }
   }, [deploymentId]);
 
-  // Debounced save messages to conversation storage
+  // Debounced save messages to conversation storage.
+  // On unmount: also captures any in-flight streaming text as an assistant message
+  // so the bot's response survives page navigation mid-stream.
   useEffect(() => {
     if (!hasLoadedHistory.current || messages.length === 0 || !activeConversationId) return;
 
@@ -164,14 +179,35 @@ export function useCanvasChat(
     }, 500);
 
     return () => {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        flushMessages(activeConvRef.current, messages);
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
+      // Build the final message list — append in-flight streaming text if active
+      let finalMessages = messagesRef.current;
+      if (isStreamingRef.current && targetTextRef.current) {
+        const cleanText = stripUIMarkers(targetTextRef.current);
+        if (cleanText) {
+          finalMessages = [
+            ...finalMessages,
+            {
+              id: `unmount-${Date.now()}`,
+              role: "assistant" as const,
+              content: cleanText,
+              createdAt: Date.now(),
+              ...(targetReasoningRef.current ? { reasoning: targetReasoningRef.current } : {}),
+            },
+          ];
+          isDev && console.log(`[Jarble:Chat] Unmount: capturing in-flight response (${cleanText.length} chars)`);
+        }
+      }
+
+      const convId = activeConvRef.current;
+      if (convId && finalMessages.length > 0) {
+        saveConversationMessages(deploymentId, convId, finalMessages);
       }
     };
   }, [deploymentId, messages, activeConversationId, flushMessages]);
 
-  // Clear card animation timers and rAF on unmount to prevent setState on unmounted component
+  // Clear card animation timers and rAF on unmount, abort in-flight requests
   useEffect(() => {
     return () => {
       cardTimersRef.current.forEach(clearTimeout);
@@ -184,6 +220,7 @@ export function useCanvasChat(
         cancelAnimationFrame(reasoningRafIdRef.current);
         reasoningRafIdRef.current = null;
       }
+      abortRef.current?.abort();
     };
   }, []);
 
@@ -224,6 +261,23 @@ export function useCanvasChat(
           editModeRef.current = { cardId: selectedCard.id, component: selectedCard.component };
         }
         dispatch({ type: "DESELECT_CARD" });
+      }
+
+      // Debug intent detection: if user is asking about debugging + card is selected,
+      // append structured debug context so the bot can call debug_component
+      const DEBUG_INTENT_RE = /\b(debug|diagnose|fix|broken|not working|won'?t render|fails?|error|what'?s wrong|why isn'?t)\b/i;
+      if (selectedCard && DEBUG_INTENT_RE.test(text)) {
+        const debugLines = [`[DEBUG_CONTEXT cardId=${selectedCard.id} component=${selectedCard.component}]`];
+        // Include props (truncated to 2KB)
+        const propsJson = JSON.stringify(selectedCard.props);
+        debugLines.push(`Props: ${propsJson.length > 2048 ? propsJson.slice(0, 2048) + "..." : propsJson}`);
+        if (selectedCard.lastRenderError) {
+          debugLines.push(`Render Error: ${selectedCard.lastRenderError}`);
+        }
+        if (selectedCard.cspViolations?.length) {
+          debugLines.push(`CSP Violations: ${JSON.stringify(selectedCard.cspViolations)}`);
+        }
+        messageToSend += `\n${debugLines.join("\n")}`;
       }
 
       // Build canvas state summary — skip for action/error messages since they already carry
@@ -302,6 +356,29 @@ export function useCanvasChat(
         const url = `${API_URL}/api/tambo-agent`;
         isDev && console.log(`[Jarble:Chat] SSE connecting to ${url} for deployment ${deploymentId}`);
 
+        // Capture canvas screenshot if cards or strokes exist (bot can see what's rendered)
+        let canvasImage: string | undefined;
+        if (!isActionMessage && (currentState.cards.length > 0 || currentState.strokes.length > 0)) {
+          try {
+            // Dynamic import to avoid loading html2canvas until needed
+            const el = document.querySelector("[data-jarble-canvas]") as HTMLElement | null;
+            if (el) {
+              const { default: html2canvas } = await import("html2canvas");
+              const canvas = await html2canvas(el, {
+                useCORS: true,
+                allowTaint: false,
+                scale: 0.4, // Low resolution to keep image small for LLM
+                logging: false,
+                backgroundColor: null,
+              });
+              canvasImage = canvas.toDataURL("image/jpeg", 0.6);
+              isDev && console.log(`[Jarble:Chat] Captured canvas screenshot (${Math.round(canvasImage.length / 1024)}KB)`);
+            }
+          } catch (err) {
+            isDev && console.warn("[Jarble:Chat] Canvas screenshot capture failed:", err);
+          }
+        }
+
         const res = await fetch(url, {
           method: "POST",
           headers: {
@@ -312,6 +389,7 @@ export function useCanvasChat(
             deploymentId,
             conversationId: activeConvRef.current,
             messages: [{ role: "user", content: messageToSend }],
+            ...(canvasImage ? { canvasImage } : {}),
           }),
           signal: controller.signal,
         });
@@ -429,7 +507,90 @@ export function useCanvasChat(
               }
               // REASONING_END is handled implicitly — reasoning text already accumulated
 
-              // ── AG-UI TOOL_CALL events (new — component rendering as tool calls) ──
+              // ── Orchestration tracking for multi-agent tools ──
+              if (event.type === "TOOL_CALL_START" && event.toolCallName) {
+                const toolName = event.toolCallName;
+                const toolId = event.toolCallId || toolName;
+
+                if (toolName === "compose_dashboard") {
+                  // Derive steps from tool args (components array)
+                  const steps: typeof orchestrationSteps = [
+                    { id: `${toolId}-plan`, label: "Planning dashboard layout", status: "running", agent: "planner" },
+                  ];
+                  // Parse component intents from args if available
+                  try {
+                    const args = event.argsPreview ? JSON.parse(event.argsPreview) : null;
+                    if (args?.components && Array.isArray(args.components)) {
+                      for (let ci = 0; ci < args.components.length; ci++) {
+                        const intent = args.components[ci].intent || `Component ${ci + 1}`;
+                        steps.push({
+                          id: `${toolId}-comp-${ci}`,
+                          label: intent.length > 50 ? intent.slice(0, 47) + "..." : intent,
+                          status: "pending",
+                          agent: "component",
+                        });
+                      }
+                    }
+                  } catch { /* args not available yet */ }
+                  steps.push({ id: `${toolId}-qa`, label: "Running QA validation", status: "pending", agent: "qa" });
+                  setOrchestrationSteps(steps);
+
+                  // Simulate step progression (planner ~2s, then components parallel ~5s, then QA)
+                  const planTimer = setTimeout(() => {
+                    setOrchestrationSteps((prev) => prev.map((s) =>
+                      s.id === `${toolId}-plan`
+                        ? { ...s, status: "complete", duration: 2500 }
+                        : s.agent === "component" ? { ...s, status: "running" } : s
+                    ));
+                  }, 2500);
+                  const compTimer = setTimeout(() => {
+                    setOrchestrationSteps((prev) => prev.map((s) =>
+                      s.agent === "component" ? { ...s, status: "complete", duration: 4000 } :
+                      s.agent === "qa" ? { ...s, status: "running" } : s
+                    ));
+                  }, 6500);
+                  const qaTimer = setTimeout(() => {
+                    setOrchestrationSteps((prev) => prev.map((s) =>
+                      s.agent === "qa" ? { ...s, status: "complete", duration: 200 } : s
+                    ));
+                  }, 7000);
+                  cardTimersRef.current.push(planTimer, compTimer, qaTimer);
+
+                } else if (toolName === "create_component") {
+                  setOrchestrationSteps([
+                    { id: `${toolId}-create`, label: "Component Agent generating...", status: "running", agent: "component",
+                      detail: event.argsPreview ? (JSON.parse(event.argsPreview).intent || "").slice(0, 60) : undefined },
+                  ]);
+
+                } else if (toolName === "debug_component") {
+                  setOrchestrationSteps([
+                    { id: `${toolId}-debug`, label: "Diagnosing component", status: "running", agent: "debug" },
+                  ]);
+
+                } else if (toolName === "test_dashboard") {
+                  setOrchestrationSteps([
+                    { id: `${toolId}-test`, label: "Testing all dashboard components", status: "running", agent: "qa" },
+                  ]);
+                }
+              }
+
+              // Mark individual orchestration steps as complete on each TOOL_CALL_END
+              if (event.type === "TOOL_CALL_END" && event.toolCallId) {
+                setOrchestrationSteps((prev) => {
+                  if (prev.length === 0) return prev;
+                  const updated = prev.map((s) =>
+                    s.id === `render-${event.toolCallId}` ? { ...s, status: "complete" as const } : s
+                  );
+                  // If all steps complete, clear after delay
+                  if (updated.every((s) => s.status === "complete")) {
+                    const clearTimer = setTimeout(() => setOrchestrationSteps([]), 2000);
+                    cardTimersRef.current.push(clearTimer);
+                  }
+                  return updated;
+                });
+              }
+
+              // ── AG-UI TOOL_CALL events (component rendering as tool calls) ──
               if (event.type === "TOOL_CALL_START" && event.toolCallName?.startsWith("show_")) {
                 const component = event.toolCallName.slice(5); // "show_chart" -> "chart"
                 const blockId = event.toolCallId;
@@ -503,6 +664,16 @@ export function useCanvasChat(
 
               // ── AG-UI CUSTOM events ──
               if (event.type === "CUSTOM") {
+                // Orchestration steps from the API (exec path — blocks about to render)
+                if (event.name === "jarble.orchestration.steps" && event.value?.steps) {
+                  const steps = (event.value.steps as Array<{ id: string; label: string; status: string; agent: string }>).map((s, i) => ({
+                    ...s,
+                    status: "running" as const,
+                    agent: (s.agent || "tool") as any,
+                  }));
+                  setOrchestrationSteps(steps);
+                  isDev && console.log(`[Jarble:Chat] Orchestration: ${steps.length} steps`);
+                }
                 if (event.name === "jarble.card.update" && event.value) {
                   const { cardId, props, merge, component } = event.value;
                   isDev && console.log(`[Jarble:Chat] Card updated (AG-UI): ${cardId} (merge=${merge ?? true})`);
@@ -700,6 +871,7 @@ export function useCanvasChat(
           setStreamingCardIds(new Set());
           setToolStatus(null);
           setActiveAgentCall(null);
+          setOrchestrationSteps([]);
         }
       }
     },
@@ -711,6 +883,126 @@ export function useCanvasChat(
   );
 
   const clearChatError = useCallback(() => setLastChatError(null), []);
+
+  // Auto-diagnose when a diagnosable chat error occurs — inject result as chat message
+  const hasDiagnosedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lastChatError?.canDiagnose) return;
+    // Only diagnose once per error instance
+    if (hasDiagnosedRef.current === lastChatError.code + lastChatError.message) return;
+    hasDiagnosedRef.current = lastChatError.code + lastChatError.message;
+
+    // Add a "diagnosing..." message immediately
+    const diagMsgId = `diag-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: diagMsgId,
+        role: "assistant",
+        content: "🔍 Running diagnostics...",
+        createdAt: Date.now(),
+      },
+    ]);
+
+    (async () => {
+      try {
+        const token = await getAccessTokenSilently();
+        const res = await fetch(`${API_URL}/api/deployments/${deploymentId}/diagnose`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        // Format diagnosis as a readable chat message
+        const healthEmoji = data.overallHealth === "healthy" ? "✅" : data.overallHealth === "degraded" ? "⚠️" : "❌";
+        const lines = [`${healthEmoji} **Diagnosis: ${data.overallHealth}**`, ""];
+        for (const check of data.checks) {
+          const icon = check.status === "ok" ? "✅" : check.status === "warning" ? "⚠️" : check.status === "error" ? "❌" : "⏭️";
+          lines.push(`${icon} **${check.name}**: ${check.detail}`);
+          if (check.suggestion) lines.push(`   → ${check.suggestion}`);
+        }
+
+        // Replace the "diagnosing..." message with results
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === diagMsgId
+              ? { ...m, content: lines.join("\n") }
+              : m
+          )
+        );
+      } catch (err) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === diagMsgId
+              ? { ...m, content: `Diagnosis failed: ${err instanceof Error ? err.message : String(err)}` }
+              : m
+          )
+        );
+      }
+    })();
+  }, [lastChatError, deploymentId, getAccessTokenSilently]);
+
+  // Auto-diagnose after bot lifecycle transitions (restart/start → running)
+  const prevStatusRef = useRef<string | undefined>(liveStatus);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = liveStatus;
+
+    // Only trigger on transitions TO "running" FROM a non-running state
+    if (liveStatus !== "running" || prev === "running" || !prev) return;
+
+    const action = prev === "restarting" || prev === "reloading" ? "restarted" : prev === "stopped" || prev === "creating" ? "started" : "recovered";
+
+    // Wait for the pod to settle before diagnosing
+    const diagMsgId = `lifecycle-diag-${Date.now()}`;
+    setMessages((msgs) => [
+      ...msgs,
+      {
+        id: diagMsgId,
+        role: "assistant",
+        content: `🔄 Bot ${action}. Checking health...`,
+        createdAt: Date.now(),
+      },
+    ]);
+    // Also clear any previous error since the bot is now running
+    setLastChatError(null);
+
+    const timer = setTimeout(async () => {
+      try {
+        const token = await getAccessTokenSilently();
+        const res = await fetch(`${API_URL}/api/deployments/${deploymentId}/diagnose`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        const healthEmoji = data.overallHealth === "healthy" ? "✅" : data.overallHealth === "degraded" ? "⚠️" : "❌";
+        const lines = [`🔄 Bot ${action}. ${healthEmoji} **Health: ${data.overallHealth}**`, ""];
+
+        // Only show non-ok checks to keep it concise
+        const issues = data.checks.filter((c: any) => c.status !== "ok");
+        if (issues.length === 0) {
+          lines.push("All systems operational — your bot is ready to go.");
+        } else {
+          for (const check of issues) {
+            const icon = check.status === "warning" ? "⚠️" : "❌";
+            lines.push(`${icon} **${check.name}**: ${check.detail}`);
+            if (check.suggestion) lines.push(`   → ${check.suggestion}`);
+          }
+        }
+
+        setMessages((msgs) =>
+          msgs.map((m) => m.id === diagMsgId ? { ...m, content: lines.join("\n") } : m)
+        );
+      } catch {
+        setMessages((msgs) =>
+          msgs.map((m) => m.id === diagMsgId ? { ...m, content: `🔄 Bot ${action}. Health check unavailable.` } : m)
+        );
+      }
+    }, 3000); // 3s delay to let pod settle
+
+    return () => clearTimeout(timer);
+  }, [liveStatus, deploymentId, getAccessTokenSilently]);
 
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort();
@@ -743,8 +1035,8 @@ export function useCanvasChat(
     const index = loadConversationIndex(deploymentId);
     index.activeId = id;
     saveConversationIndex(deploymentId, index);
-    dispatch({ type: "CLEAR_CANVAS" });
-  }, [deploymentId, dispatch, flushMessages]);
+    // Canvas save/restore handled by useCanvasPersistence on conversationId change
+  }, [deploymentId, flushMessages]);
 
   const newConversation = useCallback(() => {
     if (isStreamingRef.current) return;
@@ -754,8 +1046,8 @@ export function useCanvasChat(
     setConversations([...index.conversations]);
     setActiveConversationId(meta.id);
     setMessages([]);
-    dispatch({ type: "CLEAR_CANVAS" });
-  }, [deploymentId, dispatch, flushMessages]);
+    // Canvas save/restore handled by useCanvasPersistence on conversationId change
+  }, [deploymentId, flushMessages]);
 
   const removeConversation = useCallback((id: string) => {
     if (isStreamingRef.current) return;
@@ -795,6 +1087,7 @@ export function useCanvasChat(
     suggestions,
     toolStatus,
     activeAgentCall,
+    orchestrationSteps,
     stopGeneration,
     editMessage,
     conversations,

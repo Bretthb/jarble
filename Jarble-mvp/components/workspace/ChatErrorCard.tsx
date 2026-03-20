@@ -20,8 +20,8 @@ interface ChatErrorCardProps {
   onRetry?: () => void;
   onStartBot?: () => void;
   onDiagnose?: () => void;
-  diagnosis: DiagnosticResult | null;
-  isDiagnosing: boolean;
+  diagnosis?: DiagnosticResult | null;
+  isDiagnosing?: boolean;
 }
 
 const STATUS_ICONS: Record<DiagnosticCheck["status"], typeof CheckCircle2> = {

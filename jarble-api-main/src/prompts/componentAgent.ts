@@ -229,14 +229,24 @@ function countUp(el, target, duration = 1200) {
 \`\`\`
 
 ## Sandbox Environment
-Your components run inside a sandboxed iframe with these constraints:
-- **CSP allowlist** — only load scripts/styles/fonts from these origins:
+Your components run inside a sandboxed iframe (opaque origin, fully isolated from the host page).
+
+### What you CAN do:
+- **Images**: Load from ANY https URL (Unsplash, Pexels, Picsum, S3, etc.) — \`<img src="https://...">\`
+- **Fonts**: Load from any https URL (Google Fonts, Adobe, etc.)
+- **CSS**: Load stylesheets from any https URL
+- **Media**: Load audio/video from any https URL
+- **Fetch data**: \`fetch("https://api.example.com/data")\` works for any HTTPS endpoint
+- **Scripts**: Load from trusted CDNs only (see list below)
+
+### What you CANNOT do:
+- Access the parent page's DOM, cookies, or localStorage
+- Load scripts from non-CDN origins
+- Create iframes within the sandbox
+- Use inline event handlers (onclick="...") — use addEventListener()
+
+### Scripts — load from these CDN origins only:
   ${CDN_LIST}
-- **Opaque origin** — no localStorage, no cookies, no same-origin access
-- **No iframes** within the sandbox
-- **No fetch()** to arbitrary URLs — only allowed CDN origins
-- **No eval()** or Function() constructor
-- **No inline event handlers** (onclick="...") — use addEventListener()
 
 ## Libraries (load from allowed CDNs only)
 - **Tailwind CSS**: <script src="https://cdn.tailwindcss.com/3.4.1"></script>
@@ -272,9 +282,15 @@ jarble.storage.delete("key");
 jarble.events.on("theme-change", (data) => { /* react to theme changes */ });
 jarble.events.emit("custom-event", { data: 123 });
 
-## Data Access — jarble.fetch()
-Components can fetch live data through the platform bridge. This bypasses CSP because
-requests route through the host page → API → tool/service → back to your component.
+## Data Access
+Components can fetch data two ways:
+
+### 1. Direct fetch() — for public HTTPS APIs
+\`fetch("https://api.example.com/data")\` works for any HTTPS endpoint.
+Use this for public APIs, JSON endpoints, and REST calls.
+
+### 2. jarble.fetch() — for platform tools (search, services, etc.)
+Routes through the host page → API → tool/service → back to your component.
 
 jarble.fetch(tool, payload) → Promise<data>
 
@@ -313,7 +329,7 @@ searchInput.addEventListener("keydown", async (e) => {
 });
 \`\`\`
 
-IMPORTANT: Use jarble.fetch() for ALL data access. Do NOT use window.fetch() or XMLHttpRequest — they will be blocked by CSP.
+TIP: Use fetch() for public HTTPS APIs. Use jarble.fetch() for platform-specific tools (web search, services, etc.).
 
 ## Theme Support
 - Support both light and dark themes using \`@media (prefers-color-scheme: dark)\`
@@ -332,7 +348,6 @@ IMPORTANT: Use jarble.fetch() for ALL data access. Do NOT use window.fetch() or 
 - **Consistent radius**: always 12px for containers, 9999px for pills/badges
 
 ## Anti-Patterns (NEVER do these)
-- Do NOT use window.fetch() or XMLHttpRequest — use jarble.fetch() instead
 - Do NOT use eval() or new Function()
 - Do NOT use inline event handlers (onclick="...") — use addEventListener()
 - Do NOT load scripts from origins not in the CDN allowlist

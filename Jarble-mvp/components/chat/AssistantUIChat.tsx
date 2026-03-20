@@ -22,6 +22,8 @@ import {
 import { Sparkles, Copy, Pencil, RotateCcw, ChevronRight, Loader2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
+import OrchestrationSteps from "./OrchestrationSteps";
+import type { OrchestrationStep } from "./OrchestrationSteps";
 
 // ── Thread Component ────────────────────────────────────────────────────────
 
@@ -35,6 +37,8 @@ interface AssistantUIChatProps {
   toolStatus?: string | null;
   /** Active agent-to-agent call in progress */
   activeAgentCall?: { serviceId: string; skillName: string; agentName?: string } | null;
+  /** Agent orchestration steps (compose, debug, etc.) */
+  orchestrationSteps?: OrchestrationStep[];
 }
 
 function AssistantUIChatInner({
@@ -45,6 +49,7 @@ function AssistantUIChatInner({
   onSuggestionClick,
   toolStatus,
   activeAgentCall,
+  orchestrationSteps = [],
 }: AssistantUIChatProps) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -65,8 +70,16 @@ function AssistantUIChatInner({
             }}
           />
 
+          {/* Agent orchestration steps — multi-step progress for compose/debug/test tools */}
+          {isStreaming && orchestrationSteps.length > 0 && (
+            <OrchestrationSteps
+              steps={orchestrationSteps}
+              title="Agent Orchestration"
+            />
+          )}
+
           {/* Agent delegation indicator — shows when bot is calling another agent */}
-          {isStreaming && activeAgentCall && (
+          {isStreaming && activeAgentCall && orchestrationSteps.length === 0 && (
             <div className="flex items-center gap-2 px-4 py-2 animate-in fade-in slide-in-from-bottom-1 duration-200">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
                 <Zap className="w-3.5 h-3.5 text-violet-500 animate-pulse" />
@@ -82,7 +95,7 @@ function AssistantUIChatInner({
           )}
 
           {/* Tool status indicator — shows what the bot is doing during streaming */}
-          {isStreaming && toolStatus && !activeAgentCall && (
+          {isStreaming && toolStatus && !activeAgentCall && orchestrationSteps.length === 0 && (
             <div className="flex items-center gap-2 px-4 py-1.5 animate-in fade-in slide-in-from-bottom-1 duration-200">
               <Loader2 className="w-3 h-3 text-primary/60 animate-spin" />
               <span className="text-xs text-muted-foreground/70 font-medium">

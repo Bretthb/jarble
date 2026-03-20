@@ -4,8 +4,10 @@
   "license": "MIT",
   "scripts": {
     "dev": "next dev",
+    "prebuild": "cd ../jarble-api-main && npm run build:types",
     "build": "next build",
     "start": "next start",
+    "precheck": "cd ../jarble-api-main && npm run build:types",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
@@ -96,6 +98,7 @@
     "dotenv": "^17.2.2",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.23.22",
+    "html2canvas": "^1.4.1",
     "input-otp": "^1.4.2",
     "jarble-api": "file:../jarble-api-main",
     "leaflet": "^1.9.4",

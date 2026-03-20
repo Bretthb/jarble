@@ -43,12 +43,18 @@ const envSchema = z.object({
   AGENT_LLM_API_KEY: z.string().optional(),
   AGENT_LLM_PROVIDER: z.enum(["anthropic", "openai", "openrouter", "google"]).optional(),
   AGENT_LLM_MODEL: z.string().optional(),
+  PLANNER_LLM_MODEL: z.string().optional(), // Cheaper/faster model for dashboard planner (defaults to AGENT_LLM_MODEL)
 
   // Sentry — optional, error tracking disabled if not set
   SENTRY_DSN: z.string().optional(),
 
   // Chat WebSocket control channel — optional, disabled by default
   ENABLE_CHAT_WS: z.string().optional(),
+
+  // Mesh gateway — shared secret for internal service-proxy authentication.
+  // If not set, a random token is generated per process (safe when mesh gateway
+  // and service proxy run in the same process).
+  MESH_GATEWAY_SECRET: z.string().optional(),
 
   // Stripe — all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),

@@ -12,11 +12,6 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
-  // Skip tRPC AppRouter type errors during build (monorepo cross-package issue)
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-
   // Disable strict mode double-render in dev if desired
   reactStrictMode: true,
 

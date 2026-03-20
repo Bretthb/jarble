@@ -553,6 +553,7 @@ function SimpleCanvasGridInner({
         ref={canvasRef}
         role="grid"
         aria-label="Canvas cards"
+        data-jarble-canvas="true"
         tabIndex={0}
         onKeyDown={handleGridKeyDown}
         className="flex-1 overflow-auto relative"

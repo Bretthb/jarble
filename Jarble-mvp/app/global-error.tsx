@@ -16,7 +16,6 @@ export default function GlobalError({
   return (
     <html>
       <body>
-        {/* @ts-expect-error - Next.js requires statusCode prop */}
         <NextError statusCode={0} />
       </body>
     </html>

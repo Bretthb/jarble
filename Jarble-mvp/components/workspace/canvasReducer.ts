@@ -278,7 +278,15 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
         ...state,
         cards: state.cards.map((c) => {
           if (c.id !== action.id) return c;
-          const newProps = action.merge ? { ...c.props, ...action.props } : action.props;
+          let newProps = action.merge ? { ...c.props, ...action.props } : action.props;
+          // Safeguard: sandbox/code_editor cards must retain their primary content prop
+          // even on full replacement. Prevents "Cannot read properties of undefined" crashes.
+          if (!action.merge && c.component === "sandbox" && !newProps.html && c.props.html) {
+            newProps = { ...newProps, html: c.props.html };
+          }
+          if (!action.merge && c.component === "code_editor" && !newProps.code && c.props.code) {
+            newProps = { ...newProps, code: c.props.code };
+          }
           return {
             ...c,
             props: newProps,
@@ -434,6 +442,28 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
         ...state,
         cards: state.cards.map((c) =>
           c.id === action.id ? { ...c, title: action.title } : c
+        ),
+      };
+
+    case "RECORD_CSP_VIOLATION": {
+      return {
+        ...state,
+        cards: state.cards.map((c) => {
+          if (c.id !== action.id) return c;
+          const existing = c.cspViolations || [];
+          // Deduplicate and cap at 10
+          const key = `${action.violation.blockedURI}|${action.violation.violatedDirective}`;
+          if (existing.some((v) => `${v.blockedURI}|${v.violatedDirective}` === key)) return c;
+          return { ...c, cspViolations: [...existing.slice(-9), action.violation] };
+        }),
+      };
+    }
+
+    case "RECORD_RENDER_ERROR":
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, lastRenderError: action.error } : c
         ),
       };
 

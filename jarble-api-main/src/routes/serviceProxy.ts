@@ -37,6 +37,7 @@ import { canRequest, recordSuccess, recordFailure } from "../services/circuitBre
 import { validateExternalUrl } from "../utils/urlValidation.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { createAsyncJob, completeAsyncJob } from "./serviceJobs.js";
+import { meshGatewayToken } from "./meshGatewayToken.js";
 
 import type { JsonSchemaObject } from "../utils/jsonSchemaValidation.js";
 
@@ -149,18 +150,33 @@ serviceProxyRouter.post(
         return;
       }
 
-      // Try K8s Secret first (production), fall back to DB field (tests/legacy)
-      const k8sToken = await readGatewayTokenFromK8s(deploymentId);
-      const expectedToken = k8sToken ?? (deployment as any).gatewayToken;
+      // Accept the mesh gateway's own shared secret (same-process internal calls).
+      // This is checked first so mesh gateway requests succeed even when K8s is
+      // unavailable (e.g. SQLite dev mode).
+      if (gatewayToken === meshGatewayToken) {
+        // Authenticated via mesh gateway shared secret — proceed.
+      } else {
+        // Try K8s Secret first (production), fall back to DB field (tests/legacy)
+        const k8sToken = await readGatewayTokenFromK8s(deploymentId);
+        const expectedToken = k8sToken ?? (deployment as any).gatewayToken;
 
-      if (expectedToken) {
+        // Security: ALWAYS reject if we have no expected token to compare against.
+        // Previous code allowed requests through when expectedToken was falsy
+        // (e.g. K8s Secret lookup failed and no DB fallback). This was a bypass
+        // vulnerability — an attacker with any gateway token value could authenticate
+        // simply because there was nothing to compare against.
+        if (!expectedToken) {
+          log.warn({ deploymentId }, "Service proxy: no gateway token configured — rejecting request");
+          res.status(401).json({ error: "Unauthorized — gateway token not configured for deployment" });
+          return;
+        }
+
         if (gatewayToken !== expectedToken) {
           log.warn({ deploymentId }, "Service proxy: invalid gateway token");
           res.status(401).json({ error: "Unauthorized" });
           return;
         }
       }
-      // If no expected token found (dev mode, no K8s, no DB field), accept if deployment exists
     } else {
       log.warn({ deploymentId }, "Service proxy: no authentication provided");
       res.status(401).json({ error: "Unauthorized — provide Bearer JWT or X-Gateway-Token" });

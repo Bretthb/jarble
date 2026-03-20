@@ -91,10 +91,10 @@ export function ServicePublishForm({
     setName(svc.name ?? "");
     setDisplayName(svc.displayName ?? "");
     setDescription(svc.description ?? "");
-    setHostingModel(svc.hostingModel ?? "self_hosted");
+    setHostingModel((svc.hostingModel ?? "self_hosted") as typeof hostingModel);
     setInstructionSnippet(svc.instructionSnippet ?? "");
     setRemoteApiEndpoint(svc.remoteApiEndpoint ?? "");
-    setPricingModel(svc.pricingModel ?? "free");
+    setPricingModel((svc.pricingModel ?? "free") as typeof pricingModel);
     setPriceUsdCents(svc.priceUsdCents ?? 0);
     setComponentIds(
       (svc.components ?? []).map((c: { id: string }) => c.id)

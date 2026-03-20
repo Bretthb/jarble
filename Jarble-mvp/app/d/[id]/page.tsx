@@ -39,7 +39,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import ChatErrorCard from "@/components/workspace/ChatErrorCard";
 import PageFullscreenOverlay from "@/components/workspace/PageFullscreenOverlay";
-import { useDiagnose } from "@/hooks/useDiagnose";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -458,6 +457,7 @@ function WorkspacePage({
         )}
         <CanvasWorkspace
           deploymentId={deploymentId}
+          liveStatus={liveStatus}
           historyOpen={historyOpen}
           onHistoryClose={() => setHistoryOpen(false)}
         />
@@ -484,6 +484,7 @@ function KeyedChatPanel({
   suggestions,
   toolStatus,
   activeAgentCall,
+  orchestrationSteps,
   stopGeneration,
   editMessage,
   onExamplePrompt,
@@ -496,6 +497,7 @@ function KeyedChatPanel({
   suggestions: Array<{ prompt: string }>;
   toolStatus?: string | null;
   activeAgentCall?: { serviceId: string; skillName: string; agentName?: string } | null;
+  orchestrationSteps?: import("@/components/chat/OrchestrationSteps").OrchestrationStep[];
   stopGeneration: () => void;
   editMessage: (messageId: string, newText: string) => Promise<void>;
   onExamplePrompt: (prompt: string) => void;
@@ -510,6 +512,7 @@ function KeyedChatPanel({
       onSuggestionClick={(prompt) => sendMessage(prompt)}
       toolStatus={toolStatus}
       activeAgentCall={activeAgentCall}
+      orchestrationSteps={orchestrationSteps}
       emptyState={
         <div className="h-full flex flex-col items-center justify-center gap-4 px-4">
           <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/10 flex items-center justify-center">
@@ -543,10 +546,12 @@ function KeyedChatPanel({
 
 function CanvasWorkspace({
   deploymentId,
+  liveStatus,
   historyOpen,
   onHistoryClose,
 }: {
   deploymentId: string;
+  liveStatus: string;
   historyOpen: boolean;
   onHistoryClose: () => void;
 }) {
@@ -554,14 +559,13 @@ function CanvasWorkspace({
   const [state, dispatch] = useReducer(canvasReducer, INITIAL_CANVAS_STATE);
   const {
     sendMessage, isStreaming, streamingCardIds, messages, streamingText, streamingReasoning,
-    lastChatError, lastUserMessage, clearChatError, suggestions, toolStatus, activeAgentCall,
+    lastChatError, lastUserMessage, clearChatError, suggestions, toolStatus, activeAgentCall, orchestrationSteps,
     stopGeneration, editMessage,
     conversations, activeConversationId, switchConversation, newConversation, deleteConversation,
-  } = useCanvasChat(deploymentId, state, dispatch);
+  } = useCanvasChat(deploymentId, state, dispatch, liveStatus);
   // runtime created inside KeyedChatPanel — keyed by activeConversationId
-  useCanvasPersistence(deploymentId, state, dispatch);
+  useCanvasPersistence(deploymentId, state, dispatch, activeConversationId);
   useArtifactSync(deploymentId, state, dispatch);
-  const { result: diagnosis, isLoading: isDiagnosing, runDiagnosis } = useDiagnose(deploymentId);
   const [input, setInput] = useState("");
   const [showCanvas, setShowCanvas] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -758,12 +762,13 @@ function CanvasWorkspace({
           suggestions={suggestions}
           toolStatus={toolStatus}
           activeAgentCall={activeAgentCall}
+          orchestrationSteps={orchestrationSteps}
           stopGeneration={stopGeneration}
           editMessage={editMessage}
           onExamplePrompt={handleExamplePrompt}
         />
 
-        {/* Chat error card with diagnostics */}
+        {/* Chat error card — diagnosis auto-runs inline in chat */}
         {lastChatError && !isStreaming && (
           <div className="px-4 pb-2">
             <ChatErrorCard
@@ -775,9 +780,6 @@ function CanvasWorkspace({
                   onError: (err) => console.error("[Jarble:Chat] Start bot failed:", err.message),
                 });
               } : undefined}
-              onDiagnose={runDiagnosis}
-              diagnosis={diagnosis}
-              isDiagnosing={isDiagnosing}
             />
           </div>
         )}

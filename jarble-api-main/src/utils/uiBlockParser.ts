@@ -179,11 +179,27 @@ function findFencedBlocks(text: string, marker: string): FencedBlock[] {
     }
 
     // Find the JSON object using brace-depth parsing
-    const result = extractJsonFromBlock(text, afterMarker);
+    let result = extractJsonFromBlock(text, afterMarker);
     if (!result) {
-      // Incomplete block (still streaming) — skip
-      searchFrom = afterMarker;
-      continue;
+      // Brace-depth parser failed — try fallback: find closing ``` and JSON.parse the content
+      const closingIdx = text.indexOf("```", afterMarker);
+      if (closingIdx !== -1) {
+        const rawContent = text.slice(afterMarker, closingIdx).trim();
+        if (rawContent.startsWith("{")) {
+          try {
+            JSON.parse(rawContent); // validate it's valid JSON
+            result = { json: rawContent, endIndex: closingIdx };
+            logger.debug("[uiBlockParser] Brace-depth parser failed but JSON.parse fallback succeeded (%d chars)", rawContent.length);
+          } catch {
+            // Not valid JSON either — truly incomplete
+          }
+        }
+      }
+      if (!result) {
+        // Incomplete block (still streaming) — skip
+        searchFrom = afterMarker;
+        continue;
+      }
     }
 
     // Find and consume the closing ``` if present after the JSON

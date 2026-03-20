@@ -180,20 +180,25 @@ function deserializeCard(pc: PersistedCard): CanvasCard {
   };
 }
 
-function getStorageKey(deploymentId: string): string {
+function getStorageKey(deploymentId: string, conversationId?: string | null): string {
+  if (conversationId) return `${STORAGE_PREFIX}${deploymentId}-${conversationId}`;
   return `${STORAGE_PREFIX}${deploymentId}`;
 }
 
 /** Load persisted state from localStorage. Cards with large props have propsLost=true until IDB loads. */
-export function loadCanvasState(deploymentId: string): CanvasState | null {
+export function loadCanvasState(deploymentId: string, conversationId?: string | null): CanvasState | null {
   try {
-    const raw = localStorage.getItem(getStorageKey(deploymentId));
-    if (!raw) return null;
+    const key = getStorageKey(deploymentId, conversationId);
+    const raw = localStorage.getItem(key);
+    // Fallback: try deployment-level key if conversation-specific not found (migration)
+    const fallbackRaw = !raw && conversationId ? localStorage.getItem(getStorageKey(deploymentId)) : null;
+    const source = raw || fallbackRaw;
+    if (!source) return null;
 
-    const persisted: PersistedState = JSON.parse(raw);
+    const persisted: PersistedState = JSON.parse(source);
 
     if (Date.now() - persisted.savedAt > EXPIRY_MS) {
-      localStorage.removeItem(getStorageKey(deploymentId));
+      localStorage.removeItem(key);
       return null;
     }
 
@@ -219,7 +224,7 @@ export function loadCanvasState(deploymentId: string): CanvasState | null {
 
 /** Save canvas state: small props to localStorage, large props to IndexedDB.
  *  Positions are now always in CanvasState (no tldraw indirection). */
-function saveCanvasState(deploymentId: string, state: CanvasState): void {
+function saveCanvasState(deploymentId: string, state: CanvasState, conversationId?: string | null): void {
   try {
     const persisted: PersistedState = {
       cards: state.cards.map(serializeCard),
@@ -238,7 +243,7 @@ function saveCanvasState(deploymentId: string, state: CanvasState): void {
       }
     }
 
-    localStorage.setItem(getStorageKey(deploymentId), JSON.stringify(persisted));
+    localStorage.setItem(getStorageKey(deploymentId, conversationId), JSON.stringify(persisted));
   } catch {
     // localStorage full or unavailable
   }
@@ -248,29 +253,84 @@ function saveCanvasState(deploymentId: string, state: CanvasState): void {
 }
 
 /**
- * Hook: auto-saves canvas state with debouncing.
+ * Hook: auto-saves canvas state with debouncing, keyed per conversation.
  * Small props in localStorage, large props in IndexedDB.
+ *
+ * When conversationId changes (conversation switch), saves the outgoing
+ * conversation's canvas and restores the incoming one.
  */
 export function useCanvasPersistence(
   deploymentId: string,
   state: CanvasState,
   dispatch: React.Dispatch<CanvasAction>,
+  conversationId?: string | null,
 ) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasRestored = useRef(false);
+  const prevConvRef = useRef<string | null | undefined>(conversationId);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   // Restore on mount (once)
   useEffect(() => {
     if (hasRestored.current) return;
     hasRestored.current = true;
 
-    const saved = loadCanvasState(deploymentId);
-    if (!saved || saved.cards.length === 0) return;
+    restoreCanvas(deploymentId, conversationId, dispatch);
+  }, [deploymentId, conversationId, dispatch]);
 
-    // Restore layout immediately (sync)
+  // Handle conversation switch — save outgoing, restore incoming
+  useEffect(() => {
+    if (!hasRestored.current) return;
+    if (prevConvRef.current === conversationId) return;
+
+    const outgoingConvId = prevConvRef.current;
+    prevConvRef.current = conversationId;
+
+    // Save outgoing conversation's canvas immediately (flush debounce)
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (outgoingConvId) {
+      saveCanvasState(deploymentId, stateRef.current, outgoingConvId);
+    }
+
+    // Restore incoming conversation's canvas
+    restoreCanvas(deploymentId, conversationId, dispatch);
+  }, [deploymentId, conversationId, dispatch]);
+
+  // Debounced save on state change
+  useEffect(() => {
+    if (!hasRestored.current) return;
+
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      saveCanvasState(deploymentId, stateRef.current, conversationId);
+    }, DEBOUNCE_MS);
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [deploymentId, state, conversationId]);
+
+  // Flush on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      saveCanvasState(deploymentId, stateRef.current, conversationId);
+    };
+  }, [deploymentId, conversationId]);
+}
+
+/** Restore canvas state for a conversation. Dispatches RESTORE_STATE or CLEAR_CANVAS. */
+function restoreCanvas(
+  deploymentId: string,
+  conversationId: string | null | undefined,
+  dispatch: React.Dispatch<CanvasAction>,
+) {
+  const saved = loadCanvasState(deploymentId, conversationId);
+  if (saved && saved.cards.length > 0) {
     dispatch({ type: "RESTORE_STATE", state: saved });
 
-    // Then hydrate large props from IndexedDB (async)
+    // Hydrate large props from IndexedDB (async)
     const hasLargeCards = saved.cards.some((c) => c.propsLost);
     if (hasLargeCards) {
       loadLargeProps(deploymentId).then((largeProps) => {
@@ -290,19 +350,12 @@ export function useCanvasPersistence(
         }
       });
     }
-  }, [deploymentId, dispatch]);
 
-  // Debounced save on state change
-  useEffect(() => {
-    if (!hasRestored.current) return;
-
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      saveCanvasState(deploymentId, state);
-    }, DEBOUNCE_MS);
-
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [deploymentId, state]);
+    if (process.env.NODE_ENV === "development") {
+      console.log(`[Canvas] Restored ${saved.cards.length} card(s) for conversation ${conversationId ?? "default"}`);
+    }
+  } else {
+    // No saved canvas for this conversation — clear
+    dispatch({ type: "CLEAR_CANVAS" });
+  }
 }

@@ -96,34 +96,50 @@ export async function executeAgentCall(
     (svc as any).isPlatform === true || (svc as any).isPlatform === 1;
 
   if (!isFreeService) {
-    // 2. Check caller has sufficient credits
-    const balance = await getCurrentBalance(params.callerUserId);
-    if (balance < CREDITS_PER_CALL) {
-      // Record the failed call
-      await db.insert(tables.agentCalls).values({
-        id: callId,
-        callerDeploymentId: params.callerDeploymentId,
-        calleeDeploymentId: calleeDeploymentId,
-        skillName: params.skillName,
-        creditsCharged: 0,
-        status: "failed",
-        requestBody: JSON.stringify(params.args),
-        errorMessage: `Insufficient credits. Balance: ${balance}, required: ${CREDITS_PER_CALL}`,
-        latencyMs: Date.now() - startTime,
-        createdAt: dbDate(),
-      } as any);
+    // 2 + 3. Check balance AND debit atomically inside a transaction.
+    // Without a transaction, two concurrent requests from the same caller can
+    // both read a sufficient balance, both proceed to debit, and overdraw the
+    // account. The transaction serialises the read-then-write so only one
+    // request can debit at a time.
+    let insufficientBalance: number | null = null;
+    await (db as any).transaction(async (tx: typeof db) => {
+      const balance = await getCurrentBalance(params.callerUserId, tx);
+      if (balance < CREDITS_PER_CALL) {
+        insufficientBalance = balance;
+        throw new Error("INSUFFICIENT_CREDITS");
+      }
 
-      throw new Error(
-        `Insufficient credits. Balance: ${balance}, required: ${CREDITS_PER_CALL}`
-      );
-    }
+      await addLedgerEntry({
+        userId: params.callerUserId,
+        amount: -CREDITS_PER_CALL,
+        reason: "agent_call",
+        reference: callId,
+        tx,
+      });
+    }).catch(async (txErr: any) => {
+      // If the transaction was rolled back due to insufficient credits,
+      // record the failed call AFTER the transaction completes (to avoid
+      // writing on `db` while a SQLite transaction holds the connection).
+      if (insufficientBalance !== null) {
+        await db.insert(tables.agentCalls).values({
+          id: callId,
+          callerDeploymentId: params.callerDeploymentId,
+          calleeDeploymentId: calleeDeploymentId,
+          skillName: params.skillName,
+          creditsCharged: 0,
+          status: "failed",
+          requestBody: JSON.stringify(params.args),
+          errorMessage: `Insufficient credits. Balance: ${insufficientBalance}, required: ${CREDITS_PER_CALL}`,
+          latencyMs: Date.now() - startTime,
+          createdAt: dbDate(),
+        } as any);
 
-    // 3. Debit credits from caller
-    await addLedgerEntry({
-      userId: params.callerUserId,
-      amount: -CREDITS_PER_CALL,
-      reason: "agent_call",
-      reference: callId,
+        throw new Error(
+          `Insufficient credits. Balance: ${insufficientBalance}, required: ${CREDITS_PER_CALL}`
+        );
+      }
+      // Re-throw unexpected transaction errors
+      throw txErr;
     });
   } else {
     logger.info(
@@ -162,17 +178,31 @@ export async function executeAgentCall(
   } catch (err: any) {
     error = error || err.message;
 
-    // Refund credits on failure (only if they were charged)
+    // Refund credits on failure (only if they were charged).
+    // Wrapped in a transaction so the balance read + credit insert are atomic,
+    // and in a try-catch so a refund failure does not lose credits silently —
+    // the error is logged for manual reconciliation instead.
     if (!isFreeService) {
-      await addLedgerEntry({
-        userId: params.callerUserId,
-        amount: CREDITS_PER_CALL,
-        reason: "refund",
-        reference: callId,
-      });
+      try {
+        await (db as any).transaction(async (tx: typeof db) => {
+          await addLedgerEntry({
+            userId: params.callerUserId,
+            amount: CREDITS_PER_CALL,
+            reason: "refund",
+            reference: callId,
+            tx,
+          });
+        });
+      } catch (refundErr: any) {
+        // Critical: log for manual reconciliation — caller must not lose credits
+        logger.error(
+          { callId, userId: params.callerUserId, err: refundErr.message },
+          "CRITICAL: Failed to refund credits after agent call failure"
+        );
+      }
     }
 
-    // Record the failed call
+    // Record the failed call (outside transaction — this is just logging)
     await db.insert(tables.agentCalls).values({
       id: callId,
       callerDeploymentId: params.callerDeploymentId,

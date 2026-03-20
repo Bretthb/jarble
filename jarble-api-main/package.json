@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "dev:test": "USE_SQLITE=true tsx watch src/index.ts",
     "build": "tsc",
+    "build:types": "tsc -p tsconfig.declarations.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",

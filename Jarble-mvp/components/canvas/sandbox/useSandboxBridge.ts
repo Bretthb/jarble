@@ -185,6 +185,14 @@ export function useSandboxBridge(config: SandboxBridgeConfig): SandboxBridgeStat
         const detail = e.data.detail;
         console.warn(`${logPrefix} CSP violation: ${detail.violatedDirective} blocked ${detail.blockedURI}`, detail);
         Sentry.addBreadcrumb({ category: "csp-violation", message: `${detail.violatedDirective} blocked ${detail.blockedURI}`, level: "warning", data: detail });
+        // Track on the card so debug tools can access it
+        if (canvasDispatch && cardId) {
+          canvasDispatch({
+            type: "RECORD_CSP_VIOLATION",
+            id: cardId,
+            violation: { blockedURI: detail.blockedURI || "", violatedDirective: detail.violatedDirective || "" },
+          });
+        }
       }
 
       if (e.data?.type === "jarble:storage-request") {

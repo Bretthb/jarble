@@ -65,7 +65,8 @@ export function sanitizeHtmlProp(
   logPrefix = "[Jarble:Sandbox]",
   existingCss?: string | undefined,
 ): { html: string; js: string; css: string; libraries: string[]; moduleJs: string } {
-  let cleanHtml = html;
+  // Guard: html can be undefined when UPDATE_CARD_PROPS merges without html
+  let cleanHtml = html || "";
   const extractedJs: string[] = [];
   const extractedModuleJs: string[] = [];
   const extractedCss: string[] = [];
@@ -276,14 +277,20 @@ export function buildDocument(
   const hasModuleJs = typeof moduleJs === "string" && moduleJs.length > 0;
 
   const cdnOrigins = TRUSTED_CDN_ORIGINS.join(" ");
+  // CSP strategy: the iframe `sandbox` attribute (no allow-same-origin) is the
+  // primary security boundary — opaque origin, no parent access, no cookies.
+  // CSP is defense-in-depth:
+  //   - Scripts locked to trusted CDNs (prevent loading malicious JS)
+  //   - Passive content (images, media, fonts) open to any HTTPS (zero exec risk)
+  //   - Connect open to HTTPS (sandbox can fetch data; can't exfiltrate parent data)
   const csp = [
     `default-src 'none'`,
     `script-src 'unsafe-inline' 'unsafe-eval' ${cdnOrigins}`,
-    `style-src 'unsafe-inline' ${cdnOrigins}`,
-    `img-src ${cdnOrigins} data: blob:`,
-    `font-src ${cdnOrigins} data:`,
-    `media-src ${cdnOrigins} data: blob:`,
-    `connect-src ${cdnOrigins}`,
+    `style-src 'unsafe-inline' https:`,
+    `img-src https: data: blob:`,
+    `font-src https: data:`,
+    `media-src https: data: blob:`,
+    `connect-src https:`,
     `worker-src blob:`,
     `frame-src 'none'`,
   ].join("; ");

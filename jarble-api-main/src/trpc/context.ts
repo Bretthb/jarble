@@ -14,7 +14,7 @@ export async function createContext({ req }: CreateExpressContextOptions) {
 
   const requestId = req.requestId || "unknown";
 
-  let user = null;
+  let user: Awaited<ReturnType<typeof getUserFromToken>> | null = null;
 
   if (token) {
     try {
