@@ -96,6 +96,8 @@ export interface GatewayResponse {
   designContext: Record<string, unknown> | null;
   /** Native thinking/reasoning content extracted from LLM response (if available) */
   nativeThinking: string;
+  /** True when the response was cut short by a timeout (partial text returned) */
+  timedOut?: boolean;
 }
 
 export async function chatViaGateway(
@@ -134,7 +136,7 @@ export async function chatViaGateway(
         ws.close();
         if (fullText) {
           const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
-          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking });
+          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, timedOut: true });
         } else {
           reject(new Error("Gateway chat timed out after 120s"));
         }
@@ -435,19 +437,31 @@ export async function chatViaExec(
   message: string,
   onDelta?: (fullText: string) => void,
   canvasImage?: string,
+  signal?: AbortSignal,
 ): Promise<GatewayResponse> {
   log.info({ podName, messageLen: message.length, hasImage: !!canvasImage }, "chatViaExec: starting");
+
+  // Bail early if already aborted (e.g. user cancelled during WS→exec fallback transition)
+  if (signal?.aborted) {
+    throw new Error("Aborted");
+  }
 
   // If canvas image is provided, write it to a temp file on the pod so it persists for the session
   if (canvasImage) {
     try {
       // Strip data URL prefix to get raw base64
       const base64Data = canvasImage.replace(/^data:image\/\w+;base64,/, "");
-      // Write to pod filesystem via exec (base64 → file)
-      await execInPod(podName, [
-        "sh", "-c", `echo '${base64Data}' | base64 -d > /tmp/canvas-screenshot.jpg`,
-      ], undefined, 10_000);
-      log.debug({ podName }, "chatViaExec: canvas screenshot written to pod");
+      // Validate that it's actually base64 to prevent shell injection
+      if (!/^[A-Za-z0-9+/=\s]+$/.test(base64Data)) {
+        log.warn({ podName }, "chatViaExec: canvas image contains invalid base64 characters, skipping");
+      } else {
+        // Write to pod filesystem via stdin pipe (safe — no shell interpolation)
+        const { execInPodWithStdin } = await import("../k8s/exec.js");
+        await execInPodWithStdin(podName, [
+          "sh", "-c", "base64 -d > /tmp/canvas-screenshot.jpg",
+        ], base64Data, 10_000);
+        log.debug({ podName }, "chatViaExec: canvas screenshot written to pod");
+      }
     } catch (err) {
       log.warn({ podName, err: (err as Error).message }, "chatViaExec: failed to write canvas screenshot to pod");
     }
@@ -469,7 +483,20 @@ export async function chatViaExec(
   if (canvasImage) {
     args.push("--image", "/tmp/canvas-screenshot.jpg");
   }
-  const output = await execInPod(podName, args, undefined, 90_000); // 90s — cold start + LLM generation can take 30-60s
+  // Race the exec against the abort signal so user cancellation stops it promptly
+  const execPromise = execInPod(podName, args, undefined, 90_000); // 90s — cold start + LLM generation can take 30-60s
+  let output: string;
+  if (signal) {
+    output = await Promise.race([
+      execPromise,
+      new Promise<never>((_, reject) => {
+        if (signal.aborted) reject(new Error("Aborted"));
+        signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
+      }),
+    ]);
+  } else {
+    output = await execPromise;
+  }
 
   // Parse JSON response (same as chatWithBot MCP tool)
   let parsed: any;
@@ -520,6 +547,11 @@ export async function chatViaExec(
 
   // Deliver the full text as a single "delta" so the caller can emit it
   onDelta?.(rawText);
+
+  // Debug: log the tail of rawText to diagnose block extraction failures
+  const hasJarbleUiFence = rawText.includes("```jarble_ui");
+  const endsWithClosingFence = rawText.trimEnd().endsWith("```");
+  log.debug({ podName, hasJarbleUiFence, endsWithClosingFence, tail: rawText.slice(-200) }, "chatViaExec: raw text tail");
 
   const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(rawText);
   log.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length, hasNativeThinking: !!nativeThinking }, "chatViaExec: response summary");

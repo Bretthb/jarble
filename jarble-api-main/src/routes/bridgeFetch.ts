@@ -206,7 +206,8 @@ bridgeFetchRouter.post("/:id/bridge/fetch", async (req: Request, res: Response) 
     }
   } catch {
     // In dev mode (SQLite), auth may not be configured — allow through
-    if (process.env.USE_SQLITE !== "true") {
+    // But NEVER in production, even if USE_SQLITE is accidentally set
+    if (process.env.USE_SQLITE !== "true" || process.env.NODE_ENV === "production") {
       res.status(401).json({ error: "Invalid token" });
       return;
     }

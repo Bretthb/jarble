@@ -130,6 +130,14 @@ class CanvasErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
     });
   }
 
+  // Reset error state when props change (e.g. bot sends corrected props)
+  componentDidUpdate(prevProps: ErrorBoundaryProps) {
+    if (this.state.error && prevProps.blockId === this.props.blockId &&
+        prevProps.children !== this.props.children) {
+      this.setState({ error: null });
+    }
+  }
+
   render() {
     if (this.state.error) {
       return (

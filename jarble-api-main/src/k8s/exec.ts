@@ -30,6 +30,9 @@ export async function execInPod(
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         log.error({ podName, command: command.join(" "), timeoutMs }, "execInPod timed out");
+        // Destroy streams to stop accumulating data from the zombie exec
+        stdout.destroy();
+        stderr.destroy();
         reject(new Error(`execInPod timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 

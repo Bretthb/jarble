@@ -73,7 +73,14 @@ export const globalLimiter = rateLimit({
     return (
       req.path === "/health" ||
       req.path === "/api/stripe/webhook" ||
-      req.path === "/api/auth0/email-verified"
+      req.path === "/api/auth0/email-verified" ||
+      // SSE endpoints are long-lived connections already gated by MAX_SSE_CONNECTIONS_PER_USER.
+      // Counting them against the global rate limit causes EventSource auto-reconnections
+      // to burn through the 300/min budget, blocking normal API traffic.
+      req.path.endsWith("/stream") ||
+      req.path.endsWith("/logs/stream") ||
+      req.path.endsWith("/whatsapp/qr") ||
+      req.path === "/api/tambo-agent"
     );
   },
   message: { error: "Too many requests, please try again later." },

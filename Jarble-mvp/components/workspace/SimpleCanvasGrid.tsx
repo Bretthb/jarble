@@ -145,14 +145,23 @@ function SimpleCanvasGridInner({
     return () => { observer.disconnect(); autoHeightObserverRef.current = null; };
   }, []);
 
+  // Track observed elements so we can unobserve when they unmount
+  const observedElementsRef = useRef(new Map<string, HTMLDivElement>());
+
   // Stable callback ref for content divs — uses data attribute instead of closure
   const autoHeightRefCallback = useCallback((el: HTMLDivElement | null) => {
     const observer = autoHeightObserverRef.current;
     if (!observer) return;
     if (el) {
+      const cardId = el.dataset.autoHeightId;
+      if (cardId) {
+        // Unobserve previous element for this card if it changed
+        const prev = observedElementsRef.current.get(cardId);
+        if (prev && prev !== el) observer.unobserve(prev);
+        observedElementsRef.current.set(cardId, el);
+      }
       observer.observe(el);
     }
-    // Note: unobserve happens automatically when element is removed from DOM
   }, []);
 
   // ── Streaming viewport tracking ────────────────────────────────────
@@ -366,6 +375,12 @@ function SimpleCanvasGridInner({
   const handleClose = useCallback((id: string) => {
     const card = cards.find(c => c.id === id);
     dispatch({ type: "REMOVE_CARD", id });
+    // Clean up ResizeObserver for removed card
+    const prevEl = observedElementsRef.current.get(id);
+    if (prevEl && autoHeightObserverRef.current) {
+      autoHeightObserverRef.current.unobserve(prevEl);
+    }
+    observedElementsRef.current.delete(id);
     if (card && !card.pinned) {
       // Show undo toast for 5 seconds
       if (undoToast?.timer) clearTimeout(undoToast.timer);

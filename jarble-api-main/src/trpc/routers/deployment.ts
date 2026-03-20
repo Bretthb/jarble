@@ -955,10 +955,20 @@ export const deploymentRouter = router({
       const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
 
       try {
-        // Set transitional status first
-        await ctx.db.update(deployments)
+        // Atomic conditional update — prevents double-stop race condition.
+        // If two concurrent requests both pass the status check above, only
+        // one will succeed in setting "stopping" (the other gets 0 rows).
+        const stopResult = await ctx.db.update(deployments)
           .set({ status: "stopping" })
-          .where(eq(deployments.id, input.id));
+          .where(and(eq(deployments.id, input.id), eq(deployments.status, "running")));
+
+        const rowsAffected = (stopResult as any)[0]?.affectedRows ?? (stopResult as any).rowCount ?? (stopResult as any).changes ?? 1;
+        if (rowsAffected === 0) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Deployment is no longer running (concurrent request may have stopped it)",
+          });
+        }
 
         await stopDeployment(input.id, managedBy);
 
@@ -967,6 +977,7 @@ export const deploymentRouter = router({
           .where(eq(deployments.id, input.id));
         logger.info({ deploymentId: input.id }, "Deployment stopped");
       } catch (err) {
+        if (err instanceof TRPCError) throw err;
         // Roll back transitional status so the deployment isn't stuck in "stopping"
         try {
           await ctx.db.update(deployments)

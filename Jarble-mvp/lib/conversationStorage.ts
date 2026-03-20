@@ -64,11 +64,34 @@ export function loadConversationMessages(deploymentId: string, conversationId: s
   }
 }
 
-export function saveConversationMessages(deploymentId: string, conversationId: string, messages: ChatMessage[]): void {
+/** Returns true if save succeeded, false if quota exceeded */
+export function saveConversationMessages(deploymentId: string, conversationId: string, messages: ChatMessage[]): boolean {
   try {
     const trimmed = messages.slice(-MAX_MESSAGES);
     localStorage.setItem(messagesKey(deploymentId, conversationId), JSON.stringify(trimmed));
-  } catch {}
+    return true;
+  } catch (err) {
+    // QuotaExceededError — try evicting oldest conversations to make room
+    if (err instanceof DOMException && err.name === "QuotaExceededError") {
+      try {
+        const index = loadConversationIndex(deploymentId);
+        // Evict oldest conversation (not the current one) to free space
+        const evictable = index.conversations
+          .filter((c) => c.id !== conversationId)
+          .sort((a, b) => a.updatedAt - b.updatedAt);
+        if (evictable.length > 0) {
+          deleteConversation(deploymentId, evictable[0].id);
+          // Retry save after eviction
+          const trimmed = messages.slice(-MAX_MESSAGES);
+          localStorage.setItem(messagesKey(deploymentId, conversationId), JSON.stringify(trimmed));
+          return true;
+        }
+      } catch {
+        // Eviction also failed — give up
+      }
+    }
+    return false;
+  }
 }
 
 export function deleteConversation(deploymentId: string, conversationId: string): void {

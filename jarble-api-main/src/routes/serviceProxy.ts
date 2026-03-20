@@ -23,7 +23,7 @@
  *  14. Return the creator's response (or 202 for async mode)
  */
 
-import crypto from "crypto";
+import crypto, { timingSafeEqual } from "crypto";
 import { Router } from "express";
 import { eq, and, sql } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
@@ -153,7 +153,8 @@ serviceProxyRouter.post(
       // Accept the mesh gateway's own shared secret (same-process internal calls).
       // This is checked first so mesh gateway requests succeed even when K8s is
       // unavailable (e.g. SQLite dev mode).
-      if (gatewayToken === meshGatewayToken) {
+      if (meshGatewayToken && gatewayToken.length === meshGatewayToken.length &&
+          timingSafeEqual(Buffer.from(gatewayToken), Buffer.from(meshGatewayToken))) {
         // Authenticated via mesh gateway shared secret — proceed.
       } else {
         // Try K8s Secret first (production), fall back to DB field (tests/legacy)
@@ -171,7 +172,8 @@ serviceProxyRouter.post(
           return;
         }
 
-        if (gatewayToken !== expectedToken) {
+        if (gatewayToken.length !== expectedToken.length ||
+            !timingSafeEqual(Buffer.from(gatewayToken), Buffer.from(expectedToken))) {
           log.warn({ deploymentId }, "Service proxy: invalid gateway token");
           res.status(401).json({ error: "Unauthorized" });
           return;

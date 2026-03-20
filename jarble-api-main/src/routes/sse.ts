@@ -170,7 +170,10 @@ sseRouter.get("/:id/logs/stream", async (req, res) => {
       }
     }, 25_000);
 
+    let logsCleaned = false;
     const cleanupLogs = () => {
+      if (logsCleaned) return;
+      logsCleaned = true;
       clearInterval(keepAlive);
       logStream.destroy();
       if (abortFn) abortFn();
@@ -378,7 +381,10 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
       }
     }, 25_000);
 
+    let qrCleaned = false;
     const cleanupQr = () => {
+      if (qrCleaned) return;
+      qrCleaned = true;
       if (pairingTimeout) clearTimeout(pairingTimeout);
       clearInterval(keepAlive);
       if (abortFn) abortFn();
@@ -515,6 +521,7 @@ sseRouter.get("/status/stream", async (req, res) => {
     } catch (err) {
       log.error({ err, userId: user.id }, "Failed to build initial status snapshot");
       res.write(`event: error\ndata: ${JSON.stringify({ message: "Failed to fetch deployment statuses" })}\n\n`);
+      releaseConnection(user.id);
       res.end();
       return;
     }
@@ -586,7 +593,10 @@ sseRouter.get("/status/stream", async (req, res) => {
       res.end();
     }, maxConnectionMs);
 
+    let statusCleaned = false;
     function cleanup() {
+      if (statusCleaned) return;
+      statusCleaned = true;
       clearInterval(deploymentSyncInterval);
       clearInterval(keepAlive);
       clearTimeout(connectionTimeout);

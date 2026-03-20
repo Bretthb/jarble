@@ -663,9 +663,6 @@ tamboAgentRouter.post("/", async (req, res) => {
     return;
   }
 
-  // Track active chat session so auto-sync doesn't restart the gateway mid-conversation
-  markDeploymentActive(deploymentId);
-
   // 4. Load deployment
   const deployment = await db.query.deployments.findFirst({
     where: eq(tables.deployments.id, deploymentId),
@@ -695,6 +692,10 @@ tamboAgentRouter.post("/", async (req, res) => {
     res.end();
     return;
   }
+
+  // Track active chat session so auto-sync doesn't restart the gateway mid-conversation
+  // Placed AFTER ownership check to avoid leaking active state on auth failures.
+  markDeploymentActive(deploymentId);
 
   const managedBy = ((deployment as any).managedBy ?? "legacy") as ManagedBy;
   const requestStartMs = Date.now();
@@ -752,42 +753,37 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   // Master timeout: 5 minutes — prevents indefinitely hanging connections
   // if the gateway WebSocket or exec hangs without triggering its own timeout.
+  // Initialized as null and armed after messageId is defined (avoids TDZ reference).
   const MASTER_TIMEOUT_MS = 5 * 60 * 1000;
-  const masterTimeout = setTimeout(() => {
-    if (res.writableEnded) return;
-    log.warn({ deploymentId, threadId }, "Chat SSE master timeout (5 min) — closing connection");
-    sendEvent(res, {
-      type: "TEXT_MESSAGE_CONTENT",
-      messageId,
-      delta: "\n\nSorry, the request timed out. The bot may be processing a complex task — please try again.",
-    });
-    sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-    sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-    res.end();
-    abortController.abort();
-  }, MASTER_TIMEOUT_MS);
+  let masterTimeout: ReturnType<typeof setTimeout> | null = null;
 
   /** Clear all timers and abort. Called on disconnect or successful completion. */
   const cleanupTimers = () => {
     clearInterval(keepAliveInterval);
-    clearTimeout(masterTimeout);
+    if (masterTimeout) clearTimeout(masterTimeout);
+  };
+
+  // Guard against double-cleanup (res.end fires, then req.close fires)
+  let chatCleaned = false;
+  const cleanupChat = () => {
+    if (chatCleaned) return;
+    chatCleaned = true;
+    cleanupTimers();
+    sessionManager.unregisterRun(deploymentId);
+    markDeploymentIdle(deploymentId);
   };
 
   // Wrap res.end to always clean up timers and unregister from session manager
   const originalEnd = res.end.bind(res);
   res.end = ((...args: any[]) => {
-    cleanupTimers();
-    sessionManager.unregisterRun(deploymentId);
-    markDeploymentIdle(deploymentId);
+    cleanupChat();
     return originalEnd(...args);
   }) as typeof res.end;
 
   req.on("close", () => {
     log.debug({ deploymentId, threadId }, "Chat client disconnected");
-    cleanupTimers();
+    cleanupChat();
     abortController.abort();
-    sessionManager.unregisterRun(deploymentId);
-    markDeploymentIdle(deploymentId);
   });
 
   req.on("error", (err: Error) => {
@@ -830,6 +826,21 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   const messageId = nanoid();
   sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
+
+  // Arm the master timeout now that messageId is defined
+  masterTimeout = setTimeout(() => {
+    if (res.writableEnded) return;
+    log.warn({ deploymentId, threadId }, "Chat SSE master timeout (5 min) — closing connection");
+    sendEvent(res, {
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId,
+      delta: "\n\nSorry, the request timed out. The bot may be processing a complex task — please try again.",
+    });
+    sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+    sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+    res.end();
+    abortController.abort();
+  }, MASTER_TIMEOUT_MS);
 
   // ── Agent call event listeners ─────────────────────────────────────────────
   // When the MCP server inside the pod calls /api/agent-hub/call, the agent-hub
@@ -1013,6 +1024,12 @@ tamboAgentRouter.post("/", async (req, res) => {
     // Priority 3: External reasoning from secondary model (GPT-4o-mini / Haiku)
     if (!reasoningEmitted) {
       await emitExternalReasoning();
+    }
+
+    // Notify the user if the response was truncated by a timeout
+    if (gatewayResult.timedOut) {
+      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "\n\n---\n*Response was cut short due to a timeout. The bot may have been processing a complex request — try breaking it into smaller parts.*" });
+      log.warn({ deploymentId, textLength: gatewayResult.rawText.length }, "Chat: response truncated by gateway timeout");
     }
 
     sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
@@ -1200,6 +1217,7 @@ tamboAgentRouter.post("/", async (req, res) => {
         }
       },
       canvasImage,
+      abortController.signal,
     );
   };
 
@@ -1318,6 +1336,8 @@ tamboAgentRouter.post("/", async (req, res) => {
       if (isConnectionError && attempt < MAX_ATTEMPTS - 1) {
         log.warn({ deploymentId, attempt, error: e.message }, "Gateway WS failed, falling back to exec (npx openclaw agent)");
         lastDeltaText = "";
+        inFencedBlock = false;
+        fenceBuffer = "";
 
         try {
           const result = await tryExec();

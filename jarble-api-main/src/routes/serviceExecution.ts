@@ -23,7 +23,7 @@
  *  13. Return result with X-Request-Id header
  */
 
-import crypto from "crypto";
+import crypto, { timingSafeEqual } from "crypto";
 import { Router } from "express";
 import { eq, and, sql } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
@@ -126,14 +126,17 @@ serviceExecutionRouter.post(
       const k8sToken = await readGatewayTokenFromK8s(deploymentId);
       const expectedToken = k8sToken ?? (deployment as any).gatewayToken;
 
-      if (expectedToken) {
-        if (gatewayToken !== expectedToken) {
-          log.warn({ deploymentId }, "Service execution: invalid gateway token");
-          res.status(401).set("X-Request-Id", requestId).json({ error: "Unauthorized" });
-          return;
-        }
+      if (!expectedToken) {
+        log.warn({ deploymentId }, "Service execution: no gateway token configured — rejecting request");
+        res.status(401).set("X-Request-Id", requestId).json({ error: "Unauthorized — gateway token not configured" });
+        return;
       }
-      // If no expected token found (dev mode, no K8s, no DB field), accept if deployment exists
+      if (gatewayToken.length !== expectedToken.length ||
+          !timingSafeEqual(Buffer.from(gatewayToken), Buffer.from(expectedToken))) {
+        log.warn({ deploymentId }, "Service execution: invalid gateway token");
+        res.status(401).set("X-Request-Id", requestId).json({ error: "Unauthorized" });
+        return;
+      }
     } else {
       log.warn({ deploymentId }, "Service execution: no authentication provided");
       res.status(401).set("X-Request-Id", requestId).json({
