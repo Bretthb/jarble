@@ -52,6 +52,15 @@ export const RUNTIME_PORTS: Record<string, number> = {
   zeroclaw: 3000,
 };
 
+/** Named resource presets for platform-hosted agents */
+export const RESOURCE_TIERS = {
+  small:  { cpuLimit: "0.5", memoryMb: 1024, storageMb: 10 },
+  medium: { cpuLimit: "1.0", memoryMb: 2048, storageMb: 20 },
+  large:  { cpuLimit: "2.0", memoryMb: 3072, storageMb: 30 },
+} as const;
+
+export type ResourceTier = keyof typeof RESOURCE_TIERS;
+
 // ── Operator CRD constants ────────────────────────────────────────────────
 export const CRD_GROUP = "openclaw.rocks";
 export const CRD_VERSION = "v1alpha1";

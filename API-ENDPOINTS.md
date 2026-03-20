@@ -1,7 +1,7 @@
 # Jarble API Endpoints Reference
 
-> Complete reference for every API endpoint in the Jarble platform. Covers all 81 tRPC procedures and 27 REST endpoints.
-> Last updated: March 18, 2026 (Session 18)
+> Complete reference for every API endpoint in the Jarble platform. Covers all 96 tRPC procedures and 29 REST endpoints.
+> Last updated: March 19, 2026 (Session 19)
 
 ---
 
@@ -21,6 +21,7 @@
    - [Skills Router](#skills-router-4-procedures)
    - [Marketplace Router](#marketplace-router-22-procedures)
    - [Services Router](#services-router-6-procedures)
+   - [Benchmarks Router](#benchmarks-router-14-procedures)
 5. [REST Endpoints](#5-rest-endpoints)
    - [Webhooks](#webhooks)
    - [Payment Routes](#payment-routes)
@@ -158,7 +159,7 @@ All tRPC endpoints are at `/trpc/<router>.<procedure>`. Types flow automatically
 graph TD
     CLIENT["Frontend<br/>trpc.router.procedure.useQuery()"] -->|"HTTP POST/GET"| TRPC["/trpc endpoint"]
 
-    TRPC --> DEPLOYMENT["deployment<br/>21 procedures"]
+    TRPC --> DEPLOYMENT["deployment<br/>22 procedures"]
     TRPC --> OPENROUTER["openrouter<br/>8 procedures"]
     TRPC --> USER["user<br/>5 procedures"]
     TRPC --> BILLING["billing<br/>3 procedures"]
@@ -168,6 +169,7 @@ graph TD
     TRPC --> SKILLS["skills<br/>4 procedures"]
     TRPC --> MARKETPLACE["marketplace<br/>22 procedures"]
     TRPC --> SERVICES["services<br/>6 procedures"]
+    TRPC --> BENCHMARKS["benchmarks<br/>14 procedures"]
 
     DEPLOYMENT --> DB[("Database")]
     DEPLOYMENT --> K8S["K8s Cluster"]
@@ -214,7 +216,7 @@ graph LR
 
 ---
 
-### Deployment Router (21 procedures)
+### Deployment Router (22 procedures)
 
 ```mermaid
 graph TD
@@ -291,6 +293,7 @@ graph TD
 | `deployment.linkSubscription` | mutation | `{ deploymentId }` | Link pending/unlinked Stripe subscription to deployment |
 | `deployment.exportConfigs` | mutation | `{ id }` | Export PVC config files as base64-encoded ZIP |
 | `deployment.delete` | mutation | `{ id }` | Delete deployment + all K8s resources. Blocks if credit pool owner with children |
+| `deployment.platformFork` | mutation | `{ sourceId, name?, resourceTier, llmProvider?, llmModel? }` | Admin-only. Fork a deployment as a platform agent with chosen resource tier and platform LLM mode |
 
 #### `deployment.create` Input Schema
 
@@ -300,7 +303,7 @@ graph TD
   runtimeCatalogId: number               // required
   platform?: string
   image?: string                         // custom Docker image
-  llmMode?: "included" | "byok"          // default: "byok"
+  llmMode?: "included" | "byok" | "platform"  // default: "byok"; "platform" uses AGENT_LLM_API_KEY
   llmProvider?: "openrouter" | "openai" | "anthropic" | "google"
   llmModel?: string                      // e.g., "anthropic/claude-sonnet-4-20250514"
   llmApiKey?: string                     // required if llmMode="byok"
@@ -607,6 +610,65 @@ Buyer pods never call creator APIs directly — all requests go through `POST /a
 
 ---
 
+### Benchmarks Router (14 procedures)
+
+The benchmarks router implements the Agent Forking Flywheel discovery layer: a hierarchical domain taxonomy, per-deployment multi-axis ratings, leaderboards, service performance metrics, and admin curation tools.
+
+```mermaid
+graph TD
+    subgraph Domains["Domain Taxonomy (mixed)"]
+        BM1["listDomains<br/>query | public"]
+        BM2["createDomain<br/>mutation | protected"]
+    end
+
+    subgraph Ratings["Deployment Ratings (mixed)"]
+        BM3["rateDeployment<br/>mutation | protected"]
+        BM4["getDeploymentRatings<br/>query | public"]
+        BM5["setSpecialties<br/>mutation | protected"]
+        BM6["getPublicProfile<br/>query | public"]
+        BM7["leaderboard<br/>query | public"]
+    end
+
+    subgraph ServiceMetrics["Service Metrics (public)"]
+        BM8["getServiceMetrics<br/>query | public"]
+        BM9["serviceLeaderboard<br/>query | public"]
+    end
+
+    subgraph ServiceReviews["Service Reviews (mixed)"]
+        BM10["getServiceReviews<br/>query | public"]
+        BM11["createServiceReview<br/>mutation | protected"]
+        BM12["respondToServiceReview<br/>mutation | protected"]
+    end
+
+    subgraph Admin["Admin Curation (protected + admin role)"]
+        BM13["adminFeature<br/>mutation | sets featuredAt timestamp"]
+        BM14["adminUnfeature<br/>mutation | clears featuredAt"]
+    end
+
+    BM3 -->|"recomputes"| SCORES["deploymentDomainScores"]
+    BM7 --> DB[("Database")]
+    BM9 --> DB
+```
+
+| Procedure | Type | Auth | Input | Description |
+|---|---|---|---|---|
+| `benchmarks.listDomains` | query | public | `{ parentId? }` | List root domains (parentId omitted) or children of a parent |
+| `benchmarks.createDomain` | mutation | protected | `{ name (kebab-case slug), displayName, description?, parentId?, icon? }` | Create a new domain. Name must be unique kebab-case |
+| `benchmarks.rateDeployment` | mutation | protected | `{ deploymentId, domainId, accuracy, helpfulness, creativity: 1-5, comment? }` | Upsert a rating for a deployment in a domain. Recomputes `deploymentDomainScores` aggregates (avg * 100 scale, confidence: low/medium/high) |
+| `benchmarks.getDeploymentRatings` | query | public | `{ deploymentId }` | All ratings for a deployment with domain names |
+| `benchmarks.setSpecialties` | mutation | protected | `{ deploymentId, specialties: string[], bio?, showcasePrompts? }` | Set public profile fields. Ownership verified |
+| `benchmarks.getPublicProfile` | query | public | `{ deploymentId }` | Full public profile: name, specialties, bio, showcase prompts, domain scores, installed services, fork stats. Requires `isPublic: true` |
+| `benchmarks.leaderboard` | query | public | `{ domainSlug, metric: overall\|accuracy\|helpfulness\|creativity, limit: 1-100 }` | Domain leaderboard. Filters public deployments with >= 3 ratings |
+| `benchmarks.getServiceMetrics` | query | public | `{ serviceId, period: 24h\|7d\|30d }` | Service benchmark aggregates (latency, uptime, error rate) for a time period |
+| `benchmarks.serviceLeaderboard` | query | public | `{ metric: reliability\|speed\|popularity, limit: 1-100 }` | Service leaderboard by reliability (uptime), speed (p50 latency), or popularity (install count) |
+| `benchmarks.getServiceReviews` | query | public | `{ serviceId, limit, offset }` | Paginated service reviews with creator responses and user names |
+| `benchmarks.createServiceReview` | mutation | protected | `{ serviceId, rating: 1-5, title?, body? }` | Submit a service review. One review per user per service. Recomputes `avgRating` on `marketplaceServices` |
+| `benchmarks.respondToServiceReview` | mutation | protected | `{ reviewId, response }` | Service creator responds to a review. Ownership verified via `creatorProfiles` |
+| `benchmarks.adminFeature` | mutation | protected (admin) | `{ deploymentId }` | Set `featuredAt` timestamp on a public deployment. Adds +10 pts to forkability score |
+| `benchmarks.adminUnfeature` | mutation | protected (admin) | `{ deploymentId }` | Clear `featuredAt` timestamp |
+
+---
+
 ## 5. REST Endpoints
 
 REST endpoints handle use cases that don't fit tRPC: webhooks (external POST), SSE streaming (long-lived connections), and file uploads.
@@ -789,6 +851,21 @@ sequenceDiagram
 | GET | `/api/mcp/:deploymentId` | JWT Bearer | MCP SSE stream for server-to-client notifications (keyed by `mcp-session-id` header) |
 | DELETE | `/api/mcp/:deploymentId` | JWT Bearer | Close and clean up an MCP session |
 
+### Public REST API
+
+Unauthenticated endpoints for the Agent Forking Flywheel discovery layer. Intended for embed widgets, partner integrations, and external consumers. Served at `/api/public/*`.
+
+| Method | Path | Auth | Cache | Description |
+|---|---|---|---|---|
+| GET | `/api/public/leaderboard/:domainSlug` | None | 60s public | Domain leaderboard. Query params: `metric` (overall/accuracy/helpfulness/creativity), `limit` (1-100). Includes forkability score for each entry. Minimum 3 ratings required |
+| GET | `/api/public/agents/:deploymentId/profile` | None | 30s public | Full public agent profile: specialties, bio, showcase prompts, domain scores, installed services, fork count, forkability score. Returns 404 if not public |
+
+### Pod Compose
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/pod/compose` | Pod gateway token (`X-Deployment-Id` + `X-Gateway-Token`) | Fans out up to 8 component agent calls in parallel via `Promise.allSettled()`. Body: `{ title, components: [{ intent, style?, data? }], theme? }`. Returns `{ blocks: jarble_ui[], dashboardId, errors[] }`. Each block is a serialized sandbox component. Timeout: 60s per component. Uses `AGENT_LLM_API_KEY` / `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` |
+
 ### Health & Debug
 
 | Method | Path | Auth | Description |
@@ -805,24 +882,26 @@ sequenceDiagram
 
 | Category | Count | Auth | Rate Limit | Streaming |
 |----------|-------|------|-----------|-----------|
-| tRPC Queries | 35 | public/protected | 120 req/min | No |
-| tRPC Mutations | 46 | protected | 120 req/min | No |
+| tRPC Queries | 42 | public/protected | 120 req/min | No |
+| tRPC Mutations | 53 | protected | 120 req/min | No |
 | REST Webhooks | 3 | signature/M2M/deploymentId | global/exempt | No |
 | REST Payment | 2 | JWT Bearer | 10 req/min | No |
 | REST Chat | 1 | JWT Bearer | 120 req/min | Yes |
 | REST Artifact | 4 | JWT Bearer | global/1/s | No |
 | REST Service Proxy | 1 | JWT Bearer | Per ServiceCard | No |
 | REST Agent Hub | 2 | JWT/gateway or none | global | No |
+| REST Public API | 2 | None | global | No |
+| REST Pod Compose | 1 | Pod gateway token | global | No |
 | SSE Streams | 3 | JWT (header or query) | 120 req/min | Yes |
 | MCP Endpoints | 5 | JWT Bearer | global | Mixed |
 | Health/Debug | 5 | none | exempt | No |
-| **Total** | **107** | -- | -- | -- |
+| **Total** | **124** | -- | -- | -- |
 
 ### Quick Reference by Router
 
 | Router | Queries | Mutations | Total |
 |--------|---------|-----------|-------|
-| `deployment` | 8 | 13 | 21 |
+| `deployment` | 8 | 14 | 22 |
 | `openrouter` | 3 | 5 | 8 |
 | `user` | 2 | 3 | 5 |
 | `runtimeCatalog` | 4 | 0 | 4 |
@@ -832,9 +911,10 @@ sequenceDiagram
 | `skills` | 2 | 2 | 4 |
 | `marketplace` | 11 | 11 | 22 |
 | `services` | 3 | 3 | 6 |
-| **tRPC Total** | **39** | **42** | **81** |
-| REST endpoints | -- | -- | **26** |
-| **Grand Total** | -- | -- | **107** |
+| `benchmarks` | 7 | 7 | 14 |
+| **tRPC Total** | **46** | **50** | **96** |
+| REST endpoints | -- | -- | **29** |
+| **Grand Total** | -- | -- | **125** |
 
 ### Key Files
 
@@ -881,3 +961,8 @@ sequenceDiagram
 | `jarble-api-main/src/middleware/serviceRateLimit.ts` | Per-deployment+service rate limiter (from ServiceCard limits) |
 | `shared/component-manifest/index.ts` | COMPONENT_MANIFEST + derived exports — consumed by all layers |
 | `scripts/check-manifest.ts` | CI check verifying manifest ↔ registry sync |
+| `jarble-api-main/src/trpc/routers/benchmarks.ts` | 14 procedures (domain taxonomy, ratings, leaderboard, service metrics, service reviews, admin curation) |
+| `jarble-api-main/src/routes/publicApi.ts` | GET /api/public/leaderboard/:domainSlug and GET /api/public/agents/:deploymentId/profile |
+| `jarble-api-main/src/routes/compose.ts` | POST /api/pod/compose — parallel dashboard composition (fan-out to component agent) |
+| `jarble-api-main/src/utils/forkability.ts` | computeForkabilityScore() — 0-100 score from 7 criteria |
+| `jarble-api-main/src/k8s/constants.ts` | RESOURCE_TIERS — small/medium/large resource presets for platform agents |

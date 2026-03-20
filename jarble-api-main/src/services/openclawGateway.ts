@@ -94,6 +94,8 @@ export interface GatewayResponse {
   suggestions: string[];
   /** Design context inferred or explicitly set during this turn */
   designContext: Record<string, unknown> | null;
+  /** Native thinking/reasoning content extracted from LLM response (if available) */
+  nativeThinking: string;
 }
 
 export async function chatViaGateway(
@@ -111,6 +113,7 @@ export async function chatViaGateway(
   return new Promise<GatewayResponse>((resolve, reject) => {
     const timeoutMs = 120_000;
     let fullText = "";
+    let nativeThinking = "";
     let connected = false;
     let finished = false;
     const pending = new Map<string, PendingRequest>();
@@ -131,7 +134,7 @@ export async function chatViaGateway(
         ws.close();
         if (fullText) {
           const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
-          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext });
+          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking });
         } else {
           reject(new Error("Gateway chat timed out after 120s"));
         }
@@ -282,24 +285,30 @@ export async function chatViaGateway(
 
               onDelta?.(text);
             }
+            // Accumulate native thinking from delta events
+            const deltaThinking = extractThinking(payload);
+            if (deltaThinking) nativeThinking = deltaThinking;
           } else if (state === "final") {
             const text = extractText(payload.message);
             if (text) {
               fullText = text;
             }
+            // Extract native thinking from the final payload
+            const finalThinking = extractThinking(payload);
+            if (finalThinking) nativeThinking = finalThinking;
             finished = true;
             cleanup();
             const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
             // Skip blocks already emitted during streaming deltas (they appear in order)
             const remainingBlocks = uiBlocks.slice(emittedBlockCount);
-            log.debug({ wsUrl, rawTextLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, updateCount: uiUpdates.length }, "Gateway: response summary");
-            resolve({ rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs, suggestions, designContext });
+            log.debug({ wsUrl, rawTextLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, updateCount: uiUpdates.length, hasNativeThinking: !!nativeThinking }, "Gateway: response summary");
+            resolve({ rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking });
           } else if (state === "aborted") {
             finished = true;
             cleanup();
             const abortText = fullText || "The bot's response was interrupted.";
             const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(abortText);
-            resolve({ rawText: abortText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext });
+            resolve({ rawText: abortText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking });
           }
         }
 
@@ -339,7 +348,7 @@ export async function chatViaGateway(
         const reason = reasonBuf?.toString() || "";
         if (fullText) {
           const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
-          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext });
+          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking });
         } else if (!connected) {
           const detail = reason ? ` (${code}: ${reason})` : code ? ` (code ${code})` : "";
           reject(new Error(`Gateway WS closed before auth completed${detail}`));
@@ -373,6 +382,39 @@ function extractText(message: unknown): string {
     if (m.content) return extractText(m.content);
     if (m.text) return String(m.text);
   }
+  return "";
+}
+
+/**
+ * Extract native thinking/reasoning content from an OpenClaw message payload.
+ *
+ * OpenClaw's `--thinking medium` flag causes Claude to produce thinking blocks.
+ * In `--json` mode these are sometimes stripped from the text payloads, but may
+ * appear as separate content blocks with `type: "thinking"` in the message array,
+ * or as a top-level `thinking` field on the payload/result object.
+ *
+ * This function checks all known locations where native thinking may appear.
+ */
+function extractThinking(payload: any): string {
+  if (!payload) return "";
+
+  // 1. Check explicit thinking field on the payload
+  if (typeof payload.thinking === "string" && payload.thinking) return payload.thinking;
+
+  // 2. Check content blocks for type: "thinking"
+  const message = payload.message || payload.content || payload;
+  if (Array.isArray(message)) {
+    const thinking = message
+      .filter((b: any) => b.type === "thinking")
+      .map((b: any) => b.thinking || b.text || "")
+      .join("\n")
+      .trim();
+    if (thinking) return thinking;
+  }
+
+  // 3. Check result.meta for thinking content
+  if (payload.result?.meta?.thinking) return String(payload.result.meta.thinking);
+
   return "";
 }
 
@@ -426,6 +468,7 @@ export async function chatViaExec(
     podName,
     payloadCount: payloads.length,
     model: parsed.result?.meta?.agentMeta?.model,
+    parsedKeys: Object.keys(parsed.result || parsed),
   }, "chatViaExec: response structure");
 
   const rawText = payloads.map((p: any) => p.text || "").join("\n").trim();
@@ -434,10 +477,30 @@ export async function chatViaExec(
     throw new Error("Bot returned an empty response");
   }
 
+  // Extract native thinking from the OpenClaw JSON response.
+  // Check multiple locations: top-level, result, individual payloads, and meta.
+  let nativeThinking = "";
+  // Check the parsed result object itself
+  const topThinking = extractThinking(parsed.result || parsed);
+  if (topThinking) nativeThinking = topThinking;
+  // Check individual payloads for thinking content blocks
+  if (!nativeThinking) {
+    for (const p of payloads) {
+      const payloadThinking = extractThinking(p);
+      if (payloadThinking) {
+        nativeThinking += (nativeThinking ? "\n" : "") + payloadThinking;
+      }
+    }
+  }
+
+  if (nativeThinking) {
+    log.debug({ podName, thinkingLen: nativeThinking.length }, "chatViaExec: extracted native thinking");
+  }
+
   // Deliver the full text as a single "delta" so the caller can emit it
   onDelta?.(rawText);
 
   const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(rawText);
-  log.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "chatViaExec: response summary");
-  return { rawText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext };
+  log.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length, hasNativeThinking: !!nativeThinking }, "chatViaExec: response summary");
+  return { rawText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking };
 }

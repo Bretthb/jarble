@@ -373,6 +373,21 @@ window.onunhandledrejection = function(e) {
     }
   }, "*");
 };
+// Canvas2D safety patches — LLM-generated code often passes invalid values
+// to Canvas APIs (negative radius, NaN coords, etc). Guard these at the API
+// level so one bad frame doesn't crash the entire sandbox.
+(function() {
+  var proto = (typeof CanvasRenderingContext2D !== "undefined") && CanvasRenderingContext2D.prototype;
+  if (!proto) return;
+  var _arc = proto.arc;
+  proto.arc = function(x, y, r, sa, ea, ccw) {
+    return _arc.call(this, x, y, Math.abs(r) || 0, sa, ea, ccw);
+  };
+  var _arcTo = proto.arcTo;
+  proto.arcTo = function(x1, y1, x2, y2, r) {
+    return _arcTo.call(this, x1, y1, x2, y2, Math.abs(r) || 0);
+  };
+})();
 // CSP violation monitoring — report blocked resources to parent
 document.addEventListener("securitypolicyviolation", function(e) {
   parent.postMessage({

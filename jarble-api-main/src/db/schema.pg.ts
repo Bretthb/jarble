@@ -49,6 +49,8 @@ export const deployments = pgTable("deployments", {
   error: text("error"),
   messagingOnly: boolean("messaging_only").notNull().default(false),
   isolationLevel: varchar("isolation_level", { length: 20 }).notNull().default("standard"),  // "standard" | "gvisor" | "kata"
+  isPlatform: boolean("is_platform").notNull().default(false),  // Platform-owned agent (bypasses subscription/storage enforcement)
+  resourceTier: varchar("resource_tier", { length: 20 }),  // Named resource preset: "small" | "medium" | "large"
   themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
   // Fork & public profile fields
   forkedFromId: varchar("forked_from_id", { length: 255 }),

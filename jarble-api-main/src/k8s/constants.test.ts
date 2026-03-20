@@ -14,7 +14,9 @@ import {
   getPvcMountPath,
   getContainerHome,
   podLabelSelector,
+  RESOURCE_TIERS,
 } from "./constants.js";
+import type { ResourceTier } from "./constants.js";
 
 // ── Exported constants ───────────────────────────────────────────────────────
 
@@ -103,5 +105,69 @@ describe("podLabelSelector", () => {
 
   it("handles deployment IDs with special characters", () => {
     expect(podLabelSelector("r99hdxw7r9g8", "legacy")).toBe("app=dep-r99hdxw7r9g8");
+  });
+});
+
+// ── RESOURCE_TIERS ──────────────────────────────────────────────────────────
+
+describe("RESOURCE_TIERS", () => {
+  const tierNames: ResourceTier[] = ["small", "medium", "large"];
+
+  it("defines all three tiers (small, medium, large)", () => {
+    expect(Object.keys(RESOURCE_TIERS)).toEqual(tierNames);
+  });
+
+  it.each(tierNames)("%s tier has cpuLimit, memoryMb, and storageMb", (tier) => {
+    const t = RESOURCE_TIERS[tier];
+    expect(t).toHaveProperty("cpuLimit");
+    expect(t).toHaveProperty("memoryMb");
+    expect(t).toHaveProperty("storageMb");
+  });
+
+  it.each(tierNames)("%s tier cpuLimit is a parseable numeric string", (tier) => {
+    const cpu = RESOURCE_TIERS[tier].cpuLimit;
+    expect(typeof cpu).toBe("string");
+    const parsed = parseFloat(cpu);
+    expect(parsed).toBeGreaterThan(0);
+    expect(parsed).not.toBeNaN();
+  });
+
+  it.each(tierNames)("%s tier memoryMb is a positive number", (tier) => {
+    expect(RESOURCE_TIERS[tier].memoryMb).toBeGreaterThan(0);
+    expect(Number.isInteger(RESOURCE_TIERS[tier].memoryMb)).toBe(true);
+  });
+
+  it.each(tierNames)("%s tier storageMb is a positive number", (tier) => {
+    expect(RESOURCE_TIERS[tier].storageMb).toBeGreaterThan(0);
+    expect(Number.isInteger(RESOURCE_TIERS[tier].storageMb)).toBe(true);
+  });
+
+  it("tiers are ordered: small < medium < large for cpuLimit", () => {
+    const small = parseFloat(RESOURCE_TIERS.small.cpuLimit);
+    const medium = parseFloat(RESOURCE_TIERS.medium.cpuLimit);
+    const large = parseFloat(RESOURCE_TIERS.large.cpuLimit);
+    expect(small).toBeLessThan(medium);
+    expect(medium).toBeLessThan(large);
+  });
+
+  it("tiers are ordered: small < medium < large for memoryMb", () => {
+    expect(RESOURCE_TIERS.small.memoryMb).toBeLessThan(RESOURCE_TIERS.medium.memoryMb);
+    expect(RESOURCE_TIERS.medium.memoryMb).toBeLessThan(RESOURCE_TIERS.large.memoryMb);
+  });
+
+  it("tiers are ordered: small < medium < large for storageMb", () => {
+    expect(RESOURCE_TIERS.small.storageMb).toBeLessThan(RESOURCE_TIERS.medium.storageMb);
+    expect(RESOURCE_TIERS.medium.storageMb).toBeLessThan(RESOURCE_TIERS.large.storageMb);
+  });
+
+  it("ResourceTier type matches the tier keys", () => {
+    // Type-level check: assigning each valid key to ResourceTier compiles
+    const s: ResourceTier = "small";
+    const m: ResourceTier = "medium";
+    const l: ResourceTier = "large";
+    // Runtime check: the keys are usable as index
+    expect(RESOURCE_TIERS[s]).toBeDefined();
+    expect(RESOURCE_TIERS[m]).toBeDefined();
+    expect(RESOURCE_TIERS[l]).toBeDefined();
   });
 });

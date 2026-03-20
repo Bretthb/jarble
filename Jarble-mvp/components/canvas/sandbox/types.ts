@@ -85,10 +85,11 @@ export interface BaseSandboxProps {
 export const HEARTBEAT_INTERVAL_MS = 5_000;
 
 /** Number of missed heartbeats before the sandbox is killed. */
-export const HEARTBEAT_MISS_LIMIT = 3;
+export const HEARTBEAT_MISS_LIMIT = 12;
 
-/** Total time of silence before the sandbox is killed (ms). */
-export const HEARTBEAT_TIMEOUT_MS = HEARTBEAT_INTERVAL_MS * HEARTBEAT_MISS_LIMIT; // 15s
+/** Total time of silence before the sandbox is killed (ms). 60s — heavy 3D components
+ *  (Three.js, D3, chart libs) can block the main thread for 15-30s during init. */
+export const HEARTBEAT_TIMEOUT_MS = HEARTBEAT_INTERVAL_MS * HEARTBEAT_MISS_LIMIT; // 60s
 
 /** Maximum localStorage quota per sandbox card (bytes). */
 export const SANDBOX_STORAGE_QUOTA = 1_048_576; // 1MB

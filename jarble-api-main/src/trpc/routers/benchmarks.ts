@@ -4,6 +4,7 @@ import { tables, dbDate } from "../../db/index.js";
 import { eq, and, desc, sql, asc, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { logger } from "../../utils/logger.js";
+import { isAdmin } from "../../utils/admin.js";
 import { customAlphabet } from "nanoid";
 
 const alphanumeric = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
@@ -878,5 +879,96 @@ export const benchmarksRouter = router({
         .where(eq(serviceReviews.id, input.reviewId));
 
       return { success: true };
+    }),
+
+  // ==========================================
+  // ADMIN CURATION PROCEDURES
+  // ==========================================
+
+  adminFeature: protectedProcedure
+    .input(
+      z.object({
+        deploymentId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!isAdmin(ctx.user.id)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Admin access required",
+        });
+      }
+
+      const deployment = await ctx.db
+        .select({ id: deployments.id, isPublic: deployments.isPublic })
+        .from(deployments)
+        .where(eq(deployments.id, input.deploymentId))
+        .limit(1);
+
+      if (deployment.length === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Deployment not found",
+        });
+      }
+
+      if (!deployment[0].isPublic) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Deployment must be public to be featured",
+        });
+      }
+
+      await ctx.db
+        .update(deployments)
+        .set({ featuredAt: new Date() })
+        .where(eq(deployments.id, input.deploymentId));
+
+      logger.info(
+        { deploymentId: input.deploymentId, adminUserId: ctx.user.id },
+        "deployment featured by admin"
+      );
+
+      return { success: true, deploymentId: input.deploymentId };
+    }),
+
+  adminUnfeature: protectedProcedure
+    .input(
+      z.object({
+        deploymentId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!isAdmin(ctx.user.id)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Admin access required",
+        });
+      }
+
+      const deployment = await ctx.db
+        .select({ id: deployments.id })
+        .from(deployments)
+        .where(eq(deployments.id, input.deploymentId))
+        .limit(1);
+
+      if (deployment.length === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Deployment not found",
+        });
+      }
+
+      await ctx.db
+        .update(deployments)
+        .set({ featuredAt: null })
+        .where(eq(deployments.id, input.deploymentId));
+
+      logger.info(
+        { deploymentId: input.deploymentId, adminUserId: ctx.user.id },
+        "deployment unfeatured by admin"
+      );
+
+      return { success: true, deploymentId: input.deploymentId };
     }),
 });

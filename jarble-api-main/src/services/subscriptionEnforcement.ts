@@ -50,11 +50,15 @@ async function checkDeploymentSubscription(dep: {
   id: string;
   userId: string;
   isFree: boolean;
+  isPlatform: boolean;
   freeExpiresAt: Date | null;
   stripeSubscriptionId: string | null;
   cancelAtPeriodEnd: Date | null;
   error: string | null;
 }): Promise<void> {
+  // Platform agents are always allowed to run — no subscription needed
+  if (dep.isPlatform) return;
+
   // Check 1: Free trial expiration
   if (dep.isFree && dep.freeExpiresAt) {
     const now = new Date();
@@ -251,11 +255,12 @@ export async function cleanupOrphanedDeployments(): Promise<void> {
   if (USE_SQLITE) return;
 
   try {
-    // Find running deployments that are not free and have no subscription
+    // Find running deployments that are not free, not platform-owned, and have no subscription
     const orphaned = await db.query.deployments.findMany({
       where: and(
         eq(deployments.status, "running"),
         eq(deployments.isFree, false),
+        eq(deployments.isPlatform, false),
         // No subscription ID
         or(
           isNull(deployments.stripeSubscriptionId),

@@ -400,15 +400,20 @@ export function useSandboxBridge(config: SandboxBridgeConfig): SandboxBridgeStat
 
   useEffect(() => {
     if (stopped) return;
+    // Use a longer timeout during loading (before ready) since libraries like
+    // Three.js can take 30-60s to download and parse. The iframe sends heartbeats
+    // during this phase, but if it crashes before ready, we still need to catch it.
+    const LOADING_TIMEOUT_MS = 90_000; // 90s for library loading phase
     const checkInterval = setInterval(() => {
-      if (!readyRef.current) return;
       const elapsed = Date.now() - lastHeartbeatRef.current;
-      if (elapsed > HEARTBEAT_TIMEOUT_MS) {
-        isDev && console.warn(`${logPrefix} Heartbeat timeout (${elapsed}ms silence), killing sandbox`);
+      const timeout = readyRef.current ? HEARTBEAT_TIMEOUT_MS : LOADING_TIMEOUT_MS;
+      if (elapsed > timeout) {
+        const phase = readyRef.current ? "running" : "loading";
+        isDev && console.warn(`${logPrefix} Heartbeat timeout (${elapsed}ms silence during ${phase}), killing sandbox`);
         dispatch({
           action: "sandbox_error",
           payload: {
-            error: { message: `Sandbox execution timeout (${Math.round(HEARTBEAT_TIMEOUT_MS / 1000)}s without heartbeat)`, source: "", line: 0, column: 0, stack: "" },
+            error: { message: `Sandbox ${phase} timeout (${Math.round(timeout / 1000)}s without heartbeat)`, source: "", line: 0, column: 0, stack: "" },
             component: componentName,
             title: title || "Sandbox",
             ...errorPayloadExtra,

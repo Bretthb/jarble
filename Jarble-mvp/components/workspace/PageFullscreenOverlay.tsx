@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Ungroup } from "lucide-react";
+import { X, Ungroup, Sparkles, MousePointerClick, Bookmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CanvasCard } from "./types";
 import CanvasRenderer from "@/components/canvas/CanvasRenderer";
@@ -11,9 +11,12 @@ interface PageFullscreenOverlayProps {
   card: CanvasCard;
   onClose: () => void;
   onUngroup: () => void;
+  onSelect?: () => void;
+  onAsk?: () => void;
+  onSave?: () => void;
 }
 
-function PageFullscreenOverlayInner({ card, onClose, onUngroup }: PageFullscreenOverlayProps) {
+function PageFullscreenOverlayInner({ card, onClose, onUngroup, onSelect, onAsk, onSave }: PageFullscreenOverlayProps) {
   // Escape key closes the overlay
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -52,6 +55,46 @@ function PageFullscreenOverlayInner({ card, onClose, onUngroup }: PageFullscreen
             <h2 className="text-sm font-semibold truncate">{title}</h2>
           </div>
           <div className="flex items-center gap-2">
+            {onAsk && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { onAsk(); onClose(); }}
+                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                title="Ask the bot about this page"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-primary" />
+                Ask
+              </Button>
+            )}
+            {onSelect && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onSelect}
+                className={`h-7 gap-1.5 text-xs transition-colors ${
+                  card.selected
+                    ? "text-blue-400 bg-blue-500/10 hover:bg-blue-500/20"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                title={card.selected ? "Deselect — stop referencing in messages" : "Select — reference this page in your next message"}
+              >
+                <MousePointerClick className="w-3.5 h-3.5" />
+                {card.selected ? "Selected" : "Select"}
+              </Button>
+            )}
+            {onSave && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onSave}
+                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                title="Save to library"
+              >
+                <Bookmark className={`w-3.5 h-3.5 text-amber-400 ${card.savedName ? "fill-amber-400" : ""}`} />
+                {card.savedName ? "Saved" : "Save"}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"

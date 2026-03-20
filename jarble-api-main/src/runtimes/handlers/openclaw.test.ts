@@ -1,8 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock node:fs before importing the handler — the module reads jarble-ui-server.js at import time
 vi.mock("node:fs", () => ({
   readFileSync: vi.fn(() => "// mock MCP server script"),
+}));
+
+// Mock env module before importing handler — platform mode reads env vars.
+// vi.mock factory is hoisted, so we cannot reference top-level variables.
+// Instead, we import the mocked env and mutate it directly in tests.
+vi.mock("../../utils/env.js", () => ({
+  env: {} as Record<string, string | undefined>,
 }));
 
 // Mock the platformCredentials router module to avoid circular dependency chain:
@@ -30,7 +37,22 @@ vi.mock("../../trpc/routers/platformCredentials.js", () => ({
 }));
 
 import { openclawHandler } from "./openclaw.js";
+import { env } from "../../utils/env.js";
 import type { DeploymentFields, ConfigFile } from "../types.js";
+
+const mockEnv = env as unknown as Record<string, string | undefined>;
+
+// ── Setup ────────────────────────────────────────────────────────────────────
+
+function clearEnv() {
+  for (const key of Object.keys(mockEnv)) {
+    delete mockEnv[key];
+  }
+}
+
+beforeEach(() => {
+  clearEnv();
+});
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -615,5 +637,92 @@ describe("Phase 1 — sandbox-first prompt language", () => {
 
     expect(soulMd.content).not.toContain("SANDBOX-FIRST RULE");
     expect(soulMd.content).not.toContain("Component Chooser");
+  });
+});
+
+// ── Phase 2: Agent Forking — platform LLM key injection ─────────────────────
+
+describe("openclawHandler.getSecretEntries — platform mode", () => {
+  it("uses AGENT_LLM_API_KEY when llmMode is 'platform'", () => {
+    mockEnv.AGENT_LLM_API_KEY = "platform-key-abc";
+    mockEnv.AGENT_LLM_PROVIDER = "anthropic";
+
+    const entries = openclawHandler.getSecretEntries(
+      makeDeployment({ llmMode: "platform", llmApiKey: null })
+    );
+    expect(entries["ANTHROPIC_API_KEY"]).toBe("platform-key-abc");
+  });
+
+  it("falls back to OPENROUTER_API_KEY env when AGENT_LLM_API_KEY is not set", () => {
+    mockEnv.OPENROUTER_API_KEY = "or-fallback-key";
+    // No AGENT_LLM_API_KEY
+
+    const entries = openclawHandler.getSecretEntries(
+      makeDeployment({ llmMode: "platform", llmApiKey: null })
+    );
+    expect(entries["OPENROUTER_API_KEY"]).toBe("or-fallback-key");
+  });
+
+  it("defaults provider to openrouter when AGENT_LLM_PROVIDER is not set", () => {
+    mockEnv.AGENT_LLM_API_KEY = "platform-key-456";
+    // No AGENT_LLM_PROVIDER — should default to "openrouter"
+
+    const entries = openclawHandler.getSecretEntries(
+      makeDeployment({ llmMode: "platform", llmApiKey: null })
+    );
+    expect(entries["OPENROUTER_API_KEY"]).toBe("platform-key-456");
+  });
+
+  it("maps platform key to OPENAI_API_KEY when AGENT_LLM_PROVIDER=openai", () => {
+    mockEnv.AGENT_LLM_API_KEY = "platform-openai-key";
+    mockEnv.AGENT_LLM_PROVIDER = "openai";
+
+    const entries = openclawHandler.getSecretEntries(
+      makeDeployment({ llmMode: "platform", llmApiKey: null })
+    );
+    expect(entries["OPENAI_API_KEY"]).toBe("platform-openai-key");
+    expect(entries["ANTHROPIC_API_KEY"]).toBeUndefined();
+    expect(entries["OPENROUTER_API_KEY"]).toBeUndefined();
+  });
+
+  it("maps platform key to GOOGLE_API_KEY when AGENT_LLM_PROVIDER=google", () => {
+    mockEnv.AGENT_LLM_API_KEY = "platform-google-key";
+    mockEnv.AGENT_LLM_PROVIDER = "google";
+
+    const entries = openclawHandler.getSecretEntries(
+      makeDeployment({ llmMode: "platform", llmApiKey: null })
+    );
+    expect(entries["GOOGLE_API_KEY"]).toBe("platform-google-key");
+  });
+
+  it("includes no LLM key when neither AGENT_LLM_API_KEY nor OPENROUTER_API_KEY is set", () => {
+    // Both env vars undefined
+    const entries = openclawHandler.getSecretEntries(
+      makeDeployment({ llmMode: "platform", llmApiKey: null })
+    );
+    expect(entries["OPENROUTER_API_KEY"]).toBeUndefined();
+    expect(entries["ANTHROPIC_API_KEY"]).toBeUndefined();
+    expect(entries["OPENAI_API_KEY"]).toBeUndefined();
+    expect(entries["GOOGLE_API_KEY"]).toBeUndefined();
+  });
+
+  it("ignores deployment llmApiKey in platform mode (uses env instead)", () => {
+    mockEnv.AGENT_LLM_API_KEY = "platform-key-wins";
+    // Default provider = openrouter
+
+    const entries = openclawHandler.getSecretEntries(
+      makeDeployment({ llmMode: "platform", llmApiKey: "user-key-should-be-ignored" })
+    );
+    expect(entries["OPENROUTER_API_KEY"]).toBe("platform-key-wins");
+  });
+
+  it("still includes LLM_PROVIDER and LLM_MODEL in platform mode", () => {
+    mockEnv.AGENT_LLM_API_KEY = "pk";
+
+    const entries = openclawHandler.getSecretEntries(
+      makeDeployment({ llmMode: "platform", llmProvider: "anthropic", llmModel: "claude-opus-4-6" })
+    );
+    expect(entries["LLM_PROVIDER"]).toBe("anthropic");
+    expect(entries["LLM_MODEL"]).toBe("claude-opus-4-6");
   });
 });

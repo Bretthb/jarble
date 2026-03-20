@@ -101,6 +101,7 @@ const TOOL_STATUS_MAP: Record<string, string> = {
   progress: "Tracking progress...",
   layout: "Arranging layout...",
   image: "Loading image...",
+  compose_dashboard: "Generating dashboard components in parallel...",
 };
 
 function getToolStatus(component: string): string {
@@ -856,37 +857,42 @@ tamboAgentRouter.post("/", async (req, res) => {
   const convId = body.conversationId || "";
   const sessionKey = `jarble-web-${authenticatedUserId || "anon"}${convId ? `-${convId}` : ""}`;
 
-  // ── External reasoning (GPT-4o-mini) ──────────────────────────────────────
-  // Fire immediately — resolves in ~1-2s while bot call takes 5-60s.
-  // Emits REASONING_START/CONTENT/END events before or alongside bot text.
-  // Skip external reasoning for Claude 4+ models — they'll emit <think> tags
-  // via the system prompt instruction. OpenClaw strips native thinking from
-  // --json output, so we rely on <think> tags for all models.
-  const skipExternalReasoning = deployment.llmProvider === "anthropic" && (
-    (deployment.llmModel || "").includes("sonnet-4") || (deployment.llmModel || "").includes("opus-4")
-  );
+  // ── Reasoning / Thinking ──────────────────────────────────────────────────
+  // 3-tier strategy ensures every response gets a visible "thinking" block:
+  //   1. Native thinking — extracted from OpenClaw's LLM response (highest quality)
+  //   2. <think> tags — parsed from bot text by the reasoning tracker
+  //   3. External reasoning — GPT-4o-mini generates a brief thinking summary (fallback)
+  //
+  // External reasoning fires immediately (resolves in ~1-2s) so it's ready
+  // as a fallback by the time the bot response arrives (5-60s). We never skip
+  // it — it's cheap ($0.00005/call) and acts as the safety net.
   const reasoningMsgId = nanoid();
-  let externalReasoningEmitted = false; // never pre-mark — let <think> tags through
-  const reasoningPromise = skipExternalReasoning ? Promise.resolve("") : generateReasoning(lastUserText);
+  let reasoningEmitted = false; // true once ANY reasoning source has been emitted
+  const reasoningPromise = generateReasoning(lastUserText);
 
-  /** Emit external reasoning events (once). Resolves when reasoning is sent. */
+  /** Emit reasoning events from a given source (once). */
+  const emitReasoningBlock = (content: string, source: string) => {
+    if (reasoningEmitted || !content) return;
+    reasoningEmitted = true;
+    log.debug({ deploymentId, source, length: content.length }, "Chat: emitting reasoning");
+    sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
+    sendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta: content });
+    sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
+  };
+
+  /** Emit external reasoning as fallback (once). */
   const emitExternalReasoning = async () => {
-    if (externalReasoningEmitted) return;
+    if (reasoningEmitted) return;
     try {
       const reasoning = await reasoningPromise;
-      if (reasoning && !externalReasoningEmitted) {
-        externalReasoningEmitted = true;
-        sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
-        sendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta: reasoning });
-        sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
-      }
+      if (reasoning) emitReasoningBlock(reasoning, "external");
     } catch {
       // Non-fatal — skip reasoning
     }
   };
 
-  // Reasoning tag tracker — still parses <think>/<reasoning> tags from bot text
-  // as a fallback. If external reasoning was already emitted, tag-based reasoning
+  // Reasoning tag tracker — parses <think>/<reasoning> tags from bot text.
+  // If reasoning was already emitted from another source, tag-based reasoning
   // is suppressed to avoid duplicates.
   const reasoningTracker = createReasoningTracker();
 
@@ -894,17 +900,18 @@ tamboAgentRouter.post("/", async (req, res) => {
   const emitStreamingDelta = (fullTextSoFar: string) => {
     const visibleDelta = reasoningTracker.process(fullTextSoFar, {
       onReasoningStart: () => {
-        if (!externalReasoningEmitted) {
+        if (!reasoningEmitted) {
+          reasoningEmitted = true; // Mark early so external reasoning doesn't also emit
           sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
         }
       },
       onReasoningContent: (delta) => {
-        if (!externalReasoningEmitted) {
+        if (reasoningEmitted && reasoningTracker.state.started) {
           sendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta });
         }
       },
       onReasoningEnd: () => {
-        if (!externalReasoningEmitted) {
+        if (reasoningTracker.state.started) {
           sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
         }
       },
@@ -935,21 +942,27 @@ tamboAgentRouter.post("/", async (req, res) => {
     }
 
     // If reasoning was still open when the response ended, close it
-    if (reasoningTracker.state.inReasoning && reasoningTracker.state.started && !externalReasoningEmitted) {
+    if (reasoningTracker.state.inReasoning && reasoningTracker.state.started) {
       sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
     }
 
-    // For non-streaming paths (exec), reasoning tags may still be in rawText.
-    // Skip if external reasoning was already emitted (avoids duplicates).
-    if (!externalReasoningEmitted) {
+    // ── Reasoning fallback chain ──
+    // Priority 1: Native thinking from OpenClaw (highest quality — the LLM's own thinking)
+    if (!reasoningEmitted && gatewayResult.nativeThinking) {
+      emitReasoningBlock(gatewayResult.nativeThinking, "native");
+    }
+
+    // Priority 2: <think> tags parsed from bot text (already handled by tracker above)
+    if (!reasoningEmitted) {
       const reasoningBlocks = extractReasoningBlocks(gatewayResult.rawText);
       if (reasoningBlocks.length > 0 && !reasoningTracker.state.started) {
-        for (const block of reasoningBlocks) {
-          sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
-          sendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta: block });
-          sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
-        }
+        emitReasoningBlock(reasoningBlocks.join("\n"), "think-tags");
       }
+    }
+
+    // Priority 3: External reasoning from secondary model (GPT-4o-mini / Haiku)
+    if (!reasoningEmitted) {
+      await emitExternalReasoning();
     }
 
     sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
@@ -1168,8 +1181,11 @@ tamboAgentRouter.post("/", async (req, res) => {
         return;
       }
 
-      // Emit reasoning before streaming starts (reasoning ~1-2s, gateway connects ~0.5s)
-      await emitExternalReasoning();
+      // Don't emit external reasoning upfront on the gateway path — the bot's
+      // native thinking or <think> tags may arrive during streaming, and those
+      // are higher quality. emitGatewayResult() handles the fallback chain:
+      // native thinking > <think> tags > external reasoning.
+      // The external reasoning promise is already resolving in the background.
 
       const gatewayResult = await chatViaGateway(
         {

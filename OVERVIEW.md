@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: March 18, 2026 (Session 18 — Sandbox-First Rendering, Agent Orchestration Events, Credits Badge, Zod-Tolerant Renderer)
+📅 Last updated: March 19, 2026 (Session 19 — Agent Forking Flywheel: Leaderboard, Public Agent Profiles, Forkability Score, Benchmarks Router, Platform Agents, Resource Tiers, Compose Endpoint)
 
 </aside>
 
@@ -52,6 +52,7 @@ graph TB
         SK[Skills Router]
         MKT[Marketplace Router]
         SVC[Services Router]
+        BM[Benchmarks Router]
         WH[Auth0 Webhook Endpoint]
     end
 
@@ -66,6 +67,8 @@ graph TB
         SVCPROXY[Service Proxy]
         CIRCBRK[Circuit Breaker]
         SVCCARD[ServiceCard Validator]
+        FORKABILITY[Forkability Scorer]
+        COMPOSE[Dashboard Composer]
     end
 
     subgraph "Shared Package"
@@ -201,7 +204,7 @@ graph TB
         U5[resendVerificationEmail - protected]
     end
 
-    subgraph "Deployment Router - 21 procedures"
+    subgraph "Deployment Router - 22 procedures"
         D1[canDeploy - query]
         D2[list - query]
         D2b[listLinkableDeployments - query]
@@ -297,6 +300,23 @@ graph TB
         SV5[publish - protected mutation]
         SV6[listByCreator - public query]
     end
+
+    subgraph "Benchmarks Router - 14 procedures"
+        BM1[listDomains - public query]
+        BM2[createDomain - protected mutation]
+        BM3[rateDeployment - protected mutation]
+        BM4[getDeploymentRatings - public query]
+        BM5[setSpecialties - protected mutation]
+        BM6[getPublicProfile - public query]
+        BM7[leaderboard - public query]
+        BM8[getServiceMetrics - public query]
+        BM9[serviceLeaderboard - public query]
+        BM10[getServiceReviews - public query]
+        BM11[createServiceReview - protected mutation]
+        BM12[respondToServiceReview - protected mutation]
+        BM13[adminFeature - protected admin mutation]
+        BM14[adminUnfeature - protected admin mutation]
+    end
 ```
 
 ### REST Endpoints (Non-tRPC)
@@ -325,6 +345,9 @@ graph TB
 | POST | /api/services/proxy/:deploymentId/:serviceId/:skillName | JWT | Proxy skill-call to creator's remote API (HMAC-signed) |
 | POST | /api/agent-hub/call | JWT or gateway token | Execute an agent-to-agent call via the marketplace hub; emits agentCallEvents for SSE fan-out |
 | GET | /api/agent-hub/discover | None | Search published marketplace services by name/description/category |
+| GET | /api/public/leaderboard/:domainSlug | None | Public domain leaderboard with forkability scores (no auth, cached 60s) |
+| GET | /api/public/agents/:deploymentId/profile | None | Public agent profile with domain scores and forkability score (no auth, cached 30s) |
+| POST | /api/pod/compose | Pod gateway token | Parallel dashboard composition — fans out N component agent calls concurrently (max 8) |
 | GET | /debug/db | None | View DB tables (dev only) |
 
 ---
@@ -360,7 +383,7 @@ erDiagram
         varchar cpuLimit
         int memoryMb
         int storageMb
-        varchar llmMode
+        varchar llmMode "included|byok|platform"
         varchar llmProvider
         varchar llmModel
         varchar llmApiKey "AES-256-GCM encrypted"
@@ -373,6 +396,15 @@ erDiagram
         timestamp cancelAtPeriodEnd "Auto-stop date"
         varchar status
         text error
+        boolean isPlatform "Bypasses subscription+storage enforcement"
+        varchar resourceTier "small|medium|large"
+        boolean isPublic
+        text bio
+        text specialties "JSON array"
+        text showcasePrompts "JSON array"
+        timestamp featuredAt
+        int forkCount
+        varchar forkedFromId FK
         timestamp createdAt
         timestamp updatedAt
     }
@@ -1093,6 +1125,14 @@ flowchart TD
 - [x]  **Zod-tolerant renderer** — `CanvasRenderer.tsx` now logs Zod validation warnings but renders with raw (post-AutoFix) props instead of showing an error card; fixes `metric_card` failures when the bot sends numeric values for string fields like `change` / `changeLabel`
 - [x]  **Page component aliases** — `autoFixProps.ts` COMPONENT_NAME_MAP now maps `render_page`, `dashboard`, and `fullscreen` to the `page` component; prevents broken cards when the bot misnames a full-screen layout component
 - [x]  **Agent Hub REST routes** — `POST /api/agent-hub/call` executes agent-to-agent calls (JWT or gateway token auth); `GET /api/agent-hub/discover` (public) searches published marketplace services by name/description
+- [x]  **Benchmarks tRPC router** — 14 procedures: domain taxonomy CRUD, per-deployment multi-axis ratings (accuracy/helpfulness/creativity), domain leaderboard, service metrics + leaderboard, service reviews with creator responses, admin feature/unfeature mutations
+- [x]  **Public REST leaderboard** — `GET /api/public/leaderboard/:domainSlug` (no auth, 60s cache) returns ranked deployments with scores and forkability scores. `GET /api/public/agents/:deploymentId/profile` (no auth, 30s cache) returns full public profile
+- [x]  **Forkability score utility** — `computeForkabilityScore()` in `src/utils/forkability.ts` computes a 0-100 score from 7 criteria: public visibility (15), bio (10), showcase prompts (10), specialties (15), rating count confidence (20), score threshold (20), featured status (10)
+- [x]  **Platform agents** — `isPlatform` boolean column on deployments; platform agents bypass subscription enforcement and storage enforcement checks entirely
+- [x]  **Resource tiers** — `resourceTier` column on deployments; `RESOURCE_TIERS` constant in `src/k8s/constants.ts` defines small (0.5 vCPU/1GB/10GB), medium (1 vCPU/2GB/20GB), large (2 vCPU/3GB/30GB) presets
+- [x]  **`llmMode: "platform"` LLM mode** — Platform agents use `AGENT_LLM_API_KEY` (falling back to `OPENROUTER_API_KEY`) injected by `openclaw.ts:getSecretEntries()` instead of a user-provided key
+- [x]  **`deployment.platformFork` mutation** — Admin-only tRPC mutation to fork any deployment as a platform agent with a chosen resource tier and platform LLM mode
+- [x]  **Parallel dashboard compose endpoint** — `POST /api/pod/compose` (pod gateway auth) fans out up to 8 component agent calls concurrently via `Promise.allSettled()`, returns jarble_ui sandbox blocks. The `compose_dashboard` MCP tool invokes this endpoint
 
 ## Infrastructure ✅
 
@@ -1164,6 +1204,9 @@ flowchart TD
 17. ~~Zod-tolerant renderer~~ — ✅ Done (Session 18). `CanvasRenderer` logs validation warnings but renders with raw props instead of showing error cards for minor type mismatches
 18. ~~Page component aliases~~ — ✅ Done (Session 18). `render_page`, `dashboard`, `fullscreen` mapped to `page` in `autoFixProps.ts` COMPONENT_NAME_MAP
 19. ~~Agent Hub REST routes~~ — ✅ Done (Session 18). `POST /api/agent-hub/call` and `GET /api/agent-hub/discover` routes for agent-to-agent delegation
+20. ~~Agent Forking Flywheel (Phase 1: Discovery)~~ — ✅ Done (Session 19). Benchmarks router (14 procedures), public leaderboard REST, public agent profile REST, forkability score utility, admin feature/unfeature mutations
+21. ~~Agent Forking Flywheel (Phase 2: Platform Agents)~~ — ✅ Done (Session 19). `isPlatform` + `resourceTier` deployment columns, `RESOURCE_TIERS` constant, `llmMode: "platform"` with platform key injection, `deployment.platformFork` admin mutation, enforcement bypasses for platform agents
+22. ~~Parallel dashboard compose~~ — ✅ Done (Session 19). `POST /api/pod/compose` fans out up to 8 component agent calls concurrently; `compose_dashboard` MCP tool
 
 ## 🟢 Nice-to-Have (Future)
 
@@ -1224,6 +1267,9 @@ Shared Package: @jarble/component-manifest — 37+ component entries with Zod sc
 - `OPENROUTER_MANAGEMENT_KEY` — OpenRouter Management API key for tenant key provisioning (optional — required for "Included Credits" mode)
 - `API_KEY_ENCRYPTION_KEY` — 32-byte hex key (64 hex chars) for AES-256-GCM API key encryption
 - `FRONTEND_URL` — Allowed CORS origin (default: `http://localhost:3000`)
+- `AGENT_LLM_API_KEY` — LLM key used by platform agents (`llmMode: "platform"`) and the compose endpoint. Falls back to `OPENROUTER_API_KEY`
+- `AGENT_LLM_PROVIDER` — LLM provider for platform/compose calls (`anthropic`/`openai`/`openrouter`/`google`; default: `openrouter`)
+- `AGENT_LLM_MODEL` — Model for platform/compose calls (default: `anthropic/claude-sonnet-4-20250514`)
 
 ### Terraform (terraform.tfvars)
 

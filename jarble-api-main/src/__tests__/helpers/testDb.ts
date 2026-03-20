@@ -69,10 +69,24 @@ const CREATE_TABLES_SQL = `
     error TEXT,
     messaging_only INTEGER DEFAULT 0 NOT NULL,
     managed_by TEXT DEFAULT 'legacy' NOT NULL,
+    isolation_level TEXT DEFAULT 'standard' NOT NULL,
+    is_platform INTEGER DEFAULT 0 NOT NULL,
+    resource_tier TEXT,
     theme_config TEXT,
+    forked_from_id TEXT,
+    is_public INTEGER DEFAULT 0 NOT NULL,
+    fork_count INTEGER DEFAULT 0 NOT NULL,
+    featured_at TEXT,
+    specialties TEXT,
+    bio TEXT,
+    showcase_prompts TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
+
+  CREATE INDEX IF NOT EXISTS idx_deployments_user_id ON deployments(user_id);
+  CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status);
+  CREATE INDEX IF NOT EXISTS idx_deployments_is_public ON deployments(is_public);
 
   CREATE TABLE IF NOT EXISTS platform_credentials (
     id TEXT PRIMARY KEY,
@@ -121,6 +135,7 @@ const CREATE_TABLES_SQL = `
     stripe_connect_account_id TEXT,
     stripe_connect_onboarded INTEGER DEFAULT 0 NOT NULL,
     is_verified INTEGER DEFAULT 0 NOT NULL,
+    is_platform INTEGER DEFAULT 0 NOT NULL,
     total_earnings_cents INTEGER DEFAULT 0 NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
@@ -236,6 +251,7 @@ const CREATE_TABLES_SQL = `
     status TEXT DEFAULT 'draft' NOT NULL,
     pricing_model TEXT DEFAULT 'free' NOT NULL,
     price_usd_cents INTEGER DEFAULT 0 NOT NULL,
+    is_platform INTEGER DEFAULT 0 NOT NULL,
     total_installs INTEGER DEFAULT 0 NOT NULL,
     avg_rating TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,

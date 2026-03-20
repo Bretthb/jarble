@@ -39,9 +39,13 @@ export async function enforceStorageLimits(): Promise<void> {
 
 async function checkDeploymentStorage(dep: {
   id: string;
+  isPlatform: boolean;
   storageMb: number | null;
   error: string | null;
 }): Promise<void> {
+  // Platform agents are exempt from storage enforcement
+  if (dep.isPlatform) return;
+
   const usage = await getDeploymentStorageUsage(dep.id);
   if (!usage) return;
 

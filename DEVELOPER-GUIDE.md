@@ -105,6 +105,11 @@ Think of Jarble as a **restaurant franchise system**:
 | **@jarble/component-manifest** | The master ingredient list shared by kitchen, dining room, and menu printer |
 | **Agent Hub** | A catering partner network — your restaurant can call in a specialist caterer (another agent) to handle specific orders |
 | **agentCallEvents** | The intercom between the catering dispatch desk and the floor staff, so servers know a specialist is on the way |
+| **Benchmarks Router** | A Michelin Guide for AI chefs — diners rate each chef on accuracy, helpfulness, and creativity to build a public leaderboard |
+| **Forkability Score** | How copy-ready a chef (agent) is to be franchised — rates completeness of their public profile and community ratings |
+| **Platform Agent** | A Jarble-employed house chef — Jarble provides the kitchen, ingredients, and pays for everything; the chef just serves |
+| **Resource Tier** | The size of the kitchen we provide to a platform chef: small (0.5 vCPU/1GB), medium (1 vCPU/2GB), large (2 vCPU/3GB) |
+| **Dashboard Compose** | The expediting station — one order (compose call) fans out to multiple prep stations (component agents) running in parallel |
 
 When a user "deploys" a bot, they're essentially **opening a new restaurant location** — we set up the building (K8s Pod), stock the fridge (PVC), put the supplier passwords in the safe (Secret), and print the menus (config files).
 
@@ -241,29 +246,35 @@ The API is an **Express.js** server with **tRPC** for structured endpoints and p
 
 ### Two Types of Endpoints
 
-**1. tRPC Procedures** (81 total across 10 routers)
+**1. tRPC Procedures** (96 total across 11 routers)
 Structured, typed function calls. Protected by JWT auth. Used for all normal CRUD operations.
 
 ```
-trpc.deployment.list            → List your bots
-trpc.deployment.create          → Create a new bot
-trpc.deployment.update          → Change bot settings
-trpc.deployment.delete          → Delete a bot
-trpc.openrouter.provisionKey    → Get a new LLM API key
-trpc.marketplace.browse         → Browse marketplace components
-trpc.marketplace.install        → Install a component on a deployment
-trpc.skills.listCatalog         → List available skills
-trpc.services.list              → Browse service marketplace
-trpc.services.install           → Install a service bundle on a deployment
+trpc.deployment.list              → List your bots
+trpc.deployment.create            → Create a new bot
+trpc.deployment.update            → Change bot settings
+trpc.deployment.delete            → Delete a bot
+trpc.deployment.platformFork      → Admin: fork as platform agent
+trpc.openrouter.provisionKey      → Get a new LLM API key
+trpc.marketplace.browse           → Browse marketplace components
+trpc.marketplace.install          → Install a component on a deployment
+trpc.skills.listCatalog           → List available skills
+trpc.services.list                → Browse service marketplace
+trpc.services.install             → Install a service bundle on a deployment
+trpc.benchmarks.rateDeployment    → Rate an agent in a domain
+trpc.benchmarks.leaderboard       → Domain leaderboard
+trpc.benchmarks.adminFeature      → Admin: feature an agent
 ```
 
-**2. REST Endpoints** (26 total)
+**2. REST Endpoints** (29 total)
 Plain HTTP routes for things that can't use tRPC:
 - **Webhooks** (Stripe, Auth0, config-changed) — external services POST to us
 - **SSE Streams** (logs, status, WhatsApp QR, chat) — long-lived connections that push data
 - **Artifact endpoints** (workspace artifact sync) — exec into pod to read/write workspace JSON
 - **Service proxy** (HMAC-signed skill routing) — forwards buyer skill calls to creator remote APIs
 - **Agent Hub** (`POST /api/agent-hub/call`, `GET /api/agent-hub/discover`) — agent-to-agent delegation; call endpoint fans out SSE events via `agentCallEvents` EventEmitter
+- **Public API** (`GET /api/public/leaderboard/:domainSlug`, `GET /api/public/agents/:deploymentId/profile`) — unauthenticated leaderboard and agent profile endpoints with forkability scores
+- **Pod Compose** (`POST /api/pod/compose`) — fans out up to 8 component agent calls in parallel; used by the `compose_dashboard` MCP tool
 - **MCP endpoints** (Streamable HTTP + proxy) — for external MCP clients
 - **Diagnostic endpoint** — structured health checks for a deployment
 - **Health check** — for Kubernetes to know we're alive
@@ -341,7 +352,7 @@ graph TD
     REQ["Incoming Request<br/>POST /trpc/deployment.list"] --> MW["Auth Middleware<br/>JWT verification"]
     MW --> ROUTER{"Which Router?"}
 
-    ROUTER -->|"deployment.*"| DEPLOY["deployment.ts<br/>21 procedures"]
+    ROUTER -->|"deployment.*"| DEPLOY["deployment.ts<br/>22 procedures"]
     ROUTER -->|"openrouter.*"| OR["openrouter.ts<br/>8 procedures"]
     ROUTER -->|"user.*"| USER["user.ts<br/>5 procedures"]
     ROUTER -->|"billing.*"| BILL["billing.ts<br/>3 procedures"]
@@ -351,6 +362,7 @@ graph TD
     ROUTER -->|"skills.*"| SKILLS["skills.ts<br/>4 procedures"]
     ROUTER -->|"marketplace.*"| MKT["marketplace.ts<br/>22 procedures"]
     ROUTER -->|"services.*"| SVC["services.ts<br/>6 procedures"]
+    ROUTER -->|"benchmarks.*"| BM["benchmarks.ts<br/>14 procedures"]
 
     DEPLOY --> DB[("Database")]
     DEPLOY --> K8S["K8s Cluster"]
@@ -362,7 +374,7 @@ graph TD
 
 ```
 src/trpc/routers/
-  ├── deployment.ts          ← 21 procedures (CRUD + canvas components + lifecycle)
+  ├── deployment.ts          ← 22 procedures (CRUD + canvas components + lifecycle + platformFork)
   ├── openrouter.ts          ← 8 procedures (LLM key management)
   ├── user.ts                ← 5 procedures (profile, email verify)
   ├── billing.ts             ← 3 procedures (overview, invoices, subscriptions)
@@ -371,6 +383,7 @@ src/trpc/routers/
   ├── skills.ts              ← 4 procedures (skills catalog, install/uninstall)
   ├── marketplace.ts         ← 22 procedures (browse, install, review, creator, admin)
   ├── services.ts            ← 6 procedures (service marketplace: list, get, install, uninstall, publish, listByCreator)
+  ├── benchmarks.ts          ← 14 procedures (domains, ratings, leaderboard, service metrics + reviews, admin curation)
   └── template.ts            ← 1 procedure (bot templates)
 ```
 
@@ -866,7 +879,7 @@ The dashboard card turns green.
 
 ## 8. LLM Keys and Credit Pools
 
-### Two Ways to Get an LLM Key
+### Three Ways to Get an LLM Key
 
 **BYOK (Bring Your Own Key)**
 ```
@@ -885,6 +898,18 @@ The user doesn't need to sign up for anything — we handle it.
 
 Analogy: We order catering for your party. You pay us, we pay the caterer.
 ```
+
+**Platform Mode** (`llmMode: "platform"`)
+```
+Only available for platform-managed agents (isPlatform: true).
+The platform injects its own LLM key (AGENT_LLM_API_KEY) into the pod.
+The user has no key at all — the platform pays for every inference.
+
+Analogy: House chefs at a Jarble-owned restaurant. Jarble provides
+everything — kitchen, staff, ingredients. The chef just works.
+```
+
+Platform mode is set when an admin uses `deployment.platformFork` to clone a user's agent as a platform agent. The key injection happens inside `openclaw.ts:getSecretEntries()`: it checks `deployment.llmMode === "platform"` and substitutes the platform key for whatever the deployment record holds.
 
 ### How Credit Pools Work
 
@@ -958,6 +983,41 @@ BYOK:
   │ [New Key Input] [Validate]      │
   └─────────────────────────────────┘
 ```
+
+### Platform Mode and the Agent Forking Flywheel
+
+Platform mode is part of a two-phase system for discovering and promoting the best agents on the platform:
+
+**Phase 1 — Discovery (the Benchmarks router):**
+
+Users rate agents on accuracy, helpfulness, and creativity within taxonomy domains (e.g., "data-analysis", "creative-writing"). Scores are aggregated in `deploymentDomainScores` and surfaced through:
+- `GET /api/public/leaderboard/:domainSlug` — ranked list for any domain (no auth)
+- `GET /api/public/agents/:deploymentId/profile` — full public profile (no auth)
+
+Each entry includes a **forkability score** (0-100, computed by `computeForkabilityScore()`), which quantifies how copy-ready an agent is:
+
+| Criterion | Points |
+|---|---|
+| isPublic === true | 15 |
+| Has non-empty bio | 10 |
+| Has >= 1 showcase prompt | 10 |
+| Has >= 2 specialties | 15 |
+| Rating count >= 10 with medium/high confidence | 20 |
+| Overall score >= 350 (3.5/5 stars) | 20 |
+| Featured by admin | 10 |
+
+**Analogy:** Think of the leaderboard as a **Michelin Guide for AI chefs**. Diners (users) rate each chef's dishes (agent responses) on different criteria. Chefs who earn enough stars get featured, which makes them more attractive to franchise (fork).
+
+**Phase 2 — Platform Agents:**
+
+When an admin sees an agent worth promoting, they call `deployment.platformFork` — which creates a Jarble-managed copy with:
+- `isPlatform: true` — bypass subscription and storage enforcement forever
+- `resourceTier` — one of `small` (0.5 vCPU/1GB), `medium` (1 vCPU/2GB), `large` (2 vCPU/3GB)
+- `llmMode: "platform"` — uses `AGENT_LLM_API_KEY` instead of any user key
+
+**Platform agents never get stopped** by the subscription enforcer or storage enforcer, because the `isPlatform` flag is checked at the top of both enforcement loops.
+
+**Analogy:** Jarble has scouted a great chef from the marketplace and hired them full-time. The chef now works in a Jarble-owned restaurant — Jarble pays for everything, the chef (agent) just serves customers.
 
 ---
 
@@ -2109,6 +2169,9 @@ The API starts with an **in-memory SQLite database** pre-seeded with test data. 
 | Sentry / PostHog | No | Omit `NEXT_PUBLIC_SENTRY_DSN` and `NEXT_PUBLIC_POSTHOG_KEY` to disable |
 | Manifest CI check | Yes | Run `npm run check:manifest` from `jarble-api-main/` |
 | Agent hub | Yes | `/api/agent-hub/discover` works immediately. `/api/agent-hub/call` requires published marketplace services |
+| Benchmarks / leaderboard | Yes | tRPC procedures and public REST endpoints work with SQLite (empty on fresh start) |
+| Platform agents / platformFork | Yes | Admin-only mutation works with MOCK_K8S. Requires `AGENT_LLM_API_KEY` or `OPENROUTER_API_KEY` for platform mode inference |
+| Dashboard compose | Partial | `POST /api/pod/compose` requires `AGENT_LLM_API_KEY` or `OPENROUTER_API_KEY` and pod gateway auth |
 
 ---
 
@@ -2220,6 +2283,9 @@ See `jarble-api-main/k8s/secrets.yaml.example` for the full template. Critical o
 | `API_KEY_ENCRYPTION_KEY` | Yes (prod) | 64-char hex for AES-256-GCM |
 | `STRIPE_*` | Optional | Enables paid subscriptions |
 | `OPENROUTER_MANAGEMENT_KEY` | Optional | Enables "Included Credits" key provisioning |
+| `AGENT_LLM_API_KEY` | Optional | LLM key for platform agents and dashboard compose. Falls back to `OPENROUTER_API_KEY` |
+| `AGENT_LLM_PROVIDER` | Optional | Provider for platform/compose calls (`openrouter`/`anthropic`/`openai`/`google`; default: `openrouter`) |
+| `AGENT_LLM_MODEL` | Optional | Model for platform/compose calls (default: `anthropic/claude-sonnet-4-20250514`) |
 
 ---
 
@@ -2379,6 +2445,12 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **ZeroClaw** | Rust-based bot runtime (lightweight, ~3.4MB binary) |
 | **Artifact Workspace** | Pod-side `/data/workspace/` directory containing `manifest.json` + per-artifact JSON files. Accessed via `/api/deployments/:id/artifact/*` endpoints |
 | **Circuit Breaker** | `src/services/circuitBreaker.ts` — opens after 5 consecutive service proxy failures, auto-resets after 60s to prevent hammering unhealthy creator APIs |
+| **Benchmarks Router** | tRPC router (`src/trpc/routers/benchmarks.ts`) handling domain taxonomy, agent ratings, leaderboards, service metrics, and admin curation for the Agent Forking Flywheel |
+| **Forkability Score** | 0-100 score computed by `computeForkabilityScore()` in `src/utils/forkability.ts`. Quantifies how copy-ready a public agent is based on profile completeness and community ratings |
+| **Platform Agent** | A deployment with `isPlatform: true`. Uses Jarble's `AGENT_LLM_API_KEY` (`llmMode: "platform"`), bypasses subscription and storage enforcement, has a named `resourceTier` |
+| **Resource Tier** | Named compute preset for platform agents. `RESOURCE_TIERS` in `src/k8s/constants.ts`: small (0.5 vCPU/1GB/10GB), medium (1 vCPU/2GB/20GB), large (2 vCPU/3GB/30GB) |
+| **Dashboard Compose** | `POST /api/pod/compose` — accepts a list of component specs, fans them all out to the Component Agent in parallel via `Promise.allSettled()`, returns sandbox blocks |
+| **Public API** | Unauthenticated REST endpoints at `/api/public/*` for the Agent Forking Flywheel discovery layer (leaderboard + agent profiles) |
 | **HMAC Signing** | Per-install HMAC-SHA256 signature on outbound service proxy requests. Each buyer gets a unique signing secret stored in `serviceCredentials` (encrypted) |
 | **Service Marketplace** | Service bundles (components + skills + instruction snippets). Two models: Package (buyer runs everything) and Hosted/Remote (creator hosts APIs, buyer proxies through Jarble) |
 | **ServiceCard** | Structured JSON blob published by service creators describing their API endpoint, auth method, skill definitions, rate limits, and health endpoint. Validated against Zod schema in `serviceCard.ts` |

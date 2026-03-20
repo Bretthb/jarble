@@ -23,6 +23,8 @@ import { syncConfigsToPvc } from "../../services/configSync.js";
 import { safeFireAndForget } from "../../utils/safeAsync.js";
 import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
 import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
+import { isAdmin } from "../../utils/admin.js";
+import { RESOURCE_TIERS } from "../../k8s/constants.js";
 import { validateThemeConfig } from "@jarble/component-manifest";
 
 const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, personaTemplates } = tables;
@@ -230,7 +232,7 @@ export const deploymentRouter = router({
       runtimeCatalogId: z.number(),
       platform: z.string().optional(),
       image: z.string().optional(),
-      llmMode: z.enum(["included", "byok"]).default("byok"),
+      llmMode: z.enum(["included", "byok", "platform"]).default("byok"),
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).default("openrouter"),
       llmModel: z.string().optional(), // e.g. "openrouter/auto", "gpt-4o", "claude-sonnet-4-20250514"
       llmApiKey: z.string().optional(),
@@ -246,6 +248,11 @@ export const deploymentRouter = router({
       isolationLevel: z.enum(["standard", "gvisor", "kata"]).optional(), // Runtime sandbox isolation (default: "standard")
     }))
     .mutation(async ({ ctx, input }) => {
+      // Platform mode is admin-only
+      if (input.llmMode === "platform" && !isAdmin(ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Platform LLM mode is restricted to administrators" });
+      }
+
       // Look up the runtime catalog entry
       const catalogEntry = await ctx.db.query.runtimeCatalog.findFirst({
         where: eq(runtimeCatalog.id, input.runtimeCatalogId),
@@ -512,6 +519,7 @@ export const deploymentRouter = router({
         stripeSubscriptionId,
         messagingOnly: input.messagingOnly ?? false,
         isolationLevel: input.isolationLevel || "standard",
+        isPlatform: input.llmMode === "platform",
         status: "pending",
       });
 
@@ -786,7 +794,7 @@ export const deploymentRouter = router({
       name: z.string().min(1).optional(),
       description: z.string().optional(),
       systemPrompt: z.string().optional(),
-      llmMode: z.enum(["included", "byok"]).optional(),
+      llmMode: z.enum(["included", "byok", "platform"]).optional(),
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).optional(),
       llmModel: z.string().optional(),
       llmApiKey: z.string().optional(),
@@ -797,6 +805,11 @@ export const deploymentRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...rawUpdates } = input;
+
+      // Platform mode is admin-only
+      if (rawUpdates.llmMode === "platform" && !isAdmin(ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Platform LLM mode is restricted to administrators" });
+      }
 
       // Fetch the existing deployment to detect mode switches
       const existing = await ctx.db.query.deployments.findFirst({
@@ -882,6 +895,13 @@ export const deploymentRouter = router({
           updates.llmApiKeyId = null; // BYOK keys don't have an OpenRouter hash
           updates.llmCreditLimitDollars = null; // Clear credit plan for BYOK
           updates.llmApiKeySourceDeploymentId = null; // Clear any link
+        } else if (newMode === "platform") {
+          // Switching to platform mode: use platform's own LLM key, clear user key
+          updates.isPlatform = true;
+          updates.llmApiKey = null;
+          updates.llmApiKeyId = null;
+          updates.llmCreditLimitDollars = null;
+          updates.llmApiKeySourceDeploymentId = null;
         }
       } else if (rawUpdates.llmApiKey) {
         // Mode didn't change but user provided a new API key — encrypt it
@@ -1703,6 +1723,125 @@ export const deploymentRouter = router({
       });
 
       logger.info({ sourceId: input.sourceId, newId, userId: ctx.user.id }, "Deployment forked");
+
+      return newDeployment;
+    }),
+
+  // Platform fork: admin-only fork that uses platform-managed LLM keys
+  platformFork: protectedProcedure
+    .input(z.object({
+      sourceId: z.string(),
+      name: z.string().min(1).optional(),
+      resourceTier: z.enum(["small", "medium", "large"]).default("small"),
+      llmProvider: z.string().optional(),
+      llmModel: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // 1. Admin check
+      if (!isAdmin(ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Platform fork is restricted to administrators" });
+      }
+
+      // 2. Fetch source deployment (admins can fork anything)
+      const source = await ctx.db.query.deployments.findFirst({
+        where: eq(deployments.id, input.sourceId),
+      });
+
+      if (!source) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Source deployment not found" });
+      }
+
+      // 3. Resolve resource tier to concrete values
+      const tier = RESOURCE_TIERS[input.resourceTier];
+
+      // 4. Generate new deployment ID
+      const newId = nanoid();
+      const now = new Date().toISOString();
+
+      // 5. Insert new deployment with platform overrides
+      await ctx.db.insert(deployments).values({
+        id: newId,
+        userId: ctx.user.id,
+        name: input.name || `[Platform] ${source.name}`,
+        description: source.description,
+        runtime: source.runtime,
+        runtimeCatalogId: source.runtimeCatalogId,
+        systemPrompt: source.systemPrompt,
+        llmProvider: input.llmProvider || source.llmProvider,
+        llmModel: input.llmModel || source.llmModel,
+        llmMode: "platform",
+        isPlatform: true,
+        isFree: true,
+        llmApiKey: null,
+        cpuLimit: tier.cpuLimit,
+        memoryMb: tier.memoryMb,
+        storageMb: tier.storageMb,
+        resourceTier: input.resourceTier,
+        themeConfig: source.themeConfig,
+        messagingOnly: source.messagingOnly,
+        image: source.image,
+        specialties: source.specialties,
+        bio: source.bio,
+        forkedFromId: input.sourceId,
+        status: "stopped",
+      } as any);
+
+      // 6. Copy serviceInstalls
+      const existingServiceInstalls = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.deploymentId, input.sourceId),
+      });
+      for (const si of existingServiceInstalls) {
+        await ctx.db.insert(serviceInstalls).values({
+          id: `pki_${nanoid()}`,
+          packageId: si.packageId,
+          deploymentId: newId,
+          userId: ctx.user.id,
+          installedAt: now,
+        } as any);
+      }
+
+      // 7. Copy componentInstalls
+      const existingComponentInstalls = await ctx.db.query.componentInstalls.findMany({
+        where: eq(componentInstalls.deploymentId, input.sourceId),
+      });
+      for (const ci of existingComponentInstalls) {
+        await ctx.db.insert(componentInstalls).values({
+          id: `inst_${nanoid()}`,
+          componentId: ci.componentId,
+          versionId: ci.versionId,
+          deploymentId: newId,
+          userId: ctx.user.id,
+          pinnedVersion: ci.pinnedVersion,
+          autoUpdate: ci.autoUpdate,
+          installedAt: now,
+        } as any);
+      }
+
+      // 8. Copy deploymentSkills
+      const existingSkills = await ctx.db.query.deploymentSkills.findMany({
+        where: eq(deploymentSkills.deploymentId, input.sourceId),
+      });
+      for (const ds of existingSkills) {
+        await ctx.db.insert(deploymentSkills).values({
+          id: `dsk_${nanoid()}`,
+          deploymentId: newId,
+          skillId: ds.skillId,
+          installedAt: now,
+        } as any);
+      }
+
+      // 9. Increment source deployment's forkCount
+      await ctx.db.update(deployments)
+        .set({ forkCount: sql`${deployments.forkCount} + 1` } as any)
+        .where(eq(deployments.id, input.sourceId));
+
+      // 10. Return the new deployment
+      const newDeployment = await ctx.db.query.deployments.findFirst({
+        where: eq(deployments.id, newId),
+        with: { runtimeCatalogEntry: true },
+      });
+
+      logger.info({ sourceId: input.sourceId, newId, userId: ctx.user.id, resourceTier: input.resourceTier }, "Platform deployment forked");
 
       return newDeployment;
     }),

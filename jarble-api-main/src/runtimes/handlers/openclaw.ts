@@ -37,6 +37,7 @@ import type {
   ParsedDeploymentFields,
 } from "../types.js";
 import { createModuleLogger } from "../../utils/logger.js";
+import { env } from "../../utils/env.js";
 import { PLATFORM_CREDENTIAL_KEYS, PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
 import { generatePromptReference, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 
@@ -82,7 +83,7 @@ NEVER fabricate or use placeholder data. Use \`web_search\`, \`web_fetch\`, or o
 You have 35+ MCP tools across these categories (no API keys needed):
 - **Search**: \`web_search\`, \`web_fetch\`, \`news_search\`, \`hacker_news\`, \`github_search\`, \`npm_search\`, \`academic_search\`, \`wikipedia\`, \`dictionary\`, \`currency_exchange\`, \`timezone\`, \`country_info\`, \`open_library\`, \`url_metadata\`, \`rss_reader\`, \`code_runner\`
 - **UI Discovery**: \`list_components\`, \`component_reference\`, \`skill_reference\` (6 rendering guides)
-- **Rendering**: \`render_ui\`, \`render_page\`, \`save_artifact\`, \`load_artifact\`, \`list_artifacts\`, \`delete_artifact\`, \`define_component\`
+- **Rendering**: \`render_ui\`, \`render_page\`, \`compose_dashboard\`, \`save_artifact\`, \`load_artifact\`, \`list_artifacts\`, \`delete_artifact\`, \`define_component\`
 - **Marketplace**: \`browse_marketplace\`, \`get_marketplace_item\`, \`install_marketplace_item\`, \`uninstall_marketplace_item\`, \`list_installed_marketplace\`, \`publish_component\`, \`register_service\`, \`publish_to_marketplace\`
 - **Agent Marketplace**: \`discover_agents\`, \`call_agent\`
 - **Knowledge**: \`knowledge_search\`, \`list_knowledge\`, \`delete_knowledge\`
@@ -145,9 +146,14 @@ Users change themes via slash commands (\`/theme midnight\`, \`/skin glass\`, et
 
 ### Component Chooser
 **DEFAULT: Use \`sandbox\` for anything visual or complex.** Only use typed components for the simple cases listed below.
+### Parallel Dashboard Composition
+For dashboards with 3+ visual components, use \`compose_dashboard\` instead of individual \`render_ui\` calls. It runs specialist agents in parallel for each component, producing higher quality results faster.
+
+compose_dashboard({ title: "Dashboard Title", components: [{ intent: "description of component", style: "visual style" }, ...up to 8] })
+
 | Want | Use | NOT |
 |---|---|---|
-| dashboard / analytics / multi-chart | \`sandbox\` — build everything in ONE sandbox | multiple typed components |
+| dashboard / analytics / multi-chart | \`compose_dashboard\` (parallel agents) or \`sandbox\` (single sandbox) | multiple serial render_ui |
 | any chart or graph | \`sandbox\` (Chart.js/D3 from esm.sh) | typed \`chart\` |
 | data viz / table + chart combo | \`sandbox\` (full creative control) | typed chart + data_table |
 | interactive UI / widget | \`sandbox\` (HTML/CSS/JS + Tailwind) | typed components |
@@ -671,13 +677,27 @@ export const openclawHandler: RuntimeHandler = {
     const entries: Record<string, string> = {};
 
     // LLM config — set the correct env var based on provider
-    if (deployment.llmApiKey) {
-      const providerEnvMap: Record<string, string> = {
-        openrouter: "OPENROUTER_API_KEY",
-        anthropic: "ANTHROPIC_API_KEY",
-        openai: "OPENAI_API_KEY",
-        google: "GOOGLE_API_KEY",
-      };
+    const providerEnvMap: Record<string, string> = {
+      openrouter: "OPENROUTER_API_KEY",
+      anthropic: "ANTHROPIC_API_KEY",
+      openai: "OPENAI_API_KEY",
+      google: "GOOGLE_API_KEY",
+    };
+
+    if ((deployment as any).llmMode === "platform") {
+      // Platform agents use the platform's own LLM key
+      const platformKey = env.AGENT_LLM_API_KEY ?? env.OPENROUTER_API_KEY;
+      if (platformKey) {
+        const provider = env.AGENT_LLM_PROVIDER ?? "openrouter";
+        const envVar = providerEnvMap[provider] ?? "OPENROUTER_API_KEY";
+        entries[envVar] = platformKey;
+      } else {
+        log.error(
+          { deploymentId: deployment.id },
+          "Platform mode deployment has no platform LLM key configured (AGENT_LLM_API_KEY / OPENROUTER_API_KEY) — pod LLM calls will fail",
+        );
+      }
+    } else if (deployment.llmApiKey) {
       const envVar = providerEnvMap[deployment.llmProvider ?? "openrouter"] ?? "OPENROUTER_API_KEY";
       entries[envVar] = deployment.llmApiKey;
     }
@@ -725,6 +745,7 @@ export const openclawHandler: RuntimeHandler = {
   validateCreate(input: Partial<DeploymentFields>): string | null {
     // OpenClaw needs LLM configuration when using BYOK mode.
     // "included" mode auto-provisions via OpenRouter — no key needed from user.
+    // "platform" mode uses platform-managed keys — no key needed from user.
     if (input.llmMode === "byok" && !input.llmApiKey) {
       const error = "OpenClaw requires an LLM API key when using Bring Your Own Key mode";
       log.warn({ error }, "validateCreate failed");

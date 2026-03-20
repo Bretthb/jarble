@@ -52,6 +52,8 @@ export const deployments = sqliteTable("deployments", {
   messagingOnly: integer("messaging_only", { mode: "boolean" }).notNull().default(false),
   managedBy: text("managed_by").notNull().default("legacy"),  // "legacy" | "operator"
   isolationLevel: text("isolation_level").notNull().default("standard"),  // "standard" | "gvisor" | "kata"
+  isPlatform: integer("is_platform", { mode: "boolean" }).notNull().default(false),  // Platform-owned agent (bypasses subscription/storage enforcement)
+  resourceTier: text("resource_tier"),  // Named resource preset: "small" | "medium" | "large"
   themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
   // Fork & public profile fields
   forkedFromId: text("forked_from_id"),  // Source deployment ID (null = original)

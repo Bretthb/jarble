@@ -922,6 +922,11 @@ function CanvasWorkspace({
                 card={pageCard}
                 onClose={() => dispatch({ type: "CLOSE_PAGE_FULLSCREEN" })}
                 onUngroup={() => dispatch({ type: "UNGROUP_PAGE", cardId: pageCard.id })}
+                onSelect={() => dispatch({ type: "TOGGLE_SELECT_CARD", id: pageCard.id })}
+                onAsk={() => {
+                  dispatch({ type: "SELECT_CARD", id: pageCard.id });
+                  // Close fullscreen and let the chat input take focus
+                }}
               />
             );
           })()}
@@ -957,6 +962,13 @@ const CardContent = memo(function CardContent({
   sendMessage: (text: string, displayText?: string) => Promise<void>;
   canvasDispatch: React.Dispatch<import("@/components/workspace/types").CanvasAction>;
 }) {
+  // ── Error relay throttle ──────────────────────────────────────────────────
+  // Prevents cascading "Fix this component" messages when a sandbox/component
+  // keeps erroring. Each card gets max 2 auto-fix attempts with a 30s cooldown.
+  const errorRelayTracker = useRef<Map<string, { count: number; lastSentAt: number }>>(new Map());
+  const ERROR_RELAY_COOLDOWN_MS = 30_000; // 30s between auto-fix attempts per card
+  const ERROR_RELAY_MAX_ATTEMPTS = 2; // stop auto-fixing after 2 failed attempts
+
   // Handle actions from interactive components -- relay ALL actions to the bot as chat messages
   const handleAction = useCallback(
     async (action: CanvasAction) => {
@@ -997,10 +1009,32 @@ const CardContent = memo(function CardContent({
         return;
       }
 
-      // Component render error — user clicked "Fix Component"
+      // ── Error relay throttle check ──────────────────────────────────────
+      // Prevents cascading auto-fix messages. Returns true if the relay should
+      // be suppressed (cooldown active or max attempts reached).
+      const shouldThrottleErrorRelay = (cardId: string): boolean => {
+        const tracker = errorRelayTracker.current;
+        const entry = tracker.get(cardId);
+        const now = Date.now();
+        if (entry) {
+          if (entry.count >= ERROR_RELAY_MAX_ATTEMPTS) {
+            console.log(`[Jarble:ActionRelay] Suppressing error relay for ${cardId} — max attempts (${ERROR_RELAY_MAX_ATTEMPTS}) reached. User can click "Fix" manually.`);
+            return true;
+          }
+          if (now - entry.lastSentAt < ERROR_RELAY_COOLDOWN_MS) {
+            console.log(`[Jarble:ActionRelay] Suppressing error relay for ${cardId} — cooldown (${Math.round((ERROR_RELAY_COOLDOWN_MS - (now - entry.lastSentAt)) / 1000)}s remaining)`);
+            return true;
+          }
+        }
+        tracker.set(cardId, { count: (entry?.count ?? 0) + 1, lastSentAt: now });
+        return false;
+      };
+
+      // Component render error — auto-relay to bot (throttled)
       // Include card ID so the bot uses jarble_ui_update to fix in-place
       if (action.action === "component_error") {
         const { error, component } = action.payload as { error: string; component: string };
+        if (shouldThrottleErrorRelay(action.blockId)) return;
         const errorMsg = `[COMPONENT_ERROR] cardId=${action.blockId} component=${component}\nThe component failed to render with this error:\n${error}\n\nPlease fix the component by outputting a \`\`\`jarble_ui_update\`\`\` block with card_id="${action.blockId}" and corrected props. Do NOT create a new component — update the existing one in place.`;
         console.log("[Jarble:ActionRelay] Forwarding component error to bot for fix");
         try {
@@ -1015,13 +1049,16 @@ const CardContent = memo(function CardContent({
       if (action.action === "component_abandon") {
         console.log("[Jarble:ActionRelay] Removing broken card:", action.blockId);
         canvasDispatch({ type: "REMOVE_CARD", id: action.blockId });
+        // Clear error tracking so a new component with same ID gets fresh attempts
+        errorRelayTracker.current.delete(action.blockId);
         return;
       }
 
-      // Special handling for sandbox errors -- include detailed error info
+      // Special handling for sandbox errors — auto-relay to bot (throttled)
       if (action.action === "sandbox_error") {
         const error = action.payload.error as { message: string; line: number; column: number; stack?: string } | undefined;
         if (error) {
+          if (shouldThrottleErrorRelay(action.blockId)) return;
           const errorMsg = `[SANDBOX_ERROR] cardId=${action.blockId}\nThe sandbox component threw an error:\nError: ${error.message}${error.line ? `\nAt line ${error.line}, column ${error.column}` : ""}${error.stack ? `\nStack: ${error.stack.slice(0, 500)}` : ""}\n\nPlease fix the JavaScript code by outputting a \`\`\`jarble_ui_update\`\`\` block with card_id="${action.blockId}" and corrected props (merge: false for sandbox). Do NOT create a new component.`;
           const displayText = "Fix this component";
           console.log("[Jarble:ActionRelay] Forwarding sandbox error to bot");
