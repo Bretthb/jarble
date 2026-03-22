@@ -14,6 +14,7 @@ export const users = sqliteTable("users", {
   name: text("name"),
   auth0Id: text("auth0_id").notNull().unique(),
   emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
+  role: text("role").notNull().default("user"),
   stripeCustomerId: text("stripe_customer_id"),
   pendingStripeSubscriptionId: text("pending_stripe_subscription_id"),
   freeDeploymentUsed: integer("free_deployment_used", { mode: "boolean" }).notNull().default(false),
@@ -353,6 +354,49 @@ export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   platformCredentials: many(platformCredentials),
   componentInstalls: many(componentInstalls),
 }));
+
+// ── Chat History Tables ───────────────────────────────────────────────────
+
+export const chatSessions = sqliteTable("chat_sessions", {
+  id: text("id").primaryKey(),
+  deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  title: text("title").notNull().default("New conversation"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+});
+
+export const chatMessages = sqliteTable("chat_messages", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull().references(() => chatSessions.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  thinkingText: text("thinking_text"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+});
+
+// ── Audit Logs ──────────────────────────────────────────────────────────
+
+export const auditLogs = sqliteTable("audit_logs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  action: text("action").notNull(),
+  targetType: text("target_type"),
+  targetId: text("target_id"),
+  metadata: text("metadata"),
+  ipAddress: text("ip_address"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+});
+
+export const betaSignups = sqliteTable("beta_signups", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  experience: text("experience"),
+  useCase: text("use_case"),
+  status: text("status").notNull().default("pending"),
+  invitedAt: text("invited_at"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+});
 
 export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => ({
   deployments: many(deployments),

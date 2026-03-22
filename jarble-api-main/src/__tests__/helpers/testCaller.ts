@@ -30,6 +30,7 @@ export function createTestCaller(db: any, user: {
     db: db as any,
     requestId: "test-request",
     log: createRequestLogger("test-request"),
+    ip: null,
   };
 
   return appRouter.createCaller(ctx);
@@ -45,6 +46,7 @@ export function createAnonymousCaller(db: any) {
     db: db as any,
     requestId: "test-request",
     log: createRequestLogger("test-request"),
+    ip: null,
   };
 
   return appRouter.createCaller(ctx);

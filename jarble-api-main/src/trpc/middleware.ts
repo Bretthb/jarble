@@ -47,3 +47,15 @@ export const publicProcedure = t.procedure.use(sentryMiddleware).use(loggingMidd
 
 // Protected procedure - requires authenticated user
 export const protectedProcedure = t.procedure.use(sentryMiddleware).use(loggingMiddleware).use(authMiddleware);
+
+// Admin procedure - requires authenticated admin user
+import { isAdmin } from "../utils/admin.js";
+export const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (!isAdmin(ctx.user.id)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Admin access required",
+    });
+  }
+  return next({ ctx });
+});

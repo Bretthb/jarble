@@ -29,7 +29,7 @@ export async function createContext({ req }: CreateExpressContextOptions) {
 
   const reqLog = createRequestLogger(requestId, user?.id);
 
-  return { user, db, requestId, log: reqLog };
+  return { user, db, requestId, log: reqLog, ip: req.ip ?? null };
 }
 
 export type Context = Awaited<ReturnType<typeof createContext>>;

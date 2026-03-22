@@ -12,6 +12,7 @@ export const users = pgTable("users", {
   name: varchar("name", { length: 255 }),
   auth0Id: varchar("auth0_id", { length: 255 }).notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
+  role: varchar("role", { length: 20 }).notNull().default("user"),
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
   pendingStripeSubscriptionId: varchar("pending_stripe_subscription_id", { length: 255 }),
   freeDeploymentUsed: boolean("free_deployment_used").notNull().default(false),
@@ -331,6 +332,49 @@ export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   platformCredentials: many(platformCredentials),
   componentInstalls: many(componentInstalls),
 }));
+
+// ── Chat History Tables ───────────────────────────────────────────────────
+
+export const chatSessions = pgTable("chat_sessions", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull().default("New conversation"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const chatMessages = pgTable("chat_messages", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  sessionId: varchar("session_id", { length: 255 }).notNull().references(() => chatSessions.id, { onDelete: "cascade" }),
+  role: varchar("role", { length: 20 }).notNull(),
+  content: text("content").notNull(),
+  thinkingText: text("thinking_text"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ── Audit Logs ──────────────────────────────────────────────────────────
+
+export const auditLogs = pgTable("audit_logs", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  action: varchar("action", { length: 100 }).notNull(),
+  targetType: varchar("target_type", { length: 50 }),
+  targetId: varchar("target_id", { length: 255 }),
+  metadata: text("metadata"),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const betaSignups = pgTable("beta_signups", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  experience: varchar("experience", { length: 50 }),
+  useCase: text("use_case"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  invitedAt: timestamp("invited_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => ({
   deployments: many(deployments),
