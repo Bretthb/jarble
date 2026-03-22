@@ -1,4 +1,6 @@
 import { findPodForDeployment, execInPod } from "../../k8s/index.js";
+import type { ManagedBy } from "../../k8s/constants.js";
+import { getContainerName } from "../../k8s/constants.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 
@@ -28,7 +30,10 @@ export const pairingListTool: McpTool = {
       };
     }
 
-    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false });
+    const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
+    const containerName = getContainerName(managedBy);
+
+    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false, managedBy });
     if (!podName) {
       return {
         success: false,
@@ -39,7 +44,7 @@ export const pairingListTool: McpTool = {
     try {
       const output = await execInPod(podName, [
         "npx", "openclaw", "pairing", "list", platform, "--json",
-      ]);
+      ], containerName);
 
       // Try to parse output as JSON array of pairings
       try {
@@ -101,7 +106,10 @@ export const pairingApproveTool: McpTool = {
       return { success: false, message: "No pairing code provided." };
     }
 
-    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false });
+    const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
+    const containerName = getContainerName(managedBy);
+
+    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false, managedBy });
     if (!podName) {
       return {
         success: false,
@@ -112,7 +120,7 @@ export const pairingApproveTool: McpTool = {
     try {
       await execInPod(podName, [
         "npx", "openclaw", "pairing", "approve", platform, code, "--notify",
-      ]);
+      ], containerName);
 
       return {
         success: true,

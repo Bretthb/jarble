@@ -1,6 +1,9 @@
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("k8s:configmap");
 import { coreApi } from "./client.js";
 import { NAMESPACE } from "./constants.js";
+import type { ManagedBy } from "./constants.js";
 import type { ConfigFile } from "../runtimes/types.js";
 
 /**
@@ -27,16 +30,31 @@ import type { ConfigFile } from "../runtimes/types.js";
 
 /**
  * Encode a config file path into a valid ConfigMap data key.
- * K8s ConfigMap keys must be valid DNS subdomain names (alphanumeric, -, ., _).
- * We encode "/" as "--" and prefix absolute paths with "abs-".
+ *
+ * Legacy mode:
+ *   K8s ConfigMap keys must be valid DNS subdomain names (alphanumeric, -, ., _).
+ *   We encode "/" as "--" and prefix absolute paths with "abs-".
+ *
+ * Operator mode:
+ *   Uses flat keys (just the filename) — the operator reads these directly
+ *   and merges them into its own config. Absolute paths are stripped to basename.
  */
-export function encodeConfigKey(path: string): string {
+export function encodeConfigKey(path: string, managedBy: ManagedBy = "legacy"): string {
+  if (managedBy === "operator") {
+    // Operator mode: use flat keys (basename only for absolute paths)
+    if (path.startsWith("/")) {
+      return path.substring(path.lastIndexOf("/") + 1);
+    }
+    return path;
+  }
+
+  // Legacy mode: encode paths for valid ConfigMap keys
+  // K8s keys only allow alphanumeric, '-', '_', '.'
   if (path.startsWith("/")) {
-    // Absolute path: strip leading /, replace / with --, prefix with "abs-"
     return "abs-" + path.slice(1).replace(/\//g, "--");
   }
-  // Relative path: use as-is (already valid for ConfigMap keys)
-  return path;
+  // Relative paths with subdirectories (e.g. "mcp/jarble-ui-server.js")
+  return path.replace(/\//g, "--");
 }
 
 /**
@@ -46,7 +64,8 @@ export function decodeConfigKey(key: string): string {
   if (key.startsWith("abs-")) {
     return "/" + key.slice(4).replace(/--/g, "/");
   }
-  return key;
+  // Relative paths: decode "--" back to "/"
+  return key.replace(/--/g, "/");
 }
 
 // ── CRUD ────────────────────────────────────────────────────────────────
@@ -56,11 +75,12 @@ export function decodeConfigKey(key: string): string {
  */
 export async function createDeploymentConfigMap(
   deploymentId: string,
-  files: ConfigFile[]
+  files: ConfigFile[],
+  managedBy: ManagedBy = "legacy"
 ): Promise<void> {
   const data: Record<string, string> = {};
   for (const file of files) {
-    data[encodeConfigKey(file.path)] = file.content;
+    data[encodeConfigKey(file.path, managedBy)] = file.content;
   }
 
   await coreApi.createNamespacedConfigMap(NAMESPACE, {
@@ -74,7 +94,7 @@ export async function createDeploymentConfigMap(
     data,
   });
 
-  logger.info(
+  log.info(
     { deploymentId, fileCount: files.length, keys: Object.keys(data) },
     "ConfigMap created"
   );
@@ -86,11 +106,12 @@ export async function createDeploymentConfigMap(
  */
 export async function updateDeploymentConfigMap(
   deploymentId: string,
-  files: ConfigFile[]
+  files: ConfigFile[],
+  managedBy: ManagedBy = "legacy"
 ): Promise<void> {
   const data: Record<string, string> = {};
   for (const file of files) {
-    data[encodeConfigKey(file.path)] = file.content;
+    data[encodeConfigKey(file.path, managedBy)] = file.content;
   }
 
   try {
@@ -108,7 +129,7 @@ export async function updateDeploymentConfigMap(
         data,
       }
     );
-    logger.info(
+    log.info(
       { deploymentId, fileCount: files.length },
       "ConfigMap updated"
     );
@@ -116,7 +137,7 @@ export async function updateDeploymentConfigMap(
     const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
       // ConfigMap doesn't exist yet (old deployment) — create it
-      await createDeploymentConfigMap(deploymentId, files);
+      await createDeploymentConfigMap(deploymentId, files, managedBy);
     } else {
       throw err;
     }
@@ -131,13 +152,13 @@ export async function deleteDeploymentConfigMap(
 ): Promise<void> {
   try {
     await coreApi.deleteNamespacedConfigMap(`config-${deploymentId}`, NAMESPACE);
-    logger.debug({ deploymentId }, "ConfigMap deleted");
+    log.debug({ deploymentId }, "ConfigMap deleted");
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
-      logger.debug({ deploymentId }, "ConfigMap already gone (404)");
+      log.debug({ deploymentId }, "ConfigMap already gone (404)");
     } else {
-      logger.error({ deploymentId, err }, "Failed to delete ConfigMap");
+      log.error({ deploymentId, err }, "Failed to delete ConfigMap");
       throw err;
     }
   }

@@ -1,7 +1,9 @@
 import { db, tables } from "../db/index.js";
 import { eq, inArray, desc } from "drizzle-orm";
 import { getDeploymentPodStatus, type DeploymentPodStatus } from "../k8s/index.js";
+import type { ManagedBy } from "../k8s/constants.js";
 import { logger } from "../utils/logger.js";
+import { safeFireAndForget } from "../utils/safeAsync.js";
 
 const { deployments } = tables;
 
@@ -40,7 +42,7 @@ export async function reconcileStatuses(): Promise<void> {
     // Limit to 100 per cycle to prevent overwhelming K8s API at scale
     const driftCandidates = await db.query.deployments.findMany({
       where: inArray(deployments.status, ["creating", "running", "restarting", "reloading"]),
-      columns: { id: true, status: true, name: true, updatedAt: true },
+      columns: { id: true, status: true, name: true, updatedAt: true, managedBy: true },
       limit: 100,
       orderBy: (d, { desc }) => [desc(d.updatedAt)], // Prioritize recently changed
     });
@@ -53,7 +55,7 @@ export async function reconcileStatuses(): Promise<void> {
 
     for (const dep of driftCandidates) {
       try {
-        const mismatch = await checkDeploymentStatus(dep as { id: string; status: DbStatus; name: string });
+        const mismatch = await checkDeploymentStatus(dep as { id: string; status: DbStatus; name: string; managedBy: string | null });
         if (mismatch) {
           mismatches.push(mismatch);
         }
@@ -87,8 +89,10 @@ async function checkDeploymentStatus(dep: {
   id: string;
   status: DbStatus;
   name: string;
+  managedBy: string | null;
 }): Promise<StatusMismatch | null> {
-  const k8sStatus = await getDeploymentPodStatus(dep.id);
+  const managedBy = (dep.managedBy ?? "legacy") as ManagedBy;
+  const k8sStatus = await getDeploymentPodStatus(dep.id, managedBy);
 
   // Determine what the DB status should be based on K8s reality
   let expectedDbStatus: DbStatus;
@@ -145,8 +149,33 @@ async function checkDeploymentStatus(dep: {
 
 /**
  * Apply a status fix to the database.
+ * Verifies the deployment still exists before updating (it may have been
+ * deleted between the check and apply phases of reconciliation).
  */
 async function applyStatusFix(mismatch: StatusMismatch): Promise<void> {
+  // Guard: verify the deployment still exists in the DB
+  const current = await db.query.deployments.findFirst({
+    where: eq(deployments.id, mismatch.deploymentId),
+    columns: { id: true, status: true },
+  });
+
+  if (!current) {
+    logger.debug(
+      { deploymentId: mismatch.deploymentId },
+      "statusReconciler: deployment deleted before fix could be applied, skipping"
+    );
+    return;
+  }
+
+  // Also skip if the status has already changed since we checked
+  if (current.status !== mismatch.dbStatus) {
+    logger.debug(
+      { deploymentId: mismatch.deploymentId, expected: mismatch.dbStatus, actual: current.status },
+      "statusReconciler: deployment status changed since check, skipping"
+    );
+    return;
+  }
+
   logger.info(
     {
       deploymentId: mismatch.deploymentId,
@@ -177,9 +206,26 @@ async function applyStatusFix(mismatch: StatusMismatch): Promise<void> {
 /**
  * Start the periodic status reconciliation.
  * Runs immediately on startup, then every `intervalMs` (default 30 seconds).
+ *
+ * Also starts a slower MCP server auto-sync (every 5 minutes) that pushes
+ * the latest MCP server to any running pods that have an outdated version.
+ * This ensures users get new tools (set_theme, etc.) without needing to
+ * restart their deployment after an API update.
  */
 export function startStatusReconciler(intervalMs: number = 30 * 1000): NodeJS.Timeout {
   logger.info({ intervalMs }, "statusReconciler: starting periodic status reconciliation");
-  void reconcileStatuses();
-  return setInterval(() => void reconcileStatuses(), intervalMs);
+  safeFireAndForget(reconcileStatuses(), { operation: "reconcileStatuses" });
+
+  // MCP server auto-sync — runs every 5 minutes, pushes latest MCP server to outdated pods
+  const mcpSyncIntervalMs = 5 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      const { syncMcpServerToAllRunning } = await import("./configSync.js");
+      await syncMcpServerToAllRunning();
+    } catch (err) {
+      logger.warn({ err }, "statusReconciler: MCP auto-sync failed (non-fatal)");
+    }
+  }, mcpSyncIntervalMs);
+
+  return setInterval(() => safeFireAndForget(reconcileStatuses(), { operation: "reconcileStatuses" }), intervalMs);
 }

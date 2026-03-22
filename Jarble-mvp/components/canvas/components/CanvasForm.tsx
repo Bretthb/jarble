@@ -71,26 +71,30 @@ function CanvasFormInner({
       <form onSubmit={handleSubmit} className="space-y-3">
         {fields.map((field) => (
           <div key={field.name} className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">
+            <label htmlFor={`field-${field.name}`} className="text-xs font-medium text-muted-foreground">
               {field.label}
               {field.required && <span className="text-red-400 ml-0.5">*</span>}
             </label>
 
             {field.type === "textarea" ? (
               <textarea
+                id={`field-${field.name}`}
                 value={String(values[field.name] || "")}
                 onChange={(e) => updateField(field.name, e.target.value)}
                 placeholder={field.placeholder}
                 required={field.required}
+                aria-required={field.required}
                 disabled={submitted}
                 rows={3}
                 className={`${inputClass} resize-y`}
               />
             ) : field.type === "select" ? (
               <select
+                id={`field-${field.name}`}
                 value={String(values[field.name] || "")}
                 onChange={(e) => updateField(field.name, e.target.value)}
                 required={field.required}
+                aria-required={field.required}
                 disabled={submitted}
                 className={inputClass}
               >
@@ -104,6 +108,7 @@ function CanvasFormInner({
             ) : field.type === "checkbox" ? (
               <label className="flex items-center gap-2 text-sm text-foreground">
                 <input
+                  id={`field-${field.name}`}
                   type="checkbox"
                   checked={Boolean(values[field.name])}
                   onChange={(e) => updateField(field.name, e.target.checked)}
@@ -114,6 +119,7 @@ function CanvasFormInner({
               </label>
             ) : (
               <input
+                id={`field-${field.name}`}
                 type={field.type}
                 value={String(values[field.name] || "")}
                 onChange={(e) =>
@@ -124,6 +130,7 @@ function CanvasFormInner({
                 }
                 placeholder={field.placeholder}
                 required={field.required}
+                aria-required={field.required}
                 disabled={submitted}
                 className={inputClass}
               />

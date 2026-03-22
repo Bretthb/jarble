@@ -21,6 +21,9 @@
 
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import type { Request } from "express";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("rateLimit");
 
 // ─── Key generators ───────────────────────────────────────────────────
 
@@ -70,10 +73,21 @@ export const globalLimiter = rateLimit({
     return (
       req.path === "/health" ||
       req.path === "/api/stripe/webhook" ||
-      req.path === "/api/auth0/email-verified"
+      req.path === "/api/auth0/email-verified" ||
+      // SSE endpoints are long-lived connections already gated by MAX_SSE_CONNECTIONS_PER_USER.
+      // Counting them against the global rate limit causes EventSource auto-reconnections
+      // to burn through the 300/min budget, blocking normal API traffic.
+      req.path.endsWith("/stream") ||
+      req.path.endsWith("/logs/stream") ||
+      req.path.endsWith("/whatsapp/qr") ||
+      req.path === "/api/tambo-agent"
     );
   },
   message: { error: "Too many requests, please try again later." },
+  handler: (req, res, _next, options) => {
+    log.warn({ ip: req.ip, path: req.path }, `Rate limited: ${options.message.error}`);
+    res.status(options.statusCode).json(options.message);
+  },
 });
 
 /**
@@ -87,6 +101,10 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userKeyGenerator,
   message: { error: "Rate limit exceeded. Please slow down." },
+  handler: (req, res, _next, options) => {
+    log.warn({ ip: req.ip, path: req.path }, `Rate limited: ${options.message.error}`);
+    res.status(options.statusCode).json(options.message);
+  },
 });
 
 /**

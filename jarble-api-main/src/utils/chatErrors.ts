@@ -5,6 +5,7 @@
 
 export type ChatErrorCode =
   | "GATEWAY_TIMEOUT"
+  | "EXEC_TIMEOUT"
   | "GATEWAY_REFUSED"
   | "GATEWAY_RESET"
   | "GATEWAY_AUTH_FAILED"
@@ -31,6 +32,17 @@ const ERROR_MAP: Array<{
   pattern: RegExp | ((msg: string, ctx: ClassifyContext) => boolean);
   result: ClassifiedError;
 }> = [
+  {
+    pattern: /execInPod timed out/i,
+    result: {
+      code: "EXEC_TIMEOUT",
+      message: "Bot took too long to respond",
+      suggestion: "Try a simpler request, or restart the bot if it's stuck",
+      canRetry: true,
+      canStart: false,
+      canDiagnose: true,
+    },
+  },
   {
     pattern: /ETIMEDOUT|timed out/i,
     result: {

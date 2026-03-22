@@ -63,12 +63,16 @@
 
 import {
   Bot,
+  FileCode,
   Sparkles,
   Rocket,
+  Send,
   Settings,
   Link2,
   Shield,
   Terminal,
+  Package,
+  User,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -102,6 +106,8 @@ export interface LLMModelDef {
 
 export const UNIVERSAL_STEPS: WizardStepDef[] = [
   { id: "name", title: "Name", icon: Bot },
+  { id: "persona", title: "Persona", icon: User },
+  { id: "runtime", title: "Choose Runtime", icon: FileCode },
 ];
 
 // ─── Runtime-specific extra steps (appended after universal steps) ────
@@ -115,8 +121,14 @@ export const UNIVERSAL_STEPS: WizardStepDef[] = [
 
 const RUNTIME_EXTRA_STEPS: Record<string, WizardStepDef[]> = {
   // OpenClaw — AI multi-platform bot, needs LLM config then deploy
-  // Platform connections happen conversationally after deploy via Tambo chat
+  // Platform connections happen after deploy via the config panel
   openclaw: [
+    { id: "llm", title: "LLM Setup", icon: Sparkles },
+    { id: "deploy", title: "Deploy", icon: Rocket },
+  ],
+
+  // ZeroClaw — lightweight chatbot with LLM config
+  zeroclaw: [
     { id: "llm", title: "LLM Setup", icon: Sparkles },
     { id: "deploy", title: "Deploy", icon: Rocket },
   ],
@@ -161,10 +173,18 @@ export const UNIVERSAL_CONFIG_TABS: ConfigTabDef[] = [
 
 // Runtime-specific tabs (inserted between General and Advanced)
 const RUNTIME_CONFIG_TABS: Record<string, ConfigTabDef[]> = {
-  // OpenClaw — AI WhatsApp bot, needs Model + Platforms
+  // OpenClaw — AI WhatsApp bot, needs Model + Platforms + Skills + Components
   openclaw: [
     { id: "model", label: "Model", icon: Bot },
     { id: "platforms", label: "Platforms", icon: Link2 },
+    { id: "skills", label: "Skills", icon: Sparkles },
+    { id: "components", label: "Components", icon: Package },
+  ],
+
+  // ZeroClaw — lightweight bot, Platforms + Components
+  zeroclaw: [
+    { id: "platforms", label: "Platforms", icon: Link2 },
+    { id: "components", label: "Components", icon: Package },
   ],
 
   // ── Add new runtimes here ──
@@ -175,10 +195,12 @@ const RUNTIME_CONFIG_TABS: Record<string, ConfigTabDef[]> = {
   // ],
 };
 
-// Fallback for unknown runtimes — show Model + Platforms
+// Fallback for unknown runtimes — show all tabs
 const DEFAULT_CONFIG_TABS: ConfigTabDef[] = [
   { id: "model", label: "Model", icon: Bot },
   { id: "platforms", label: "Platforms", icon: Link2 },
+  { id: "skills", label: "Skills", icon: Sparkles },
+  { id: "components", label: "Components", icon: Package },
 ];
 
 // Always shown (before Advanced)
@@ -258,49 +280,54 @@ export const LLM_PROVIDERS: LLMProviderDef[] = [
 
 export const LLM_MODELS: LLMModelDef[] = [
   // ── OpenRouter models ──
-  { id: "openrouter/auto",           name: "Auto (Best Available)",   provider: "openrouter", description: "OpenRouter picks the best model for each request", isDefault: true },
-  { id: "openai/gpt-4o",             name: "GPT-4o",                  provider: "openrouter", description: "OpenAI's flagship multimodal model" },
-  { id: "openai/gpt-4o-mini",        name: "GPT-4o Mini",             provider: "openrouter", description: "Fast and affordable for simple tasks" },
-  { id: "anthropic/claude-sonnet-4-20250514", name: "Claude Sonnet 4",  provider: "openrouter", description: "Anthropic's balanced model" },
-  { id: "anthropic/claude-haiku-3.5", name: "Claude Haiku 3.5",       provider: "openrouter", description: "Fast, cheap, and capable" },
-  { id: "google/gemini-2.0-flash-001", name: "Gemini 2.0 Flash",     provider: "openrouter", description: "Google's fast multimodal model" },
+  { id: "openrouter/auto",                      name: "Auto (Best Available)",   provider: "openrouter", description: "OpenRouter picks the best model for each request", isDefault: true },
+  { id: "anthropic/claude-opus-4-6",            name: "Claude Opus 4.6",         provider: "openrouter", description: "Most capable — 1M context" },
+  { id: "anthropic/claude-sonnet-4-6",          name: "Claude Sonnet 4.6",       provider: "openrouter", description: "Fast frontier intelligence" },
+  { id: "anthropic/claude-sonnet-4-20250514",   name: "Claude Sonnet 4",         provider: "openrouter", description: "Balanced model" },
+  { id: "anthropic/claude-haiku-4-5-20251001",  name: "Claude Haiku 4.5",        provider: "openrouter", description: "Fast and affordable" },
+  { id: "openai/gpt-4o",                        name: "GPT-4o",                  provider: "openrouter", description: "OpenAI multimodal model" },
+  { id: "openai/o3-mini",                       name: "o3-mini",                 provider: "openrouter", description: "Fast reasoning model" },
+  { id: "google/gemini-2.5-flash",              name: "Gemini 2.5 Flash",        provider: "openrouter", description: "Google's latest fast model" },
 
   // ── OpenAI direct models ──
   { id: "gpt-4o",                    name: "GPT-4o",                  provider: "openai", description: "Flagship multimodal model", isDefault: true },
   { id: "gpt-4o-mini",               name: "GPT-4o Mini",             provider: "openai", description: "Fast and affordable" },
-  { id: "o1",                        name: "o1",                      provider: "openai", description: "Advanced reasoning model" },
+  { id: "o3-mini",                   name: "o3-mini",                 provider: "openai", description: "Fast reasoning model" },
+  { id: "o3-pro",                    name: "o3-pro",                  provider: "openai", description: "Extended reasoning for hard problems" },
 
   // ── Anthropic direct models ──
-  { id: "claude-sonnet-4-20250514",  name: "Claude Sonnet 4",         provider: "anthropic", description: "Balanced performance and speed", isDefault: true },
-  { id: "claude-haiku-3.5",          name: "Claude Haiku 3.5",        provider: "anthropic", description: "Fast and affordable" },
-  { id: "claude-opus-4-20250514",    name: "Claude Opus 4",           provider: "anthropic", description: "Most capable model" },
+  { id: "claude-opus-4-6",           name: "Claude Opus 4.6",         provider: "anthropic", description: "Most capable — 1M context", isDefault: true },
+  { id: "claude-sonnet-4-6",         name: "Claude Sonnet 4.6",       provider: "anthropic", description: "Fast frontier intelligence" },
+  { id: "claude-sonnet-4-20250514",  name: "Claude Sonnet 4",         provider: "anthropic", description: "Balanced performance and speed" },
+  { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5",        provider: "anthropic", description: "Fast and affordable" },
 
   // ── Google direct models ──
-  { id: "gemini-2.0-flash",          name: "Gemini 2.0 Flash",        provider: "google", description: "Fast multimodal model", isDefault: true },
-  { id: "gemini-2.0-pro",            name: "Gemini 2.0 Pro",          provider: "google", description: "Most capable Google model" },
+  { id: "gemini-2.5-flash",          name: "Gemini 2.5 Flash",        provider: "google", description: "Fast multimodal model", isDefault: true },
+  { id: "gemini-2.5-flash-lite",     name: "Gemini 2.5 Flash-Lite",   provider: "google", description: "Ultra-efficient for high-throughput" },
+  { id: "gemini-2.0-flash",          name: "Gemini 2.0 Flash",        provider: "google", description: "Previous generation fast model" },
 ];
 
-// Default model for "Managed Keys" mode (always via OpenRouter)
+// Default model for "Included Credits" mode (always via OpenRouter)
 export const DEFAULT_INCLUDED_MODEL = "openrouter/auto";
 
-// ─── Managed Key Plans (shown when "Managed Keys" is selected) ──────
+// ─── Credit Plans (shown when "Included Credits" is selected) ───────
 //
 // These define the monthly spending cap options for auto-provisioned
 // OpenRouter keys. The value is the dollar amount that gets passed to
 // the backend as `creditLimitDollars`.
 //
-// HOW TO CHANGE MANAGED KEY PLANS:
+// HOW TO CHANGE CREDIT PLANS:
 //   Just edit the array below. The wizard reads from here automatically.
-//   The "isDefault" plan is pre-selected when the user picks Managed Keys.
+//   The "isDefault" plan is pre-selected when the user picks Included Credits.
 
-export interface ManagedKeyPlanDef {
+export interface CreditPlanDef {
   value: number;         // Monthly spending cap in USD
   label: string;         // Display label (e.g. "$5/mo")
   description: string;   // Short description of what it gets you
   isDefault?: boolean;   // Pre-selected plan
 }
 
-export const MANAGED_KEY_PLANS: ManagedKeyPlanDef[] = [
+export const CREDIT_PLANS: CreditPlanDef[] = [
   { value: 5,   label: "$5/mo",   description: "Light usage — great for testing & small bots",   isDefault: true },
   { value: 10,  label: "$10/mo",  description: "Moderate usage — handles a few hundred messages" },
   { value: 25,  label: "$25/mo",  description: "Active usage — supports busy bots with frequent conversations" },
@@ -308,7 +335,7 @@ export const MANAGED_KEY_PLANS: ManagedKeyPlanDef[] = [
   { value: 100, label: "$100/mo", description: "Enterprise — maximum capacity for production workloads" },
 ];
 
-export const DEFAULT_MANAGED_KEY_PLAN = MANAGED_KEY_PLANS.find((p) => p.isDefault)?.value ?? 5;
+export const DEFAULT_CREDIT_PLAN = CREDIT_PLANS.find((p) => p.isDefault)?.value ?? 5;
 
 // ─── Hardware Configuration Options (shown in Deploy step) ──────────
 //

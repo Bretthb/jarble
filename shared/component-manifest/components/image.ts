@@ -12,4 +12,5 @@ export const imageEntry: ComponentManifestEntry = {
   tags: ["media", "image", "photo"],
   builtin: true,
   renderOrder: 8,
+  promptGuidance: "Single image display. Use Unsplash URLs for visual topics. For multiple images, use image_gallery or carousel instead.",
 };

@@ -1,7 +1,7 @@
 # Jarble API Endpoints Reference
 
-> Complete reference for every API endpoint in the Jarble platform. Covers all 98 tRPC procedures and 21 REST endpoints.
-> Last updated: March 14, 2026 (Session 20 — Managed Keys frontend wiring)
+> Complete reference for every API endpoint in the Jarble platform. Covers all 96 tRPC procedures and 29 REST endpoints.
+> Last updated: March 19, 2026 (Session 19)
 
 ---
 
@@ -13,14 +13,15 @@
 4. [tRPC Procedures](#4-trpc-procedures)
    - [User Router](#user-router-5-procedures)
    - [Deployment Router](#deployment-router-21-procedures)
-   - [OpenRouter Router](#openrouter-router-10-procedures)
-   - [Billing Router](#billing-router-4-procedures)
+   - [OpenRouter Router](#openrouter-router-8-procedures)
+   - [Billing Router](#billing-router-3-procedures)
    - [Platform Credentials Router](#platform-credentials-router-7-procedures)
    - [Runtime Catalog Router](#runtime-catalog-router-4-procedures)
    - [Template Router](#template-router-1-procedure)
    - [Skills Router](#skills-router-4-procedures)
    - [Marketplace Router](#marketplace-router-22-procedures)
-   - [Admin Router](#admin-router-19-procedures)
+   - [Services Router](#services-router-6-procedures)
+   - [Benchmarks Router](#benchmarks-router-14-procedures)
 5. [REST Endpoints](#5-rest-endpoints)
    - [Webhooks](#webhooks)
    - [Payment Routes](#payment-routes)
@@ -158,15 +159,17 @@ All tRPC endpoints are at `/trpc/<router>.<procedure>`. Types flow automatically
 graph TD
     CLIENT["Frontend<br/>trpc.router.procedure.useQuery()"] -->|"HTTP POST/GET"| TRPC["/trpc endpoint"]
 
-    TRPC --> DEPLOYMENT["deployment<br/>21 procedures"]
-    TRPC --> OPENROUTER["openrouter<br/>10 procedures"]
+    TRPC --> DEPLOYMENT["deployment<br/>22 procedures"]
+    TRPC --> OPENROUTER["openrouter<br/>8 procedures"]
     TRPC --> USER["user<br/>5 procedures"]
-    TRPC --> BILLING["billing<br/>4 procedures"]
+    TRPC --> BILLING["billing<br/>3 procedures"]
     TRPC --> PLATCREDS["platformCredentials<br/>7 procedures"]
     TRPC --> RUNTIME_CAT["runtimeCatalog<br/>4 procedures"]
     TRPC --> TEMPLATE["template<br/>1 procedure"]
     TRPC --> SKILLS["skills<br/>4 procedures"]
     TRPC --> MARKETPLACE["marketplace<br/>22 procedures"]
+    TRPC --> SERVICES["services<br/>6 procedures"]
+    TRPC --> BENCHMARKS["benchmarks<br/>14 procedures"]
 
     DEPLOYMENT --> DB[("Database")]
     DEPLOYMENT --> K8S["K8s Cluster"]
@@ -178,6 +181,8 @@ graph TD
     SKILLS --> DB
     MARKETPLACE --> DB
     MARKETPLACE --> MFVAL["Manifest Validator"]
+    SERVICES --> DB
+    SERVICES --> SVCPROXY["Service Proxy<br/>(HMAC + Circuit Breaker)"]
 ```
 
 ---
@@ -211,7 +216,7 @@ graph LR
 
 ---
 
-### Deployment Router (21 procedures)
+### Deployment Router (22 procedures)
 
 ```mermaid
 graph TD
@@ -288,6 +293,7 @@ graph TD
 | `deployment.linkSubscription` | mutation | `{ deploymentId }` | Link pending/unlinked Stripe subscription to deployment |
 | `deployment.exportConfigs` | mutation | `{ id }` | Export PVC config files as base64-encoded ZIP |
 | `deployment.delete` | mutation | `{ id }` | Delete deployment + all K8s resources. Blocks if credit pool owner with children |
+| `deployment.platformFork` | mutation | `{ sourceId, name?, resourceTier, llmProvider?, llmModel? }` | Admin-only. Fork a deployment as a platform agent with chosen resource tier and platform LLM mode |
 
 #### `deployment.create` Input Schema
 
@@ -297,7 +303,7 @@ graph TD
   runtimeCatalogId: number               // required
   platform?: string
   image?: string                         // custom Docker image
-  llmMode?: "included" | "byok"          // default: "byok"
+  llmMode?: "included" | "byok" | "platform"  // default: "byok"; "platform" uses AGENT_LLM_API_KEY
   llmProvider?: "openrouter" | "openai" | "anthropic" | "google"
   llmModel?: string                      // e.g., "anthropic/claude-sonnet-4-20250514"
   llmApiKey?: string                     // required if llmMode="byok"
@@ -312,7 +318,7 @@ graph TD
 
 ---
 
-### OpenRouter Router (10 procedures)
+### OpenRouter Router (8 procedures)
 
 ```mermaid
 graph LR
@@ -324,8 +330,6 @@ graph LR
         PROV["provisionKey<br/>mutation"]
         USAGE["getKeyUsage<br/>query"]
         UPD["updateKeyLimit<br/>mutation"]
-        UPDM["updateManagedKeyPlan<br/>mutation"]
-        CANCEL["cancelManagedKey<br/>mutation"]
         REV["revokeKey<br/>mutation"]
     end
 
@@ -336,10 +340,6 @@ graph LR
     PROV --> MGMT["OpenRouter<br/>Management API"]
     USAGE --> MGMT
     UPD --> MGMT
-    UPDM --> MGMT
-    UPDM --> STRIPE["Stripe API"]
-    CANCEL --> MGMT
-    CANCEL --> STRIPE
     REV --> MGMT
 ```
 
@@ -351,14 +351,12 @@ graph LR
 | `openrouter.validateProviderKey` | mutation | `{ provider, apiKey }` | Multi-provider key validation (OpenAI, Anthropic, Google, OpenRouter). **Dev bypass:** accepts `dev-*` keys in SQLite/dev mode |
 | `openrouter.provisionKey` | mutation | `{ deploymentId, limitDollars? }` | Provision tenant API key via Management API. Encrypts + stores |
 | `openrouter.getKeyUsage` | query | `{ deploymentId }` | Credit usage for "included" mode deployments. Resolves to owner if linked |
-| `openrouter.updateKeyLimit` | mutation | `{ deploymentId, limitDollars: 1-1000 }` | Update monthly credit cap on OpenRouter only. Must be owner (not linked) |
-| `openrouter.updateManagedKeyPlan` | mutation | `{ deploymentId, newLimitDollars: 1-1000 }` | Update both OpenRouter credit cap AND Stripe subscription line item price. Must be owner |
-| `openrouter.cancelManagedKey` | mutation | `{ deploymentId }` | Cancel managed key: removes Stripe line item, revokes OpenRouter key, switches to BYOK mode |
-| `openrouter.revokeKey` | mutation | `{ deploymentId }` | Revoke tenant key only (no Stripe changes). Used for key rotation (regenerate) |
+| `openrouter.updateKeyLimit` | mutation | `{ deploymentId, limitDollars: 1-1000 }` | Update monthly credit cap. Must be owner (not linked) |
+| `openrouter.revokeKey` | mutation | `{ deploymentId }` | Disable tenant key, clear from DB, switch to BYOK mode |
 
 ---
 
-### Billing Router (4 procedures)
+### Billing Router (3 procedures)
 
 ```mermaid
 graph LR
@@ -366,7 +364,6 @@ graph LR
         OVERVIEW["getOverview<br/>query"]
         INV["getInvoices<br/>query"]
         SUBS["getSubscriptions<br/>query"]
-        MKU["getManagedKeyUsage<br/>query"]
     end
 
     OVERVIEW --> STRIPE["Stripe API"]
@@ -374,16 +371,13 @@ graph LR
     SUBS --> STRIPE
     OVERVIEW --> DB[("Database")]
     SUBS --> DB
-    MKU --> OR["OpenRouter API"]
-    MKU --> DB
 ```
 
 | Procedure | Type | Input | Description |
 |---|---|---|---|
 | `billing.getOverview` | query | -- | Billing summary: total monthly spend, active subs count, next billing date, payment method last4 |
 | `billing.getInvoices` | query | -- | All Stripe invoices (id, date, amount, status, PDF URL) |
-| `billing.getSubscriptions` | query | -- | Subscription details per deployment with per-item breakdown: `hardwareCents`, `managedKeyCents`, `managedKeyPlanDollars`, `llmMode`, `isLinked`, plus Stripe status and billing period |
-| `billing.getManagedKeyUsage` | query | `{ deploymentId }` | OpenRouter credit usage for a managed key deployment. Returns `{ usage, limit, disabled }` or null if BYOK |
+| `billing.getSubscriptions` | query | -- | Subscription details per deployment (Stripe status, billing period, cancellation info) |
 
 #### `billing.getOverview` Output
 
@@ -393,26 +387,6 @@ graph LR
   activeSubscriptionCount: number
   nextBillingDate: string | null    // ISO date from first active subscription
   paymentMethodLast4: string | null // card last 4 digits
-}
-```
-
-#### `billing.getSubscriptions` Output (per item)
-
-```typescript
-{
-  deploymentId: string
-  deploymentName: string
-  runtime: string
-  monthlyPriceCents: number          // total (hardware + managed keys)
-  hardwareCents: number              // hardware-only line item
-  managedKeyCents: number            // managed key line item (0 if BYOK)
-  managedKeyPlanDollars: number | null // credit cap in dollars
-  llmMode: "included" | "byok"
-  isLinked: boolean                  // true if sharing another deployment's credit pool
-  stripeStatus: string
-  periodStart: string | null
-  periodEnd: string | null
-  cancelledAt: string | null
 }
 ```
 
@@ -567,31 +541,131 @@ graph TD
 
 ---
 
-### Admin Router (19 procedures)
+### Services Router (6 procedures)
 
-Platform administration. All procedures require `adminProcedure` (authenticated + `super_admin` role).
+The services marketplace enables users to install pre-built bundles of components, skills, and bot instruction snippets. Two hosting models: **Package** (self-hosted, buyer runs on their own pod) and **Hosted/Remote** (creator hosts APIs, buyer gets proxy access via ServiceCard).
+
+```mermaid
+graph TD
+    subgraph Browse["Browse (public)"]
+        SV1["list<br/>query | paginated + filtered"]
+        SV2["get<br/>query | full detail + components + skills"]
+        SV6["listByCreator<br/>query | creator's own services"]
+    end
+
+    subgraph Install["Install/Manage (protected)"]
+        SV3["install<br/>mutation | atomic: records + soul.md + PVC sync"]
+        SV4["uninstall<br/>mutation | remove components + skills + snippet"]
+    end
+
+    subgraph Creator["Creator (protected)"]
+        SV5["publish<br/>mutation | create or update a service listing"]
+    end
+```
 
 | Procedure | Type | Auth | Description |
-|-----------|------|------|-------------|
-| `admin.getStats` | query | admin | Platform overview stats (user count, deployment count, active deployments, revenue) |
-| `admin.listUsers` | query | admin | Paginated, searchable user list with role badges |
-| `admin.getUserById` | query | admin | Single user detail with their deployments |
-| `admin.updateUserRole` | mutation | admin | Toggle user role between `user` and `super_admin` |
-| `admin.listAllDeployments` | query | admin | All deployments across all users, filterable by status |
-| `admin.startDeployment` | mutation | admin | Start a deployment (any user's) |
-| `admin.stopDeployment` | mutation | admin | Stop a deployment (any user's) |
-| `admin.restartDeployment` | mutation | admin | Restart a deployment (any user's) |
-| `admin.deleteDeployment` | mutation | admin | Delete a deployment (any user's) |
-| `admin.getRevenueStats` | query | admin | Billing stats: MRR, active subscriptions, free vs paid breakdown |
-| `admin.getSystemHealth` | query | admin | Pod status breakdown by state across the cluster |
-| `admin.getAuditLogs` | query | admin | Paginated audit log with action/user filters |
-| `admin.exportAuditLogs` | query | admin | Export audit logs as CSV |
-| `admin.getClusterMetrics` | query | admin | Instant node metrics (CPU, memory, disk) + running pod count + recent restarts from Prometheus |
-| `admin.getMetricsTimeSeries` | query | admin | Time-series data for charts. Input: `queryKey` (node_cpu, node_memory, node_disk, pod_cpu, pod_memory), `range` (1h, 6h, 24h, 7d) |
-| `admin.getClusterAlerts` | query | admin | Active firing alerts from Prometheus alert manager |
-| `admin.listBetaSignups` | query | admin | List beta signups, optionally filter by status (`pending`/`invited`/`all`). Returns `emailConfigured` flag |
-| `admin.sendBetaInvite` | mutation | admin | Send welcome email to a single beta signup via Resend. Input: `signupId`. Marks as `invited` |
-| `admin.sendBetaInviteAll` | mutation | admin | Bulk send welcome emails to all `pending` beta signups. Returns `{ sent, failed, total }` |
+|---|---|---|---|
+| `services.list` | query | public | Paginated service browser with category/hostingModel/search filters |
+| `services.get` | query | public | Full service detail with components, skills, creator profile |
+| `services.install` | mutation | protected | Atomic install: creates `serviceInstalls` + `componentInstalls` + `deploymentSkills` records, appends `instructionSnippet` to soul.md, triggers single `syncConfigsToPvc()`. For hosted services: calls install handshake POST to creator API + stores encrypted per-install HMAC signing secret |
+| `services.uninstall` | mutation | protected | Removes `serviceInstalls`, `componentInstalls`, `deploymentSkills` records and strips instruction snippet from soul.md. Triggers `syncConfigsToPvc()` |
+| `services.publish` | mutation | protected | Create or update a service listing with component/skill associations and ServiceCard JSON |
+| `services.listByCreator` | query | public | All services published by a given creator profile |
+
+#### ServiceCard (Hosted Services)
+
+For hosted services (`hostingModel: "hosted"`), the publisher provides a **ServiceCard** JSON blob describing their remote API:
+
+```typescript
+{
+  remoteApiEndpoint: string          // Creator's API base URL
+  authType: "hmac" | "bearer"        // Authentication method
+  skills: [
+    {
+      name: string                   // Skill identifier (routes proxy requests)
+      description: string
+      inputSchema?: object           // JSON Schema for input validation
+      outputSchema?: object          // JSON Schema for output validation (warn-only)
+    }
+  ]
+  rateLimits?: {
+    requestsPerMinute?: number       // Per-deployment+service rate limit
+    requestsPerDay?: number
+  }
+  health?: {
+    endpoint: string                 // GET endpoint for health checks
+    intervalMinutes?: number
+  }
+}
+```
+
+Buyer pods never call creator APIs directly — all requests go through `POST /api/services/proxy/:deploymentId/:serviceId/:skillName`, which:
+1. Looks up `serviceCredentials` (per-install HMAC signing secret)
+2. Validates input against the skill's `inputSchema`
+3. Checks per-deployment+service rate limit (from ServiceCard)
+4. Checks circuit breaker (open after 5 consecutive failures, 60s reset)
+5. Adds `Authorization` and `X-Jarble-Signature` (HMAC-SHA256) headers
+6. Forwards request body to creator API
+7. Validates response against `outputSchema` (warn-only)
+
+---
+
+### Benchmarks Router (14 procedures)
+
+The benchmarks router implements the Agent Forking Flywheel discovery layer: a hierarchical domain taxonomy, per-deployment multi-axis ratings, leaderboards, service performance metrics, and admin curation tools.
+
+```mermaid
+graph TD
+    subgraph Domains["Domain Taxonomy (mixed)"]
+        BM1["listDomains<br/>query | public"]
+        BM2["createDomain<br/>mutation | protected"]
+    end
+
+    subgraph Ratings["Deployment Ratings (mixed)"]
+        BM3["rateDeployment<br/>mutation | protected"]
+        BM4["getDeploymentRatings<br/>query | public"]
+        BM5["setSpecialties<br/>mutation | protected"]
+        BM6["getPublicProfile<br/>query | public"]
+        BM7["leaderboard<br/>query | public"]
+    end
+
+    subgraph ServiceMetrics["Service Metrics (public)"]
+        BM8["getServiceMetrics<br/>query | public"]
+        BM9["serviceLeaderboard<br/>query | public"]
+    end
+
+    subgraph ServiceReviews["Service Reviews (mixed)"]
+        BM10["getServiceReviews<br/>query | public"]
+        BM11["createServiceReview<br/>mutation | protected"]
+        BM12["respondToServiceReview<br/>mutation | protected"]
+    end
+
+    subgraph Admin["Admin Curation (protected + admin role)"]
+        BM13["adminFeature<br/>mutation | sets featuredAt timestamp"]
+        BM14["adminUnfeature<br/>mutation | clears featuredAt"]
+    end
+
+    BM3 -->|"recomputes"| SCORES["deploymentDomainScores"]
+    BM7 --> DB[("Database")]
+    BM9 --> DB
+```
+
+| Procedure | Type | Auth | Input | Description |
+|---|---|---|---|---|
+| `benchmarks.listDomains` | query | public | `{ parentId? }` | List root domains (parentId omitted) or children of a parent |
+| `benchmarks.createDomain` | mutation | protected | `{ name (kebab-case slug), displayName, description?, parentId?, icon? }` | Create a new domain. Name must be unique kebab-case |
+| `benchmarks.rateDeployment` | mutation | protected | `{ deploymentId, domainId, accuracy, helpfulness, creativity: 1-5, comment? }` | Upsert a rating for a deployment in a domain. Recomputes `deploymentDomainScores` aggregates (avg * 100 scale, confidence: low/medium/high) |
+| `benchmarks.getDeploymentRatings` | query | public | `{ deploymentId }` | All ratings for a deployment with domain names |
+| `benchmarks.setSpecialties` | mutation | protected | `{ deploymentId, specialties: string[], bio?, showcasePrompts? }` | Set public profile fields. Ownership verified |
+| `benchmarks.getPublicProfile` | query | public | `{ deploymentId }` | Full public profile: name, specialties, bio, showcase prompts, domain scores, installed services, fork stats. Requires `isPublic: true` |
+| `benchmarks.leaderboard` | query | public | `{ domainSlug, metric: overall\|accuracy\|helpfulness\|creativity, limit: 1-100 }` | Domain leaderboard. Filters public deployments with >= 3 ratings |
+| `benchmarks.getServiceMetrics` | query | public | `{ serviceId, period: 24h\|7d\|30d }` | Service benchmark aggregates (latency, uptime, error rate) for a time period |
+| `benchmarks.serviceLeaderboard` | query | public | `{ metric: reliability\|speed\|popularity, limit: 1-100 }` | Service leaderboard by reliability (uptime), speed (p50 latency), or popularity (install count) |
+| `benchmarks.getServiceReviews` | query | public | `{ serviceId, limit, offset }` | Paginated service reviews with creator responses and user names |
+| `benchmarks.createServiceReview` | mutation | protected | `{ serviceId, rating: 1-5, title?, body? }` | Submit a service review. One review per user per service. Recomputes `avgRating` on `marketplaceServices` |
+| `benchmarks.respondToServiceReview` | mutation | protected | `{ reviewId, response }` | Service creator responds to a review. Ownership verified via `creatorProfiles` |
+| `benchmarks.adminFeature` | mutation | protected (admin) | `{ deploymentId }` | Set `featuredAt` timestamp on a public deployment. Adds +10 pts to forkability score |
+| `benchmarks.adminUnfeature` | mutation | protected (admin) | `{ deploymentId }` | Clear `featuredAt` timestamp |
 
 ---
 
@@ -628,9 +702,7 @@ sequenceDiagram
 | POST | `/api/stripe/webhook` | Stripe signature (`stripe-signature` header) | Exempt | Handles 4 event types: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. **Idempotent** — deduplicates via `processedWebhookEvents` table |
 | POST | `/api/auth0/email-verified` | M2M Bearer secret (`AUTH0_M2M_SECRET`) | Exempt | Auth0 Post Login Action webhook. Updates `emailVerified` flag in DB |
 | POST | `/api/config-changed` | deploymentId in body | Global | Called by pod file-watcher when PVC config files change. Triggers reverse sync (PVC → DB) |
-| POST | `/api/tambo-agent` | JWT Bearer | 120 req/min | Chat endpoint. Streams bot response as SSE with text deltas and `jarble_ui` UI block events. Proxies to pod via OpenClaw gateway. Persists messages to `chat_sessions` / `chat_messages` DB tables (fire-and-forget). Returns `sessionId` in `RUN_FINISHED` event |
-| GET | `/api/tambo-agent/sessions/:deploymentId` | JWT Bearer | 120 req/min | List chat sessions for a deployment. Returns `sessions[]` with `sessionId`, `title`, `createdAt`, and real `messageCount` (SQL correlated subquery from `chat_messages`) |
-| GET | `/api/tambo-agent/sessions/:deploymentId/:sessionId` | JWT Bearer | 120 req/min | Load all messages for a specific session. Returns `messages[]` with `id`, `role`, `content`, optional `thinkingText`, and `createdAt` |
+| POST | `/api/tambo-agent` | JWT Bearer | 120 req/min | Chat endpoint. Streams bot response as SSE with text deltas and `jarble_ui` UI block events. Proxies to pod via OpenClaw gateway. `sendEvent` is wrapped in try/catch — non-serializable data sends a fallback error event instead of crashing the stream |
 
 ---
 
@@ -716,9 +788,58 @@ sequenceDiagram
 | GET | `/api/deployments/status/stream` | JWT (header or `?token=`) | `snapshot`, delta `data`, `: ping` | Real-time status for all user deployments. Polls K8s every 5s, sends deltas |
 | GET | `/api/deployments/:id/logs/stream` | JWT (header or `?token=`) | `data` (log lines), `end`, `error`, `: ping` | Live pod log streaming. `?tailLines=` (default 100, max 1000) |
 | GET | `/api/deployments/:id/whatsapp/qr` | JWT (header or `?token=`) | `qr`, `connected`, `log`, `timeout`, `error`, `: ping` | WhatsApp QR pairing via K8s exec. 90-second timeout |
-| POST | `/api/tambo-agent` | JWT Bearer | `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT` (delta), `TEXT_MESSAGE_END`, `UI_BLOCK_START`, `UI_BLOCK_PROPS`, `UI_BLOCK_END`, `RUN_FINISHED` | Chat SSE. Proxies to OpenClaw gateway. Library URLs validated server-side against TRUSTED_CDN_ORIGINS |
+| POST | `/api/tambo-agent` | JWT Bearer | `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT` (delta), `TEXT_MESSAGE_END`, `UI_BLOCK_START`, `UI_BLOCK_PROPS`, `UI_BLOCK_END`, `RUN_FINISHED`, `CUSTOM` (`jarble.agent.call.start` / `jarble.agent.call.end`) | Chat SSE. Proxies to OpenClaw gateway. Library URLs validated server-side against TRUSTED_CDN_ORIGINS. Agent call events are fanned out from `agentCallEvents` EventEmitter |
 
 ---
+
+### Artifact Workspace
+
+The bot pods maintain a `/data/workspace/` directory with a `manifest.json` (array of artifact metadata) and per-artifact `{id}.json` files. These endpoints exec into the pod to read/write those files, following the same auth + ownership pattern as other pod-exec routes.
+
+| Method | Path | Auth | Rate Limit | Description |
+|---|---|---|---|---|
+| GET | `/api/deployments/:id/artifact/list` | JWT Bearer | global | List all artifact metadata from pod workspace manifest |
+| GET | `/api/deployments/:id/artifact/:artifactId` | JWT Bearer | global | Fetch a single artifact JSON from pod workspace |
+| POST | `/api/deployments/:id/artifact/sync` | JWT Bearer | 1 req/s per deployment | Upsert an artifact (create or update) in pod workspace. Rate-limited to prevent excessive exec calls |
+| DELETE | `/api/deployments/:id/artifact/:artifactId` | JWT Bearer | global | Delete an artifact from pod workspace and remove from manifest |
+
+### Service Proxy
+
+| Method | Path | Auth | Rate Limit | Description |
+|---|---|---|---|---|
+| POST | `/api/services/proxy/:deploymentId/:serviceId/:skillName` | JWT Bearer | Per ServiceCard limits | Proxies skill-call requests from buyer deployments to creator remote APIs. Validates `deploymentId` ownership, checks circuit breaker, validates input against skill schema, adds HMAC-SHA256 signature, forwards to creator API. Max response: 1 MB, timeout: 30s |
+
+### Agent Hub
+
+The agent hub enables bot pods to delegate work to other marketplace agents. When `POST /api/agent-hub/call` is handled, it emits on `agentCallEvents` (an in-process EventEmitter), which the active chat SSE handler picks up and forwards to the frontend as `CUSTOM` events named `jarble.agent.call.start` / `jarble.agent.call.end`.
+
+| Method | Path | Auth | Rate Limit | Description |
+|---|---|---|---|---|
+| POST | `/api/agent-hub/call` | JWT Bearer or `X-Gateway-Token` + `X-Deployment-ID` (pod auth) | global | Execute an agent-to-agent call. Verifies caller deployment ownership, runs `executeAgentCall()`, emits start/end events on `agentCallEvents`. Returns `{ success, result, creditsCharged, callId }`. 402 on insufficient credits, 404 on unknown agent |
+| GET | `/api/agent-hub/discover` | None | global | Search published marketplace services. Query params: `q` (text search), `category`, `limit` (max 50, default 20). Returns services with their skill list and `creditsPerCall` |
+
+#### Agent Call SSE Event Flow
+
+```mermaid
+sequenceDiagram
+    participant Pod as Bot Pod<br/>(via MCP call_agent)
+    participant HUB as POST /api/agent-hub/call
+    participant EE as agentCallEvents<br/>(EventEmitter)
+    participant SSE as POST /api/tambo-agent<br/>(active SSE stream)
+    participant FE as Frontend<br/>(useCanvasChat)
+
+    Pod->>HUB: POST /api/agent-hub/call<br/>{callerDeploymentId, serviceId, skillName}
+    HUB->>EE: emit("start", {deploymentId, serviceId, skillName})
+    EE-->>SSE: onAgentCallStart (if deploymentId matches)
+    SSE-->>FE: CUSTOM jarble.agent.call.start<br/>{serviceId, skillName, agentName?}
+    FE-->>FE: setActiveAgentCall(...)
+
+    HUB->>HUB: executeAgentCall() — proxy to creator API
+    HUB->>EE: emit("end", {deploymentId, ..., creditsCharged, success})
+    EE-->>SSE: onAgentCallEnd
+    SSE-->>FE: CUSTOM jarble.agent.call.end<br/>{creditsCharged, success}
+    FE-->>FE: setActiveAgentCall(null)
+```
 
 ### Diagnostic & MCP
 
@@ -729,6 +850,21 @@ sequenceDiagram
 | POST | `/api/mcp/:deploymentId` | JWT Bearer | MCP Streamable HTTP — initialize and call tools (Claude Desktop, Cursor, external clients) |
 | GET | `/api/mcp/:deploymentId` | JWT Bearer | MCP SSE stream for server-to-client notifications (keyed by `mcp-session-id` header) |
 | DELETE | `/api/mcp/:deploymentId` | JWT Bearer | Close and clean up an MCP session |
+
+### Public REST API
+
+Unauthenticated endpoints for the Agent Forking Flywheel discovery layer. Intended for embed widgets, partner integrations, and external consumers. Served at `/api/public/*`.
+
+| Method | Path | Auth | Cache | Description |
+|---|---|---|---|---|
+| GET | `/api/public/leaderboard/:domainSlug` | None | 60s public | Domain leaderboard. Query params: `metric` (overall/accuracy/helpfulness/creativity), `limit` (1-100). Includes forkability score for each entry. Minimum 3 ratings required |
+| GET | `/api/public/agents/:deploymentId/profile` | None | 30s public | Full public agent profile: specialties, bio, showcase prompts, domain scores, installed services, fork count, forkability score. Returns 404 if not public |
+
+### Pod Compose
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/pod/compose` | Pod gateway token (`X-Deployment-Id` + `X-Gateway-Token`) | Fans out up to 8 component agent calls in parallel via `Promise.allSettled()`. Body: `{ title, components: [{ intent, style?, data? }], theme? }`. Returns `{ blocks: jarble_ui[], dashboardId, errors[] }`. Each block is a serialized sandbox component. Timeout: 60s per component. Uses `AGENT_LLM_API_KEY` / `AGENT_LLM_PROVIDER` / `AGENT_LLM_MODEL` |
 
 ### Health & Debug
 
@@ -746,33 +882,39 @@ sequenceDiagram
 
 | Category | Count | Auth | Rate Limit | Streaming |
 |----------|-------|------|-----------|-----------|
-| tRPC Queries | 50 | public/protected/admin | 120 req/min | No |
-| tRPC Mutations | 48 | protected/admin | 120 req/min | No |
+| tRPC Queries | 42 | public/protected | 120 req/min | No |
+| tRPC Mutations | 53 | protected | 120 req/min | No |
 | REST Webhooks | 3 | signature/M2M/deploymentId | global/exempt | No |
 | REST Payment | 2 | JWT Bearer | 10 req/min | No |
-| REST Chat | 3 | JWT Bearer | 120 req/min | Chat POST is SSE; GET history endpoints are JSON |
+| REST Chat | 1 | JWT Bearer | 120 req/min | Yes |
+| REST Artifact | 4 | JWT Bearer | global/1/s | No |
+| REST Service Proxy | 1 | JWT Bearer | Per ServiceCard | No |
+| REST Agent Hub | 2 | JWT/gateway or none | global | No |
+| REST Public API | 2 | None | global | No |
+| REST Pod Compose | 1 | Pod gateway token | global | No |
 | SSE Streams | 3 | JWT (header or query) | 120 req/min | Yes |
 | MCP Endpoints | 5 | JWT Bearer | global | Mixed |
 | Health/Debug | 5 | none | exempt | No |
-| **Total** | **111** | -- | -- | -- |
+| **Total** | **124** | -- | -- | -- |
 
 ### Quick Reference by Router
 
 | Router | Queries | Mutations | Total |
 |--------|---------|-----------|-------|
-| `deployment` | 8 | 13 | 21 |
-| `openrouter` | 3 | 7 | 10 |
+| `deployment` | 8 | 14 | 22 |
+| `openrouter` | 3 | 5 | 8 |
 | `user` | 2 | 3 | 5 |
 | `runtimeCatalog` | 4 | 0 | 4 |
-| `billing` | 4 | 0 | 4 |
+| `billing` | 3 | 0 | 3 |
 | `platformCredentials` | 2 | 5 | 7 |
 | `template` | 1 | 0 | 1 |
 | `skills` | 2 | 2 | 4 |
 | `marketplace` | 11 | 11 | 22 |
-| `admin` | 12 | 7 | 19 |
-| **tRPC Total** | **50** | **48** | **98** |
-| REST endpoints (incl. 2 new chat history GET) | -- | -- | **13** |
-| **Grand Total** | -- | -- | **111** |
+| `services` | 3 | 3 | 6 |
+| `benchmarks` | 7 | 7 | 14 |
+| **tRPC Total** | **46** | **50** | **96** |
+| REST endpoints | -- | -- | **29** |
+| **Grand Total** | -- | -- | **125** |
 
 ### Key Files
 
@@ -780,7 +922,7 @@ sequenceDiagram
 |---|---|
 | `jarble-api-main/src/index.ts` | Express server — mounts all route modules |
 | `jarble-api-main/src/routes/sse.ts` | SSE streams: status, logs, whatsapp/qr |
-| `jarble-api-main/src/routes/tamboAgent.ts` | POST /api/tambo-agent chat SSE endpoint + GET /api/tambo-agent/sessions/* chat history endpoints |
+| `jarble-api-main/src/routes/tamboAgent.ts` | POST /api/tambo-agent chat SSE endpoint |
 | `jarble-api-main/src/routes/canvasFiles.ts` | POST /api/deployments/:id/mcp/invoke proxy |
 | `jarble-api-main/src/routes/mcp.ts` | MCP Streamable HTTP (POST/GET/DELETE) |
 | `jarble-api-main/src/routes/diagnose.ts` | GET /api/deployments/:id/diagnose |
@@ -798,13 +940,29 @@ sequenceDiagram
 | `jarble-api-main/src/utils/uiBlockParser.ts` | Brace-depth jarble_ui parser + library URL validation |
 | `jarble-api-main/src/utils/pricing.ts` | Hardware-based pricing calculator ($10/vCPU, $2.50/GB RAM, $0.08/GB storage) |
 | `jarble-api-main/src/trpc/routers/deployment.ts` | 21 procedures (CRUD, lifecycle, billing, canvas components) |
-| `jarble-api-main/src/trpc/routers/openrouter.ts` | 10 procedures (LLM key management, Stripe-aware plan updates) |
+| `jarble-api-main/src/trpc/routers/openrouter.ts` | 8 procedures (LLM key management) |
 | `jarble-api-main/src/trpc/routers/user.ts` | 5 procedures (profile, email verification) |
-| `jarble-api-main/src/trpc/routers/billing.ts` | 4 procedures (overview, invoices, subscriptions, managed key usage) |
+| `jarble-api-main/src/trpc/routers/billing.ts` | 3 procedures (overview, invoices, subscriptions) |
 | `jarble-api-main/src/trpc/routers/platformCredentials.ts` | 7 procedures (credential CRUD, WhatsApp QR, Telegram pairing) |
 | `jarble-api-main/src/trpc/routers/runtimeCatalog.ts` | 4 procedures (runtime listing) |
 | `jarble-api-main/src/trpc/routers/skills.ts` | 4 procedures (skills catalog, install/uninstall) |
 | `jarble-api-main/src/trpc/routers/marketplace.ts` | 22 procedures (browse, install, review, creator, admin) |
+| `jarble-api-main/src/trpc/routers/services.ts` | 6 procedures (service marketplace: list, get, install, uninstall, publish, listByCreator) |
 | `jarble-api-main/src/trpc/routers/template.ts` | 1 procedure (bot templates) |
+| `jarble-api-main/src/routes/artifact.ts` | GET/POST/DELETE /api/deployments/:id/artifact/* (workspace artifact sync) |
+| `jarble-api-main/src/routes/serviceProxy.ts` | POST /api/services/proxy/:deploymentId/:serviceId/:skillName (HMAC-signed skill proxy) |
+| `jarble-api-main/src/services/serviceCard.ts` | ServiceCard Zod schema for creator API descriptor |
+| `jarble-api-main/src/services/circuitBreaker.ts` | Per-service circuit breaker (5 failures → open, 60s reset) |
+| `jarble-api-main/src/services/serviceHealthCheck.ts` | Background health pinger for remote services (5-min cycle) |
+| `jarble-api-main/src/utils/hmac.ts` | HMAC-SHA256 request signing (generateSigningSecret, signRequest) |
+| `jarble-api-main/src/utils/agentCallEvents.ts` | In-process EventEmitter bridge for agent-to-agent call notifications (start/end events) |
+| `jarble-api-main/src/routes/agentHub.ts` | POST /api/agent-hub/call and GET /api/agent-hub/discover |
+| `jarble-api-main/src/utils/jsonSchemaValidation.ts` | JSON Schema validator for service skill input/output |
+| `jarble-api-main/src/middleware/serviceRateLimit.ts` | Per-deployment+service rate limiter (from ServiceCard limits) |
 | `shared/component-manifest/index.ts` | COMPONENT_MANIFEST + derived exports — consumed by all layers |
 | `scripts/check-manifest.ts` | CI check verifying manifest ↔ registry sync |
+| `jarble-api-main/src/trpc/routers/benchmarks.ts` | 14 procedures (domain taxonomy, ratings, leaderboard, service metrics, service reviews, admin curation) |
+| `jarble-api-main/src/routes/publicApi.ts` | GET /api/public/leaderboard/:domainSlug and GET /api/public/agents/:deploymentId/profile |
+| `jarble-api-main/src/routes/compose.ts` | POST /api/pod/compose — parallel dashboard composition (fan-out to component agent) |
+| `jarble-api-main/src/utils/forkability.ts` | computeForkabilityScore() — 0-100 score from 7 criteria |
+| `jarble-api-main/src/k8s/constants.ts` | RESOURCE_TIERS — small/medium/large resource presets for platform agents |

@@ -3,6 +3,8 @@
  * Called at startup when USE_SQLITE=true
  */
 import { sqliteDb, sqliteRaw, sqliteSchema, USE_SQLITE } from "./index.js";
+import { generateMarketplaceId } from "./schema.sqlite.js";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { logger } from "../utils/logger.js";
 
@@ -29,7 +31,6 @@ const CREATE_TABLES_SQL = `
     name TEXT,
     auth0_id TEXT NOT NULL UNIQUE,
     email_verified INTEGER DEFAULT 0 NOT NULL,
-    role TEXT DEFAULT 'user' NOT NULL,
     stripe_customer_id TEXT,
     pending_stripe_subscription_id TEXT,
     pending_stripe_tier TEXT,
@@ -67,6 +68,18 @@ const CREATE_TABLES_SQL = `
     status TEXT DEFAULT 'creating' NOT NULL,
     error TEXT,
     messaging_only INTEGER DEFAULT 0 NOT NULL,
+    managed_by TEXT DEFAULT 'legacy' NOT NULL,
+    isolation_level TEXT DEFAULT 'standard' NOT NULL,
+    is_platform INTEGER DEFAULT 0 NOT NULL,
+    resource_tier TEXT,
+    forked_from_id TEXT,
+    is_public INTEGER DEFAULT 0 NOT NULL,
+    fork_count INTEGER DEFAULT 0 NOT NULL,
+    featured_at TEXT,
+    specialties TEXT,
+    bio TEXT,
+    showcase_prompts TEXT,
+    theme_config TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
@@ -118,6 +131,7 @@ const CREATE_TABLES_SQL = `
     stripe_connect_account_id TEXT,
     stripe_connect_onboarded INTEGER DEFAULT 0 NOT NULL,
     is_verified INTEGER DEFAULT 0 NOT NULL,
+    is_platform INTEGER DEFAULT 0 NOT NULL,
     total_earnings_cents INTEGER DEFAULT 0 NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
@@ -217,40 +231,253 @@ const CREATE_TABLES_SQL = `
 
   CREATE UNIQUE INDEX IF NOT EXISTS uq_user_component_review ON component_reviews(user_id, component_id);
 
-  CREATE TABLE IF NOT EXISTS chat_sessions (
+  CREATE TABLE IF NOT EXISTS marketplace_packages (
     id TEXT PRIMARY KEY,
-    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
-    title TEXT DEFAULT 'New conversation' NOT NULL,
+    creator_id TEXT NOT NULL REFERENCES creator_profiles(id),
+    name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    description TEXT,
+    hosting_model TEXT NOT NULL,
+    instruction_snippet TEXT,
+    remote_api_endpoint TEXT,
+    remote_api_config TEXT,
+    remote_health TEXT DEFAULT 'unknown',
+    remote_last_check TEXT,
+    creator_deployment_id TEXT,
+    status TEXT DEFAULT 'draft' NOT NULL,
+    pricing_model TEXT DEFAULT 'free' NOT NULL,
+    price_usd_cents INTEGER DEFAULT 0 NOT NULL,
+    is_platform INTEGER DEFAULT 0 NOT NULL,
+    total_installs INTEGER DEFAULT 0 NOT NULL,
+    avg_rating TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS chat_messages (
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_creator_package_name ON marketplace_packages(creator_id, name);
+
+  CREATE TABLE IF NOT EXISTS package_components (
     id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    thinking_text TEXT,
-    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+    package_id TEXT NOT NULL REFERENCES marketplace_packages(id) ON DELETE CASCADE,
+    component_id TEXT NOT NULL REFERENCES marketplace_components(id)
   );
 
-  CREATE TABLE IF NOT EXISTS audit_logs (
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_package_component ON package_components(package_id, component_id);
+
+  CREATE TABLE IF NOT EXISTS package_skills (
     id TEXT PRIMARY KEY,
+    package_id TEXT NOT NULL REFERENCES marketplace_packages(id) ON DELETE CASCADE,
+    skill_id TEXT NOT NULL REFERENCES skills_catalog(id)
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_package_skill ON package_skills(package_id, skill_id);
+
+  CREATE TABLE IF NOT EXISTS package_installs (
+    id TEXT PRIMARY KEY,
+    package_id TEXT NOT NULL REFERENCES marketplace_packages(id),
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES users(id),
-    action TEXT NOT NULL,
-    target_type TEXT,
-    target_id TEXT,
-    metadata TEXT,
-    ip_address TEXT,
-    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+    installed_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS beta_signups (
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_package ON package_installs(deployment_id, package_id);
+
+  CREATE TABLE IF NOT EXISTS package_credentials (
+    id TEXT PRIMARY KEY,
+    package_install_id TEXT NOT NULL REFERENCES package_installs(id) ON DELETE CASCADE,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    package_id TEXT NOT NULL REFERENCES marketplace_packages(id),
+    signing_secret TEXT NOT NULL,
+    previous_signing_secret TEXT,
+    previous_secret_expires_at TEXT,
+    handshake_status TEXT DEFAULT 'pending' NOT NULL,
+    handshake_error TEXT,
+    remote_install_id TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_package_cred ON package_credentials(deployment_id, package_id);
+
+  CREATE TABLE IF NOT EXISTS package_usage (
+    id TEXT PRIMARY KEY,
+    package_install_id TEXT NOT NULL REFERENCES package_installs(id) ON DELETE CASCADE,
+    deployment_id TEXT NOT NULL,
+    package_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    request_count INTEGER DEFAULT 0 NOT NULL,
+    billing_cycle_start TEXT NOT NULL,
+    recorded_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS domains (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    email TEXT NOT NULL,
-    experience TEXT,
-    use_case TEXT,
+    display_name TEXT NOT NULL,
+    description TEXT,
+    parent_id TEXT,
+    icon TEXT,
+    sort_order INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_domains_name ON domains(name);
+
+  CREATE TABLE IF NOT EXISTS deployment_ratings (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    domain_id TEXT NOT NULL REFERENCES domains(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    accuracy INTEGER NOT NULL,
+    helpfulness INTEGER NOT NULL,
+    creativity INTEGER NOT NULL,
+    comment TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_rating ON deployment_ratings(user_id, deployment_id, domain_id);
+
+  CREATE TABLE IF NOT EXISTS deployment_domain_scores (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    domain_id TEXT NOT NULL REFERENCES domains(id),
+    avg_accuracy INTEGER,
+    avg_helpfulness INTEGER,
+    avg_creativity INTEGER,
+    overall_score INTEGER,
+    rating_count INTEGER DEFAULT 0 NOT NULL,
+    confidence TEXT DEFAULT 'low' NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_dds_deployment_domain ON deployment_domain_scores(deployment_id, domain_id);
+
+  CREATE TABLE IF NOT EXISTS service_benchmark_samples (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    latency_ms INTEGER NOT NULL,
+    status_code INTEGER NOT NULL,
+    success INTEGER DEFAULT 1 NOT NULL,
+    response_size_bytes INTEGER,
+    sampled_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS service_benchmark_aggregates (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    period TEXT NOT NULL,
+    latency_p50 INTEGER,
+    latency_p95 INTEGER,
+    latency_p99 INTEGER,
+    uptime_percent INTEGER,
+    error_rate INTEGER,
+    avg_response_size INTEGER,
+    sample_count INTEGER DEFAULT 0 NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_sba_service_skill_period ON service_benchmark_aggregates(service_id, skill_name, period);
+
+  CREATE TABLE IF NOT EXISTS service_reviews (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL REFERENCES marketplace_packages(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    rating INTEGER NOT NULL,
+    title TEXT,
+    body TEXT,
+    creator_response TEXT,
+    creator_responded_at TEXT,
+    helpful INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_user_service_review ON service_reviews(user_id, service_id);
+
+  CREATE TABLE IF NOT EXISTS service_heartbeats (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL UNIQUE,
+    last_heartbeat_at TEXT NOT NULL,
+    heartbeat_interval_ms INTEGER DEFAULT 60000 NOT NULL,
+    payload TEXT,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    key_prefix TEXT NOT NULL,
+    scopes TEXT DEFAULT 'mesh:read,mesh:write' NOT NULL,
+    rate_limit_per_min INTEGER DEFAULT 60 NOT NULL,
+    rate_limit_per_day INTEGER DEFAULT 10000 NOT NULL,
+    last_used_at TEXT,
+    request_count INTEGER DEFAULT 0 NOT NULL,
+    expires_at TEXT,
+    revoked_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
+
+  CREATE TABLE IF NOT EXISTS service_async_jobs (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL,
+    service_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    request_body TEXT NOT NULL,
+    response_body TEXT,
+    response_status INTEGER,
+    error_message TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    completed_at TEXT,
+    expires_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_service_async_jobs_deployment_id ON service_async_jobs(deployment_id);
+  CREATE INDEX IF NOT EXISTS idx_service_async_jobs_expires_at ON service_async_jobs(expires_at);
+
+  CREATE TABLE IF NOT EXISTS agent_credits (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    amount INTEGER NOT NULL,
+    balance INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    reference TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_credits_user_id ON agent_credits(user_id);
+
+  CREATE TABLE IF NOT EXISTS agent_calls (
+    id TEXT PRIMARY KEY,
+    caller_deployment_id TEXT NOT NULL REFERENCES deployments(id),
+    callee_deployment_id TEXT NOT NULL REFERENCES deployments(id),
+    skill_name TEXT NOT NULL,
+    credits_charged INTEGER DEFAULT 0 NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    request_body TEXT,
+    response_body TEXT,
+    latency_ms INTEGER,
+    error_message TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_caller ON agent_calls(caller_deployment_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_callee ON agent_calls(callee_deployment_id);
+
+  CREATE TABLE IF NOT EXISTS persona_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL,
+    description TEXT,
+    system_prompt TEXT NOT NULL,
+    recommended_tools TEXT,
+    default_theme TEXT,
+    suggested_llm TEXT,
+    icon TEXT,
+    example_conversation TEXT,
+    showcase_prompts TEXT,
+    is_active INTEGER DEFAULT 1 NOT NULL,
+    sort_order INTEGER DEFAULT 0 NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
 `;
@@ -267,6 +494,87 @@ export async function initDatabase() {
   // Create tables
   logger.info("Creating SQLite tables");
   sqliteRaw.exec(CREATE_TABLES_SQL);
+
+  // Migrations for existing DBs (ALTER TABLE is idempotent with IF NOT EXISTS on columns)
+  try {
+    const cols = sqliteRaw.pragma("table_info(deployments)") as Array<{ name: string }>;
+    const colNames = new Set(cols.map((c: any) => c.name));
+    if (!colNames.has("theme_config")) {
+      sqliteRaw.exec("ALTER TABLE deployments ADD COLUMN theme_config TEXT");
+      logger.info("Added theme_config column to deployments");
+    }
+  } catch (err) {
+    logger.warn({ err }, "Theme config migration skipped (may already exist)");
+  }
+
+  // Migration: add fork & public profile columns to deployments
+  try {
+    const cols = sqliteRaw.pragma("table_info(deployments)") as Array<{ name: string }>;
+    const colNames = new Set(cols.map((c: any) => c.name));
+    const newCols: Array<[string, string]> = [
+      ["forked_from_id", "ALTER TABLE deployments ADD COLUMN forked_from_id TEXT"],
+      ["is_public", "ALTER TABLE deployments ADD COLUMN is_public INTEGER DEFAULT 0 NOT NULL"],
+      ["fork_count", "ALTER TABLE deployments ADD COLUMN fork_count INTEGER DEFAULT 0 NOT NULL"],
+      ["featured_at", "ALTER TABLE deployments ADD COLUMN featured_at TEXT"],
+      ["specialties", "ALTER TABLE deployments ADD COLUMN specialties TEXT"],
+      ["bio", "ALTER TABLE deployments ADD COLUMN bio TEXT"],
+      ["showcase_prompts", "ALTER TABLE deployments ADD COLUMN showcase_prompts TEXT"],
+    ];
+    for (const [name, sql] of newCols) {
+      if (!colNames.has(name)) {
+        sqliteRaw.exec(sql);
+        logger.info(`Added ${name} column to deployments`);
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "Deployment fork/public columns migration skipped (may already exist)");
+  }
+
+  // Migration: add is_platform column to creator_profiles and marketplace_packages
+  try {
+    const cpCols = sqliteRaw.pragma("table_info(creator_profiles)") as Array<{ name: string }>;
+    if (!new Set(cpCols.map((c: any) => c.name)).has("is_platform")) {
+      sqliteRaw.exec("ALTER TABLE creator_profiles ADD COLUMN is_platform INTEGER DEFAULT 0 NOT NULL");
+      logger.info("Added is_platform column to creator_profiles");
+    }
+    const mpCols = sqliteRaw.pragma("table_info(marketplace_packages)") as Array<{ name: string }>;
+    if (!new Set(mpCols.map((c: any) => c.name)).has("is_platform")) {
+      sqliteRaw.exec("ALTER TABLE marketplace_packages ADD COLUMN is_platform INTEGER DEFAULT 0 NOT NULL");
+      logger.info("Added is_platform column to marketplace_packages");
+    }
+  } catch (err) {
+    logger.warn({ err }, "is_platform migration skipped (may already exist)");
+  }
+
+  // Migration: ensure 'general' domain exists
+  try {
+    sqliteRaw.exec(`
+      INSERT OR IGNORE INTO domains (id, name, display_name, description, icon, sort_order, created_at)
+      VALUES ('dom_general', 'general', 'General', 'General-purpose bots and assistants', '⭐', 0, datetime('now'))
+    `);
+  } catch (err) {
+    logger.warn({ err }, "General domain migration skipped");
+  }
+
+  // Migration: ensure platform agent exists for existing databases
+  if (sqliteDb) {
+    try {
+      const platformService = sqliteRaw?.prepare(
+        "SELECT id FROM marketplace_packages WHERE id = 'pkg_dashboard_designer'"
+      ).get();
+      if (!platformService) {
+        // Find existing creator profile and deployment
+        const creator = sqliteRaw?.prepare("SELECT id, user_id FROM creator_profiles LIMIT 1").get() as any;
+        const deployment = sqliteRaw?.prepare("SELECT id FROM deployments LIMIT 1").get() as any;
+        if (creator && deployment) {
+          await seedPlatformAgent(sqliteDb, creator.id, deployment.id);
+          logger.info("Migrated: seeded platform agent (Dashboard Designer Pro)");
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, "Platform agent migration skipped");
+    }
+  }
 
   // Seed with test data
   logger.info("Seeding test data");
@@ -294,7 +602,7 @@ async function seedDatabase() {
       dockerImage: "ghcr.io/jarble-ai/openclaw:latest",
       cpuLimit: "2.0",
       memoryMb: 2048,
-      storageMb: 5,
+      storageMb: 30,
       monthlyPriceCents: 0,
     },
     {
@@ -305,7 +613,7 @@ async function seedDatabase() {
       dockerImage: "ghcr.io/jarble-ai/zeroclaw:latest",
       cpuLimit: "2.0",
       memoryMb: 2048,
-      storageMb: 5,
+      storageMb: 30,
       monthlyPriceCents: 0,
     },
   ];
@@ -322,7 +630,6 @@ async function seedDatabase() {
     name: "Test User",
     auth0Id: "auth0|test123",
     emailVerified: true,
-    role: "super_admin",
     stripeCustomerId: "cus_test123",
     freeDeploymentUsed: true,
   });
@@ -353,15 +660,343 @@ async function seedDatabase() {
     { id: nanoid(), name: "Calculator", description: "Perform math calculations", runtime: "openclaw", config: JSON.stringify({ tool: "calculator" }), author: "Jarble", isOfficial: true },
     { id: nanoid(), name: "Wikipedia", description: "Look up information from Wikipedia", runtime: "openclaw", config: JSON.stringify({ tool: "wikipedia", params: { language: "en" } }), author: "Jarble", isOfficial: true },
     { id: nanoid(), name: "Translator", description: "Translate text between languages", runtime: "openclaw", config: JSON.stringify({ tool: "translator" }), author: "Jarble", isOfficial: true },
+    // 16 new MCP tools — free, no API keys needed
+    { id: nanoid(), name: "Web Fetch", description: "Read and extract text content from any URL", runtime: "openclaw", config: JSON.stringify({ tool: "web_fetch", params: { maxLength: 10000 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "News Search", description: "Search recent news articles", runtime: "openclaw", config: JSON.stringify({ tool: "news_search", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Hacker News", description: "Search Hacker News stories and discussions", runtime: "openclaw", config: JSON.stringify({ tool: "hacker_news", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "GitHub Search", description: "Search GitHub public repositories", runtime: "openclaw", config: JSON.stringify({ tool: "github_search", params: { maxResults: 5, sort: "stars" } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "npm Search", description: "Search npm packages", runtime: "openclaw", config: JSON.stringify({ tool: "npm_search", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Academic Search", description: "Search arXiv for academic papers and research", runtime: "openclaw", config: JSON.stringify({ tool: "academic_search", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Dictionary", description: "Look up word definitions, phonetics, and usage examples", runtime: "openclaw", config: JSON.stringify({ tool: "dictionary" }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Currency Exchange", description: "Get live currency exchange rates (ECB data)", runtime: "openclaw", config: JSON.stringify({ tool: "currency_exchange" }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Timezone", description: "Get current time in any timezone worldwide", runtime: "openclaw", config: JSON.stringify({ tool: "timezone" }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Country Info", description: "Look up country information (population, capital, currency, etc.)", runtime: "openclaw", config: JSON.stringify({ tool: "country_info" }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Open Library", description: "Search for books by title, author, or subject", runtime: "openclaw", config: JSON.stringify({ tool: "open_library", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Code Runner", description: "Execute JavaScript code snippets safely", runtime: "openclaw", config: JSON.stringify({ tool: "code_runner", params: { timeout: 5000 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "URL Metadata", description: "Extract title, description, and preview image from any URL", runtime: "openclaw", config: JSON.stringify({ tool: "url_metadata" }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "RSS Reader", description: "Read RSS and Atom feeds from any source", runtime: "openclaw", config: JSON.stringify({ tool: "rss_reader", params: { maxItems: 10 } }), author: "Jarble", isOfficial: true },
+    { id: nanoid(), name: "Image Search", description: "Search for images on the web", runtime: "openclaw", config: JSON.stringify({ tool: "image_search", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
   ];
   for (const skill of skills) {
     await sqliteDb.insert(sqliteSchema.skillsCatalog).values(skill);
   }
 
-  logger.info("Seeded: 2 runtimes, 1 user, 1 deployment, 5 skills");
+  // Seed domain taxonomy
+  const existingDomain = await sqliteDb.query.domains.findFirst();
+  let domainCount = 0;
+  if (!existingDomain) {
+    const domainSeeds = [
+      { name: "general", displayName: "General", description: "General-purpose bots and assistants", icon: "\u2B50", sortOrder: 0 },
+      { name: "finance", displayName: "Finance", description: "Financial analysis, trading, and planning", icon: "\u{1F4B0}", sortOrder: 1 },
+      { name: "coding", displayName: "Coding", description: "Programming, debugging, and software development", icon: "\u{1F4BB}", sortOrder: 2 },
+      { name: "data-analysis", displayName: "Data Analysis", description: "Data visualization, statistics, and BI", icon: "\u{1F4CA}", sortOrder: 3 },
+      { name: "creative-writing", displayName: "Creative Writing", description: "Fiction, poetry, and content creation", icon: "\u270D\uFE0F", sortOrder: 4 },
+      { name: "customer-support", displayName: "Customer Support", description: "Help desk and customer service", icon: "\u{1F3A7}", sortOrder: 5 },
+      { name: "education", displayName: "Education", description: "Tutoring, learning, and exam prep", icon: "\u{1F4DA}", sortOrder: 6 },
+      { name: "research", displayName: "Research", description: "Academic and market research", icon: "\u{1F52C}", sortOrder: 7 },
+      { name: "marketing", displayName: "Marketing", description: "Content marketing, SEO, and campaigns", icon: "\u{1F4E2}", sortOrder: 8 },
+      { name: "legal", displayName: "Legal", description: "Contract review and compliance", icon: "\u2696\uFE0F", sortOrder: 9 },
+      { name: "healthcare", displayName: "Healthcare", description: "Health information and wellness", icon: "\u{1F3E5}", sortOrder: 10 },
+      { name: "gaming", displayName: "Gaming", description: "Game design, strategy, and entertainment", icon: "\u{1F3AE}", sortOrder: 11 },
+      { name: "music", displayName: "Music", description: "Music theory, production, and analysis", icon: "\u{1F3B5}", sortOrder: 12 },
+      { name: "weather", displayName: "Weather", description: "Weather forecasting and climate", icon: "\u{1F324}\uFE0F", sortOrder: 13 },
+      { name: "news", displayName: "News", description: "News aggregation and analysis", icon: "\u{1F4F0}", sortOrder: 14 },
+      { name: "travel", displayName: "Travel", description: "Travel planning and recommendations", icon: "\u2708\uFE0F", sortOrder: 15 },
+      { name: "food", displayName: "Food", description: "Recipes, nutrition, and restaurant recommendations", icon: "\u{1F37D}\uFE0F", sortOrder: 16 },
+      { name: "fitness", displayName: "Fitness", description: "Workout plans and exercise guidance", icon: "\u{1F4AA}", sortOrder: 17 },
+      { name: "productivity", displayName: "Productivity", description: "Task management and workflow optimization", icon: "\u{1F4CB}", sortOrder: 18 },
+      { name: "entertainment", displayName: "Entertainment", description: "Movies, TV, books, and pop culture", icon: "\u{1F3AC}", sortOrder: 19 },
+      { name: "science", displayName: "Science", description: "Scientific exploration and explanation", icon: "\u{1F9EA}", sortOrder: 20 },
+    ];
+
+    for (const domain of domainSeeds) {
+      await sqliteDb.insert(sqliteSchema.domains).values({
+        id: generateMarketplaceId("dom"),
+        ...domain,
+      });
+    }
+    domainCount = domainSeeds.length;
+  } else {
+    // Migration: ensure 'general' domain exists for existing DBs
+    const generalDomain = await sqliteDb.query.domains.findFirst({
+      where: eq(sqliteSchema.domains.name, "general"),
+    });
+    if (!generalDomain) {
+      await sqliteDb.insert(sqliteSchema.domains).values({
+        id: generateMarketplaceId("dom"),
+        name: "general",
+        displayName: "General",
+        description: "General-purpose bots and assistants",
+        icon: "\u2B50",
+        sortOrder: 0,
+      });
+      logger.info("Added missing 'general' domain");
+    }
+  }
+
+  logger.info(`Seeded: 2 runtimes, 1 user, 1 deployment, 21 skills, ${domainCount} domains`);
+
+  // Seed persona templates
+  await seedPersonaTemplates(sqliteDb);
 
   // Seed marketplace data
   await seedMarketplaceData(sqliteDb, userId, deploymentId);
+}
+
+async function seedPersonaTemplates(db: NonNullable<typeof sqliteDb>) {
+  const existing = await db.query.personaTemplates.findFirst();
+  if (existing) {
+    logger.info("Persona templates already seeded, skipping");
+    return;
+  }
+
+  const personas = [
+    // ── General ──
+    {
+      id: nanoid(),
+      name: "General Assistant",
+      slug: "general-assistant",
+      category: "general",
+      description: "A helpful, knowledgeable AI assistant ready for any task",
+      systemPrompt: "You are a versatile and knowledgeable AI assistant. You help users with a wide range of tasks including answering questions, brainstorming ideas, writing content, and solving problems. Be clear, concise, and friendly. When uncertain, say so honestly and suggest where the user might find more information.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u{1F916}",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "glass" }),
+      showcasePrompts: JSON.stringify([
+        "Help me plan a weekend trip to a new city",
+        "Explain quantum computing in simple terms",
+        "Write a professional email declining a meeting",
+        "What are the pros and cons of remote work?",
+      ]),
+      sortOrder: 0,
+    },
+    {
+      id: nanoid(),
+      name: "Research Analyst",
+      slug: "research-analyst",
+      category: "general",
+      description: "Deep research, fact-checking, and comprehensive analysis",
+      systemPrompt: "You are a meticulous research analyst. Your approach involves gathering evidence, cross-referencing sources, and providing well-structured analysis. Always cite your reasoning, distinguish between established facts and your inferences, and present multiple perspectives on complex topics. Use structured formats like bullet points and tables when presenting findings.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u{1F50D}",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "glass" }),
+      showcasePrompts: JSON.stringify([
+        "Compare the top 5 project management tools for small teams",
+        "What are the latest trends in renewable energy adoption?",
+        "Analyze the impact of AI on the job market in the next 5 years",
+        "Research the history and current state of space exploration",
+      ]),
+      sortOrder: 1,
+    },
+    // ── Business ──
+    {
+      id: nanoid(),
+      name: "Sales Coach",
+      slug: "sales-coach",
+      category: "business",
+      description: "B2B/B2C sales strategy, objection handling, pipeline management",
+      systemPrompt: "You are an experienced sales coach with deep expertise in both B2B and B2C sales. You help with crafting pitches, handling objections, managing pipelines, and improving close rates. Use real-world examples and proven frameworks like SPIN selling, Challenger Sale, and MEDDIC. Be encouraging but direct when giving feedback. Always focus on value-based selling over pressure tactics.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u{1F4B0}",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "flat" }),
+      showcasePrompts: JSON.stringify([
+        "Help me craft a cold outreach email for a SaaS product",
+        "How do I handle the objection: 'We don't have budget right now'?",
+        "Create a discovery call script for enterprise prospects",
+        "What metrics should I track in my sales pipeline?",
+      ]),
+      sortOrder: 2,
+    },
+    {
+      id: nanoid(),
+      name: "Customer Support",
+      slug: "customer-support",
+      category: "business",
+      description: "Empathetic support agent with escalation protocols",
+      systemPrompt: "You are a professional and empathetic customer support agent. Always acknowledge the customer's frustration before jumping to solutions. Follow a structured approach: listen, empathize, diagnose, solve, and follow up. When you can't resolve an issue, clearly explain the escalation path. Use simple language, avoid jargon, and always maintain a calm, helpful tone even with difficult requests.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u{1F3A7}",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "flat" }),
+      showcasePrompts: JSON.stringify([
+        "Draft a response to a customer complaining about a delayed shipment",
+        "How should I handle an angry customer demanding a refund?",
+        "Create a FAQ template for a new product launch",
+        "Write an escalation policy for tier 1 support agents",
+      ]),
+      sortOrder: 3,
+    },
+    {
+      id: nanoid(),
+      name: "Marketing Strategist",
+      slug: "marketing-strategist",
+      category: "business",
+      description: "Content strategy, SEO, campaign planning, analytics",
+      systemPrompt: "You are a seasoned marketing strategist with expertise in digital marketing, content strategy, SEO, social media, and campaign analytics. You help create data-driven marketing plans, optimize content for search engines, craft compelling copy, and analyze campaign performance. Stay current with marketing trends and platform algorithm changes. Always tie recommendations back to measurable business outcomes.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u{1F4E2}",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "glass" }),
+      showcasePrompts: JSON.stringify([
+        "Create a 3-month content calendar for a B2B SaaS startup",
+        "How do I improve my website's SEO for competitive keywords?",
+        "Write 5 variations of ad copy for a product launch",
+        "Analyze this campaign's metrics and suggest improvements",
+      ]),
+      sortOrder: 4,
+    },
+    // ── Technical ──
+    {
+      id: nanoid(),
+      name: "Full-Stack Developer",
+      slug: "full-stack-developer",
+      category: "technical",
+      description: "Code review, architecture, debugging, best practices",
+      systemPrompt: "You are a senior full-stack developer with expertise in modern web technologies including TypeScript, React, Node.js, Python, databases, and cloud infrastructure. You write clean, well-tested code and follow SOLID principles. When reviewing code, provide specific actionable feedback. When debugging, think systematically about root causes. Always consider security, performance, and maintainability in your recommendations.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u{1F4BB}",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "terminal" }),
+      showcasePrompts: JSON.stringify([
+        "Review this React component for performance issues",
+        "Design a database schema for a multi-tenant SaaS app",
+        "Help me debug this async/await issue in Node.js",
+        "What's the best way to implement authentication in a Next.js app?",
+      ]),
+      sortOrder: 5,
+    },
+    {
+      id: nanoid(),
+      name: "DevOps Engineer",
+      slug: "devops-engineer",
+      category: "technical",
+      description: "CI/CD, Docker, Kubernetes, cloud infrastructure",
+      systemPrompt: "You are a DevOps engineer experienced with CI/CD pipelines, containerization, orchestration, and cloud platforms (AWS, GCP, Azure). You help with Dockerfiles, Kubernetes manifests, Terraform configs, GitHub Actions, and monitoring setups. Prioritize reliability, security, and cost optimization. Explain infrastructure decisions clearly and always consider disaster recovery and rollback strategies.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u2699\uFE0F",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "terminal" }),
+      showcasePrompts: JSON.stringify([
+        "Write a Dockerfile for a Node.js app with multi-stage build",
+        "Set up a GitHub Actions CI/CD pipeline with testing and deployment",
+        "How do I implement zero-downtime deployments with Kubernetes?",
+        "Design a monitoring and alerting strategy for a microservices architecture",
+      ]),
+      sortOrder: 6,
+    },
+    {
+      id: nanoid(),
+      name: "Data Scientist",
+      slug: "data-scientist",
+      category: "technical",
+      description: "Statistical analysis, ML model evaluation, data visualization",
+      systemPrompt: "You are a data scientist skilled in statistics, machine learning, and data visualization. You help with exploratory data analysis, model selection, feature engineering, and interpreting results. Explain statistical concepts clearly and always consider the practical implications of your analysis. Use appropriate metrics, validate assumptions, and communicate uncertainty honestly. Recommend visualization approaches that tell compelling data stories.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u{1F4CA}",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "glass" }),
+      showcasePrompts: JSON.stringify([
+        "What ML model should I use for customer churn prediction?",
+        "Help me design an A/B test for a new feature rollout",
+        "Explain the difference between correlation and causation with examples",
+        "How do I handle missing data in a large dataset?",
+      ]),
+      sortOrder: 7,
+    },
+    // ── Creative ──
+    {
+      id: nanoid(),
+      name: "Creative Writer",
+      slug: "creative-writer",
+      category: "creative",
+      description: "Stories, scripts, poetry, creative brainstorming",
+      systemPrompt: "You are a talented creative writer with a flair for storytelling, vivid imagery, and compelling characters. You help with fiction, screenwriting, poetry, blog posts, and creative brainstorming. Adapt your tone and style to the genre and audience. Offer constructive feedback on existing work, suggest narrative techniques, and help overcome writer's block. Be imaginative but also practical about structure and pacing.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u270D\uFE0F",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "glass" }),
+      showcasePrompts: JSON.stringify([
+        "Write the opening paragraph of a mystery novel set in Tokyo",
+        "Help me develop a compelling villain for my fantasy story",
+        "Give me 10 unique blog post ideas about sustainable living",
+        "Write a short poem about the changing of seasons",
+      ]),
+      sortOrder: 8,
+    },
+    {
+      id: nanoid(),
+      name: "UX Designer",
+      slug: "ux-designer",
+      category: "creative",
+      description: "User research, wireframing, design critique, accessibility",
+      systemPrompt: "You are a UX designer with deep expertise in user-centered design, information architecture, and accessibility. You help with user research planning, wireframe feedback, usability heuristic evaluations, and design system decisions. Always advocate for the end user while balancing business goals. Consider accessibility (WCAG guidelines), responsive design, and inclusive design practices in all recommendations.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u{1F3A8}",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "glass" }),
+      showcasePrompts: JSON.stringify([
+        "Critique the onboarding flow for a mobile banking app",
+        "What user research methods work best for a B2B product?",
+        "Help me create a design system for a startup's dashboard",
+        "How do I make a data-heavy table accessible on mobile?",
+      ]),
+      sortOrder: 9,
+    },
+    {
+      id: nanoid(),
+      name: "Brand Strategist",
+      slug: "brand-strategist",
+      category: "creative",
+      description: "Brand voice, visual identity, positioning, storytelling",
+      systemPrompt: "You are a brand strategist who helps companies define and refine their brand identity. You excel at brand positioning, voice and tone guidelines, competitive differentiation, and brand storytelling. Help craft mission statements, taglines, and brand narratives that resonate with target audiences. Consider brand consistency across all touchpoints and how brand strategy connects to business objectives.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u{1F3AF}",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "flat" }),
+      showcasePrompts: JSON.stringify([
+        "Help me define a brand voice for a health-tech startup",
+        "Write a brand positioning statement for a premium coffee brand",
+        "How do I differentiate my brand in a crowded market?",
+        "Create a brand storytelling framework for investor presentations",
+      ]),
+      sortOrder: 10,
+    },
+    // ── Education ──
+    {
+      id: nanoid(),
+      name: "Tutor",
+      slug: "tutor",
+      category: "education",
+      description: "Patient explanations, Socratic method, adaptive difficulty",
+      systemPrompt: "You are a patient and encouraging tutor who adapts to each student's learning level. Use the Socratic method — ask guiding questions rather than giving answers directly. Break complex topics into manageable steps, use analogies and real-world examples, and check understanding frequently. Celebrate progress and normalize mistakes as part of learning. Adjust difficulty based on the student's responses.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u{1F4DA}",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "flat" }),
+      showcasePrompts: JSON.stringify([
+        "Explain calculus derivatives like I'm in high school",
+        "Help me understand the causes of World War I",
+        "Quiz me on basic organic chemistry concepts",
+        "I'm struggling with essay structure — can you help?",
+      ]),
+      sortOrder: 11,
+    },
+    {
+      id: nanoid(),
+      name: "Language Teacher",
+      slug: "language-teacher",
+      category: "education",
+      description: "Conversation practice, grammar, vocabulary building",
+      systemPrompt: "You are a friendly and patient language teacher. Help students practice conversation, improve grammar, expand vocabulary, and understand cultural context. Gently correct mistakes by repeating the correct form naturally in your response. Adjust your language complexity to match the student's level. Use spaced repetition concepts for vocabulary and encourage the student to express ideas even if imperfectly. Support learning in any language the student requests.",
+      suggestedLlm: "anthropic/claude-sonnet-4-20250514",
+      icon: "\u{1F30D}",
+      defaultTheme: JSON.stringify({ preset: "default", skin: "flat" }),
+      showcasePrompts: JSON.stringify([
+        "Let's have a beginner conversation in Spanish about food",
+        "Explain the difference between ser and estar with examples",
+        "Give me 10 useful Japanese phrases for traveling",
+        "Help me practice past tense in French through a story",
+      ]),
+      sortOrder: 12,
+    },
+  ];
+
+  for (const persona of personas) {
+    await db.insert(sqliteSchema.personaTemplates).values(persona);
+  }
+
+  logger.info(`Seeded ${personas.length} persona templates`);
 }
 
 async function seedMarketplaceData(
@@ -493,4 +1128,327 @@ async function seedMarketplaceData(
   });
 
   logger.info("Seeded marketplace: 1 creator, 3 components, 3 versions, 1 install, 1 review");
+
+  // ── Platform Agent: Dashboard Designer Pro ─────────────────────────────────
+  await seedPlatformAgent(db, creatorId, deploymentId);
+}
+
+// ── Handler code templates for Dashboard Designer skills ───────────────────
+
+const DASHBOARD_HANDLER_CODE = `
+// Dashboard Designer Pro — create_dashboard handler
+// Input: { title, metrics, chartData, theme }
+const { title, metrics, chartData, theme } = args;
+const dashTitle = title || "Dashboard";
+const dashMetrics = metrics || [
+  { label: "Revenue", value: "$48,250", change: "+12.5%", up: true },
+  { label: "Users", value: "2,847", change: "+8.2%", up: true },
+  { label: "Conversion", value: "3.24%", change: "-0.5%", up: false },
+  { label: "Avg Order", value: "$127", change: "+4.1%", up: true },
+];
+const dashChartData = chartData || [
+  { label: "Jan", value: 4200 }, { label: "Feb", value: 3800 },
+  { label: "Mar", value: 5100 }, { label: "Apr", value: 4700 },
+  { label: "May", value: 6200 }, { label: "Jun", value: 5800 },
+];
+const accent = (theme === "blue") ? "#3b82f6" : (theme === "green") ? "#10b981" : "#8b5cf6";
+const accentDim = accent + "33";
+
+const metricsHtml = dashMetrics.map(m => \`
+  <div style="background:linear-gradient(135deg,#1e1e2e,#252540);border-radius:12px;padding:20px;border:1px solid #2a2a4a">
+    <div style="color:#888;font-size:12px;text-transform:uppercase;letter-spacing:1px">\${m.label}</div>
+    <div style="font-size:28px;font-weight:700;color:#f0f0f0;margin:8px 0">\${m.value}</div>
+    <div style="font-size:13px;color:\${m.up ? '#10b981' : '#ef4444'}">\${m.change} \${m.up ? '↑' : '↓'}</div>
+  </div>\`).join("");
+
+const chartLabels = JSON.stringify(dashChartData.map(d => d.label));
+const chartValues = JSON.stringify(dashChartData.map(d => d.value));
+
+return {
+  type: "sandbox",
+  props: {
+    html: \`<div id="app" style="font-family:Inter,system-ui,sans-serif;background:#0f0f1a;color:#f0f0f0;min-height:100vh;padding:24px">
+      <h1 style="font-size:24px;font-weight:700;margin-bottom:24px;background:linear-gradient(90deg,\${accent},#f0f0f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent">\${dashTitle}</h1>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px">\${metricsHtml}</div>
+      <div style="background:linear-gradient(135deg,#1e1e2e,#252540);border-radius:12px;padding:24px;border:1px solid #2a2a4a">
+        <canvas id="chart" height="260"></canvas>
+      </div>
+    </div>\`,
+    js: \`
+      const ctx = document.getElementById('chart').getContext('2d');
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: \${chartLabels},
+          datasets: [{
+            data: \${chartValues},
+            backgroundColor: '\${accentDim}',
+            borderColor: '\${accent}',
+            borderWidth: 2, borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { grid: { color: '#1a1a2e' }, ticks: { color: '#888' } },
+            x: { grid: { display: false }, ticks: { color: '#888' } }
+          }
+        }
+      });
+    \`,
+    css: \`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');\`,
+    libraries: ["https://cdn.jsdelivr.net/npm/chart.js@4"]
+  }
+};
+`;
+
+const CHART_HANDLER_CODE = `
+// Dashboard Designer Pro — create_chart handler
+// Input: { type, data, title, color }
+const chartType = args.type || "line";
+const data = args.data || [
+  { label: "Mon", value: 120 }, { label: "Tue", value: 190 },
+  { label: "Wed", value: 150 }, { label: "Thu", value: 210 },
+  { label: "Fri", value: 280 }, { label: "Sat", value: 240 },
+  { label: "Sun", value: 310 },
+];
+const chartTitle = args.title || "Chart";
+const color = args.color || "#8b5cf6";
+const colorDim = color + "33";
+
+const labels = JSON.stringify(data.map(d => d.label));
+const values = JSON.stringify(data.map(d => d.value));
+
+const datasetConfig = chartType === "bar"
+  ? \`{ data: \${values}, backgroundColor: '\${colorDim}', borderColor: '\${color}', borderWidth: 2, borderRadius: 8 }\`
+  : chartType === "doughnut" || chartType === "pie"
+    ? \`{ data: \${values}, backgroundColor: \${JSON.stringify(data.map((_, i) => \`hsl(\${i * 360 / data.length}, 70%, 60%)\`))} }\`
+    : \`{ data: \${values}, borderColor: '\${color}', backgroundColor: '\${colorDim}', fill: true, tension: 0.4, pointRadius: 4 }\`;
+
+return {
+  type: "sandbox",
+  props: {
+    html: \`<div style="font-family:Inter,system-ui,sans-serif;background:#0f0f1a;padding:24px;min-height:100vh">
+      <h2 style="color:#f0f0f0;font-size:18px;margin-bottom:16px">\${chartTitle}</h2>
+      <div style="background:#1e1e2e;border-radius:12px;padding:20px;border:1px solid #2a2a4a">
+        <canvas id="chart" height="300"></canvas>
+      </div>
+    </div>\`,
+    js: \`
+      const ctx = document.getElementById('chart').getContext('2d');
+      new Chart(ctx, {
+        type: '\${chartType}',
+        data: { labels: \${labels}, datasets: [\${datasetConfig}] },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: \${chartType === "doughnut" || chartType === "pie" ? "true" : "false"}, labels: { color: '#ccc' } } },
+          scales: \${chartType === "doughnut" || chartType === "pie" ? "{}" : "{ y: { grid: { color: '#1a1a2e' }, ticks: { color: '#888' } }, x: { grid: { display: false }, ticks: { color: '#888' } } }"}
+        }
+      });
+    \`,
+    css: \`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');\`,
+    libraries: ["https://cdn.jsdelivr.net/npm/chart.js@4"]
+  }
+};
+`;
+
+const KPI_HANDLER_CODE = `
+// Dashboard Designer Pro — create_kpi_cards handler
+// Input: { cards, columns }
+const cards = args.cards || [
+  { label: "Total Revenue", value: "$128,430", change: "+14.2%", up: true, icon: "💰" },
+  { label: "Active Users", value: "12,847", change: "+23.1%", up: true, icon: "👥" },
+  { label: "Conversion Rate", value: "3.82%", change: "+0.4%", up: true, icon: "📈" },
+  { label: "Churn Rate", value: "2.1%", change: "-0.3%", up: false, icon: "📉" },
+];
+const columns = args.columns || Math.min(cards.length, 4);
+
+const cardsHtml = cards.map(c => \`
+  <div style="background:linear-gradient(135deg,#1e1e2e,#252540);border-radius:14px;padding:22px;border:1px solid #2a2a4a;display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="color:#888;font-size:12px;text-transform:uppercase;letter-spacing:1px">\${c.label}</span>
+      <span style="font-size:20px">\${c.icon || ''}</span>
+    </div>
+    <div style="font-size:32px;font-weight:700;color:#f0f0f0">\${c.value}</div>
+    <div style="font-size:13px;font-weight:600;color:\${c.up !== false ? '#10b981' : '#ef4444'};display:flex;align-items:center;gap:4px">
+      <span>\${c.up !== false ? '▲' : '▼'}</span> \${c.change || ''}
+    </div>
+  </div>\`).join("");
+
+return {
+  type: "sandbox",
+  props: {
+    html: \`<div style="font-family:Inter,system-ui,sans-serif;background:#0f0f1a;padding:24px;min-height:100vh">
+      <div style="display:grid;grid-template-columns:repeat(\${columns},1fr);gap:16px">\${cardsHtml}</div>
+    </div>\`,
+    css: \`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');\`,
+    libraries: []
+  }
+};
+`;
+
+async function seedPlatformAgent(
+  db: NonNullable<typeof sqliteDb>,
+  creatorProfileId: string,
+  deploymentId: string,
+) {
+  const platformServiceId = `pkg_dashboard_designer`;
+
+  // 1. Mark the existing creator profile as platform
+  await db.update(sqliteSchema.creatorProfiles)
+    .set({ isPlatform: true })
+    .where(eq(sqliteSchema.creatorProfiles.id, creatorProfileId));
+
+  // 2. Skills for the Dashboard Designer
+  const skillDashboard = {
+    id: `skill_dd_dashboard`,
+    name: "create_dashboard",
+    description: "Creates a professional dark-mode dashboard with KPI cards and charts. Args: { title, metrics: [{ label, value, change, up }], chartData: [{ label, value }], theme: 'purple'|'blue'|'green' }",
+    runtime: "openclaw",
+    config: JSON.stringify({
+      tool: "create_dashboard",
+      executionMode: "handler",
+      handlerCode: DASHBOARD_HANDLER_CODE,
+      inputSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Dashboard title" },
+          metrics: { type: "array", description: "KPI metric cards", items: { type: "object", properties: { label: { type: "string" }, value: { type: "string" }, change: { type: "string" }, up: { type: "boolean" } } } },
+          chartData: { type: "array", description: "Chart data points", items: { type: "object", properties: { label: { type: "string" }, value: { type: "number" } } } },
+          theme: { type: "string", enum: ["purple", "blue", "green"], description: "Color accent theme" },
+        },
+      },
+    }),
+    author: "Jarble Platform",
+    isOfficial: true,
+  };
+
+  const skillChart = {
+    id: `skill_dd_chart`,
+    name: "create_chart",
+    description: "Creates a single premium Chart.js visualization. Args: { type: 'line'|'bar'|'doughnut'|'pie', data: [{ label, value }], title, color }",
+    runtime: "openclaw",
+    config: JSON.stringify({
+      tool: "create_chart",
+      executionMode: "handler",
+      handlerCode: CHART_HANDLER_CODE,
+      inputSchema: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["line", "bar", "doughnut", "pie"], description: "Chart type" },
+          data: { type: "array", description: "Data points", items: { type: "object", properties: { label: { type: "string" }, value: { type: "number" } } } },
+          title: { type: "string", description: "Chart title" },
+          color: { type: "string", description: "Primary color (hex)" },
+        },
+      },
+    }),
+    author: "Jarble Platform",
+    isOfficial: true,
+  };
+
+  const skillKpi = {
+    id: `skill_dd_kpi`,
+    name: "create_kpi_cards",
+    description: "Creates a grid of premium KPI metric cards. Args: { cards: [{ label, value, change, up, icon }], columns }",
+    runtime: "openclaw",
+    config: JSON.stringify({
+      tool: "create_kpi_cards",
+      executionMode: "handler",
+      handlerCode: KPI_HANDLER_CODE,
+      inputSchema: {
+        type: "object",
+        properties: {
+          cards: { type: "array", description: "KPI cards", items: { type: "object", properties: { label: { type: "string" }, value: { type: "string" }, change: { type: "string" }, up: { type: "boolean" }, icon: { type: "string" } } } },
+          columns: { type: "number", description: "Grid columns (1-6)" },
+        },
+      },
+    }),
+    author: "Jarble Platform",
+    isOfficial: true,
+  };
+
+  for (const skill of [skillDashboard, skillChart, skillKpi]) {
+    await db.insert(sqliteSchema.skillsCatalog).values(skill);
+  }
+
+  // 3. ServiceCard JSON for the marketplace package
+  const serviceCard = {
+    version: "1.0.0",
+    creatorDeploymentId: deploymentId,
+    auth: { type: "bearer" as const },
+    skills: [
+      {
+        name: "create_dashboard",
+        description: skillDashboard.description,
+        executionMode: "handler" as const,
+        handlerCode: DASHBOARD_HANDLER_CODE,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            title: { type: "string" },
+            metrics: { type: "array" },
+            chartData: { type: "array" },
+            theme: { type: "string" },
+          },
+        },
+      },
+      {
+        name: "create_chart",
+        description: skillChart.description,
+        executionMode: "handler" as const,
+        handlerCode: CHART_HANDLER_CODE,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            type: { type: "string" },
+            data: { type: "array" },
+            title: { type: "string" },
+            color: { type: "string" },
+          },
+        },
+      },
+      {
+        name: "create_kpi_cards",
+        description: skillKpi.description,
+        executionMode: "handler" as const,
+        handlerCode: KPI_HANDLER_CODE,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            cards: { type: "array" },
+            columns: { type: "number" },
+          },
+        },
+      },
+    ],
+  };
+
+  // 4. Dashboard Designer service in marketplace_packages
+  await db.insert(sqliteSchema.marketplaceServices).values({
+    id: platformServiceId,
+    creatorId: creatorProfileId,
+    name: "dashboard-designer-pro",
+    displayName: "Dashboard Designer Pro",
+    description: "Creates professional, premium-quality dashboards with polished dark-mode aesthetics, gradient accents, and premium data visualizations",
+    hostingModel: "self_hosted",
+    creatorDeploymentId: deploymentId,
+    remoteApiConfig: JSON.stringify(serviceCard),
+    status: "published",
+    pricingModel: "free",
+    priceUsdCents: 0,
+    isPlatform: true,
+  });
+
+  // 5. Link skills to the service (package_skills)
+  const skillLinks = [
+    { id: generateMarketplaceId("pks"), packageId: platformServiceId, skillId: skillDashboard.id },
+    { id: generateMarketplaceId("pks"), packageId: platformServiceId, skillId: skillChart.id },
+    { id: generateMarketplaceId("pks"), packageId: platformServiceId, skillId: skillKpi.id },
+  ];
+  for (const link of skillLinks) {
+    await db.insert(sqliteSchema.serviceSkills).values(link);
+  }
+
+  logger.info("Seeded platform agent: Dashboard Designer Pro (1 service, 3 skills)");
 }

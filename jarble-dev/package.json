@@ -1,0 +1,25 @@
+{
+  "name": "jarble-dev",
+  "version": "0.4.0",
+  "description": "Meta-development orchestrator for the Jarble platform — spawns parallel Claude Code agents across git worktrees",
+  "type": "module",
+  "bin": {
+    "jarble-dev": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "nanoid": "^5.0.9",
+    "ora": "^8.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

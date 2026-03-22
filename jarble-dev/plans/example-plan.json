@@ -1,0 +1,57 @@
+{
+  "name": "Example: Add user preferences",
+  "description": "Add a user preferences table and API endpoints for theme/notification settings",
+  "tasks": [
+    {
+      "name": "schema-preferences",
+      "description": "Add userPreferences table to all 3 schema files and register in db/index.ts",
+      "touchesFiles": [
+        "jarble-api-main/src/db/schema.sqlite.ts",
+        "jarble-api-main/src/db/schema.ts",
+        "jarble-api-main/src/db/schema.pg.ts",
+        "jarble-api-main/src/db/index.ts",
+        "jarble-api-main/src/db/init.ts"
+      ],
+      "dependsOn": [],
+      "agentType": "drizzle-db-schema",
+      "prompt": "Add a `userPreferences` table with columns: id (text PK), userId (text FK to users), theme (text, default 'system'), emailNotifications (boolean, default true), dashboardLayout (text, JSON string for layout prefs), createdAt, updatedAt. Add to all 3 schema files (SQLite, MySQL, PG), register in db/index.ts ActiveTables, and add CREATE TABLE + ALTER TABLE migration in init.ts.",
+      "maxBudgetUsd": 3,
+      "permissionMode": "acceptEdits"
+    },
+    {
+      "name": "api-preferences",
+      "description": "Create tRPC router for user preferences CRUD",
+      "touchesFiles": [
+        "jarble-api-main/src/trpc/routers/preferences.ts",
+        "jarble-api-main/src/trpc/index.ts"
+      ],
+      "dependsOn": ["schema-preferences"],
+      "prompt": "Create a new tRPC router at src/trpc/routers/preferences.ts with procedures: get (returns user's prefs or defaults), update (partial update), reset (delete row to revert to defaults). Register in src/trpc/index.ts. Use protectedProcedure for all. Follow the pattern in existing routers like deployment.ts.",
+      "maxBudgetUsd": 3,
+      "permissionMode": "acceptEdits"
+    },
+    {
+      "name": "frontend-preferences",
+      "description": "Add preferences page in frontend settings",
+      "touchesFiles": [
+        "Jarble-mvp/app/settings/preferences/page.tsx"
+      ],
+      "dependsOn": ["api-preferences"],
+      "prompt": "Create a settings/preferences page at app/settings/preferences/page.tsx. Use tRPC to load and save preferences. Include theme selector (system/light/dark), email notification toggle, and a dashboard layout dropdown. Use shadcn/ui components. Follow existing page patterns.",
+      "maxBudgetUsd": 4,
+      "permissionMode": "acceptEdits"
+    },
+    {
+      "name": "tests-preferences",
+      "description": "Write tests for the preferences router",
+      "touchesFiles": [
+        "jarble-api-main/src/trpc/routers/__tests__/preferences.test.ts"
+      ],
+      "dependsOn": ["api-preferences"],
+      "agentType": "test-writer",
+      "prompt": "Write Vitest tests for the preferences tRPC router. Test: get returns defaults for new user, update persists changes, reset removes the row, update with invalid theme fails validation. Follow the test patterns in existing router test files.",
+      "maxBudgetUsd": 3,
+      "permissionMode": "acceptEdits"
+    }
+  ]
+}

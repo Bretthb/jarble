@@ -7,25 +7,31 @@
 
 import type { ComponentManifestEntry } from "../types.js";
 
-/** The top 10 components to include inline in the prompt */
-const TOP_10_NAMES = [
-  "chart",
-  "data_table",
+/** Core components to include inline in the prompt for quick LLM reference */
+const CORE_COMPONENT_NAMES = [
+  "sandbox",
+  "sandpack_sandbox",
   "card",
   "metric_card",
   "stat_grid",
-  "list",
   "alert",
-  "code_block",
-  "layout",
-  "sandbox",
+  "list",
+  "image",
+  "header",
+  "embed",
+  "tabs",
+  "accordion",
+  "carousel",
+  "image_gallery",
+  "timeline",
+  "form",
 ];
 
 /**
  * Generate the Component Quick Reference text for the soul.md prompt.
  *
  * @param manifest - The full component manifest record
- * @param options.top10Only - If true, only emit the top 10 components inline
+ * @param options.top10Only - If true, only emit core components inline
  *   and add a pointer to the component_reference tool for the rest.
  */
 export function generatePromptReference(
@@ -35,9 +41,9 @@ export function generatePromptReference(
   const lines: string[] = [];
 
   if (options?.top10Only) {
-    lines.push("### Component Quick Reference (Top 10)");
+    lines.push("### Component Quick Reference");
 
-    for (const name of TOP_10_NAMES) {
+    for (const name of CORE_COMPONENT_NAMES) {
       const entry = manifest[name];
       if (!entry) continue;
       // Match the existing format: **name**: `{props}` -- description
@@ -49,11 +55,11 @@ export function generatePromptReference(
 
     // Count remaining
     const allBuiltin = Object.values(manifest).filter((e) => e.builtin);
-    const remaining = allBuiltin.length - TOP_10_NAMES.length;
+    const remaining = allBuiltin.length - CORE_COMPONENT_NAMES.length;
     if (remaining > 0) {
       lines.push("");
       lines.push(
-        `${remaining} more components available. Call \`component_reference\` for full props: timeline, tabs, accordion, form, button_group, progress, badge, header, divider, key_value, image, video, steps, result, and more.`
+        `${remaining} more typed components available (for simple standalone use only — for dashboards/analytics, use sandbox). Call \`component_reference\` for props: button_group, progress, badge, divider, key_value, video, steps, result, spreadsheet, code_block, code_editor, and more.`
       );
       lines.push("");
       lines.push("Full details: call `component_reference` tool.");

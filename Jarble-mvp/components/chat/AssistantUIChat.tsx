@@ -8,20 +8,22 @@
  * keyboard navigation, auto-scroll, and full ARIA accessibility for free.
  */
 
-import { memo, useState, useEffect, useRef, type ReactNode } from "react";
+import { memo, useState, useEffect, type ReactNode } from "react";
 import {
   AssistantRuntimeProvider,
   ThreadPrimitive,
   MessagePrimitive,
-  ComposerPrimitive,
   ActionBarPrimitive,
   useMessage,
   type AssistantRuntime,
+  type TextMessagePartProps,
+  type ReasoningMessagePartProps,
 } from "@assistant-ui/react";
-import { Sparkles, SendHorizontal, Loader2, Copy, RotateCcw, Pencil, Brain, ChevronDown } from "lucide-react";
+import { Sparkles, Copy, Pencil, RotateCcw, ChevronRight, Loader2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarkdownMessage from "@/components/MarkdownMessage";
-import { AnimatePresence, motion } from "framer-motion";
+import OrchestrationSteps from "./OrchestrationSteps";
+import type { OrchestrationStep } from "./OrchestrationSteps";
 
 // ── Thread Component ────────────────────────────────────────────────────────
 
@@ -29,17 +31,30 @@ interface AssistantUIChatProps {
   runtime: AssistantRuntime;
   isStreaming: boolean;
   emptyState?: ReactNode;
+  suggestions?: Array<{ prompt: string; title?: string }>;
+  onSuggestionClick?: (prompt: string) => void;
+  /** Current tool status (e.g. "Rendering chart...") shown during streaming */
+  toolStatus?: string | null;
+  /** Active agent-to-agent call in progress */
+  activeAgentCall?: { serviceId: string; skillName: string; agentName?: string } | null;
+  /** Agent orchestration steps (compose, debug, etc.) */
+  orchestrationSteps?: OrchestrationStep[];
 }
 
 function AssistantUIChatInner({
   runtime,
   isStreaming,
   emptyState,
+  suggestions = [],
+  onSuggestionClick,
+  toolStatus,
+  activeAgentCall,
+  orchestrationSteps = [],
 }: AssistantUIChatProps) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadPrimitive.Root className="flex flex-col h-full">
-        <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto p-4 space-y-3">
+      <ThreadPrimitive.Root className="flex flex-col h-full overflow-hidden">
+        <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3">
           <ThreadPrimitive.Empty>
             {emptyState || (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
@@ -54,6 +69,63 @@ function AssistantUIChatInner({
               AssistantMessage: AssistantBubble,
             }}
           />
+
+          {/* Agent orchestration steps — multi-step progress for compose/debug/test tools */}
+          {isStreaming && orchestrationSteps.length > 0 && (
+            <OrchestrationSteps
+              steps={orchestrationSteps}
+              title="Agent Orchestration"
+            />
+          )}
+
+          {/* Agent delegation indicator — shows when bot is calling another agent */}
+          {isStreaming && activeAgentCall && orchestrationSteps.length === 0 && (
+            <div className="flex items-center gap-2 px-4 py-2 animate-in fade-in slide-in-from-bottom-1 duration-200">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                <Zap className="w-3.5 h-3.5 text-violet-500 animate-pulse" />
+                <span className="text-xs font-medium text-violet-600 dark:text-violet-400">
+                  Delegating to {activeAgentCall.agentName || activeAgentCall.serviceId}
+                </span>
+                <span className="text-xs text-muted-foreground/60">
+                  {activeAgentCall.skillName}
+                </span>
+                <Loader2 className="w-3 h-3 text-violet-500/60 animate-spin" />
+              </div>
+            </div>
+          )}
+
+          {/* Tool status indicator — shows what the bot is doing during streaming */}
+          {isStreaming && toolStatus && !activeAgentCall && orchestrationSteps.length === 0 && (
+            <div className="flex items-center gap-2 px-4 py-1.5 animate-in fade-in slide-in-from-bottom-1 duration-200">
+              <Loader2 className="w-3 h-3 text-primary/60 animate-spin" />
+              <span className="text-xs text-muted-foreground/70 font-medium">
+                {toolStatus}
+              </span>
+            </div>
+          )}
+
+          {/* Suggestion pills — rendered directly from our state, bypassing assistant-ui store */}
+          {!isStreaming && suggestions.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-4 py-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => onSuggestionClick?.(s.prompt)}
+                  className={cn(
+                    "inline-flex items-center rounded-full px-3.5 py-1.5",
+                    "text-sm font-medium",
+                    "bg-secondary/60 hover:bg-secondary text-foreground",
+                    "border border-border/40 hover:border-border/60",
+                    "shadow-sm hover:shadow",
+                    "transition-all duration-200 cursor-pointer",
+                    "hover:scale-[1.02]",
+                  )}
+                >
+                  {s.title || s.prompt}
+                </button>
+              ))}
+            </div>
+          )}
         </ThreadPrimitive.Viewport>
 
         {/* Composer — rendered separately by parent to include selected card chip */}
@@ -78,7 +150,7 @@ function UserBubble() {
   if (isActionRelay) {
     return (
       <MessagePrimitive.Root className="flex justify-end">
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50 border border-border/40 max-w-[70%]">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50 border border-border/40 max-w-[70%]" data-role="action-relay">
           <span className="text-xs italic text-muted-foreground">{content}</span>
         </div>
       </MessagePrimitive.Root>
@@ -86,85 +158,28 @@ function UserBubble() {
   }
 
   return (
-    <MessagePrimitive.Root className="flex gap-3 flex-row-reverse group">
-      <motion.div className="flex gap-3 flex-row-reverse flex-1" {...MESSAGE_ENTER}>
-        {/* Avatar */}
-        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border bg-primary/90 text-primary-foreground border-primary/20">
-          <span className="text-[10px] font-semibold">Y</span>
-        </div>
+    <MessagePrimitive.Root className="flex gap-3 flex-row-reverse group" data-testid="user-message">
+      {/* Avatar */}
+      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border bg-primary/90 text-primary-foreground border-primary/20" data-avatar="user">
+        <span className="text-[10px] font-semibold">Y</span>
+      </div>
 
-        {/* Content + actions */}
-        <div className="flex flex-col gap-0.5 items-end flex-1 max-w-[80%]">
-          <div className="rounded-lg px-4 py-3 bg-primary/90 text-primary-foreground shadow-sm">
-            <p className="text-sm">{content}</p>
-          </div>
-          {/* Edit action - only shows on hover */}
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-            <ActionBarPrimitive.Edit className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
-              <Pencil className="w-3 h-3" />
-            </ActionBarPrimitive.Edit>
-          </div>
+      {/* Content + actions */}
+      <div className="flex flex-col gap-0.5 items-end flex-1 max-w-[80%] min-w-0">
+        <div className="rounded-lg px-4 py-3 bg-primary/90 text-primary-foreground shadow-sm break-words overflow-hidden max-w-full" data-role="user">
+          <p className="text-sm break-words" style={{ overflowWrap: "anywhere" }}>{content}</p>
         </div>
-      </motion.div>
+        {/* Edit + Copy actions - only shows on hover */}
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+          <ActionBarPrimitive.Edit className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
+            <Pencil className="w-3 h-3" />
+          </ActionBarPrimitive.Edit>
+          <ActionBarPrimitive.Copy className="p-1 rounded hover:bg-secondary/60 text-muted-foreground" copiedDuration={2000}>
+            <Copy className="w-3 h-3" />
+          </ActionBarPrimitive.Copy>
+        </div>
+      </div>
     </MessagePrimitive.Root>
-  );
-}
-
-// ── Message entrance animation ──────────────────────────────────────────────
-
-const MESSAGE_ENTER = {
-  initial: { opacity: 0, y: 8 } as const,
-  animate: { opacity: 1, y: 0 } as const,
-  transition: { duration: 0.25 } as const,
-};
-
-// ── Thinking Section ─────────────────────────────────────────────────────────
-
-interface ThinkingSectionProps {
-  text: string;
-  isStreaming: boolean;
-}
-
-function ThinkingSection({ text, isStreaming }: ThinkingSectionProps) {
-  // Auto-expand while streaming, allow manual toggle after
-  const [isExpanded, setIsExpanded] = useState(true);
-  const wasStreamingRef = useRef(isStreaming);
-
-  useEffect(() => {
-    // Auto-collapse when streaming finishes
-    if (wasStreamingRef.current && !isStreaming) {
-      setIsExpanded(false);
-    }
-    wasStreamingRef.current = isStreaming;
-  }, [isStreaming]);
-
-  return (
-    <div className="w-full mb-1">
-      <button
-        onClick={() => setIsExpanded((prev) => !prev)}
-        className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-secondary/40 transition-colors text-xs text-muted-foreground"
-      >
-        <Brain className={cn("w-3 h-3", isStreaming && "animate-pulse text-violet-400")} />
-        <span>{isStreaming ? "Thinking..." : "Thought process"}</span>
-        <ChevronDown className={cn("w-3 h-3 transition-transform", isExpanded && "rotate-180")} />
-      </button>
-
-      <AnimatePresence initial={false}>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="mt-1 px-3 py-2 rounded-md bg-secondary/15 border border-border/30 max-h-48 overflow-y-auto">
-              <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{text}</p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
   );
 }
 
@@ -172,67 +187,105 @@ function ThinkingSection({ text, isStreaming }: ThinkingSectionProps) {
 
 function AssistantBubble() {
   const message = useMessage();
-  const reasoningParts = message?.content?.filter((p): p is { type: "reasoning"; text: string } => p.type === "reasoning") || [];
-  const content = message?.content
-    ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
-    .map((p) => p.text)
-    .join("") || "";
   const isInProgress = message?.status?.type === "requires-action" || message?.status?.type === "incomplete"
     ? false
     : message?.status?.type !== "complete";
 
-  const isComplete = message?.status?.type === "complete";
-  const thinkingText = reasoningParts.map((p) => p.text).join("");
-
   return (
-    <MessagePrimitive.Root className="flex gap-3 group">
-      <motion.div className="flex gap-3 flex-1" {...MESSAGE_ENTER}>
-        {/* Avatar */}
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500/20 to-primary/20 border border-primary/10 flex items-center justify-center shrink-0">
-          <Sparkles className="w-3.5 h-3.5 text-primary/70" />
-        </div>
+    <MessagePrimitive.Root className="flex gap-3 group" data-testid="assistant-message">
+      {/* Avatar */}
+      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500/20 to-primary/20 border border-primary/10 flex items-center justify-center shrink-0" data-avatar="assistant">
+        <Sparkles className="w-3.5 h-3.5 text-primary/70" />
+      </div>
 
-        {/* Content + actions */}
-        <div className="flex flex-col gap-0.5 items-start flex-1 max-w-[80%]">
-          {/* Thinking section — collapsible */}
-          {thinkingText && (
-            <ThinkingSection text={thinkingText} isStreaming={isInProgress} />
+      {/* Content + actions */}
+      <div className="flex flex-col gap-0.5 items-start flex-1 max-w-[80%] min-w-0">
+        <div
+          data-role="assistant"
+          className={cn(
+            "rounded-lg px-4 py-3 bg-secondary/30 break-words overflow-hidden max-w-full",
+            isInProgress && "animate-[shimmer_2s_ease-in-out_infinite]",
           )}
-
-          {/* Thinking indicator — shown before first token arrives */}
-          {isInProgress && !content && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/20">
-              <div className="flex gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:0ms]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:150ms]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:300ms]" />
-              </div>
-              <span className="text-xs text-muted-foreground">Thinking...</span>
-            </div>
-          )}
-
-          {/* Message content */}
-          {content && (
-            <div className="rounded-lg px-4 py-3 bg-secondary/30">
-              <MarkdownMessage content={content} />
-              {isInProgress && (
-                <span className="inline-block w-[2px] h-[1.1em] bg-primary/80 ml-0.5 align-middle animate-[blink_1s_steps(2,start)_infinite]" />
-              )}
-            </div>
-          )}
-          {/* Copy + Regenerate - only shows on hover after completion */}
-          {isComplete && (
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-              <ActionBarPrimitive.Copy className="p-1 rounded hover:bg-secondary/60 text-muted-foreground" copiedDuration={2000}>
-                <Copy className="w-3 h-3" />
-              </ActionBarPrimitive.Copy>
-              <ActionBarPrimitive.Reload className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
-                <RotateCcw className="w-3 h-3" />
-              </ActionBarPrimitive.Reload>
-            </div>
+          style={
+            isInProgress
+              ? {
+                  backgroundSize: "200% 100%",
+                  backgroundImage:
+                    "linear-gradient(90deg, transparent 0%, hsl(var(--secondary)/0.15) 50%, transparent 100%)",
+                }
+              : undefined
+          }
+        >
+          <MessagePrimitive.Parts
+            components={{
+              Text: TextPartRenderer,
+              Reasoning: ReasoningPartRenderer,
+            }}
+          />
+          {isInProgress && (
+            <span className="inline-block w-2 h-4 bg-primary/60 animate-pulse ml-1 align-middle" />
           )}
         </div>
-      </motion.div>
+        {/* Copy + Regenerate - only shows on hover */}
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+          <ActionBarPrimitive.Copy className="p-1 rounded hover:bg-secondary/60 text-muted-foreground" copiedDuration={2000}>
+            <Copy className="w-3 h-3" />
+          </ActionBarPrimitive.Copy>
+          <ActionBarPrimitive.Reload className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
+            <RotateCcw className="w-3 h-3" />
+          </ActionBarPrimitive.Reload>
+        </div>
+      </div>
     </MessagePrimitive.Root>
   );
 }
+
+// ── Text Part Renderer ──────────────────────────────────────────────────────
+
+function TextPartRenderer(props: TextMessagePartProps) {
+  return <MarkdownMessage content={props.text} />;
+}
+
+// ── Reasoning Part Renderer ─────────────────────────────────────────────────
+
+function ReasoningPartRenderer(props: ReasoningMessagePartProps) {
+  const isRunning = props.status.type === "running";
+  const [expanded, setExpanded] = useState(isRunning);
+
+  // Auto-expand when reasoning starts streaming
+  useEffect(() => {
+    if (isRunning) setExpanded(true);
+  }, [isRunning]);
+
+  return (
+    <div className="mb-2">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ChevronRight className={cn("size-3 transition-transform", expanded && "rotate-90")} />
+        <span className="font-medium">
+          {isRunning ? "Thinking..." : "Thought process"}
+        </span>
+        {isRunning && (
+          <span className="inline-block w-1.5 h-3 bg-primary/50 animate-pulse ml-0.5" />
+        )}
+        {!expanded && !isRunning && props.text && (
+          <span className="text-muted-foreground/60 truncate max-w-[200px]">
+            {props.text.slice(0, 60)}...
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="mt-1.5 pl-4 border-l-2 border-border/40 text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap">
+          {props.text}
+          {isRunning && <span className="inline-block w-1.5 h-3 bg-primary/40 animate-pulse ml-0.5 align-middle" />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Suggestion pills are now rendered directly in AssistantUIChatInner
+// using our own state, bypassing assistant-ui's SuggestionPrimitive store.

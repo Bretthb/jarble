@@ -28,9 +28,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── Pre-install OpenClaw + mcporter ───────────────────────────────────
 # Both installed to /opt/openclaw/ — baked into the image layer.
 # mcporter bridges our Jarble UI MCP server to OpenClaw's skill system.
+# Pin to specific version for reproducibility; bump to update.
+ARG OPENCLAW_VERSION=2026.3.13
 WORKDIR /opt/openclaw
 RUN npm init -y && \
-    npm install openclaw@latest mcporter && \
+    npm install openclaw@${OPENCLAW_VERSION} mcporter && \
     npx openclaw plugins enable whatsapp && \
     chown -R node:node /opt/openclaw
 

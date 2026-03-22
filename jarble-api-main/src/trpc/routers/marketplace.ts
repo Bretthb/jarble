@@ -10,6 +10,10 @@ import {
   syncMarketplaceComponent,
   removeMarketplaceComponent,
 } from "../../services/configSync.js";
+import { validatePropsSchema } from "../../utils/schemaValidation.js";
+import { isAdmin } from "../../utils/admin.js";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import { COMPONENT_SCHEMAS, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 
 const {
   users,
@@ -36,10 +40,8 @@ function generateId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }
 
-import { isAdmin } from "../../utils/rbac.js";
-
-function assertAdmin(user: { role?: string }) {
-  if (!isAdmin(user)) {
+function assertAdmin(userId: string) {
+  if (!isAdmin(userId)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Admin access required",
@@ -66,6 +68,7 @@ const browseInput = z.object({
   tags: z.array(z.string()).optional(),
   cursor: z.string().optional(),
   limit: z.number().min(1).max(50).default(20),
+  includeSchemas: z.boolean().default(false),
 });
 
 const componentNameRegex = /^[a-z][a-z0-9_]{0,63}$/;
@@ -197,6 +200,9 @@ export const marketplaceRouter = router({
             id: creatorMap.get(c.creatorId)!.id,
             displayName: creatorMap.get(c.creatorId)!.displayName,
           } : null,
+          ...(input.includeSchemas && c.propsSchema
+            ? { propsSchema: JSON.parse(c.propsSchema) }
+            : {}),
         })),
         nextCursor,
       };
@@ -241,6 +247,7 @@ export const marketplaceRouter = router({
         ...component,
         tags: component.tags ? JSON.parse(component.tags) : [],
         examplePrompts: component.examplePrompts ? JSON.parse(component.examplePrompts) : [],
+        propsSchema: component.propsSchema ? JSON.parse(component.propsSchema) : null,
         creator: creator ? {
           id: creator.id,
           displayName: creator.displayName,
@@ -302,6 +309,35 @@ export const marketplaceRouter = router({
       .map(([category, count]) => ({ category, count }))
       .sort((a, b) => b.count - a.count);
   }),
+
+  builtinSchemas: publicProcedure
+    .input(z.object({ component: z.string().optional() }).optional())
+    .query(({ input }) => {
+      const componentName = input?.component;
+
+      if (componentName) {
+        const zodSchema = COMPONENT_SCHEMAS[componentName];
+        if (!zodSchema) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `Unknown component "${componentName}"` });
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ZodType union is too deep for TS
+        const jsonSchema = zodToJsonSchema(zodSchema as any, { target: "jsonSchema7", $refStrategy: "none" });
+        const { $schema, ...rest } = jsonSchema as Record<string, unknown>;
+        return { [componentName]: rest };
+      }
+
+      const result: Record<string, unknown> = {};
+      for (const [name, zodSchema] of Object.entries(COMPONENT_SCHEMAS)) {
+        if (name === "canvas") continue; // skip alias
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const jsonSchema = zodToJsonSchema(zodSchema as any, { target: "jsonSchema7", $refStrategy: "none" });
+          const { $schema, ...rest } = jsonSchema as Record<string, unknown>;
+          result[name] = rest;
+        } catch { /* skip unconvertible schemas */ }
+      }
+      return result;
+    }),
 
   // ==========================================
   // INSTALLATION (protected)
@@ -427,15 +463,54 @@ export const marketplaceRouter = router({
           description: component.description,
           tier: component.tier,
           category: component.category,
-          propsSchema: component.propsSchema,
+          propsSchema: component.propsSchema ? JSON.parse(component.propsSchema) : null,
           version: installedVersion,
         };
-        const templateOrHtml = component.exampleProps ?? component.propsSchema ?? "";
+
+        // Build the component definition in define_component format so the MCP
+        // server's custom component resolution can handle it transparently.
+        // exampleProps stores the layout template for template-tier components,
+        // or gets wrapped in a sandbox for sandbox-tier components.
+        let componentDefinition: Record<string, unknown> | null = null;
+        try {
+          if (component.exampleProps) {
+            const parsed = JSON.parse(component.exampleProps);
+            if (component.tier === "template" && Array.isArray(parsed.layout)) {
+              // Template tier: exampleProps is a full define_component definition
+              componentDefinition = {
+                name: component.name,
+                description: component.botDescription || component.description,
+                layout: parsed.layout,
+              };
+            } else if (component.tier === "sandbox" && typeof parsed.html === "string") {
+              // Sandbox tier: wrap HTML in a sandbox component
+              componentDefinition = {
+                name: component.name,
+                description: component.botDescription || component.description,
+                layout: [{
+                  component: "sandbox",
+                  props: {
+                    html: parsed.html,
+                    css: parsed.css || "",
+                    js: parsed.js || "",
+                    title: "{{title}}",
+                    libraries: parsed.libraries || [],
+                  },
+                }],
+              };
+            }
+          }
+        } catch (parseErr) {
+          logger.warn({ err: parseErr, componentId: input.componentId },
+            "marketplace.install: failed to parse component definition from exampleProps");
+        }
+
         void syncMarketplaceComponent(
           input.deploymentId,
           input.componentId,
+          component.name,
           manifest,
-          templateOrHtml,
+          componentDefinition,
           component.tier as "template" | "sandbox",
         ).catch((err) =>
           logger.error({ err, componentId: input.componentId, deploymentId: input.deploymentId },
@@ -471,11 +546,24 @@ export const marketplaceRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Component is not installed on this deployment" });
       }
 
+      // Look up the component name for PVC cleanup
+      const component = await ctx.db.query.marketplaceComponents.findFirst({
+        where: eq(marketplaceComponents.id, input.componentId),
+      });
+
       await ctx.db.delete(componentInstalls)
         .where(and(
           eq(componentInstalls.componentId, input.componentId),
           eq(componentInstalls.deploymentId, input.deploymentId),
         ));
+
+      // Decrement totalInstalls (floor at 0)
+      await ctx.db
+        .update(marketplaceComponents)
+        .set({
+          totalInstalls: sql`MAX(${marketplaceComponents.totalInstalls} - 1, 0)` as any,
+        })
+        .where(eq(marketplaceComponents.id, input.componentId));
 
       logger.info({
         componentId: input.componentId,
@@ -488,6 +576,7 @@ export const marketplaceRouter = router({
         void removeMarketplaceComponent(
           input.deploymentId,
           input.componentId,
+          component?.name ?? null,
         ).catch((err) =>
           logger.error({ err, componentId: input.componentId, deploymentId: input.deploymentId },
             "marketplace.uninstall: failed to remove component from pod (non-fatal)")
@@ -512,10 +601,18 @@ export const marketplaceRouter = router({
         where: eq(componentInstalls.deploymentId, input.deploymentId),
       });
 
-      if (installs.length === 0) return [];
+      if (installs.length === 0) return [] as Array<{
+        installId: string; installedAt: Date; versionId: string;
+        version: string | null;
+        component: { id: string; name: string; displayName: string; description: string; tier: string; category: string } | null;
+      }>;
 
       // Fetch component and version details for each install
-      const results = [];
+      const results: Array<{
+        installId: string; installedAt: Date; versionId: string;
+        version: string | null;
+        component: { id: string; name: string; displayName: string; description: string; tier: string; category: string } | null;
+      }> = [];
       for (const install of installs) {
         const component = await ctx.db.query.marketplaceComponents.findFirst({
           where: eq(marketplaceComponents.id, install.componentId),
@@ -615,12 +712,39 @@ export const marketplaceRouter = router({
             propsSchema: component.propsSchema,
             version: version.version,
           };
-          const templateOrHtml = component.exampleProps ?? component.propsSchema ?? "";
+
+          // Build component definition (same logic as install)
+          let componentDefinition: Record<string, unknown> | null = null;
+          try {
+            if (component.exampleProps) {
+              const parsed = JSON.parse(component.exampleProps);
+              if (component.tier === "template" && Array.isArray(parsed.layout)) {
+                componentDefinition = {
+                  name: component.name,
+                  description: component.botDescription || component.description,
+                  layout: parsed.layout,
+                };
+              } else if (component.tier === "sandbox" && typeof parsed.html === "string") {
+                componentDefinition = {
+                  name: component.name,
+                  description: component.botDescription || component.description,
+                  layout: [{
+                    component: "sandbox",
+                    props: { html: parsed.html, css: parsed.css || "", js: parsed.js || "", title: "{{title}}", libraries: parsed.libraries || [] },
+                  }],
+                };
+              }
+            }
+          } catch {
+            // Non-fatal
+          }
+
           void syncMarketplaceComponent(
             input.deploymentId,
             input.componentId,
+            component.name,
             manifest,
-            templateOrHtml,
+            componentDefinition,
             component.tier as "template" | "sandbox",
           ).catch((err) =>
             logger.error({ err, componentId: input.componentId, deploymentId: input.deploymentId },
@@ -655,7 +779,10 @@ export const marketplaceRouter = router({
     });
 
     // Fetch component details for each purchase
-    const results = [];
+    const results: Array<{
+      id: string; componentId: string; amountCents: number; status: string; purchasedAt: Date;
+      component: { id: string; name: string; displayName: string } | null;
+    }> = [];
     for (const purchase of purchases) {
       const component = await ctx.db.query.marketplaceComponents.findFirst({
         where: eq(marketplaceComponents.id, purchase.componentId),
@@ -932,6 +1059,9 @@ export const marketplaceRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: "You already have a component with this name" });
       }
 
+      // Validate propsSchema is valid JSON Schema
+      validatePropsSchema(input.propsSchema);
+
       const componentId = generateId("cmp");
 
       // creatorId references users.id
@@ -1052,6 +1182,42 @@ export const marketplaceRouter = router({
       if (input.tags !== undefined) updateData.tags = JSON.stringify(input.tags);
       if (input.priceUsdCents !== undefined) updateData.priceUsdCents = input.priceUsdCents;
 
+      // Track whether manifest-relevant fields changed (description, botDescription, displayName)
+      const manifestChanged =
+        (input.displayName !== undefined && input.displayName !== component.displayName) ||
+        (input.description !== undefined && input.description !== component.description) ||
+        (input.botDescription !== undefined && input.botDescription !== component.botDescription);
+
+      // Bump version if manifest-relevant fields changed
+      let newVersion: string | null = null;
+      if (manifestChanged) {
+        // Increment patch version (e.g. 1.0.0 -> 1.0.1)
+        const parts = (component.currentVersion ?? "1.0.0").split(".");
+        const patch = parseInt(parts[2] ?? "0", 10) + 1;
+        newVersion = `${parts[0]}.${parts[1]}.${patch}`;
+        updateData.currentVersion = newVersion;
+
+        // Insert a new version record
+        const manifestHash = crypto.createHash("sha256")
+          .update(JSON.stringify({
+            displayName: input.displayName ?? component.displayName,
+            description: input.description ?? component.description,
+            botDescription: input.botDescription ?? component.botDescription,
+          }))
+          .digest("hex");
+
+        await ctx.db.insert(componentVersions).values({
+          id: generateId("ver"),
+          componentId: input.componentId,
+          version: newVersion,
+          changelog: "Component metadata updated",
+          packageUrl: "pending://upload",
+          packageSizeBytes: 0,
+          manifestHash,
+          createdAt: dbDate(),
+        });
+      }
+
       await ctx.db
         .update(marketplaceComponents)
         .set(updateData as any)
@@ -1060,9 +1226,10 @@ export const marketplaceRouter = router({
       logger.info({
         componentId: input.componentId,
         userId: ctx.user.id,
+        ...(newVersion ? { newVersion } : {}),
       }, "Marketplace component updated");
 
-      return { success: true as const };
+      return { success: true as const, ...(newVersion ? { newVersion } : {}) };
     }),
 
   myComponents: protectedProcedure.query(async ({ ctx }) => {
@@ -1140,7 +1307,7 @@ export const marketplaceRouter = router({
   // ==========================================
 
   getReviewQueue: protectedProcedure.query(async ({ ctx }) => {
-    assertAdmin(ctx.user);
+    assertAdmin(ctx.user.id);
 
     const allComponents = await ctx.db.query.marketplaceComponents.findMany();
     return allComponents
@@ -1166,7 +1333,7 @@ export const marketplaceRouter = router({
       notes: z.string().max(2000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      assertAdmin(ctx.user);
+      assertAdmin(ctx.user.id);
 
       const component = await ctx.db.query.marketplaceComponents.findFirst({
         where: eq(marketplaceComponents.id, input.componentId),
@@ -1206,7 +1373,7 @@ export const marketplaceRouter = router({
       notes: z.string().min(1).max(2000),
     }))
     .mutation(async ({ ctx, input }) => {
-      assertAdmin(ctx.user);
+      assertAdmin(ctx.user.id);
 
       const component = await ctx.db.query.marketplaceComponents.findFirst({
         where: eq(marketplaceComponents.id, input.componentId),

@@ -194,7 +194,7 @@ export default function StepDeploy({
               </p>
             </div>
             <div className="flex flex-col items-center gap-3">
-              <div className="bg-white p-4 rounded-xl shadow-sm inline-block">
+              <div className="bg-white p-4 rounded-xl shadow-sm dark:shadow-none inline-block">
                 <QRCode value={`https://t.me/${telegramBotUsername}`} size={160} level="M" />
               </div>
               <p className="text-xs text-muted-foreground">
@@ -212,7 +212,7 @@ export default function StepDeploy({
         <div className="py-8">
           <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
             <div className="flex flex-col items-center gap-3">
-              <div className="bg-white p-4 rounded-xl shadow-sm inline-block">
+              <div className="bg-white p-4 rounded-xl shadow-sm dark:shadow-none inline-block">
                 <QRCode value={`https://t.me/${telegramBotUsername}`} size={180} level="M" />
               </div>
               <p className="text-sm text-muted-foreground">

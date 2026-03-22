@@ -15,7 +15,9 @@
 import crypto from "crypto";
 import WebSocket from "ws";
 import { nanoid } from "nanoid";
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("gateway");
 import { extractAllUIBlocks, extractUIBlocks, type JarbleUIBlock, type JarbleUIUpdate, type JarbleComponentDef } from "../utils/uiBlockParser.js";
 import { execInPod } from "../k8s/exec.js";
 
@@ -88,8 +90,14 @@ export interface GatewayResponse {
   uiUpdates: JarbleUIUpdate[];
   /** Custom component definitions to register */
   componentDefs: JarbleComponentDef[];
-  /** Accumulated thinking/reasoning text from the LLM (if supported) */
-  thinkingText?: string;
+  /** Suggestion strings extracted from jarble_suggestions blocks */
+  suggestions: string[];
+  /** Design context inferred or explicitly set during this turn */
+  designContext: Record<string, unknown> | null;
+  /** Native thinking/reasoning content extracted from LLM response (if available) */
+  nativeThinking: string;
+  /** True when the response was cut short by a timeout (partial text returned) */
+  timedOut?: boolean;
 }
 
 export async function chatViaGateway(
@@ -107,6 +115,7 @@ export async function chatViaGateway(
   return new Promise<GatewayResponse>((resolve, reject) => {
     const timeoutMs = 120_000;
     let fullText = "";
+    let nativeThinking = "";
     let connected = false;
     let finished = false;
     const pending = new Map<string, PendingRequest>();
@@ -116,18 +125,18 @@ export async function chatViaGateway(
     let emittedBlockCount = 0;
 
     const ws = new WebSocket(wsUrl, {
-      origin: `http://${ip}:${port}`,
+      origin: "http://localhost",
       handshakeTimeout: 10_000, // 10s connect timeout — fail fast on unreachable pods
     });
 
     const timeout = setTimeout(() => {
       if (!finished) {
         finished = true;
-        logger.warn({ wsUrl, timeoutMs, textLength: fullText.length }, "Gateway: response timed out");
+        log.warn({ wsUrl, timeoutMs, textLength: fullText.length }, "Gateway: response timed out");
         ws.close();
         if (fullText) {
-          const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
-          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs });
+          const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
+          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, timedOut: true });
         } else {
           reject(new Error("Gateway chat timed out after 120s"));
         }
@@ -160,7 +169,7 @@ export async function chatViaGateway(
 
     ws.on("open", () => {
       const connectMs = Date.now() - connectStartMs;
-      logger.info({ wsUrl, connectMs }, "Gateway: WS connected");
+      log.info({ wsUrl, connectMs }, "Gateway: WS connected");
     });
 
     ws.on("message", async (data) => {
@@ -170,7 +179,7 @@ export async function chatViaGateway(
       try {
         msg = JSON.parse(String(data));
       } catch {
-        logger.warn({ wsUrl, rawData: String(data).slice(0, 200) }, "Gateway: failed to parse WS message");
+        log.warn({ wsUrl, rawData: String(data).slice(0, 200) }, "Gateway: failed to parse WS message");
         return;
       }
 
@@ -231,7 +240,7 @@ export async function chatViaGateway(
             });
 
             connected = true;
-            logger.debug({ wsUrl, deviceId: device.deviceId.slice(0, 16) }, "Gateway authenticated with device identity, sending chat");
+            log.debug({ wsUrl, deviceId: device.deviceId.slice(0, 16) }, "Gateway authenticated with device identity, sending chat");
 
             // Send the chat message
             const idempotencyKey = nanoid(12);
@@ -278,24 +287,30 @@ export async function chatViaGateway(
 
               onDelta?.(text);
             }
+            // Accumulate native thinking from delta events
+            const deltaThinking = extractThinking(payload);
+            if (deltaThinking) nativeThinking = deltaThinking;
           } else if (state === "final") {
             const text = extractText(payload.message);
             if (text) {
               fullText = text;
             }
+            // Extract native thinking from the final payload
+            const finalThinking = extractThinking(payload);
+            if (finalThinking) nativeThinking = finalThinking;
             finished = true;
             cleanup();
-            const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
+            const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
             // Skip blocks already emitted during streaming deltas (they appear in order)
             const remainingBlocks = uiBlocks.slice(emittedBlockCount);
-            logger.debug({ wsUrl, rawTextLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, updateCount: uiUpdates.length }, "Gateway: response summary");
-            resolve({ rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs });
+            log.debug({ wsUrl, rawTextLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, updateCount: uiUpdates.length, hasNativeThinking: !!nativeThinking }, "Gateway: response summary");
+            resolve({ rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking });
           } else if (state === "aborted") {
             finished = true;
             cleanup();
             const abortText = fullText || "The bot's response was interrupted.";
-            const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(abortText);
-            resolve({ rawText: abortText, text: cleanText, uiBlocks, uiUpdates, componentDefs });
+            const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(abortText);
+            resolve({ rawText: abortText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking });
           }
         }
 
@@ -309,10 +324,10 @@ export async function chatViaGateway(
           pending.delete(msg.id);
           if (msg.error || msg.ok === false) {
             const errMsg = msg.error?.message || JSON.stringify(msg.error);
-            logger.debug({ wsUrl, msgId: msg.id, error: msg.error, ok: msg.ok, payload: msg.payload }, "Gateway response error");
+            log.debug({ wsUrl, msgId: msg.id, error: msg.error, ok: msg.ok, payload: msg.payload }, "Gateway response error");
             p.reject(new Error(errMsg));
           } else {
-            logger.debug({ wsUrl, msgId: msg.id, payloadKeys: msg.payload ? Object.keys(msg.payload) : null }, "Gateway response OK");
+            log.debug({ wsUrl, msgId: msg.id, payloadKeys: msg.payload ? Object.keys(msg.payload) : null }, "Gateway response OK");
             p.resolve(msg.payload ?? msg.result);
           }
         }
@@ -334,8 +349,8 @@ export async function chatViaGateway(
         clearTimeout(timeout);
         const reason = reasonBuf?.toString() || "";
         if (fullText) {
-          const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
-          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs });
+          const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
+          resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking });
         } else if (!connected) {
           const detail = reason ? ` (${code}: ${reason})` : code ? ` (code ${code})` : "";
           reject(new Error(`Gateway WS closed before auth completed${detail}`));
@@ -372,167 +387,37 @@ function extractText(message: unknown): string {
   return "";
 }
 
-// ── HTTP Chat Completions ────────────────────────────────────────────────────
-
 /**
- * Chat via the OpenClaw HTTP chat completions endpoint.
+ * Extract native thinking/reasoning content from an OpenClaw message payload.
  *
- * Uses the OpenAI-compatible `/v1/chat/completions` endpoint exposed by the
- * gateway. This bypasses WS device pairing entirely — only the gateway auth
- * token is needed. Supports SSE streaming for incremental text delivery.
+ * OpenClaw's `--thinking medium` flag causes Claude to produce thinking blocks.
+ * In `--json` mode these are sometimes stripped from the text payloads, but may
+ * appear as separate content blocks with `type: "thinking"` in the message array,
+ * or as a top-level `thinking` field on the payload/result object.
+ *
+ * This function checks all known locations where native thinking may appear.
  */
-export async function chatViaHttp(
-  opts: GatewayOptions,
-  message: string,
-  onDelta?: (fullText: string) => void,
-  signal?: AbortSignal,
-  onBlockDetected?: (block: JarbleUIBlock) => void,
-  onThinking?: (fullThinkingText: string) => void,
-  /** Optional system message injected by the API (platform instructions, guardrails) */
-  systemMessage?: string,
-): Promise<GatewayResponse> {
-  const { ip, port, gatewayToken, sessionKey } = opts;
-  const url = `http://${ip}:${port}/v1/chat/completions`;
-  const streamingDisabled = process.env.DISABLE_HTTP_STREAMING === "true";
+function extractThinking(payload: any): string {
+  if (!payload) return "";
 
-  logger.info({ url, messageLen: message.length, sessionKey, streaming: !streamingDisabled }, "chatViaHttp: sending request");
+  // 1. Check explicit thinking field on the payload
+  if (typeof payload.thinking === "string" && payload.thinking) return payload.thinking;
 
-  // Build messages array — inject platform system message before user message
-  // so guardrails/UI instructions are always the latest from the running API code.
-  const messages: Array<{ role: string; content: string }> = [];
-  if (systemMessage) {
-    messages.push({ role: "system", content: systemMessage });
-  }
-  messages.push({ role: "user", content: message });
-
-  const body = JSON.stringify({
-    model: "default",
-    messages,
-    stream: !streamingDisabled,
-    // Pass session key as metadata so conversations persist
-    ...(sessionKey ? { user: sessionKey } : {}),
-  });
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${gatewayToken}`,
-    },
-    body,
-    signal,
-  });
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "");
-    throw new Error(`HTTP chat failed: ${response.status} ${errText.slice(0, 200)}`);
+  // 2. Check content blocks for type: "thinking"
+  const message = payload.message || payload.content || payload;
+  if (Array.isArray(message)) {
+    const thinking = message
+      .filter((b: any) => b.type === "thinking")
+      .map((b: any) => b.thinking || b.text || "")
+      .join("\n")
+      .trim();
+    if (thinking) return thinking;
   }
 
-  // ── Non-streaming fallback ──────────────────────────────────────────────────
-  if (streamingDisabled) {
-    const json = await response.json() as any;
-    const fullText = json.choices?.[0]?.message?.content || "";
-    const thinkingText = json.choices?.[0]?.message?.reasoning_content
-                      || json.choices?.[0]?.message?.reasoning || "";
+  // 3. Check result.meta for thinking content
+  if (payload.result?.meta?.thinking) return String(payload.result.meta.thinking);
 
-    if (!fullText) {
-      logger.warn({ url, json }, "chatViaHttp: empty response from bot");
-    }
-
-    onDelta?.(fullText);
-    if (thinkingText) onThinking?.(thinkingText);
-
-    const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
-    if (onBlockDetected) {
-      for (const block of uiBlocks) {
-        onBlockDetected(block);
-      }
-    }
-    logger.info({ url, rawTextLength: fullText.length, blockCount: uiBlocks.length }, "chatViaHttp: non-streaming response");
-    return { rawText: fullText, text: cleanText, uiBlocks: [], uiUpdates, componentDefs, thinkingText: thinkingText || undefined };
-  }
-
-  // ── Streaming SSE reader ────────────────────────────────────────────────────
-  if (!response.body) {
-    throw new Error("HTTP chat: response body is null (streaming not supported?)");
-  }
-
-  const reader = (response.body as any).getReader() as ReadableStreamDefaultReader<Uint8Array>;
-  const decoder = new TextDecoder();
-  let sseBuffer = "";
-  let fullText = "";
-  let thinkingText = "";
-  let emittedBlockCount = 0;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      sseBuffer += decoder.decode(value, { stream: true });
-      const lines = sseBuffer.split("\n");
-      sseBuffer = lines.pop() || "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data: ")) continue;
-        if (trimmed === "data: [DONE]") continue;
-
-        let chunk: any;
-        try {
-          chunk = JSON.parse(trimmed.slice(6));
-        } catch {
-          logger.debug({ line: trimmed.slice(0, 200) }, "chatViaHttp: failed to parse SSE chunk");
-          continue;
-        }
-
-        const choice = chunk.choices?.[0];
-        if (!choice) continue;
-
-        // Text content delta
-        const delta = choice.delta?.content || "";
-        if (delta) {
-          fullText += delta;
-          onDelta?.(fullText);
-        }
-
-        // Thinking/reasoning delta (OpenAI/OpenRouter format)
-        const reasoningDelta = choice.delta?.reasoning_content
-                            || choice.delta?.reasoning || "";
-        if (reasoningDelta) {
-          thinkingText += reasoningDelta;
-          onThinking?.(thinkingText);
-        }
-
-        // Incremental UI block detection
-        if (onBlockDetected && fullText) {
-          const { uiBlocks } = extractUIBlocks(fullText);
-          for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
-            onBlockDetected(uiBlocks[idx]);
-          }
-          emittedBlockCount = uiBlocks.length;
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  if (!fullText) {
-    logger.warn({ url }, "chatViaHttp: empty streaming response from bot");
-  }
-
-  const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(fullText);
-  // Only emit blocks not already emitted during streaming
-  const remainingBlocks = uiBlocks.slice(emittedBlockCount);
-  if (onBlockDetected) {
-    for (const block of remainingBlocks) {
-      onBlockDetected(block);
-    }
-  }
-
-  logger.info({ url, rawTextLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, hasThinking: !!thinkingText }, "chatViaHttp: streaming response summary");
-  return { rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs, thinkingText: thinkingText || undefined };
+  return "";
 }
 
 // ── Exec-based HTTP fallback ─────────────────────────────────────────────────
@@ -551,16 +436,67 @@ export async function chatViaExec(
   sessionKey: string,
   message: string,
   onDelta?: (fullText: string) => void,
+  canvasImage?: string,
+  signal?: AbortSignal,
 ): Promise<GatewayResponse> {
-  logger.info({ podName, messageLen: message.length }, "chatViaExec: falling back to npx openclaw agent");
+  log.info({ podName, messageLen: message.length, hasImage: !!canvasImage }, "chatViaExec: starting");
 
-  const output = await execInPod(podName, [
+  // Bail early if already aborted (e.g. user cancelled during WS→exec fallback transition)
+  if (signal?.aborted) {
+    throw new Error("Aborted");
+  }
+
+  // If canvas image is provided, write it to a temp file on the pod so it persists for the session
+  if (canvasImage) {
+    try {
+      // Strip data URL prefix to get raw base64
+      const base64Data = canvasImage.replace(/^data:image\/\w+;base64,/, "");
+      // Validate that it's actually base64 to prevent shell injection
+      if (!/^[A-Za-z0-9+/=\s]+$/.test(base64Data)) {
+        log.warn({ podName }, "chatViaExec: canvas image contains invalid base64 characters, skipping");
+      } else {
+        // Write to pod filesystem via stdin pipe (safe — no shell interpolation)
+        const { execInPodWithStdin } = await import("../k8s/exec.js");
+        await execInPodWithStdin(podName, [
+          "sh", "-c", "base64 -d > /tmp/canvas-screenshot.jpg",
+        ], base64Data, 10_000);
+        log.debug({ podName }, "chatViaExec: canvas screenshot written to pod");
+      }
+    } catch (err) {
+      log.warn({ podName, err: (err as Error).message }, "chatViaExec: failed to write canvas screenshot to pod");
+    }
+  }
+
+  // Pass --thinking medium for higher quality answers. OpenClaw 2026.2.x strips
+  // native thinking from --json output, so it's not visible in the response.
+  // For user-facing reasoning display, the system prompt instructs the bot to emit
+  // <think> tags which tamboAgent.ts parses into REASONING_* SSE events.
+  const args = [
     "npx", "openclaw", "agent",
     "--message", message,
     "--session-id", sessionKey,
+    "--thinking", "medium",
     "--json",
     "--timeout", "60",
-  ]);
+  ];
+  // If image was written, add --image flag (OpenClaw 2026.2.25+ supports this)
+  if (canvasImage) {
+    args.push("--image", "/tmp/canvas-screenshot.jpg");
+  }
+  // Race the exec against the abort signal so user cancellation stops it promptly
+  const execPromise = execInPod(podName, args, undefined, 90_000); // 90s — cold start + LLM generation can take 30-60s
+  let output: string;
+  if (signal) {
+    output = await Promise.race([
+      execPromise,
+      new Promise<never>((_, reject) => {
+        if (signal.aborted) reject(new Error("Aborted"));
+        signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
+      }),
+    ]);
+  } else {
+    output = await execPromise;
+  }
 
   // Parse JSON response (same as chatWithBot MCP tool)
   let parsed: any;
@@ -576,16 +512,48 @@ export async function chatViaExec(
   }
 
   const payloads = parsed.result?.payloads || parsed.payloads || [];
+  log.debug({
+    podName,
+    payloadCount: payloads.length,
+    model: parsed.result?.meta?.agentMeta?.model,
+    parsedKeys: Object.keys(parsed.result || parsed),
+  }, "chatViaExec: response structure");
+
   const rawText = payloads.map((p: any) => p.text || "").join("\n").trim();
 
   if (!rawText) {
     throw new Error("Bot returned an empty response");
   }
 
+  // Extract native thinking from the OpenClaw JSON response.
+  // Check multiple locations: top-level, result, individual payloads, and meta.
+  let nativeThinking = "";
+  // Check the parsed result object itself
+  const topThinking = extractThinking(parsed.result || parsed);
+  if (topThinking) nativeThinking = topThinking;
+  // Check individual payloads for thinking content blocks
+  if (!nativeThinking) {
+    for (const p of payloads) {
+      const payloadThinking = extractThinking(p);
+      if (payloadThinking) {
+        nativeThinking += (nativeThinking ? "\n" : "") + payloadThinking;
+      }
+    }
+  }
+
+  if (nativeThinking) {
+    log.debug({ podName, thinkingLen: nativeThinking.length }, "chatViaExec: extracted native thinking");
+  }
+
   // Deliver the full text as a single "delta" so the caller can emit it
   onDelta?.(rawText);
 
-  const { cleanText, uiBlocks, uiUpdates, componentDefs } = extractAllUIBlocks(rawText);
-  logger.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length }, "chatViaExec: response summary");
-  return { rawText, text: cleanText, uiBlocks, uiUpdates, componentDefs };
+  // Debug: log the tail of rawText to diagnose block extraction failures
+  const hasJarbleUiFence = rawText.includes("```jarble_ui");
+  const endsWithClosingFence = rawText.trimEnd().endsWith("```");
+  log.debug({ podName, hasJarbleUiFence, endsWithClosingFence, tail: rawText.slice(-200) }, "chatViaExec: raw text tail");
+
+  const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(rawText);
+  log.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length, hasNativeThinking: !!nativeThinking }, "chatViaExec: response summary");
+  return { rawText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking };
 }

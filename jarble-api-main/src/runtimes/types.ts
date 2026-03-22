@@ -58,6 +58,31 @@ export interface DeploymentFields {
   gatewayToken?: string;
   /** If true, deployment only uses messaging platforms (no web chat) — enables condensed prompt */
   messagingOnly?: boolean;
+  /** Management mode: "legacy" (K8s Deployment) or "operator" (OpenClaw CRD). Affects PVC paths. */
+  managedBy?: "legacy" | "operator";
+  /** Installed skills: array of { name, config } from deploymentSkills + skillsCatalog join */
+  skills?: Array<{ name: string; config: string }>;
+  /** Instruction snippets from installed packages — appended to soul.md */
+  packageSnippets?: Array<{ packageName: string; snippet: string }>;
+  /**
+   * Remote skill proxy configs from remote/hybrid package installs.
+   * Each entry describes a skill that should route through the Jarble proxy
+   * rather than calling the skill's default endpoint directly.
+   */
+  remoteSkillConfigs?: Array<{
+    packageId: string;
+    skillName: string;
+    proxyUrl: string;
+  }>;
+  /** Installed marketplace components — included in soul.md so the bot knows what's available */
+  installedComponents?: Array<{
+    name: string;
+    displayName: string;
+    description: string;
+    botDescription: string | null;
+    tier: string;
+    category: string;
+  }>;
 }
 
 /**

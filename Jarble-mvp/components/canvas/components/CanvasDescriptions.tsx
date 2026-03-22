@@ -28,8 +28,9 @@ function CanvasDescriptionsInner({
           {title}
         </h3>
       )}
-      <div
+      <dl
         className="w-full"
+        aria-label={title || "Descriptions"}
         style={{
           display: "grid",
           gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
@@ -56,16 +57,16 @@ function CanvasDescriptionsInner({
                 gridColumn: item.span ? `span ${item.span}` : undefined,
               }}
             >
-              <div className="text-xs text-muted-foreground font-medium">
+              <dt className="text-xs text-muted-foreground font-medium">
                 {item.label}
-              </div>
-              <div className="text-sm text-foreground mt-0.5">
+              </dt>
+              <dd className="text-sm text-foreground mt-0.5">
                 {item.value}
-              </div>
+              </dd>
             </div>
           );
         })}
-      </div>
+      </dl>
     </motion.div>
   );
 }

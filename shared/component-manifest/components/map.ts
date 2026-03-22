@@ -12,4 +12,5 @@ export const mapEntry: ComponentManifestEntry = {
   tags: ["map", "location", "geography", "markers"],
   builtin: true,
   renderOrder: 10,
+  promptGuidance: "Interactive Leaflet map. center is [lat, lng] tuple (NOT object). Use for location-based content, store locators, travel guides. For Google Maps embeds, use embed component instead.",
 };

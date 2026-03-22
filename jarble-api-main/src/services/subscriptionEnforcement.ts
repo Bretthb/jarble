@@ -3,6 +3,7 @@ import { eq, and, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { stopDeployment } from "../k8s/index.js";
 import { isStripeConfigured, getSubscriptionDetails } from "./stripe.js";
 import { logger } from "../utils/logger.js";
+import { safeFireAndForget } from "../utils/safeAsync.js";
 
 const { deployments, users } = tables;
 
@@ -49,11 +50,15 @@ async function checkDeploymentSubscription(dep: {
   id: string;
   userId: string;
   isFree: boolean;
+  isPlatform: boolean;
   freeExpiresAt: Date | null;
   stripeSubscriptionId: string | null;
   cancelAtPeriodEnd: Date | null;
   error: string | null;
 }): Promise<void> {
+  // Platform agents are always allowed to run — no subscription needed
+  if (dep.isPlatform) return;
+
   // Check 1: Free trial expiration
   if (dep.isFree && dep.freeExpiresAt) {
     const now = new Date();
@@ -250,11 +255,12 @@ export async function cleanupOrphanedDeployments(): Promise<void> {
   if (USE_SQLITE) return;
 
   try {
-    // Find running deployments that are not free and have no subscription
+    // Find running deployments that are not free, not platform-owned, and have no subscription
     const orphaned = await db.query.deployments.findMany({
       where: and(
         eq(deployments.status, "running"),
         eq(deployments.isFree, false),
+        eq(deployments.isPlatform, false),
         // No subscription ID
         or(
           isNull(deployments.stripeSubscriptionId),
@@ -306,12 +312,12 @@ export function startSubscriptionEnforcement(
   );
 
   // Run immediately on startup
-  void enforceSubscriptionStatus();
-  void cleanupOrphanedDeployments();
+  safeFireAndForget(enforceSubscriptionStatus(), { operation: "enforceSubscriptionStatus" });
+  safeFireAndForget(cleanupOrphanedDeployments(), { operation: "cleanupOrphanedDeployments" });
 
   // Schedule periodic checks
-  const primaryTimer = setInterval(() => void enforceSubscriptionStatus(), intervalMs);
-  const orphanTimer = setInterval(() => void cleanupOrphanedDeployments(), orphanIntervalMs);
+  const primaryTimer = setInterval(() => safeFireAndForget(enforceSubscriptionStatus(), { operation: "enforceSubscriptionStatus" }), intervalMs);
+  const orphanTimer = setInterval(() => safeFireAndForget(cleanupOrphanedDeployments(), { operation: "cleanupOrphanedDeployments" }), orphanIntervalMs);
 
   return { primaryTimer, orphanTimer };
 }

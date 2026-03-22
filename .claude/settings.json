@@ -1,0 +1,77 @@
+{
+  "mcpServers": {
+    "codegraphcontext": {
+      "command": "bash",
+      "args": ["scripts/cgc-mcp.sh"],
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    "jarble-debug": {
+      "command": "bash",
+      "args": ["scripts/jarble-debug-mcp.sh"],
+      "env": {
+        "JARBLE_API_URL": "http://localhost:3001"
+      }
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    },
+    "node-debugger": {
+      "command": "npx",
+      "args": ["-y", "@hyperdrive-eng/mcp-nodejs-debugger"]
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest", "--autoConnect"]
+    },
+    "task-master-ai": {
+      "command": "npx",
+      "args": ["-y", "task-master-ai"],
+      "env": {
+        "TASK_MASTER_TOOLS": "all"
+      }
+    },
+    "kubernetes": {
+      "command": "npx",
+      "args": ["-y", "mcp-server-kubernetes"]
+    },
+    "sentry": {
+      "command": "npx",
+      "args": ["-y", "@sentry/mcp-server-stdio"]
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          "bash scripts/claude-hooks/session-start.sh"
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          "bash scripts/claude-hooks/session-end.sh"
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          "node .claude/hooks/block-lockfiles.js"
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          "node .claude/hooks/format.js"
+        ],
+        "matcher": "Edit|Write"
+      }
+    ]
+  }
+}

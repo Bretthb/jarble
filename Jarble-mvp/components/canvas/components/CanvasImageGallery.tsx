@@ -28,6 +28,8 @@ function CanvasImageGalleryInner({
         <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>
       )}
       <div
+        role="list"
+        aria-label={title || "Image gallery"}
         className="grid gap-2"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
       >

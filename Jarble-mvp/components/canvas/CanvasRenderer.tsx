@@ -1,7 +1,9 @@
 "use client";
 
 import { memo, createContext, useContext, Component, type ReactNode } from "react";
-import { AlertTriangle, Wrench, X } from "lucide-react";
+import { AlertTriangle, Wrench, X, RotateCcw } from "lucide-react";
+import type { FixAttemptRecord } from "@/components/workspace/types";
+import { FIX_ATTEMPT_LIMIT, FIX_ATTEMPT_WINDOW_MS } from "@/components/workspace/types";
 import { CANVAS_COMPONENTS } from "./registry";
 import { useComponentCatalog } from "@/components/ComponentCatalogProvider";
 import CustomComponentRenderer from "./CustomComponentRenderer";
@@ -14,6 +16,13 @@ const isDev = process.env.NODE_ENV === "development";
 // Components that may be expensive to render — measure their render time
 const EXPENSIVE_COMPONENTS = new Set(["sandbox", "code_editor", "map", "spreadsheet", "chart"]);
 
+/** Check if fix attempts for a card have exceeded the rate limit. */
+function isFixRateLimited(record: FixAttemptRecord | undefined): boolean {
+  if (!record) return false;
+  if (Date.now() - record.windowStart > FIX_ATTEMPT_WINDOW_MS) return false;
+  return record.count >= FIX_ATTEMPT_LIMIT;
+}
+
 // ── Component Error Card ──────────────────────────────────────────────────────
 
 function ComponentErrorCard({
@@ -21,12 +30,18 @@ function ComponentErrorCard({
   error,
   blockId,
   onAction,
+  fixAttempt,
+  onResetFixAttempts,
 }: {
   componentName: string;
   error: string;
   blockId: string;
   onAction?: (action: CanvasAction) => void;
+  fixAttempt?: FixAttemptRecord;
+  onResetFixAttempts?: () => void;
 }) {
+  const rateLimited = isFixRateLimited(fixAttempt);
+
   return (
     <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-xs space-y-3">
       <div className="flex items-start gap-2 text-red-400">
@@ -40,20 +55,33 @@ function ComponentErrorCard({
       </div>
       {onAction && (
         <div className="flex items-center gap-2">
-          <button
-            onClick={() =>
-              onAction({
-                blockId,
-                component: componentName,
-                action: "component_error",
-                payload: { error, component: componentName },
-              })
-            }
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors text-xs font-medium"
-          >
-            <Wrench className="w-3 h-3" />
-            Fix Component
-          </button>
+          {rateLimited ? (
+            <button
+              onClick={onResetFixAttempts}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-500/20 text-zinc-400 hover:bg-zinc-500/30 transition-colors text-xs font-medium"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Sandbox timed out — click to retry
+            </button>
+          ) : (
+            <button
+              onClick={() =>
+                onAction({
+                  blockId,
+                  component: componentName,
+                  action: "component_error",
+                  payload: { error, component: componentName },
+                })
+              }
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors text-xs font-medium"
+            >
+              <Wrench className="w-3 h-3" />
+              Fix Component
+              {fixAttempt && fixAttempt.count > 0 && (
+                <span className="text-amber-300/60 ml-1">({fixAttempt.count}/{FIX_ATTEMPT_LIMIT})</span>
+              )}
+            </button>
+          )}
           <button
             onClick={() =>
               onAction({
@@ -102,6 +130,14 @@ class CanvasErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
     });
   }
 
+  // Reset error state when props change (e.g. bot sends corrected props)
+  componentDidUpdate(prevProps: ErrorBoundaryProps) {
+    if (this.state.error && prevProps.blockId === this.props.blockId &&
+        prevProps.children !== this.props.children) {
+      this.setState({ error: null });
+    }
+  }
+
   render() {
     if (this.state.error) {
       return (
@@ -124,6 +160,10 @@ export interface UIBlock {
   editable?: boolean;
   fileId?: string;
   saveMethod?: "mcp" | "chat";
+  /** LLM provider that generated this block (e.g. "anthropic", "openai") */
+  llmProvider?: string;
+  /** LLM model that generated this block (e.g. "claude-3-opus") */
+  llmModel?: string;
 }
 
 // Depth guard: prevent infinite recursion in nested layouts
@@ -138,12 +178,28 @@ const CanvasDepthContext = createContext(0);
 function CanvasRendererInner({
   block,
   onAction,
+  fixAttempt,
+  onRecordFixAttempt,
+  onResetFixAttempts,
 }: {
   block: UIBlock;
   onAction?: (action: CanvasAction) => void;
+  fixAttempt?: FixAttemptRecord;
+  onRecordFixAttempt?: () => void;
+  onResetFixAttempts?: () => void;
 }) {
   const depth = useContext(CanvasDepthContext);
   const { getCustomComponent } = useComponentCatalog();
+
+  // Wrap onAction to record fix attempts on component_error actions
+  const wrappedOnAction = onAction
+    ? (action: CanvasAction) => {
+        if (action.action === "component_error" && onRecordFixAttempt) {
+          onRecordFixAttempt();
+        }
+        onAction(action);
+      }
+    : undefined;
 
   if (depth >= MAX_DEPTH) {
     return (
@@ -177,6 +233,8 @@ function CanvasRendererInner({
           field: repair.field,
           from: typeof repair.from === "object" ? JSON.stringify(repair.from).slice(0, 100) : String(repair.from),
           to: typeof repair.to === "object" ? JSON.stringify(repair.to).slice(0, 100) : String(repair.to),
+          llmProvider: block.llmProvider,
+          llmModel: block.llmModel,
         },
       });
     }
@@ -206,21 +264,14 @@ function CanvasRendererInner({
   if (entry) {
     const result = entry.propsSchema.safeParse(fixed.props);
 
+    // Log validation issues but render anyway — LLMs often send slightly
+    // mismatched types (number instead of string) that components handle fine.
     if (!result.success) {
-      const errorMsg = result.error.issues.map((i) => i.message).join(", ");
-      isDev && console.warn("[Jarble:Render] Zod validation FAILED for", fixed.component, ":", result.error.issues, "\n  Raw props:", fixed.props);
-      return (
-        <ComponentErrorCard
-          componentName={fixed.component}
-          error={`Invalid props: ${errorMsg}`}
-          blockId={block.id}
-          onAction={onAction}
-        />
-      );
+      isDev && console.warn("[Jarble:Render] Zod validation warning for", fixed.component, ":", result.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; "));
     }
 
     const Component = entry.component;
-    const validatedProps = result.data as Record<string, unknown>;
+    const validatedProps = (result.success ? result.data : fixed.props) as Record<string, unknown>;
     const isExpensive = EXPENSIVE_COMPONENTS.has(fixed.component);
 
     isDev && console.log("[Jarble:Render] Rendering", fixed.component, "— props keys:", Object.keys(validatedProps), "block:", block.id);
@@ -239,13 +290,15 @@ function CanvasRendererInner({
 
     return (
       <CanvasDepthContext.Provider value={depth + 1}>
-        <CanvasErrorBoundary componentName={fixed.component} blockId={block.id} onAction={onAction}>
+        <CanvasErrorBoundary componentName={fixed.component} blockId={block.id} onAction={wrappedOnAction}>
           <CanvasActionProvider
             blockId={block.id}
             component={fixed.component}
-            onAction={onAction}
+            onAction={wrappedOnAction}
           >
-            <Component {...validatedProps} />
+            <div data-component={fixed.component} className="contents">
+              <Component {...validatedProps} />
+            </div>
           </CanvasActionProvider>
         </CanvasErrorBoundary>
       </CanvasDepthContext.Provider>
@@ -258,7 +311,7 @@ function CanvasRendererInner({
     isDev && console.log("[Jarble:Render] Rendering custom component:", fixed.component);
     return (
       <CanvasDepthContext.Provider value={depth + 1}>
-        <CanvasErrorBoundary componentName={fixed.component} blockId={block.id} onAction={onAction}>
+        <CanvasErrorBoundary componentName={fixed.component} blockId={block.id} onAction={wrappedOnAction}>
           <CustomComponentRenderer definition={customDef} props={fixed.props} />
         </CanvasErrorBoundary>
       </CanvasDepthContext.Provider>

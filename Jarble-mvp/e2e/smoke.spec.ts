@@ -7,9 +7,9 @@ test.describe("Smoke tests", () => {
     await expect(page).toHaveTitle(/Jarble/);
     // The nav bar renders the Jarble heading
     await expect(page.locator("nav h1")).toHaveText("Jarble");
-    // Core navigation links are visible
-    await expect(page.getByRole("link", { name: "About" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Pricing" })).toBeVisible();
+    // Core navigation links are visible (use .first() since About/Pricing appear in both nav and footer)
+    await expect(page.getByRole("link", { name: "About" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Pricing" }).first()).toBeVisible();
   });
 
   test("login page loads and renders sign-in UI", async ({ page }) => {

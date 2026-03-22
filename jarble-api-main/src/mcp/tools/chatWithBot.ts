@@ -1,4 +1,6 @@
 import { findPodForDeployment, execInPod } from "../../k8s/index.js";
+import type { ManagedBy } from "../../k8s/constants.js";
+import { getContainerName } from "../../k8s/constants.js";
 import { extractUIBlocks } from "../../utils/uiBlockParser.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
@@ -30,7 +32,10 @@ export const chatWithBotTool: McpTool = {
       };
     }
 
-    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false });
+    const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
+    const containerName = getContainerName(managedBy);
+
+    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false, managedBy });
     if (!podName) {
       return {
         success: false,
@@ -46,7 +51,7 @@ export const chatWithBotTool: McpTool = {
         "--session-id", sessionId,
         "--json",
         "--timeout", "30",
-      ]);
+      ], containerName);
 
       // Parse JSON response
       let parsed: any;

@@ -100,3 +100,17 @@ variable "domain" {
   type        = string
   default     = "jarble.ai"
 }
+
+# ─── Sandbox Isolation (Track B) ─────────────────────────────────────────────
+
+variable "enable_gvisor" {
+  description = "Create gVisor RuntimeClass (install runsc on workers first — see infrastructure/scripts/install-gvisor.sh)"
+  type        = bool
+  default     = false
+}
+
+variable "enable_kata" {
+  description = "Create Kata+CLH RuntimeClass (requires dedicated server with /dev/kvm — see infrastructure/scripts/install-kata.sh)"
+  type        = bool
+  default     = false
+}

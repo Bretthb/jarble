@@ -15,30 +15,31 @@ import {
   Rocket,
   Gift,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { motion, AnimatePresence } from "framer-motion";
-import { calculateMonthlyPriceCents } from "@/lib/pricing";
 import {
   getWizardSteps,
   detectProviderFromKey,
   getDefaultModelForProvider,
   DEFAULT_INCLUDED_MODEL,
-  DEFAULT_MANAGED_KEY_PLAN,
+  DEFAULT_CREDIT_PLAN,
   type LLMProviderDef,
 } from "./onboarding/wizardStepConfig";
-import type { KeyValidationStatus, RuntimeEntry } from "./onboarding/types";
+import type { KeyValidationStatus } from "./onboarding/types";
 import StepName from "./onboarding/steps/StepName";
+import StepChoosePersona from "./onboarding/steps/StepChoosePersona";
+import type { PersonaTemplate } from "./onboarding/steps/StepChoosePersona";
+import StepChooseRuntime from "./onboarding/steps/StepChooseRuntime";
 import StepLlmSetup from "./onboarding/steps/StepLlmSetup";
 import StepDeploy from "./onboarding/steps/StepDeploy";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 // ─── Main Component ──────────────────────────────────────────────────
 
 export default function OnboardingWizard() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
-  const { user, isAuthenticated, isLoading: authLoading, getAccessTokenSilently } = useAuth0();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
 
   // Step navigation
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -74,7 +75,7 @@ export default function OnboardingWizard() {
   const [llmProvider, setLlmProvider] = useState<LLMProviderDef["id"]>("openrouter");
   const [llmModel, setLlmModel] = useState<string>(DEFAULT_INCLUDED_MODEL);
   const [llmApiKey, setLlmApiKey] = useState("");
-  const [creditLimitDollars, setCreditLimitDollars] = useState<number>(DEFAULT_MANAGED_KEY_PLAN);
+  const [creditLimitDollars, setCreditLimitDollars] = useState<number>(DEFAULT_CREDIT_PLAN);
   const [linkToDeploymentId, setLinkToDeploymentId] = useState<string | null>(null);
   const [keyValidation, setKeyValidation] = useState<KeyValidationStatus>("idle");
   const [telegramBotToken, setTelegramBotToken] = useState<string | null>(null);
@@ -82,10 +83,11 @@ export default function OnboardingWizard() {
   const [createdDeploymentId, setCreatedDeploymentId] = useState<string | null>(null);
   const [deployPhase, setDeployPhase] = useState<"idle" | "deploying" | "pairing" | "paired">("idle");
 
-  // Stripe inline payment (Elements)
-  const [checkoutComplete, setCheckoutComplete] = useState(false);
-  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
-  const [isLoadingCheckout, setIsLoadingCheckout] = useState(false);
+  // Persona template state
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
+  const [selectedPersona, setSelectedPersona] = useState<PersonaTemplate | null>(null);
+  const [systemPrompt, setSystemPrompt] = useState<string | undefined>(undefined);
+  const [themeConfig, setThemeConfig] = useState<string | undefined>(undefined);
 
   // Telegram pairing poll mutation (used in deploy step after deploy succeeds)
   const pollTelegramMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
@@ -149,19 +151,6 @@ export default function OnboardingWizard() {
     }
   }, [steps.length, currentStepIndex]);
 
-  // Detect ?checkout=success return from Stripe Checkout redirect
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("checkout") === "success") {
-      setCheckoutComplete(true);
-      // Jump to deploy step
-      const deployIdx = steps.findIndex((s) => s.id === "deploy");
-      if (deployIdx >= 0) setCurrentStepIndex(deployIdx);
-      // Clean up URL
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Auto-detect provider when key changes
   useEffect(() => {
     if (llmMode === "byok" && llmApiKey.length >= 3) {
@@ -186,22 +175,6 @@ export default function OnboardingWizard() {
 
   // Fetch runtimes from API
   const runtimesQuery = trpc.runtimeCatalog.list.useQuery();
-
-  // Auto-select OpenClaw runtime (MVP: skip runtime selection step)
-  useEffect(() => {
-    if (runtimesQuery.data && selectedRuntimeId === null) {
-      const openclaw = runtimesQuery.data.find((r: RuntimeEntry) => r.slug === "openclaw");
-      if (openclaw) {
-        setSelectedRuntimeId(openclaw.id);
-        setSelectedRuntimeSlug(openclaw.slug);
-      } else if (runtimesQuery.data.length > 0) {
-        // Fallback: select first available runtime
-        const first = runtimesQuery.data[0] as RuntimeEntry;
-        setSelectedRuntimeId(first.id);
-        setSelectedRuntimeSlug(first.slug);
-      }
-    }
-  }, [runtimesQuery.data, selectedRuntimeId]);
 
   // Check free deployment status
   const canDeployQuery = trpc.deployment.canDeploy.useQuery(undefined, {
@@ -279,90 +252,20 @@ export default function OnboardingWizard() {
     });
   }, [llmApiKey, llmProvider, validateKeyMutation]);
 
-  // Create an incomplete Stripe subscription and get clientSecret for PaymentElement
-  const handleInitCheckout = useCallback(async () => {
-    setIsLoadingCheckout(true);
-    try {
-      const token = await getAccessTokenSilently();
-      const res = await fetch(`${API_URL}/api/stripe/checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          runtimeSlug: selectedRuntimeSlug,
-          cpuLimit: cpuLimit || undefined,
-          memoryMb: memoryMb || undefined,
-          storageMb: storageMb || undefined,
-          llmMode,
-          creditLimitDollars: llmMode === "included" && !linkToDeploymentId ? creditLimitDollars : undefined,
-          linkToDeploymentId: llmMode === "included" && linkToDeploymentId ? linkToDeploymentId : undefined,
-          inline: true,
-        }),
-      });
-      const data = await res.json();
-      if (data.clientSecret) {
-        setStripeClientSecret(data.clientSecret);
-      } else {
-        toast.error(data.error || "Failed to start checkout");
-      }
-    } catch {
-      toast.error("Failed to reach payment service");
-    } finally {
-      setIsLoadingCheckout(false);
-    }
-  }, [getAccessTokenSilently, selectedRuntimeSlug, cpuLimit, memoryMb, storageMb, llmMode, creditLimitDollars, linkToDeploymentId]);
-
-  // Reset payment form when hardware config changes (price changes)
-  useEffect(() => {
-    if (stripeClientSecret) {
-      setStripeClientSecret(null);
-    }
-  }, [cpuLimit, memoryMb, storageMb, llmMode, creditLimitDollars, linkToDeploymentId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Extract deploy logic so both handleNext and payment form can call it
-  const triggerDeploy = useCallback(() => {
-    if (!user?.email_verified) {
-      toast.error("Please verify your email before deploying.");
-      return;
-    }
-    setIsDeploying(true);
-    if (id !== "new") {
-      setCreatedDeploymentId(id);
-      deployMutation.mutate(id);
-    } else if (createdDeploymentId) {
-      deployMutation.mutate(createdDeploymentId);
-    } else {
-      createMutation.mutate({
-        name: deploymentName,
-        runtimeCatalogId: selectedRuntimeId!,
-        llmMode,
-        llmProvider: llmMode === "byok" ? llmProvider : "openrouter",
-        llmModel,
-        llmApiKey: llmMode === "byok" ? llmApiKey : undefined,
-        creditLimitDollars: llmMode === "included" && !linkToDeploymentId ? creditLimitDollars : undefined,
-        linkToDeploymentId: llmMode === "included" && linkToDeploymentId ? linkToDeploymentId : undefined,
-        cpuLimit: cpuLimit || undefined,
-        memoryMb: memoryMb || undefined,
-        storageMb: storageMb || undefined,
-      });
-    }
-  }, [user, id, createdDeploymentId, deploymentName, selectedRuntimeId, llmMode, llmProvider, llmModel, llmApiKey, creditLimitDollars, linkToDeploymentId, cpuLimit, memoryMb, storageMb, deployMutation, createMutation]);
-
   const canProceed = (): boolean => {
     switch (currentStepId) {
       case "name":
         return deploymentName.trim().length >= 2;
+      case "persona":
+        return true; // Persona is optional — user can always proceed
+      case "runtime":
+        return selectedRuntimeId !== null;
       case "llm":
         if (llmMode === "included") return true;
+        // BYOK requires a validated key
         return keyValidation === "valid";
-      case "deploy": {
-        const deployRuntime = runtimesQuery.data?.find((r: RuntimeEntry) => r.id === selectedRuntimeId);
-        const eCpu = cpuLimit ?? deployRuntime?.cpuLimit ?? "2.0";
-        const eMem = memoryMb ?? deployRuntime?.memoryMb ?? 2048;
-        const eSto = storageMb ?? deployRuntime?.storageMb ?? 30;
-        const dynamicPrice = calculateMonthlyPriceCents(eCpu, eMem, eSto);
-        const needsPayment = dynamicPrice > 0 && !checkoutComplete && !isFreeAvailable;
-        return !needsPayment;
-      }
+      case "deploy":
+        return true;
       default:
         return true;
     }
@@ -372,7 +275,35 @@ export default function OnboardingWizard() {
 
   const handleNext = async () => {
     if (currentStepId === "deploy" && !isDeploying && deployPhase === "idle") {
-      triggerDeploy();
+      setIsDeploying(true);
+      if (!user?.email_verified) {
+        toast.error("Please verify your email before deploying.");
+        setIsDeploying(false);
+        return;
+      }
+      if (id !== "new") {
+        setCreatedDeploymentId(id);
+        deployMutation.mutate(id);
+      } else if (createdDeploymentId) {
+        // Deployment already created but deploy failed — retry deploy only
+        deployMutation.mutate(createdDeploymentId);
+      } else {
+        createMutation.mutate({
+          name: deploymentName,
+          runtimeCatalogId: selectedRuntimeId!,
+          llmMode,
+          llmProvider: llmMode === "byok" ? llmProvider : "openrouter",
+          llmModel,
+          llmApiKey: llmMode === "byok" ? llmApiKey : undefined,
+          creditLimitDollars: llmMode === "included" && !linkToDeploymentId ? creditLimitDollars : undefined,
+          linkToDeploymentId: llmMode === "included" && linkToDeploymentId ? linkToDeploymentId : undefined,
+          cpuLimit: cpuLimit || undefined,
+          memoryMb: memoryMb || undefined,
+          storageMb: storageMb || undefined,
+          systemPrompt: systemPrompt || undefined,
+          personaTemplateId: selectedPersonaId || undefined,
+        });
+      }
     } else if (currentStepIndex < steps.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
     }
@@ -391,8 +322,38 @@ export default function OnboardingWizard() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-background text-foreground">
+        {/* Skeleton header */}
+        <header className="border-b border-border/60 bg-background sticky top-0 z-10">
+          <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Skeleton className="w-8 h-8 rounded" />
+              <Skeleton className="h-4 w-28" />
+            </div>
+            <div className="flex items-center gap-4">
+              <Skeleton className="h-3 w-8" />
+              <Skeleton className="w-8 h-8 rounded-full" />
+            </div>
+          </div>
+          <div className="w-full bg-secondary/40 h-1" />
+        </header>
+        <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+          {/* Skeleton step nav */}
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center">
+                <Skeleton className="h-7 w-20 rounded-full" />
+                {i < 4 && <div className="w-6 h-px mx-1 bg-border" />}
+              </div>
+            ))}
+          </div>
+          {/* Skeleton content area */}
+          <div className="space-y-4">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-4 w-72" />
+            <Skeleton className="h-12 w-full rounded-lg" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -461,12 +422,12 @@ export default function OnboardingWizard() {
                 <button
                   onClick={() => idx <= currentStepIndex && !hasDeployed && setCurrentStepIndex(idx)}
                   disabled={idx > currentStepIndex || hasDeployed}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                     isCurrent
                       ? "bg-primary text-primary-foreground"
                       : isCompleted
                       ? "bg-secondary text-foreground hover:bg-secondary/80 cursor-pointer"
-                      : "text-muted-foreground/50 cursor-not-allowed"
+                      : "text-muted-foreground-subtle cursor-not-allowed"
                   }`}
                 >
                   {isCompleted ? (
@@ -496,6 +457,48 @@ export default function OnboardingWizard() {
             >
               {currentStepId === "name" && (
                 <StepName name={deploymentName} setName={setDeploymentName} />
+              )}
+              {currentStepId === "persona" && (
+                <StepChoosePersona
+                  selectedPersonaId={selectedPersonaId}
+                  onSelect={(persona) => {
+                    if (persona) {
+                      setSelectedPersonaId(persona.id);
+                      setSelectedPersona(persona);
+                      setSystemPrompt(persona.systemPrompt);
+                      if (persona.defaultTheme) {
+                        setThemeConfig(JSON.stringify(persona.defaultTheme));
+                      }
+                      if (persona.suggestedLlm) {
+                        setLlmModel(persona.suggestedLlm);
+                      }
+                    } else {
+                      setSelectedPersonaId(null);
+                      setSelectedPersona(null);
+                      setSystemPrompt(undefined);
+                      setThemeConfig(undefined);
+                    }
+                  }}
+                  onSkip={() => {
+                    setSelectedPersonaId(null);
+                    setSelectedPersona(null);
+                    setSystemPrompt(undefined);
+                    setThemeConfig(undefined);
+                    // Advance to next step
+                    setCurrentStepIndex(currentStepIndex + 1);
+                  }}
+                />
+              )}
+              {currentStepId === "runtime" && (
+                <StepChooseRuntime
+                  runtimes={runtimesQuery.data ?? []}
+                  isLoading={runtimesQuery.isLoading}
+                  isError={runtimesQuery.isError}
+                  onRetry={() => runtimesQuery.refetch()}
+                  selectedId={selectedRuntimeId}
+                  onSelect={handleRuntimeSelect}
+                  isFreeAvailable={!!isFreeAvailable}
+                />
               )}
               {currentStepId === "llm" && (
                 <StepLlmSetup
@@ -530,8 +533,6 @@ export default function OnboardingWizard() {
                   llmMode={llmMode}
                   llmProvider={llmProvider}
                   llmModel={llmModel}
-                  creditLimitDollars={creditLimitDollars}
-                  linkToDeploymentId={linkToDeploymentId}
                   isFree={!!isFreeAvailable}
                   cpuLimit={cpuLimit}
                   setCpuLimit={setCpuLimit}
@@ -542,14 +543,9 @@ export default function OnboardingWizard() {
                   emailVerified={!!user?.email_verified}
                   deployPhase={deployPhase}
                   telegramBotUsername={telegramBotUsername}
-                  checkoutConfirmed={checkoutComplete}
-                  stripeClientSecret={stripeClientSecret}
-                  isLoadingCheckout={isLoadingCheckout}
-                  onInitCheckout={handleInitCheckout}
-                  onCheckoutComplete={() => setCheckoutComplete(true)}
                 />
               )}
-              {/* Telegram step removed — platform connections happen via Tambo chat after deploy */}
+              {/* Telegram step removed — platform connections happen via config panel after deploy */}
             </motion.div>
           </AnimatePresence>
         </div>

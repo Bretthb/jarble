@@ -12,4 +12,5 @@ export const imageGalleryEntry: ComponentManifestEntry = {
   tags: ["media", "images", "gallery", "photos"],
   builtin: true,
   renderOrder: 8,
+  promptGuidance: "Grid layout for multiple images with click-to-zoom. Use for photo collections, product galleries, portfolio showcases. Prefer over multiple separate image cards.",
 };

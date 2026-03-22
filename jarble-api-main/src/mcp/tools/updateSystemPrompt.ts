@@ -1,6 +1,7 @@
 import { db, tables, dbDate } from "../../db/index.js";
 import { eq } from "drizzle-orm";
 import { syncConfigsToPvc } from "../../services/configSync.js";
+import { safeFireAndForget } from "../../utils/safeAsync.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 
@@ -37,7 +38,7 @@ export const updateSystemPromptTool: McpTool = {
 
     // File-only change — configSync writes soul.md without restart
     if (ctx.deployment.status === "running") {
-      void syncConfigsToPvc(ctx.deploymentId);
+      safeFireAndForget(syncConfigsToPvc(ctx.deploymentId), { operation: "syncConfigsToPvc", deploymentId: ctx.deploymentId });
     }
 
     return {

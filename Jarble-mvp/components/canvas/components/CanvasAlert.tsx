@@ -9,26 +9,37 @@ export interface CanvasAlertProps {
   variant: "info" | "success" | "warning" | "error";
 }
 
-const VARIANT_STYLES: Record<CanvasAlertProps["variant"], { container: string; accent: string; iconBg: string }> = {
+const VARIANT_STYLES: Record<
+  CanvasAlertProps["variant"],
+  { text: string; gradient: string; iconBg: string; bgTint: string; iconShadow: string }
+> = {
   info: {
-    container: "text-blue-700 dark:text-blue-300",
-    accent: "bg-blue-500",
-    iconBg: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+    text: "text-blue-700 dark:text-blue-300",
+    gradient: "from-blue-400 to-blue-600",
+    iconBg: "bg-blue-100 dark:bg-blue-500/15 text-blue-600 dark:text-blue-400",
+    bgTint: "bg-gradient-to-br from-blue-50/40 to-transparent dark:from-blue-950/15 dark:to-transparent",
+    iconShadow: "shadow-blue-500/20 dark:shadow-blue-400/10",
   },
   success: {
-    container: "text-emerald-700 dark:text-emerald-300",
-    accent: "bg-emerald-500",
-    iconBg: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+    text: "text-emerald-700 dark:text-emerald-300",
+    gradient: "from-emerald-400 to-emerald-600",
+    iconBg: "bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+    bgTint: "bg-gradient-to-br from-emerald-50/40 to-transparent dark:from-emerald-950/15 dark:to-transparent",
+    iconShadow: "shadow-emerald-500/20 dark:shadow-emerald-400/10",
   },
   warning: {
-    container: "text-amber-700 dark:text-amber-300",
-    accent: "bg-amber-500",
-    iconBg: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+    text: "text-amber-700 dark:text-amber-300",
+    gradient: "from-amber-400 to-amber-600",
+    iconBg: "bg-amber-100 dark:bg-amber-500/15 text-amber-600 dark:text-amber-400",
+    bgTint: "bg-gradient-to-br from-amber-50/40 to-transparent dark:from-amber-950/15 dark:to-transparent",
+    iconShadow: "shadow-amber-500/20 dark:shadow-amber-400/10",
   },
   error: {
-    container: "text-red-700 dark:text-red-300",
-    accent: "bg-red-500",
-    iconBg: "bg-red-500/15 text-red-600 dark:text-red-400",
+    text: "text-red-700 dark:text-red-300",
+    gradient: "from-red-400 to-red-600",
+    iconBg: "bg-red-100 dark:bg-red-500/15 text-red-600 dark:text-red-400",
+    bgTint: "bg-gradient-to-br from-red-50/40 to-transparent dark:from-red-950/15 dark:to-transparent",
+    iconShadow: "shadow-red-500/20 dark:shadow-red-400/10",
   },
 };
 
@@ -83,16 +94,34 @@ function CanvasAlertInner({ title, message, variant }: CanvasAlertProps) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: "easeOut" }}
-      className={`relative overflow-hidden rounded-xl border border-border/40 bg-card/60 shadow-sm ${styles.container}`}
+      role="alert"
+      aria-live="polite"
+      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+      className={[
+        "relative overflow-hidden rounded-xl",
+        "border border-border/40",
+        "shadow-sm hover:shadow-md dark:shadow-md dark:shadow-black/15",
+        "dark:bg-white/[0.03] dark:backdrop-blur-sm",
+        "transition-shadow duration-300",
+        styles.text,
+        styles.bgTint,
+      ].join(" ")}
     >
-      {/* Left accent bar */}
-      <div className={`absolute left-0 top-0 bottom-0 w-1 ${styles.accent}`} />
+      {/* Gradient left accent bar */}
+      <div className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl bg-gradient-to-b ${styles.gradient}`} />
 
       <div className="flex items-start gap-3 p-4 pl-5">
-        <span className={`inline-flex items-center justify-center h-7 w-7 rounded-full shrink-0 ${styles.iconBg}`}>
+        {/* Icon circle with shadow */}
+        <span
+          className={[
+            "inline-flex items-center justify-center h-7 w-7 rounded-full shrink-0",
+            "shadow-sm",
+            styles.iconBg,
+            styles.iconShadow,
+          ].join(" ")}
+        >
           <Icon />
         </span>
         <div className="space-y-1 min-w-0">

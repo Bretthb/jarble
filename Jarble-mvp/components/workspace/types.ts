@@ -3,6 +3,21 @@
 export type LayoutHint = "full-width" | "half" | "third" | "compact" | "auto";
 export type CanvasMode = "dashboard" | "freeform";
 
+/** Tracks fix attempt frequency per card for rate limiting error loops. */
+export interface FixAttemptRecord {
+  count: number;
+  windowStart: number;
+}
+
+/** Max fix attempts before rate-limiting the "Fix Component" button. */
+export const FIX_ATTEMPT_LIMIT = 3;
+
+/** Window (ms) in which fix attempts are counted before resetting. */
+export const FIX_ATTEMPT_WINDOW_MS = 60_000;
+
+/** Maximum number of cards allowed on the canvas before eviction. */
+export const MAX_CANVAS_CARDS = 100;
+
 export interface CanvasCard {
   id: string;
   /** Registered component name (e.g. "chart", "sandbox", "text_message") */
@@ -29,6 +44,37 @@ export interface CanvasCard {
   savedName?: string;
   /** Dashboard grid layout hint: controls column span */
   layoutHint?: LayoutHint;
+  /** Whether this card is pinned (immune to canvas clears and eviction) */
+  pinned?: boolean;
+  /** Whether the original props were lost (e.g. trimmed by context window) */
+  propsLost?: boolean;
+  /** LLM provider that generated this card (e.g. "anthropic", "openai") */
+  llmProvider?: string;
+  /** LLM model that generated this card (e.g. "claude-3-opus") */
+  llmModel?: string;
+  /** Dashboard group this card belongs to */
+  groupId?: string;
+  /** Whether this card auto-sizes its height to fit content (default: true) */
+  autoHeight?: boolean;
+  /** ID of the card this one was derived from (provenance tracking) */
+  parentCardId?: string;
+  /** Accumulated CSP violations from sandbox iframe bridge (max 10) */
+  cspViolations?: Array<{
+    blockedURI: string;
+    violatedDirective: string;
+  }>;
+  /** Last render error message (from error boundary or sandbox) */
+  lastRenderError?: string;
+}
+
+export interface DrawStroke {
+  id: string;
+  points: Array<{ x: number; y: number }>;
+  color: string;
+  width: number;
+  opacity: number;       // 1.0 for pen, 0.4 for highlighter
+  pathData: string;      // Pre-computed SVG path d attribute
+  createdAt: number;
 }
 
 export interface CanvasState {
@@ -38,6 +84,14 @@ export interface CanvasState {
   nextZIndex: number;
   focusedCardId: string | null;
   mode: CanvasMode;
+  /** Per-card fix attempt tracking for error loop rate limiting. */
+  fixAttempts: Record<string, FixAttemptRecord>;
+  /** Dashboard groups: groupId -> metadata */
+  dashboardGroups: Record<string, { title: string; cardIds: string[] }>;
+  /** Freehand drawing strokes on the canvas */
+  strokes: DrawStroke[];
+  /** ID of a page card currently shown in fullscreen overlay (null = none) */
+  fullscreenPageId: string | null;
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -65,10 +119,28 @@ export type CanvasAction =
   | { type: "UPDATE_CARD_PROPS"; id: string; props: Record<string, unknown>; merge: boolean; component?: string }
   | { type: "SELECT_CARD"; id: string }
   | { type: "DESELECT_CARD" }
-  | { type: "SAVE_CARD"; id: string; savedName: string }
+  | { type: "SAVE_CARD"; id: string; savedName: string; fileId: string }
+  | { type: "UNSAVE_CARD"; id: string }
   | { type: "TIDY_LAYOUT"; containerWidth: number }
   | { type: "SET_CANVAS_MODE"; mode: CanvasMode }
-  | { type: "CLEAR_CANVAS" };
+  | { type: "CLEAR_CANVAS" }
+  | { type: "RECORD_FIX_ATTEMPT"; id: string }
+  | { type: "RESET_FIX_ATTEMPTS"; id: string }
+  | { type: "PIN_CARD"; id: string }
+  | { type: "UNPIN_CARD"; id: string }
+  | { type: "CREATE_DASHBOARD_GROUP"; groupId: string; title: string; cardIds: string[] }
+  | { type: "UNGROUP_DASHBOARD"; groupId: string }
+  | { type: "AUTO_HEIGHT_CARD"; id: string; height: number }
+  | { type: "RENAME_CARD"; id: string; title: string }
+  | { type: "UNGROUP_CARD"; id: string }
+  | { type: "ADD_STROKE"; stroke: DrawStroke }
+  | { type: "REMOVE_STROKE"; id: string }
+  | { type: "CLEAR_STROKES" }
+  | { type: "OPEN_PAGE_FULLSCREEN"; id: string }
+  | { type: "CLOSE_PAGE_FULLSCREEN" }
+  | { type: "UNGROUP_PAGE"; cardId: string }
+  | { type: "RECORD_CSP_VIOLATION"; id: string; violation: { blockedURI: string; violatedDirective: string } }
+  | { type: "RECORD_RENDER_ERROR"; id: string; error: string };
 
 // ── Splittable components config ────────────────────────────────────────────
 
@@ -207,4 +279,8 @@ export const INITIAL_CANVAS_STATE: CanvasState = {
   nextZIndex: 1,
   focusedCardId: null,
   mode: "dashboard",
+  fixAttempts: {},
+  dashboardGroups: {},
+  strokes: [],
+  fullscreenPageId: null,
 };

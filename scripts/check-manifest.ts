@@ -220,6 +220,48 @@ if (check3Errors === 0) {
   errors += check3Errors;
 }
 
+// Check 4: Every component has a corresponding generated JSON Schema
+console.log("\n--- Check 4: Generated JSON schemas ---");
+let check4Errors = 0;
+
+const generatedDataPath = join(ROOT, "shared", "component-manifest", "generated", "component-data.json");
+if (!existsSync(generatedDataPath)) {
+  console.error("  MISSING: component-data.json not found. Run: npx tsx scripts/generate-mcp-manifest.ts");
+  check4Errors++;
+} else {
+  const generatedData = JSON.parse(readFileSync(generatedDataPath, "utf-8"));
+  if (!generatedData.schemas || typeof generatedData.schemas !== "object") {
+    console.error("  MISSING: component-data.json has no 'schemas' field. Regenerate with: npx tsx scripts/generate-mcp-manifest.ts");
+    check4Errors++;
+  } else {
+    const schemaNames = Object.keys(generatedData.schemas);
+    console.log(`  Found ${schemaNames.length} generated schemas.`);
+
+    // Every non-alias manifest entry should have a schema
+    for (const name of manifestNames) {
+      if (SKIP_MANIFEST_TO_FILE.has(name)) continue;
+      if (!generatedData.schemas[name]) {
+        console.error(`  MISSING SCHEMA: manifest entry "${name}" has no generated JSON schema`);
+        check4Errors++;
+      }
+    }
+
+    // Every schema should have a manifest entry
+    for (const name of schemaNames) {
+      if (!manifestNameSet.has(name)) {
+        console.error(`  EXTRA SCHEMA: schema "${name}" has no manifest entry`);
+        check4Errors++;
+      }
+    }
+  }
+}
+
+if (check4Errors === 0) {
+  console.log("  All components have matching generated schemas.");
+} else {
+  errors += check4Errors;
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 
 console.log("");

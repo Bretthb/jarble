@@ -21,6 +21,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { ModelTabProps } from "./types";
+import { LLM_MODELS, getModelsForProvider } from "@/views/onboarding/wizardStepConfig";
 
 const PROVIDERS = [
   { id: "jarble", name: "Jarble Managed", description: "We handle everything" },
@@ -34,35 +35,21 @@ const PROVIDER_NAMES: Record<string, string> = {
   anthropic: "Anthropic", openai: "OpenAI", google: "Google",
 };
 
-const BYOK_MODELS: Record<string, { id: string; name: string }[]> = {
-  anthropic: [
-    { id: "claude-opus-4.5", name: "Claude Opus 4.5" },
-    { id: "claude-sonnet-4", name: "Claude Sonnet 4" },
-    { id: "claude-haiku", name: "Claude Haiku" },
-  ],
-  openai: [
-    { id: "gpt-4o", name: "GPT-4o" },
-    { id: "gpt-4-turbo", name: "GPT-4 Turbo" },
-    { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" },
-  ],
-  google: [
-    { id: "gemini-2.0-pro", name: "Gemini 2.0 Pro" },
-    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
-  ],
-};
+// Derive BYOK and managed model lists from the canonical LLM_MODELS
+function getByokModels(provider: string) {
+  return getModelsForProvider(provider);
+}
 
-// Jarble Managed uses OpenRouter — all models are available
-const MANAGED_MODELS = [
-  { id: "openrouter/auto", name: "Auto (Recommended)", group: "OpenRouter" },
-  { id: "anthropic/claude-opus-4.5", name: "Claude Opus 4.5", group: "Anthropic" },
-  { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", group: "Anthropic" },
-  { id: "anthropic/claude-haiku", name: "Claude Haiku", group: "Anthropic" },
-  { id: "openai/gpt-4o", name: "GPT-4o", group: "OpenAI" },
-  { id: "openai/gpt-4-turbo", name: "GPT-4 Turbo", group: "OpenAI" },
-  { id: "openai/gpt-3.5-turbo", name: "GPT-3.5 Turbo", group: "OpenAI" },
-  { id: "google/gemini-2.0-pro", name: "Gemini 2.0 Pro", group: "Google" },
-  { id: "google/gemini-2.0-flash", name: "Gemini 2.0 Flash", group: "Google" },
-];
+function getManagedModels() {
+  const models = getModelsForProvider("openrouter");
+  // Group by prefix before the slash
+  return models.map((m) => {
+    const slashIdx = m.id.indexOf("/");
+    const group = slashIdx > 0 ? m.id.slice(0, slashIdx) : "Other";
+    const groupName = group.charAt(0).toUpperCase() + group.slice(1);
+    return { ...m, group: groupName === "Openrouter" ? "OpenRouter" : groupName };
+  });
+}
 
 export function ModelTab({ formData, updateFormData, deployment, deploymentId }: ModelTabProps) {
   const dep = deployment as any;
@@ -100,9 +87,11 @@ export function ModelTab({ formData, updateFormData, deployment, deploymentId }:
                     updateFormData("modelProvider", provider.id);
                     // Set default model based on mode
                     if (provider.id === "jarble") {
-                      updateFormData("modelName", MANAGED_MODELS[0].id);
+                      const managed = getManagedModels();
+                      updateFormData("modelName", managed[0]?.id || "openrouter/auto");
                     } else {
-                      updateFormData("modelName", BYOK_MODELS[provider.id]?.[0]?.id || "");
+                      const models = getByokModels(provider.id);
+                      updateFormData("modelName", models[0]?.id || "");
                     }
                   }}
                   className={`p-4 rounded-lg border-2 text-left transition-all ${
@@ -119,45 +108,11 @@ export function ModelTab({ formData, updateFormData, deployment, deploymentId }:
           </div>
 
           {formData.modelProvider && (
-            <div>
-              <Label htmlFor="modelName" className="mb-2 block">Model</Label>
-              {isJarbleManaged ? (
-                <select
-                  id="modelName"
-                  value={formData.modelName}
-                  onChange={(e) => updateFormData("modelName", e.target.value)}
-                  className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  {Object.entries(
-                    MANAGED_MODELS.reduce<Record<string, typeof MANAGED_MODELS>>((acc, m) => {
-                      (acc[m.group] ??= []).push(m);
-                      return acc;
-                    }, {})
-                  ).map(([group, models]) => (
-                    <optgroup key={group} label={group}>
-                      {models.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-              ) : (
-                <select
-                  id="modelName"
-                  value={formData.modelName}
-                  onChange={(e) => updateFormData("modelName", e.target.value)}
-                  className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  {BYOK_MODELS[formData.modelProvider]?.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
+            <ModelCombobox
+              value={formData.modelName}
+              onChange={(v) => updateFormData("modelName", v)}
+              models={isJarbleManaged ? getManagedModels() : getByokModels(formData.modelProvider)}
+            />
           )}
         </div>
       )}
@@ -641,5 +596,71 @@ function ByokKeySection({
         </p>
       )}
     </Card>
+  );
+}
+
+// ─── Model Combobox — dropdown with "Custom..." freeform option ──────────
+
+function ModelCombobox({
+  value,
+  onChange,
+  models,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  models: { id: string; name: string }[];
+}) {
+  const [customMode, setCustomMode] = useState(false);
+  const isInList = models.some((m) => m.id === value);
+
+  return (
+    <div>
+      <Label htmlFor="modelName" className="mb-2 block">Model</Label>
+      {!customMode ? (
+        <>
+          <select
+            id="modelName"
+            value={isInList ? value : "__current__"}
+            onChange={(e) => {
+              if (e.target.value === "__custom__") {
+                setCustomMode(true);
+                onChange("");
+              } else if (e.target.value !== "__current__") {
+                onChange(e.target.value);
+              }
+            }}
+            className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            {value && !isInList && (
+              <option value="__current__">{value} (current)</option>
+            )}
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+            <option value="__custom__">Custom model ID...</option>
+          </select>
+        </>
+      ) : (
+        <div className="space-y-1.5">
+          <Input
+            id="modelName"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="e.g. claude-opus-4-6-20250610"
+            autoFocus
+            className="bg-secondary/50 border-border font-mono"
+          />
+          <button
+            onClick={() => setCustomMode(false)}
+            className="text-xs text-primary hover:underline"
+          >
+            Back to dropdown
+          </button>
+        </div>
+      )}
+      <p className="text-[10px] text-muted-foreground mt-1.5">
+        Pick from known models or type any model ID your provider supports.
+      </p>
+    </div>
   );
 }

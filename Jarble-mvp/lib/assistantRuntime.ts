@@ -8,7 +8,7 @@
  * edit / regenerate / copy-to-clipboard features for free.
  */
 
-import { useCallback } from "react";
+import { useMemo, useCallback } from "react";
 import {
   useExternalStoreRuntime,
   type ThreadMessageLike,
@@ -17,22 +17,30 @@ import type { ChatMessage } from "@/hooks/useCanvasChat";
 
 interface JarbleRuntimeOptions {
   messages: ChatMessage[];
+  streamingText: string;
+  streamingReasoning?: string;
   isStreaming: boolean;
   sendMessage: (text: string, displayText?: string) => Promise<void>;
+  suggestions?: Array<{ prompt: string }>;
+  stopGeneration?: () => void;
+  editMessage?: (messageId: string, newText: string) => Promise<void>;
 }
 
 function convertMessage(msg: ChatMessage): ThreadMessageLike {
-  const content: Array<{ type: "text"; text: string } | { type: "reasoning"; text: string }> = [];
+  // Build content parts — include reasoning before text if available
+  const contentParts: Array<
+    | { type: "text"; text: string }
+    | { type: "reasoning"; text: string }
+  > = [];
 
-  // Add reasoning part before text if present
-  if (msg.thinkingText) {
-    content.push({ type: "reasoning" as const, text: msg.thinkingText });
+  if (msg.reasoning) {
+    contentParts.push({ type: "reasoning" as const, text: msg.reasoning });
   }
-  content.push({ type: "text" as const, text: msg.displayText || msg.content });
+  contentParts.push({ type: "text" as const, text: msg.displayText || msg.content });
 
   return {
     role: msg.role,
-    content,
+    content: contentParts,
     id: msg.id,
     createdAt: new Date(msg.createdAt),
     // Action relay messages are shown as compact user messages
@@ -48,9 +56,37 @@ function convertMessage(msg: ChatMessage): ThreadMessageLike {
 
 export function useJarbleRuntime({
   messages,
+  streamingText,
+  streamingReasoning = "",
   isStreaming,
   sendMessage,
+  suggestions = [],
+  stopGeneration,
+  editMessage,
 }: JarbleRuntimeOptions) {
+  // Build display messages: stored messages + optional streaming-in-progress message
+  // Deduplicate by id to prevent assistant-ui MessageRepository crashes from
+  // stale localStorage data containing duplicate message IDs.
+  const displayMessages = useMemo(() => {
+    const seen = new Set<string>();
+    const deduped: typeof messages = [];
+    for (const msg of messages) {
+      if (!seen.has(msg.id)) {
+        seen.add(msg.id);
+        deduped.push(msg);
+      }
+    }
+    if (streamingText || streamingReasoning) {
+      deduped.push({
+        id: "streaming-in-progress",
+        role: "assistant",
+        content: streamingText,
+        createdAt: Date.now(),
+        ...(streamingReasoning ? { reasoning: streamingReasoning } : {}),
+      });
+    }
+    return deduped;
+  }, [messages, streamingText, streamingReasoning]);
 
   const onNew = useCallback(
     async (message: { content: readonly { type: string; text?: string }[] }) => {
@@ -63,10 +99,29 @@ export function useJarbleRuntime({
     [sendMessage],
   );
 
+  const onCancel = useCallback(async () => {
+    stopGeneration?.();
+  }, [stopGeneration]);
+
+  const onEdit = useCallback(
+    async (message: { parentId?: string | null; content: readonly { type: string; text?: string }[] }) => {
+      if (!editMessage || !message.parentId) return;
+      const text = message.content
+        .filter((p): p is { type: "text"; text: string } => p.type === "text")
+        .map((p) => p.text)
+        .join("");
+      if (text) await editMessage(message.parentId, text);
+    },
+    [editMessage],
+  );
+
   return useExternalStoreRuntime<ChatMessage>({
-    messages,
+    messages: displayMessages,
     convertMessage,
     isRunning: isStreaming,
     onNew,
+    onCancel,
+    suggestions,
+    ...(editMessage ? { onEdit } : {}),
   });
 }

@@ -9,11 +9,17 @@ import CanvasHeader from "@/components/canvas/components/CanvasHeader";
 import CanvasCodeBlock from "@/components/canvas/components/CanvasCodeBlock";
 import CanvasMetricCard from "@/components/canvas/components/CanvasMetricCard";
 import CanvasStatGrid from "@/components/canvas/components/CanvasStatGrid";
+import CanvasKeyValue from "@/components/canvas/components/CanvasKeyValue";
+import CanvasTabs from "@/components/canvas/components/CanvasTabs";
+import CanvasAccordion from "@/components/canvas/components/CanvasAccordion";
 // ── Newly registered components ──────────────────────────────────────
 import CanvasAudio from "@/components/canvas/components/CanvasAudio";
 import CanvasAvatar from "@/components/canvas/components/CanvasAvatar";
 import CanvasBlockquote from "@/components/canvas/components/CanvasBlockquote";
 import CanvasTextMessage from "@/components/canvas/components/CanvasTextMessage";
+import CanvasReasoning from "@/components/canvas/components/CanvasReasoning";
+import CanvasTool from "@/components/canvas/components/CanvasTool";
+import CanvasSources from "@/components/canvas/components/CanvasSources";
 import dynamic from "next/dynamic";
 
 const CanvasImageGallery = dynamic(() => import("@/components/canvas/components/CanvasImageGallery"), { ssr: false });
@@ -32,12 +38,92 @@ export default function TestComponentsPage() {
       <p className="text-sm text-muted-foreground mb-8">36 registered components — existing + 12 newly registered</p>
 
       {/* ══════════════════════════════════════════════════════════════════ */}
-      <h2 className="text-xl font-bold mt-12 mb-4 pt-8 border-t-2 border-primary/30">NEW: 12 Newly Registered Components</h2>
+      <h2 className="text-xl font-bold mt-12 mb-4 pt-8 border-t-2 border-primary/30">NEW: Agent Components (reasoning, tool, sources)</h2>
+
+      {/* Reasoning */}
+      <section className="space-y-3">
+        <p className="text-xs text-muted-foreground mb-2">CanvasReasoning</p>
+        <div className="space-y-4 rounded-lg border border-border/40">
+          <CanvasReasoning
+            title="Analyzing deployment metrics..."
+            content="Looking at the error rate spike at 2:15 PM. Cross-referencing with deployment logs shows a new version was deployed at 2:12 PM. The error pattern matches a database connection pool exhaustion issue. Need to check if the connection limit was changed in the new config."
+            collapsed={false}
+            duration={3.2}
+            steps={[
+              { label: "Identify error pattern", description: "Matched to connection pool exhaustion", status: "complete" },
+              { label: "Correlate with deployments", description: "Found deployment at 2:12 PM", status: "complete" },
+              { label: "Check configuration diff", description: "Reviewing pool size changes", status: "active" },
+              { label: "Recommend fix", status: "pending" },
+            ]}
+          />
+        </div>
+        <div className="rounded-lg border border-border/40">
+          <CanvasReasoning
+            title="Quick check"
+            content="The API key format looks correct (sk-ant-... prefix). Proceeding with validation."
+            collapsed={true}
+            duration={0.4}
+          />
+        </div>
+      </section>
+
+      {/* Tool */}
+      <section className="space-y-3">
+        <p className="text-xs text-muted-foreground mb-2">CanvasTool</p>
+        <div className="space-y-4">
+          <div className="rounded-lg border border-border/40">
+            <CanvasTool
+              name="search_web"
+              description="Search the web for current information"
+              status="complete"
+              inputs={{ query: "Jarble AI bot platform pricing 2026", max_results: 5 }}
+              output={{ results: [{ title: "Jarble Pricing", url: "https://jarble.ai/pricing" }] }}
+              duration={1.8}
+            />
+          </div>
+          <div className="rounded-lg border border-border/40">
+            <CanvasTool
+              name="render_ui"
+              description="Render a UI component on the canvas"
+              status="running"
+              inputs={{ component: "chart", props: { type: "line", title: "Revenue" } }}
+            />
+          </div>
+          <div className="rounded-lg border border-border/40">
+            <CanvasTool
+              name="query_database"
+              description="Execute a SQL query"
+              status="error"
+              inputs={{ sql: "SELECT * FROM users WHERE active = true" }}
+              error="Connection refused: database server is not responding on port 5432"
+              duration={5.0}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Sources */}
+      <section className="space-y-3">
+        <p className="text-xs text-muted-foreground mb-2">CanvasSources</p>
+        <div className="rounded-lg border border-border/40">
+          <CanvasSources
+            title="References"
+            items={[
+              { title: "Jarble Documentation - Getting Started", url: "https://docs.jarble.ai/getting-started", snippet: "Jarble is a no-code AI bot deployment platform that lets users deploy LLM-powered bots to messaging platforms without coding.", icon: "📖", relevance: 0.95 },
+              { title: "OpenClaw Runtime Configuration", url: "https://docs.jarble.ai/runtimes/openclaw", snippet: "The OpenClaw runtime supports WhatsApp, Discord, Slack, and Telegram channels with configurable DM policies.", icon: "⚙️", relevance: 0.82 },
+              { title: "MCP UI Server Reference", snippet: "The MCP UI server exposes render_ui, define_component, list_components, and component_reference tools for rich UI rendering.", icon: "🔧", relevance: 0.71 },
+              { title: "Kubernetes Pod Security Best Practices", url: "https://kubernetes.io/docs/concepts/security/pod-security-standards/", relevance: 0.45 },
+            ]}
+          />
+        </div>
+      </section>
+
+      <h2 className="text-xl font-bold mt-12 mb-4 pt-8 border-t-2 border-primary/30">Previously Added Components</h2>
 
       {/* Avatar */}
       <section className="space-y-3">
         <p className="text-xs text-muted-foreground mb-2">CanvasAvatar</p>
-        <div className="grid grid-cols-3 gap-4 rounded-lg border border-border/40 p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-lg border border-border/40 p-4">
           <CanvasAvatar name="Jane Smith" subtitle="Senior Engineer" size="lg" />
           <CanvasAvatar name="Bob Chen" subtitle="Product Manager" size="md" />
           <CanvasAvatar name="Alice K" subtitle="Designer" size="sm" />
@@ -45,7 +131,7 @@ export default function TestComponentsPage() {
       </section>
 
       {/* Blockquote */}
-      <section className="space-y-3">
+      <section data-testid="blockquote-section" className="space-y-3">
         <p className="text-xs text-muted-foreground mb-2">CanvasBlockquote</p>
         <div className="space-y-3 rounded-lg border border-border/40 p-4">
           <CanvasBlockquote text="The best way to predict the future is to invent it." attribution="Alan Kay" variant="default" />
@@ -105,7 +191,7 @@ export default function TestComponentsPage() {
       {/* Statistic */}
       <section className="space-y-3">
         <p className="text-xs text-muted-foreground mb-2">CanvasStatistic</p>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="rounded-lg border border-border/40">
             <CanvasStatistic value={99.97} title="Uptime" suffix="%" precision={2} />
           </div>
@@ -265,7 +351,7 @@ export default function TestComponentsPage() {
       {/* Metric Cards */}
       <section className="space-y-3">
         <p className="text-xs text-muted-foreground mb-2">CanvasMetricCard</p>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="rounded-lg overflow-hidden border border-border/40">
             <CanvasMetricCard label="Revenue" value="$2.4M" change="+12.5%" trend="up" />
           </div>
@@ -331,6 +417,47 @@ export default function TestComponentsPage() {
             { text: "Run Test Suite", icon: "🧪", description: "142 tests" },
             { text: "Review PRs", icon: "📝", badge: "3 pending", badgeVariant: "warning" },
           ]}
+        />
+      </section>
+
+      {/* Key-Value */}
+      <section data-testid="keyvalue-section">
+        <p className="text-xs text-muted-foreground mb-2">CanvasKeyValue</p>
+        <CanvasKeyValue
+          title="Server Details"
+          items={[
+            { key: "Hostname", value: "prod-east-1.jarble.ai" },
+            { key: "CPU Cores", value: 8 },
+            { key: "Memory", value: "32 GB" },
+            { key: "Uptime", value: "99.97%" },
+            { key: "Region", value: "us-east-1" },
+          ]}
+        />
+      </section>
+
+      {/* Tabs */}
+      <section data-testid="tabs-section">
+        <p className="text-xs text-muted-foreground mb-2">CanvasTabs</p>
+        <CanvasTabs
+          tabs={[
+            { label: "Overview", content: "This is the overview tab with general information about the deployment." },
+            { label: "Metrics", content: "CPU: 42% | Memory: 6.2 GB | Network: 2.1 Gbps" },
+            { label: "Logs", content: "[2026-03-16 10:00:00] INFO: Server started\n[2026-03-16 10:00:01] INFO: Connected to database" },
+          ]}
+          defaultTab={0}
+        />
+      </section>
+
+      {/* Accordion */}
+      <section data-testid="accordion-section">
+        <p className="text-xs text-muted-foreground mb-2">CanvasAccordion</p>
+        <CanvasAccordion
+          items={[
+            { title: "What is Jarble?", content: "Jarble is a no-code AI bot deployment platform that lets users deploy LLM-powered bots to messaging platforms without coding.", defaultOpen: true },
+            { title: "Which platforms are supported?", content: "WhatsApp, Discord, Slack, and Telegram are all supported out of the box." },
+            { title: "How does billing work?", content: "We offer a free tier with basic features and paid plans for advanced usage. Check our pricing page for details." },
+          ]}
+          type="multiple"
         />
       </section>
     </div>

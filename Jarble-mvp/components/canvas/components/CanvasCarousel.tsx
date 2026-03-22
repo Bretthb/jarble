@@ -44,7 +44,7 @@ function CanvasCarouselInner({
       transition={{ duration: 0.3 }}
       className="p-4 h-full"
     >
-      <div className="relative">
+      <div className="relative" role="region" aria-label="Carousel" aria-roledescription="carousel">
         {/* Slide content */}
         <div className="flex flex-col items-center justify-center gap-3 p-6 min-h-[200px]">
           {currentItem.image && (

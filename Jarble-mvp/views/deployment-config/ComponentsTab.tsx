@@ -73,7 +73,7 @@ export function ComponentsTab({ deploymentId, deploymentStatus }: ComponentsTabP
           <p className="text-sm text-muted-foreground mb-1">
             Deployment is not running
           </p>
-          <p className="text-xs text-muted-foreground/70">
+          <p className="text-xs text-muted-foreground-subtle">
             Start the deployment to manage marketplace components.
           </p>
         </div>
@@ -189,7 +189,7 @@ export function ComponentsTab({ deploymentId, deploymentStatus }: ComponentsTabP
                             </Badge>
                           )}
                         </div>
-                        <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                        <p className="text-[11px] text-muted-foreground-subtle mt-1.5">
                           Installed{" "}
                           {new Date(item.installedAt).toLocaleDateString()}
                         </p>

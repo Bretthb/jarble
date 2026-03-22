@@ -4,8 +4,8 @@
  * ComponentCatalogProvider — React context that fetches and caches the
  * per-deployment component catalog (built-in + custom).
  *
- * Wrap this around DeploymentTamboProvider so both the canvas renderer
- * and Tambo can access custom component definitions.
+ * Wrap this around the deployment page so the canvas renderer
+ * can access custom component definitions.
  */
 
 import { createContext, useContext, useCallback, useMemo, useState } from "react";

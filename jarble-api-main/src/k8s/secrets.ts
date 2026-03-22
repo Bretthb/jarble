@@ -1,4 +1,6 @@
-import { logger } from "../utils/logger.js";
+import { createModuleLogger } from "../utils/logger.js";
+
+const log = createModuleLogger("k8s:secrets");
 import { coreApi } from "./client.js";
 import { NAMESPACE } from "./constants.js";
 
@@ -43,7 +45,7 @@ export async function updateDeploymentSecret(
       }
     } catch {
       // If we can't read the existing secret, proceed without the token
-      logger.warn({ deploymentId }, "updateDeploymentSecret: could not read existing gateway token");
+      log.warn({ deploymentId }, "updateDeploymentSecret: could not read existing gateway token");
     }
   }
 
@@ -58,7 +60,7 @@ export async function updateDeploymentSecret(
     }
   );
 
-  logger.info({ deploymentId, entryCount: Object.keys(fullData).length }, "K8s Secret updated");
+  log.info({ deploymentId, entryCount: Object.keys(fullData).length }, "K8s Secret updated");
 }
 
 /**
@@ -77,7 +79,8 @@ export async function readCurrentSecretData(
       decoded[key] = Buffer.from(value as string, "base64").toString("utf-8");
     }
     return decoded;
-  } catch {
+  } catch (err) {
+    log.warn({ deploymentId, err }, "readCurrentSecretData: failed to read K8s secret");
     return null;
   }
 }

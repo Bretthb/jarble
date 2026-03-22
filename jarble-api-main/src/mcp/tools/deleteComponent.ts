@@ -2,6 +2,7 @@
  * delete_component MCP Tool — Remove a custom component definition from the bot's PVC.
  */
 import { deleteComponentFromPvc } from "../../k8s/index.js";
+import type { ManagedBy } from "../../k8s/constants.js";
 import {
   validateComponentName,
   BUILTIN_COMPONENTS,
@@ -45,7 +46,8 @@ export const deleteComponentTool: McpTool = {
     }
 
     try {
-      const deleted = await deleteComponentFromPvc(ctx.deploymentId, name);
+      const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
+      const deleted = await deleteComponentFromPvc(ctx.deploymentId, name, managedBy);
 
       if (!deleted) {
         return {

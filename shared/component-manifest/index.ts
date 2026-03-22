@@ -34,9 +34,11 @@ import { buttonGroupEntry } from "./components/button_group.js";
 import { formEntry } from "./components/form.js";
 import { codeEditorEntry } from "./components/code_editor.js";
 import { spreadsheetEntry } from "./components/spreadsheet.js";
-import { sandboxEntry } from "./components/sandbox.js";
+import { sandboxEntry, SANDBOX_SDK_VERSION } from "./components/sandbox.js";
 import { marketplaceSandboxEntry } from "./components/marketplace_sandbox.js";
+import { sandpackSandboxEntry } from "./components/sandpack_sandbox.js";
 import { videoEntry } from "./components/video.js";
+import { embedEntry } from "./components/embed.js";
 import { audioEntry } from "./components/audio.js";
 import { avatarEntry } from "./components/avatar.js";
 import { blockquoteEntry } from "./components/blockquote.js";
@@ -50,6 +52,11 @@ import { carouselEntry } from "./components/carousel.js";
 import { statisticEntry } from "./components/statistic.js";
 import { tagCloudEntry } from "./components/tag_cloud.js";
 import { treeEntry } from "./components/tree.js";
+import { reasoningEntry } from "./components/reasoning.js";
+import { toolEntry } from "./components/tool.js";
+import { sourcesEntry } from "./components/sources.js";
+import { pageEntry } from "./components/page.js";
+import { confirmationEntry } from "./components/confirmation.js";
 
 import type { ComponentManifestEntry } from "./types.js";
 
@@ -84,7 +91,9 @@ export const COMPONENT_MANIFEST: Record<string, ComponentManifestEntry> = {
   spreadsheet: spreadsheetEntry,
   sandbox: sandboxEntry,
   marketplace_sandbox: marketplaceSandboxEntry,
+  sandpack_sandbox: sandpackSandboxEntry,
   video: videoEntry,
+  embed: embedEntry,
   // Alias: LLMs often say "canvas" when they mean "sandbox"
   canvas: { ...sandboxEntry, name: "canvas", aliases: [] },
   audio: audioEntry,
@@ -100,6 +109,11 @@ export const COMPONENT_MANIFEST: Record<string, ComponentManifestEntry> = {
   statistic: statisticEntry,
   tag_cloud: tagCloudEntry,
   tree: treeEntry,
+  reasoning: reasoningEntry,
+  tool: toolEntry,
+  sources: sourcesEntry,
+  page: pageEntry,
+  confirmation: confirmationEntry,
 };
 
 // ── Derived exports ───────────────────────────────────────────────────────────
@@ -140,6 +154,13 @@ export { generatePromptReference } from "./derive/promptText.js";
 export { generateMcpReference, getComponentReference, getComponentDescriptions } from "./derive/mcpReference.js";
 export { deriveComponentNames, deriveComponentNameSet } from "./derive/nameList.js";
 export type { ComponentManifestEntry, LayoutHintType, ComponentCategory, LoadingStrategy } from "./types.js";
+export { TRUSTED_CDN_ORIGINS, TRUSTED_EMBED_ORIGINS } from "./security.js";
+export { SANDBOX_SDK_VERSION } from "./components/sandbox.js";
+export { BOT_SKILLS } from "./skills/index.js";
+export { PAGE_TEMPLATES } from "./pages/templates.js";
+export type { PageType, PageSectionDef, PageTemplateDef } from "./pages/types.js";
+export { THEME_PRESETS, THEME_PRESET_NAMES, THEME_COLOR_KEYS, SKIN_NAMES, resolveThemeVars, validateThemeConfig } from "./themes.js";
+export type { ThemeConfig, ThemeColorKey, SkinName } from "./themes.js";
 
 // Re-export individual schemas for direct imports
 export {
@@ -168,11 +189,13 @@ export {
   sandboxSchema,
   marketplaceSandboxSchema,
   videoSchema,
+  embedSchema,
   audioSchema,
   avatarSchema,
   blockquoteSchema,
   textMessageSchema,
   imageGallerySchema,
+  sandpackSandboxSchema,
   mapSchema,
   descriptionsSchema,
   stepsSchema,
@@ -181,4 +204,9 @@ export {
   statisticSchema,
   tagCloudSchema,
   treeSchema,
+  reasoningSchema,
+  toolSchema,
+  sourcesSchema,
+  pageSchema,
+  confirmationSchema,
 } from "./schemas/index.js";

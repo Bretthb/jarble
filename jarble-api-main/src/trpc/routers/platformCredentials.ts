@@ -7,6 +7,7 @@ import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
 import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { syncConfigsToPvc } from "../../services/configSync.js";
+import { safeFireAndForget } from "../../utils/safeAsync.js";
 import { findPodForDeployment, execInPod } from "../../k8s/index.js";
 
 const { deployments, platformCredentials } = tables;
@@ -151,7 +152,7 @@ export const platformCredentialsRouter = router({
       // Config sync: push updated configs to PVC
       // Always fire — syncConfigsToPvc handles status checks internally
       // and will wait for "creating" deployments to become "running"
-      void syncConfigsToPvc(input.deploymentId);
+      safeFireAndForget(syncConfigsToPvc(input.deploymentId), { operation: "syncConfigsToPvc", deploymentId: input.deploymentId });
 
       return { success: true };
     }),
@@ -185,7 +186,7 @@ export const platformCredentialsRouter = router({
 
       // Config sync: push updated configs to PVC if deployment is running
       if (deployment.status === "running") {
-        void syncConfigsToPvc(input.deploymentId);
+        safeFireAndForget(syncConfigsToPvc(input.deploymentId), { operation: "syncConfigsToPvc", deploymentId: input.deploymentId });
       }
 
       return { success: true };
@@ -247,7 +248,7 @@ export const platformCredentialsRouter = router({
 
       // Trigger config sync so openclaw.json gets WhatsApp channel written
       if (deployment.status === "running") {
-        void syncConfigsToPvc(input.deploymentId);
+        safeFireAndForget(syncConfigsToPvc(input.deploymentId), { operation: "syncConfigsToPvc", deploymentId: input.deploymentId });
       }
 
       return { success: true };

@@ -83,38 +83,43 @@ type ActiveTables = {
   componentInstalls: typeof mysqlSchema.componentInstalls;
   componentPurchases: typeof mysqlSchema.componentPurchases;
   componentReviews: typeof mysqlSchema.componentReviews;
-  // Chat history tables
-  chatSessions: typeof mysqlSchema.chatSessions;
-  chatMessages: typeof mysqlSchema.chatMessages;
-  // Audit logs
-  auditLogs: typeof mysqlSchema.auditLogs;
-  // Beta signups
-  betaSignups: typeof mysqlSchema.betaSignups;
+  // Service tables
+  marketplaceServices: typeof mysqlSchema.marketplaceServices;
+  serviceComponents: typeof mysqlSchema.serviceComponents;
+  serviceSkills: typeof mysqlSchema.serviceSkills;
+  serviceInstalls: typeof mysqlSchema.serviceInstalls;
+  serviceCredentials: typeof mysqlSchema.serviceCredentials;
+  serviceUsage: typeof mysqlSchema.serviceUsage;
+  // Proxy resilience tables
+  serviceRateLimits: typeof mysqlSchema.serviceRateLimits;
+  serviceCircuitBreakers: typeof mysqlSchema.serviceCircuitBreakers;
+  serviceHeartbeats: typeof mysqlSchema.serviceHeartbeats;
+  serviceAsyncJobs: typeof mysqlSchema.serviceAsyncJobs;
+  apiKeys: typeof mysqlSchema.apiKeys;
+  // Benchmark tables
+  domains: typeof mysqlSchema.domains;
+  deploymentRatings: typeof mysqlSchema.deploymentRatings;
+  deploymentDomainScores: typeof mysqlSchema.deploymentDomainScores;
+  serviceBenchmarkSamples: typeof mysqlSchema.serviceBenchmarkSamples;
+  serviceBenchmarkAggregates: typeof mysqlSchema.serviceBenchmarkAggregates;
+  serviceReviews: typeof mysqlSchema.serviceReviews;
+  personaTemplates: typeof mysqlSchema.personaTemplates;
+  // Agent credits & calls
+  agentCredits: typeof mysqlSchema.agentCredits;
+  agentCalls: typeof mysqlSchema.agentCalls;
 };
 
 function getActiveTables(): ActiveTables {
   if (DB_PROVIDER === "sqlite") {
-    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, runtimeCatalog: sqliteSchema.runtimeCatalog, platformCredentials: sqliteSchema.platformCredentials, processedWebhookEvents: sqliteSchema.processedWebhookEvents, skillsCatalog: sqliteSchema.skillsCatalog, deploymentSkills: sqliteSchema.deploymentSkills, creatorProfiles: sqliteSchema.creatorProfiles, marketplaceComponents: sqliteSchema.marketplaceComponents, componentVersions: sqliteSchema.componentVersions, componentInstalls: sqliteSchema.componentInstalls, componentPurchases: sqliteSchema.componentPurchases, componentReviews: sqliteSchema.componentReviews, chatSessions: sqliteSchema.chatSessions, chatMessages: sqliteSchema.chatMessages, auditLogs: sqliteSchema.auditLogs, betaSignups: sqliteSchema.betaSignups } as unknown as ActiveTables;
+    return { users: sqliteSchema.users, deployments: sqliteSchema.deployments, runtimeCatalog: sqliteSchema.runtimeCatalog, platformCredentials: sqliteSchema.platformCredentials, processedWebhookEvents: sqliteSchema.processedWebhookEvents, skillsCatalog: sqliteSchema.skillsCatalog, deploymentSkills: sqliteSchema.deploymentSkills, creatorProfiles: sqliteSchema.creatorProfiles, marketplaceComponents: sqliteSchema.marketplaceComponents, componentVersions: sqliteSchema.componentVersions, componentInstalls: sqliteSchema.componentInstalls, componentPurchases: sqliteSchema.componentPurchases, componentReviews: sqliteSchema.componentReviews, marketplaceServices: sqliteSchema.marketplaceServices, serviceComponents: sqliteSchema.serviceComponents, serviceSkills: sqliteSchema.serviceSkills, serviceInstalls: sqliteSchema.serviceInstalls, serviceCredentials: sqliteSchema.serviceCredentials, serviceUsage: sqliteSchema.serviceUsage, serviceRateLimits: sqliteSchema.serviceRateLimits, serviceCircuitBreakers: sqliteSchema.serviceCircuitBreakers, serviceHeartbeats: sqliteSchema.serviceHeartbeats, serviceAsyncJobs: sqliteSchema.serviceAsyncJobs, apiKeys: sqliteSchema.apiKeys, domains: sqliteSchema.domains, deploymentRatings: sqliteSchema.deploymentRatings, deploymentDomainScores: sqliteSchema.deploymentDomainScores, serviceBenchmarkSamples: sqliteSchema.serviceBenchmarkSamples, serviceBenchmarkAggregates: sqliteSchema.serviceBenchmarkAggregates, serviceReviews: sqliteSchema.serviceReviews, personaTemplates: sqliteSchema.personaTemplates, agentCredits: sqliteSchema.agentCredits, agentCalls: sqliteSchema.agentCalls } as unknown as ActiveTables;
   }
   if (DB_PROVIDER === "postgres") {
-    return { users: pgSchema.users, deployments: pgSchema.deployments, runtimeCatalog: pgSchema.runtimeCatalog, platformCredentials: pgSchema.platformCredentials, processedWebhookEvents: pgSchema.processedWebhookEvents, skillsCatalog: pgSchema.skillsCatalog, deploymentSkills: pgSchema.deploymentSkills, creatorProfiles: pgSchema.creatorProfiles, marketplaceComponents: pgSchema.marketplaceComponents, componentVersions: pgSchema.componentVersions, componentInstalls: pgSchema.componentInstalls, componentPurchases: pgSchema.componentPurchases, componentReviews: pgSchema.componentReviews, chatSessions: pgSchema.chatSessions, chatMessages: pgSchema.chatMessages, auditLogs: pgSchema.auditLogs, betaSignups: pgSchema.betaSignups } as unknown as ActiveTables;
+    return { users: pgSchema.users, deployments: pgSchema.deployments, runtimeCatalog: pgSchema.runtimeCatalog, platformCredentials: pgSchema.platformCredentials, processedWebhookEvents: pgSchema.processedWebhookEvents, skillsCatalog: pgSchema.skillsCatalog, deploymentSkills: pgSchema.deploymentSkills, creatorProfiles: pgSchema.creatorProfiles, marketplaceComponents: pgSchema.marketplaceComponents, componentVersions: pgSchema.componentVersions, componentInstalls: pgSchema.componentInstalls, componentPurchases: pgSchema.componentPurchases, componentReviews: pgSchema.componentReviews, marketplaceServices: pgSchema.marketplaceServices, serviceComponents: pgSchema.serviceComponents, serviceSkills: pgSchema.serviceSkills, serviceInstalls: pgSchema.serviceInstalls, serviceCredentials: pgSchema.serviceCredentials, serviceUsage: pgSchema.serviceUsage, serviceRateLimits: pgSchema.serviceRateLimits, serviceCircuitBreakers: pgSchema.serviceCircuitBreakers, serviceHeartbeats: pgSchema.serviceHeartbeats, serviceAsyncJobs: pgSchema.serviceAsyncJobs, apiKeys: pgSchema.apiKeys, domains: pgSchema.domains, deploymentRatings: pgSchema.deploymentRatings, deploymentDomainScores: pgSchema.deploymentDomainScores, serviceBenchmarkSamples: pgSchema.serviceBenchmarkSamples, serviceBenchmarkAggregates: pgSchema.serviceBenchmarkAggregates, serviceReviews: pgSchema.serviceReviews, personaTemplates: pgSchema.personaTemplates, agentCredits: pgSchema.agentCredits, agentCalls: pgSchema.agentCalls } as unknown as ActiveTables;
   }
-  return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, runtimeCatalog: mysqlSchema.runtimeCatalog, platformCredentials: mysqlSchema.platformCredentials, processedWebhookEvents: mysqlSchema.processedWebhookEvents, skillsCatalog: mysqlSchema.skillsCatalog, deploymentSkills: mysqlSchema.deploymentSkills, creatorProfiles: mysqlSchema.creatorProfiles, marketplaceComponents: mysqlSchema.marketplaceComponents, componentVersions: mysqlSchema.componentVersions, componentInstalls: mysqlSchema.componentInstalls, componentPurchases: mysqlSchema.componentPurchases, componentReviews: mysqlSchema.componentReviews, chatSessions: mysqlSchema.chatSessions, chatMessages: mysqlSchema.chatMessages, auditLogs: mysqlSchema.auditLogs, betaSignups: mysqlSchema.betaSignups };
+  return { users: mysqlSchema.users, deployments: mysqlSchema.deployments, runtimeCatalog: mysqlSchema.runtimeCatalog, platformCredentials: mysqlSchema.platformCredentials, processedWebhookEvents: mysqlSchema.processedWebhookEvents, skillsCatalog: mysqlSchema.skillsCatalog, deploymentSkills: mysqlSchema.deploymentSkills, creatorProfiles: mysqlSchema.creatorProfiles, marketplaceComponents: mysqlSchema.marketplaceComponents, componentVersions: mysqlSchema.componentVersions, componentInstalls: mysqlSchema.componentInstalls, componentPurchases: mysqlSchema.componentPurchases, componentReviews: mysqlSchema.componentReviews, marketplaceServices: mysqlSchema.marketplaceServices, serviceComponents: mysqlSchema.serviceComponents, serviceSkills: mysqlSchema.serviceSkills, serviceInstalls: mysqlSchema.serviceInstalls, serviceCredentials: mysqlSchema.serviceCredentials, serviceUsage: mysqlSchema.serviceUsage, serviceRateLimits: mysqlSchema.serviceRateLimits, serviceCircuitBreakers: mysqlSchema.serviceCircuitBreakers, serviceHeartbeats: mysqlSchema.serviceHeartbeats, serviceAsyncJobs: mysqlSchema.serviceAsyncJobs, apiKeys: mysqlSchema.apiKeys, domains: mysqlSchema.domains, deploymentRatings: mysqlSchema.deploymentRatings, deploymentDomainScores: mysqlSchema.deploymentDomainScores, serviceBenchmarkSamples: mysqlSchema.serviceBenchmarkSamples, serviceBenchmarkAggregates: mysqlSchema.serviceBenchmarkAggregates, serviceReviews: mysqlSchema.serviceReviews, personaTemplates: mysqlSchema.personaTemplates, agentCredits: mysqlSchema.agentCredits, agentCalls: mysqlSchema.agentCalls };
 }
 
 export const tables = getActiveTables();
-
-/**
- * Extract rows affected from a Drizzle update/delete result.
- * Drizzle returns different shapes per DB driver:
- *   - PostgreSQL (pg): { rowCount: N }
- *   - SQLite (better-sqlite3): { changes: N }
- *   - MySQL (mysql2): [{ affectedRows: N }]
- */
-export function getRowsAffected(result: unknown): number {
-  const r = result as any;
-  return r?.rowCount ?? r?.changes ?? r?.rowsAffected ?? r?.[0]?.rowCount ?? r?.[0]?.affectedRows ?? 0;
-}
 
 /**
  * Create a date value compatible with the active DB provider.

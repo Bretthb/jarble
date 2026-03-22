@@ -5,7 +5,7 @@ import CanvasRenderer from "../CanvasRenderer";
 
 export interface LayoutChild {
   component: string;
-  /** Props as JSON string (for Tambo schema compat) or raw object (from bot) */
+  /** Props as JSON string or raw object (from bot) */
   propsJson?: string;
   props?: Record<string, unknown>;
 }
@@ -68,11 +68,13 @@ function CanvasLayoutInner({
 
   return (
     <div
+      role="region"
+      aria-label="Layout"
       className={`${layoutClass} h-full min-h-0`}
       style={{ gap }}
     >
       {children.map((child, i) => {
-        // Support both propsJson (from Tambo) and props (from bot direct)
+        // Support both propsJson (string) and props (object)
         let resolvedProps: Record<string, unknown> = {};
         if (child.props) {
           resolvedProps = child.props;

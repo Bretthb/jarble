@@ -1,11 +1,13 @@
 import { z } from "zod";
 import crypto from "crypto";
-import { router, protectedProcedure } from "../middleware.js";
-import { tables, dbDate, getRowsAffected, type DbClient } from "../../db/index.js";
-import { eq, and, or, isNull } from "drizzle-orm";
-import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc } from "../../k8s/index.js";
+import { router, protectedProcedure, publicProcedure } from "../middleware.js";
+import { tables, dbDate, type DbClient } from "../../db/index.js";
+import { eq, and, or, isNull, sql } from "drizzle-orm";
+import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod } from "../../k8s/index.js";
+import type { ManagedBy, IsolationLevel } from "../../k8s/constants.js";
+import { getPvcMountPath, getContainerName, getContainerHome } from "../../k8s/constants.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
-import { cancelSubscriptionAtPeriodEnd, cancelSubscriptionImmediately, reactivateSubscription, isStripeConfigured, listActiveSubscriptions, addManagedKeyLineItem, findManagedKeyItem, removeManagedKeyLineItem } from "../../services/stripe.js";
+import { cancelSubscriptionAtPeriodEnd, cancelSubscriptionImmediately, reactivateSubscription, isStripeConfigured, listActiveSubscriptions } from "../../services/stripe.js";
 import { customAlphabet } from "nanoid";
 
 // K8s-safe alphabet: lowercase alphanumeric only (RFC 1123)
@@ -18,11 +20,14 @@ import type { DeploymentFields } from "../../runtimes/types.js";
 import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrouter.js";
 import { syncConfigsToPvc } from "../../services/configSync.js";
+import { safeFireAndForget } from "../../utils/safeAsync.js";
 import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
 import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
-import { isAdmin } from "../../utils/rbac.js";
+import { isAdmin } from "../../utils/admin.js";
+import { RESOURCE_TIERS } from "../../k8s/constants.js";
+import { validateThemeConfig } from "@jarble/component-manifest";
 
-const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, personaTemplates } = tables;
 
 /**
  * Helper: Check free deployment status for a user.
@@ -60,13 +65,6 @@ async function checkFreeDeployment(db: DbClient, userId: string) {
     freeExpired,
     freeExpiresAt,
   };
-}
-
-function deploymentWhere(deploymentId: string, userId: string, user: { role?: string }) {
-  if (isAdmin(user)) {
-    return eq(deployments.id, deploymentId);
-  }
-  return and(eq(deployments.id, deploymentId), eq(deployments.userId, userId));
 }
 
 export const deploymentRouter = router({
@@ -114,7 +112,10 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       return ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(
+          eq(deployments.id, input.id),
+          eq(deployments.userId, ctx.user.id)
+        ),
         with: { runtimeCatalogEntry: true },
       });
     }),
@@ -123,9 +124,9 @@ export const deploymentRouter = router({
   getComponentCatalog: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Verify ownership (admins bypass)
+      // Verify ownership
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
@@ -145,10 +146,11 @@ export const deploymentRouter = router({
       ];
 
       // Custom/library components from PVC (only if pod is running)
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
       let customs: Array<{ name: string; description?: string; layout: Array<{ component: string; props: Record<string, unknown> }> }> = [];
       if (deployment.status === "running") {
         try {
-          customs = await getCustomComponentsWithDefinitions(input.id);
+          customs = await getCustomComponentsWithDefinitions(input.id, managedBy);
         } catch (err) {
           logger.warn({ deploymentId: input.id, err }, "Failed to fetch custom components from PVC");
         }
@@ -169,7 +171,7 @@ export const deploymentRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
@@ -194,7 +196,8 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: defErr });
       }
 
-      await writeComponentToPvc(input.id, input.name, definition);
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      await writeComponentToPvc(input.id, input.name, definition, managedBy);
       return { success: true, message: `Component "${input.name}" saved successfully.` };
     }),
 
@@ -205,7 +208,7 @@ export const deploymentRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
@@ -214,7 +217,8 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Deployment is not running" });
       }
 
-      const deleted = await deleteComponentFromPvc(input.id, input.name);
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      const deleted = await deleteComponentFromPvc(input.id, input.name, managedBy);
       if (!deleted) {
         throw new TRPCError({ code: "NOT_FOUND", message: `Component "${input.name}" not found.` });
       }
@@ -228,7 +232,7 @@ export const deploymentRouter = router({
       runtimeCatalogId: z.number(),
       platform: z.string().optional(),
       image: z.string().optional(),
-      llmMode: z.enum(["included", "byok"]).default("byok"),
+      llmMode: z.enum(["included", "byok", "platform"]).default("byok"),
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).default("openrouter"),
       llmModel: z.string().optional(), // e.g. "openrouter/auto", "gpt-4o", "claude-sonnet-4-20250514"
       llmApiKey: z.string().optional(),
@@ -240,8 +244,15 @@ export const deploymentRouter = router({
       storageMb: z.number().int().positive().optional(),  // e.g. 30 — storage in GB (historical naming)
       telegramBotToken: z.string().optional(), // Pre-validated Telegram bot token (included in initial K8s Secret)
       messagingOnly: z.boolean().optional(), // If true, omit web-chat UI prompt (~1,250 tokens saved)
+      personaTemplateId: z.string().optional(), // Pre-selected persona template — overrides systemPrompt, llmModel, themeConfig
+      isolationLevel: z.enum(["standard", "gvisor", "kata"]).optional(), // Runtime sandbox isolation (default: "standard")
     }))
     .mutation(async ({ ctx, input }) => {
+      // Platform mode is admin-only
+      if (input.llmMode === "platform" && !isAdmin(ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Platform LLM mode is restricted to administrators" });
+      }
+
       // Look up the runtime catalog entry
       const catalogEntry = await ctx.db.query.runtimeCatalog.findFirst({
         where: eq(runtimeCatalog.id, input.runtimeCatalogId),
@@ -269,30 +280,86 @@ export const deploymentRouter = router({
         }
       }
 
+      // ── Resolve persona template overrides ──────────────────────
+      let resolvedSystemPrompt = input.systemPrompt || null;
+      let resolvedThemeConfig: string | null = null;
+      let resolvedLlmModel = input.llmModel;
+
+      if (input.personaTemplateId) {
+        const persona = await ctx.db.query.personaTemplates.findFirst({
+          where: eq(personaTemplates.id, input.personaTemplateId),
+        });
+
+        if (persona) {
+          // Apply persona defaults — input values take precedence
+          if (!resolvedSystemPrompt) {
+            resolvedSystemPrompt = persona.systemPrompt;
+          }
+          if (persona.defaultTheme) {
+            resolvedThemeConfig = typeof persona.defaultTheme === "string"
+              ? persona.defaultTheme
+              : JSON.stringify(persona.defaultTheme);
+          }
+          if (!resolvedLlmModel && persona.suggestedLlm) {
+            resolvedLlmModel = persona.suggestedLlm;
+          }
+          logger.info({ personaId: input.personaTemplateId, personaSlug: persona.slug }, "Applied persona template to deployment");
+        }
+      }
+
       // K8s requires lowercase RFC 1123 names for resources
       const deploymentId = nanoid();
       const now = new Date();
       const freeTrialExpiryDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
+      // ── Cross-account free trial abuse prevention ──────────────────
+      // Check if ANY user with the same normalized email has already used a free trial.
+      // This prevents creating multiple Auth0 accounts to get unlimited free trials.
+      let crossAccountTrialUsed = false;
+      const currentUserRecord = await ctx.db.query.users.findFirst({
+        where: eq(users.id, ctx.user.id),
+      });
+
+      if (currentUserRecord?.email) {
+        const normalizedEmail = currentUserRecord.email.trim().toLowerCase();
+        const existingTrialUsers = await ctx.db.query.users.findMany({
+          where: and(
+            sql`LOWER(TRIM(${users.email})) = ${normalizedEmail}`,
+            eq(users.freeDeploymentUsed, true),
+          ),
+        });
+
+        crossAccountTrialUsed = existingTrialUsers.some(
+          (u: any) => u.id !== ctx.user.id
+        );
+
+        if (crossAccountTrialUsed) {
+          logger.warn(
+            { userId: ctx.user.id, email: normalizedEmail },
+            "Free trial denied: another account with the same email already used a free trial"
+          );
+        }
+      }
+
       // Atomic guard: attempt to claim the free deployment slot.
       // This UPDATE only succeeds if freeDeploymentUsed is false/null,
       // preventing two concurrent requests from both getting a free deployment.
-      const claimResult = await ctx.db.update(users)
-        .set({
-          freeDeploymentUsed: true,
-          freeTrialExpiresAt: dbDate(freeTrialExpiryDate),
-        })
-        .where(and(
-          eq(users.id, ctx.user.id),
-          or(eq(users.freeDeploymentUsed, false), isNull(users.freeDeploymentUsed))
-        ));
+      // Also blocked if another account with the same email already used a trial.
+      const claimResult = crossAccountTrialUsed
+        ? { changes: 0, rowsAffected: 0 }  // Skip claim — trial already used by another account
+        : await ctx.db.update(users)
+          .set({
+            freeDeploymentUsed: true,
+            freeTrialExpiresAt: dbDate(freeTrialExpiryDate),
+          })
+          .where(and(
+            eq(users.id, ctx.user.id),
+            or(eq(users.freeDeploymentUsed, false), isNull(users.freeDeploymentUsed))
+          ));
 
-      const claimRows = getRowsAffected(claimResult);
-      const adminBypass = isAdmin(ctx.user);
-      const isFree = claimRows > 0 || adminBypass;
-      const freeExpiresAt = adminBypass
-        ? dbDate(new Date("2099-12-31"))  // Admins get unlimited free deployments
-        : isFree ? dbDate(freeTrialExpiryDate) : null;
+      const claimRows = (claimResult as any)?.rowsAffected ?? (claimResult as any)?.changes ?? (claimResult as any)?.[0]?.affectedRows ?? 0;
+      const isFree = claimRows > 0;
+      const freeExpiresAt = isFree ? dbDate(freeTrialExpiryDate) : null;
 
       // ── Link Stripe subscription if available ──────────────────────
       let stripeSubscriptionId: string | null = null;
@@ -442,14 +509,17 @@ export const deploymentRouter = router({
         storageMb: finalStorage,
         llmMode: input.llmMode,
         llmProvider: resolvedProvider,
-        llmModel: input.llmModel || (input.llmMode === "included" ? "openrouter/auto" : null),
+        llmModel: resolvedLlmModel || (input.llmMode === "included" ? "openrouter/auto" : null),
         llmApiKey: encryptedKey,
         llmApiKeyId: resolvedApiKeyId,
         llmCreditLimitDollars: resolvedCreditLimit,
         llmApiKeySourceDeploymentId: resolvedSourceDeploymentId,
-        systemPrompt: input.systemPrompt || null,
+        systemPrompt: resolvedSystemPrompt,
+        themeConfig: resolvedThemeConfig,
         stripeSubscriptionId,
         messagingOnly: input.messagingOnly ?? false,
+        isolationLevel: input.isolationLevel || "standard",
+        isPlatform: input.llmMode === "platform",
         status: "pending",
       });
 
@@ -508,11 +578,11 @@ export const deploymentRouter = router({
       // This prevents race conditions from rapid button clicks causing double-deploys
       const validStartStates = ["pending", "stopped", "failed"];
 
-      const baseWhere = deploymentWhere(deploymentId, ctx.user.id, ctx.user);
       const result = await ctx.db.update(deployments)
         .set({ status: "creating", error: null })
         .where(and(
-          baseWhere,
+          eq(deployments.id, deploymentId),
+          eq(deployments.userId, ctx.user.id),
           or(
             eq(deployments.status, "pending"),
             eq(deployments.status, "stopped"),
@@ -520,13 +590,13 @@ export const deploymentRouter = router({
           )
         ));
 
-      // Check if update affected any rows
-      const rowsAffected = getRowsAffected(result);
+      // Check if update affected any rows (Drizzle returns different shapes per DB)
+      const rowsAffected = (result as any)?.rowsAffected ?? (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 0;
 
       if (rowsAffected === 0) {
         // Either deployment doesn't exist, user doesn't own it, or it's already deploying
         const deployment = await ctx.db.query.deployments.findFirst({
-          where: deploymentWhere(deploymentId, ctx.user.id, ctx.user),
+          where: and(eq(deployments.id, deploymentId), eq(deployments.userId, ctx.user.id)),
         });
 
         if (!deployment) {
@@ -572,6 +642,10 @@ export const deploymentRouter = router({
       // Generate gateway token before renderConfigs so it can be included in the OpenClaw config
       const gatewayToken = crypto.randomBytes(32).toString("hex");
 
+      // Determine management mode: operator (new deployments when enabled) vs legacy
+      const managedBy: ManagedBy = process.env.USE_OPERATOR === "true" ? "operator" : "legacy";
+      const pvcMount = getPvcMountPath(managedBy);
+
       // Build runtime handler data for K8s (config files + secret entries)
       const runtimeHandler = getHandlerOrNull(deployment.runtime);
       const deploymentFields: DeploymentFields = {
@@ -586,6 +660,7 @@ export const deploymentRouter = router({
         llmApiKey: rawApiKey,
         platformCredentials: Object.keys(platformCredsMap).length > 0 ? platformCredsMap : undefined,
         gatewayToken,
+        managedBy,
       };
       const initialConfigs = runtimeHandler?.renderConfigs(deploymentFields) ?? [];
       const extraSecretEntries = runtimeHandler?.getSecretEntries(deploymentFields) ?? {};
@@ -594,7 +669,7 @@ export const deploymentRouter = router({
       // Only runs on first deploy; user modifications are never overwritten by configSync.
       for (const comp of COMPONENT_LIBRARY) {
         initialConfigs.push({
-          path: `/data/components/${comp.name}.json`,
+          path: `${pvcMount}/components/${comp.name}.json`,
           content: JSON.stringify(comp, null, 2),
         });
       }
@@ -602,6 +677,11 @@ export const deploymentRouter = router({
       // Start K8s deployment (fire-and-forget — don't block the response)
       void (async () => {
         try {
+          // Persist managedBy on the DB row before creating K8s resources
+          await ctx.db.update(deployments)
+            .set({ managedBy })
+            .where(eq(deployments.id, deploymentId));
+
           await createDeployment(deploymentId, ctx.user.id, {
             name: deployment.name,
             runtime: deployment.runtime,
@@ -612,13 +692,25 @@ export const deploymentRouter = router({
             initialConfigs,
             extraSecretEntries,
             gatewayToken,
-          });
-          logger.info({ deploymentId }, "K8s createDeployment returned, updating status...");
+            isolationLevel: ((deployment as any).isolationLevel || "standard") as IsolationLevel,
+          }, managedBy);
+          logger.info({ deploymentId }, "K8s createDeployment returned, polling for readiness...");
+
+          // Poll for pod readiness instead of immediately setting "running"
+          await new Promise((r) => setTimeout(r, 1500));
+          let ready = false;
+          for (let i = 0; i < 30; i++) {
+            const podStatus = await getDeploymentPodStatus(deploymentId, managedBy);
+            if (podStatus.status === "running") { ready = true; break; }
+            if (podStatus.status === "failed") break;
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+
           // Only update if still in transitional state (don't overwrite enforcement actions)
           await ctx.db.update(deployments)
-            .set({ status: "running" })
+            .set({ status: ready ? "running" : "failed", ...(ready ? { error: null } : { error: "Pod did not become ready" }) })
             .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
-          logger.info({ deploymentId }, "Deployment succeeded - status set to running");
+          logger.info({ deploymentId, ready }, "Deployment create completed");
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Unknown deployment error";
           await ctx.db.update(deployments)
@@ -636,69 +728,36 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
       if (!deployment) {
         return { status: "not_found" };
       }
 
-      return getDeploymentPodStatus(input.id);
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      return getDeploymentPodStatus(input.id, managedBy);
     }),
 
   // Get storage usage from K8s (exec df inside the pod)
   getStorageUsage: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Verify ownership (admins bypass)
+      // Verify ownership
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
       if (!deployment) {
         return null;
       }
 
       // Get live usage from the pod + DB-configured limit
-      const usage = await getDeploymentStorageUsage(input.id);
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      const usage = await getDeploymentStorageUsage(input.id, managedBy);
       return {
         ...usage,
         // Include the user's configured limit from DB (storageMb is actually GB)
         allocatedGb: deployment.storageMb || 30,
       };
-    }),
-
-  // Batch storage usage for multiple deployments (Dashboard uses this instead of N individual queries)
-  getStorageUsageBatch: protectedProcedure
-    .input(z.object({ ids: z.array(z.string()).max(20) }))
-    .query(async ({ ctx, input }) => {
-      if (input.ids.length === 0) return {} as Record<string, { usedGb?: number; totalGb?: number; percentUsed?: number; allocatedGb: number } | null>;
-
-      // Verify ownership of all requested deployments
-      const owned = await ctx.db.query.deployments.findMany({
-        where: and(
-          or(...input.ids.map((id) => eq(deployments.id, id))),
-          eq(deployments.userId, ctx.user.id)
-        ),
-      });
-      const ownedMap = new Map(owned.map((d) => [d.id, d]));
-
-      // Fetch storage in parallel
-      const results = await Promise.allSettled(
-        input.ids
-          .filter((id) => ownedMap.has(id))
-          .map(async (id) => {
-            const usage = await getDeploymentStorageUsage(id);
-            const dep = ownedMap.get(id)!;
-            return [id, { ...usage, allocatedGb: dep.storageMb || 30 }] as const;
-          })
-      );
-
-      const out: Record<string, { usedGb?: number; totalGb?: number; percentUsed?: number; allocatedGb: number } | null> = {};
-      for (const r of results) {
-        if (r.status === "fulfilled") {
-          out[r.value[0]] = r.value[1];
-        }
-      }
-      return out;
     }),
 
   // Get deployment logs from K8s pod
@@ -709,7 +768,7 @@ export const deploymentRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
@@ -718,8 +777,9 @@ export const deploymentRouter = router({
         return { logs: "", podName: null };
       }
 
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
       try {
-        const result = await getDeploymentLogs(input.id, input.tailLines);
+        const result = await getDeploymentLogs(input.id, input.tailLines, managedBy);
         return result;
       } catch (err) {
         logger.warn({ deploymentId: input.id, err }, "Failed to fetch logs");
@@ -734,7 +794,7 @@ export const deploymentRouter = router({
       name: z.string().min(1).optional(),
       description: z.string().optional(),
       systemPrompt: z.string().optional(),
-      llmMode: z.enum(["included", "byok"]).optional(),
+      llmMode: z.enum(["included", "byok", "platform"]).optional(),
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).optional(),
       llmModel: z.string().optional(),
       llmApiKey: z.string().optional(),
@@ -746,9 +806,14 @@ export const deploymentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...rawUpdates } = input;
 
+      // Platform mode is admin-only
+      if (rawUpdates.llmMode === "platform" && !isAdmin(ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Platform LLM mode is restricted to administrators" });
+      }
+
       // Fetch the existing deployment to detect mode switches
       const existing = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)),
       });
 
       if (!existing) {
@@ -783,13 +848,6 @@ export const deploymentRouter = router({
             updates.llmModel = updates.llmModel || "openrouter/auto";
             updates.llmCreditLimitDollars = 5; // Default plan on mode switch
             updates.llmApiKeySourceDeploymentId = null; // Own key, not linked
-
-            // Add managed key line item to Stripe subscription
-            if (existing.stripeSubscriptionId) {
-              addManagedKeyLineItem(existing.stripeSubscriptionId, 500).catch((err: unknown) => {
-                logger.warn({ err, deploymentId: id }, "Failed to add managed key line item during mode switch");
-              });
-            }
           } catch (err) {
             logger.error({ err, deploymentId: id }, "Failed to provision key during mode switch to included");
             throw new TRPCError({
@@ -832,38 +890,26 @@ export const deploymentRouter = router({
             });
           }
 
-          // Remove managed key line item from Stripe subscription
-          if (existing.stripeSubscriptionId) {
-            findManagedKeyItem(existing.stripeSubscriptionId).then((item) => {
-              if (item) {
-                removeManagedKeyLineItem(item.itemId).catch((err: unknown) => {
-                  logger.warn({ err, deploymentId: id }, "Failed to remove managed key line item during mode switch");
-                });
-              }
-            }).catch(() => {});
-          }
-
           // Encrypt the new BYOK key
           updates.llmApiKey = encryptApiKey(rawUpdates.llmApiKey);
           updates.llmApiKeyId = null; // BYOK keys don't have an OpenRouter hash
           updates.llmCreditLimitDollars = null; // Clear credit plan for BYOK
           updates.llmApiKeySourceDeploymentId = null; // Clear any link
+        } else if (newMode === "platform") {
+          // Switching to platform mode: use platform's own LLM key, clear user key
+          updates.isPlatform = true;
+          updates.llmApiKey = null;
+          updates.llmApiKeyId = null;
+          updates.llmCreditLimitDollars = null;
+          updates.llmApiKeySourceDeploymentId = null;
         }
       } else if (rawUpdates.llmApiKey) {
         // Mode didn't change but user provided a new API key — encrypt it
         updates.llmApiKey = encryptApiKey(rawUpdates.llmApiKey);
       }
 
-      // Block hardware spec changes on paid deployments with active Stripe subscriptions.
-      // The Stripe subscription price would need to be updated to match, which requires
-      // a proper upgrade/downgrade flow. Until that's built, reject the change.
+      // Recalculate price if hardware specs changed
       if (updates.cpuLimit || updates.memoryMb || updates.storageMb) {
-        if (!existing.isFree && existing.stripeSubscriptionId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Hardware spec changes are not supported for paid deployments. Please contact support to change your plan.",
-          });
-        }
         const newCpu = updates.cpuLimit || existing.cpuLimit;
         const newMemory = updates.memoryMb || existing.memoryMb;
         const newStorage = updates.storageMb || existing.storageMb;
@@ -874,11 +920,11 @@ export const deploymentRouter = router({
 
       await ctx.db.update(deployments)
         .set(updates)
-        .where(deploymentWhere(id, ctx.user.id, ctx.user));
+        .where(and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)));
 
       // Config sync: push updated configs to PVC if deployment is running
       if (existing.status === "running") {
-        void syncConfigsToPvc(id);
+        safeFireAndForget(syncConfigsToPvc(id), { operation: "syncConfigsToPvc", deploymentId: id });
       }
 
       return ctx.db.query.deployments.findFirst({
@@ -892,7 +938,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
 
       if (!deployment) {
@@ -906,19 +952,32 @@ export const deploymentRouter = router({
         });
       }
 
-      try {
-        // Set transitional status first
-        await ctx.db.update(deployments)
-          .set({ status: "stopping" })
-          .where(eq(deployments.id, input.id));
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
 
-        await stopDeployment(input.id);
+      try {
+        // Atomic conditional update — prevents double-stop race condition.
+        // If two concurrent requests both pass the status check above, only
+        // one will succeed in setting "stopping" (the other gets 0 rows).
+        const stopResult = await ctx.db.update(deployments)
+          .set({ status: "stopping" })
+          .where(and(eq(deployments.id, input.id), eq(deployments.status, "running")));
+
+        const rowsAffected = (stopResult as any)[0]?.affectedRows ?? (stopResult as any).rowCount ?? (stopResult as any).changes ?? 1;
+        if (rowsAffected === 0) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Deployment is no longer running (concurrent request may have stopped it)",
+          });
+        }
+
+        await stopDeployment(input.id, managedBy);
 
         await ctx.db.update(deployments)
           .set({ status: "stopped" })
           .where(eq(deployments.id, input.id));
         logger.info({ deploymentId: input.id }, "Deployment stopped");
       } catch (err) {
+        if (err instanceof TRPCError) throw err;
         // Roll back transitional status so the deployment isn't stuck in "stopping"
         try {
           await ctx.db.update(deployments)
@@ -942,7 +1001,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
 
       if (!deployment) {
@@ -960,16 +1019,27 @@ export const deploymentRouter = router({
       // and reset CrashLoopBackOff backoff timers. Plain startDeployment() would be a
       // no-op if the pod is already at replicas=1 but crashing.
       const wasFailedState = deployment.status === "failed";
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
 
       try {
         await ctx.db.update(deployments)
           .set({ status: "creating", error: null })
           .where(eq(deployments.id, input.id));
 
+        // For operator mode, start/restart needs config to recreate the CR
+        const deployConfig = {
+          name: deployment.name,
+          runtime: deployment.runtime,
+          image: deployment.image || undefined,
+          cpuLimit: deployment.cpuLimit || undefined,
+          memoryMb: deployment.memoryMb || undefined,
+          storageMb: deployment.storageMb || undefined,
+        };
+
         if (wasFailedState) {
-          await restartDeployment(input.id);
+          await restartDeployment(input.id, managedBy, ctx.user.id, deployConfig);
         } else {
-          await startDeployment(input.id);
+          await startDeployment(input.id, managedBy, ctx.user.id, deployConfig);
         }
 
         // Poll for pod readiness (fire-and-forget)
@@ -980,7 +1050,7 @@ export const deploymentRouter = router({
 
             let ready = false;
             for (let i = 0; i < 30; i++) {
-              const podStatus = await getDeploymentPodStatus(input.id);
+              const podStatus = await getDeploymentPodStatus(input.id, managedBy);
               if (podStatus.status === "running") { ready = true; break; }
               if (podStatus.status === "failed") break;
               await new Promise((r) => setTimeout(r, 2000));
@@ -989,6 +1059,10 @@ export const deploymentRouter = router({
             await ctx.db.update(deployments)
               .set({ status: ready ? "running" : "failed" })
               .where(and(eq(deployments.id, input.id), eq(deployments.status, "creating")));
+            // Sync configs after start — picks up any changes made while stopped
+            if (ready) {
+              safeFireAndForget(syncConfigsToPvc(input.id), { operation: "syncConfigsToPvc", deploymentId: input.id });
+            }
             logger.info({ deploymentId: input.id, ready }, "Deployment start completed");
           } catch (err) {
             await ctx.db.update(deployments)
@@ -1018,7 +1092,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
 
       if (!deployment) {
@@ -1032,6 +1106,8 @@ export const deploymentRouter = router({
         });
       }
 
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+
       try {
         await ctx.db.update(deployments)
           .set({ status: "restarting" })
@@ -1040,14 +1116,21 @@ export const deploymentRouter = router({
         // Fire-and-forget restart + status polling
         void (async () => {
           try {
-            await restartDeployment(input.id);
+            await restartDeployment(input.id, managedBy, ctx.user.id, {
+              name: deployment.name,
+              runtime: deployment.runtime,
+              image: deployment.image || undefined,
+              cpuLimit: deployment.cpuLimit || undefined,
+              memoryMb: deployment.memoryMb || undefined,
+              storageMb: deployment.storageMb || undefined,
+            });
 
             // Brief delay to let transitional status be visible in UI
             await new Promise((r) => setTimeout(r, 1500));
 
             let ready = false;
             for (let i = 0; i < 30; i++) {
-              const podStatus = await getDeploymentPodStatus(input.id);
+              const podStatus = await getDeploymentPodStatus(input.id, managedBy);
               if (podStatus.status === "running") { ready = true; break; }
               if (podStatus.status === "failed") break;
               await new Promise((r) => setTimeout(r, 2000));
@@ -1085,12 +1168,48 @@ export const deploymentRouter = router({
       return { success: true };
     }),
 
+  // Push the latest MCP server + tools to a running pod without restarting.
+  // Fixes the "old pod doesn't have set_theme" problem — zero downtime.
+  updateRuntime: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      if (deployment.status !== "running") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Cannot update runtime on a deployment that is ${deployment.status}`,
+        });
+      }
+
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+
+      try {
+        const { syncMcpServer } = await import("../../services/configSync.js");
+        const result = await syncMcpServer(input.id, managedBy);
+        logger.info({ deploymentId: input.id, ...result }, "updateRuntime completed");
+        return result;
+      } catch (err) {
+        logger.error({ deploymentId: input.id, err }, "updateRuntime failed");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: err instanceof Error ? err.message : "Failed to update runtime",
+        });
+      }
+    }),
+
   // Cancel subscription (deployment stays active until billing period ends)
   cancel: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
 
       if (!deployment) {
@@ -1139,7 +1258,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
 
       if (!deployment) {
@@ -1181,7 +1300,7 @@ export const deploymentRouter = router({
     .input(z.object({ deploymentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.deploymentId, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
       });
 
       if (!deployment) {
@@ -1263,7 +1382,7 @@ export const deploymentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
 
       if (!deployment) {
@@ -1277,8 +1396,9 @@ export const deploymentRouter = router({
         });
       }
 
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
       try {
-        const result = await exportDeploymentConfigs(input.id);
+        const result = await exportDeploymentConfigs(input.id, managedBy);
         logger.info({ deploymentId: input.id }, "Config export completed");
         return result;
       } catch (err) {
@@ -1291,6 +1411,138 @@ export const deploymentRouter = router({
       }
     }),
 
+  // Update OpenClaw version on a running pod
+  updateOpenClawVersion: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      version: z.string().default("latest"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+      if (deployment.status !== "running") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Deployment must be running (currently ${deployment.status})` });
+      }
+
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      const podName = await findPodForDeployment(input.id, { managedBy }).catch(() => null);
+      if (!podName) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No pod found" });
+      }
+
+      const containerName = getContainerName(managedBy);
+
+      // Get current version
+      const currentVersion = await execInPod(podName, ["npx", "openclaw", "--version"], containerName).catch(() => "unknown");
+
+      // Run update with memory cap to avoid OOM
+      const target = input.version;
+      const updateCmd = `cd /opt/openclaw && NODE_OPTIONS='--max-old-space-size=256' npm install openclaw@${target} --prefer-offline 2>&1 | tail -10`;
+      let output: string;
+      try {
+        output = await execInPod(podName, ["sh", "-c", updateCmd], containerName, 120_000);
+      } catch (err) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Update failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+
+      // Get new version
+      const newVersion = await execInPod(podName, ["npx", "openclaw", "--version"], containerName).catch(() => "unknown");
+
+      logger.info({ deploymentId: input.id, from: currentVersion.trim(), to: newVersion.trim(), target }, "OpenClaw updated");
+
+      return {
+        previousVersion: currentVersion.trim(),
+        newVersion: newVersion.trim(),
+        output: output.trim(),
+      };
+    }),
+
+  // Read the actual config from the running pod (introspection)
+  getPodConfig: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      if (deployment.status !== "running") {
+        return { status: "unavailable" as const, model: null, channels: null };
+      }
+
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      const podName = await findPodForDeployment(input.id, { managedBy }).catch(() => null);
+      if (!podName) {
+        return { status: "unavailable" as const, model: null, channels: null };
+      }
+
+      const containerName = getContainerName(managedBy);
+      const home = getContainerHome(managedBy);
+      const configPath = `${home}/.openclaw/openclaw.json`;
+
+      let openclawRaw: string | null = null;
+      try {
+        openclawRaw = await execInPod(podName, ["cat", configPath], containerName);
+      } catch {
+        return { status: "unavailable" as const, model: null, channels: null };
+      }
+
+      let model: string | null = null;
+      let channels: Record<string, { enabled: boolean }> | null = null;
+
+      if (openclawRaw) {
+        try {
+          const config = JSON.parse(openclawRaw);
+          model = config.agents?.defaults?.model?.primary ?? config.agent?.model ?? null;
+          if (config.channels && typeof config.channels === "object") {
+            channels = {};
+            for (const [key, val] of Object.entries(config.channels)) {
+              channels[key] = { enabled: (val as any)?.enabled ?? true };
+            }
+          }
+        } catch {
+          // Malformed JSON
+        }
+      }
+
+      return { status: "live" as const, model, channels };
+    }),
+
+  // Set deployment theme
+  setTheme: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      themeConfig: z.record(z.unknown()),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      const error = validateThemeConfig(input.themeConfig);
+      if (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error });
+      }
+
+      await ctx.db.update(deployments)
+        .set({ themeConfig: JSON.stringify(input.themeConfig) } as any)
+        .where(eq(deployments.id, input.id));
+
+      return { success: true };
+    }),
+
   // Delete deployment + K8s resources
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -1299,7 +1551,7 @@ export const deploymentRouter = router({
 
       // Fetch deployment first to get the OpenRouter key hash (for revocation)
       const deployment = await ctx.db.query.deployments.findFirst({
-        where: deploymentWhere(input.id, ctx.user.id, ctx.user),
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
       });
 
       if (!deployment) {
@@ -1342,40 +1594,35 @@ export const deploymentRouter = router({
         }
       }
 
-      // Cancel Stripe subscription if one exists (prevent orphaned billing).
-      // This MUST succeed before we delete anything — otherwise the user gets
-      // billed for a resource that no longer exists and has no way to cancel it.
+      // Cancel Stripe subscription if one exists (prevent orphaned billing)
       if (deployment.stripeSubscriptionId && isStripeConfigured()) {
         logger.debug({ deploymentId: input.id, subscriptionId: deployment.stripeSubscriptionId }, "delete: cancelling Stripe subscription");
         try {
           await cancelSubscriptionImmediately(deployment.stripeSubscriptionId);
           logger.debug({ deploymentId: input.id }, "delete: Stripe subscription cancelled");
         } catch (err) {
-          logger.error({ err, deploymentId: input.id, subscriptionId: deployment.stripeSubscriptionId }, "delete: failed to cancel Stripe subscription — aborting deletion");
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to cancel subscription. Please try again or contact support.",
-          });
+          logger.warn({ err, deploymentId: input.id, subscriptionId: deployment.stripeSubscriptionId }, "delete: failed to cancel Stripe subscription — continuing");
         }
       }
 
       // Delete K8s resources first — if this throws, we abort and leave the DB record intact
       // so the user can retry. Step-by-step logs are inside deleteDeployment.
-      logger.info({ deploymentId: input.id }, "delete: starting K8s resource cleanup");
-      await deleteDeployment(input.id);
+      const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      logger.info({ deploymentId: input.id, managedBy }, "delete: starting K8s resource cleanup");
+      await deleteDeployment(input.id, managedBy);
       logger.info({ deploymentId: input.id }, "delete: K8s cleanup complete, removing DB records");
 
       // Explicitly clean up child rows — SQLite doesn't enforce FK cascades by default
       const credResult = await ctx.db.delete(platformCredentials)
         .where(eq(platformCredentials.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id, rows: getRowsAffected(credResult) }, "delete: platform_credentials removed");
+      logger.debug({ deploymentId: input.id, rows: (credResult as any)?.changes ?? (credResult as any)?.rowsAffected ?? "?" }, "delete: platform_credentials removed");
 
       const skillsResult = await ctx.db.delete(deploymentSkills)
         .where(eq(deploymentSkills.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id, rows: getRowsAffected(skillsResult) }, "delete: deployment_skills removed");
+      logger.debug({ deploymentId: input.id, rows: (skillsResult as any)?.changes ?? (skillsResult as any)?.rowsAffected ?? "?" }, "delete: deployment_skills removed");
 
       await ctx.db.delete(deployments)
-        .where(deploymentWhere(input.id, ctx.user.id, ctx.user));
+        .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
       logger.debug({ deploymentId: input.id }, "delete: deployments row removed");
 
       // Note: We do NOT reset freeDeploymentUsed — the free trial is one-time only
@@ -1383,5 +1630,313 @@ export const deploymentRouter = router({
       logger.info({ deploymentId: input.id, userId: ctx.user.id }, "delete: deployment fully deleted");
 
       return { success: true };
+    }),
+
+  // ── Fork & Public Profile Procedures ─────────────────────────────────────
+
+  // Fork a public (or owned) deployment into a new deployment for the current user
+  fork: protectedProcedure
+    .input(z.object({
+      sourceId: z.string(),
+      name: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // 1. Fetch source deployment — must be isPublic=true OR owned by user
+      const source = await ctx.db.query.deployments.findFirst({
+        where: eq(deployments.id, input.sourceId),
+      });
+
+      if (!source) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Source deployment not found" });
+      }
+
+      if (!source.isPublic && source.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Source deployment not found" });
+      }
+
+      // 2. Generate new deployment ID
+      const newId = nanoid();
+      const now = new Date().toISOString();
+
+      // 3. Clone selected fields from source (NOT: llmApiKey, stripeSubscriptionId, billing, status, credentials, llmApiKeyId)
+      await ctx.db.insert(deployments).values({
+        id: newId,
+        userId: ctx.user.id,
+        name: input.name,
+        description: source.description,
+        runtime: source.runtime,
+        runtimeCatalogId: source.runtimeCatalogId,
+        systemPrompt: source.systemPrompt,
+        llmProvider: source.llmProvider,
+        llmModel: source.llmModel,
+        themeConfig: source.themeConfig,
+        messagingOnly: source.messagingOnly,
+        image: source.image,
+        specialties: source.specialties,
+        bio: source.bio,
+        forkedFromId: input.sourceId,
+        status: "pending",
+      } as any);
+
+      // 6. Copy serviceInstalls (fresh install records)
+      const existingServiceInstalls = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.deploymentId, input.sourceId),
+      });
+      for (const si of existingServiceInstalls) {
+        await ctx.db.insert(serviceInstalls).values({
+          id: `pki_${nanoid()}`,
+          packageId: si.packageId,
+          deploymentId: newId,
+          userId: ctx.user.id,
+          installedAt: now,
+        } as any);
+      }
+
+      // 7. Copy componentInstalls (fresh install records)
+      const existingComponentInstalls = await ctx.db.query.componentInstalls.findMany({
+        where: eq(componentInstalls.deploymentId, input.sourceId),
+      });
+      for (const ci of existingComponentInstalls) {
+        await ctx.db.insert(componentInstalls).values({
+          id: `inst_${nanoid()}`,
+          componentId: ci.componentId,
+          versionId: ci.versionId,
+          deploymentId: newId,
+          userId: ctx.user.id,
+          pinnedVersion: ci.pinnedVersion,
+          autoUpdate: ci.autoUpdate,
+          installedAt: now,
+        } as any);
+      }
+
+      // 8. Copy deploymentSkills (fresh records)
+      const existingSkills = await ctx.db.query.deploymentSkills.findMany({
+        where: eq(deploymentSkills.deploymentId, input.sourceId),
+      });
+      for (const ds of existingSkills) {
+        await ctx.db.insert(deploymentSkills).values({
+          id: `dsk_${nanoid()}`,
+          deploymentId: newId,
+          skillId: ds.skillId,
+          installedAt: now,
+        } as any);
+      }
+
+      // 9. Increment source deployment's forkCount
+      await ctx.db.update(deployments)
+        .set({ forkCount: sql`${deployments.forkCount} + 1` } as any)
+        .where(eq(deployments.id, input.sourceId));
+
+      // 10. Return the new deployment
+      const newDeployment = await ctx.db.query.deployments.findFirst({
+        where: eq(deployments.id, newId),
+        with: { runtimeCatalogEntry: true },
+      });
+
+      logger.info({ sourceId: input.sourceId, newId, userId: ctx.user.id }, "Deployment forked");
+
+      return newDeployment;
+    }),
+
+  // Platform fork: admin-only fork that uses platform-managed LLM keys
+  platformFork: protectedProcedure
+    .input(z.object({
+      sourceId: z.string(),
+      name: z.string().min(1).optional(),
+      resourceTier: z.enum(["small", "medium", "large"]).default("small"),
+      llmProvider: z.string().optional(),
+      llmModel: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // 1. Admin check
+      if (!isAdmin(ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Platform fork is restricted to administrators" });
+      }
+
+      // 2. Fetch source deployment (admins can fork anything)
+      const source = await ctx.db.query.deployments.findFirst({
+        where: eq(deployments.id, input.sourceId),
+      });
+
+      if (!source) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Source deployment not found" });
+      }
+
+      // 3. Resolve resource tier to concrete values
+      const tier = RESOURCE_TIERS[input.resourceTier];
+
+      // 4. Generate new deployment ID
+      const newId = nanoid();
+      const now = new Date().toISOString();
+
+      // 5. Insert new deployment with platform overrides
+      await ctx.db.insert(deployments).values({
+        id: newId,
+        userId: ctx.user.id,
+        name: input.name || `[Platform] ${source.name}`,
+        description: source.description,
+        runtime: source.runtime,
+        runtimeCatalogId: source.runtimeCatalogId,
+        systemPrompt: source.systemPrompt,
+        llmProvider: input.llmProvider || source.llmProvider,
+        llmModel: input.llmModel || source.llmModel,
+        llmMode: "platform",
+        isPlatform: true,
+        isFree: true,
+        llmApiKey: null,
+        cpuLimit: tier.cpuLimit,
+        memoryMb: tier.memoryMb,
+        storageMb: tier.storageMb,
+        resourceTier: input.resourceTier,
+        themeConfig: source.themeConfig,
+        messagingOnly: source.messagingOnly,
+        image: source.image,
+        specialties: source.specialties,
+        bio: source.bio,
+        forkedFromId: input.sourceId,
+        status: "stopped",
+      } as any);
+
+      // 6. Copy serviceInstalls
+      const existingServiceInstalls = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.deploymentId, input.sourceId),
+      });
+      for (const si of existingServiceInstalls) {
+        await ctx.db.insert(serviceInstalls).values({
+          id: `pki_${nanoid()}`,
+          packageId: si.packageId,
+          deploymentId: newId,
+          userId: ctx.user.id,
+          installedAt: now,
+        } as any);
+      }
+
+      // 7. Copy componentInstalls
+      const existingComponentInstalls = await ctx.db.query.componentInstalls.findMany({
+        where: eq(componentInstalls.deploymentId, input.sourceId),
+      });
+      for (const ci of existingComponentInstalls) {
+        await ctx.db.insert(componentInstalls).values({
+          id: `inst_${nanoid()}`,
+          componentId: ci.componentId,
+          versionId: ci.versionId,
+          deploymentId: newId,
+          userId: ctx.user.id,
+          pinnedVersion: ci.pinnedVersion,
+          autoUpdate: ci.autoUpdate,
+          installedAt: now,
+        } as any);
+      }
+
+      // 8. Copy deploymentSkills
+      const existingSkills = await ctx.db.query.deploymentSkills.findMany({
+        where: eq(deploymentSkills.deploymentId, input.sourceId),
+      });
+      for (const ds of existingSkills) {
+        await ctx.db.insert(deploymentSkills).values({
+          id: `dsk_${nanoid()}`,
+          deploymentId: newId,
+          skillId: ds.skillId,
+          installedAt: now,
+        } as any);
+      }
+
+      // 9. Increment source deployment's forkCount
+      await ctx.db.update(deployments)
+        .set({ forkCount: sql`${deployments.forkCount} + 1` } as any)
+        .where(eq(deployments.id, input.sourceId));
+
+      // 10. Return the new deployment
+      const newDeployment = await ctx.db.query.deployments.findFirst({
+        where: eq(deployments.id, newId),
+        with: { runtimeCatalogEntry: true },
+      });
+
+      logger.info({ sourceId: input.sourceId, newId, userId: ctx.user.id, resourceTier: input.resourceTier }, "Platform deployment forked");
+
+      return newDeployment;
+    }),
+
+  // Set deployment visibility (public/private)
+  setVisibility: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      isPublic: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify ownership
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      await ctx.db.update(deployments)
+        .set({ isPublic: input.isPublic } as any)
+        .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
+
+      return { success: true };
+    }),
+
+  // Get public profile for a deployment (no auth required)
+  getPublicProfile: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.isPublic, true)),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Parse JSON fields safely
+      let specialties: string[] = [];
+      try {
+        specialties = deployment.specialties ? JSON.parse(deployment.specialties as string) : [];
+      } catch { /* ignore parse errors */ }
+
+      let showcasePrompts: string[] = [];
+      try {
+        showcasePrompts = (deployment as any).showcasePrompts ? JSON.parse((deployment as any).showcasePrompts as string) : [];
+      } catch { /* ignore parse errors */ }
+
+      // Fetch installed service names
+      const installedServices = await ctx.db.query.serviceInstalls.findMany({
+        where: eq(serviceInstalls.deploymentId, input.id),
+        with: { package: true },
+      });
+      const serviceNames = installedServices
+        .map((si: any) => si.package?.name)
+        .filter(Boolean);
+
+      // Fetch installed component names
+      const installedComponents = await ctx.db.query.componentInstalls.findMany({
+        where: eq(componentInstalls.deploymentId, input.id),
+        with: { component: true },
+      });
+      const componentNames = installedComponents
+        .map((ci: any) => ci.component?.name)
+        .filter(Boolean);
+
+      // Return sanitized profile — never expose llmApiKey, stripeSubscriptionId, userId
+      return {
+        name: deployment.name,
+        description: deployment.description,
+        runtime: deployment.runtime,
+        systemPrompt: deployment.systemPrompt
+          ? (deployment.systemPrompt as string).slice(0, 200)
+          : null,
+        specialties,
+        forkCount: deployment.forkCount,
+        bio: (deployment as any).bio,
+        showcasePrompts,
+        forkedFromId: deployment.forkedFromId,
+        themeConfig: deployment.themeConfig,
+        installedServices: serviceNames,
+        installedComponents: componentNames,
+      };
     }),
 });

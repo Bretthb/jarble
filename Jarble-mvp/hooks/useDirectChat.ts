@@ -4,7 +4,7 @@
  * useDirectChat — Slim streaming hook for direct bot chat via SSE.
  *
  * Handles text deltas and UI blocks from the pod proxy.
- * No tool call handling (management goes through Tambo).
+ * No tool call handling (management goes through the config panel).
  */
 
 import { useState, useCallback, useRef } from "react";
@@ -188,22 +188,33 @@ export function useDirectChat(deploymentId: string) {
                 console.log(`[Jarble:DirectChat] SSE event: ${event.type}`);
               }
 
-              if (event.type === "UI_BLOCK_START") {
-                pendingBlocks.set(event.blockId, {
-                  id: `card-${event.blockId}`,
-                  component: event.component,
+              // ── AG-UI TOOL_CALL events (component rendering as tool calls) ──
+              if (event.type === "TOOL_CALL_START" && event.toolCallName?.startsWith("show_")) {
+                const component = event.toolCallName.slice(5); // "show_chart" -> "chart"
+                const blockId = event.toolCallId;
+                pendingBlocks.set(blockId, {
+                  id: `card-${blockId}`,
+                  component,
                   props: {},
                   ...(event.editable ? { editable: true } : {}),
                   ...(event.fileId ? { fileId: event.fileId } : {}),
                   ...(event.saveMethod ? { saveMethod: event.saveMethod } : {}),
                 });
               }
-              if (event.type === "UI_BLOCK_PROPS") {
-                const block = pendingBlocks.get(event.blockId);
-                if (block) block.props = event.props;
+
+              if (event.type === "TOOL_CALL_ARGS" && event.toolCallId) {
+                const block = pendingBlocks.get(event.toolCallId);
+                if (block && event.delta) {
+                  try {
+                    block.props = JSON.parse(event.delta);
+                  } catch {
+                    isDev && console.warn(`[Jarble:DirectChat] Failed to parse TOOL_CALL_ARGS delta`);
+                  }
+                }
               }
-              if (event.type === "UI_BLOCK_END") {
-                const block = pendingBlocks.get(event.blockId);
+
+              if (event.type === "TOOL_CALL_END" && event.toolCallId) {
+                const block = pendingBlocks.get(event.toolCallId);
                 if (block) {
                   const completed = { ...block };
                   isDev && console.log(`[Jarble:DirectChat] UI block completed: ${block.id} (${block.component})`);
@@ -217,12 +228,13 @@ export function useDirectChat(deploymentId: string) {
                       };
                     })
                   );
-                  pendingBlocks.delete(event.blockId);
+                  pendingBlocks.delete(event.toolCallId);
                 }
               }
 
-              if (event.type === "UI_BLOCK_UPDATE") {
-                const { cardId, props, merge, component } = event;
+              // ── AG-UI CUSTOM events ──
+              if (event.type === "CUSTOM" && event.name === "jarble.card.update" && event.value) {
+                const { cardId, props, merge, component } = event.value;
                 isDev && console.log(`[Jarble:DirectChat] Card updated: ${cardId} (merge=${merge ?? true})`);
                 setMessages((prev) =>
                   prev.map((m) => {

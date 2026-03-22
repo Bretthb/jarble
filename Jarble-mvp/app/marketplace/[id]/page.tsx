@@ -40,8 +40,6 @@ import { TierBadge } from "@/components/marketplace/TierBadge";
 import type { MarketplaceReview } from "@/components/marketplace/types";
 import DeploymentPicker from "@/components/marketplace/DeploymentPicker";
 import { trpc } from "@/lib/trpc";
-import ProfileDropdown from "@/components/ProfileDropdown";
-
 export default function MarketplaceDetailPage() {
   const params = useParams();
   const id = params.id as string;
@@ -103,62 +101,16 @@ export default function MarketplaceDetailPage() {
   const latestVersion = component?.versions?.[0]?.version ?? "1.0.0";
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Navigation */}
-      <nav className="fixed inset-x-0 top-0 z-50 bg-background/80 backdrop-blur-md border-b border-border/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <Link
-            href="/"
-            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-          >
-            <h1 className="font-serif font-bold text-2xl tracking-tight">
-              Jarble
-            </h1>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link
-              href="/marketplace"
-              className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
-            >
-              Marketplace
-            </Link>
-            {!authLoading && isAuthenticated ? (
-              <>
-                <Link
-                  href="/dashboard"
-                  className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors hidden sm:inline"
-                >
-                  Dashboard
-                </Link>
-                <ProfileDropdown />
-              </>
-            ) : (
-              !authLoading && (
-                <Button
-                  size="sm"
-                  asChild
-                  className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
-                >
-                  <Link href="/login">Sign in</Link>
-                </Button>
-              )
-            )}
-          </div>
-        </div>
-      </nav>
+    <>
+      <Link
+        href="/marketplace"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
+      >
+        <ArrowLeft className="size-4" />
+        Back to Marketplace
+      </Link>
 
-      {/* Main content */}
-      <main className="pt-24 pb-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-        {/* Back link */}
-        <Link
-          href="/marketplace"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
-        >
-          <ArrowLeft className="size-4" />
-          Back to Marketplace
-        </Link>
-
-        {isLoading ? (
+      {isLoading ? (
           <DetailSkeleton />
         ) : !hasData ? (
           <DetailNotFound />
@@ -259,7 +211,7 @@ export default function MarketplaceDetailPage() {
                     </p>
                   ) : (
                     <div className="space-y-4">
-                      {reviews.map((review: { id: string; rating: number; title: string | null; body: string | null; createdAt: string; user: { id: string; name: string } | null }) => (
+                      {reviews.map((review) => (
                         <ReviewCard key={review.id} review={review} />
                       ))}
                     </div>
@@ -443,8 +395,7 @@ export default function MarketplaceDetailPage() {
             </div>
           </>
         )}
-      </main>
-    </div>
+    </>
   );
 }
 

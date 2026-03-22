@@ -22,6 +22,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useMemo, useCallback } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Skeleton } from "@/components/ui/skeleton";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { runtimeNeedsLlm } from "./onboarding/wizardStepConfig";
 import {
@@ -255,7 +256,7 @@ function DeploymentDetailPanel({
         <h3 className="font-semibold text-sm truncate flex-1 mr-2">{deployment.name}</h3>
         <button
           onClick={onClose}
-          className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+          className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary"
           aria-label="Close panel"
         >
           <X className="w-4 h-4" />
@@ -558,12 +559,17 @@ export default function Deployments() {
         </div>
 
         {deploymentsQuery.isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="w-6 h-6 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">
-                Loading deployments...
-              </p>
+          <div className="py-8 space-y-4">
+            <div className="flex gap-3">
+              <Skeleton className="h-8 w-28 rounded-full" />
+              <Skeleton className="h-8 w-24 rounded-full" />
+            </div>
+            <div className="h-[500px] rounded-xl border border-border bg-muted/20 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <Skeleton className="h-16 w-16 rounded-full" />
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-28" />
+              </div>
             </div>
           </div>
         ) : deploymentsQuery.isError ? (
@@ -591,7 +597,7 @@ export default function Deployments() {
 
               <button
                 disabled
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-secondary/50 border-border text-muted-foreground/50 cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-secondary/50 border-border text-muted-foreground-subtle cursor-not-allowed"
               >
                 <Share2 className="w-3.5 h-3.5" />
                 Data Sharing: coming soon
@@ -671,7 +677,7 @@ export default function Deployments() {
             className="text-center py-24"
           >
             <Layers className="w-12 h-12 mx-auto mb-4 text-muted-foreground/40" />
-            <h3 className="text-xl font-semibold mb-1">
+            <h3 className="text-lg font-semibold mb-1">
               No linked deployments yet
             </h3>
             <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">

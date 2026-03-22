@@ -1,0 +1,145 @@
+# OpenClawInstance CR — matches our current createDeployment() spec
+#
+# This maps to the ~165 lines of K8s resource creation in lifecycle.ts
+# (PVC + Secret + ConfigMap + init containers + Deployment).
+#
+# Replace {deploymentId} and {userId} with actual values before applying.
+# Apply test-secret.yaml and test-configmap.yaml first.
+#
+# Usage:
+#   kubectl apply --dry-run=client -f example-instance.yaml
+#   kubectl apply -f example-instance.yaml
+
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: test-eval-agent
+  namespace: jarble-eval
+  labels:
+    jarble.ai/deployment-id: "test-eval-001"
+    jarble.ai/type: "bot"
+spec:
+  # ─── Image ───────────────────────────────────────────────────────────
+  # Replaces: lifecycle.ts:17 — config.image || DEFAULT_IMAGE
+  # In production, DEFAULT_IMAGE is set via DEFAULT_POD_IMAGE env var.
+  # Operator supports OCI auto-update (spec.autoUpdate) but we pin for now.
+  image:
+    repository: ghcr.io/jarble-ai/openclaw
+    tag: "latest"    # Pin to versioned tag in prod (e.g. "2026.3.2")
+    pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - name: ghcr-pull-secret
+
+  # ─── Environment Variables ───────────────────────────────────────────
+  # Replaces: lifecycle.ts:51-76 — Secret creation with env vars
+  # We still create and manage the Secret ourselves (LLM keys, platform
+  # tokens, gateway token). The operator just references it.
+  envFrom:
+    - secretRef:
+        name: secret-test-eval-001
+  env:
+    - name: DEPLOYMENT_ID
+      value: "test-eval-001"
+    - name: USER_ID
+      value: "test-user-001"
+    - name: DEPLOYMENT_NAME
+      value: "Eval Test Agent"
+    - name: TEMPLATE
+      value: "personal"
+    - name: RUNTIME
+      value: "openclaw"
+
+  # ─── Config ──────────────────────────────────────────────────────────
+  # Replaces: lifecycle.ts:78-164 — ConfigMap creation + init containers
+  # The operator copies ConfigMap data to the PVC via its own init chain,
+  # replacing our busybox config-init + openclaw validate-config containers.
+  #
+  # mergeMode options:
+  #   "replace" — overwrite PVC config on every restart
+  #   "merge"   — deep-merge with existing config (preserves runtime changes)
+  #   "skip"    — only copy on first boot (PVC takes precedence)
+  #
+  # We use "replace" because configSync is the source of truth — if the DB
+  # has updated config, we want it written on restart.
+  config:
+    configMapRef:
+      name: config-test-eval-001
+    mergeMode: replace
+
+  # ─── Storage ─────────────────────────────────────────────────────────
+  # Replaces: lifecycle.ts:40-48 — PVC creation
+  # Operator creates a PVC named {instance-name}-data (or similar).
+  # CRITICAL: Verify the mount path — our code expects /data, operator
+  # may use /home/openclaw. See mapping.md for path compatibility analysis.
+  storage:
+    persistence:
+      enabled: true
+      size: 30Gi
+      storageClassName: longhorn
+      accessModes:
+        - ReadWriteOnce
+
+  # ─── Gateway ─────────────────────────────────────────────────────────
+  # Replaces: lifecycle.ts:52 — crypto.randomBytes(32) gateway token
+  # If autoGenerateToken is true, operator creates and injects the token.
+  # IMPORTANT: We need to READ the token back for chat proxy (getPodAddress
+  # in status.ts:219-222). If auto-generated, it must be in a readable Secret.
+  # Alternative: set autoGenerateToken=false and manage token in our Secret.
+  gateway:
+    port: 18789
+    # Set to false — we generate and store the token in our own Secret
+    # so getPodAddress() can read it back for the chat proxy.
+    autoGenerateToken: false
+
+  # ─── Resources ───────────────────────────────────────────────────────
+  # Replaces: lifecycle.ts:173-175 — CPU/memory requests and limits
+  # Our current spec: requests == limits (Guaranteed QoS class)
+  resources:
+    requests:
+      cpu: "2000m"
+      memory: "3072Mi"
+    limits:
+      cpu: "2000m"
+      memory: "3072Mi"
+
+  # ─── Security ────────────────────────────────────────────────────────
+  # Operator defaults (from docs):
+  #   - runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000
+  #   - readOnlyRootFilesystem: true
+  #   - allowPrivilegeEscalation: false
+  #   - drop: ["ALL"]
+  #
+  # Our current spec (lifecycle.ts:177-184):
+  #   - runAsUser: 0 (root) — needed for npm install, apt-get
+  #   - allowPrivilegeEscalation: false
+  #
+  # COMPATIBILITY CONCERN: Operator's non-root + read-only FS is more
+  # secure but may break runtime self-updates. Test whether the OpenClaw
+  # image works correctly under these constraints.
+  #
+  # Override if needed:
+  # securityContext:
+  #   runAsUser: 0
+  #   readOnlyRootFilesystem: false
+
+  # ─── Probes ──────────────────────────────────────────────────────────
+  # Replaces: lifecycle.ts:190-209 — liveness + readiness probes
+  # Operator likely configures these automatically on the gateway port.
+  # Our current spec:
+  #   liveness:  httpGet /healthz, initial=60s, period=30s, timeout=5s, failure=3
+  #   readiness: httpGet /healthz, initial=20s, period=10s, timeout=5s, failure=3
+  #
+  # Override if operator defaults differ:
+  # probes:
+  #   liveness:
+  #     initialDelaySeconds: 60
+  #     periodSeconds: 30
+  #   readiness:
+  #     initialDelaySeconds: 20
+  #     periodSeconds: 10
+
+  # ─── Replicas ────────────────────────────────────────────────────────
+  # Replaces: lifecycle.ts:121 — replicas: 1
+  # Operator default is 1. For stop/start, we'd patch this to 0/1
+  # (same as current approach) or delete/recreate the CR.
+  replicas: 1

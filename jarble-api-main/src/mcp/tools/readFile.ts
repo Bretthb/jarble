@@ -1,4 +1,6 @@
 import { findPodForDeployment, execInPod } from "../../k8s/index.js";
+import type { ManagedBy } from "../../k8s/constants.js";
+import { getPvcMountPath, getContainerName } from "../../k8s/constants.js";
 import { logger } from "../../utils/logger.js";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 
@@ -13,7 +15,7 @@ export const readFileTool: McpTool = {
     properties: {
       path: {
         type: "string",
-        description: "Absolute path to the file to read (must be under /data/)",
+        description: "Absolute path to the file to read (must be under the PVC mount)",
       },
     },
     required: ["path"],
@@ -24,9 +26,13 @@ export const readFileTool: McpTool = {
       return { success: false, message: "No path provided." };
     }
 
-    // Validate path is under /data/
-    if (!path.startsWith("/data/") && path !== "/data") {
-      return { success: false, message: "Path must be under /data/." };
+    const managedBy = (ctx.deployment?.managedBy ?? "legacy") as ManagedBy;
+    const pvcMount = getPvcMountPath(managedBy);
+    const containerName = getContainerName(managedBy);
+
+    // Validate path is under PVC mount
+    if (!path.startsWith(`${pvcMount}/`) && path !== pvcMount) {
+      return { success: false, message: `Path must be under ${pvcMount}/.` };
     }
 
     // Reject path traversal
@@ -34,7 +40,7 @@ export const readFileTool: McpTool = {
       return { success: false, message: "Path traversal (..) is not allowed." };
     }
 
-    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false });
+    const podName = await findPodForDeployment(ctx.deploymentId, { requireReady: false, managedBy });
     if (!podName) {
       return {
         success: false,
@@ -44,7 +50,7 @@ export const readFileTool: McpTool = {
 
     try {
       // Check file size first
-      const sizeOutput = await execInPod(podName, ["stat", "-c", "%s", path]);
+      const sizeOutput = await execInPod(podName, ["stat", "-c", "%s", path], containerName);
       const fileSize = parseInt(sizeOutput.trim(), 10);
 
       if (isNaN(fileSize)) {
@@ -59,7 +65,7 @@ export const readFileTool: McpTool = {
       }
 
       // Read file content
-      const content = await execInPod(podName, ["cat", path]);
+      const content = await execInPod(podName, ["cat", path], containerName);
 
       return {
         success: true,

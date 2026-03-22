@@ -65,13 +65,21 @@ export default function EditableCanvas({
   }, []);
 
   // Sync displayProps when block.props changes externally,
-  // but not if the user just saved local edits (those take precedence)
+  // but not if the user just saved local edits (those take precedence).
+  // Reset hasSavedLocally after a short delay so future bot updates are accepted.
   useEffect(() => {
     if (!isEditing && !hasSavedLocally) {
       isDev && console.log("[Jarble:Editable] Syncing displayProps from block.props for:", block.component);
       setDisplayProps(block.props);
     }
   }, [block.props, isEditing, hasSavedLocally]);
+
+  // Auto-reset hasSavedLocally after 2 seconds so bot updates resume
+  useEffect(() => {
+    if (!hasSavedLocally) return;
+    const timer = setTimeout(() => setHasSavedLocally(false), 2000);
+    return () => clearTimeout(timer);
+  }, [hasSavedLocally]);
 
   const handleEdit = useCallback(() => {
     isDev && console.log("[Jarble:Editable] Entering edit mode for:", block.component, block.id);
@@ -94,6 +102,8 @@ export default function EditableCanvas({
     try {
       const isFilePath = block.fileId?.startsWith("/data/");
       isDev && console.log("[Jarble:Editable] Save path:", isFilePath ? "write_file MCP" : saveMethod === "chat" ? "chat message" : "save_canvas_file MCP");
+
+      let usedMcpFallback = false;
 
       if (isFilePath) {
         // Write back to the original file on the pod via write_file MCP tool
@@ -137,6 +147,7 @@ export default function EditableCanvas({
         );
       } else {
         // Fallback: save as canvas component data
+        usedMcpFallback = true;
         isDev && console.log("[Jarble:Editable] Using save_canvas_file MCP fallback");
         const token = await getAccessTokenSilently();
         const res = await fetch(
@@ -178,7 +189,8 @@ export default function EditableCanvas({
       onPropsUpdate?.(block.id, editedProps);
 
       // Layer 3: Fire-and-forget PVC persistence for cross-session durability
-      if (block.editable) {
+      // Skip if primary save already used save_canvas_file (avoid double write)
+      if (block.editable && !usedMcpFallback) {
         getAccessTokenSilently().then((token) => {
           fetch(`${API_URL}/api/deployments/${deploymentId}/mcp/invoke`, {
             method: "POST",

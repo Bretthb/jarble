@@ -20,8 +20,8 @@ interface ChatErrorCardProps {
   onRetry?: () => void;
   onStartBot?: () => void;
   onDiagnose?: () => void;
-  diagnosis: DiagnosticResult | null;
-  isDiagnosing: boolean;
+  diagnosis?: DiagnosticResult | null;
+  isDiagnosing?: boolean;
 }
 
 const STATUS_ICONS: Record<DiagnosticCheck["status"], typeof CheckCircle2> = {
@@ -35,7 +35,7 @@ const STATUS_COLORS: Record<DiagnosticCheck["status"], string> = {
   ok: "text-emerald-400",
   warning: "text-amber-400",
   error: "text-red-400",
-  skipped: "text-muted-foreground/50",
+  skipped: "text-muted-foreground-subtle",
 };
 
 function ChatErrorCardInner({
@@ -126,7 +126,7 @@ function ChatErrorCardInner({
                       <span className="text-muted-foreground">{check.name}:</span>{" "}
                       <span className="text-foreground/80">{check.detail}</span>
                       {check.suggestion && (
-                        <p className="text-muted-foreground/70 mt-0.5">{check.suggestion}</p>
+                        <p className="text-muted-foreground-subtle mt-0.5">{check.suggestion}</p>
                       )}
                     </div>
                   </div>

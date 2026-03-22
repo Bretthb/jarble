@@ -103,6 +103,13 @@ Think of Jarble as a **restaurant franchise system**:
 | **Marketplace** | A cookbook store — browse and install new dish recipes |
 | **AutoFix** | The chef correcting a misread order before it goes to the kitchen |
 | **@jarble/component-manifest** | The master ingredient list shared by kitchen, dining room, and menu printer |
+| **Agent Hub** | A catering partner network — your restaurant can call in a specialist caterer (another agent) to handle specific orders |
+| **agentCallEvents** | The intercom between the catering dispatch desk and the floor staff, so servers know a specialist is on the way |
+| **Benchmarks Router** | A Michelin Guide for AI chefs — diners rate each chef on accuracy, helpfulness, and creativity to build a public leaderboard |
+| **Forkability Score** | How copy-ready a chef (agent) is to be franchised — rates completeness of their public profile and community ratings |
+| **Platform Agent** | A Jarble-employed house chef — Jarble provides the kitchen, ingredients, and pays for everything; the chef just serves |
+| **Resource Tier** | The size of the kitchen we provide to a platform chef: small (0.5 vCPU/1GB), medium (1 vCPU/2GB), large (2 vCPU/3GB) |
+| **Dashboard Compose** | The expediting station — one order (compose call) fans out to multiple prep stations (component agents) running in parallel |
 
 When a user "deploys" a bot, they're essentially **opening a new restaurant location** — we set up the building (K8s Pod), stock the fridge (PVC), put the supplier passwords in the safe (Secret), and print the menus (config files).
 
@@ -239,25 +246,35 @@ The API is an **Express.js** server with **tRPC** for structured endpoints and p
 
 ### Two Types of Endpoints
 
-**1. tRPC Procedures** (75 total across 9 routers)
+**1. tRPC Procedures** (96 total across 11 routers)
 Structured, typed function calls. Protected by JWT auth. Used for all normal CRUD operations.
 
 ```
-trpc.deployment.list            → List your bots
-trpc.deployment.create          → Create a new bot
-trpc.deployment.update          → Change bot settings
-trpc.deployment.delete          → Delete a bot
-trpc.openrouter.provisionKey    → Get a new LLM API key
-trpc.marketplace.browse         → Browse marketplace components
-trpc.marketplace.install        → Install a component on a deployment
-trpc.skills.listCatalog         → List available skills
+trpc.deployment.list              → List your bots
+trpc.deployment.create            → Create a new bot
+trpc.deployment.update            → Change bot settings
+trpc.deployment.delete            → Delete a bot
+trpc.deployment.platformFork      → Admin: fork as platform agent
+trpc.openrouter.provisionKey      → Get a new LLM API key
+trpc.marketplace.browse           → Browse marketplace components
+trpc.marketplace.install          → Install a component on a deployment
+trpc.skills.listCatalog           → List available skills
+trpc.services.list                → Browse service marketplace
+trpc.services.install             → Install a service bundle on a deployment
+trpc.benchmarks.rateDeployment    → Rate an agent in a domain
+trpc.benchmarks.leaderboard       → Domain leaderboard
+trpc.benchmarks.adminFeature      → Admin: feature an agent
 ```
 
-**2. REST Endpoints** (13 total)
+**2. REST Endpoints** (29 total)
 Plain HTTP routes for things that can't use tRPC:
 - **Webhooks** (Stripe, Auth0, config-changed) — external services POST to us
 - **SSE Streams** (logs, status, WhatsApp QR, chat) — long-lived connections that push data
-- **Chat history** (`GET /api/tambo-agent/sessions/*`) — session list and message loader
+- **Artifact endpoints** (workspace artifact sync) — exec into pod to read/write workspace JSON
+- **Service proxy** (HMAC-signed skill routing) — forwards buyer skill calls to creator remote APIs
+- **Agent Hub** (`POST /api/agent-hub/call`, `GET /api/agent-hub/discover`) — agent-to-agent delegation; call endpoint fans out SSE events via `agentCallEvents` EventEmitter
+- **Public API** (`GET /api/public/leaderboard/:domainSlug`, `GET /api/public/agents/:deploymentId/profile`) — unauthenticated leaderboard and agent profile endpoints with forkability scores
+- **Pod Compose** (`POST /api/pod/compose`) — fans out up to 8 component agent calls in parallel; used by the `compose_dashboard` MCP tool
 - **MCP endpoints** (Streamable HTTP + proxy) — for external MCP clients
 - **Diagnostic endpoint** — structured health checks for a deployment
 - **Health check** — for Kubernetes to know we're alive
@@ -265,7 +282,7 @@ Plain HTTP routes for things that can't use tRPC:
 
 ### Background Services
 
-Two enforcement services start automatically at API boot (skipped in dev/SQLite mode):
+Four background services start automatically at API boot (skipped in dev/SQLite mode):
 
 **Subscription Enforcement** (every 5 minutes):
 - Stops free-trial bots past their expiration date
@@ -278,6 +295,14 @@ Two enforcement services start automatically at API boot (skipped in dev/SQLite 
 - Checks disk usage (`df /data`) inside each running pod
 - Stops pods exceeding their storage quota (>= 100%)
 - Clears storage errors when usage drops below limit
+
+**Status Reconciler** (every 30 seconds):
+- Reconciles DB deployment status with actual K8s pod status
+- Fixes deployments stuck at "creating" (e.g., after API restart mid-deploy)
+
+**Service Health Check** (every 5 minutes):
+- Pings the health endpoint of each published hosted/remote service
+- Updates service availability status in DB (marks degraded services)
 
 ### Hardware-Based Pricing
 
@@ -327,7 +352,7 @@ graph TD
     REQ["Incoming Request<br/>POST /trpc/deployment.list"] --> MW["Auth Middleware<br/>JWT verification"]
     MW --> ROUTER{"Which Router?"}
 
-    ROUTER -->|"deployment.*"| DEPLOY["deployment.ts<br/>21 procedures"]
+    ROUTER -->|"deployment.*"| DEPLOY["deployment.ts<br/>22 procedures"]
     ROUTER -->|"openrouter.*"| OR["openrouter.ts<br/>8 procedures"]
     ROUTER -->|"user.*"| USER["user.ts<br/>5 procedures"]
     ROUTER -->|"billing.*"| BILL["billing.ts<br/>3 procedures"]
@@ -336,7 +361,8 @@ graph TD
     ROUTER -->|"template.*"| TMPL["template.ts<br/>1 procedure"]
     ROUTER -->|"skills.*"| SKILLS["skills.ts<br/>4 procedures"]
     ROUTER -->|"marketplace.*"| MKT["marketplace.ts<br/>22 procedures"]
-    ROUTER -->|"GET /api/tambo-agent/sessions/*"| CHATREST["tamboAgent.ts<br/>2 REST GET endpoints (chat history)"]
+    ROUTER -->|"services.*"| SVC["services.ts<br/>6 procedures"]
+    ROUTER -->|"benchmarks.*"| BM["benchmarks.ts<br/>14 procedures"]
 
     DEPLOY --> DB[("Database")]
     DEPLOY --> K8S["K8s Cluster"]
@@ -348,7 +374,7 @@ graph TD
 
 ```
 src/trpc/routers/
-  ├── deployment.ts          ← 21 procedures (CRUD + canvas components + lifecycle)
+  ├── deployment.ts          ← 22 procedures (CRUD + canvas components + lifecycle + platformFork)
   ├── openrouter.ts          ← 8 procedures (LLM key management)
   ├── user.ts                ← 5 procedures (profile, email verify)
   ├── billing.ts             ← 3 procedures (overview, invoices, subscriptions)
@@ -356,7 +382,8 @@ src/trpc/routers/
   ├── runtimeCatalog.ts      ← 4 procedures (list available runtimes)
   ├── skills.ts              ← 4 procedures (skills catalog, install/uninstall)
   ├── marketplace.ts         ← 22 procedures (browse, install, review, creator, admin)
-  ├── admin.ts               ← 19 procedures (platform admin: stats, users, deployments, billing, metrics, audit, beta signups)
+  ├── services.ts            ← 6 procedures (service marketplace: list, get, install, uninstall, publish, listByCreator)
+  ├── benchmarks.ts          ← 14 procedures (domains, ratings, leaderboard, service metrics + reviews, admin curation)
   └── template.ts            ← 1 procedure (bot templates)
 ```
 
@@ -434,6 +461,26 @@ The building manager's job:
 - Keep the lights on (health checks)
 - Manage storage lockers (persistent volumes)
 
+### Pod Performance Tuning
+
+Several optimizations have been made to reduce deployment startup time and improve readiness detection:
+
+| Tuning | Old | New | Saving |
+|---|---|---|---|
+| validate-config init container | Present (pulled full OpenClaw image) | Removed | 10-30s cold boot |
+| PVC config writes | N sequential exec calls | 1 batched shell script | ~4s → 300ms |
+| Readiness poll interval | Flat 2s | Adaptive: 1s/2s/3s tiers | Faster detection |
+| Readiness `initialDelaySeconds` | 20s | 10s | 10s saved per deploy |
+| Readiness `periodSeconds` | 10s | 5s | Faster "running" detection |
+| Liveness `initialDelaySeconds` | 60s | 90s | Prevents cold-boot kills |
+| `terminationGracePeriodSeconds` | 30s | 10s | Faster pod replacement |
+| CPU request | Equal to limit | 50% of limit (min 250m) | Burst during npm install |
+
+The adaptive readiness polling tiers in `configSync.ts`:
+- **0-20s**: 1s intervals (warm boots with `.initialized` finish in ~15s)
+- **20-60s**: 2s intervals
+- **60-180s**: 3s intervals (cold boot npm install can take 2-3 min)
+
 ### The Three K8s Resources We Create Per Deployment
 
 When a user deploys a bot, we create exactly three things:
@@ -461,9 +508,7 @@ graph TB
 ```
 What: A chunk of disk space that survives pod restarts
 Why: Bot data (configs, databases, logs) must persist
-Size: 5 GB default (the storageMb column name is misleading — units are GB).
-     Typical bot uses 500 MB–1 GB, so 5 GB gives ~4x headroom.
-Storage class: longhorn-1r (1 replica — trades redundancy for 3x more density)
+Size: 20-100 GB (user configurable)
 Analogy: A storage locker at the apartment complex. Even if the tenant
          moves to a different apartment, their stuff stays in the locker.
 ```
@@ -570,17 +615,6 @@ graph TB
 - `.initialized` is the **gate** — if this file exists, the entrypoint skips installation and goes straight to starting the gateway.
 - Everything outside `/data/` is **ephemeral** — the container image is rebuilt from scratch on every restart, but `/data/` is always reattached.
 
-### Split Prompt Architecture
-
-`soul.md` does NOT contain the full system prompt. The bot's instructions are split across two delivery mechanisms:
-
-| Prompt Part | Where It Lives | When Delivered | Platforms |
-|-------------|----------------|----------------|-----------|
-| `PLATFORM_GUARDRAILS` | Written into `soul.md` by configSync | On pod start / config change | ALL (Telegram, Discord, Slack, web) |
-| `JARBLE_UI_PROMPT` | Never written to disk | Injected at request time by `tamboAgent.ts` as a `system` message | Web dashboard only |
-
-**Why?** Guardrails (infrastructure confidentiality, real data policy, memory tools) must apply to messaging bots too, which never go through the API chat endpoint. The canvas rendering instructions are too large for messaging bots and only make sense in the web dashboard context — injecting them at request time means updating the API code instantly updates all deployments without touching any pods.
-
 ### What Happens to Files During Each Operation
 
 ```mermaid
@@ -662,22 +696,17 @@ Where:
   p = max persistent storage per deployment
 ```
 
-| Resource | cpx21 has | Pod request (default) | Typical deployment |
-|----------|-----------|----------------------|-------------------|
-| CPU | 3 vCPU | 100m (0.1 vCPU) | 100m request, configurable limit |
-| RAM | 4 GB | 256 MB | 256 MB request, configurable limit |
-| Storage (PVC) | Block storage | **5 GB** (default `storageMb=5`) | 500 MB–1 GB actual usage |
-| Max deployments | — | ~15 per node (memory-limited) | ~30 per node (CPU-limited) |
+| Resource | cpx21 has | Per deployment (default) | Per deployment (min) |
+|----------|-----------|------------------------|---------------------|
+| CPU | 3 vCPU | 2 vCPU | 1 vCPU |
+| RAM | 4 GB | 2 GB | 256 MB |
+| Storage (PVC) | Block storage | 30 GB | 20 GB |
+| Max deployments | — | ~1 per node | ~3 per node |
 
-With the new 5 GB default PVC and `longhorn-1r` storage class (1 replica), cluster density improved dramatically:
+With default specs (2 vCPU, 2GB RAM), only **~1 deployment fits per cpx21 node**. With minimum specs, up to **~3 deployments** fit (CPU-limited). The user can allocate up to **100 GB storage per deployment**, so the block storage volume must be sized accordingly:
 
-- Memory-limited: ~15 deployments per cpx21 (4 GB / 256 MB request)
-- CPU-limited: ~30 deployments per cpx21 (3 vCPU / 100m request)
-- Storage-limited: ~56 deployments per cpx21 with 300 GB block storage (300 GB / 5 GB)
-
-Block storage per node: with 15 deployments × 5 GB = **75 GB** (vs 15 × 30 GB = 450 GB before).
-
-> **Why `longhorn-1r`?** The `longhorn-1r` storage class uses 1 Longhorn replica instead of 3, tripling the usable block storage capacity at the cost of no redundancy. Acceptable for ephemeral bot data that can be reproduced.
+- 1 deployment x 100 GB = **100 GB block storage**
+- 3 deployments x 100 GB = **300 GB block storage**
 
 Hetzner Block Storage volumes are provisioned by Terraform (`hcloud_volume`, default 100 GB per node) and mounted at `/var/lib/longhorn` on each worker node. Longhorn automatically uses this path — no config changes needed. Hetzner supports up to **10 TB** per block storage volume.
 
@@ -850,7 +879,7 @@ The dashboard card turns green.
 
 ## 8. LLM Keys and Credit Pools
 
-### Two Ways to Get an LLM Key
+### Three Ways to Get an LLM Key
 
 **BYOK (Bring Your Own Key)**
 ```
@@ -869,6 +898,18 @@ The user doesn't need to sign up for anything — we handle it.
 
 Analogy: We order catering for your party. You pay us, we pay the caterer.
 ```
+
+**Platform Mode** (`llmMode: "platform"`)
+```
+Only available for platform-managed agents (isPlatform: true).
+The platform injects its own LLM key (AGENT_LLM_API_KEY) into the pod.
+The user has no key at all — the platform pays for every inference.
+
+Analogy: House chefs at a Jarble-owned restaurant. Jarble provides
+everything — kitchen, staff, ingredients. The chef just works.
+```
+
+Platform mode is set when an admin uses `deployment.platformFork` to clone a user's agent as a platform agent. The key injection happens inside `openclaw.ts:getSecretEntries()`: it checks `deployment.llmMode === "platform"` and substitutes the platform key for whatever the deployment record holds.
 
 ### How Credit Pools Work
 
@@ -925,7 +966,7 @@ Included Credits (owner):
   │ Daily: $0.52  Weekly: $2.10     │
   │                                 │
   │ Credit Limit: [$25] [Update]    │
-  │ [Regenerate Key] [Revoke Key]   │  ← Stripe-aware mutations
+  │ [Regenerate Key] [Revoke Key]   │
   └─────────────────────────────────┘
 
 Linked (child):
@@ -943,10 +984,40 @@ BYOK:
   └─────────────────────────────────┘
 ```
 
-**Stripe-aware mutations (important distinction):**
-- **Update Limit** uses `updateManagedKeyPlan` — updates BOTH the OpenRouter credit cap AND the Stripe subscription line item price. This keeps billing in sync.
-- **Revoke Key** uses `cancelManagedKey` — removes the Stripe line item, revokes the OpenRouter key, and switches to BYOK mode. This is a billing cancellation.
-- **Regenerate Key** uses `revokeKey` + `provisionKey` — this is key rotation only. The Stripe line item stays unchanged because the billing plan hasn't changed.
+### Platform Mode and the Agent Forking Flywheel
+
+Platform mode is part of a two-phase system for discovering and promoting the best agents on the platform:
+
+**Phase 1 — Discovery (the Benchmarks router):**
+
+Users rate agents on accuracy, helpfulness, and creativity within taxonomy domains (e.g., "data-analysis", "creative-writing"). Scores are aggregated in `deploymentDomainScores` and surfaced through:
+- `GET /api/public/leaderboard/:domainSlug` — ranked list for any domain (no auth)
+- `GET /api/public/agents/:deploymentId/profile` — full public profile (no auth)
+
+Each entry includes a **forkability score** (0-100, computed by `computeForkabilityScore()`), which quantifies how copy-ready an agent is:
+
+| Criterion | Points |
+|---|---|
+| isPublic === true | 15 |
+| Has non-empty bio | 10 |
+| Has >= 1 showcase prompt | 10 |
+| Has >= 2 specialties | 15 |
+| Rating count >= 10 with medium/high confidence | 20 |
+| Overall score >= 350 (3.5/5 stars) | 20 |
+| Featured by admin | 10 |
+
+**Analogy:** Think of the leaderboard as a **Michelin Guide for AI chefs**. Diners (users) rate each chef's dishes (agent responses) on different criteria. Chefs who earn enough stars get featured, which makes them more attractive to franchise (fork).
+
+**Phase 2 — Platform Agents:**
+
+When an admin sees an agent worth promoting, they call `deployment.platformFork` — which creates a Jarble-managed copy with:
+- `isPlatform: true` — bypass subscription and storage enforcement forever
+- `resourceTier` — one of `small` (0.5 vCPU/1GB), `medium` (1 vCPU/2GB), `large` (2 vCPU/3GB)
+- `llmMode: "platform"` — uses `AGENT_LLM_API_KEY` instead of any user key
+
+**Platform agents never get stopped** by the subscription enforcer or storage enforcer, because the `isPlatform` flag is checked at the top of both enforcement loops.
+
+**Analogy:** Jarble has scouted a great chef from the marketplace and hired them full-time. The chef now works in a Jarble-owned restaurant — Jarble pays for everything, the chef (agent) just serves customers.
 
 ---
 
@@ -1109,6 +1180,18 @@ graph LR
     style SYNC_PULL fill:#3b82f6,color:#fff
 ```
 
+### Tiered Sync Strategy
+
+Not every config change requires a full pod restart. `syncConfigsToPvc()` uses a **tiered approach** to minimize downtime:
+
+| Tier | Trigger | What Happens | Downtime |
+|---|---|---|---|
+| **Tier 1** | System prompt, skills changes only | Write files to PVC, no restart | 0s |
+| **Tier 2** | LLM keys, platform tokens changed | Signal entrypoint to hot-restart gateway process | ~5-10s |
+| **Tier 3** | Secrets removed or Tier 2 not supported | Full pod restart (scale 0→1) | ~30-60s |
+
+All config files are written in a **single batched exec call** (one WebSocket round-trip per sync, regardless of how many files change). This reduced write latency from ~4s to ~300ms.
+
 ### Direction 1: Frontend → Container (Push)
 
 **When it fires:** User saves changes in the config tabs.
@@ -1220,6 +1303,19 @@ graph TD
 - `COMPONENT_SCHEMAS` — Zod schemas for all components
 - `DEFAULT_CARD_SIZES`, `MANIFEST_SPLITTABLE` — derived from manifest, replace old hardcoded objects
 
+### Sandbox-First Rendering Strategy
+
+The bot system prompt now designates the **sandbox component as the default** for dashboards, analytics, charts, and any visualization involving two or more visual elements. The `promptGuidance` fields in the component manifest encode this policy directly so every LLM sees it:
+
+| Component | Guidance |
+|---|---|
+| `sandbox` | "YOUR DEFAULT for dashboards, analytics, charts, data viz, and any request needing 2+ visual elements. Build the ENTIRE UI in ONE sandbox with Tailwind + Chart.js/D3." |
+| `chart` | "AVOID — use sandbox instead for better results. Only use as a last resort for the simplest possible single chart." |
+| `metric_card` | "ONLY for a standalone single KPI display. For dashboards or requests with charts+metrics together, use sandbox instead." |
+| `stat_grid` | "ONLY for a standalone metrics display with no charts. For dashboards or analytics requests, use sandbox instead." |
+
+The sandbox `defaultSize` is 800×650. Combined with Tailwind (loaded via CDN) and Chart.js or D3, one sandbox can replace what previously required 3-5 separate typed components. This reduces token usage in system prompts and produces more coherent layouts.
+
 ### AutoFix Prop Repair (`lib/autoFixProps.ts`)
 
 LLMs frequently produce props that are _close_ but not quite right. AutoFix runs before Zod validation to silently repair common mistakes:
@@ -1230,12 +1326,16 @@ flowchart LR
     AUTOFIX["autoFixProps.ts<br/>20 repair rules"]
     ZOD["Zod schema validation<br/>(@jarble/component-manifest)"]
     RENDER["Render component"]
-    ERROR["Show error card"]
+    WARN["Log warning, render with<br/>raw props anyway"]
 
     INPUT --> AUTOFIX --> ZOD
     ZOD -->|Pass| RENDER
-    ZOD -->|Fail| ERROR
+    ZOD -->|Fail| WARN --> RENDER
 ```
+
+**Zod-tolerant rendering (Session 18):** `CanvasRenderer` no longer shows an error card for Zod validation failures. Instead, it logs a warning and renders with the post-AutoFix props. This fixes cases like `metric_card` receiving a numeric `change` field (a valid runtime type) that Zod's string schema rejects. Error cards are still shown for actual React render crashes (caught by the component's error boundary).
+
+The `COMPONENT_NAME_MAP` in `autoFixProps.ts` also maps several common LLM misnames to the correct component: `render_page`, `dashboard`, and `fullscreen` all resolve to the `page` component.
 
 Sentry breadcrumbs record every repair that fires, so we can identify which rules are most needed and add new ones.
 
@@ -1253,6 +1353,24 @@ User message → bot streams text + UI blocks → cards appear in grid
 - **Merge**: compatible cards can be combined
 - No borders or padding on components — they fill their card area (`p-3 h-full`)
 
+### Error Resilience in Chat + Canvas
+
+Three guards prevent the chat/canvas pipeline from getting stuck or crashing:
+
+**1. Safe SSE sendEvent** (`tamboAgent.ts`)
+The `sendEvent()` helper wraps `JSON.stringify()` in a try/catch. If an event contains non-serializable data (e.g., circular references from certain tool outputs), it sends a fallback error event instead of crashing the SSE stream. Internal error details are redacted before reaching the client.
+
+**2. Pending Block Timeout** (`useCanvasChat.ts`)
+UI blocks (`jarble_ui` fenced blocks) are tracked as "pending" while streaming. If a block is still open after **10 seconds** (e.g., the stream was interrupted mid-block), it is automatically discarded. All pending blocks are also cleared when the stream ends (`RUN_FINISHED` event).
+
+**3. Component Expansion Limits** (`componentResolver.ts`)
+Custom component templates are validated before they reach the canvas:
+- Max 20 children per layout definition
+- Max 50 KB definition size (JSON)
+- Max 256 KB total resolved props size (after variable substitution)
+
+Oversized props return an empty result rather than crashing the renderer.
+
 ### Marketplace Sandbox (Double-Iframe Security)
 
 Marketplace sandbox-tier components run arbitrary HTML/CSS/JS. They use a **double-iframe** architecture for security:
@@ -1264,6 +1382,8 @@ Outer iframe: sandboxed (no same-origin, allow-scripts only)
 ```
 
 This prevents sandbox code from accessing the Jarble app's DOM, cookies, or localStorage. The CSP further restricts what the sandbox can load — only origins in `TRUSTED_CDN_ORIGINS` are allowed.
+
+**Defense-in-depth CDN validation**: `sandboxCore.ts:buildDocument()` validates all library URLs AND extracted `<script src>` / `<link href>` tags from the `html` prop against `TRUSTED_CDN_ORIGINS` **on the client side**, as an additional layer on top of the server-side validation in `uiBlockParser.ts`.
 
 ---
 
@@ -1329,6 +1449,37 @@ sequenceDiagram
 ```
 
 Think of it like `tail -f` but in your browser.
+
+### Agent Orchestration Events
+
+When one bot calls another through the marketplace Agent Hub, the chat SSE stream surfaces that delegation in real time. The flow uses an **in-process EventEmitter bridge** so the Agent Hub HTTP handler can notify active SSE streams without shared state or a message broker:
+
+```mermaid
+sequenceDiagram
+    participant Pod as Bot Pod<br/>(MCP call_agent)
+    participant HUB as POST /api/agent-hub/call
+    participant EE as agentCallEvents<br/>(EventEmitter, in-process)
+    participant SSE as POST /api/tambo-agent<br/>(active stream)
+    participant FE as Frontend<br/>(useCanvasChat)
+
+    Pod->>HUB: {callerDeploymentId, serviceId, skillName}
+    HUB->>EE: emit("start", event)
+    EE-->>SSE: listener fires (if deploymentId matches)
+    SSE-->>FE: CUSTOM jarble.agent.call.start
+    Note over FE: setActiveAgentCall({serviceId, skillName})
+
+    HUB->>HUB: executeAgentCall()
+    HUB->>EE: emit("end", {creditsCharged, success})
+    EE-->>SSE: listener fires
+    SSE-->>FE: CUSTOM jarble.agent.call.end
+    Note over FE: setActiveAgentCall(null)
+```
+
+**Key implementation details:**
+- `agentCallEvents` is a module-level `EventEmitter` (`src/utils/agentCallEvents.ts`) shared by the same Node.js process. Works because the API is single-process (not multi-worker).
+- The SSE handler registers `onAgentCallStart` / `onAgentCallEnd` listeners when the stream opens and removes them on `close`/`finish` to prevent listener leaks.
+- `setMaxListeners(100)` is set to accommodate many concurrent chat streams without Node.js warnings.
+- The frontend `useCanvasChat` hook updates `activeAgentCall` state, which the chat UI can use to render an inline delegation indicator while the sub-agent is working.
 
 ### Why `?token=` Instead of Headers?
 
@@ -1466,28 +1617,6 @@ Stripe may re-deliver events (retries, network issues). We prevent duplicate pro
 4. Concurrent inserts (multiple workers) are caught by primary key constraint → treated as "already being handled"
 
 This makes the webhook handler safe against duplicate deliveries across multiple API replicas.
-
-### Multi-Line-Item Subscriptions (Managed Keys)
-
-When a user picks "Included Credits" (managed keys), their Stripe subscription gets **two line items** instead of one:
-
-```
-Subscription for "My Bot":
-  ├── Hardware:    $25.60/mo  (based on CPU + RAM + storage)
-  └── LLM Credits: $10.00/mo (managed key spending cap)
-      Total:       $35.60/mo
-```
-
-**Analogy:** Think of a phone plan. You pay for the phone itself (hardware) and a separate data allowance (LLM credits). You can change your data plan without changing your phone.
-
-The `services/stripe.ts` file has helper functions to manage these line items:
-- `findManagedKeyItem(subscription)` — finds the managed key line item by metadata
-- `addManagedKeyLineItem(subscriptionId, cents)` — adds a new line item
-- `updateManagedKeyLineItem(subscriptionId, newCents)` — changes the price
-- `removeManagedKeyLineItem(subscriptionId)` — removes it (e.g., switching to BYOK)
-- `getSubscriptionBreakdown(subscription)` — returns `{ hardwareCents, managedKeyCents, totalCents }`
-
-The billing page shows this breakdown: total on the primary line, "Hardware: $X | LLM: $Y" on a secondary line.
 
 ---
 
@@ -1880,21 +2009,28 @@ erDiagram
         int rating
     }
 
-    chatSessions {
+    marketplaceServices {
         string id PK
-        string deploymentId FK
-        string title "auto-titled from first user message"
-        timestamp createdAt
-        timestamp updatedAt
+        string creatorId FK
+        string name
+        string hostingModel "package or hosted"
+        text instructionSnippet
+        string status "draft/pending/published/rejected"
     }
 
-    chatMessages {
+    serviceInstalls {
         string id PK
-        string sessionId FK
-        string role "user or assistant"
-        text content "cleaned text"
-        text thinkingText "optional"
-        timestamp createdAt
+        string deploymentId FK
+        string serviceId FK
+        timestamp installedAt
+    }
+
+    serviceCredentials {
+        string id PK
+        string deploymentId FK
+        string packageId FK
+        text signingSecret "AES-256-GCM encrypted HMAC secret"
+        text remoteApiConfig "ServiceCard JSON"
     }
 ```
 
@@ -1972,12 +2108,6 @@ OPENROUTER_MANAGEMENT_KEY=sk-or-...   # For tenant key provisioning
 
 # Encryption (32-byte hex = 64 hex chars)
 API_KEY_ENCRYPTION_KEY=0123456789abcdef...
-
-# Prometheus (optional — admin metrics dashboard)
-PROMETHEUS_URL=http://prometheus.monitoring.svc.cluster.local:9090
-
-# Resend (optional — beta invite emails)
-RESEND_API_KEY=re_xxxx
 ```
 
 ---
@@ -2033,10 +2163,15 @@ The API starts with an **in-memory SQLite database** pre-seeded with test data. 
 | Config sync | Yes (mock) | With `MOCK_K8S=true`, config files read/write to in-memory store |
 | LLM key validation | Yes (bypass) | Keys prefixed with `dev-` are accepted without calling provider APIs |
 | Marketplace browsing | Yes | Reads from SQLite marketplace tables (empty on fresh start) |
+| Service marketplace | Yes | Reads from SQLite service tables. Hosted service proxy requires creator API running |
+| Artifact workspace | Partial | Needs a running pod (exec-based). Works with real or mock K8s |
 | Canvas chat (/d/[id]) | Partial | Needs a running pod for actual chat. UI renders without it |
-| Chat session history | Yes | Stored in SQLite `chat_sessions` / `chat_messages` tables. Sidebar shows past sessions with real message counts |
 | Sentry / PostHog | No | Omit `NEXT_PUBLIC_SENTRY_DSN` and `NEXT_PUBLIC_POSTHOG_KEY` to disable |
 | Manifest CI check | Yes | Run `npm run check:manifest` from `jarble-api-main/` |
+| Agent hub | Yes | `/api/agent-hub/discover` works immediately. `/api/agent-hub/call` requires published marketplace services |
+| Benchmarks / leaderboard | Yes | tRPC procedures and public REST endpoints work with SQLite (empty on fresh start) |
+| Platform agents / platformFork | Yes | Admin-only mutation works with MOCK_K8S. Requires `AGENT_LLM_API_KEY` or `OPENROUTER_API_KEY` for platform mode inference |
+| Dashboard compose | Partial | `POST /api/pod/compose` requires `AGENT_LLM_API_KEY` or `OPENROUTER_API_KEY` and pod gateway auth |
 
 ---
 
@@ -2148,6 +2283,9 @@ See `jarble-api-main/k8s/secrets.yaml.example` for the full template. Critical o
 | `API_KEY_ENCRYPTION_KEY` | Yes (prod) | 64-char hex for AES-256-GCM |
 | `STRIPE_*` | Optional | Enables paid subscriptions |
 | `OPENROUTER_MANAGEMENT_KEY` | Optional | Enables "Included Credits" key provisioning |
+| `AGENT_LLM_API_KEY` | Optional | LLM key for platform agents and dashboard compose. Falls back to `OPENROUTER_API_KEY` |
+| `AGENT_LLM_PROVIDER` | Optional | Provider for platform/compose calls (`openrouter`/`anthropic`/`openai`/`google`; default: `openrouter`) |
+| `AGENT_LLM_MODEL` | Optional | Model for platform/compose calls (default: `anthropic/claude-sonnet-4-20250514`) |
 
 ---
 
@@ -2252,6 +2390,8 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | Field aliases | `content` → `body`, `description` → `message` |
 | Data normalization | Strip `%` from progress values |
 
+**Zod-tolerant rendering:** Even after AutoFix, if Zod validation still fails (e.g., minor type mismatch), the renderer logs a warning and renders with the post-AutoFix props. This prevents benign LLM quirks from producing error cards. Components that can't render due to missing required data will still throw a React error and show the error boundary UI.
+
 ---
 
 ## 23. Glossary
@@ -2259,12 +2399,13 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | Term | What It Means |
 |---|---|
 | **Auth0** | Third-party login service. We never store passwords. |
+| **Agent Hub** | `POST /api/agent-hub/call` — allows one bot to delegate work to another published marketplace service. Uses `agentCallEvents` EventEmitter to fan SSE events to the active chat stream |
+| **agentCallEvents** | Module-level EventEmitter (`src/utils/agentCallEvents.ts`) that bridges the Agent Hub HTTP handler with active chat SSE streams in the same Node.js process |
 | **AutoFix** | Pre-Zod prop repair system. 20 rules in `lib/autoFixProps.ts` fix common LLM output errors before validation |
 | **@assistant-ui/react** | React library for chat UI. We use `ExternalStoreRuntime` to wrap our `useCanvasChat` hook |
 | **@jarble/component-manifest** | Shared package (`shared/component-manifest/`) — single source of truth for all canvas component definitions, schemas, and derive functions |
 | **BYOK** | "Bring Your Own Key" — user provides their own LLM API key |
 | **Canvas** | The grid area in `/d/[id]` where bot-rendered UI components appear |
-| **chat_sessions / chat_messages** | DB tables storing conversation history. Sessions auto-titled from first user message; messages cleaned of canvas state and `jarble_ui` fences. Fetched via REST (`GET /api/tambo-agent/sessions/*`) |
 | **Credit Pool** | Shared LLM budget across multiple bots (owner/linked model) |
 | **Deployment** | One user's bot instance (database record + K8s resources) |
 | **DB_PROVIDER** | Env var to select database backend: `sqlite`, `mysql`, `postgres` |
@@ -2276,7 +2417,6 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **JWT** | JSON Web Token — a signed auth token from Auth0 |
 | **K3s** | Lightweight Kubernetes (same API, smaller footprint) |
 | **K8s** | Kubernetes — container orchestration platform |
-| **longhorn-1r** | K8s StorageClass with 1 Longhorn replica (default for all bot PVCs). Triples usable capacity vs the 3-replica default — acceptable for ephemeral bot data |
 | **Longhorn** | Distributed storage system for Kubernetes |
 | **Marketplace** | Platform feature where creators can publish and share canvas components. Two tiers: Template (safe JSON) and Sandbox (HTML/JS, admin-reviewed) |
 | **MarketplaceSandbox** | Double-iframe renderer for sandbox-tier components. Outer iframe is sandboxed; inner iframe runs user code |
@@ -2288,22 +2428,35 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **OpenRouter** | LLM API aggregator (200+ models, one API key) |
 | **Pod** | Smallest K8s unit — one running container |
 | **PostHog** | Product analytics library. Initialized in `lib/posthog.ts`. Requires `NEXT_PUBLIC_POSTHOG_KEY` |
-| **Prometheus** | Open-source monitoring system. Deployed in `monitoring` namespace, scrapes node-exporter and kube-state-metrics. Admin dashboard at `/admin/metrics` queries it via `services/prometheus.ts` |
 | **PVC** | Persistent Volume Claim — durable disk storage in K8s |
 | **rAF throttle** | `requestAnimationFrame`-based update coalescing in `useCanvasChat.ts` — prevents excessive React renders during fast SSE delta streams |
 | **React Query** | Data fetching + caching library (powers tRPC hooks) |
-| **Resend** | Email API for transactional emails. Used for beta welcome invites. Requires `RESEND_API_KEY` env var |
 | **Runtime** | The bot engine (OpenClaw or ZeroClaw) |
 | **Secret** | K8s encrypted key-value store (env vars for pods) |
 | **Sentry** | Error monitoring platform. Client config: `sentry.client.config.ts`. Requires `NEXT_PUBLIC_SENTRY_DSN` |
 | **SimpleCanvasGrid** | CSS grid layout for the canvas (no react-grid-layout). Supports drag-to-reorder, split, and merge |
 | **SSE** | Server-Sent Events — server pushes data to browser |
 | **SuperJSON** | Serialization library that handles Dates, Maps, etc. |
-| **Tambo** | Chat orchestration framework used in the `/d/[id]` chat page |
+| **Tambo** | Chat orchestration framework previously used. Replaced by `@assistant-ui/react` with `ExternalStoreRuntime` wrapping the `useCanvasChat` hook |
 | **Terraform** | Infrastructure-as-code tool (defines servers in config files) |
 | **Traefik** | Reverse proxy / ingress controller for K8s |
 | **tRPC** | Type-safe RPC framework (frontend calls backend functions directly) |
-| **TRUSTED_CDN_ORIGINS** | Allowlist of 10 CDN origins for sandbox library URLs. Enforced server-side in `uiBlockParser.ts` and client-side in `CanvasSandbox.tsx` |
+| **TRUSTED_CDN_ORIGINS** | Allowlist of 10 CDN origins for sandbox library URLs. Enforced server-side in `uiBlockParser.ts` (before block reaches frontend) and client-side in `sandboxCore.ts:buildDocument()` (validates all library URLs + extracted `<script src>` / `<link href>` tags — defense-in-depth) |
 | **ZeroClaw** | Rust-based bot runtime (lightweight, ~3.4MB binary) |
+| **Artifact Workspace** | Pod-side `/data/workspace/` directory containing `manifest.json` + per-artifact JSON files. Accessed via `/api/deployments/:id/artifact/*` endpoints |
+| **Circuit Breaker** | `src/services/circuitBreaker.ts` — opens after 5 consecutive service proxy failures, auto-resets after 60s to prevent hammering unhealthy creator APIs |
+| **Benchmarks Router** | tRPC router (`src/trpc/routers/benchmarks.ts`) handling domain taxonomy, agent ratings, leaderboards, service metrics, and admin curation for the Agent Forking Flywheel |
+| **Forkability Score** | 0-100 score computed by `computeForkabilityScore()` in `src/utils/forkability.ts`. Quantifies how copy-ready a public agent is based on profile completeness and community ratings |
+| **Platform Agent** | A deployment with `isPlatform: true`. Uses Jarble's `AGENT_LLM_API_KEY` (`llmMode: "platform"`), bypasses subscription and storage enforcement, has a named `resourceTier` |
+| **Resource Tier** | Named compute preset for platform agents. `RESOURCE_TIERS` in `src/k8s/constants.ts`: small (0.5 vCPU/1GB/10GB), medium (1 vCPU/2GB/20GB), large (2 vCPU/3GB/30GB) |
+| **Dashboard Compose** | `POST /api/pod/compose` — accepts a list of component specs, fans them all out to the Component Agent in parallel via `Promise.allSettled()`, returns sandbox blocks |
+| **Public API** | Unauthenticated REST endpoints at `/api/public/*` for the Agent Forking Flywheel discovery layer (leaderboard + agent profiles) |
+| **HMAC Signing** | Per-install HMAC-SHA256 signature on outbound service proxy requests. Each buyer gets a unique signing secret stored in `serviceCredentials` (encrypted) |
+| **Service Marketplace** | Service bundles (components + skills + instruction snippets). Two models: Package (buyer runs everything) and Hosted/Remote (creator hosts APIs, buyer proxies through Jarble) |
+| **ServiceCard** | Structured JSON blob published by service creators describing their API endpoint, auth method, skill definitions, rate limits, and health endpoint. Validated against Zod schema in `serviceCard.ts` |
+| **Service Proxy** | `POST /api/services/proxy/:deploymentId/:serviceId/:skillName` — the Jarble API gateway between buyer pods and creator remote APIs. Handles HMAC auth, rate limiting, circuit breaking, and input/output schema validation |
+| **Tiered Config Sync** | Three-tier strategy in `syncConfigsToPvc()`: Tier 1 = file-only (zero downtime), Tier 2 = process restart (~5-10s), Tier 3 = pod restart (~30-60s). Selects minimum disruption tier needed |
 | **Webhook Idempotency** | `processedWebhookEvents` table prevents duplicate Stripe event processing |
+| **Sandbox-first** | Architectural policy encoded in `promptGuidance` fields: sandbox is the default for dashboards, analytics, and multi-element visualizations. Chart/metric_card/stat_grid redirect to sandbox for combined requests |
 | **ZIP export** | Download bot configs as a ZIP file (for backup/migration) |
+| **Zod-tolerant renderer** | `CanvasRenderer` logs Zod validation warnings but renders with raw props rather than showing error cards; components that handle minor type mismatches gracefully continue to render |

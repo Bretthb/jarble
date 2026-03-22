@@ -49,13 +49,46 @@ describe("validateLibraryUrl", () => {
   it("rejects protocol-relative URLs", () => {
     expect(validateLibraryUrl("//cdn.jsdelivr.net/npm/d3")).toBe(false);
   });
+
+  it("rejects path traversal attempts on untrusted domains", () => {
+    // Path traversal on trusted CDN still has a trusted origin — CDN handles path normalization
+    expect(validateLibraryUrl("https://cdn.jsdelivr.net/../../etc/passwd")).toBe(true);
+    // Relative paths are not valid HTTPS URLs
+    expect(validateLibraryUrl("../../etc/passwd")).toBe(false);
+    expect(validateLibraryUrl("/etc/passwd")).toBe(false);
+    // Path traversal on untrusted domain is rejected (untrusted origin)
+    expect(validateLibraryUrl("https://evil.com/../../etc/passwd")).toBe(false);
+  });
+
+  it("handles URLs with embedded credentials (user:pass@host)", () => {
+    // URL spec: origin ignores userinfo — origin is still the trusted CDN
+    // The function validates by origin, so trusted-domain credential URLs pass
+    expect(
+      validateLibraryUrl("https://admin:secret@cdn.jsdelivr.net/npm/d3"),
+    ).toBe(true);
+    // Untrusted domain with credentials is still rejected
+    expect(
+      validateLibraryUrl("https://user:pass@evil.com/malware.js"),
+    ).toBe(false);
+  });
+
+  it("rejects data: URI disguise attempts", () => {
+    // data: URIs don't start with "https://" so they fail the prefix check
+    expect(validateLibraryUrl("data:text/javascript,alert(1)")).toBe(false);
+    expect(
+      validateLibraryUrl("data:text/javascript;base64,YWxlcnQoMSk="),
+    ).toBe(false);
+    expect(
+      validateLibraryUrl("data:application/javascript,void(0)"),
+    ).toBe(false);
+  });
 });
 
 // ── TRUSTED_CDN_ORIGINS ─────────────────────────────────────────────────────
 
 describe("TRUSTED_CDN_ORIGINS", () => {
-  it("contains exactly 10 trusted origins", () => {
-    expect(TRUSTED_CDN_ORIGINS.size).toBe(10);
+  it("contains exactly 12 trusted origins", () => {
+    expect(TRUSTED_CDN_ORIGINS.size).toBe(12);
   });
 
   it("is a Set for O(1) lookups", () => {

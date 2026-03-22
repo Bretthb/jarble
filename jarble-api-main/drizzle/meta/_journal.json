@@ -15,6 +15,13 @@
       "when": 1771452890137,
       "tag": "0001_noisy_shooting_star",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1773284494675,
+      "tag": "0002_plain_tarot",
+      "breakpoints": true
     }
   ]
 }

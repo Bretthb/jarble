@@ -12,4 +12,5 @@ export const badgeEntry: ComponentManifestEntry = {
   tags: ["status", "label", "indicator"],
   builtin: true,
   renderOrder: 3,
+  promptGuidance: "Small status label or tag. Use for status indicators, categories, or inline labels. Variants: default, secondary, destructive, outline, success, warning, info.",
 };

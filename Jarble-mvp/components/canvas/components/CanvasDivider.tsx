@@ -34,7 +34,7 @@ function CanvasDividerInner({ label, variant = "solid", spacing = "md" }: Canvas
         className="p-4"
       >
         <div className={`flex items-center gap-3 ${spacingClass}`}>
-          <div className={`flex-1 border-t border-border ${variantStyle}`} />
+          <div role="separator" className={`flex-1 border-t border-border ${variantStyle}`} />
           <span className="text-xs text-muted-foreground shrink-0">{label}</span>
           <div className={`flex-1 border-t border-border ${variantStyle}`} />
         </div>
@@ -49,7 +49,7 @@ function CanvasDividerInner({ label, variant = "solid", spacing = "md" }: Canvas
       transition={{ duration: 0.3 }}
       className="p-4"
     >
-      <div className={`border-t border-border ${variantStyle} ${spacingClass}`} />
+      <div role="separator" className={`border-t border-border ${variantStyle} ${spacingClass}`} />
     </motion.div>
   );
 }

@@ -144,7 +144,13 @@ export const timelineSchema = z.object({
     // Accept "date" as alias for "timestamp"
     date: z.string().optional(),
     icon: z.string().optional(),
-    status: z.enum(["completed", "active", "pending"]).optional(),
+    status: z.string().optional().transform((s) => {
+      if (!s) return undefined;
+      const lower = s.toLowerCase();
+      if (["done", "success", "finished", "complete", "completed", "passed"].includes(lower)) return "completed";
+      if (["active", "current", "in_progress", "in-progress", "running", "started"].includes(lower)) return "active";
+      return "pending";
+    }),
     color: z.string().optional(),
   }).transform((e) => ({
     ...e,
@@ -158,7 +164,13 @@ export const timelineSchema = z.object({
     timestamp: z.string().optional(),
     date: z.string().optional(),
     icon: z.string().optional(),
-    status: z.enum(["completed", "active", "pending"]).optional(),
+    status: z.string().optional().transform((s) => {
+      if (!s) return undefined;
+      const lower = s.toLowerCase();
+      if (["done", "success", "finished", "complete", "completed", "passed"].includes(lower)) return "completed";
+      if (["active", "current", "in_progress", "in-progress", "running", "started"].includes(lower)) return "active";
+      return "pending";
+    }),
     color: z.string().optional(),
   }).transform((e) => ({
     ...e,
@@ -252,6 +264,13 @@ export const videoSchema = z.object({
   muted: z.boolean().optional(),
 });
 
+export const embedSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  height: z.number().optional(),
+  provider: z.string().optional(),
+});
+
 export const audioSchema = z.object({
   src: z.string().optional(),
   url: z.string().optional(), // alias for src
@@ -320,16 +339,26 @@ export const sandboxSchema = z.object({
   html: z.string(),
   css: z.string().optional(),
   js: z.string().optional(),
+  /** ES module JavaScript — rendered as <script type="module">. */
+  moduleJs: z.string().optional(),
+  /** Import map — maps bare specifiers to CDN URLs (e.g. {"react": "https://esm.sh/react@18"}). */
+  importMap: z.record(z.string(), z.string()).optional(),
   props: z.record(z.string(), z.unknown()).optional(),
   height: z.number().optional(),
   title: z.string().optional(),
   libraries: z.array(z.string()).optional(),
+  /** JSON Schema for creator-defined config panel (rendered by SandboxConfigPanel). */
+  configSchema: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const marketplaceSandboxSchema = z.object({
   html: z.string(),
   css: z.string().optional(),
   js: z.string().optional(),
+  /** ES module JavaScript — rendered as <script type="module">. */
+  moduleJs: z.string().optional(),
+  /** Import map — maps bare specifiers to CDN URLs (e.g. {"react": "https://esm.sh/react@18"}). */
+  importMap: z.record(z.string(), z.string()).optional(),
   props: z.record(z.string(), z.unknown()).optional(),
   height: z.number().optional(),
   title: z.string().optional(),
@@ -351,6 +380,15 @@ export const mapSchema = z.object({
   title: z.string().optional(),
   height: z.number().optional(),
 }).transform((d) => ({ ...d, center: d.center || d.location || d.position || [0, 0] as [number, number] }));
+
+export const sandpackSandboxSchema = z.object({
+  files: z.record(z.string(), z.string()),
+  dependencies: z.record(z.string(), z.string()).optional(),
+  template: z.enum(["react", "react-ts", "vanilla", "vanilla-ts"]).optional(),
+  title: z.string().optional(),
+  height: z.number().optional(),
+  entryFile: z.string().optional(),
+});
 
 // ── Ant Design Components ─────────────────────────────────────────────────────
 
@@ -413,6 +451,77 @@ export const treeSchema = z.object({
   defaultExpandAll: z.boolean().optional(),
 });
 
+// ── AI Process Components ────────────────────────────────────────────────────
+
+export const reasoningSchema = z.object({
+  title: z.string().optional(),
+  content: z.string(),
+  collapsed: z.boolean().optional(),
+  duration: z.number().optional(),
+  steps: z.array(z.object({
+    label: z.string(),
+    description: z.string().optional(),
+    status: z.enum(["complete", "active", "pending"]).optional(),
+  })).optional(),
+});
+
+export const toolSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  status: z.enum(["running", "complete", "error"]),
+  inputs: z.record(z.string(), z.unknown()).optional(),
+  output: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
+  error: z.string().optional(),
+  duration: z.number().optional(),
+});
+
+export const sourcesSchema = z.object({
+  items: z.array(z.object({
+    title: z.string(),
+    url: z.string().optional(),
+    snippet: z.string().optional(),
+    icon: z.string().optional(),
+    relevance: z.number().min(0).max(1).optional(),
+  })),
+  title: z.string().optional(),
+});
+
+// ── Page Layout ───────────────────────────────────────────────────────
+
+const pageChildSchema = z.object({
+  component: z.string().describe("Canvas component name (chart, data_table, metric_card, etc.)"),
+  props: z.record(z.string(), z.unknown()).optional().describe("Props object for the child component"),
+  propsJson: z.string().optional().describe("JSON-stringified props (alternative to props)"),
+});
+
+export const pageSchema = z.object({
+  type: z.enum(["dashboard", "settings", "kanban", "crm", "landing", "data_explorer", "form_wizard"]),
+  title: z.string(),
+  subtitle: z.string().optional(),
+  sections: z.record(z.string(), z.array(pageChildSchema)).describe("Map of section ID to array of child components"),
+  navigation: z.object({
+    tabs: z.array(z.string()).optional(),
+    activeTab: z.string().optional(),
+  }).optional(),
+});
+
+// ── Confirmation ──────────────────────────────────────────────────────────────
+
+export const confirmationSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+  severity: z.enum(["info", "warning", "danger"]),
+  actions: z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+  })),
+  confirmationId: z.string(),
+  timeout: z.number().optional(),
+  status: z.enum(["pending", "approved", "rejected", "expired"]).optional(),
+  selectedActionId: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
 // ── Schema Record ─────────────────────────────────────────────────────────────
 
 /**
@@ -444,7 +553,9 @@ export const COMPONENT_SCHEMAS: Record<string, ZodType> = {
   spreadsheet: spreadsheetSchema,
   sandbox: sandboxSchema,
   marketplace_sandbox: marketplaceSandboxSchema,
+  sandpack_sandbox: sandpackSandboxSchema,
   video: videoSchema,
+  embed: embedSchema,
   canvas: sandboxSchema, // alias: LLMs often say "canvas" when they mean "sandbox"
   audio: audioSchema,
   avatar: avatarSchema,
@@ -459,4 +570,9 @@ export const COMPONENT_SCHEMAS: Record<string, ZodType> = {
   statistic: statisticSchema,
   tag_cloud: tagCloudSchema,
   tree: treeSchema,
+  reasoning: reasoningSchema,
+  tool: toolSchema,
+  sources: sourcesSchema,
+  page: pageSchema,
+  confirmation: confirmationSchema,
 };

@@ -25,3 +25,9 @@ k3s_version = "v1.29.2+k3s1"
 
 # DNS
 domain = "jarble.ai"
+
+# Sandbox Isolation (Track B)
+# enable_gvisor           = true    # Create gVisor RuntimeClass (install runsc on workers first)
+# enable_kata             = true    # Create Kata+CLH RuntimeClass (requires dedicated server)
+# enable_dedicated_server = true    # Generate setup script for Hetzner dedicated server
+# dedicated_server_type   = "AX42"  # For documentation — server provisioned via Robot

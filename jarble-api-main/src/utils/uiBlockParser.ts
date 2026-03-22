@@ -15,6 +15,7 @@
 
 import { nanoid } from "nanoid";
 import { logger } from "./logger.js";
+import { TRUSTED_CDN_ORIGINS as TRUSTED_CDN_ORIGINS_ARRAY } from "@jarble/component-manifest";
 
 export type LayoutHint = "full-width" | "half" | "third" | "compact" | "auto";
 
@@ -28,6 +29,8 @@ export interface JarbleUIBlock {
   fileId?: string;
   saveMethod?: "mcp" | "chat";
   layoutHint?: LayoutHint;
+  dashboardId?: string;
+  dashboardTitle?: string;
 }
 
 export interface JarbleUIUpdate {
@@ -46,20 +49,9 @@ const MAX_BLOCK_SIZE = 100_000;
 
 /**
  * Allowlist of trusted CDN origins for sandbox library URLs.
- * Must match the frontend TRUSTED_CDN_ORIGINS in CanvasSandbox.tsx exactly.
+ * Imported from @jarble/component-manifest (single source of truth).
  */
-export const TRUSTED_CDN_ORIGINS = new Set([
-  "https://cdn.jsdelivr.net",
-  "https://cdnjs.cloudflare.com",
-  "https://unpkg.com",
-  "https://cdn.tailwindcss.com",
-  "https://esm.sh",
-  "https://threejs.org",
-  "https://d3js.org",
-  "https://cdn.plot.ly",
-  "https://fonts.googleapis.com",
-  "https://fonts.gstatic.com",
-]);
+export const TRUSTED_CDN_ORIGINS = new Set(TRUSTED_CDN_ORIGINS_ARRAY);
 
 /**
  * Validate that a library URL is from a trusted CDN origin.
@@ -126,6 +118,9 @@ function extractJsonFromBlock(text: string, startIndex: number): { json: string;
   let inString = false;
   let escape = false;
   const start = i;
+  // Track the last position where depth was 1 and we just closed a value —
+  // this is a potential truncation repair point
+  let lastDepth1Close = -1;
 
   for (; i < text.length; i++) {
     const ch = text[i];
@@ -139,10 +134,46 @@ function extractJsonFromBlock(text: string, startIndex: number): { json: string;
       if (depth === 0) {
         return { json: text.slice(start, i + 1), endIndex: i + 1 };
       }
+      // Track last close at depth 1 (inside the root object)
+      if (depth === 1) lastDepth1Close = i;
     }
   }
 
-  return null; // Incomplete block
+  // Incomplete block — try to repair truncated JSON.
+  // Large sandbox components often get truncated by OpenClaw CLI timeout.
+  // Strategy: find the last point where the "props" object was somewhat valid
+  // and close all open braces.
+  if (depth > 0 && !inString) {
+    // Close all remaining braces
+    const truncated = text.slice(start, text.length);
+    const closingBraces = "}".repeat(depth);
+    const repaired = truncated + closingBraces;
+    try {
+      JSON.parse(repaired);
+      logger.debug("[uiBlockParser] Repaired truncated JSON (%d chars, added %d closing braces)", repaired.length, depth);
+      return { json: repaired, endIndex: text.length };
+    } catch {
+      // Repair failed — might be mid-string. Try closing the string first.
+      const repairedWithString = truncated + '"' + closingBraces;
+      try {
+        JSON.parse(repairedWithString);
+        logger.debug("[uiBlockParser] Repaired truncated JSON with string close (%d chars)", repairedWithString.length);
+        return { json: repairedWithString, endIndex: text.length };
+      } catch {
+        // Last resort: truncate to the last clean depth-1 close point
+        if (lastDepth1Close > start) {
+          const safeJson = text.slice(start, lastDepth1Close + 1) + "}";
+          try {
+            JSON.parse(safeJson);
+            logger.debug("[uiBlockParser] Repaired truncated JSON by truncating to last safe point (%d chars)", safeJson.length);
+            return { json: safeJson, endIndex: lastDepth1Close + 1 };
+          } catch { /* truly unrecoverable */ }
+        }
+      }
+    }
+  }
+
+  return null; // Truly incomplete/unrecoverable
 }
 
 /**
@@ -187,11 +218,27 @@ function findFencedBlocks(text: string, marker: string): FencedBlock[] {
     }
 
     // Find the JSON object using brace-depth parsing
-    const result = extractJsonFromBlock(text, afterMarker);
+    let result = extractJsonFromBlock(text, afterMarker);
     if (!result) {
-      // Incomplete block (still streaming) — skip
-      searchFrom = afterMarker;
-      continue;
+      // Brace-depth parser failed — try fallback: find closing ``` and JSON.parse the content
+      const closingIdx = text.indexOf("```", afterMarker);
+      if (closingIdx !== -1) {
+        const rawContent = text.slice(afterMarker, closingIdx).trim();
+        if (rawContent.startsWith("{")) {
+          try {
+            JSON.parse(rawContent); // validate it's valid JSON
+            result = { json: rawContent, endIndex: closingIdx };
+            logger.debug("[uiBlockParser] Brace-depth parser failed but JSON.parse fallback succeeded (%d chars)", rawContent.length);
+          } catch {
+            // Not valid JSON either — truly incomplete
+          }
+        }
+      }
+      if (!result) {
+        // Incomplete block (still streaming) — skip
+        searchFrom = afterMarker;
+        continue;
+      }
     }
 
     // Find and consume the closing ``` if present after the JSON
@@ -273,6 +320,19 @@ export function extractUIBlocks(text: string): {
         parsed.props.libraries = sanitizeLibraries(parsed.props.libraries);
       }
 
+      // Server-side import map URL validation for sandbox components
+      if (parsed.props.importMap && typeof parsed.props.importMap === "object" && !Array.isArray(parsed.props.importMap)) {
+        const safeMap: Record<string, string> = {};
+        for (const [key, value] of Object.entries(parsed.props.importMap as Record<string, unknown>)) {
+          if (typeof value === "string" && validateLibraryUrl(value)) {
+            safeMap[key] = value;
+          } else {
+            logger.warn("[uiBlockParser] Rejected untrusted import map URL for %s: %s", key, value);
+          }
+        }
+        parsed.props.importMap = safeMap;
+      }
+
       uiBlocks.push({
         id: nanoid(10),
         component: parsed.component,
@@ -283,6 +343,8 @@ export function extractUIBlocks(text: string): {
         ...(typeof parsed.layout_hint === "string" && VALID_LAYOUT_HINTS.has(parsed.layout_hint)
           ? { layoutHint: parsed.layout_hint as LayoutHint }
           : {}),
+        ...(typeof parsed.dashboardId === "string" ? { dashboardId: parsed.dashboardId } : {}),
+        ...(typeof parsed.dashboardTitle === "string" ? { dashboardTitle: parsed.dashboardTitle } : {}),
       });
       validBlocks.push(block);
     } catch {
@@ -435,23 +497,172 @@ export function extractComponentDefs(text: string): {
   return { cleanText, componentDefs };
 }
 
+// ── Suggestions Extraction ────────────────────────────────────────────────────
+
+/** Max suggestions per message */
+const MAX_SUGGESTIONS = 10;
+
+/**
+ * Extract ```jarble_suggestions fenced code blocks from bot text.
+ *
+ * Format:
+ *   ```jarble_suggestions
+ *   ["Option A", "Option B", "Option C"]
+ *   ```
+ *
+ * Returns the cleaned text (with suggestion blocks stripped) and an array
+ * of suggestion strings.
+ */
+export function extractSuggestions(text: string): {
+  cleanText: string;
+  suggestions: string[];
+} {
+  const suggestions: string[] = [];
+  const openPattern = "```jarble_suggestions";
+  const validBlocks: FencedBlock[] = [];
+  let searchFrom = 0;
+
+  while (searchFrom < text.length) {
+    const openIdx = text.indexOf(openPattern, searchFrom);
+    if (openIdx === -1) break;
+
+    const afterMarker = openIdx + openPattern.length;
+    // Marker must be followed by whitespace/newline or end of text
+    if (afterMarker < text.length) {
+      const nextChar = text[afterMarker];
+      if (nextChar !== " " && nextChar !== "\t" && nextChar !== "\n" && nextChar !== "\r") {
+        searchFrom = afterMarker;
+        continue;
+      }
+    }
+
+    // Find the opening bracket for the JSON array
+    let bracketStart = afterMarker;
+    while (bracketStart < text.length && text[bracketStart] !== "[") {
+      if (text[bracketStart] === "`") break; // Hit closing backticks before finding array
+      bracketStart++;
+    }
+    if (bracketStart >= text.length || text[bracketStart] !== "[") {
+      searchFrom = afterMarker;
+      continue;
+    }
+
+    // Find the matching closing bracket
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    let bracketEnd = -1;
+
+    for (let i = bracketStart; i < text.length; i++) {
+      const ch = text[i];
+      if (escape) { escape = false; continue; }
+      if (ch === "\\" && inString) { escape = true; continue; }
+      if (ch === '"' && !escape) { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === "[") depth++;
+      if (ch === "]") {
+        depth--;
+        if (depth === 0) {
+          bracketEnd = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (bracketEnd === -1) {
+      // Incomplete block (still streaming)
+      searchFrom = afterMarker;
+      continue;
+    }
+
+    // Find and consume closing ``` if present
+    let matchEnd = bracketEnd;
+    let closeSearch = bracketEnd;
+    while (closeSearch < text.length && (text[closeSearch] === " " || text[closeSearch] === "\t" || text[closeSearch] === "\n" || text[closeSearch] === "\r")) {
+      closeSearch++;
+    }
+    if (text.startsWith("```", closeSearch)) {
+      matchEnd = closeSearch + 3;
+    }
+
+    // Parse the JSON array
+    const jsonStr = text.slice(bracketStart, bracketEnd);
+    try {
+      const parsed = JSON.parse(jsonStr);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (typeof item === "string" && suggestions.length < MAX_SUGGESTIONS) {
+            suggestions.push(item);
+          }
+        }
+        validBlocks.push({ json: jsonStr, matchStart: openIdx, matchEnd });
+      }
+    } catch {
+      logger.warn("[uiBlockParser] Failed to parse jarble_suggestions block: %s", jsonStr.slice(0, 200));
+    }
+
+    searchFrom = matchEnd;
+  }
+
+  const cleanText = stripBlocks(text, validBlocks).replace(/\n{3,}/g, "\n\n").trim();
+
+  if (suggestions.length > 0) {
+    logger.debug(`[uiBlockParser] Extracted ${suggestions.length} suggestions`);
+  }
+
+  return { cleanText, suggestions };
+}
+
+// ── Design Context extraction ────────────────────────────────────────────────
+
+const DESIGN_CONTEXT_FENCE_RE = /```jarble_design_context\s*\n([\s\S]*?)```/g;
+
+/**
+ * Extract ```jarble_design_context blocks from bot text.
+ * Returns the last context found (most recent wins) and cleaned text.
+ */
+function extractDesignContext(text: string): {
+  cleanText: string;
+  designContext: Record<string, unknown> | null;
+} {
+  let designContext: Record<string, unknown> | null = null;
+  const cleanText = text.replace(DESIGN_CONTEXT_FENCE_RE, (_match, jsonStr: string) => {
+    try {
+      const parsed = JSON.parse(jsonStr.trim());
+      if (parsed && typeof parsed === "object") {
+        designContext = parsed as Record<string, unknown>;
+      }
+    } catch {
+      logger.warn("[uiBlockParser] Failed to parse design context JSON");
+    }
+    return "";
+  }).replace(/\n{3,}/g, "\n\n").trim();
+  return { cleanText, designContext };
+}
+
 /**
  * Extract all fenced block types from text.
  *
- * Order matters: define > update > render (each strips its blocks before the next).
+ * Order matters: suggestions > design context > define > update > render (each strips its blocks before the next).
  */
 export function extractAllUIBlocks(text: string): {
   cleanText: string;
   uiBlocks: JarbleUIBlock[];
   uiUpdates: JarbleUIUpdate[];
   componentDefs: JarbleComponentDef[];
+  suggestions: string[];
+  designContext: Record<string, unknown> | null;
 } {
-  // 1. Extract component definitions first
-  const { cleanText: afterDefs, componentDefs } = extractComponentDefs(text);
+  // 0. Extract suggestions first (lightweight, no overlap with UI blocks)
+  const { cleanText: afterSuggestions, suggestions } = extractSuggestions(text);
+  // 0.5. Extract design context blocks
+  const { cleanText: afterDesignCtx, designContext } = extractDesignContext(afterSuggestions);
+  // 1. Extract component definitions
+  const { cleanText: afterDefs, componentDefs } = extractComponentDefs(afterDesignCtx);
   // 2. Then updates (jarble_ui_update must be matched before jarble_ui)
   const { cleanText: afterUpdates, uiUpdates } = extractUIUpdates(afterDefs);
   // 3. Then render blocks from the remaining text
   const { cleanText, uiBlocks } = extractUIBlocks(afterUpdates);
 
-  return { cleanText, uiBlocks, uiUpdates, componentDefs };
+  return { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext };
 }

@@ -22,6 +22,7 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-muted-foreground-subtle: var(--muted-foreground-subtle);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
@@ -65,6 +66,7 @@
   --secondary-foreground: #1a1a1a;
   --muted: #fafafa;
   --muted-foreground: #666666;
+  --muted-foreground-subtle: #737373;
   --accent: #f4f4f5;
   --accent-foreground: #1a1a1a;
   --destructive: #dc2626;
@@ -96,6 +98,7 @@
   --secondary-foreground: #e8e4df;
   --muted: #1e1d1b;
   --muted-foreground: #9a958e;
+  --muted-foreground-subtle: #918c85;
   --accent: #242220;
   --accent-foreground: #e8e4df;
   --destructive: #d4483b;
@@ -348,4 +351,41 @@
     color: var(--foreground);
   }
 
+}
+
+/* ── Scrollbars — thin, themed, unobtrusive ─────────────────────────── */
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--border) 50%, transparent) transparent;
+}
+
+/* Webkit (Chrome, Edge, Safari) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border) / 0.4);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--border) / 0.6);
+}
+
+/* Hide scrollbar on textareas until hover/focus */
+textarea::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+textarea:hover::-webkit-scrollbar-thumb,
+textarea:focus::-webkit-scrollbar-thumb {
+  background: hsl(var(--border) / 0.4);
 }

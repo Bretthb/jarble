@@ -11,6 +11,8 @@ import { memo } from "react";
 import { X, Grid3X3, LayoutGrid, Group, LayoutDashboard, Move, Trash2 } from "lucide-react";
 import type { CanvasCard, CanvasAction, CanvasMode } from "./types";
 import ComponentGallery from "./ComponentGallery";
+import DrawingTools from "./drawing/DrawingTools";
+import type { useDrawing } from "./drawing/useDrawing";
 
 interface CanvasToolbarProps {
   cards: CanvasCard[];
@@ -23,6 +25,10 @@ interface CanvasToolbarProps {
   onToggleGridSnap?: () => void;
   /** Freeform-only: tidy layout trigger */
   onOrganize?: () => void;
+  /** Incremented each time an unsave happens — triggers gallery refetch */
+  refetchTrigger?: number;
+  /** Drawing state (freeform only) */
+  drawing?: ReturnType<typeof useDrawing>;
 }
 
 function CanvasToolbarInner({
@@ -34,6 +40,8 @@ function CanvasToolbarInner({
   gridSnap,
   onToggleGridSnap,
   onOrganize,
+  refetchTrigger,
+  drawing,
 }: CanvasToolbarProps) {
   const selectedCards = cards.filter((c) => c.selected);
   const selectedCount = selectedCards.length;
@@ -120,7 +128,21 @@ function CanvasToolbarInner({
         </button>
       )}
 
-      <ComponentGallery deploymentId={deploymentId} cards={cards} dispatch={dispatch} />
+      {/* Drawing tools (freeform only) */}
+      {mode === "freeform" && drawing && (
+        <DrawingTools
+          activeTool={drawing.activeTool}
+          penColor={drawing.penColor}
+          penWidth={drawing.penWidth}
+          onSetTool={drawing.setTool}
+          onSetColor={drawing.setColor}
+          onSetWidth={drawing.setWidth}
+          onUndo={drawing.undo}
+          onRedo={drawing.redo}
+        />
+      )}
+
+      <ComponentGallery deploymentId={deploymentId} cards={cards} dispatch={dispatch} refetchTrigger={refetchTrigger} />
 
       {/* Multi-select group action */}
       {selectedCount >= 2 && (
@@ -148,7 +170,7 @@ function CanvasToolbarInner({
         </>
       )}
 
-      <span className="text-[10px] text-muted-foreground/50 ml-auto">
+      <span className="text-[10px] text-muted-foreground-subtle ml-auto">
         {cards.length} component{cards.length !== 1 ? "s" : ""}
       </span>
     </div>

@@ -3,41 +3,49 @@
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import {
   Zap,
   HelpCircle,
   ArrowRight,
   Building2,
   MessageSquare,
+  Bot,
+  Cpu,
+  HardDrive,
+  MemoryStick,
   Key,
+  Gift,
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useState } from "react";
-import { Skeleton } from "@/components/ui/skeleton";
 
 import { trpc } from "@/lib/trpc";
 
+
 const FAQ = [
+  {
+    question: "How does the free trial work?",
+    answer: "Every new user gets one free deployment for 7 days — no credit card required. Pick any runtime and try it out. After 7 days, you can upgrade to a paid deployment to keep it running."
+  },
   {
     question: "What is a deployment?",
     answer: "A deployment is a running AI instance on our infrastructure. Each deployment gets its own persistent storage, configuration, and platform connections. Think of it as your own dedicated AI agent."
   },
   {
     question: "How is pricing calculated?",
-    answer: "Pricing is based on the runtime and hardware configuration you choose during deployment. You can customize specs to fit your needs and budget."
+    answer: "Pricing is based on the runtime you choose. Each runtime has preset hardware specs (CPU, RAM, Storage) and a fixed monthly price. You only pay for what you deploy — no hidden fees."
   },
   {
     question: "Can I use my own API keys?",
-    answer: "Yes! Bring your own key (BYOK) from OpenRouter, OpenAI, Anthropic, or Google AI. You get full control over model selection and pay the provider directly - no markup from us."
+    answer: "Yes! You can bring your own OpenRouter API key (BYOK) for full control over model selection and costs. Or use our included credits for a simpler experience."
   },
   {
     question: "What platforms can I connect?",
-    answer: "We support WhatsApp, Discord, Telegram, Slack, Web Chat, Microsoft Teams, and Messenger. Connect multiple platforms to a single deployment - each one is configured independently."
+    answer: "Currently we support WhatsApp as the initial interface for OpenClaw. Discord, Slack, Telegram, and web chat integrations are coming soon."
   },
   {
     question: "Can I create multiple deployments?",
-    answer: "Absolutely! There are no deployment limits. Create as many deployments as you need - each is billed separately based on its configuration."
+    answer: "Absolutely! There are no deployment limits. Create as many deployments as you need — each is billed separately based on its runtime."
   },
 ];
 
@@ -101,43 +109,34 @@ export default function Pricing() {
       <section className="pt-32 pb-16 relative z-10">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center animate-fade-in-up">
           <h1 className="text-5xl lg:text-6xl font-serif font-medium mb-6">
-            Simple
+            Simple, Pay-As-You-Go
             <span className="block text-primary">Pricing</span>
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-6">
-            Pick a runtime, choose your specs, and know exactly what you pay. No hidden fees, no surprises.
+            Pick a runtime, deploy instantly. Pay only for what you use.
           </p>
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary/50 border border-border text-foreground">
-            <Zap className="w-5 h-5 text-primary" />
-            <span className="text-sm font-medium">Deploy in minutes - no infrastructure to manage</span>
+            <Gift className="w-5 h-5 text-primary" />
+            <span className="text-sm font-medium">First deployment free for 7 days — no credit card required</span>
           </div>
         </div>
       </section>
 
-      {/* Runtime Cards */}
+      {/* Compute Pricing — Runtime Cards */}
       <section className="pb-20 relative z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
+            <div className="flex items-center justify-center gap-2 text-primary font-medium mb-4">
+              <Cpu className="w-5 h-5" />
+              Compute
+            </div>
             <h2 className="text-3xl font-serif font-medium mb-2">Runtime Catalog</h2>
-            <p className="text-muted-foreground">Choose the runtime that fits your needs</p>
+            <p className="text-muted-foreground">Each runtime comes with preset hardware — choose what fits your needs</p>
           </div>
 
           {runtimesQuery.isLoading ? (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="rounded-2xl p-5 border bg-card/80 backdrop-blur-md border-border">
-                  <div className="flex items-center gap-3 mb-5">
-                    <Skeleton className="w-12 h-12 rounded-xl" />
-                    <div className="flex-1">
-                      <Skeleton className="h-5 w-28 mb-2" />
-                      <Skeleton className="h-3 w-40" />
-                    </div>
-                  </div>
-                  <Skeleton className="h-8 w-28 mx-auto mb-2" />
-                  <Skeleton className="h-3 w-20 mx-auto mb-5" />
-                  <Skeleton className="h-9 w-full rounded-full" />
-                </div>
-              ))}
+            <div className="flex justify-center py-12">
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
           ) : runtimesQuery.isError ? (
             <div className="flex flex-col items-center py-12 text-center">
@@ -147,8 +146,7 @@ export default function Pricing() {
               </button>
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {/* Live runtimes from API */}
+            <div className="grid md:grid-cols-2 gap-6">
               {(runtimesQuery.data ?? []).map((runtime: {
                 id: number;
                 slug: string;
@@ -158,146 +156,62 @@ export default function Pricing() {
                 memoryMb: number;
                 storageMb: number;
                 monthlyPriceCents: number;
-              }) => {
-                const isComingSoon = runtime.slug === "zeroclaw";
-                const logoMap: Record<string, string> = {
-                  openclaw: "/openclaw-logo.svg",
-                  zeroclaw: "/zeroclaw.png",
-                };
-
-                return (
-                  <div
-                    key={runtime.id}
-                    className={`relative rounded-2xl p-5 border bg-card/80 backdrop-blur-md transition-all animate-fade-in-up-fast ${
-                      isComingSoon
-                        ? "border-border opacity-60"
-                        : "border-border hover:border-primary/50"
-                    }`}
-                  >
-                    {isComingSoon && (
-                      <div className="absolute top-3 right-3">
-                        <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
-                          Coming Soon
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-3 mb-5">
-                      <Image
-                        src={logoMap[runtime.slug] || "/zeroclaw.png"}
-                        alt={`${runtime.name} logo`}
-                        width={48}
-                        height={48}
-                        className={`w-12 h-12 rounded-xl ${isComingSoon ? "grayscale" : ""}`}
-                      />
-                      <div>
-                        <h3 className="text-lg font-serif font-medium">{runtime.name}</h3>
-                        <p className="text-xs text-muted-foreground">{runtime.description}</p>
-                      </div>
-                    </div>
-
-                    <div className="text-center mb-2">
-                      {isComingSoon ? (
-                        <span className="text-xl font-bold text-muted-foreground">TBD</span>
-                      ) : (
-                        <div className="flex items-baseline justify-center gap-1">
-                          <span className="text-xs text-muted-foreground">starting at</span>
-                          <span className="text-2xl font-bold">$32.40</span>
-                          <span className="text-sm text-muted-foreground">/mo</span>
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-xs text-center text-muted-foreground mb-5">
-                      {isComingSoon ? "Pricing announced at launch" : "Configurable during deployment"}
-                    </p>
-
-                    <Button
-                      onClick={isComingSoon ? undefined : handleGetStarted}
-                      disabled={isComingSoon}
-                      size="sm"
-                      className={`w-full rounded-full font-medium ${
-                        isComingSoon
-                          ? "opacity-50"
-                          : "bg-primary hover:bg-primary/90 text-primary-foreground"
-                      }`}
-                    >
-                      {isComingSoon ? "Coming Soon" : "Get Started"}
-                      {!isComingSoon && <ArrowRight className="w-4 h-4 ml-2" />}
-                    </Button>
-                  </div>
-                );
-              })}
-
-              {/* Coming Soon runtimes (static) */}
-              {[
-                {
-                  name: "NanoClaw",
-                  slug: "nanoclaw",
-                  logo: "/nanoclaw-logo.svg",
-                  description: "Lightweight fork of OpenClaw optimized for speed and low resource usage",
-                },
-                {
-                  name: "Nanobot",
-                  slug: "nanobot",
-                  logo: "/nanobot-logo.svg",
-                  description: "Ultra-lightweight agent framework with MCP tool orchestration in ~4,000 lines",
-                },
-                {
-                  name: "memU",
-                  slug: "memu",
-                  logo: "/memu-logo.svg",
-                  description: "Memory-first agent runtime for persistent, always-on agents with 90% lower token costs",
-                },
-                {
-                  name: "CrewAI",
-                  slug: "crewai",
-                  logo: "/crewai-logo.svg",
-                  description: "Multi-agent orchestration framework for teams of agents that collaborate on complex tasks",
-                },
-                {
-                  name: "AutoGPT",
-                  slug: "autogpt",
-                  logo: "/autogpt-logo.svg",
-                  description: "Autonomous agent platform that breaks down goals into sub-tasks and executes them independently",
-                },
-              ].map((runtime) => (
+              }) => (
                 <div
-                  key={runtime.slug}
-                  className="relative rounded-2xl p-5 border bg-card/80 backdrop-blur-md border-border opacity-60 animate-fade-in-up-fast"
+                  key={runtime.id}
+                  className="relative rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border hover:border-primary/50 transition-all animate-fade-in-up-fast"
                 >
-                  <div className="absolute top-3 right-3">
-                    <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
-                      Coming Soon
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-3 mb-5">
-                    <Image
-                      src={runtime.logo}
-                      alt={`${runtime.name} logo`}
-                      width={48}
-                      height={48}
-                      className="w-12 h-12 rounded-xl grayscale"
-                    />
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${
+                      runtime.slug === "openclaw"
+                        ? "bg-gradient-to-br from-purple-500 to-blue-500"
+                        : "bg-gradient-to-br from-emerald-500 to-teal-500"
+                    }`}>
+                      <Bot className="w-7 h-7 text-white" />
+                    </div>
                     <div>
-                      <h3 className="text-lg font-serif font-medium">{runtime.name}</h3>
-                      <p className="text-xs text-muted-foreground">{runtime.description}</p>
+                      <h3 className="text-xl font-serif font-medium">{runtime.name}</h3>
+                      <p className="text-sm text-muted-foreground">{runtime.description}</p>
                     </div>
                   </div>
 
-                  <div className="text-center mb-2">
-                    <span className="text-xl font-bold text-muted-foreground">TBD</span>
+                  {/* Hardware Specs */}
+                  <div className="grid grid-cols-3 gap-3 mb-6">
+                    <div className="flex flex-col items-center p-3 rounded-lg bg-secondary/50 border border-border">
+                      <Cpu className="w-4 h-4 text-primary mb-1" />
+                      <span className="text-sm font-semibold">{runtime.cpuLimit}</span>
+                      <span className="text-xs text-muted-foreground">vCPU</span>
+                    </div>
+                    <div className="flex flex-col items-center p-3 rounded-lg bg-secondary/50 border border-border">
+                      <MemoryStick className="w-4 h-4 text-primary mb-1" />
+                      <span className="text-sm font-semibold">{runtime.memoryMb}</span>
+                      <span className="text-xs text-muted-foreground">MB RAM</span>
+                    </div>
+                    <div className="flex flex-col items-center p-3 rounded-lg bg-secondary/50 border border-border">
+                      <HardDrive className="w-4 h-4 text-primary mb-1" />
+                      <span className="text-sm font-semibold">{runtime.storageMb}</span>
+                      <span className="text-xs text-muted-foreground">MB Storage</span>
+                    </div>
                   </div>
-                  <p className="text-xs text-center text-muted-foreground mb-5">
-                    Pricing announced at launch
-                  </p>
+
+                  {/* Price */}
+                  <div className="text-center mb-6">
+                    {runtime.monthlyPriceCents > 0 ? (
+                      <div className="flex items-baseline justify-center gap-1">
+                        <span className="text-3xl font-bold">${(runtime.monthlyPriceCents / 100).toFixed(0)}</span>
+                        <span className="text-muted-foreground">/mo</span>
+                      </div>
+                    ) : (
+                      <span className="text-2xl font-bold text-muted-foreground">Pricing TBD</span>
+                    )}
+                  </div>
 
                   <Button
-                    disabled
-                    size="sm"
-                    className="w-full rounded-full font-medium opacity-50"
+                    onClick={handleGetStarted}
+                    className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
                   >
-                    Coming Soon
+                    Get Started
+                    <ArrowRight className="w-4 h-4 ml-2" />
                   </Button>
                 </div>
               ))}
@@ -306,63 +220,117 @@ export default function Pricing() {
         </div>
       </section>
 
-      {/* LLM / AI Model Access */}
+      {/* LLM Credits Pricing */}
       <section className="py-20 relative z-10">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
+            <div className="flex items-center justify-center gap-2 text-primary font-medium mb-4">
+              LLM Credits
+            </div>
             <h2 className="text-3xl font-serif font-medium mb-2">AI Model Access</h2>
-            <p className="text-muted-foreground">Bring your own API key - you pay the provider directly</p>
+            <p className="text-muted-foreground">Choose how your deployments access AI models</p>
           </div>
 
-          <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-primary shadow-lg animate-fade-in-up-fast">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-                <Key className="w-7 h-7 text-white" />
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* BYOK */}
+            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-primary shadow-lg animate-fade-in-up-fast">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2">
               </div>
-              <div>
-                <h3 className="text-xl font-serif font-medium">Bring Your Own Key</h3>
-                <p className="text-sm text-muted-foreground">Full control with your own API key - no markup</p>
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
+                  <Key className="w-7 h-7 text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-serif font-medium">Bring Your Own Key</h3>
+                    <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
+                      Recommended
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">Full control with your own OpenRouter API key</p>
+                </div>
               </div>
+
+              <div className="text-center mb-6">
+                <span className="text-3xl font-bold">Free</span>
+                <p className="text-sm text-muted-foreground mt-1">You pay OpenRouter directly</p>
+              </div>
+
+              <ul className="space-y-3 mb-6">
+                <li className="flex items-start gap-2 text-sm">
+                  <span className="text-primary mt-0.5">&#10003;</span>
+                  <span>Access to all models (GPT-4, Claude, Llama, etc.)</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm">
+                  <span className="text-primary mt-0.5">&#10003;</span>
+                  <span>Full control over model selection and costs</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm">
+                  <span className="text-primary mt-0.5">&#10003;</span>
+                  <span>Pay only for what you use</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm">
+                  <span className="text-primary mt-0.5">&#10003;</span>
+                  <span>No markup on API costs</span>
+                </li>
+              </ul>
+
+              <Button
+                onClick={handleGetStarted}
+                className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
+              >
+                Get Started with BYOK
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
             </div>
 
-            <div className="text-center mb-6">
-              <span className="text-3xl font-bold">Free</span>
-              <p className="text-sm text-muted-foreground mt-1">You pay the provider directly</p>
-            </div>
-
-            <ul className="space-y-3 mb-4">
-              <li className="flex items-start gap-2 text-sm">
-                <span className="text-primary mt-0.5">&#10003;</span>
-                <span>Access to all models (GPT-4o, Claude, Gemini, Llama, etc.)</span>
-              </li>
-              <li className="flex items-start gap-2 text-sm">
-                <span className="text-primary mt-0.5">&#10003;</span>
-                <span>Full control over model selection and costs</span>
-              </li>
-              <li className="flex items-start gap-2 text-sm">
-                <span className="text-primary mt-0.5">&#10003;</span>
-                <span>Pay only for what you use - no markup</span>
-              </li>
-            </ul>
-
-            {/* Supported Providers */}
-            <div className="rounded-lg bg-secondary/30 border border-border p-3 mb-6">
-              <p className="text-xs font-medium text-muted-foreground mb-2">Supported providers</p>
-              <div className="flex flex-wrap gap-2">
-                <span className="px-2 py-0.5 rounded-full bg-secondary text-xs font-medium">OpenRouter</span>
-                <span className="px-2 py-0.5 rounded-full bg-secondary text-xs font-medium">OpenAI</span>
-                <span className="px-2 py-0.5 rounded-full bg-secondary text-xs font-medium">Anthropic</span>
-                <span className="px-2 py-0.5 rounded-full bg-secondary text-xs font-medium">Google AI</span>
+            {/* Included Credits */}
+            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border animate-fade-in-up-fast">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-serif font-medium">Included Credits</h3>
+                    <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
+                      Coming Soon
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">We handle everything — just deploy and go</p>
+                </div>
               </div>
-            </div>
 
-            <Button
-              onClick={handleGetStarted}
-              className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
-            >
-              Get Started
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
+              <div className="text-center mb-6">
+                <span className="text-2xl font-bold text-muted-foreground">Pricing TBD</span>
+                <p className="text-sm text-muted-foreground mt-1">Monthly credit packages</p>
+              </div>
+
+              <ul className="space-y-3 mb-6">
+                <li className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <span className="text-muted-foreground-subtle mt-0.5">&#10003;</span>
+                  <span>No API key needed</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
+                  <span>Pre-configured model selection</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
+                  <span>Simple monthly billing</span>
+                </li>
+                <li className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
+                  <span>Managed by Jarble via OpenRouter</span>
+                </li>
+              </ul>
+
+              <Button
+                disabled
+                className="w-full rounded-full opacity-50"
+              >
+                Coming Soon
+              </Button>
+            </div>
           </div>
         </div>
       </section>
@@ -442,7 +410,8 @@ export default function Pricing() {
             Ready to Get Started?
           </h2>
           <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
-            Deploy your first AI agent in minutes. Starting at $32.40/mo.
+            Deploy your first AI agent in minutes.
+            First deployment free for 7 days, no credit card required.
           </p>
           <Button
             size="lg"
@@ -450,7 +419,7 @@ export default function Pricing() {
             className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
           >
             <Zap className="w-5 h-5 mr-2" />
-            Start Building
+            Start Building for Free
           </Button>
         </div>
       </section>

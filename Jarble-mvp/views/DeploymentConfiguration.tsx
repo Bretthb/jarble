@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createElement } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import CancellationGracePeriod from "@/components/CancellationGracePeriod";
 import { getConfigTabs } from "./onboarding/wizardStepConfig";
@@ -274,8 +275,37 @@ export default function DeploymentConfiguration() {
 
   if (deploymentQuery.isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-background text-foreground">
+        <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-8 w-8 rounded-md" />
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </div>
+            <Skeleton className="h-8 w-8 rounded-full" />
+          </div>
+        </nav>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 flex gap-8">
+          {/* Sidebar skeleton */}
+          <div className="w-48 shrink-0 space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-full rounded-md" />
+            ))}
+          </div>
+          {/* Content skeleton */}
+          <div className="flex-1 space-y-6">
+            <Skeleton className="h-6 w-48 mb-4" />
+            <Card className="p-6 bg-card border-border space-y-4">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-24 w-full" />
+            </Card>
+          </div>
+        </div>
       </div>
     );
   }

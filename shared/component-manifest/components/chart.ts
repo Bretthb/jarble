@@ -12,5 +12,5 @@ export const chartEntry: ComponentManifestEntry = {
   tags: ["data", "visualization", "chart", "graph"],
   builtin: true,
   renderOrder: 5,
-  promptGuidance: "Use for data visualization. Supports bar, line, pie, and area types.",
+  promptGuidance: "AVOID — use sandbox instead for better results. Sandbox gives you Chart.js/D3 with full styling control. Only use this typed chart as a last resort for the simplest possible single chart.",
 };

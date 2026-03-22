@@ -13,5 +13,5 @@ export const statGridEntry: ComponentManifestEntry = {
   tags: ["metrics", "kpi", "statistics", "numbers"],
   builtin: true,
   renderOrder: 2,
-  promptGuidance: "Compact grid of 5+ metrics. For 1-4 metrics, use individual metric_card components instead.",
+  promptGuidance: "ONLY for a standalone metrics display with no charts. For dashboards or analytics requests, use sandbox instead — build KPIs + charts together in one sandbox.",
 };

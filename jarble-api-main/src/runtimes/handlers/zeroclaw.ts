@@ -26,7 +26,10 @@ import type {
   DeploymentFields,
   ParsedDeploymentFields,
 } from "../types.js";
+import { createModuleLogger } from "../../utils/logger.js";
 import { PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
+
+const log = createModuleLogger("runtime:zeroclaw");
 
 const capabilities: RuntimeCapabilities = {
   needsLlm: true,       // ZeroClaw supports 22+ AI providers
@@ -46,6 +49,7 @@ export const zeroclawHandler: RuntimeHandler = {
   configFiles,
 
   renderConfigs(deployment: DeploymentFields): ConfigFile[] {
+    log.debug({ deploymentId: deployment.name }, "renderConfigs");
     // ZeroClaw uses TOML configuration
     const lines = [
       "# ZeroClaw Configuration — Managed by Jarble AI Platform",
@@ -63,10 +67,12 @@ export const zeroclawHandler: RuntimeHandler = {
     lines.push("[provider]");
     lines.push(`default = "${deployment.llmProvider || "openrouter"}"`);
 
-    return [{
+    const files = [{
       path: "config.toml",
       content: lines.join("\n") + "\n",
     }];
+    log.info({ fileCount: files.length }, "renderConfigs complete");
+    return files;
   },
 
   parseConfigs(files: ConfigFile[]): ParsedDeploymentFields {
@@ -76,6 +82,7 @@ export const zeroclawHandler: RuntimeHandler = {
   },
 
   getSecretEntries(deployment: DeploymentFields): Record<string, string> {
+    log.debug({ provider: deployment.llmProvider }, "getSecretEntries");
     // ZeroClaw uses different env var names than OpenClaw
     const entries: Record<string, string> = {};
 
@@ -103,13 +110,16 @@ export const zeroclawHandler: RuntimeHandler = {
       }
     }
 
+    log.debug({ entryCount: Object.keys(entries).length }, "getSecretEntries complete");
     return entries;
   },
 
   validateCreate(input: Partial<DeploymentFields>): string | null {
     // ZeroClaw needs an API key when using BYOK mode (same as OpenClaw)
     if (input.llmMode === "byok" && !input.llmApiKey) {
-      return "ZeroClaw requires an LLM API key when using Bring Your Own Key mode";
+      const error = "ZeroClaw requires an LLM API key when using Bring Your Own Key mode";
+      log.warn({ error }, "validateCreate failed");
+      return error;
     }
     return null;
   },

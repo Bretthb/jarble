@@ -1,5 +1,5 @@
 import type { CanvasState, CanvasAction, CanvasCard } from "./types";
-import { INITIAL_CANVAS_STATE, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE, SPLITTABLE_COMPONENTS } from "./types";
+import { INITIAL_CANVAS_STATE, DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE, SPLITTABLE_COMPONENTS, FIX_ATTEMPT_WINDOW_MS, MAX_CANVAS_CARDS } from "./types";
 import { tidyLayout } from "./autoLayout";
 
 export { INITIAL_CANVAS_STATE };
@@ -11,9 +11,20 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
 
   switch (action.type) {
     case "ADD_CARD": {
+      // Reject duplicate card IDs
+      if (state.cards.some((c) => c.id === action.card.id)) {
+        if (process.env.NODE_ENV === "development") console.warn(`[Jarble:Reducer] ADD_CARD skipped duplicate: ${action.card.id}`);
+        return state;
+      }
+      let cards = state.cards;
+      if (cards.length >= MAX_CANVAS_CARDS) {
+        const oldestUnpinnedIdx = cards.findIndex((c) => !c.pinned);
+        if (oldestUnpinnedIdx === -1) return state;
+        cards = cards.filter((_, i) => i !== oldestUnpinnedIdx);
+      }
       const newState = {
         ...state,
-        cards: [...state.cards, { ...action.card, zIndex: state.nextZIndex }],
+        cards: [...cards, { ...action.card, zIndex: state.nextZIndex }],
         nextZIndex: state.nextZIndex + 1,
       };
       if (process.env.NODE_ENV === "development") console.log(`[Jarble:Reducer] ADD_CARD -> ${newState.cards.length} cards`);
@@ -42,9 +53,26 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       return {
         ...state,
         cards: state.cards.map((c) =>
-          c.id === action.id ? { ...c, size: action.size } : c
+          c.id === action.id ? { ...c, size: action.size, autoHeight: false } : c
         ),
       };
+
+    case "AUTO_HEIGHT_CARD": {
+      const target = state.cards.find((c) => c.id === action.id);
+      // Only auto-resize if card hasn't been manually resized
+      if (!target || target.autoHeight === false) return state;
+      // Only grow beyond current height — never shrink (prevents feedback loops)
+      const newH = Math.max(target.size.height, action.height);
+      if (newH - target.size.height < 16) return state; // Skip trivial growth
+      // Cap at 2000px to prevent runaway growth
+      const clampedH = Math.min(2000, newH);
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, size: { ...c.size, height: clampedH } } : c
+        ),
+      };
+    }
 
     case "MINIMIZE_CARD":
       return {
@@ -250,10 +278,19 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
         ...state,
         cards: state.cards.map((c) => {
           if (c.id !== action.id) return c;
-          const newProps = action.merge ? { ...c.props, ...action.props } : action.props;
+          let newProps = action.merge ? { ...c.props, ...action.props } : action.props;
+          // Safeguard: sandbox/code_editor cards must retain their primary content prop
+          // even on full replacement. Prevents "Cannot read properties of undefined" crashes.
+          if (!action.merge && c.component === "sandbox" && !newProps.html && c.props.html) {
+            newProps = { ...newProps, html: c.props.html };
+          }
+          if (!action.merge && c.component === "code_editor" && !newProps.code && c.props.code) {
+            newProps = { ...newProps, code: c.props.code };
+          }
           return {
             ...c,
             props: newProps,
+            propsLost: undefined,
             ...(action.component ? { component: action.component } : {}),
           };
         }),
@@ -334,11 +371,54 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       };
     }
 
+    case "UNGROUP_CARD": {
+      const card = state.cards.find((c) => c.id === action.id);
+      if (!card || card.component !== "layout") return state;
+      const children = card.props.children;
+      if (!Array.isArray(children) || children.length < 2) return state;
+
+      const timestamp = Date.now();
+      const newCards: CanvasCard[] = [];
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i] as { component: string; props: Record<string, unknown> };
+        if (!child?.component) continue;
+        const offset = { x: (i % 3) * 340, y: Math.floor(i / 3) * 260 };
+        const size = DEFAULT_CARD_SIZES[child.component] || DEFAULT_CARD_SIZE;
+        newCards.push({
+          id: `${card.id}-ug-${i}-${timestamp}`,
+          component: child.component,
+          props: child.props || {},
+          position: { x: card.position.x + offset.x, y: card.position.y + offset.y },
+          size,
+          zIndex: state.nextZIndex + i,
+          minimized: false,
+          createdAt: timestamp,
+          title: (child.props?.title as string) || child.component.replace(/_/g, " "),
+        });
+      }
+
+      if (newCards.length === 0) return state;
+      if (process.env.NODE_ENV === "development") console.log(`[Jarble:Reducer] UNGROUP_CARD -> ${newCards.length} cards from layout`);
+      return {
+        ...state,
+        cards: [...state.cards.filter((c) => c.id !== action.id), ...newCards],
+        nextZIndex: state.nextZIndex + newCards.length,
+      };
+    }
+
     case "SAVE_CARD":
       return {
         ...state,
         cards: state.cards.map((c) =>
-          c.id === action.id ? { ...c, savedName: action.savedName } : c
+          c.id === action.id ? { ...c, savedName: action.savedName, fileId: action.fileId } : c
+        ),
+      };
+
+    case "UNSAVE_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, savedName: undefined, fileId: undefined } : c
         ),
       };
 
@@ -355,7 +435,159 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       return { ...state, mode: action.mode };
 
     case "CLEAR_CANVAS":
-      return { ...INITIAL_CANVAS_STATE, mode: state.mode };
+      return { ...INITIAL_CANVAS_STATE, mode: state.mode, strokes: [], fullscreenPageId: null };
+
+    case "RENAME_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, title: action.title } : c
+        ),
+      };
+
+    case "RECORD_CSP_VIOLATION": {
+      return {
+        ...state,
+        cards: state.cards.map((c) => {
+          if (c.id !== action.id) return c;
+          const existing = c.cspViolations || [];
+          // Deduplicate and cap at 10
+          const key = `${action.violation.blockedURI}|${action.violation.violatedDirective}`;
+          if (existing.some((v) => `${v.blockedURI}|${v.violatedDirective}` === key)) return c;
+          return { ...c, cspViolations: [...existing.slice(-9), action.violation] };
+        }),
+      };
+    }
+
+    case "RECORD_RENDER_ERROR":
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, lastRenderError: action.error } : c
+        ),
+      };
+
+    case "ADD_STROKE":
+      return { ...state, strokes: [...state.strokes, action.stroke] };
+
+    case "REMOVE_STROKE":
+      return { ...state, strokes: state.strokes.filter((s) => s.id !== action.id) };
+
+    case "CLEAR_STROKES":
+      return { ...state, strokes: [] };
+
+    case "RECORD_FIX_ATTEMPT": {
+      const now = Date.now();
+      const existing = state.fixAttempts[action.id];
+      // Reset window if expired
+      if (existing && (now - existing.windowStart) > FIX_ATTEMPT_WINDOW_MS) {
+        return { ...state, fixAttempts: { ...state.fixAttempts, [action.id]: { count: 1, windowStart: now } } };
+      }
+      return {
+        ...state,
+        fixAttempts: {
+          ...state.fixAttempts,
+          [action.id]: { count: (existing?.count || 0) + 1, windowStart: existing?.windowStart || now },
+        },
+      };
+    }
+
+    case "RESET_FIX_ATTEMPTS": {
+      const { [action.id]: _, ...rest } = state.fixAttempts;
+      return { ...state, fixAttempts: rest };
+    }
+
+    case "OPEN_PAGE_FULLSCREEN": {
+      const pageCard = state.cards.find((c) => c.id === action.id);
+      if (!pageCard || pageCard.component !== "page") return state;
+      return { ...state, fullscreenPageId: action.id };
+    }
+
+    case "CLOSE_PAGE_FULLSCREEN":
+      return { ...state, fullscreenPageId: null };
+
+    case "UNGROUP_PAGE": {
+      const card = state.cards.find((c) => c.id === action.cardId);
+      if (!card || card.component !== "page") return state;
+      const sections = card.props.sections as Record<string, Array<{ component: string; props: Record<string, unknown> }>> | undefined;
+      if (!sections || typeof sections !== "object") return state;
+
+      const timestamp = Date.now();
+      const newCards: CanvasCard[] = [];
+      let idx = 0;
+      for (const [_sectionKey, items] of Object.entries(sections)) {
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+          if (!item?.component) continue;
+          const offset = { x: (idx % 3) * 340, y: Math.floor(idx / 3) * 260 };
+          const size = DEFAULT_CARD_SIZES[item.component] || DEFAULT_CARD_SIZE;
+          newCards.push({
+            id: `${card.id}-pg-${idx}-${timestamp}`,
+            component: item.component,
+            props: item.props || {},
+            position: { x: card.position.x + offset.x, y: card.position.y + offset.y },
+            size,
+            zIndex: state.nextZIndex + idx,
+            minimized: false,
+            createdAt: timestamp,
+            title: (item.props?.title as string) || item.component.replace(/_/g, " "),
+          });
+          idx++;
+        }
+      }
+
+      if (newCards.length === 0) return state;
+      if (process.env.NODE_ENV === "development") console.log(`[Jarble:Reducer] UNGROUP_PAGE -> ${newCards.length} cards from page`);
+      return {
+        ...state,
+        cards: [...state.cards.filter((c) => c.id !== action.cardId), ...newCards],
+        nextZIndex: state.nextZIndex + newCards.length,
+        fullscreenPageId: null,
+      };
+    }
+
+    case "PIN_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, pinned: true } : c
+        ),
+      };
+    case "UNPIN_CARD":
+      return {
+        ...state,
+        cards: state.cards.map((c) =>
+          c.id === action.id ? { ...c, pinned: false } : c
+        ),
+      };
+
+    case "CREATE_DASHBOARD_GROUP": {
+      const { groupId, title, cardIds } = action;
+      const newCards = state.cards.map((c) =>
+        cardIds.includes(c.id) ? { ...c, groupId } : c
+      );
+      return {
+        ...state,
+        cards: newCards,
+        dashboardGroups: {
+          ...state.dashboardGroups,
+          [groupId]: { title, cardIds },
+        },
+      };
+    }
+
+    case "UNGROUP_DASHBOARD": {
+      const { groupId } = action;
+      const newCards = state.cards.map((c) =>
+        c.groupId === groupId ? { ...c, groupId: undefined } : c
+      );
+      const { [groupId]: _, ...remainingGroups } = state.dashboardGroups;
+      return {
+        ...state,
+        cards: newCards,
+        dashboardGroups: remainingGroups,
+      };
+    }
 
     default:
       return state;
