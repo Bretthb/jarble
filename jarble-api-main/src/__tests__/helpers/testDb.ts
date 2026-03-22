@@ -31,6 +31,7 @@ const CREATE_TABLES_SQL = `
     name TEXT,
     auth0_id TEXT NOT NULL UNIQUE,
     email_verified INTEGER DEFAULT 0 NOT NULL,
+    role TEXT DEFAULT 'user' NOT NULL,
     stripe_customer_id TEXT,
     pending_stripe_subscription_id TEXT,
     free_deployment_used INTEGER DEFAULT 0 NOT NULL,
@@ -522,6 +523,45 @@ const CREATE_TABLES_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_agent_calls_caller ON agent_calls(caller_deployment_id);
   CREATE INDEX IF NOT EXISTS idx_agent_calls_callee ON agent_calls(callee_deployment_id);
+
+  CREATE TABLE IF NOT EXISTS chat_sessions (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    title TEXT DEFAULT 'New conversation' NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    thinking_text TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    action TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
+    metadata TEXT,
+    ip_address TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS beta_signups (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    experience TEXT,
+    use_case TEXT,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    invited_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
 `;
 
 export interface TestDbContext {
