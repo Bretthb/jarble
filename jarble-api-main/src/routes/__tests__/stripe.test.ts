@@ -19,6 +19,7 @@ const CREATE_TABLES_SQL = `
     name TEXT,
     auth0_id TEXT NOT NULL UNIQUE,
     email_verified INTEGER DEFAULT 0 NOT NULL,
+    role TEXT DEFAULT 'user' NOT NULL,
     stripe_customer_id TEXT,
     pending_stripe_subscription_id TEXT,
     pending_stripe_tier TEXT,
@@ -56,7 +57,17 @@ const CREATE_TABLES_SQL = `
     error TEXT,
     messaging_only INTEGER DEFAULT 0 NOT NULL,
     managed_by TEXT DEFAULT 'legacy' NOT NULL,
+    isolation_level TEXT DEFAULT 'standard' NOT NULL,
+    is_platform INTEGER DEFAULT 0 NOT NULL,
+    resource_tier TEXT,
     theme_config TEXT,
+    forked_from_id TEXT,
+    is_public INTEGER DEFAULT 0 NOT NULL,
+    fork_count INTEGER DEFAULT 0 NOT NULL,
+    featured_at TEXT,
+    specialties TEXT,
+    bio TEXT,
+    showcase_prompts TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
@@ -107,6 +118,7 @@ vi.mock("../../services/stripe.js", () => ({
   constructWebhookEvent: (...args: any[]) => mockConstructWebhookEvent(...args),
   createCheckoutSession: vi.fn(),
   createPortalSession: vi.fn(),
+  sumSubscriptionItemsCents: vi.fn().mockReturnValue(0),
 }));
 
 const mockStopDeployment = vi.fn();
@@ -265,7 +277,7 @@ describe("stripeWebhookHandler", () => {
       expect(user.pending_stripe_subscription_id).toBe("sub_pending");
     });
 
-    it("auto-links subscription to unlinked deployment", async () => {
+    it("stores pending subscription even when unlinked deployment exists", async () => {
       rawDb.exec(`
         INSERT INTO deployments (id, user_id, name, runtime, status, is_free)
         VALUES ('dep-001', '${TEST_USER_ID}', 'Test Deploy', 'openclaw', 'creating', 0)
@@ -280,11 +292,10 @@ describe("stripeWebhookHandler", () => {
       const res = mockRes();
       await stripeWebhookHandler(mockReq(), res);
 
-      const dep = rawDb.prepare("SELECT * FROM deployments WHERE id = 'dep-001'").get() as any;
-      expect(dep.stripe_subscription_id).toBe("sub_link");
-
+      // Handler stores pending subscription on user, not auto-linked to deployment
       const user = rawDb.prepare("SELECT * FROM users WHERE id = ?").get(TEST_USER_ID) as any;
-      expect(user.pending_stripe_subscription_id).toBeNull();
+      expect(user.pending_stripe_subscription_id).toBe("sub_link");
+      expect(user.stripe_customer_id).toBe("cus_123");
     });
 
     it("uses client_reference_id when metadata.userId is absent", async () => {

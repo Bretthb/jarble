@@ -33,6 +33,19 @@ vi.mock("../../services/auth.js", () => ({
   getUserFromToken: (...args: any[]) => mockGetUserFromToken(...args),
 }));
 
+vi.mock("../../utils/env.js", () => ({
+  env: {
+    USE_SQLITE: "true",
+    DB_PROVIDER: "sqlite",
+    AUTH0_DOMAIN: "test.auth0.com",
+    AUTH0_AUDIENCE: "https://api.test",
+    STRIPE_SECRET_KEY: "",
+    STRIPE_WEBHOOK_SECRET: "",
+    FRONTEND_URL: "http://localhost:3000",
+    ADMIN_USER_IDS: "",
+  },
+}));
+
 vi.mock("../../db/index.js", () => ({
   db: {
     query: {

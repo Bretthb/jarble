@@ -22,6 +22,8 @@ vi.mock("../../services/stripe.js", () => ({
   cancelSubscriptionImmediately: vi.fn().mockResolvedValue(undefined),
   reactivateSubscription: vi.fn(),
   listActiveSubscriptions: vi.fn().mockResolvedValue([]),
+  sumSubscriptionItemsCents: vi.fn().mockReturnValue(0),
+  getSubscriptionBreakdown: vi.fn().mockReturnValue({ baseCents: 0, managedKeyCents: 0, totalCents: 0 }),
 }));
 
 vi.mock("../../k8s/index.js", () => ({
@@ -177,8 +179,10 @@ describe("billing.getOverview", () => {
     mockIsStripeConfigured.mockReturnValue(true);
     const futureTimestamp = Math.floor(Date.now() / 1000) + 86400 * 30;
     mockGetSubscriptionDetails.mockResolvedValue({
+      status: "active",
       current_period_end: futureTimestamp,
       default_payment_method: null,
+      items: { data: [] },
     });
     seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
 
@@ -193,10 +197,12 @@ describe("billing.getOverview", () => {
   it("fetches payment method last4 from Stripe", async () => {
     mockIsStripeConfigured.mockReturnValue(true);
     mockGetSubscriptionDetails.mockResolvedValue({
+      status: "active",
       current_period_end: Math.floor(Date.now() / 1000) + 86400,
       default_payment_method: {
         card: { last4: "4242" },
       },
+      items: { data: [] },
     });
     seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
 
@@ -209,8 +215,10 @@ describe("billing.getOverview", () => {
   it("handles missing card on payment method", async () => {
     mockIsStripeConfigured.mockReturnValue(true);
     mockGetSubscriptionDetails.mockResolvedValue({
+      status: "active",
       current_period_end: Math.floor(Date.now() / 1000) + 86400,
       default_payment_method: { type: "sepa_debit" }, // no card
+      items: { data: [] },
     });
     seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
 
@@ -235,8 +243,10 @@ describe("billing.getOverview", () => {
   it("handles null default_payment_method", async () => {
     mockIsStripeConfigured.mockReturnValue(true);
     mockGetSubscriptionDetails.mockResolvedValue({
+      status: "active",
       current_period_end: Math.floor(Date.now() / 1000) + 86400,
       default_payment_method: null,
+      items: { data: [] },
     });
     seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
 
@@ -249,8 +259,10 @@ describe("billing.getOverview", () => {
   it("handles string default_payment_method (not expanded)", async () => {
     mockIsStripeConfigured.mockReturnValue(true);
     mockGetSubscriptionDetails.mockResolvedValue({
+      status: "active",
       current_period_end: Math.floor(Date.now() / 1000) + 86400,
       default_payment_method: "pm_123abc", // string, not expanded
+      items: { data: [] },
     });
     seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
 
@@ -263,7 +275,9 @@ describe("billing.getOverview", () => {
   it("handles missing current_period_end", async () => {
     mockIsStripeConfigured.mockReturnValue(true);
     mockGetSubscriptionDetails.mockResolvedValue({
+      status: "active",
       default_payment_method: null,
+      items: { data: [] },
     });
     seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
 
@@ -273,11 +287,13 @@ describe("billing.getOverview", () => {
     expect(result.nextBillingDate).toBeNull();
   });
 
-  it("uses only the first paid deployment for Stripe details", async () => {
+  it("fetches Stripe details for all paid deployments", async () => {
     mockIsStripeConfigured.mockReturnValue(true);
     mockGetSubscriptionDetails.mockResolvedValue({
+      status: "active",
       current_period_end: Math.floor(Date.now() / 1000) + 86400,
       default_payment_method: null,
+      items: { data: [] },
     });
     seedDeployment({ id: "dep-1", isFree: 0, stripeSubscriptionId: "sub_first" });
     seedDeployment({ id: "dep-2", isFree: 0, stripeSubscriptionId: "sub_second" });
@@ -285,8 +301,9 @@ describe("billing.getOverview", () => {
     const caller = authedCaller();
     await caller.billing.getOverview();
 
-    expect(mockGetSubscriptionDetails).toHaveBeenCalledTimes(1);
+    expect(mockGetSubscriptionDetails).toHaveBeenCalledTimes(2);
     expect(mockGetSubscriptionDetails).toHaveBeenCalledWith("sub_first");
+    expect(mockGetSubscriptionDetails).toHaveBeenCalledWith("sub_second");
   });
 
   it("rejects anonymous caller", async () => {

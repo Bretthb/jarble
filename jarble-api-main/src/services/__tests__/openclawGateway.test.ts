@@ -217,6 +217,7 @@ describe("chatViaExec", () => {
       "npx", "openclaw", "agent",
       "--message", "Hello bot",
       "--session-id", "ses-key",
+      "--thinking", "medium",
       "--json",
       "--timeout", "60",
     ], undefined, 90_000);
