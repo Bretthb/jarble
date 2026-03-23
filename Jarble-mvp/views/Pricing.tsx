@@ -41,7 +41,7 @@ const FAQ = [
   },
   {
     question: "What platforms can I connect?",
-    answer: "Currently we support WhatsApp as the initial interface for OpenClaw. Discord, Slack, Telegram, and web chat integrations are coming soon."
+    answer: "We support WhatsApp, Discord, Slack, and Telegram. Each deployment also gets a built-in web chat interface at its unique URL."
   },
   {
     question: "Can I create multiple deployments?",
@@ -233,9 +233,7 @@ export default function Pricing() {
 
           <div className="grid md:grid-cols-2 gap-6">
             {/* BYOK */}
-            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-primary shadow-lg animate-fade-in-up-fast">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              </div>
+            <div className="relative rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-primary shadow-lg animate-fade-in-up-fast">
               <div className="flex items-center gap-4 mb-4">
                 <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
                   <Key className="w-7 h-7 text-white" />
@@ -288,6 +286,7 @@ export default function Pricing() {
             <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border animate-fade-in-up-fast">
               <div className="flex items-center gap-4 mb-4">
                 <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+                  <Zap className="w-7 h-7 text-white" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
@@ -307,7 +306,7 @@ export default function Pricing() {
 
               <ul className="space-y-3 mb-6">
                 <li className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <span className="text-muted-foreground-subtle mt-0.5">&#10003;</span>
+                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
                   <span>No API key needed</span>
                 </li>
                 <li className="flex items-start gap-2 text-sm text-muted-foreground">
@@ -435,6 +434,10 @@ export default function Pricing() {
               <Link href="/" className="text-muted-foreground hover:text-primary transition-colors">Home</Link>
               <Link href="/about" className="text-muted-foreground hover:text-primary transition-colors">About</Link>
               <Link href="/pricing" className="text-muted-foreground hover:text-primary transition-colors">Pricing</Link>
+              <Link href="/docs" className="text-muted-foreground hover:text-primary transition-colors">Documentation</Link>
+              <Link href="/docs/api" className="text-muted-foreground hover:text-primary transition-colors">API Reference</Link>
+              <Link href="/terms" className="text-muted-foreground hover:text-primary transition-colors">Terms of Service</Link>
+              <Link href="/privacy" className="text-muted-foreground hover:text-primary transition-colors">Privacy Policy</Link>
             </nav>
           </div>
           <div className="mt-8 pt-8 border-t border-border text-center text-muted-foreground text-sm">

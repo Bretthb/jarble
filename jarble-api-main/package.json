@@ -6,7 +6,7 @@
   "types": "dist/jarble-api-main/src/trpc/index.d.ts",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "dev:test": "npx cross-env USE_SQLITE=true tsx watch src/index.ts",
+    "dev:test": "npx cross-env USE_SQLITE=true NODE_ENV=development tsx watch src/index.ts",
     "build": "tsc",
     "build:types": "tsc -p tsconfig.declarations.json",
     "start": "node dist/index.js",
