@@ -27,7 +27,7 @@ import { isAdmin } from "../../utils/admin.js";
 import { RESOURCE_TIERS } from "../../k8s/constants.js";
 import { validateThemeConfig, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 
-const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, personaTemplates } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, personaTemplates, chatSessions, chatMessages } = tables;
 
 /**
  * Helper: Check free deployment status for a user.
@@ -2020,5 +2020,118 @@ export const deploymentRouter = router({
         installedServices: serviceNames,
         installedComponents: componentNames,
       };
+    }),
+
+  // ─── Chat Persistence ────────────────────────────────────────────────────
+
+  // List chat sessions for a deployment
+  listChatSessions: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Verify deployment ownership
+      const dep = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+        columns: { id: true },
+      });
+      if (!dep) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+
+      const sessions = await ctx.db.query.chatSessions.findMany({
+        where: eq(chatSessions.deploymentId, input.deploymentId),
+        orderBy: (s, { desc }) => [desc(s.updatedAt)],
+      });
+      return sessions;
+    }),
+
+  // Get messages for a chat session
+  getChatMessages: protectedProcedure
+    .input(z.object({ sessionId: z.string(), deploymentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Verify deployment ownership
+      const dep = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+        columns: { id: true },
+      });
+      if (!dep) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+
+      const msgs = await ctx.db.query.chatMessages.findMany({
+        where: eq(chatMessages.sessionId, input.sessionId),
+        orderBy: (m, { asc }) => [asc(m.createdAt)],
+      });
+      return msgs;
+    }),
+
+  // Sync chat session + messages from client (upsert)
+  syncChatSession: protectedProcedure
+    .input(z.object({
+      deploymentId: z.string(),
+      sessionId: z.string(),
+      title: z.string().max(200),
+      messages: z.array(z.object({
+        id: z.string(),
+        role: z.enum(["user", "assistant"]),
+        content: z.string(),
+        thinkingText: z.string().optional(),
+        createdAt: z.number(),
+      })).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify deployment ownership
+      const dep = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+        columns: { id: true },
+      });
+      if (!dep) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+
+      const now = dbDate();
+
+      // Upsert session
+      const existing = await ctx.db.query.chatSessions.findFirst({
+        where: eq(chatSessions.id, input.sessionId),
+      });
+
+      if (existing) {
+        await ctx.db.update(chatSessions)
+          .set({ title: input.title, updatedAt: now } as any)
+          .where(eq(chatSessions.id, input.sessionId));
+      } else {
+        await ctx.db.insert(chatSessions).values({
+          id: input.sessionId,
+          deploymentId: input.deploymentId,
+          title: input.title,
+          createdAt: now,
+          updatedAt: now,
+        } as any);
+      }
+
+      // Delete existing messages and replace with new set (simple sync strategy)
+      await ctx.db.delete(chatMessages).where(eq(chatMessages.sessionId, input.sessionId));
+
+      if (input.messages.length > 0) {
+        const rows = input.messages.map((m) => ({
+          id: m.id,
+          sessionId: input.sessionId,
+          role: m.role,
+          content: m.content,
+          thinkingText: m.thinkingText || null,
+          createdAt: new Date(m.createdAt).toISOString(),
+        }));
+        await ctx.db.insert(chatMessages).values(rows as any);
+      }
+
+      return { success: true };
+    }),
+
+  // Delete a chat session (cascade deletes messages)
+  deleteChatSession: protectedProcedure
+    .input(z.object({ sessionId: z.string(), deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const dep = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+        columns: { id: true },
+      });
+      if (!dep) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+
+      await ctx.db.delete(chatSessions).where(eq(chatSessions.id, input.sessionId));
+      return { success: true };
     }),
 });

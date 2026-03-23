@@ -28,7 +28,10 @@ import {
   deleteConversation as deleteConv,
   createConversation,
   migrateFromLegacy,
+  scheduleSyncToServer,
+  mergeServerSessions,
 } from "@/lib/conversationStorage";
+import { trpc } from "@/lib/trpc";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -134,6 +137,27 @@ export function useCanvasChat(
   // updates the card in-place instead of creating a new one
   const editModeRef = useRef<{ cardId: string; component: string } | null>(null);
 
+  // Server sync mutation (fire-and-forget — localStorage is the fast path)
+  const syncMutation = trpc.deployment.syncChatSession.useMutation();
+  const syncToServer = useCallback(async (sessionId: string, title: string, msgs: ChatMessage[]) => {
+    try {
+      await syncMutation.mutateAsync({
+        deploymentId,
+        sessionId,
+        title,
+        messages: msgs.map((m) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          thinkingText: m.reasoning,
+          createdAt: m.createdAt,
+        })),
+      });
+    } catch (err) {
+      isDev && console.warn("[ChatSync] Server sync failed:", err);
+    }
+  }, [deploymentId, syncMutation]);
+
   const flushMessages = useCallback((convId: string | null, msgs: ChatMessage[]) => {
     if (!convId || msgs.length === 0) return;
     saveConversationMessages(deploymentId, convId, msgs);
@@ -147,7 +171,15 @@ export function useCanvasChat(
       saveConversationIndex(deploymentId, index);
       setConversations([...index.conversations]);
     }
-  }, [deploymentId]);
+    // Schedule debounced server sync
+    scheduleSyncToServer(deploymentId, convId, syncToServer);
+  }, [deploymentId, syncToServer]);
+
+  // Server sessions query — fetches once on mount for merge
+  const serverSessionsQuery = trpc.deployment.listChatSessions.useQuery(
+    { deploymentId },
+    { staleTime: Infinity, refetchOnWindowFocus: false }
+  );
 
   // Load conversation index + migrate legacy on mount
   useEffect(() => {
@@ -167,6 +199,17 @@ export function useCanvasChat(
       if (saved.length > 0) setMessages(saved);
     }
   }, [deploymentId]);
+
+  // Merge server sessions after they load (runs once)
+  const hasMergedServer = useRef(false);
+  useEffect(() => {
+    if (hasMergedServer.current || !serverSessionsQuery.data) return;
+    hasMergedServer.current = true;
+    const serverSessions = serverSessionsQuery.data;
+    if (serverSessions.length === 0) return;
+    const merged = mergeServerSessions(deploymentId, serverSessions as Array<{ id: string; title: string; createdAt: string; updatedAt: string }>);
+    setConversations(merged.conversations);
+  }, [deploymentId, serverSessionsQuery.data]);
 
   // Debounced save messages to conversation storage.
   // On unmount: also captures any in-flight streaming text as an assistant message

@@ -165,3 +165,89 @@ export function migrateFromLegacy(deploymentId: string): void {
     localStorage.removeItem(legacyKey);
   } catch {}
 }
+
+// ─── Server Sync Layer ─────────────────────────────────────────────────────
+// Debounced sync from localStorage to server. Call after each message exchange.
+
+const pendingSyncs = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Schedule a debounced sync of a conversation to the server.
+ * Writes to localStorage immediately (handled by caller), then syncs to server after delay.
+ */
+export function scheduleSyncToServer(
+  deploymentId: string,
+  conversationId: string,
+  syncFn: (sessionId: string, title: string, messages: ChatMessage[]) => Promise<void>,
+  delayMs = 1500,
+): void {
+  const key = `${deploymentId}:${conversationId}`;
+  const existing = pendingSyncs.get(key);
+  if (existing) clearTimeout(existing);
+
+  pendingSyncs.set(key, setTimeout(async () => {
+    pendingSyncs.delete(key);
+    try {
+      const index = loadConversationIndex(deploymentId);
+      const meta = index.conversations.find((c) => c.id === conversationId);
+      const messages = loadConversationMessages(deploymentId, conversationId);
+      if (messages.length > 0) {
+        await syncFn(conversationId, meta?.title ?? "New Conversation", messages);
+      }
+    } catch (err) {
+      console.warn("[ChatSync] Server sync failed:", err);
+    }
+  }, delayMs));
+}
+
+/** Flush all pending syncs immediately (call on page unload). */
+export function flushPendingSyncs(): void {
+  for (const [, timeout] of pendingSyncs) {
+    clearTimeout(timeout);
+  }
+  pendingSyncs.clear();
+}
+
+/**
+ * Load conversations from server and merge with localStorage.
+ * Server is source of truth — localStorage is fast cache.
+ */
+export function mergeServerSessions(
+  deploymentId: string,
+  serverSessions: Array<{ id: string; title: string; createdAt: string; updatedAt: string }>,
+): ConversationIndex {
+  const localIndex = loadConversationIndex(deploymentId);
+  const localMap = new Map(localIndex.conversations.map((c) => [c.id, c]));
+  const merged: ConversationMeta[] = [];
+
+  // Server sessions take precedence for metadata
+  for (const s of serverSessions) {
+    const local = localMap.get(s.id);
+    const serverUpdated = new Date(s.updatedAt).getTime();
+    merged.push({
+      id: s.id,
+      title: s.title,
+      createdAt: new Date(s.createdAt).getTime(),
+      updatedAt: local ? Math.max(local.updatedAt, serverUpdated) : serverUpdated,
+      messageCount: local?.messageCount ?? 0,
+      preview: local?.preview,
+    });
+    localMap.delete(s.id);
+  }
+
+  // Keep local-only sessions (not yet synced to server)
+  for (const [, local] of localMap) {
+    merged.push(local);
+  }
+
+  // Sort by most recently updated
+  merged.sort((a, b) => b.updatedAt - a.updatedAt);
+
+  const newIndex: ConversationIndex = {
+    conversations: merged.slice(0, MAX_CONVERSATIONS),
+    activeId: localIndex.activeId ?? merged[0]?.id ?? null,
+  };
+
+  saveConversationIndex(deploymentId, newIndex);
+  return newIndex;
+}
