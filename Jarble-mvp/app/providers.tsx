@@ -33,8 +33,9 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
   }, [getAccessTokenSilently]);
 
   // Initialize PostHog analytics (gated by NEXT_PUBLIC_POSTHOG_KEY env var)
+  // initPostHog() dynamically imports posthog-js (~40KB) only when the key is set.
   useEffect(() => {
-    initPostHog();
+    void initPostHog();
   }, []);
 
   const [queryClient] = useState(() => {

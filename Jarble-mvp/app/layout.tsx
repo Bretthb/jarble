@@ -9,10 +9,14 @@ const inter = Inter({
   variable: "--font-inter",
 });
 
+// Theme-specific fonts: preload disabled so they are only fetched when the
+// corresponding theme is active (pixel, handdrawn, elegant). Saves ~100-150KB
+// on initial load for users on the default theme.
 const playfair = Playfair_Display({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-playfair",
+  preload: false,
 });
 
 const pressStart2P = Press_Start_2P({
@@ -20,12 +24,14 @@ const pressStart2P = Press_Start_2P({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-pixel",
+  preload: false,
 });
 
 const caveat = Caveat({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-handdrawn",
+  preload: false,
 });
 
 const jetbrainsMono = JetBrains_Mono({

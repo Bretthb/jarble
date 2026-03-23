@@ -170,7 +170,7 @@ function UserBubble() {
           <p className="text-sm break-words" style={{ overflowWrap: "anywhere" }}>{content}</p>
         </div>
         {/* Edit + Copy actions - only shows on hover */}
-        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+        <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex gap-1">
           <ActionBarPrimitive.Edit className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
             <Pencil className="w-3 h-3" />
           </ActionBarPrimitive.Edit>
@@ -227,7 +227,7 @@ function AssistantBubble() {
           )}
         </div>
         {/* Copy + Regenerate - only shows on hover */}
-        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+        <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex gap-1">
           <ActionBarPrimitive.Copy className="p-1 rounded hover:bg-secondary/60 text-muted-foreground" copiedDuration={2000}>
             <Copy className="w-3 h-3" />
           </ActionBarPrimitive.Copy>
@@ -262,6 +262,7 @@ function ReasoningPartRenderer(props: ReasoningMessagePartProps) {
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
         <ChevronRight className={cn("size-3 transition-transform", expanded && "rotate-90")} />

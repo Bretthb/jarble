@@ -108,14 +108,53 @@ type FlowNodeData = DeploymentData & {
   [key: string]: unknown;
 };
 
-/** Persisted flow definition (local state until API exists) */
+/** Shape returned by the tRPC flows.list / flows.getById API */
+interface ApiFlow {
+  id: string;
+  name: string;
+  description: string | null;
+  definition: string; // JSON: { nodes: FlowNode[], edges: FlowEdge[] }
+  status: string;
+  isPublic: boolean;
+  forkCount: number;
+  forkedFromId: string | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}
+
+/** Parsed flow definition for the canvas UI */
 interface FlowDefinition {
   id: string;
   name: string;
+  description: string | null;
   nodes: Node<FlowNodeData>[];
   edges: Edge[];
+  status: string;
   createdAt: number;
   updatedAt: number;
+}
+
+/** Parse an API flow row into a FlowDefinition for the canvas */
+function parseApiFlow(row: ApiFlow): FlowDefinition {
+  let nodes: Node<FlowNodeData>[] = [];
+  let edges: Edge[] = [];
+  try {
+    const def = JSON.parse(row.definition);
+    nodes = Array.isArray(def.nodes) ? def.nodes : [];
+    edges = Array.isArray(def.edges) ? def.edges : [];
+  } catch {
+    // Corrupted definition — treat as empty
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    nodes,
+    edges,
+    status: row.status,
+    createdAt: new Date(row.createdAt).getTime(),
+    updatedAt: new Date(row.updatedAt).getTime(),
+  };
 }
 
 // ─── Status color mapping ────────────────────────────────────────────
@@ -1373,86 +1412,181 @@ function FlowCanvas({
 // ─── Flow View (manages flow state, toolbar, execution) ──────────────
 
 function FlowView({ deployments }: { deployments: DeploymentData[] }) {
-  const [flows, setFlows] = useState<FlowDefinition[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const stored = localStorage.getItem("jarble-flows");
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
+  const utils = trpc.useUtils();
+
+  // ── Fetch flows from API ──────────────────────────────────────────
+  const flowsQuery = trpc.flows.list.useQuery(undefined, {
+    staleTime: 30_000,
   });
 
-  const [activeFlowId, setActiveFlowId] = useState<string | null>(
-    () => flows[0]?.id ?? null
-  );
+  const flows: FlowDefinition[] = useMemo(() => {
+    if (!flowsQuery.data) return [];
+    return (flowsQuery.data as unknown as ApiFlow[]).map(parseApiFlow);
+  }, [flowsQuery.data]);
+
+  const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
+
+  // Auto-select first flow when flows load (or after active flow is deleted)
+  useEffect(() => {
+    if (flows.length > 0 && (!activeFlowId || !flows.find((f) => f.id === activeFlowId))) {
+      setActiveFlowId(flows[0].id);
+    }
+  }, [flows, activeFlowId]);
+
   const [isSaved, setIsSaved] = useState(true);
 
-  const activeFlow = flows.find((f) => f.id === activeFlowId) ?? null;
+  // Local state mirror for optimistic updates during editing
+  const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<FlowDefinition>>>({});
+
+  const activeFlow = useMemo(() => {
+    const base = flows.find((f) => f.id === activeFlowId) ?? null;
+    if (!base) return null;
+    const overrides = activeFlowId ? localOverrides[activeFlowId] : undefined;
+    return overrides ? { ...base, ...overrides } : base;
+  }, [flows, activeFlowId, localOverrides]);
 
   const { state: execState, startExecution, cancel } = useFlowExecution();
 
-  // Persist flows to localStorage
-  const saveFlowsToStorage = useCallback((updated: FlowDefinition[]) => {
-    try {
-      localStorage.setItem("jarble-flows", JSON.stringify(updated));
-    } catch {
-      // Storage full or unavailable
-    }
-  }, []);
+  // ── Mutations ─────────────────────────────────────────────────────
 
-  // Create new flow
+  const createFlowMutation = trpc.flows.create.useMutation({
+    onSuccess: (data) => {
+      utils.flows.list.invalidate();
+      setActiveFlowId(data.id);
+      setIsSaved(true);
+    },
+  });
+
+  const updateFlowMutation = trpc.flows.update.useMutation({
+    onSuccess: () => {
+      utils.flows.list.invalidate();
+      setIsSaved(true);
+    },
+  });
+
+  const deleteFlowMutation = trpc.flows.delete.useMutation({
+    onSuccess: () => {
+      utils.flows.list.invalidate();
+    },
+  });
+
+  // ── Create new flow ───────────────────────────────────────────────
   const handleNewFlow = useCallback(() => {
-    const id = `flow-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const newFlow: FlowDefinition = {
-      id,
-      name: `Flow ${flows.length + 1}`,
-      nodes: [],
-      edges: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    const updated = [...flows, newFlow];
-    setFlows(updated);
-    setActiveFlowId(id);
-    setIsSaved(false);
-    saveFlowsToStorage(updated);
-  }, [flows, saveFlowsToStorage]);
+    const name = `Flow ${flows.length + 1}`;
+    createFlowMutation.mutate({
+      name,
+      definition: { nodes: [], edges: [] },
+      status: "draft",
+    });
+  }, [flows.length, createFlowMutation]);
 
-  // Update active flow
+  // ── Update active flow (optimistic local state) ───────────────────
   const handleUpdateFlow = useCallback(
     (updates: Partial<FlowDefinition>) => {
       if (!activeFlowId) return;
-      setFlows((prev) => {
-        const updated = prev.map((f) =>
-          f.id === activeFlowId
-            ? { ...f, ...updates, updatedAt: Date.now() }
-            : f
-        );
-        return updated;
-      });
+      setLocalOverrides((prev) => ({
+        ...prev,
+        [activeFlowId]: { ...(prev[activeFlowId] ?? {}), ...updates },
+      }));
       setIsSaved(false);
     },
     [activeFlowId]
   );
 
-  // Save flow
+  // ── Save flow (persist local overrides to API) ────────────────────
   const handleSave = useCallback(() => {
-    saveFlowsToStorage(flows);
-    setIsSaved(true);
-  }, [flows, saveFlowsToStorage]);
+    if (!activeFlowId || !activeFlow) return;
+    const overrides = localOverrides[activeFlowId];
+    if (!overrides) {
+      setIsSaved(true);
+      return;
+    }
 
-  // Delete flow
+    type FlowNodeInput = {
+      id: string;
+      type: "deployment" | "transform" | "condition" | "output";
+      deploymentId?: string;
+      serviceId?: string;
+      skillName?: string;
+      label: string;
+      config?: Record<string, unknown>;
+      position: { x: number; y: number };
+    };
+    type FlowEdgeInput = {
+      id: string;
+      source: string;
+      target: string;
+      sourceHandle?: string;
+      targetHandle?: string;
+      label?: string;
+      condition?: string;
+    };
+    const mutation: {
+      id: string;
+      name?: string;
+      description?: string | null;
+      definition?: { nodes: FlowNodeInput[]; edges: FlowEdgeInput[] };
+      status?: "draft" | "published" | "archived";
+    } = { id: activeFlowId };
+
+    if (overrides.name !== undefined) mutation.name = overrides.name;
+    if (overrides.description !== undefined) mutation.description = overrides.description;
+    if (overrides.status !== undefined) mutation.status = overrides.status as "draft" | "published" | "archived";
+
+    // Always send the current definition (nodes + edges may have changed)
+    mutation.definition = {
+      nodes: activeFlow.nodes.map((n) => ({
+        id: n.id,
+        type: (n.type ?? "deployment") as "deployment" | "transform" | "condition" | "output",
+        deploymentId: n.data?.id,
+        label: n.data?.name ?? n.id,
+        config: {} as Record<string, unknown>,
+        position: n.position,
+      })),
+      edges: activeFlow.edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? undefined,
+        targetHandle: e.targetHandle ?? undefined,
+        label: typeof e.label === "string" ? e.label : undefined,
+      })),
+    };
+
+    updateFlowMutation.mutate(mutation, {
+      onSuccess: () => {
+        // Clear local overrides for this flow after successful save
+        setLocalOverrides((prev) => {
+          const next = { ...prev };
+          delete next[activeFlowId];
+          return next;
+        });
+      },
+    });
+  }, [activeFlowId, activeFlow, localOverrides, updateFlowMutation]);
+
+  // ── Delete flow ───────────────────────────────────────────────────
   const handleDeleteFlow = useCallback(() => {
     if (!activeFlowId) return;
-    const updated = flows.filter((f) => f.id !== activeFlowId);
-    setFlows(updated);
-    setActiveFlowId(updated[0]?.id ?? null);
-    saveFlowsToStorage(updated);
-    setIsSaved(true);
-  }, [activeFlowId, flows, saveFlowsToStorage]);
+    deleteFlowMutation.mutate(
+      { id: activeFlowId, hard: false },
+      {
+        onSuccess: () => {
+          // Clear local overrides for deleted flow
+          setLocalOverrides((prev) => {
+            const next = { ...prev };
+            delete next[activeFlowId];
+            return next;
+          });
+          const remaining = flows.filter((f) => f.id !== activeFlowId);
+          setActiveFlowId(remaining[0]?.id ?? null);
+          setIsSaved(true);
+        },
+      }
+    );
+  }, [activeFlowId, flows, deleteFlowMutation]);
 
-  // Flow name change
+  // ── Flow name change ──────────────────────────────────────────────
   const handleFlowNameChange = useCallback(
     (name: string) => {
       handleUpdateFlow({ name });
@@ -1460,7 +1594,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     [handleUpdateFlow]
   );
 
-  // Auto layout
+  // ── Auto layout ───────────────────────────────────────────────────
   const handleAutoLayout = useCallback(() => {
     if (!activeFlow || activeFlow.nodes.length === 0) return;
     const { nodes: layouted, edges } = getLayoutedElements<FlowNodeData>(
@@ -1473,18 +1607,39 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     handleUpdateFlow({ nodes: layouted, edges });
   }, [activeFlow, handleUpdateFlow]);
 
-  // Run flow
+  // ── Run flow ──────────────────────────────────────────────────────
   const handleRun = useCallback(() => {
     if (!activeFlowId) return;
     startExecution(activeFlowId);
   }, [activeFlowId, startExecution]);
 
-  // Cancel
+  // ── Cancel ────────────────────────────────────────────────────────
   const handleCancel = useCallback(() => {
     cancel();
   }, [cancel]);
 
   const isExecuting = execState.status === "running";
+  const isLoading = flowsQuery.isLoading;
+  const isMutating = createFlowMutation.isPending || updateFlowMutation.isPending || deleteFlowMutation.isPending;
+
+  // ── Loading skeleton ──────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="flex flex-col flex-1 min-h-0 p-4 gap-3">
+        <div className="flex gap-2">
+          <Skeleton className="h-7 w-24 rounded-full" />
+          <Skeleton className="h-7 w-20 rounded-full" />
+        </div>
+        <Skeleton className="h-10 w-full rounded-lg" />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <Skeleton className="h-12 w-12 rounded-full" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -1508,7 +1663,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         onNewFlow={handleNewFlow}
         onDeleteFlow={handleDeleteFlow}
         isExecuting={isExecuting}
-        isSaved={isSaved}
+        isSaved={isSaved && !isMutating}
         totalCredits={execState.totalCredits}
         hasFlow={!!activeFlow}
       />
@@ -1536,8 +1691,16 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
             <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">
               Create a flow to orchestrate your deployments as a pipeline
             </p>
-            <Button onClick={handleNewFlow} size="lg">
-              <Plus className="w-4 h-4 mr-2" />
+            <Button
+              onClick={handleNewFlow}
+              size="lg"
+              disabled={createFlowMutation.isPending}
+            >
+              {createFlowMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="w-4 h-4 mr-2" />
+              )}
               Create Your First Flow
             </Button>
           </motion.div>

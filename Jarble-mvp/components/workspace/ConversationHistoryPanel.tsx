@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Plus, MessageSquare, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -38,8 +37,6 @@ export default function ConversationHistoryPanel({
   onClose,
   isStreaming,
 }: ConversationHistoryPanelProps) {
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-
   return (
     <div className="h-full w-[360px] shrink-0 border-r border-border/60 bg-background flex flex-col">
       {/* Header */}
@@ -88,8 +85,6 @@ export default function ConversationHistoryPanel({
               tabIndex={0}
               onClick={() => !isStreaming && onSelectConversation(conv.id)}
               onKeyDown={(e) => { if (e.key === "Enter" && !isStreaming) onSelectConversation(conv.id); }}
-              onMouseEnter={() => setHoveredId(conv.id)}
-              onMouseLeave={() => setHoveredId(null)}
               className={cn(
                 "w-full text-left px-3 py-2.5 transition-colors relative group cursor-pointer",
                 activeConversationId === conv.id
@@ -113,18 +108,21 @@ export default function ConversationHistoryPanel({
                     <span>{conv.messageCount} msg{conv.messageCount !== 1 ? "s" : ""}</span>
                   </div>
                 </div>
-                {hoveredId === conv.id && !isStreaming && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteConversation(conv.id);
-                    }}
-                    className="p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                    aria-label="Delete conversation"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteConversation(conv.id);
+                  }}
+                  className={cn(
+                    "p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors shrink-0",
+                    "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+                    isStreaming && "hidden"
+                  )}
+                  aria-label="Delete conversation"
+                  tabIndex={isStreaming ? -1 : 0}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
               </div>
             </div>
           ))

@@ -94,7 +94,7 @@ function CanvasCarouselInner({
             <button
               key={index}
               onClick={() => setCurrentIndex(index)}
-              className={`w-2 h-2 rounded-full transition-colors ${
+              className={`w-6 h-6 rounded-full transition-colors ${
                 index === currentIndex
                   ? "bg-primary"
                   : "bg-muted-foreground/30 hover:bg-muted-foreground/50"

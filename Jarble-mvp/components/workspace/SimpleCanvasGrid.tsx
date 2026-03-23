@@ -104,9 +104,11 @@ function SimpleCanvasGridInner({
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
+    const closeOnEscape = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
     window.addEventListener("click", close);
     window.addEventListener("contextmenu", close);
-    return () => { window.removeEventListener("click", close); window.removeEventListener("contextmenu", close); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => { window.removeEventListener("click", close); window.removeEventListener("contextmenu", close); window.removeEventListener("keydown", closeOnEscape); };
   }, [contextMenu]);
 
   // ── Keyboard navigation state ────────────────────────────────────
@@ -768,7 +770,7 @@ function SimpleCanvasGridInner({
 
               {/* Card menu trigger — small ... button, top-right corner */}
               <div
-                className="absolute top-1 right-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"
+                className="absolute top-1 right-1 z-20 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center gap-1"
                 onContextMenu={(e) => e.stopPropagation()}
               >
                 {/* Save status badge */}
@@ -795,6 +797,7 @@ function SimpleCanvasGridInner({
                   }}
                   className="w-6 h-6 flex items-center justify-center rounded bg-background/70 backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-background/90 transition-colors border border-border/30"
                   aria-label="Card menu"
+                  aria-haspopup="menu"
                   title="Card menu (or right-click)"
                 >
                   <MoreVertical className="w-3.5 h-3.5" />
@@ -861,6 +864,7 @@ function SimpleCanvasGridInner({
                     onClick={(e) => { e.stopPropagation(); handleInlineChatSubmit(card); }}
                     disabled={!inlineChatInput.trim() || isChatStreaming}
                     className="h-7 w-7 flex items-center justify-center rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 shrink-0"
+                    aria-label={isChatStreaming ? "Stop generation" : "Send message"}
                   >
                     {isChatStreaming ? <Loader2 className="w-3 h-3 animate-spin" /> : <SendHorizontal className="w-3 h-3" />}
                   </button>
@@ -968,43 +972,45 @@ function SimpleCanvasGridInner({
           if (!card) return null;
           return (
             <div
+              role="menu"
+              aria-label="Card actions"
               className="fixed z-[100] min-w-[180px] rounded-lg bg-popover border border-border shadow-xl py-1 text-sm animate-in fade-in-0 zoom-in-95 duration-100"
               style={{ left: contextMenu.x, top: contextMenu.y }}
               onClick={(e) => e.stopPropagation()}
             >
               {onSendMessage && (
-                <button onClick={() => { setContextMenu(null); handleInlineChatOpen(card); }}
+                <button role="menuitem" onClick={() => { setContextMenu(null); handleInlineChatOpen(card); }}
                   className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
                   <Sparkles className="w-3.5 h-3.5 text-primary" /> Ask about this card
                 </button>
               )}
-              <button onClick={() => { setContextMenu(null); handleSelect(card); }}
+              <button role="menuitem" onClick={() => { setContextMenu(null); handleSelect(card); }}
                 className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
                 <MousePointerClick className="w-3.5 h-3.5 text-blue-400" /> {card.selected ? "Deselect" : "Select"}
               </button>
               {canSplitCard(card) && (
-                <button onClick={() => { setContextMenu(null); handleSplit(card); }}
+                <button role="menuitem" onClick={() => { setContextMenu(null); handleSplit(card); }}
                   className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
                   <SplitSquareHorizontal className="w-3.5 h-3.5 text-violet-400" /> Split
                 </button>
               )}
               {card.component === "layout" && Array.isArray(card.props?.children) && (card.props.children as unknown[]).length >= 2 && (
-                <button onClick={() => { setContextMenu(null); dispatch({ type: "UNGROUP_CARD", id: card.id }); }}
+                <button role="menuitem" onClick={() => { setContextMenu(null); dispatch({ type: "UNGROUP_CARD", id: card.id }); }}
                   className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
                   <Ungroup className="w-3.5 h-3.5 text-violet-400" /> Ungroup
                 </button>
               )}
               <div className="h-px bg-border/40 my-1" />
-              <button onClick={() => { setContextMenu(null); handleSaveClick(card); }}
+              <button role="menuitem" onClick={() => { setContextMenu(null); handleSaveClick(card); }}
                 className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
                 <Bookmark className={`w-3.5 h-3.5 text-amber-400 ${card.savedName ? "fill-amber-400" : ""}`} /> {card.savedName ? "Saved" : "Save to library"}
               </button>
-              <button onClick={() => { setContextMenu(null); handlePublishClick(card); }}
+              <button role="menuitem" onClick={() => { setContextMenu(null); handlePublishClick(card); }}
                 className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-secondary/60 transition-colors">
                 <Upload className="w-3.5 h-3.5 text-primary" /> Publish as service
               </button>
               <div className="h-px bg-border/40 my-1" />
-              <button onClick={() => { setContextMenu(null); handleClose(card.id); }}
+              <button role="menuitem" onClick={() => { setContextMenu(null); handleClose(card.id); }}
                 className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-red-400 hover:bg-red-500/10 transition-colors">
                 <X className="w-3.5 h-3.5" /> Close
               </button>

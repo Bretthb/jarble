@@ -441,6 +441,11 @@ export class FlowExecutionEngine extends EventEmitter {
         total: totalNodes,
       });
       this.emitFlowState();
+
+      // Checkpoint: persist intermediate state after each step (crash recovery)
+      this.checkpointState().catch((err) => {
+        log.warn({ executionId: this.state.executionId, nodeId: node.id, err }, "Checkpoint failed (non-fatal)");
+      });
     } catch (err: any) {
       const durationMs = Date.now() - startTime;
       const errorMsg = err.message || "Unknown error";
@@ -764,6 +769,26 @@ export class FlowExecutionEngine extends EventEmitter {
   }
 
   /**
+   * Checkpoint intermediate state to flow_executions table after each step.
+   * Enables crash recovery — if the server restarts, the last checkpoint
+   * shows which steps completed and their results.
+   */
+  private async checkpointState(): Promise<void> {
+    const stepResultsObj: Record<string, StepResult> = {};
+    for (const [k, v] of this.state.stepResults) {
+      stepResultsObj[k] = v;
+    }
+
+    await db.update(tables.flowExecutions)
+      .set({
+        status: "running",
+        stepResults: JSON.stringify(stepResultsObj),
+        totalCreditsCharged: this.state.totalCredits,
+      })
+      .where(eq(tables.flowExecutions.id, this.state.executionId));
+  }
+
+  /**
    * Persist the final execution state to the DB.
    * Uses the agentCalls table for now — a dedicated flow_executions table
    * can be added later when the schema is extended.
@@ -774,7 +799,18 @@ export class FlowExecutionEngine extends EventEmitter {
       stepResultsObj[k] = v;
     }
 
-    // Record in agentCalls as a flow execution summary
+    // Final checkpoint to flow_executions
+    await db.update(tables.flowExecutions)
+      .set({
+        status: this.state.status === "completed" ? "completed" : "failed",
+        stepResults: JSON.stringify(stepResultsObj),
+        totalCreditsCharged: this.state.totalCredits,
+        error: this.state.status === "failed" ? this.findFirstError() : null,
+        completedAt: dbDate(),
+      })
+      .where(eq(tables.flowExecutions.id, this.state.executionId));
+
+    // Also record in agentCalls as a flow execution summary
     await db.insert(tables.agentCalls).values({
       id: this.state.executionId,
       callerDeploymentId:
