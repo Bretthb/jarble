@@ -123,7 +123,7 @@ export default function AdminUserDetail({ params }: AdminUserDetailProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {u.deployments.map((dep: { id: string; name: string; runtime: string; status: string; createdAt: string }) => (
+                {u.deployments.map((dep) => (
                   <TableRow key={dep.id}>
                     <TableCell className="font-medium">{dep.name}</TableCell>
                     <TableCell>{dep.runtime}</TableCell>

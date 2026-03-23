@@ -53,11 +53,11 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
 export default function AdminDeployments() {
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "creating" | "running" | "stopped" | "failed" | "pending" | "error">("all");
   const utils = trpc.useUtils();
 
   const deployments = trpc.admin.listAllDeployments.useQuery({
-    offset: page * PAGE_SIZE,
+    page: page + 1, // API uses 1-based pages
     limit: PAGE_SIZE,
     search: search || undefined,
     status: statusFilter === "all" ? undefined : statusFilter,
@@ -93,7 +93,7 @@ export default function AdminDeployments() {
       restart: restartMutation,
       delete: deleteMutation,
     };
-    mutations[action].mutate({ deploymentId });
+    mutations[action].mutate({ id: deploymentId });
   }
 
   return (
@@ -114,7 +114,7 @@ export default function AdminDeployments() {
         </div>
         <Select
           value={statusFilter}
-          onValueChange={(val) => {
+          onValueChange={(val: typeof statusFilter) => {
             setStatusFilter(val);
             setPage(0);
           }}
@@ -155,9 +155,9 @@ export default function AdminDeployments() {
                   <TableCell className="font-medium">{dep.name}</TableCell>
                   <TableCell>
                     <div className="text-sm">
-                      <p>{dep.userName || "—"}</p>
+                      <p>{dep.ownerName || "—"}</p>
                       <p className="text-muted-foreground text-xs">
-                        {dep.userEmail}
+                        {dep.ownerEmail}
                       </p>
                     </div>
                   </TableCell>

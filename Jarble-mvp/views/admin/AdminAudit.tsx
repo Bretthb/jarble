@@ -20,7 +20,7 @@ export default function AdminAudit() {
   const [page, setPage] = useState(0);
 
   const logs = trpc.admin.getAuditLogs.useQuery({
-    offset: page * PAGE_SIZE,
+    page: page + 1, // API uses 1-based pages
     limit: PAGE_SIZE,
   });
 

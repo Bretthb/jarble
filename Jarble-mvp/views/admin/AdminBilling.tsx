@@ -18,9 +18,9 @@ function formatDollars(cents: number): string {
 
 const BILLING_CARDS = [
   { key: "activeSubscriptions", label: "Active Subscriptions", icon: CreditCard },
-  { key: "totalMrrCents", label: "Monthly Recurring Revenue", icon: DollarSign },
-  { key: "freeCount", label: "Free Deployments", icon: Users },
-  { key: "paidCount", label: "Paid Deployments", icon: CreditCard },
+  { key: "mrrCents", label: "Monthly Recurring Revenue", icon: DollarSign },
+  { key: "freeDeployments", label: "Free Deployments", icon: Users },
+  { key: "paidDeployments", label: "Paid Deployments", icon: CreditCard },
 ] as const;
 
 export default function AdminBilling() {
@@ -41,7 +41,7 @@ export default function AdminBilling() {
         {BILLING_CARDS.map((card) => {
           const value = revenue.data?.[card.key] ?? 0;
           const display =
-            card.key === "totalMrrCents"
+            card.key === "mrrCents"
               ? formatDollars(value)
               : value.toLocaleString();
           return (

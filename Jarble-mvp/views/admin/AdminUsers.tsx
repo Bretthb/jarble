@@ -24,7 +24,7 @@ export default function AdminUsers() {
   const [search, setSearch] = useState("");
 
   const users = trpc.admin.listUsers.useQuery({
-    offset: page * PAGE_SIZE,
+    page: page + 1, // API uses 1-based pages
     limit: PAGE_SIZE,
     search: search || undefined,
   });

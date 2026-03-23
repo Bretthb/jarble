@@ -83,6 +83,11 @@ export default function OnboardingWizard() {
   const [createdDeploymentId, setCreatedDeploymentId] = useState<string | null>(null);
   const [deployPhase, setDeployPhase] = useState<"idle" | "deploying" | "pairing" | "paired">("idle");
 
+  // Stripe inline checkout state
+  const [checkoutConfirmed, setCheckoutConfirmed] = useState(false);
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+  const [isLoadingCheckout, setIsLoadingCheckout] = useState(false);
+
   // Persona template state
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
   const [selectedPersona, setSelectedPersona] = useState<PersonaTemplate | null>(null);
@@ -543,6 +548,19 @@ export default function OnboardingWizard() {
                   emailVerified={!!user?.email_verified}
                   deployPhase={deployPhase}
                   telegramBotUsername={telegramBotUsername}
+                  creditLimitDollars={creditLimitDollars}
+                  linkToDeploymentId={linkToDeploymentId}
+                  checkoutConfirmed={checkoutConfirmed}
+                  stripeClientSecret={stripeClientSecret}
+                  isLoadingCheckout={isLoadingCheckout}
+                  onInitCheckout={() => {
+                    // TODO: Call stripe checkout endpoint
+                    setIsLoadingCheckout(true);
+                  }}
+                  onCheckoutComplete={() => {
+                    setCheckoutConfirmed(true);
+                    setIsLoadingCheckout(false);
+                  }}
                 />
               )}
               {/* Telegram step removed — platform connections happen via config panel after deploy */}
