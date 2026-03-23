@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasAudioProps {
   src: string;
@@ -15,12 +15,7 @@ function CanvasAudioInner({
   autoplay = false,
 }: CanvasAudioProps) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="p-4 h-full"
-    >
+    <FadeIn className="p-4 h-full">
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>
       )}
@@ -28,7 +23,7 @@ function CanvasAudioInner({
         <source src={src} />
         Your browser does not support the audio element.
       </audio>
-    </motion.div>
+    </FadeIn>
   );
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 export interface KeyValueItem {
   key: string;
@@ -22,10 +22,7 @@ function isNumeric(val: string | number): boolean {
 
 function CanvasKeyValueInner({ title, items = [] }: CanvasKeyValueProps) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+    <FadeIn
       className={[
         "overflow-hidden rounded-xl",
         "border border-border/40",
@@ -43,15 +40,8 @@ function CanvasKeyValueInner({ title, items = [] }: CanvasKeyValueProps) {
       {/* Key-value rows */}
       <dl aria-label={title || "Key-value pairs"} className={title ? "" : "pt-1"}>
         {items.map((item, i) => (
-          <motion.div
+          <div
             key={item.key}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{
-              duration: 0.3,
-              delay: i * 0.05,
-              ease: [0.25, 0.46, 0.45, 0.94],
-            }}
             className={[
               "group flex justify-between items-baseline gap-4 px-4 py-2.5",
               "transition-colors duration-150",
@@ -71,10 +61,10 @@ function CanvasKeyValueInner({ title, items = [] }: CanvasKeyValueProps) {
             >
               {String(item.value)}
             </dd>
-          </motion.div>
+          </div>
         ))}
       </dl>
-    </motion.div>
+    </FadeIn>
   );
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useMemo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -335,12 +335,9 @@ function CanvasChartInner({
   const chartDescription = `${humanize(type)} chart${title ? `: ${title}` : ""}${dataKeys.length > 0 ? ` showing ${dataKeys.map(humanize).join(", ")}` : ""}`;
 
   return (
-    <motion.div
+    <FadeIn
       role="img"
       aria-label={chartDescription}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
       className="p-4 h-full flex flex-col"
     >
       {/* Title area with optional subtitle */}
@@ -355,7 +352,7 @@ function CanvasChartInner({
       <ChartContainer config={chartConfig} className="aspect-auto w-full flex-1 min-h-0" style={{ minHeight: chartHeight }}>
         {renderChart()!}
       </ChartContainer>
-    </motion.div>
+    </FadeIn>
   );
 }
 

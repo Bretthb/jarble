@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasStepsProps {
   current: number;
@@ -17,12 +17,7 @@ function CanvasStepsInner({
   const isVertical = direction === "vertical";
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="p-4 h-full"
-    >
+    <FadeIn className="p-4 h-full">
       <div
         role="list"
         aria-label="Steps"
@@ -156,7 +151,7 @@ function CanvasStepsInner({
           );
         })}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

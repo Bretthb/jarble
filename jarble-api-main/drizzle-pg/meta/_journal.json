@@ -43,6 +43,13 @@
       "when": 1774233600000,
       "tag": "0005_add_user_role_and_audit_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1774411200000,
+      "tag": "0006_orchestration_flows",
+      "breakpoints": true
     }
   ]
 }

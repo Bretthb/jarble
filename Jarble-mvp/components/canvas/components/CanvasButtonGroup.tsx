@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 import { useCanvasAction } from "../CanvasActionContext";
 
 interface ButtonDef {
@@ -35,12 +35,9 @@ function CanvasButtonGroupInner({ buttons }: CanvasButtonGroupProps) {
   };
 
   return (
-    <motion.div
+    <FadeIn
       role="toolbar"
       aria-label="Actions"
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
       className="p-4 flex flex-wrap gap-2"
     >
       {buttons.map((btn) => {
@@ -62,7 +59,7 @@ function CanvasButtonGroupInner({ buttons }: CanvasButtonGroupProps) {
           </button>
         );
       })}
-    </motion.div>
+    </FadeIn>
   );
 }
 

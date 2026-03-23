@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasStatisticProps {
   value: string | number;
@@ -67,12 +67,7 @@ function CanvasStatisticInner({
   })();
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="p-4 h-full flex flex-col justify-center"
-    >
+    <FadeIn className="p-4 h-full flex flex-col justify-center">
       <div role="img" aria-label={`${title ? title + ": " : ""}${prefix || ""}${formattedValue}${suffix || ""}`}>
         {title && (
           <div className="text-xs text-muted-foreground mb-1">{title}</div>
@@ -89,7 +84,7 @@ function CanvasStatisticInner({
           )}
         </div>
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

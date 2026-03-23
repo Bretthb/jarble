@@ -1,7 +1,7 @@
 "use client";
 
 import React, { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasAlertProps {
   title?: string;
@@ -93,12 +93,9 @@ function CanvasAlertInner({ title, message, variant }: CanvasAlertProps) {
   const Icon = VARIANT_ICONS[variant] || VARIANT_ICONS.info;
 
   return (
-    <motion.div
+    <FadeIn
       role="alert"
       aria-live="polite"
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
       className={[
         "relative overflow-hidden rounded-xl",
         "border border-border/40",
@@ -129,7 +126,7 @@ function CanvasAlertInner({ title, message, variant }: CanvasAlertProps) {
           <p className="text-sm opacity-90 leading-relaxed">{message}</p>
         </div>
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

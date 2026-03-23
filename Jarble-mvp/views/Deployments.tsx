@@ -105,6 +105,8 @@ type FlowNodeData = DeploymentData & {
   executionDurationMs?: number;
   /** Error from execution */
   executionError?: string;
+  /** Streaming inner text from a running deployment step */
+  executionInnerText?: string;
   [key: string]: unknown;
 };
 
@@ -807,6 +809,17 @@ function FlowDeploymentNode({
           )}
         </div>
 
+        {/* Streaming inner text preview */}
+        {isRunning && data.executionInnerText && (
+          <div className="mt-1.5 px-1.5 py-1 rounded bg-blue-500/5 border border-blue-500/10 max-h-[48px] overflow-hidden">
+            <p className="text-[10px] text-blue-300/80 leading-tight line-clamp-3 whitespace-pre-wrap break-words">
+              {data.executionInnerText.length > 200
+                ? "\u2026" + data.executionInnerText.slice(-200)
+                : data.executionInnerText}
+            </p>
+          </div>
+        )}
+
         {/* Error message */}
         {data.executionError && (
           <p className="mt-1.5 text-[10px] text-red-400 line-clamp-2">
@@ -1203,6 +1216,7 @@ function FlowCanvas({
           executionCredits: stepStatus?.credits,
           executionDurationMs: stepStatus?.durationMs,
           executionError: stepStatus?.error,
+          executionInnerText: stepStatus?.innerText,
         },
       };
     });

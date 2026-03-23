@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasBlockquoteProps {
   text: string;
@@ -26,10 +26,7 @@ function CanvasBlockquoteInner({ text, attribution, variant = "default" }: Canva
   const bgTint = VARIANT_BG[variant] || VARIANT_BG.default;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+    <FadeIn
       className={[
         "relative overflow-hidden rounded-xl",
         "border border-border/40",
@@ -66,7 +63,7 @@ function CanvasBlockquoteInner({ text, attribution, variant = "default" }: Canva
           </>
         )}
       </blockquote>
-    </motion.div>
+    </FadeIn>
   );
 }
 

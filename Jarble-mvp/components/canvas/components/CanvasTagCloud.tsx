@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 const COLORS = [
   "#f50", "#2db7f5", "#87d068", "#108ee9",
@@ -40,12 +40,7 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 
 function CanvasTagCloudInner({ tags, title }: CanvasTagCloudProps) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="p-4 h-full"
-    >
+    <FadeIn className="p-4 h-full">
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3">
           {title}
@@ -73,7 +68,7 @@ function CanvasTagCloudInner({ tags, title }: CanvasTagCloudProps) {
           );
         })}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

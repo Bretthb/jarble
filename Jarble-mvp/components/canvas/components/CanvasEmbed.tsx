@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useMemo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 import { ExternalLink } from "lucide-react";
 import { TRUSTED_EMBED_ORIGINS } from "@jarble/component-manifest";
 
@@ -204,10 +204,7 @@ function CanvasEmbedInner({ url, title, height, provider }: CanvasEmbedProps) {
 
   if (!embedUrl || !allowed) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
+      <FadeIn
         className="flex flex-col items-center justify-center gap-3 p-6 h-full text-center"
         role="region"
         aria-label={`Embed: ${title || resolvedProvider}`}
@@ -227,15 +224,12 @@ function CanvasEmbedInner({ url, title, height, provider }: CanvasEmbedProps) {
         >
           Open in new tab
         </a>
-      </motion.div>
+      </FadeIn>
     );
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
+    <FadeIn
       className="flex flex-col p-3 h-full min-h-0"
       role="region"
       aria-label={`Embed: ${title || resolvedProvider}`}
@@ -261,7 +255,7 @@ function CanvasEmbedInner({ url, title, height, provider }: CanvasEmbedProps) {
           }}
         />
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

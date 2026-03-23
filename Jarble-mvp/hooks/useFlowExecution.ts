@@ -14,6 +14,8 @@ export interface FlowStepStatus {
   error?: string;
   durationMs?: number;
   credits?: number;
+  /** Streaming inner text from deployment steps (e.g. LLM output) */
+  innerText?: string;
 }
 
 export interface FlowExecutionState {
@@ -140,6 +142,23 @@ export function useFlowExecution(): UseFlowExecutionReturn {
                   (sum, s) => sum + (s.credits ?? 0), 0
                 );
                 return { ...prev, steps: next, totalCredits };
+              });
+            }
+
+            // Inner-step streaming text (e.g. LLM output from a deployment node)
+            if (type === "jarble.flow.step.text_delta") {
+              setState((prev) => {
+                const next = new Map(prev.steps);
+                const existing = next.get(data.nodeId) || {
+                  nodeId: data.nodeId,
+                  label: "",
+                  status: "running" as const,
+                };
+                next.set(data.nodeId, {
+                  ...existing,
+                  innerText: (existing.innerText || "") + (data.delta || ""),
+                });
+                return { ...prev, steps: next };
               });
             }
 

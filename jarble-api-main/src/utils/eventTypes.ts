@@ -45,5 +45,9 @@ export const CUSTOM_AGENT_CALL_END = "jarble.agent.call.end";
 // ── Orchestration Flow Events ────────────────────────────────────────────
 export const CUSTOM_FLOW_STEP_STARTED = "jarble.flow.step.started";
 export const CUSTOM_FLOW_STEP_FINISHED = "jarble.flow.step.finished";
+export const CUSTOM_FLOW_STEP_ITERATION = "jarble.flow.step.iteration";
 export const CUSTOM_FLOW_STATE = "jarble.flow.state";
+export const CUSTOM_FLOW_PAUSED = "jarble.flow.paused";
+export const CUSTOM_FLOW_SUBSTEP_STARTED = "jarble.flow.substep.started";
+export const CUSTOM_FLOW_SUBSTEP_FINISHED = "jarble.flow.substep.finished";
 export const CUSTOM_AGENT_HANDOFF = "jarble.agent.handoff";

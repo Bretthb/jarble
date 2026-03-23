@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 import { useCanvasAction } from "../CanvasActionContext";
 
 interface ListItem {
@@ -56,10 +56,7 @@ function CanvasListInner({ title, items, ordered = false }: CanvasListProps) {
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+    <FadeIn
       className={[
         "overflow-hidden rounded-xl",
         "border border-border/40",
@@ -80,15 +77,8 @@ function CanvasListInner({ title, items, ordered = false }: CanvasListProps) {
           const iconBg = ICON_BG[badgeVariant] || ICON_BG.default;
 
           return (
-            <motion.li
+            <li
               key={`${item.text}-${i}`}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{
-                duration: 0.3,
-                delay: i * 0.05,
-                ease: [0.25, 0.46, 0.45, 0.94],
-              }}
               className={[
                 "group relative flex items-start gap-3 px-4 py-2.5",
                 "cursor-pointer transition-all duration-200",
@@ -139,11 +129,11 @@ function CanvasListInner({ title, items, ordered = false }: CanvasListProps) {
                   <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{item.description}</p>
                 )}
               </div>
-            </motion.li>
+            </li>
           );
         })}
       </Tag>
-    </motion.div>
+    </FadeIn>
   );
 }
 

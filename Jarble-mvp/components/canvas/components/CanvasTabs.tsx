@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import CanvasRenderer from "../CanvasRenderer";
 import { useCanvasAction } from "../CanvasActionContext";
@@ -49,10 +49,7 @@ function CanvasTabsInner({ tabs, defaultTab = 0 }: CanvasTabsProps) {
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+    <FadeIn
       className={[
         "overflow-hidden rounded-xl",
         "border border-border/40",
@@ -80,11 +77,7 @@ function CanvasTabsInner({ tabs, defaultTab = 0 }: CanvasTabsProps) {
         {/* Tab content with fade transition */}
         {tabs.map((tab, i) => (
           <TabsContent key={`${tab.label}-${i}`} value={`tab-${i}`} className="px-4 pb-4 pt-3">
-            <motion.div
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
-            >
+            <div>
               {tab.content && (
                 <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-wrap">{tab.content}</p>
               )}
@@ -101,11 +94,11 @@ function CanvasTabsInner({ tabs, defaultTab = 0 }: CanvasTabsProps) {
                   />
                 );
               })}
-            </motion.div>
+            </div>
           </TabsContent>
         ))}
       </Tabs>
-    </motion.div>
+    </FadeIn>
   );
 }
 

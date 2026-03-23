@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 import MarkdownMessage from "@/components/MarkdownMessage";
 
 interface CanvasTextMessageProps {
@@ -15,12 +15,7 @@ interface CanvasTextMessageProps {
  */
 function CanvasTextMessageInner({ botText, userText }: CanvasTextMessageProps) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="p-4 space-y-3"
-    >
+    <FadeIn className="p-4 space-y-3">
       {userText && (
         <div className="text-xs text-muted-foreground-subtle border-b border-border/30 pb-2">
           <span className="font-medium">You:</span> {userText}
@@ -29,7 +24,7 @@ function CanvasTextMessageInner({ botText, userText }: CanvasTextMessageProps) {
       <div className="text-sm leading-relaxed">
         <MarkdownMessage content={botText} />
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

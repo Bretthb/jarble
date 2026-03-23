@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasHeaderProps {
   title: string;
@@ -21,12 +21,7 @@ function CanvasHeaderInner({ title, subtitle, level = 2, divider = false }: Canv
   const isH1 = level === 1;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="p-4 space-y-1"
-    >
+    <FadeIn className="p-4 space-y-1">
       <h3
         role="heading"
         aria-level={level}
@@ -44,7 +39,7 @@ function CanvasHeaderInner({ title, subtitle, level = 2, divider = false }: Canv
       {(divider || isH1) && (
         <div className="h-0.5 w-12 rounded-full bg-gradient-to-r from-primary/60 to-transparent mt-1" />
       )}
-    </motion.div>
+    </FadeIn>
   );
 }
 

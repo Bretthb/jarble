@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useMemo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 import dynamic from "next/dynamic";
 
 // Fallback for direct file URLs (mp4, webm, etc.)
@@ -88,12 +88,7 @@ function CanvasVideoInner({
   const embedUrl = useMemo(() => getEmbedUrl(url), [url]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="flex flex-col p-4 h-full min-h-0"
-    >
+    <FadeIn className="flex flex-col p-4 h-full min-h-0">
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-2 shrink-0">{title}</h3>
       )}
@@ -117,7 +112,7 @@ function CanvasVideoInner({
           />
         )}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

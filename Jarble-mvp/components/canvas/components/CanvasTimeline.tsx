@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 interface TimelineEvent {
   label: string;
@@ -46,10 +46,7 @@ function CanvasTimelineInner({ title, events }: CanvasTimelineProps) {
   if (!Array.isArray(events) || events.length === 0) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+    <FadeIn
       className={[
         "overflow-hidden rounded-xl",
         "border border-border/40",
@@ -75,16 +72,9 @@ function CanvasTimelineInner({ title, events }: CanvasTimelineProps) {
           const isActive = status === "active";
 
           return (
-            <motion.div
+            <div
               role="listitem"
               key={`${event.label}-${i}`}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{
-                duration: 0.35,
-                delay: i * 0.07,
-                ease: [0.25, 0.46, 0.45, 0.94],
-              }}
               className={[
                 "group flex gap-3 rounded-lg px-2 -mx-2",
                 "transition-colors duration-200",
@@ -115,14 +105,7 @@ function CanvasTimelineInner({ title, events }: CanvasTimelineProps) {
                 )}
                 {/* Connector line with draw animation */}
                 {!isLast && (
-                  <motion.div
-                    initial={{ scaleY: 0 }}
-                    animate={{ scaleY: 1 }}
-                    transition={{
-                      duration: 0.4,
-                      delay: i * 0.07 + 0.2,
-                      ease: [0.25, 0.46, 0.45, 0.94],
-                    }}
+                  <div
                     className="w-[2px] flex-1 min-h-[24px] origin-top bg-gradient-to-b from-border/60 to-border/20"
                   />
                 )}
@@ -152,11 +135,11 @@ function CanvasTimelineInner({ title, events }: CanvasTimelineProps) {
                   </p>
                 )}
               </div>
-            </motion.div>
+            </div>
           );
         })}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

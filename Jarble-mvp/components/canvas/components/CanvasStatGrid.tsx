@@ -1,7 +1,6 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
 import { useCanvasAction } from "../CanvasActionContext";
 
 export interface StatItem {
@@ -101,18 +100,11 @@ function CanvasStatGridInner({
           const trend = getTrend(stat.change);
 
           return (
-            <motion.div
+            <div
               role="button"
               tabIndex={0}
               aria-label={`${stat.label}: ${stat.value}${stat.change ? `, ${stat.change}` : ""}`}
               key={`${stat.label}-${i}`}
-              initial={{ opacity: 0, y: 10, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{
-                duration: 0.35,
-                delay: i * 0.07,
-                ease: [0.25, 0.46, 0.45, 0.94],
-              }}
               onClick={() => handleStatClick(stat, i)}
               onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleStatClick(stat, i); } }}
               className="group relative cursor-pointer overflow-hidden"
@@ -168,7 +160,7 @@ function CanvasStatGridInner({
                   </span>
                 )}
               </div>
-            </motion.div>
+            </div>
           );
         })}
       </div>

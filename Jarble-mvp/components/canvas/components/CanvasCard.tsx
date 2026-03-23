@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 import MarkdownMessage from "@/components/MarkdownMessage";
 
 export interface CanvasCardProps {
@@ -82,12 +82,9 @@ function CanvasCardInner({
     : "bg-primary/10 dark:bg-primary/15 text-primary";
 
   return (
-    <motion.div
+    <FadeIn
       role="article"
       aria-label={title || "Card"}
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
       className={[
         "group h-full flex flex-col overflow-hidden rounded-xl",
         "bg-card border border-border/50",
@@ -175,7 +172,7 @@ function CanvasCardInner({
           </div>
         )}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

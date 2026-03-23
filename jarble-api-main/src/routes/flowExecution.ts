@@ -3,6 +3,7 @@
  *
  * POST /api/flows/:flowId/execute — starts execution, returns SSE stream
  * GET  /api/flows/:flowId/executions/:execId/stream — reconnect to running execution
+ * POST /api/flows/:flowId/executions/:execId/resume — resume a paused execution
  */
 
 import { Router } from "express";
@@ -230,7 +231,12 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
 
     engine
       .execute()
-      .then(() => {
+      .then((state) => {
+        // If paused, don't clean up — keep the execution alive for resume
+        if (state.status === "paused") {
+          // Don't clear timeout or schedule cleanup — engine is still alive
+          return;
+        }
         clearTimeout(executionTimeout);
         scheduleExecutionCleanup(executionId);
       })
@@ -249,6 +255,85 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
     }
   }
 });
+
+// ── POST /:flowId/executions/:execId/resume — Resume a paused execution ─
+
+flowExecutionRouter.post(
+  "/:flowId/executions/:execId/resume",
+  async (req, res) => {
+    try {
+      const user = await authenticateSSE(req);
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const { execId } = req.params;
+      const entry = runningExecutions.get(execId);
+
+      if (!entry) {
+        res.status(404).json({ error: "Execution not found or already completed" });
+        return;
+      }
+
+      // Verify ownership
+      if (entry.userId !== user.id) {
+        res.status(403).json({ error: "Not authorized for this execution" });
+        return;
+      }
+
+      const engine = entry.engine;
+      const state = engine.executionState;
+
+      if (state.status !== "paused") {
+        res.status(400).json({
+          error: `Execution is not paused (current status: "${state.status}")`,
+        });
+        return;
+      }
+
+      const body = req.body ?? {};
+      const { nodeId, input } = body;
+
+      if (!nodeId || typeof nodeId !== "string") {
+        res.status(400).json({ error: "Missing or invalid nodeId in request body" });
+        return;
+      }
+
+      try {
+        // Resume the engine — this unblocks the waiting promise
+        await engine.resume(nodeId, input);
+
+        // After resume, re-run execute to continue the state machine
+        // The engine's execute() will continue from where it paused
+        engine
+          .execute()
+          .then((finalState) => {
+            if (finalState.status !== "paused") {
+              scheduleExecutionCleanup(execId);
+            }
+          })
+          .catch((err) => {
+            log.error({ execId, err }, "Flow resume execution error");
+            scheduleExecutionCleanup(execId);
+          });
+
+        res.json({
+          executionId: execId,
+          status: "resumed",
+          nodeId,
+        });
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+      }
+    } catch (err) {
+      log.error({ err }, "Flow resume route error");
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  }
+);
 
 // ── GET /:flowId/executions/:execId/stream — Reconnect to running ───────
 
@@ -306,6 +391,7 @@ flowExecutionRouter.get(
         ).length,
         totalCredits: state.totalCredits,
         stepResults: stepResultsSnapshot,
+        pausedAtNodeId: state.pausedAtNodeId,
       });
 
       // If already finished, end immediately
@@ -401,6 +487,14 @@ function attachEngineToSSE(
     });
   };
 
+  const onStepIteration = (event: any) => {
+    writeSSE(res, "jarble.flow.step.iteration", {
+      nodeId: event.nodeId,
+      iteration: event.iteration,
+      maxIterations: event.maxIterations,
+    });
+  };
+
   const onFlowState = (event: any) => {
     writeSSE(res, "jarble.flow.state", {
       status: event.status,
@@ -410,22 +504,63 @@ function attachEngineToSSE(
     });
   };
 
+  const onFlowPaused = (event: any) => {
+    writeSSE(res, "jarble.flow.paused", {
+      nodeId: event.nodeId,
+      label: event.label,
+      inputSchema: event.inputSchema,
+    });
+  };
+
   const onFlowError = (event: any) => {
     writeSSE(res, "jarble.flow.error", {
       error: event.error,
     });
   };
 
+  const onSubstepStarted = (event: any) => {
+    writeSSE(res, "jarble.flow.substep.started", {
+      parentNodeId: event.parentNodeId,
+      nodeId: event.nodeId,
+      label: event.label,
+      index: event.index,
+      total: event.total,
+    });
+  };
+
+  const onSubstepFinished = (event: any) => {
+    writeSSE(res, "jarble.flow.substep.finished", {
+      parentNodeId: event.parentNodeId,
+      nodeId: event.nodeId,
+      label: event.label,
+      status: event.status,
+      result: event.result,
+      error: event.error,
+      durationMs: event.durationMs,
+      credits: event.credits,
+      index: event.index,
+      total: event.total,
+    });
+  };
+
   engine.on("step:started", onStepStarted);
   engine.on("step:finished", onStepFinished);
+  engine.on("step:iteration", onStepIteration);
   engine.on("flow:state", onFlowState);
+  engine.on("flow:paused", onFlowPaused);
   engine.on("flow:error", onFlowError);
+  engine.on("substep:started", onSubstepStarted);
+  engine.on("substep:finished", onSubstepFinished);
 
   // Return a detach function
   return () => {
     engine.removeListener("step:started", onStepStarted);
     engine.removeListener("step:finished", onStepFinished);
+    engine.removeListener("step:iteration", onStepIteration);
     engine.removeListener("flow:state", onFlowState);
+    engine.removeListener("flow:paused", onFlowPaused);
     engine.removeListener("flow:error", onFlowError);
+    engine.removeListener("substep:started", onSubstepStarted);
+    engine.removeListener("substep:finished", onSubstepFinished);
   };
 }

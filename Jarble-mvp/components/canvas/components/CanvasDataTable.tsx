@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 import { useCanvasAction } from "../CanvasActionContext";
 
 export interface CanvasDataTableProps {
@@ -86,29 +86,19 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
   // Empty state
   if (normalizedRows.length === 0) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, ease: "easeOut" }}
-        className="h-full flex flex-col items-center justify-center p-8 gap-2"
-      >
+      <FadeIn className="h-full flex flex-col items-center justify-center p-8 gap-2">
         <div className="h-12 w-12 rounded-full bg-muted/60 flex items-center justify-center">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="text-muted-foreground/50">
             <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
         </div>
         <span className="text-sm text-muted-foreground/60">No data available</span>
-      </motion.div>
+      </FadeIn>
     );
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: "easeOut" }}
-      className="h-full flex flex-col overflow-hidden rounded-xl border border-border/40"
-    >
+    <FadeIn className="h-full flex flex-col overflow-hidden rounded-xl border border-border/40">
       {title && (
         <div className="px-4 py-3 border-b border-border/50 shrink-0 bg-gradient-to-r from-muted/30 to-transparent">
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
@@ -138,12 +128,9 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
           )}
           <tbody>
             {normalizedRows.map((row, ri) => (
-              <motion.tr
+              <tr
                 key={ri}
                 tabIndex={0}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.2, delay: Math.min(ri * 0.02, 0.3) }}
                 className={[
                   "group cursor-pointer transition-colors duration-150",
                   "border-b border-border/15 last:border-0",
@@ -170,7 +157,7 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
                     {cell}
                   </td>
                 ))}
-              </motion.tr>
+              </tr>
             ))}
           </tbody>
         </table>
@@ -182,7 +169,7 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
           </span>
         </div>
       )}
-    </motion.div>
+    </FadeIn>
   );
 }
 

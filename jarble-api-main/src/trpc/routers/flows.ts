@@ -13,6 +13,9 @@ import { eq, desc, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createModuleLogger } from "../../utils/logger.js";
 import { customAlphabet } from "nanoid";
+import { collectLlmCompletion, type LlmMessage } from "../../services/llmProxy.js";
+import { env } from "../../utils/env.js";
+import { WORKFLOW_AGENT_SYSTEM_PROMPT } from "../../prompts/workflowAgent.js";
 
 const logger = createModuleLogger("flows");
 
@@ -368,5 +371,214 @@ export const flowsRouter = router({
         .offset(input.offset);
 
       return executions;
+    }),
+
+  /**
+   * Generate a flow definition from natural language using the Workflow Agent LLM.
+   * Returns an unsaved FlowDefinition that the user can review and then save via `create`.
+   */
+  generateFromPrompt: protectedProcedure
+    .input(
+      z.object({
+        prompt: z.string().min(1).max(2000),
+        availableDeployments: z
+          .array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              skills: z.array(z.string()).optional(),
+            })
+          )
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const provider = (env.AGENT_LLM_PROVIDER ?? "openrouter") as
+        | "anthropic"
+        | "openai"
+        | "openrouter"
+        | "google";
+      const apiKey = env.AGENT_LLM_API_KEY ?? env.OPENROUTER_API_KEY;
+      const model = env.AGENT_LLM_MODEL ?? "anthropic/claude-sonnet-4-20250514";
+
+      if (!apiKey) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "No LLM API key configured for flow generation",
+        });
+      }
+
+      // Build user message with context about available deployments
+      let userMessage = `Goal: ${input.prompt}`;
+
+      if (input.availableDeployments && input.availableDeployments.length > 0) {
+        userMessage += "\n\nAvailable services/deployments:\n";
+        for (const dep of input.availableDeployments) {
+          userMessage += `- ${dep.name} (id: ${dep.id})`;
+          if (dep.skills && dep.skills.length > 0) {
+            userMessage += ` — skills: ${dep.skills.join(", ")}`;
+          }
+          userMessage += "\n";
+        }
+      }
+
+      userMessage +=
+        "\n\nReturn ONLY valid JSON matching the output format. Do not include markdown fences.";
+
+      const messages: LlmMessage[] = [
+        { role: "system", content: WORKFLOW_AGENT_SYSTEM_PROMPT },
+        { role: "user", content: userMessage },
+      ];
+
+      logger.info(
+        { userId: ctx.user.id, promptLength: input.prompt.length, model },
+        "generateFromPrompt: calling LLM"
+      );
+
+      try {
+        const result = await collectLlmCompletion({
+          provider,
+          apiKey,
+          model,
+          messages,
+        });
+
+        // Parse the JSON response — strip markdown fences if present
+        let jsonText = result.text.trim();
+        if (jsonText.startsWith("```")) {
+          jsonText = jsonText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+        }
+
+        let parsed: {
+          plan: Array<{
+            step: number;
+            action: string;
+            service?: string;
+            skill?: string;
+            component?: string;
+            args?: Record<string, unknown>;
+            props?: Record<string, unknown>;
+            description: string;
+            dependsOn?: number[];
+            outputKey?: string;
+          }>;
+          summary?: string;
+          estimatedSteps?: number;
+          parallelizable?: number[][];
+        };
+
+        try {
+          parsed = JSON.parse(jsonText);
+        } catch {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "LLM returned invalid JSON. Please try rephrasing your prompt.",
+          });
+        }
+
+        if (!parsed.plan || !Array.isArray(parsed.plan)) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "LLM response missing 'plan' array. Please try again.",
+          });
+        }
+
+        // Convert the plan steps into FlowDefinition nodes + edges
+        const NODE_SPACING_X = 280;
+        const NODE_SPACING_Y = 0;
+        const NODES_PER_ROW = 5;
+
+        const nodes = parsed.plan.map((step, i) => {
+          const col = i % NODES_PER_ROW;
+          const row = Math.floor(i / NODES_PER_ROW);
+
+          // Map action types to flow node types
+          let type: "deployment" | "transform" | "condition" | "output" = "deployment";
+          if (step.action === "render_ui" || step.action === "output") type = "output";
+          else if (step.action === "transform" || step.action === "filter") type = "transform";
+          else if (step.action === "condition" || step.action === "branch") type = "condition";
+
+          // Find the deployment ID if the step references a known service
+          let deploymentId: string | undefined;
+          if (step.service && input.availableDeployments) {
+            const match = input.availableDeployments.find(
+              (d) =>
+                d.name.toLowerCase() === step.service!.toLowerCase() ||
+                d.id === step.service
+            );
+            if (match) deploymentId = match.id;
+          }
+
+          return {
+            id: `n${step.step}`,
+            type,
+            label: step.description || `Step ${step.step}`,
+            position: {
+              x: col * NODE_SPACING_X,
+              y: row * (NODE_SPACING_Y + 150),
+            },
+            deploymentId,
+            skillName: step.skill,
+            config: step.args || step.props || undefined,
+          };
+        });
+
+        // Build edges from dependsOn relationships
+        const edges: Array<{
+          id: string;
+          source: string;
+          target: string;
+          label?: string;
+        }> = [];
+
+        let edgeIdx = 0;
+        for (const step of parsed.plan) {
+          if (step.dependsOn && step.dependsOn.length > 0) {
+            for (const dep of step.dependsOn) {
+              edges.push({
+                id: `e${edgeIdx++}`,
+                source: `n${dep}`,
+                target: `n${step.step}`,
+              });
+            }
+          } else if (step.step > 1) {
+            // If no explicit dependsOn, chain sequentially from previous step
+            edges.push({
+              id: `e${edgeIdx++}`,
+              source: `n${step.step - 1}`,
+              target: `n${step.step}`,
+            });
+          }
+        }
+
+        const definition = { nodes, edges };
+
+        logger.info(
+          {
+            userId: ctx.user.id,
+            nodeCount: nodes.length,
+            edgeCount: edges.length,
+          },
+          "generateFromPrompt: flow generated"
+        );
+
+        return {
+          definition,
+          summary: parsed.summary ?? null,
+          estimatedSteps: parsed.estimatedSteps ?? nodes.length,
+          parallelizable: parsed.parallelizable ?? null,
+        };
+      } catch (err) {
+        if (err instanceof TRPCError) throw err;
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error(
+          { userId: ctx.user.id, err: message },
+          "generateFromPrompt: LLM call failed"
+        );
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Flow generation failed: ${message}`,
+        });
+      }
     }),
 });

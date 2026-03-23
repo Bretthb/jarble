@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 import { CheckCircle2, XCircle, Info, AlertTriangle } from "lucide-react";
 
 export interface CanvasResultProps {
@@ -39,12 +39,9 @@ function CanvasResultInner({
   const Icon = config.icon;
 
   return (
-    <motion.div
+    <FadeIn
       role="status"
       aria-label={`${status}: ${title}`}
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
       className="p-4 h-full"
     >
       <div className="flex flex-col items-center justify-center gap-3 py-6">
@@ -58,7 +55,7 @@ function CanvasResultInner({
           </p>
         )}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

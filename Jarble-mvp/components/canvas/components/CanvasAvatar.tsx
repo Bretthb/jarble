@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasAvatarProps {
   name: string;
@@ -30,12 +30,7 @@ function CanvasAvatarInner({ name, src, subtitle, size = "md" }: CanvasAvatarPro
   const sizeClasses = SIZE_CLASSES[size] || SIZE_CLASSES.md;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="p-4 flex items-center gap-3"
-    >
+    <FadeIn className="p-4 flex items-center gap-3">
       <div
         className={`${sizeClasses.container} rounded-full shrink-0 overflow-hidden bg-primary/15 border border-primary/30 flex items-center justify-center`}
       >
@@ -51,7 +46,7 @@ function CanvasAvatarInner({ name, src, subtitle, size = "md" }: CanvasAvatarPro
         <p className="text-sm font-medium text-foreground">{name}</p>
         {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
