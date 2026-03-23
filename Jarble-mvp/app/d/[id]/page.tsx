@@ -291,9 +291,12 @@ function WorkspacePage({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
+  // Track whether theme was set by SSE (takes priority over prop sync for 5s)
+  const themeSetBySse = useRef(false);
   // Sync liveThemeConfig when the deployment refetch returns updated themeConfig
+  // BUT skip if SSE just set it (prevents race where stale refetch overwrites fresh SSE value)
   useEffect(() => {
-    if (themeConfig !== undefined) setLiveThemeConfig(themeConfig);
+    if (themeConfig !== undefined && !themeSetBySse.current) setLiveThemeConfig(themeConfig);
   }, [themeConfig]);
   const themeStyle = useDeploymentTheme(liveThemeConfig);
 
@@ -323,6 +326,9 @@ function WorkspacePage({
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       setLiveThemeConfig(detail ? JSON.stringify(detail) : null);
+      // Block prop sync from overwriting this SSE value for 5s
+      themeSetBySse.current = true;
+      setTimeout(() => { themeSetBySse.current = false; }, 5000);
     };
     window.addEventListener("jarble:theme-updated", handler);
     return () => window.removeEventListener("jarble:theme-updated", handler);
