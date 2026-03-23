@@ -496,8 +496,13 @@ async function handleThemeChange(
   let skin: string | undefined;
 
   for (const arg of args) {
-    if (!skinOnly && THEME_PRESET_NAMES.includes(arg as any)) preset = arg;
-    if ((SKIN_NAMES as readonly string[]).includes(arg)) skin = arg;
+    // When called from /theme: match presets first, only match skin if it's NOT also a preset name
+    // When called from /skin: only match skins (skinOnly=true)
+    if (!skinOnly && THEME_PRESET_NAMES.includes(arg as any)) {
+      preset = arg;
+    } else if ((SKIN_NAMES as readonly string[]).includes(arg)) {
+      skin = arg;
+    }
   }
 
   if (!preset && !skin) {
