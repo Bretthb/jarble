@@ -209,8 +209,10 @@ export function attachTerminalWs(server: http.Server) {
       "/bin/bash", "-c",
       [
         // Write a custom rcfile with alias + colored prompt + cd /data
+        // Use the baked-in binary directly instead of npx (which checks registry and prompts to update)
         `cat > /tmp/.oclawrc << 'RCEOF'`,
-        `alias openclaw='npx openclaw'`,
+        `alias openclaw='/opt/openclaw/node_modules/.bin/openclaw'`,
+        `export PATH="/opt/openclaw/node_modules/.bin:$PATH"`,
         `export PS1='\\[\\033[36m\\]openclaw\\[\\033[0m\\]> '`,
         `cd /data`,
         `RCEOF`,

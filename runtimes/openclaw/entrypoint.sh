@@ -215,7 +215,7 @@ while true; do
   echo "[entrypoint] Starting OpenClaw gateway on port 18789..."
   echo "[entrypoint] Provider: ${LLM_PROVIDER:-openrouter}, Model: ${LLM_MODEL:-openrouter/auto}"
 
-  npx openclaw gateway --port 18789 --bind lan --allow-unconfigured &
+  /opt/openclaw/node_modules/.bin/openclaw gateway --port 18789 --bind lan --allow-unconfigured &
   OPENCLAW_PID=$!
   echo "[entrypoint] OpenClaw gateway started (PID $OPENCLAW_PID)"
 
