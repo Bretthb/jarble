@@ -107,6 +107,65 @@ export const deploymentRouter = router({
     }));
   }),
 
+  // Link a deployment to a credit pool (another deployment's managed key)
+  linkToPool: protectedProcedure
+    .input(z.object({
+      deploymentId: z.string(),
+      sourceDeploymentId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const [child, owner] = await Promise.all([
+        ctx.db.query.deployments.findFirst({
+          where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+        }),
+        ctx.db.query.deployments.findFirst({
+          where: and(eq(deployments.id, input.sourceDeploymentId), eq(deployments.userId, ctx.user.id)),
+        }),
+      ]);
+      if (!child) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      if (!owner) throw new TRPCError({ code: "NOT_FOUND", message: "Pool owner not found" });
+      if ((owner as any).llmMode !== "included") throw new TRPCError({ code: "BAD_REQUEST", message: "Target deployment does not use included credits" });
+      if ((owner as any).llmApiKeySourceDeploymentId) throw new TRPCError({ code: "BAD_REQUEST", message: "Target is itself linked — cannot chain pools" });
+      if ((child as any).llmApiKeySourceDeploymentId) throw new TRPCError({ code: "BAD_REQUEST", message: "This deployment is already linked" });
+      if (input.deploymentId === input.sourceDeploymentId) throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot link a deployment to itself" });
+
+      await ctx.db.update(deployments)
+        .set({ llmApiKeySourceDeploymentId: input.sourceDeploymentId, llmMode: "included", llmProvider: "openrouter" } as any)
+        .where(eq(deployments.id, input.deploymentId));
+
+      return { success: true };
+    }),
+
+  // Unlink a deployment from its credit pool
+  unlinkFromPool: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const dep = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!dep) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      if (!(dep as any).llmApiKeySourceDeploymentId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not linked to a pool" });
+
+      await ctx.db.update(deployments)
+        .set({ llmApiKeySourceDeploymentId: null, llmMode: "byok", llmApiKey: null, llmApiKeyId: null } as any)
+        .where(eq(deployments.id, input.deploymentId));
+
+      return { success: true };
+    }),
+
+  // Get deployments linked to a pool owner
+  getPoolChildren: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const children = await ctx.db.query.deployments.findMany({
+        where: and(
+          eq(deployments.llmApiKeySourceDeploymentId, input.deploymentId),
+          eq(deployments.userId, ctx.user.id),
+        ),
+      });
+      return children.map((d: any) => ({ id: d.id, name: d.name, runtime: d.runtime, status: d.status }));
+    }),
+
   // Batch-fetch storage usage for multiple deployments (Dashboard storage meters)
   getStorageUsageBatch: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).max(50) }))

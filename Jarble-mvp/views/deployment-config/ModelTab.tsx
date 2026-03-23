@@ -136,16 +136,89 @@ export function ModelTab({ formData, updateFormData, deployment, deploymentId }:
           ) : isIncluded ? (
             <IncludedKeySection deploymentId={deploymentId} deployment={dep} />
           ) : isByok ? (
-            <ByokKeySection
-              formData={formData}
-              updateFormData={updateFormData}
-              deploymentId={deploymentId}
-              deployment={dep}
-              hasKey={hasKey}
-              savedProvider={savedProvider}
-            />
+            <>
+              <ByokKeySection
+                formData={formData}
+                updateFormData={updateFormData}
+                deploymentId={deploymentId}
+                deployment={dep}
+                hasKey={hasKey}
+                savedProvider={savedProvider}
+              />
+              <LinkToPoolOption deploymentId={deploymentId} />
+            </>
           ) : null}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Link to Pool Option (shown below BYOK section) ─────────────────────
+
+function LinkToPoolOption({ deploymentId }: { deploymentId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const utils = trpc.useUtils();
+
+  const poolsQuery = trpc.deployment.listLinkableDeployments.useQuery(undefined, {
+    enabled: expanded,
+  });
+
+  const linkMutation = trpc.deployment.linkToPool.useMutation({
+    onSuccess: () => {
+      toast.success("Linked to credit pool");
+      utils.deployment.getById.invalidate({ id: deploymentId });
+    },
+    onError: (err: { message: string }) => toast.error(err.message),
+  });
+
+  const pools = poolsQuery.data ?? [];
+
+  return (
+    <div className="mt-3">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5"
+      >
+        <Link2 className="w-3 h-3" />
+        {expanded ? "Hide" : "Or link to an existing credit pool"}
+      </button>
+
+      {expanded && (
+        <Card className="mt-2 p-4 bg-card border-border space-y-3">
+          {poolsQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="w-3 h-3 animate-spin" /> Loading pools...
+            </div>
+          ) : pools.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No credit pools available. Create a deployment with Jarble Managed credits first.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">Share credits from an existing deployment:</p>
+              {pools.map((pool: { id: string; name: string; runtime: string; llmCreditLimitDollars: number | null }) => (
+                <div key={pool.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-secondary/30">
+                  <div className="min-w-0">
+                    <span className="text-sm font-medium">{pool.name}</span>
+                    {pool.llmCreditLimitDollars && (
+                      <span className="text-xs text-muted-foreground ml-2">${pool.llmCreditLimitDollars}/mo</span>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-7"
+                    onClick={() => linkMutation.mutate({ deploymentId, sourceDeploymentId: pool.id })}
+                    disabled={linkMutation.isPending}
+                  >
+                    {linkMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Link"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
       )}
     </div>
   );
@@ -385,7 +458,58 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
         </p>
       </div>
     </Card>
+    <PoolChildrenSection deploymentId={deploymentId} />
     </>
+  );
+}
+
+// ─── Pool Children (deployments linked to this key) ─────────────────────
+
+function PoolChildrenSection({ deploymentId }: { deploymentId: string }) {
+  const childrenQuery = trpc.deployment.getPoolChildren.useQuery({ deploymentId });
+  const utils = trpc.useUtils();
+
+  const unlinkMutation = trpc.deployment.unlinkFromPool.useMutation({
+    onSuccess: () => {
+      toast.success("Deployment unlinked");
+      childrenQuery.refetch();
+      utils.deployment.list.invalidate();
+    },
+    onError: (err: { message: string }) => toast.error(err.message),
+  });
+
+  if (childrenQuery.isLoading) return null;
+  const children = childrenQuery.data ?? [];
+  if (children.length === 0) return null;
+
+  return (
+    <Card className="p-5 bg-card border-border space-y-3">
+      <div className="flex items-center gap-2">
+        <Link2 className="w-4 h-4 text-violet-500" />
+        <h3 className="text-sm font-semibold">Linked Deployments</h3>
+        <span className="text-xs text-muted-foreground ml-auto">{children.length} linked</span>
+      </div>
+      <div className="space-y-2">
+        {children.map((child: { id: string; name: string; runtime: string; status: string }) => (
+          <div key={child.id} className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-secondary/30">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className={`w-2 h-2 rounded-full ${child.status === "running" ? "bg-emerald-500" : "bg-muted-foreground"}`} />
+              <span className="text-sm font-medium truncate">{child.name}</span>
+              <span className="text-xs text-muted-foreground">{child.runtime}</span>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-xs h-7 text-destructive hover:text-destructive shrink-0"
+              onClick={() => unlinkMutation.mutate({ deploymentId: child.id })}
+              disabled={unlinkMutation.isPending}
+            >
+              Unlink
+            </Button>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -393,19 +517,40 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
 
 function LinkedKeySection({ deploymentId, deployment }: { deploymentId: string; deployment: any }) {
   const sourceId = deployment.llmApiKeySourceDeploymentId;
+  const utils = trpc.useUtils();
 
   const usageQuery = trpc.openrouter.getKeyUsage.useQuery(
     { deploymentId },
     { staleTime: 30_000, refetchInterval: 60_000 }
   );
 
+  const unlinkMutation = trpc.deployment.unlinkFromPool.useMutation({
+    onSuccess: () => {
+      toast.success("Unlinked from credit pool");
+      utils.deployment.getById.invalidate({ id: deploymentId });
+    },
+    onError: (err: { message: string }) => toast.error(err.message),
+  });
+
   const usage = usageQuery.data;
 
   return (
     <Card className="p-5 bg-card border-border space-y-4">
-      <div className="flex items-center gap-2">
-        <Link2 className="w-4 h-4 text-violet-500" />
-        <h3 className="text-sm font-semibold">Linked Credit Pool</h3>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Link2 className="w-4 h-4 text-violet-500" />
+          <h3 className="text-sm font-semibold">Linked Credit Pool</h3>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="text-xs h-7 text-destructive hover:text-destructive"
+          onClick={() => unlinkMutation.mutate({ deploymentId })}
+          disabled={unlinkMutation.isPending}
+        >
+          {unlinkMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Trash2 className="w-3 h-3 mr-1" />}
+          Unlink
+        </Button>
       </div>
 
       <p className="text-xs text-muted-foreground">
@@ -438,10 +583,6 @@ function LinkedKeySection({ deploymentId, deployment }: { deploymentId: string; 
       ) : (
         <p className="text-xs text-muted-foreground">No usage data available</p>
       )}
-
-      <p className="text-xs text-muted-foreground">
-        To manage credit limits or regenerate the key, visit the pool owner's configuration page.
-      </p>
 
       {sourceId && (
         <Button
