@@ -41,3 +41,9 @@ export const CUSTOM_DESIGN_CONTEXT = "jarble.design.context";
 export const CUSTOM_TOOL_STATUS = "jarble.tool.status";
 export const CUSTOM_AGENT_CALL_START = "jarble.agent.call.start";
 export const CUSTOM_AGENT_CALL_END = "jarble.agent.call.end";
+
+// ── Orchestration Flow Events ────────────────────────────────────────────
+export const CUSTOM_FLOW_STEP_STARTED = "jarble.flow.step.started";
+export const CUSTOM_FLOW_STEP_FINISHED = "jarble.flow.step.finished";
+export const CUSTOM_FLOW_STATE = "jarble.flow.state";
+export const CUSTOM_AGENT_HANDOFF = "jarble.agent.handoff";

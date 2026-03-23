@@ -520,6 +520,39 @@ const CREATE_TABLES_SQL = `
     invited_at TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS orchestration_flows (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    description TEXT,
+    definition TEXT NOT NULL,
+    status TEXT DEFAULT 'draft' NOT NULL,
+    is_public INTEGER DEFAULT 0 NOT NULL,
+    fork_count INTEGER DEFAULT 0 NOT NULL,
+    forked_from_id TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_orch_flows_user_id ON orchestration_flows(user_id);
+  CREATE INDEX IF NOT EXISTS idx_orch_flows_status ON orchestration_flows(status);
+  CREATE INDEX IF NOT EXISTS idx_orch_flows_is_public ON orchestration_flows(is_public);
+
+  CREATE TABLE IF NOT EXISTS flow_executions (
+    id TEXT PRIMARY KEY,
+    flow_id TEXT NOT NULL REFERENCES orchestration_flows(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    status TEXT DEFAULT 'pending' NOT NULL,
+    step_results TEXT,
+    total_credits_charged INTEGER DEFAULT 0 NOT NULL,
+    error TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_flow_exec_flow_id ON flow_executions(flow_id);
+  CREATE INDEX IF NOT EXISTS idx_flow_exec_user_id ON flow_executions(user_id);
+  CREATE INDEX IF NOT EXISTS idx_flow_exec_status ON flow_executions(status);
 `;
 
 export async function initDatabase() {

@@ -398,6 +398,56 @@ export const betaSignups = sqliteTable("beta_signups", {
   createdAt: text("created_at").notNull().$defaultFn(now),
 });
 
+// ── Orchestration Flows ──────────────────────────────────────────────────
+
+export const orchestrationFlows = sqliteTable("orchestration_flows", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  definition: text("definition").notNull(),  // JSON: { nodes: FlowNode[], edges: FlowEdge[] }
+  status: text("status").notNull().default("draft"),  // draft | published | archived
+  isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
+  forkCount: integer("fork_count").notNull().default(0),
+  forkedFromId: text("forked_from_id"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+}, (table) => ({
+  userIdIdx: index("idx_orch_flows_user_id").on(table.userId),
+  statusIdx: index("idx_orch_flows_status").on(table.status),
+  isPublicIdx: index("idx_orch_flows_is_public").on(table.isPublic),
+}));
+
+export const flowExecutions = sqliteTable("flow_executions", {
+  id: text("id").primaryKey(),
+  flowId: text("flow_id").notNull().references(() => orchestrationFlows.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id),
+  status: text("status").notNull().default("pending"),  // pending | running | completed | failed | cancelled
+  stepResults: text("step_results"),  // JSON: Record<string, { status, result, error, durationMs }>
+  totalCreditsCharged: integer("total_credits_charged").notNull().default(0),
+  error: text("error"),
+  startedAt: text("started_at"),
+  completedAt: text("completed_at"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+}, (table) => ({
+  flowIdIdx: index("idx_flow_exec_flow_id").on(table.flowId),
+  userIdIdx: index("idx_flow_exec_user_id").on(table.userId),
+  statusIdx: index("idx_flow_exec_status").on(table.status),
+}));
+
+// ── Orchestration Flow Relations ─────────────────────────────────────────
+
+export const orchestrationFlowsRelations = relations(orchestrationFlows, ({ one, many }) => ({
+  user: one(users, { fields: [orchestrationFlows.userId], references: [users.id] }),
+  forkedFrom: one(orchestrationFlows, { fields: [orchestrationFlows.forkedFromId], references: [orchestrationFlows.id] }),
+  executions: many(flowExecutions),
+}));
+
+export const flowExecutionsRelations = relations(flowExecutions, ({ one }) => ({
+  flow: one(orchestrationFlows, { fields: [flowExecutions.flowId], references: [orchestrationFlows.id] }),
+  user: one(users, { fields: [flowExecutions.userId], references: [users.id] }),
+}));
+
 export const runtimeCatalogRelations = relations(runtimeCatalog, ({ many }) => ({
   deployments: many(deployments),
 }));

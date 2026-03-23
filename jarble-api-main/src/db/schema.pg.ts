@@ -735,3 +735,53 @@ export const personaTemplates = pgTable("persona_templates", {
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// ── Orchestration Flows ──────────────────────────────────────────────────
+
+export const orchestrationFlows = pgTable("orchestration_flows", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  definition: text("definition").notNull(),  // JSON: { nodes: FlowNode[], edges: FlowEdge[] }
+  status: varchar("status", { length: 20 }).notNull().default("draft"),  // draft | published | archived
+  isPublic: boolean("is_public").notNull().default(false),
+  forkCount: integer("fork_count").notNull().default(0),
+  forkedFromId: varchar("forked_from_id", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index("idx_orch_flows_user_id").on(table.userId),
+  statusIdx: index("idx_orch_flows_status").on(table.status),
+  isPublicIdx: index("idx_orch_flows_is_public").on(table.isPublic),
+}));
+
+export const flowExecutions = pgTable("flow_executions", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  flowId: varchar("flow_id", { length: 255 }).notNull().references(() => orchestrationFlows.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),  // pending | running | completed | failed | cancelled
+  stepResults: text("step_results"),  // JSON: Record<string, { status, result, error, durationMs }>
+  totalCreditsCharged: integer("total_credits_charged").notNull().default(0),
+  error: text("error"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  flowIdIdx: index("idx_flow_exec_flow_id").on(table.flowId),
+  userIdIdx: index("idx_flow_exec_user_id").on(table.userId),
+  statusIdx: index("idx_flow_exec_status").on(table.status),
+}));
+
+// ── Orchestration Flow Relations ─────────────────────────────────────────
+
+export const orchestrationFlowsRelations = relations(orchestrationFlows, ({ one, many }) => ({
+  user: one(users, { fields: [orchestrationFlows.userId], references: [users.id] }),
+  forkedFrom: one(orchestrationFlows, { fields: [orchestrationFlows.forkedFromId], references: [orchestrationFlows.id] }),
+  executions: many(flowExecutions),
+}));
+
+export const flowExecutionsRelations = relations(flowExecutions, ({ one }) => ({
+  flow: one(orchestrationFlows, { fields: [flowExecutions.flowId], references: [orchestrationFlows.id] }),
+  user: one(users, { fields: [flowExecutions.userId], references: [users.id] }),
+}));

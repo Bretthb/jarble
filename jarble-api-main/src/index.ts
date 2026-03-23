@@ -49,6 +49,7 @@ import { knowledgeRouter } from "./routes/knowledge.js";
 import { attachTerminalWs } from "./routes/terminal.js";
 import { betaRouter } from "./routes/beta.js";
 import { attachChatControlWs } from "./routes/chatControl.js";
+import { flowExecutionRouter } from "./routes/flowExecution.js";
 
 const app = express();
 
@@ -130,6 +131,7 @@ app.use("/api/mesh", meshDiscoveryRouter);
 app.use("/api/agent-hub", agentHubRouter);
 app.use("/api/public", publicApiRouter);
 app.use("/api/beta-signup", betaRouter);
+app.use("/api/flows", flowExecutionRouter);
 
 // Debug endpoints — dev only
 if (env.NODE_ENV === "development") {
