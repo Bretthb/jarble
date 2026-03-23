@@ -140,6 +140,7 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
             {normalizedRows.map((row, ri) => (
               <motion.tr
                 key={ri}
+                tabIndex={0}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.2, delay: Math.min(ri * 0.02, 0.3) }}
@@ -152,6 +153,7 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
                     : "",
                 ].join(" ")}
                 onClick={() => handleRowClick(ri, row)}
+                onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleRowClick(ri, row); } }}
               >
                 {row.map((cell, ci) => (
                   <td

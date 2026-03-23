@@ -157,6 +157,8 @@ function CanvasCodeBlockInner({ code, language, title }: CanvasCodeBlockProps) {
               onClick={() => setCollapsed((v) => !v)}
               className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
               title={collapsed ? "Expand" : "Collapse"}
+              aria-label={collapsed ? "Expand code" : "Collapse code"}
+              aria-expanded={!collapsed}
             >
               {collapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
             </button>
@@ -176,6 +178,7 @@ function CanvasCodeBlockInner({ code, language, title }: CanvasCodeBlockProps) {
               onClick={handleStartEdit}
               className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
               title="Edit code"
+              aria-label="Edit code"
             >
               <Pencil className="w-3.5 h-3.5" />
             </button>

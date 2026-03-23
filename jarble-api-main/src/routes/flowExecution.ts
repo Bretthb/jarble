@@ -14,6 +14,8 @@ import {
   type FlowDefinition,
   type FlowExecutionState,
 } from "../services/flowEngine.js";
+import { db, tables } from "../db/index.js";
+import { eq, and } from "drizzle-orm";
 
 const log = createModuleLogger("flow-execution");
 
@@ -114,15 +116,46 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
     }
 
     const flowId = req.params.flowId;
-    const body = req.body;
+    const body = req.body ?? {};
 
-    // Validate the flow definition
-    if (!body || !body.definition) {
+    // ── Look up flow from DB (trusted source) ────────────────────────
+    let definition: FlowDefinition | null = null;
+
+    const dbFlow = await db
+      .select({
+        id: tables.orchestrationFlows.id,
+        definition: tables.orchestrationFlows.definition,
+        userId: tables.orchestrationFlows.userId,
+      })
+      .from(tables.orchestrationFlows)
+      .where(
+        and(
+          eq(tables.orchestrationFlows.id, flowId),
+          eq(tables.orchestrationFlows.userId, user.id)
+        )
+      )
+      .limit(1);
+
+    if (dbFlow.length > 0) {
+      // Use the stored definition — don't trust client-provided definition
+      try {
+        definition = typeof dbFlow[0].definition === "string"
+          ? JSON.parse(dbFlow[0].definition)
+          : dbFlow[0].definition;
+      } catch {
+        res.status(500).json({ error: "Stored flow definition is invalid" });
+        return;
+      }
+    } else if (body.definition) {
+      // Fall back to body definition for ad-hoc execution (flow not saved to DB)
+      definition = body.definition as FlowDefinition;
+    }
+
+    if (!definition) {
       res.status(400).json({ error: "Missing flow definition in request body" });
       return;
     }
 
-    const definition = body.definition as FlowDefinition;
     if (
       !Array.isArray(definition.nodes) ||
       !Array.isArray(definition.edges)
@@ -140,6 +173,31 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
       return;
     }
 
+    // ── Validate callerDeploymentId ownership ────────────────────────
+    let callerDeploymentId: string | undefined = (body.callerDeploymentId as string) || undefined;
+
+    if (callerDeploymentId) {
+      const ownedDeployment = await db
+        .select({ id: tables.deployments.id })
+        .from(tables.deployments)
+        .where(
+          and(
+            eq(tables.deployments.id, callerDeploymentId),
+            eq(tables.deployments.userId, user.id)
+          )
+        )
+        .limit(1);
+
+      if (ownedDeployment.length === 0) {
+        // Silently ignore unowned callerDeploymentId rather than rejecting
+        log.warn(
+          { callerDeploymentId, userId: user.id },
+          "callerDeploymentId not owned by user — ignoring"
+        );
+        callerDeploymentId = undefined;
+      }
+    }
+
     // Enforce per-user connection limit
     if (!acquireConnection(user.id)) {
       res.status(429).json({ error: "Too many concurrent flow executions" });
@@ -147,7 +205,6 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
     }
 
     const executionId = `fex_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-    const callerDeploymentId = (body.callerDeploymentId as string) || undefined;
 
     // Create the engine
     const engine = new FlowExecutionEngine(

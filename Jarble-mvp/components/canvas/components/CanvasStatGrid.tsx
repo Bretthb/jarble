@@ -102,7 +102,8 @@ function CanvasStatGridInner({
 
           return (
             <motion.div
-              role="listitem"
+              role="button"
+              tabIndex={0}
               aria-label={`${stat.label}: ${stat.value}${stat.change ? `, ${stat.change}` : ""}`}
               key={`${stat.label}-${i}`}
               initial={{ opacity: 0, y: 10, scale: 0.97 }}
@@ -113,6 +114,7 @@ function CanvasStatGridInner({
                 ease: [0.25, 0.46, 0.45, 0.94],
               }}
               onClick={() => handleStatClick(stat, i)}
+              onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleStatClick(stat, i); } }}
               className="group relative cursor-pointer overflow-hidden"
             >
               {/* Gradient left border accent */}

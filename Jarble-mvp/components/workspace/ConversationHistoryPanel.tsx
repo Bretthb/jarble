@@ -84,7 +84,8 @@ export default function ConversationHistoryPanel({
               role="button"
               tabIndex={0}
               onClick={() => !isStreaming && onSelectConversation(conv.id)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !isStreaming) onSelectConversation(conv.id); }}
+              onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !isStreaming) { e.preventDefault(); onSelectConversation(conv.id); } }}
+              aria-current={activeConversationId === conv.id ? "true" : undefined}
               className={cn(
                 "w-full text-left px-3 py-2.5 transition-colors relative group cursor-pointer",
                 activeConversationId === conv.id

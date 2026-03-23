@@ -795,7 +795,7 @@ function SimpleCanvasGridInner({
                     const rect = e.currentTarget.getBoundingClientRect();
                     setContextMenu({ cardId: card.id, x: rect.right, y: rect.bottom + 4 });
                   }}
-                  className="w-6 h-6 flex items-center justify-center rounded bg-background/70 backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-background/90 transition-colors border border-border/30"
+                  className="w-7 h-7 flex items-center justify-center rounded bg-background/70 backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-background/90 transition-colors border border-border/30"
                   aria-label="Card menu"
                   aria-haspopup="menu"
                   title="Card menu (or right-click)"
@@ -960,6 +960,7 @@ function SimpleCanvasGridInner({
             <button
               onClick={() => { clearTimeout(undoToast.timer); setUndoToast(null); }}
               className="text-background/60 hover:text-background transition-colors"
+              aria-label="Dismiss"
             >
               <X className="w-3 h-3" />
             </button>

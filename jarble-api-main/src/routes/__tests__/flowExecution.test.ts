@@ -38,6 +38,56 @@ vi.mock("../../services/auth.js", () => ({
   getUserFromToken: (...args: any[]) => mockGetUserFromToken(...args),
 }));
 
+// Mock the DB module — flow execution now looks up flows from DB
+const mockDbSelect = vi.fn();
+const mockDbSelectFrom = vi.fn();
+const mockDbSelectWhere = vi.fn();
+const mockDbSelectLimit = vi.fn();
+
+vi.mock("../../db/index.js", () => {
+  const chainedSelect = {
+    from: (...args: any[]) => {
+      mockDbSelectFrom(...args);
+      return {
+        where: (...wArgs: any[]) => {
+          mockDbSelectWhere(...wArgs);
+          return {
+            limit: (...lArgs: any[]) => {
+              mockDbSelectLimit(...lArgs);
+              // Return empty by default (no flow in DB → falls back to body.definition)
+              return Promise.resolve([]);
+            },
+          };
+        },
+      };
+    },
+  };
+  return {
+    db: {
+      select: (...args: any[]) => {
+        mockDbSelect(...args);
+        return chainedSelect;
+      },
+    },
+    tables: {
+      orchestrationFlows: {
+        id: "id",
+        definition: "definition",
+        userId: "userId",
+      },
+      deployments: {
+        id: "id",
+        userId: "userId",
+      },
+    },
+  };
+});
+
+vi.mock("drizzle-orm", () => ({
+  eq: (...args: any[]) => ({ type: "eq", args }),
+  and: (...args: any[]) => ({ type: "and", args }),
+}));
+
 // Mock the FlowExecutionEngine to avoid DB/marketplaceHub dependencies
 const mockExecute = vi.fn();
 

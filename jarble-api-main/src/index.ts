@@ -131,7 +131,7 @@ app.use("/api/mesh", meshDiscoveryRouter);
 app.use("/api/agent-hub", agentHubRouter);
 app.use("/api/public", publicApiRouter);
 app.use("/api/beta-signup", betaRouter);
-app.use("/api/flows", flowExecutionRouter);
+app.use("/api/flows", authLimiter, flowExecutionRouter);
 
 // Debug endpoints — dev only
 if (env.NODE_ENV === "development") {

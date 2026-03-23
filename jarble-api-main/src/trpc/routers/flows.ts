@@ -25,20 +25,20 @@ const generateExecutionId = () => `fex_${nanoid()}`;
 // ── Zod Schemas ──────────────────────────────────────────────────────────
 
 const FlowNodeSchema = z.object({
-  id: z.string(),
+  id: z.string().min(1),
   type: z.enum(["deployment", "transform", "condition", "output"]),
   deploymentId: z.string().optional(),
   serviceId: z.string().optional(),
   skillName: z.string().optional(),
-  label: z.string(),
+  label: z.string().min(1),
   config: z.record(z.unknown()).optional(),
   position: z.object({ x: z.number(), y: z.number() }),
 });
 
 const FlowEdgeSchema = z.object({
-  id: z.string(),
-  source: z.string(),
-  target: z.string(),
+  id: z.string().min(1),
+  source: z.string().min(1),
+  target: z.string().min(1),
   sourceHandle: z.string().optional(),
   targetHandle: z.string().optional(),
   label: z.string().optional(),
