@@ -36,7 +36,7 @@ export interface DirectChatMessage {
 }
 
 /** Regex to strip ```jarble_ui ... ``` and ```jarble_ui_update ... ``` fenced blocks from displayed text */
-const JARBLE_UI_FENCE = /```jarble_ui(?:_update)?\s*\n[\s\S]*?```/g;
+const JARBLE_UI_FENCE = /```jarble_(?:ui(?:_update|_define)?|suggestions|design_context)\s*\n[\s\S]*?```/g;
 
 function stripUIMarkers(text: string): string {
   return text.replace(JARBLE_UI_FENCE, "").replace(/\n{3,}/g, "\n\n").trim();

@@ -39,7 +39,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
     logger.info({ type: event.type, id: event.id }, "Stripe webhook received");
 
     // ── Idempotency check: skip if already processed ──
-    const existing = await db.query.processedWebhookEvents?.findFirst({
+    const existing = await db.query.processedWebhookEvents.findFirst({
       where: eq(tables.processedWebhookEvents.eventId, event.id),
     });
 

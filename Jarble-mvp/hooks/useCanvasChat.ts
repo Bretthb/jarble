@@ -60,7 +60,7 @@ interface UIBlockPending {
 }
 
 /** Regex to strip ```jarble_ui ... ```, ```jarble_ui_update ... ```, and ```jarble_ui_define ... ``` fenced blocks from displayed text */
-const JARBLE_UI_FENCE = /```jarble_ui(?:_update|_define)?\s*\n[\s\S]*?```/g;
+const JARBLE_UI_FENCE = /```jarble_(?:ui(?:_update|_define)?|suggestions|design_context)\s*\n[\s\S]*?```/g;
 
 /** Regex to strip raw component JSON that leaked into text (e.g. on abort before TOOL_CALL_END) */
 const RAW_COMPONENT_JSON = /\{"component"\s*:\s*"[a-z_]+"\s*,\s*"props"\s*:\s*\{[\s\S]{50,}\}\s*\}/g;

@@ -948,18 +948,19 @@ tamboAgentRouter.post("/", async (req, res) => {
       fenceBuffer = "";
 
       if (inFencedBlock) {
-        // We're inside a fence — look for the closing ```
-        const closeIdx = combined.indexOf("```");
-        if (closeIdx !== -1) {
+        // We're inside a fence — look for the closing ``` on its own line
+        // (avoids matching backticks inside code_block/sandbox content)
+        const closeMatch = combined.match(/\n```\s*(?:\n|$)/);
+        if (closeMatch && closeMatch.index !== undefined) {
           inFencedBlock = false;
           // Continue processing text after the closing fence
-          const afterFence = combined.slice(closeIdx + 3);
+          const afterFence = combined.slice(closeMatch.index + closeMatch[0].length);
           textToSend = afterFence;
         }
         // else: still inside fence, suppress everything
       } else {
         // Look for opening fence markers
-        const fenceMatch = combined.match(/```jarble_(?:ui|ui_update|ui_define|suggestions)\s*\n/);
+        const fenceMatch = combined.match(/```jarble_(?:ui|ui_update|ui_define|suggestions|design_context)\s*\n/);
         if (fenceMatch && fenceMatch.index !== undefined) {
           // Send text before the fence
           textToSend = combined.slice(0, fenceMatch.index);

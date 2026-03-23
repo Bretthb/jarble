@@ -1,5 +1,6 @@
 ALTER TABLE "users" ADD COLUMN "role" varchar(20) DEFAULT 'user' NOT NULL;--> statement-breakpoint
-UPDATE "users" SET "role" = 'super_admin' WHERE "auth0_id" = 'google-oauth2|112298309586248235116';--> statement-breakpoint
+-- Admin promotion should be done via admin panel or manual SQL, not in migrations
+--> statement-breakpoint
 CREATE TABLE "audit_logs" (
 	"id" varchar(255) PRIMARY KEY NOT NULL,
 	"user_id" varchar(255) NOT NULL,

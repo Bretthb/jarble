@@ -12,6 +12,7 @@ import { servicesRouter } from "./routers/services.js";
 import { apiKeysRouter } from "./routers/apiKeys.js";
 import { benchmarksRouter } from "./routers/benchmarks.js";
 import { agentCreditsRouter } from "./routers/agentCredits.js";
+import { adminRouter } from "./routers/admin.js";
 
 export const appRouter = router({
   user: userRouter,
@@ -27,6 +28,7 @@ export const appRouter = router({
   apiKeys: apiKeysRouter,
   benchmarks: benchmarksRouter,
   agentCredits: agentCreditsRouter,
+  admin: adminRouter,
 });
 
 // Export type for frontend
