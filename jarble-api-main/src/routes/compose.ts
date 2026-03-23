@@ -40,7 +40,7 @@ let componentSchemas: Record<string, Record<string, unknown>> = {};
 try {
   // Resolve via @jarble/component-manifest package — its index.ts is in shared/component-manifest/
   // The generated JSON sits alongside it in generated/component-data.json
-  const manifestDir = path.resolve(path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/, "$1"), "../../..", "shared", "component-manifest");
+  const manifestDir = path.resolve(__dirname, "../../..", "shared", "component-manifest");
   const schemaPath = path.join(manifestDir, "generated", "component-data.json");
   const raw = fs.readFileSync(schemaPath, "utf-8");
   const data = JSON.parse(raw);

@@ -44,13 +44,14 @@
     "pg": "^8.18.0",
     "pino": "^8.17.0",
     "pino-pretty": "^10.3.0",
-    "resend": "^6.9.3",
+    "resend": "^6.9.4",
     "stripe": "^20.3.1",
     "superjson": "^2.2.1",
     "ws": "^8.19.0",
     "zod": "^3.22.0"
   },
   "devDependencies": {
+    "@types/archiver": "^7.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/busboy": "^1.5.4",
     "@types/cors": "^2.8.17",

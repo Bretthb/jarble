@@ -450,7 +450,7 @@ filesRouter.post("/:id/files/download-archive", async (req, res) => {
     const archive = archiver("zip", { zlib: { level: 6 } });
     archive.pipe(res);
 
-    archive.on("error", (err) => {
+    archive.on("error", (err: Error) => {
       log.error({ err: err.message }, "Archive error");
       if (!res.headersSent) {
         res.status(500).json({ error: "Archive creation failed" });
