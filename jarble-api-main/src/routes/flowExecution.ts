@@ -158,94 +158,29 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
       callerDeploymentId
     );
 
-    // Register for reconnection
+    // Register for reconnection and SSE streaming
     runningExecutions.set(executionId, { engine, userId: user.id });
 
-    // Set up SSE stream
-    setupSSEHeaders(res);
+    // Return JSON with executionId — client connects to GET endpoint for SSE
+    releaseConnection(user.id); // POST doesn't hold connection; GET will acquire
+    res.json({ executionId, flowId, totalSteps: definition.nodes.length });
 
-    // Send execution ID so client can reconnect
-    writeSSE(res, "jarble.flow.execution.created", {
-      executionId,
-      flowId,
-      totalSteps: definition.nodes.length,
-    });
-
-    // Wire engine events to SSE
-    const detach = attachEngineToSSE(engine, res);
-
-    // Keep-alive ping every 15s
-    const keepAlive = setInterval(() => {
-      if (!res.writableEnded) {
-        res.write(": ping\n\n");
-      }
-    }, 15_000);
-
-    // Maximum execution time: 10 minutes
+    // Start execution in background (events buffered for SSE consumers)
     const executionTimeout = setTimeout(() => {
-      if (!res.writableEnded) {
-        log.warn({ executionId }, "Flow execution timeout (10min)");
-        engine.cancel();
-        writeSSE(res, "jarble.flow.state", {
-          status: "cancelled",
-          completedSteps: 0,
-          totalSteps: definition.nodes.length,
-          totalCredits: 0,
-          reason: "timeout",
-        });
-        res.end();
-      }
+      log.warn({ executionId }, "Flow execution timeout (10min)");
+      engine.cancel();
     }, 10 * 60 * 1000);
 
-    let cleaned = false;
-    const cleanup = () => {
-      if (cleaned) return;
-      cleaned = true;
-      clearInterval(keepAlive);
-      clearTimeout(executionTimeout);
-      detach();
-      releaseConnection(user!.id);
-      scheduleExecutionCleanup(executionId);
-    };
-
-    // Client disconnect — cancel execution if still running
-    req.on("close", () => {
-      log.debug({ executionId }, "Flow SSE client disconnected");
-      const state = engine.executionState;
-      if (state.status === "running") {
-        engine.cancel();
-      }
-      cleanup();
-    });
-
-    req.on("error", (err: Error) => {
-      log.warn({ err, executionId }, "Flow SSE request error");
-      cleanup();
-    });
-
-    res.on("error", (err: Error) => {
-      log.warn({ err, executionId }, "Flow SSE response error");
-      cleanup();
-    });
-
-    // Start execution (runs asynchronously, events stream via SSE)
     engine
       .execute()
       .then(() => {
-        if (!res.writableEnded) {
-          res.end();
-        }
-        cleanup();
+        clearTimeout(executionTimeout);
+        scheduleExecutionCleanup(executionId);
       })
       .catch((err) => {
         log.error({ executionId, err }, "Flow execution unexpected error");
-        if (!res.writableEnded) {
-          writeSSE(res, "jarble.flow.error", {
-            error: err.message || "Internal error",
-          });
-          res.end();
-        }
-        cleanup();
+        clearTimeout(executionTimeout);
+        scheduleExecutionCleanup(executionId);
       });
   } catch (err) {
     log.error({ err }, "Flow execution route error");

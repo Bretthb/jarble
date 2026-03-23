@@ -77,7 +77,8 @@ export function useFlowExecution(): UseFlowExecutionReturn {
 
       try {
         const token = await getAccessTokenSilently();
-        const url = `${API_URL}/api/flows/executions/${encodeURIComponent(executionId)}/stream?token=${encodeURIComponent(token)}`;
+        const flowId = activeFlowIdRef.current || "_";
+        const url = `${API_URL}/api/flows/${encodeURIComponent(flowId)}/executions/${encodeURIComponent(executionId)}/stream?token=${encodeURIComponent(token)}`;
 
         const es = new EventSource(url);
         eventSourceRef.current = es;
@@ -89,81 +90,88 @@ export function useFlowExecution(): UseFlowExecutionReturn {
           }
         };
 
-        // ── Snapshot: initial state of all steps ──
-        es.addEventListener("snapshot", (event) => {
-          if (cancelledRef.current) return;
-          try {
-            const data = JSON.parse(event.data) as {
-              executionId: string;
-              status: FlowExecutionState["status"];
-              steps: FlowStepStatus[];
-              totalCredits: number;
-            };
-            setState({
-              executionId: data.executionId,
-              status: data.status,
-              steps: new Map(data.steps.map((s) => [s.nodeId, s])),
-              totalCredits: data.totalCredits,
-            });
-          } catch {
-            // Ignore parse errors
-          }
-        });
-
-        // ── Step update: single step changed ──
-        es.addEventListener("step_update", (event) => {
-          if (cancelledRef.current) return;
-          try {
-            const step = JSON.parse(event.data) as FlowStepStatus;
-            setState((prev) => {
-              const next = new Map(prev.steps);
-              next.set(step.nodeId, step);
-              const totalCredits = Array.from(next.values()).reduce(
-                (sum, s) => sum + (s.credits ?? 0),
-                0
-              );
-              return { ...prev, steps: next, totalCredits };
-            });
-          } catch {
-            // Ignore parse errors
-          }
-        });
-
-        // ── Flow-level status change (running -> completed/failed) ──
-        es.addEventListener("flow_status", (event) => {
-          if (cancelledRef.current) return;
-          try {
-            const data = JSON.parse(event.data) as {
-              status: FlowExecutionState["status"];
-              error?: string;
-              totalCredits?: number;
-            };
-            setState((prev) => ({
-              ...prev,
-              status: data.status,
-              error: data.error,
-              totalCredits: data.totalCredits ?? prev.totalCredits,
-            }));
-            // If the flow is done, close the stream cleanly
-            if (data.status === "completed" || data.status === "failed") {
-              es.close();
-              eventSourceRef.current = null;
-              setIsConnected(false);
-            }
-          } catch {
-            // Ignore parse errors
-          }
-        });
-
-        // ── Default message handler (fallback) ──
+        // ── All events come as unnamed data: messages with a "type" field ──
         es.onmessage = (event) => {
           if (cancelledRef.current) return;
           try {
             const data = JSON.parse(event.data);
-            // Handle heartbeat / keepalive
-            if (data.type === "heartbeat") return;
+            const type = data.type as string;
+
+            // Snapshot: initial state of all steps on reconnect
+            if (type === "jarble.flow.snapshot") {
+              const steps = Array.isArray(data.steps)
+                ? new Map(data.steps.map((s: FlowStepStatus) => [s.nodeId, s]))
+                : new Map<string, FlowStepStatus>();
+              setState({
+                executionId: data.executionId || executionId,
+                status: data.status || "running",
+                steps,
+                totalCredits: data.totalCredits ?? 0,
+              });
+            }
+
+            // Step started
+            if (type === "jarble.flow.step.started") {
+              setState((prev) => {
+                const next = new Map(prev.steps);
+                next.set(data.nodeId, {
+                  nodeId: data.nodeId,
+                  label: data.label,
+                  status: "running",
+                });
+                return { ...prev, steps: next };
+              });
+            }
+
+            // Step finished
+            if (type === "jarble.flow.step.finished") {
+              setState((prev) => {
+                const next = new Map(prev.steps);
+                next.set(data.nodeId, {
+                  nodeId: data.nodeId,
+                  label: data.label,
+                  status: data.status,
+                  result: data.result,
+                  error: data.error,
+                  durationMs: data.durationMs,
+                  credits: data.credits,
+                });
+                const totalCredits = Array.from(next.values()).reduce(
+                  (sum, s) => sum + (s.credits ?? 0), 0
+                );
+                return { ...prev, steps: next, totalCredits };
+              });
+            }
+
+            // Flow-level state change
+            if (type === "jarble.flow.state") {
+              setState((prev) => ({
+                ...prev,
+                status: data.status,
+                error: data.error,
+                totalCredits: data.totalCredits ?? prev.totalCredits,
+              }));
+              // Terminal states — close stream cleanly
+              if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {
+                cancelledRef.current = true; // prevent reconnection
+                es.close();
+                eventSourceRef.current = null;
+                setIsConnected(false);
+              }
+            }
+
+            // Flow error
+            if (type === "jarble.flow.error") {
+              setState((prev) => ({
+                ...prev,
+                status: "failed",
+                error: data.error || "Unknown error",
+              }));
+            }
+
+            // Heartbeat — ignore
           } catch {
-            // Ignore
+            // Ignore parse errors
           }
         };
 
