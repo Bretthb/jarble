@@ -72,15 +72,10 @@ export default function ProfileDropdown() {
             <LayoutDashboard className="w-4 h-4" />
             Dashboard
           </DropdownMenuItem>
-          {/* TODO: Re-enable for post-MVP */}
-          {/* <DropdownMenuItem onClick={() => router.push("/deployments")}>
-            <Layers className="w-4 h-4" />
-            Linked Deployments
-          </DropdownMenuItem> */}
-          {/* <DropdownMenuItem onClick={() => router.push("/marketplace")}>
+          <DropdownMenuItem onClick={() => router.push("/marketplace")}>
             <Store className="w-4 h-4" />
             Marketplace
-          </DropdownMenuItem> */}
+          </DropdownMenuItem>
           {isAdmin && (
             <DropdownMenuItem onClick={() => router.push("/admin")}>
               <Shield className="w-4 h-4" />
