@@ -724,8 +724,14 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   // ── Slash command interception — handle /theme, /commands, etc. directly ──
   // Must run BEFORE RUN_STARTED to avoid double-emit (command handler sends its own).
-  if (lastUserText.trim()) {
-    const commandResult = await tryHandleSlashCommand(lastUserText, deploymentId, deployment, res, runId, threadId);
+  // Strip canvas state/design context prefixes to find the actual user text for slash detection.
+  const slashText = lastUserText
+    .replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]\n?/g, "")
+    .replace(/\[DESIGN_CONTEXT\][\s\S]*?\[\/DESIGN_CONTEXT\]\n?/g, "")
+    .replace(/\[EDITING [^\]]*\][\s\S]*?\[\/EDITING\]\n?/g, "")
+    .trim();
+  if (slashText) {
+    const commandResult = await tryHandleSlashCommand(slashText, deploymentId, deployment, res, runId, threadId);
     if (commandResult) return;
   }
 
