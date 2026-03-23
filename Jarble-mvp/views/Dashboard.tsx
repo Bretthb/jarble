@@ -143,8 +143,10 @@ export default function Dashboard() {
     })
     .map((d) => d.id);
 
-  // Storage usage batch query — placeholder until getStorageUsageBatch is implemented
-  const storageBatchQuery = { data: undefined as Record<string, { usedGb?: number; totalGb?: number; percentUsed?: number; allocatedGb?: number }> | undefined, isLoading: false };
+  const storageBatchQuery = trpc.deployment.getStorageUsageBatch.useQuery(
+    { ids: runningIds },
+    { enabled: runningIds.length > 0, staleTime: 30_000, refetchInterval: 60_000 }
+  );
 
   const [isResendingVerification, setIsResendingVerification] = useState(false);
 

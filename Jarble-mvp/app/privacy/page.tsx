@@ -2,7 +2,7 @@ import dynamic from "next/dynamic";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | Jarble",
+  title: "Privacy Policy",
 };
 
 const Privacy = dynamic(() => import("@/views/Privacy"), {

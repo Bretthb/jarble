@@ -311,6 +311,7 @@ async function createDeploymentLegacy(
           containers: [{
             name: "runtime",
             image: containerImage,
+            imagePullPolicy: process.env.USE_SQLITE === "true" ? "IfNotPresent" : "Always",
             ports: [{
               containerPort: gatewayPort,
               name: "gateway",

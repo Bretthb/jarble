@@ -107,6 +107,36 @@ export const deploymentRouter = router({
     }));
   }),
 
+  // Batch-fetch storage usage for multiple deployments (Dashboard storage meters)
+  getStorageUsageBatch: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).max(50) }))
+    .query(async ({ ctx, input }) => {
+      if (input.ids.length === 0) return {};
+
+      // Verify ownership of all requested deployments
+      const userDeps = await ctx.db.query.deployments.findMany({
+        where: and(eq(deployments.userId, ctx.user.id)),
+        columns: { id: true, managedBy: true },
+      });
+      const ownedIds = new Set(userDeps.map((d: { id: string }) => d.id));
+      const managedByMap = new Map(userDeps.map((d: { id: string; managedBy: string | null }) => [d.id, d.managedBy]));
+
+      const results: Record<string, { usedGb: number; totalGb: number; percentUsed: number } | null> = {};
+      const fetches = input.ids
+        .filter((id) => ownedIds.has(id))
+        .map(async (id) => {
+          try {
+            const usage = await getDeploymentStorageUsage(id, (managedByMap.get(id) as ManagedBy) ?? "legacy");
+            results[id] = usage ? { usedGb: usage.usedGb, totalGb: usage.totalGb, percentUsed: usage.percentUsed } : null;
+          } catch {
+            results[id] = null;
+          }
+        });
+
+      await Promise.allSettled(fetches);
+      return results;
+    }),
+
   // Get single deployment
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))

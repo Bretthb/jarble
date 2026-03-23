@@ -77,7 +77,11 @@ export const setThemeTool: McpTool = {
         .where(eq(tables.deployments.id, ctx.deploymentId));
 
       logger.info({ deploymentId: ctx.deploymentId }, "MCP: Theme reset to default");
-      return { success: true, message: "Theme reset to platform defaults." };
+      return {
+        success: true,
+        message: "Theme reset to platform defaults.",
+        sseEvents: [{ name: "jarble.theme.updated", value: null }],
+      };
     }
 
     // Validate
@@ -103,7 +107,8 @@ export const setThemeTool: McpTool = {
 
     return {
       success: true,
-      message: `Theme updated! The chat page will reflect the new theme on next load.\n${parts.join("\n")}`,
+      message: `Theme updated!\n${parts.join("\n")}`,
+      sseEvents: [{ name: "jarble.theme.updated", value: themeConfig }],
     };
   },
 };

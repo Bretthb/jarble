@@ -103,7 +103,9 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
               try {
                 const token = await authRef.current.getAccessTokenSilently();
                 if (token) return { Authorization: `Bearer ${token}` };
-              } catch {}
+              } catch (err) {
+                console.warn("[Auth] Token refresh failed:", err);
+              }
               return {};
             },
           }),
@@ -114,7 +116,9 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
               try {
                 const token = await authRef.current.getAccessTokenSilently();
                 if (token) return { Authorization: `Bearer ${token}` };
-              } catch {}
+              } catch (err) {
+                console.warn("[Auth] Token refresh failed:", err);
+              }
               return {};
             },
           }),

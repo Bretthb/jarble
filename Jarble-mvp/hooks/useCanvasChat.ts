@@ -82,6 +82,7 @@ export function useCanvasChat(
   state: CanvasState,
   dispatch: React.Dispatch<CanvasAction>,
   liveStatus?: string,
+  onStreamEnd?: () => void,
 ) {
   const { getAccessTokenSilently } = useAuth0();
   const { registerComponent } = useComponentCatalog();
@@ -917,6 +918,7 @@ export function useCanvasChat(
           setToolStatus(null);
           setActiveAgentCall(null);
           setOrchestrationSteps([]);
+          onStreamEnd?.();
         }
       }
     },

@@ -59,7 +59,7 @@ export async function writeConfigsToPvc(
   // Clear specified directories before writing (e.g. skills/ to remove stale configs)
   for (const dir of clearDirs) {
     const dirPath = dir.startsWith("/") ? dir : `${pvcMount}/config/${dir}`;
-    scriptParts.push(`rm -rf '${dirPath}'`);
+    scriptParts.push(`rm -rf '${escapeShellValue(dirPath)}'`);
   }
 
   // Collect unique directories to create
@@ -88,7 +88,7 @@ export async function writeConfigsToPvc(
     if (file.content.length > LARGE_FILE_THRESHOLD) {
       largeFiles.push({ filePath, b64 });
     } else {
-      smallWriteParts.push(`echo '${b64}' | base64 -d > '${filePath}'`);
+      smallWriteParts.push(`echo '${b64}' | base64 -d > '${escapeShellValue(filePath)}'`);
     }
   }
 
@@ -104,7 +104,7 @@ export async function writeConfigsToPvc(
   // Phase 2: large files written individually (avoids command-line size limits)
   for (const { filePath, b64 } of largeFiles) {
     try {
-      await execInPod(podName, ["sh", "-c", `echo '${b64}' | base64 -d > '${filePath}'`], containerName);
+      await execInPod(podName, ["sh", "-c", `echo '${b64}' | base64 -d > '${escapeShellValue(filePath)}'`], containerName);
     } catch (err) {
       log.warn({ deploymentId, filePath, err }, "writeConfigsToPvc: large file write failed (non-fatal)");
     }

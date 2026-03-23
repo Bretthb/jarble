@@ -237,6 +237,20 @@ export default function DeploymentChatPage() {
   const deployment = deploymentQuery.data;
   const liveStatus = getLiveStatus(deployment.id)?.status || deployment.status;
 
+  if (liveStatus === "creating" || liveStatus === "pending") {
+    return (
+      <div className="h-screen bg-background text-foreground flex flex-col items-center justify-center gap-4">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <div className="text-center space-y-2">
+          <h2 className="text-lg font-semibold">Provisioning your bot...</h2>
+          <p className="text-sm text-muted-foreground max-w-md">
+            Setting up your deployment. This usually takes 1-2 minutes.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <ComponentCatalogProvider deploymentId={id}>
       <DeploymentTamboProvider deploymentId={id} deploymentName={deployment.name}>
@@ -245,6 +259,7 @@ export default function DeploymentChatPage() {
           deploymentName={deployment.name}
           liveStatus={liveStatus}
           themeConfig={(deployment as any).themeConfig}
+          onRefetchDeployment={() => deploymentQuery.refetch()}
         />
       </DeploymentTamboProvider>
     </ComponentCatalogProvider>
@@ -258,11 +273,13 @@ function WorkspacePage({
   deploymentName,
   liveStatus,
   themeConfig,
+  onRefetchDeployment,
 }: {
   deploymentId: string;
   deploymentName: string;
   liveStatus: string;
   themeConfig?: string | null;
+  onRefetchDeployment?: () => void;
 }) {
   const router = useRouter();
   const [configOpen, setConfigOpen] = useState(false);
@@ -273,6 +290,10 @@ function WorkspacePage({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
+  // Sync liveThemeConfig when the deployment refetch returns updated themeConfig
+  useEffect(() => {
+    if (themeConfig !== undefined) setLiveThemeConfig(themeConfig);
+  }, [themeConfig]);
   const themeStyle = useDeploymentTheme(liveThemeConfig);
 
   const currentSkin = useMemo(() => {
@@ -460,6 +481,7 @@ function WorkspacePage({
           liveStatus={liveStatus}
           historyOpen={historyOpen}
           onHistoryClose={() => setHistoryOpen(false)}
+          onRefetchDeployment={onRefetchDeployment}
         />
         {marketplaceOpen && (
           <MarketplacePanel
@@ -549,11 +571,13 @@ function CanvasWorkspace({
   liveStatus,
   historyOpen,
   onHistoryClose,
+  onRefetchDeployment,
 }: {
   deploymentId: string;
   liveStatus: string;
   historyOpen: boolean;
   onHistoryClose: () => void;
+  onRefetchDeployment?: () => void;
 }) {
   const startMutation = trpc.deployment.start.useMutation();
   const [state, dispatch] = useReducer(canvasReducer, INITIAL_CANVAS_STATE);
@@ -562,7 +586,7 @@ function CanvasWorkspace({
     lastChatError, lastUserMessage, clearChatError, suggestions, toolStatus, activeAgentCall, orchestrationSteps,
     stopGeneration, editMessage,
     conversations, activeConversationId, switchConversation, newConversation, deleteConversation,
-  } = useCanvasChat(deploymentId, state, dispatch, liveStatus);
+  } = useCanvasChat(deploymentId, state, dispatch, liveStatus, onRefetchDeployment);
   // runtime created inside KeyedChatPanel — keyed by activeConversationId
   useCanvasPersistence(deploymentId, state, dispatch, activeConversationId);
   useArtifactSync(deploymentId, state, dispatch);
@@ -645,8 +669,17 @@ function CanvasWorkspace({
   );
 
   const handleSlashSelect = useCallback((command: string) => {
-    setInput(command + " ");
     setSlashMenuOpen(false);
+    // Commands without arguments: auto-submit immediately
+    const autoSubmitCommands = ["/clear", "/reset", "/commands", "/help"];
+    if (autoSubmitCommands.includes(command.toLowerCase())) {
+      setInput("");
+      sendMessage(command);
+      textareaRef.current?.focus();
+      return;
+    }
+    // Commands with arguments: populate input and let user type the arg
+    setInput(command + " ");
     textareaRef.current?.focus();
   }, []);
 

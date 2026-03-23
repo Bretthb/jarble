@@ -1,9 +1,7 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useAuth0 } from "@auth0/auth0-react";
+import MarketingNav from "@/components/marketing/MarketingNav";
+import MarketingFooter from "@/components/marketing/MarketingFooter";
 
 const LAST_UPDATED = "March 10, 2026";
 
@@ -25,48 +23,9 @@ const TOC = [
 ];
 
 export default function Privacy() {
-  const { isAuthenticated } = useAuth0();
-  const router = useRouter();
-
   return (
     <div className="min-h-screen bg-background text-foreground relative">
-      {/* Navigation */}
-      <nav className="fixed inset-x-0 top-0 z-50 bg-background/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <h1 className="font-serif font-bold text-2xl tracking-tight">Jarble</h1>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link href="/" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
-              Home
-            </Link>
-            <Link href="/about" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
-              About
-            </Link>
-            <Link href="/pricing" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
-              Pricing
-            </Link>
-            {isAuthenticated ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => router.push("/dashboard")}
-                className="rounded-full border-input bg-background/50 backdrop-blur-sm hover:bg-secondary/50"
-              >
-                Dashboard
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                onClick={() => router.push("/login")}
-                className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
-              >
-                Sign in
-              </Button>
-            )}
-          </div>
-        </div>
-      </nav>
+      <MarketingNav />
 
       {/* Content */}
       <main className="pt-32 pb-20 px-4">
@@ -320,26 +279,7 @@ export default function Privacy() {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="py-12 border-t border-border relative z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-            <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-              <span className="font-serif font-bold text-foreground">Jarble</span>
-            </Link>
-            <nav className="flex flex-wrap justify-center gap-x-8 gap-y-2">
-              <Link href="/" className="text-muted-foreground hover:text-primary transition-colors">Home</Link>
-              <Link href="/about" className="text-muted-foreground hover:text-primary transition-colors">About</Link>
-              <Link href="/pricing" className="text-muted-foreground hover:text-primary transition-colors">Pricing</Link>
-              <Link href="/terms" className="text-muted-foreground hover:text-primary transition-colors">Terms of Service</Link>
-              <Link href="/privacy" className="text-primary">Privacy Policy</Link>
-            </nav>
-          </div>
-          <div className="mt-8 pt-8 border-t border-border text-center text-muted-foreground text-sm">
-            <p>&copy; 2026 Jarble. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
+      <MarketingFooter />
     </div>
   );
 }

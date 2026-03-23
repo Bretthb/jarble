@@ -16,6 +16,8 @@ export interface ToolResult {
   success: boolean;
   data?: unknown;
   message: string; // Human-readable summary for the LLM
+  /** Optional SSE side-effect events to emit to the frontend after tool execution. */
+  sseEvents?: Array<{ name: string; value: unknown }>;
 }
 
 export interface ToolContext {

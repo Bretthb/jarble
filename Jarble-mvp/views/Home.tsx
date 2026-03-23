@@ -3,12 +3,12 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { ArrowRight, Zap, Shield, Gauge, Loader2 } from "lucide-react";
+import { ArrowRight, Zap, Shield, Gauge } from "lucide-react";
 import { useState } from "react";
-import ProfileDropdown from "@/components/ProfileDropdown";
+import MarketingNav from "@/components/marketing/MarketingNav";
+import MarketingFooter from "@/components/marketing/MarketingFooter";
 
 const IntegrationsMarquee = dynamic(() => import("@/components/IntegrationsMarquee"), {
   ssr: false,
@@ -44,52 +44,12 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground relative">
-      {/* Navigation */}
-      <nav className="fixed inset-x-0 top-0 z-50 bg-background/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <h1 className="font-serif font-bold text-2xl tracking-tight">Jarble</h1>
-          </div>
-          <div className="flex items-center gap-4">
-            <Link href="/about" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
-              About
-            </Link>
-            <Link href="/pricing" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
-              Pricing
-            </Link>
-            <Link href="/explore" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
-              Explore
-            </Link>
-            <Link href="/marketplace" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
-              Marketplace
-            </Link>
-            <Link href="/docs" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
-              Docs
-            </Link>
-            {isAuthenticated ? (
-              <>
-                <Link href="/dashboard" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
-                  Dashboard
-                </Link>
-                <ProfileDropdown />
-              </>
-            ) : (
-              <Button
-                size="sm"
-                onClick={() => router.push("/login")}
-                className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
-              >
-                Sign in
-              </Button>
-            )}
-          </div>
-        </div>
-      </nav>
+      <MarketingNav />
 
       {/* Hero + Integrations share one background for seamless blend */}
       <div className="relative pt-16">
         {/* Hero Section */}
-        <section className="relative z-10 pt-32 pb-20 lg:pt-48 lg:pb-32 px-4 scroll-mt-20">
+        <section className="relative z-10 pt-24 pb-12 lg:pt-36 lg:pb-16 px-4 scroll-mt-20">
           <div className="max-w-6xl mx-auto relative lg:grid lg:grid-cols-[1fr_1fr] lg:gap-4 lg:items-start lg:pt-8">
             {/* Mobile: static image - positioned behind hero text */}
             <div className="absolute inset-0 flex items-start justify-end -top-6 -right-16 sm:hidden pointer-events-none animate-fade-in-scale">
@@ -181,7 +141,7 @@ export default function Home() {
         </section>
 
         {/* Integrations Section */}
-        <section data-tour="integrations" className="relative py-24 overflow-hidden scroll-mt-20">
+        <section data-tour="integrations" className="relative py-16 overflow-hidden scroll-mt-20">
           <div className="relative z-10">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-12">
               <h2 className="text-4xl font-serif font-medium text-center mb-4">
@@ -240,28 +200,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="py-12 relative z-10 border-t border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className="flex items-center gap-2">
-              <span className="font-serif font-bold text-foreground">Jarble</span>
-            </div>
-            <nav className="flex flex-wrap justify-center gap-x-8 gap-y-2">
-              <Link href="/about" className="text-muted-foreground hover:text-primary transition-colors">About</Link>
-              <Link href="/pricing" className="text-muted-foreground hover:text-primary transition-colors">Pricing</Link>
-              <Link href="/docs" className="text-muted-foreground hover:text-primary transition-colors">Documentation</Link>
-              <Link href="/docs/api" className="text-muted-foreground hover:text-primary transition-colors">API Reference</Link>
-              <Link href="/terms" className="text-muted-foreground hover:text-primary transition-colors">Terms of Service</Link>
-              <Link href="/privacy" className="text-muted-foreground hover:text-primary transition-colors">Privacy Policy</Link>
-              <span className="text-muted-foreground/50 cursor-default" title="Coming soon">Contact</span>
-            </nav>
-          </div>
-          <div className="mt-8 pt-8 text-center text-muted-foreground text-sm">
-            <p>&copy; 2026 Jarble. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
+      <MarketingFooter />
     </div>
   );
 }
