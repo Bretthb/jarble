@@ -247,87 +247,97 @@ describe("SimpleCanvasGrid", () => {
     });
   });
 
-  describe("card action buttons", () => {
-    it("close button dispatches REMOVE_CARD", () => {
+  describe("card context menu actions", () => {
+    function openContextMenu() {
+      const menuBtn = screen.getByRole("button", { name: /card menu/i });
+      fireEvent.click(menuBtn);
+    }
+
+    it("card menu button opens context menu", () => {
+      renderGrid([makeCard({ id: "c1" })]);
+      openContextMenu();
+      expect(screen.getByText("Close")).toBeInTheDocument();
+    });
+
+    it("close menu item dispatches REMOVE_CARD", () => {
       const dispatch = vi.fn();
       renderGrid([makeCard({ id: "c1" })], dispatch);
-      const closeBtn = screen.getByRole("button", { name: /close card/i });
-      fireEvent.click(closeBtn);
+      openContextMenu();
+      fireEvent.click(screen.getByText("Close"));
       expect(dispatch).toHaveBeenCalledWith({ type: "REMOVE_CARD", id: "c1" });
     });
 
-    it("select button dispatches TOGGLE_SELECT_CARD", () => {
+    it("select menu item dispatches TOGGLE_SELECT_CARD", () => {
       const dispatch = vi.fn();
       renderGrid([makeCard({ id: "c1" })], dispatch);
-      const selectBtn = screen.getByRole("button", { name: /select/i });
-      fireEvent.click(selectBtn);
+      openContextMenu();
+      fireEvent.click(screen.getByText("Select"));
       expect(dispatch).toHaveBeenCalledWith({ type: "TOGGLE_SELECT_CARD", id: "c1" });
     });
 
-    it("action buttons have 28px size (w-7 h-7)", () => {
+    it("save menu item shows for unsaved cards", () => {
       renderGrid([makeCard({ id: "c1" })]);
-      const closeBtn = screen.getByRole("button", { name: /close card/i });
-      expect(closeBtn.className).toContain("w-7");
-      expect(closeBtn.className).toContain("h-7");
+      openContextMenu();
+      expect(screen.getByText("Save to library")).toBeInTheDocument();
     });
 
-    it("save button shows for unsaved cards", () => {
-      renderGrid([makeCard({ id: "c1" })]);
-      const saveBtn = screen.getByRole("button", { name: /save to library/i });
-      expect(saveBtn).toBeInTheDocument();
-    });
-
-    it("save button shows saved state for saved cards", () => {
+    it("save menu item shows saved state for saved cards", () => {
       renderGrid([makeCard({ id: "c1", savedName: "My Component" })]);
-      const savedBtn = screen.getByRole("button", { name: /saved as/i });
-      expect(savedBtn).toBeInTheDocument();
+      openContextMenu();
+      expect(screen.getByText("Saved")).toBeInTheDocument();
     });
 
-    it("publish button is rendered", () => {
+    it("publish menu item is rendered", () => {
       renderGrid([makeCard({ id: "c1" })]);
-      const publishBtn = screen.getByRole("button", { name: /publish as marketplace service/i });
-      expect(publishBtn).toBeInTheDocument();
-      expect(publishBtn).toHaveAttribute("title", "Publish as service");
+      openContextMenu();
+      expect(screen.getByText("Publish as service")).toBeInTheDocument();
     });
 
-    it("publish button calls onSendMessage when clicked", async () => {
+    it("publish menu item calls onSendMessage when clicked", async () => {
       const onSendMessage = vi.fn().mockResolvedValue(undefined);
       renderGrid([makeCard({ id: "c1", component: "card", props: { title: "Test Card" } })], undefined, { onSendMessage });
-      const publishBtn = screen.getByRole("button", { name: /publish as marketplace service/i });
-      fireEvent.click(publishBtn);
+      openContextMenu();
+      fireEvent.click(screen.getByText("Publish as service"));
       expect(onSendMessage).toHaveBeenCalled();
     });
   });
 
-  describe("split button", () => {
-    it("shows split button for splittable stat_grid with multiple stats", () => {
+  describe("split in context menu", () => {
+    function openContextMenu() {
+      const menuBtn = screen.getByRole("button", { name: /card menu/i });
+      fireEvent.click(menuBtn);
+    }
+
+    it("shows split option for splittable stat_grid with multiple stats", () => {
       const card = makeCard({
         id: "s1",
         component: "stat_grid",
         props: { stats: [{ label: "A", value: 1 }, { label: "B", value: 2 }] },
       });
       renderGrid([card]);
-      const splitBtn = screen.getByRole("button", { name: /split into individual/i });
-      expect(splitBtn).toBeInTheDocument();
+      openContextMenu();
+      expect(screen.getByText("Split")).toBeInTheDocument();
     });
 
-    it("does not show split button for non-splittable components", () => {
+    it("does not show split option for non-splittable components", () => {
       const card = makeCard({ id: "c1", component: "card", props: { title: "Test" } });
       renderGrid([card]);
-      expect(screen.queryByRole("button", { name: /split into individual/i })).not.toBeInTheDocument();
+      openContextMenu();
+      expect(screen.queryByText("Split")).not.toBeInTheDocument();
     });
 
-    it("does not show split button for splittable with single item", () => {
+    it("does not show split option for splittable with single item", () => {
       const card = makeCard({
         id: "s1",
         component: "stat_grid",
         props: { stats: [{ label: "A", value: 1 }] },
       });
       renderGrid([card]);
-      expect(screen.queryByRole("button", { name: /split into individual/i })).not.toBeInTheDocument();
+      openContextMenu();
+      expect(screen.queryByText("Split")).not.toBeInTheDocument();
     });
 
-    it("split button dispatches SPLIT_CARD", () => {
+    it("split option dispatches SPLIT_CARD", () => {
       const dispatch = vi.fn();
       const card = makeCard({
         id: "s1",
@@ -335,8 +345,8 @@ describe("SimpleCanvasGrid", () => {
         props: { stats: [{ label: "A", value: 1 }, { label: "B", value: 2 }] },
       });
       renderGrid([card], dispatch);
-      const splitBtn = screen.getByRole("button", { name: /split into individual/i });
-      fireEvent.click(splitBtn);
+      openContextMenu();
+      fireEvent.click(screen.getByText("Split"));
       expect(dispatch).toHaveBeenCalledWith({ type: "SPLIT_CARD", id: "s1" });
     });
   });
@@ -433,10 +443,12 @@ describe("SimpleCanvasGrid", () => {
   });
 
   describe("saved card badge", () => {
-    it("shows saved name badge for saved cards", () => {
+    it("shows bookmark icon for saved cards", () => {
       const card = makeCard({ id: "c1", savedName: "Weather Widget" });
-      renderGrid([card]);
-      expect(screen.getByText("Weather Widget")).toBeInTheDocument();
+      const { container } = renderGrid([card]);
+      // Saved cards show a filled bookmark icon badge (not text)
+      const bookmarkBadge = container.querySelector(".fill-amber-400");
+      expect(bookmarkBadge).toBeInTheDocument();
     });
   });
 });

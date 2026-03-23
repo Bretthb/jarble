@@ -405,7 +405,7 @@ describe("buildDocument", () => {
   it("includes canvas full-size CSS", () => {
     const doc = buildDocument("<div></div>", undefined, undefined, undefined);
     expect(doc).toContain("canvas { display: block");
-    expect(doc).toContain("width: 100% !important");
-    expect(doc).toContain("height: 100% !important");
+    expect(doc).toContain("max-width: 100%");
+    expect(doc).toContain("max-height: 100%");
   });
 });

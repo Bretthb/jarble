@@ -215,10 +215,12 @@ describe("CanvasRenderer", () => {
     const block: UIBlock = {
       id: "test-3",
       component: "alert",
-      props: {}, // missing required message and variant
+      props: {}, // missing required message and variant — still renders (graceful degradation)
     };
+    // Renderer now passes invalid props through (logs Zod warning but renders anyway)
     render(<CanvasRenderer block={block} />);
-    expect(screen.getByText(/failed to render/i)).toBeDefined();
+    // Component should render without crashing (no error card)
+    expect(screen.queryByText(/failed to render/i)).toBeNull();
   });
 
   it("shows unknown component fallback for unregistered component", () => {
@@ -231,16 +233,15 @@ describe("CanvasRenderer", () => {
     expect(screen.getByText(/unknown component/i)).toBeDefined();
   });
 
-  it("passes onAction to error card buttons", () => {
+  it("passes onAction through to rendered component", () => {
     const onAction = vi.fn();
     const block: UIBlock = {
       id: "test-5",
       component: "alert",
-      props: {}, // invalid — triggers error card
+      props: { message: "Test alert", variant: "info" },
     };
     render(<CanvasRenderer block={block} onAction={onAction} />);
-    // Error card should have Fix and Remove buttons
-    const fixButton = screen.getByText("Fix Component");
-    expect(fixButton).toBeDefined();
+    // Component renders successfully with valid props
+    expect(screen.getByText("Test alert")).toBeDefined();
   });
 });

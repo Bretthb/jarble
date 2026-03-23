@@ -21,6 +21,13 @@ vi.mock("@sentry/nextjs", () => ({
   addBreadcrumb: vi.fn(),
 }));
 
+// Mock Auth0 (CanvasSandbox uses useAuth0 for bridge data channel)
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({
+    getAccessTokenSilently: vi.fn().mockResolvedValue("test-token"),
+  }),
+}));
+
 describe("CanvasSandbox CSP and Security", () => {
   // Dynamically import after mocks
   async function importSandbox() {

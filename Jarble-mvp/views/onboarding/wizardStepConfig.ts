@@ -233,6 +233,28 @@ export function getConfigTabs(runtimeSlug: string | null): ConfigTabDef[] {
 //   2. Add validation logic in openrouter.ts → validateProviderKey
 //   3. Add the provider ID to the Zod enum in deployment.ts
 
+// ─── Managed Key Plans ──────────────────────────────────────────────
+//
+// These define the spending cap options for the "Included Credits" LLM mode.
+// Users pick a monthly spending cap when provisioning a managed OpenRouter key.
+
+export interface ManagedKeyPlanDef {
+  value: number;         // Monthly spending cap in USD
+  label: string;         // Display label (e.g. "$5/mo")
+  description: string;   // Short description of what it gets you
+  isDefault?: boolean;   // Pre-selected plan
+}
+
+export const MANAGED_KEY_PLANS: ManagedKeyPlanDef[] = [
+  { value: 5,   label: "$5/mo",   description: "Light usage — great for testing & small bots",   isDefault: true },
+  { value: 10,  label: "$10/mo",  description: "Moderate usage — handles a few hundred messages" },
+  { value: 25,  label: "$25/mo",  description: "Active usage — supports busy bots with frequent conversations" },
+  { value: 50,  label: "$50/mo",  description: "Heavy usage — high-volume bots and power users" },
+  { value: 100, label: "$100/mo", description: "Enterprise — maximum capacity for production workloads" },
+];
+
+export const DEFAULT_MANAGED_KEY_PLAN = MANAGED_KEY_PLANS.find((p) => p.isDefault)?.value ?? 5;
+
 export const LLM_PROVIDERS: LLMProviderDef[] = [
   {
     id: "openrouter",

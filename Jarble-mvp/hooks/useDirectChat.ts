@@ -273,6 +273,15 @@ export function useDirectChat(deploymentId: string) {
         if (flushTimer) cancelAnimationFrame(flushTimer);
         if (pendingTextDelta || pendingThinkingDelta) flushTextDeltas();
 
+        // Final cleanup: strip any remaining UI markers from displayed text
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: stripUIMarkers(m.content) }
+              : m
+          )
+        );
+
         isDev && console.log(`[Jarble:DirectChat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {

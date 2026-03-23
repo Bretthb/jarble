@@ -73,7 +73,13 @@ function makeState(cards: any[] = []): CanvasState {
     cards,
     viewportOffset: { x: 0, y: 0 },
     zoom: 1,
+    nextZIndex: 1,
+    focusedCardId: null,
     mode: "dashboard" as const,
+    fixAttempts: {},
+    dashboardGroups: {},
+    strokes: [],
+    fullscreenPageId: null,
   };
 }
 
