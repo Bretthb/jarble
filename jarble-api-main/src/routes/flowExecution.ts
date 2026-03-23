@@ -301,13 +301,18 @@ flowExecutionRouter.post(
       }
 
       try {
-        // Resume the engine — this unblocks the waiting promise
-        await engine.resume(nodeId, input);
+        // Resume the engine — this completes the waitForInput node and
+        // continues execution. resume() returns the final state (or paused
+        // again if another waitForInput is hit).
+        // Run in background so we can respond immediately.
+        res.json({
+          executionId: execId,
+          status: "resumed",
+          nodeId,
+        });
 
-        // After resume, re-run execute to continue the state machine
-        // The engine's execute() will continue from where it paused
         engine
-          .execute()
+          .resume(nodeId, input)
           .then((finalState) => {
             if (finalState.status !== "paused") {
               scheduleExecutionCleanup(execId);
@@ -317,12 +322,6 @@ flowExecutionRouter.post(
             log.error({ execId, err }, "Flow resume execution error");
             scheduleExecutionCleanup(execId);
           });
-
-        res.json({
-          executionId: execId,
-          status: "resumed",
-          nodeId,
-        });
       } catch (err: any) {
         res.status(400).json({ error: err.message });
       }

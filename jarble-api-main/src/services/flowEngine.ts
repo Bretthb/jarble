@@ -151,8 +151,8 @@ export class FlowExecutionEngine extends EventEmitter {
   /** Track how many times each node has been executed (for cycle support) */
   private nodeVisitCount: Map<string, number> = new Map();
 
-  /** Resolve function stored when paused on a waitForInput node */
-  private resumeResolver: ((input: { nodeId: string; input: unknown }) => void) | null = null;
+  /** When resuming, start from this set of nodes instead of entry nodes */
+  private resumeFromNodes: string[] | null = null;
 
   /** Nesting depth for subflow execution (prevents infinite recursion) */
   private nestingDepth: number;
@@ -245,15 +245,13 @@ export class FlowExecutionEngine extends EventEmitter {
     try {
       await this.executeStateMachine();
     } catch (err: any) {
-      if (this.state.status === "paused") {
-        // Paused is not an error — return current state
-        return this.state;
+      if (this.state.status !== "paused") {
+        this.state.status = "failed";
+        this.emit("flow:error", {
+          executionId: this.state.executionId,
+          error: err.message,
+        });
       }
-      this.state.status = "failed";
-      this.emit("flow:error", {
-        executionId: this.state.executionId,
-        error: err.message,
-      });
     }
 
     // If paused, don't finalize — resume() will continue
@@ -290,30 +288,48 @@ export class FlowExecutionEngine extends EventEmitter {
 
   /**
    * State-machine execution model:
-   * 1. Find entry nodes (no incoming edges)
+   * 1. Find entry nodes (no incoming edges, or lowest in-degree for pure cycles)
    * 2. Execute ready nodes in parallel
-   * 3. After each node completes, follow outgoing edges
+   * 3. After each node completes/fails/skips, follow outgoing edges
    * 4. Nodes can be revisited (cycles) up to maxIterations
    * 5. waitForInput nodes pause the engine
    */
   private async executeStateMachine(): Promise<void> {
     const totalNodes = this.definition.nodes.length;
 
-    // Find entry nodes (nodes with no incoming edges)
-    const entryNodes: string[] = [];
-    for (const node of this.definition.nodes) {
-      const incoming = this.incomingEdges.get(node.id) ?? [];
-      if (incoming.length === 0) {
-        entryNodes.push(node.id);
+    let readyQueue: string[];
+
+    if (this.resumeFromNodes) {
+      // Resuming from a paused state — start from the specified nodes
+      readyQueue = [...this.resumeFromNodes];
+      this.resumeFromNodes = null;
+    } else {
+      // Find entry nodes: nodes with no incoming edges
+      readyQueue = [];
+      for (const node of this.definition.nodes) {
+        const incoming = this.incomingEdges.get(node.id) ?? [];
+        if (incoming.length === 0) {
+          readyQueue.push(node.id);
+        }
+      }
+
+      // If no natural entry nodes exist (pure cycle), pick nodes with minimum in-degree
+      if (readyQueue.length === 0) {
+        let minInDegree = Infinity;
+        for (const node of this.definition.nodes) {
+          const incoming = this.incomingEdges.get(node.id) ?? [];
+          if (incoming.length < minInDegree) {
+            minInDegree = incoming.length;
+          }
+        }
+        for (const node of this.definition.nodes) {
+          const incoming = this.incomingEdges.get(node.id) ?? [];
+          if (incoming.length === minInDegree) {
+            readyQueue.push(node.id);
+          }
+        }
       }
     }
-
-    if (entryNodes.length === 0) {
-      throw new Error("No entry nodes found (all nodes have incoming edges — pure cycle with no entry point)");
-    }
-
-    // readyQueue: nodes that are ready to execute
-    let readyQueue: string[] = [...entryNodes];
 
     while (readyQueue.length > 0) {
       if (this.abortController.signal.aborted) break;
@@ -341,51 +357,49 @@ export class FlowExecutionEngine extends EventEmitter {
         return;
       }
 
-      // Collect next ready nodes from completed batch
+      // Collect next ready nodes from completed/failed/skipped batch
       for (const nodeId of currentBatch) {
         const stepResult = this.state.stepResults.get(nodeId);
-        if (!stepResult || stepResult.status !== "completed") continue;
+        if (!stepResult) continue;
+
+        // Only follow edges from terminal states
+        if (
+          stepResult.status !== "completed" &&
+          stepResult.status !== "failed" &&
+          stepResult.status !== "skipped"
+        ) {
+          continue;
+        }
 
         const outgoing = this.outgoingEdges.get(nodeId) ?? [];
         for (const edge of outgoing) {
           const targetId = edge.target;
+          const node = this.nodeMap.get(targetId);
+          if (!node) continue;
 
-          // Check if the edge condition is met
-          if (edge.condition) {
-            const conditionMet = this.evaluateCondition(
-              edge.condition,
-              this.state.stepResults
+          // Check if all incoming dependencies are resolved (completed/failed/skipped)
+          if (!this.allDependenciesResolved(targetId)) continue;
+
+          const visitCount = this.nodeVisitCount.get(targetId) ?? 0;
+          const maxIter = node.maxIterations ?? 10;
+
+          if (visitCount >= maxIter) {
+            // Max iterations reached — emit warning and skip
+            log.warn(
+              { nodeId: targetId, visitCount, maxIter },
+              "Node max iterations reached, skipping"
             );
-            if (!conditionMet) continue;
+            this.emit("step:iteration", {
+              nodeId: targetId,
+              iteration: visitCount,
+              maxIterations: maxIter,
+            });
+            continue;
           }
 
-          // Check if all incoming edges for the target have their source completed
-          // (or at least one source completed for cycle-back edges)
-          if (this.isNodeReady(targetId)) {
-            const node = this.nodeMap.get(targetId);
-            if (!node) continue;
-
-            const visitCount = this.nodeVisitCount.get(targetId) ?? 0;
-            const maxIter = node.maxIterations ?? 10;
-
-            if (visitCount >= maxIter) {
-              // Max iterations reached — skip this node and emit warning
-              log.warn(
-                { nodeId: targetId, visitCount, maxIter },
-                "Node max iterations reached, skipping"
-              );
-              this.emit("step:iteration", {
-                nodeId: targetId,
-                iteration: visitCount,
-                maxIterations: maxIter,
-              });
-              continue;
-            }
-
-            // Avoid duplicate entries in the queue
-            if (!readyQueue.includes(targetId)) {
-              readyQueue.push(targetId);
-            }
+          // Avoid duplicate entries in the queue
+          if (!readyQueue.includes(targetId)) {
+            readyQueue.push(targetId);
           }
         }
       }
@@ -405,16 +419,13 @@ export class FlowExecutionEngine extends EventEmitter {
   }
 
   /**
-   * Check if a node is ready to execute.
-   * A node is ready when all its non-back-edge sources have completed.
-   * For cycle back-edges, the node is ready if the triggering source just completed.
+   * Check if all incoming dependencies of a node are resolved
+   * (completed, failed, or skipped).
    */
-  private isNodeReady(nodeId: string): boolean {
+  private allDependenciesResolved(nodeId: string): boolean {
     const incoming = this.incomingEdges.get(nodeId) ?? [];
     if (incoming.length === 0) return true;
 
-    // Node is ready if at least one source has completed in this round
-    // For strict DAG-like deps, all sources must be completed/failed/skipped
     for (const edge of incoming) {
       const sourceResult = this.state.stepResults.get(edge.source);
       if (!sourceResult) return false;
@@ -432,7 +443,7 @@ export class FlowExecutionEngine extends EventEmitter {
 
   /**
    * Execute a single node within the state machine model.
-   * Handles iteration tracking and waitForInput pausing.
+   * Handles iteration tracking, dependency checks, and condition evaluation.
    */
   private async executeNodeInStateMachine(
     nodeId: string,
@@ -508,6 +519,12 @@ export class FlowExecutionEngine extends EventEmitter {
           return;
         }
       }
+    }
+
+    // Handle waitForInput: pause synchronously without blocking execute()
+    if (node.type === "waitForInput") {
+      this.handleWaitForInput(node, totalNodes);
+      return;
     }
 
     await this.executeStep(node, totalNodes);
@@ -607,18 +624,15 @@ export class FlowExecutionEngine extends EventEmitter {
           result = this.executeOutputNode(node);
           break;
         }
-        case "waitForInput": {
-          result = await this.executeWaitForInputNode(node);
-          // If we got paused, return immediately — don't mark as completed
-          if (this.state.status === "paused") return;
-          break;
-        }
         case "subflow": {
           const subResult = await this.executeSubflowNode(node);
           result = subResult.result;
           creditsCharged = subResult.creditsCharged;
           break;
         }
+        case "waitForInput":
+          // Handled separately by handleWaitForInput; should not reach here
+          throw new Error("waitForInput should not be executed via executeStep");
         default:
           throw new Error(`Unknown node type: ${(node as any).type}`);
       }
@@ -719,10 +733,7 @@ export class FlowExecutionEngine extends EventEmitter {
       this.state.stepResults
     );
 
-    // Transform node: apply a JS-like expression from config.expression
-    // or simply pass through resolved config as the result
     if (typeof resolvedConfig.expression === "string") {
-      // Simple field extraction / mapping — NOT eval, just structured transforms
       return this.applyTransform(
         resolvedConfig.expression as string,
         resolvedConfig
@@ -739,7 +750,6 @@ export class FlowExecutionEngine extends EventEmitter {
       this.state.stepResults
     );
 
-    // Condition nodes evaluate to true/false and return that as their result
     if (typeof resolvedConfig.condition === "string") {
       return this.evaluateCondition(
         resolvedConfig.condition as string,
@@ -747,7 +757,6 @@ export class FlowExecutionEngine extends EventEmitter {
       );
     }
 
-    // Default: truthy check on resolved value
     return !!resolvedConfig.value;
   }
 
@@ -756,14 +765,25 @@ export class FlowExecutionEngine extends EventEmitter {
     return this.resolveTemplateVars(config, this.state.stepResults);
   }
 
-  // ── Feature 2: waitForInput node ────────────────────────────────────────
+  // ── Feature 2: waitForInput — synchronous pause ─────────────────────────
 
   /**
-   * Pause the engine and wait for external input via resume().
-   * Returns the input value when resume() is called.
+   * Pause the engine at a waitForInput node. Does NOT block execute().
+   * Sets engine state to "paused" and stores the node ID.
+   * The caller (execute) checks for "paused" status and returns immediately.
+   * Use resume() to provide input and continue execution.
    */
-  private async executeWaitForInputNode(node: FlowNode): Promise<unknown> {
+  private handleWaitForInput(node: FlowNode, totalNodes: number): void {
     const config = node.config ?? {};
+
+    // Mark node as running
+    this.state.stepResults.set(node.id, { status: "running" });
+    this.emit("step:started", {
+      nodeId: node.id,
+      label: node.label,
+      index: this.countCompleted() + 1,
+      total: totalNodes,
+    });
 
     // Set engine state to paused
     this.state.status = "paused";
@@ -777,36 +797,14 @@ export class FlowExecutionEngine extends EventEmitter {
     });
 
     this.emitFlowState();
-
-    // Checkpoint paused state to DB
-    await this.checkpointState().catch((err) => {
-      log.warn({ executionId: this.state.executionId, nodeId: node.id, err }, "Paused checkpoint failed");
-    });
-
-    // Wait for resume() to be called — returns a promise that resolves when input is provided
-    const resumeInput = await new Promise<{ nodeId: string; input: unknown }>((resolve) => {
-      this.resumeResolver = resolve;
-    });
-
-    // Validate that the resume is for the correct node
-    if (resumeInput.nodeId !== node.id) {
-      throw new Error(
-        `Resume nodeId mismatch: expected "${node.id}", got "${resumeInput.nodeId}"`
-      );
-    }
-
-    // Clear paused state
-    this.state.status = "running";
-    this.state.pausedAtNodeId = undefined;
-    this.resumeResolver = null;
-
-    return resumeInput.input;
   }
 
   /**
    * Resume a paused execution by providing input for the waiting node.
+   * Completes the waitForInput node with the provided input as its result,
+   * then re-runs the state machine from the outgoing nodes.
    */
-  async resume(nodeId: string, input: unknown): Promise<void> {
+  async resume(nodeId: string, input: unknown): Promise<FlowExecutionState> {
     if (this.state.status !== "paused") {
       throw new Error(`Cannot resume: execution is "${this.state.status}", not "paused"`);
     }
@@ -817,12 +815,47 @@ export class FlowExecutionEngine extends EventEmitter {
       );
     }
 
-    if (!this.resumeResolver) {
-      throw new Error("Cannot resume: no resume resolver registered (internal error)");
+    const node = this.nodeMap.get(nodeId);
+    if (!node) {
+      throw new Error(`Cannot resume: node "${nodeId}" not found`);
     }
 
-    // Provide the input, which unblocks the waitForInput promise
-    this.resumeResolver({ nodeId, input });
+    // Complete the waitForInput node with the provided input
+    this.state.stepResults.set(nodeId, {
+      status: "completed",
+      result: input,
+      durationMs: 0,
+      creditsCharged: 0,
+    });
+
+    const completedCount = this.countCompleted();
+    const totalNodes = this.definition.nodes.length;
+    this.emit("step:finished", {
+      nodeId,
+      label: node.label,
+      status: "completed",
+      result: input,
+      durationMs: 0,
+      credits: 0,
+      index: completedCount,
+      total: totalNodes,
+    });
+
+    // Clear paused state
+    this.state.pausedAtNodeId = undefined;
+
+    // Set up resume: continue from outgoing edges of the paused node
+    const outgoing = this.outgoingEdges.get(nodeId) ?? [];
+    this.resumeFromNodes = outgoing.map((e) => e.target);
+
+    // If no outgoing edges, the flow is done — use empty array so execute
+    // will proceed to final status determination
+    if (this.resumeFromNodes.length === 0) {
+      this.resumeFromNodes = [];
+    }
+
+    // Continue execution
+    return this.execute();
   }
 
   // ── Feature 3: Subflow (nested flow) node ──────────────────────────────
@@ -880,12 +913,6 @@ export class FlowExecutionEngine extends EventEmitter {
     } catch {
       throw new Error(`Subflow "${flowId}" has invalid definition`);
     }
-
-    // Resolve template variables for the child's context
-    const resolvedConfig = this.resolveTemplateVars(
-      config,
-      this.state.stepResults
-    );
 
     // Create child engine
     const childExecId = `${this.state.executionId}_sub_${node.id}`;
@@ -950,11 +977,9 @@ export class FlowExecutionEngine extends EventEmitter {
     let finalResult: unknown;
     const outputNodes = childDefinition.nodes.filter((n) => n.type === "output");
     if (outputNodes.length > 0) {
-      // Use the last output node's result
       const lastOutput = outputNodes[outputNodes.length - 1];
       finalResult = childState.stepResults.get(lastOutput.id)?.result;
     } else {
-      // Return all step results as a map
       const resultMap: Record<string, unknown> = {};
       for (const [id, sr] of childState.stepResults) {
         if (sr.status === "completed") {
@@ -972,10 +997,6 @@ export class FlowExecutionEngine extends EventEmitter {
 
   // ── Template variable resolution ──────────────────────────────────────
 
-  /**
-   * Recursively resolve {{node_id.field.subfield}} template variables
-   * in an object, array, or string using results from completed steps.
-   */
   resolveTemplateVars(
     value: unknown,
     stepResults: Map<string, StepResult>
@@ -1003,16 +1024,13 @@ export class FlowExecutionEngine extends EventEmitter {
     template: string,
     stepResults: Map<string, StepResult>
   ): unknown {
-    // Pattern: {{node_id.field.subfield}} or {{node_id}}
     const pattern = /\{\{([^}]+)\}\}/g;
 
-    // If the entire string is a single template, return the raw value (preserves types)
     const fullMatch = template.match(/^\{\{([^}]+)\}\}$/);
     if (fullMatch) {
       return this.resolveTemplatePath(fullMatch[1].trim(), stepResults);
     }
 
-    // Otherwise, do string interpolation
     return template.replace(pattern, (_match, path: string) => {
       const resolved = this.resolveTemplatePath(path.trim(), stepResults);
       if (resolved === undefined || resolved === null) return "";
@@ -1028,13 +1046,11 @@ export class FlowExecutionEngine extends EventEmitter {
     const parts = path.split(".");
     const nodeId = parts[0];
 
-    // Also support the workflow agent's "stepN_result" format
-    // e.g. "step1_result.field" -> look up by step index
     const stepMatch = nodeId.match(/^step(\d+)_result$/);
     let stepResult: StepResult | undefined;
 
     if (stepMatch) {
-      const stepIndex = parseInt(stepMatch[1], 10) - 1; // 1-indexed
+      const stepIndex = parseInt(stepMatch[1], 10) - 1;
       const nodeIds = [...stepResults.keys()];
       if (stepIndex >= 0 && stepIndex < nodeIds.length) {
         stepResult = stepResults.get(nodeIds[stepIndex]);
@@ -1047,7 +1063,6 @@ export class FlowExecutionEngine extends EventEmitter {
       return undefined;
     }
 
-    // Navigate into the result object
     let current: unknown = stepResult.result;
     for (let i = 1; i < parts.length; i++) {
       if (current === null || current === undefined) return undefined;
@@ -1063,22 +1078,13 @@ export class FlowExecutionEngine extends EventEmitter {
 
   // ── Condition evaluation ──────────────────────────────────────────────
 
-  /**
-   * Evaluate a simple condition string. Supports:
-   * - "{{node_id.field}} == value"
-   * - "{{node_id.field}} != value"
-   * - "{{node_id.field}} > value"  (numeric)
-   * - "{{node_id.field}}" (truthy check)
-   */
   private evaluateCondition(
     condition: string,
     stepResults: Map<string, StepResult>
   ): boolean {
-    // Resolve any template vars in the condition string first
     const resolved = this.resolveStringTemplate(condition, stepResults);
     const resolvedStr = String(resolved);
 
-    // Try operator patterns
     const operators = ["!=", "==", ">=", "<=", ">", "<"];
     for (const op of operators) {
       const idx = resolvedStr.indexOf(op);
@@ -1107,7 +1113,6 @@ export class FlowExecutionEngine extends EventEmitter {
       }
     }
 
-    // Fallback: truthy check
     return !!resolved && resolved !== "false" && resolved !== "0";
   }
 
@@ -1117,13 +1122,6 @@ export class FlowExecutionEngine extends EventEmitter {
     expression: string,
     context: Record<string, unknown>
   ): unknown {
-    // Simple supported transforms:
-    // "pick:field1,field2" — extract fields from input
-    // "merge" — merge all inputs into one object
-    // "stringify" — JSON.stringify the input
-    // "parse" — JSON.parse a string input
-    // Default: pass through the input
-
     const [op, ...argParts] = expression.split(":");
     const arg = argParts.join(":");
 
@@ -1186,11 +1184,6 @@ export class FlowExecutionEngine extends EventEmitter {
     });
   }
 
-  /**
-   * Checkpoint intermediate state to flow_executions table after each step.
-   * Enables crash recovery — if the server restarts, the last checkpoint
-   * shows which steps completed and their results.
-   */
   private async checkpointState(): Promise<void> {
     const stepResultsObj: Record<string, StepResult> = {};
     for (const [k, v] of this.state.stepResults) {
@@ -1206,18 +1199,12 @@ export class FlowExecutionEngine extends EventEmitter {
       .where(eq(tables.flowExecutions.id, this.state.executionId));
   }
 
-  /**
-   * Persist the final execution state to the DB.
-   * Uses the agentCalls table for now — a dedicated flow_executions table
-   * can be added later when the schema is extended.
-   */
   private async persistState(): Promise<void> {
     const stepResultsObj: Record<string, StepResult> = {};
     for (const [k, v] of this.state.stepResults) {
       stepResultsObj[k] = v;
     }
 
-    // Final checkpoint to flow_executions
     await db.update(tables.flowExecutions)
       .set({
         status: this.state.status === "completed" ? "completed" : "failed",
@@ -1228,7 +1215,6 @@ export class FlowExecutionEngine extends EventEmitter {
       })
       .where(eq(tables.flowExecutions.id, this.state.executionId));
 
-    // Also record in agentCalls as a flow execution summary
     await db.insert(tables.agentCalls).values({
       id: this.state.executionId,
       callerDeploymentId:

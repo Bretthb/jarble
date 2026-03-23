@@ -488,19 +488,18 @@ describe("FlowExecutionEngine", () => {
       expect(state.totalCredits).toBe(0);
     });
 
-    it("handles cycle detection during execute() and emits flow:error", async () => {
+    it("handles pure cycle A<->B during execute() — runs with iteration limit", async () => {
+      // With the state-machine model, A<->B is a pure cycle.
+      // Both nodes have incoming edges, so the engine picks minimum in-degree nodes.
+      // The cycle runs up to maxIterations (default 10) then stops.
       const nodes = [makeNode("A"), makeNode("B")];
       const edges = [makeEdge("A", "B"), makeEdge("B", "A")];
       const engine = createEngine({ nodes, edges });
 
-      const errors: any[] = [];
-      engine.on("flow:error", (e) => errors.push(e));
-
       const state = await engine.execute();
 
-      expect(state.status).toBe("failed");
-      expect(errors.length).toBe(1);
-      expect(errors[0].error).toContain("Cycle detected");
+      // The cycle executes successfully (up to maxIterations), not a failure
+      expect(state.status).toBe("completed");
     });
   });
 
