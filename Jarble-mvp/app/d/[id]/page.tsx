@@ -12,6 +12,7 @@ import { useJarbleRuntime } from "@/lib/assistantRuntime";
 import AssistantUIChat from "@/components/chat/AssistantUIChat";
 import { SlashCommandMenu, getFilteredCommandCount } from "@/components/chat/SlashCommandMenu";
 import { useCanvasPersistence } from "@/hooks/useCanvasPersistence";
+import { saveComponentState } from "@/lib/componentState";
 import { useArtifactSync } from "@/hooks/useArtifactSync";
 import { canvasReducer, INITIAL_CANVAS_STATE } from "@/components/workspace/canvasReducer";
 import SimpleCanvasGrid from "@/components/workspace/SimpleCanvasGrid";
@@ -579,6 +580,7 @@ function CanvasWorkspace({
   onHistoryClose: () => void;
   onRefetchDeployment?: () => void;
 }) {
+  const { getAccessTokenSilently } = useAuth0();
   const startMutation = trpc.deployment.start.useMutation();
   const [state, dispatch] = useReducer(canvasReducer, INITIAL_CANVAS_STATE);
   const {
@@ -727,9 +729,9 @@ function CanvasWorkspace({
   // Render function for cards in the grid
   const renderCard = useCallback(
     (card: import("@/components/workspace/types").CanvasCard) => (
-      <CardContent card={card} deploymentId={deploymentId} sendMessage={sendMessage} canvasDispatch={dispatch} />
+      <CardContent card={card} deploymentId={deploymentId} sendMessage={sendMessage} canvasDispatch={dispatch} getAuthToken={getAccessTokenSilently} />
     ),
-    [deploymentId, sendMessage, dispatch]
+    [deploymentId, sendMessage, dispatch, getAccessTokenSilently]
   );
 
   const selectedCard = state.cards.find((c) => c.selected) || null;
@@ -991,11 +993,13 @@ const CardContent = memo(function CardContent({
   deploymentId,
   sendMessage,
   canvasDispatch,
+  getAuthToken,
 }: {
   card: import("@/components/workspace/types").CanvasCard;
   deploymentId: string;
   sendMessage: (text: string, displayText?: string) => Promise<void>;
   canvasDispatch: React.Dispatch<import("@/components/workspace/types").CanvasAction>;
+  getAuthToken?: () => Promise<string>;
 }) {
   // ── Error relay throttle ──────────────────────────────────────────────────
   // Prevents cascading "Fix this component" messages when a sandbox/component
@@ -1011,10 +1015,17 @@ const CardContent = memo(function CardContent({
       console.log(`[Jarble:ActionRelay] Action received: ${action.component} → ${action.action} (blockId: ${action.blockId})`);
 
       // Content edit — user modified component content (code, text, etc.)
-      // Update card props silently without sending a chat message
+      // Update card props locally + debounced save to pod PVC for persistence
       if (action.action === "content_edit") {
         console.log(`[Jarble:ActionRelay] Content edit: ${action.blockId} (${action.component})`);
+        const mergedProps = { ...card.props, ...action.payload };
         canvasDispatch({ type: "UPDATE_CARD_PROPS", id: action.blockId, props: action.payload, merge: true });
+        // Persist merged state to pod PVC — debounced, fire-and-forget
+        if (getAuthToken) {
+          getAuthToken().then((token: string) => {
+            saveComponentState(deploymentId, action.blockId, mergedProps, token);
+          }).catch(() => {});
+        }
         return;
       }
 

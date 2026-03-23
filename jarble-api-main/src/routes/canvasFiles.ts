@@ -20,7 +20,107 @@ import { createModuleLogger } from "../utils/logger.js";
 const log = createModuleLogger("canvasFiles");
 import { writeFileTool } from "../mcp/tools/writeFile.js";
 
+import { escapeShellValue } from "../k8s/exec.js";
+import { getPvcMountPath, getContainerName } from "../k8s/constants.js";
+import type { ManagedBy } from "../k8s/constants.js";
+
 export const canvasFilesRouter = Router();
+
+// ── Component State Persistence (PVC) ───────────────────────────────────────
+// Saves/loads component state as JSON files on the pod's PVC at /data/component-state/
+// PVC survives pod restarts and deletions (Longhorn persistent storage).
+
+const STATE_DIR = "component-state";
+
+canvasFilesRouter.post("/:id/component-state/save", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!bearerToken) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    let user;
+    try {
+      const payload = await verifyToken(bearerToken);
+      user = await getUserFromToken(payload);
+    } catch { res.status(401).json({ error: "Invalid token" }); return; }
+    if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const deploymentId = req.params.id;
+    const deployment = await db.query.deployments.findFirst({
+      where: and(eq(tables.deployments.id, deploymentId), eq(tables.deployments.userId, user.id)),
+    });
+    if (!deployment) { res.status(404).json({ error: "Deployment not found" }); return; }
+
+    const { cardId, state } = req.body;
+    if (!cardId || typeof cardId !== "string" || !state) {
+      res.status(400).json({ error: "Missing cardId or state" });
+      return;
+    }
+
+    // Sanitize cardId to prevent path traversal
+    const safeCardId = cardId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const managedBy = ((deployment as any).managedBy ?? "legacy") as ManagedBy;
+    const podName = await findPodForDeployment(deploymentId, { managedBy });
+    if (!podName) { res.status(400).json({ error: "No running pod" }); return; }
+
+    const mount = getPvcMountPath(managedBy);
+    const container = getContainerName(managedBy);
+    const filePath = `${mount}/${STATE_DIR}/${safeCardId}.json`;
+    const b64 = Buffer.from(JSON.stringify(state)).toString("base64");
+
+    await execInPod(podName, [
+      "sh", "-c",
+      `mkdir -p '${mount}/${STATE_DIR}' && echo '${b64}' | base64 -d > '${escapeShellValue(filePath)}'`,
+    ], container);
+
+    res.json({ success: true });
+  } catch (err) {
+    log.error({ err, deploymentId: req.params.id }, "component-state save failed");
+    res.status(500).json({ error: "Failed to save component state" });
+  }
+});
+
+canvasFilesRouter.get("/:id/component-state/:cardId", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!bearerToken) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    let user;
+    try {
+      const payload = await verifyToken(bearerToken);
+      user = await getUserFromToken(payload);
+    } catch { res.status(401).json({ error: "Invalid token" }); return; }
+    if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const deploymentId = req.params.id;
+    const deployment = await db.query.deployments.findFirst({
+      where: and(eq(tables.deployments.id, deploymentId), eq(tables.deployments.userId, user.id)),
+    });
+    if (!deployment) { res.status(404).json({ error: "Deployment not found" }); return; }
+
+    const safeCardId = req.params.cardId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const managedBy = ((deployment as any).managedBy ?? "legacy") as ManagedBy;
+    const podName = await findPodForDeployment(deploymentId, { managedBy });
+    if (!podName) { res.json({ state: null }); return; }
+
+    const mount = getPvcMountPath(managedBy);
+    const container = getContainerName(managedBy);
+    const filePath = `${mount}/${STATE_DIR}/${safeCardId}.json`;
+
+    try {
+      const stdout = await execInPod(podName, ["cat", filePath], container);
+      const state = JSON.parse(stdout);
+      res.json({ state });
+    } catch {
+      // File doesn't exist yet — return null (use original props)
+      res.json({ state: null });
+    }
+  } catch (err) {
+    log.error({ err, deploymentId: req.params.id }, "component-state load failed");
+    res.status(500).json({ error: "Failed to load component state" });
+  }
+});
 
 /** Allowed jarble-ui tool names — whitelist to prevent arbitrary command injection */
 const ALLOWED_TOOLS = new Set([
