@@ -100,10 +100,14 @@ function CanvasCarouselInner({
                   : "bg-muted-foreground/30 hover:bg-muted-foreground/50"
               }`}
               aria-label={`Go to slide ${index + 1}`}
+              aria-pressed={index === currentIndex}
             />
           ))}
         </div>
       )}
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        Slide {currentIndex + 1} of {items.length}
+      </span>
     </motion.div>
   );
 }

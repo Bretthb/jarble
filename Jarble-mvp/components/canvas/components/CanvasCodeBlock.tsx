@@ -133,7 +133,7 @@ function CanvasCodeBlockInner({ code, language, title }: CanvasCodeBlockProps) {
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-800/50 bg-[#161b22]">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5" aria-hidden="true">
             <span className="w-[10px] h-[10px] rounded-full bg-[#ff5f57]" />
             <span className="w-[10px] h-[10px] rounded-full bg-[#febc2e]" />
             <span className="w-[10px] h-[10px] rounded-full bg-[#28c840]" />

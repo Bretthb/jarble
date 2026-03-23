@@ -73,19 +73,21 @@ function CanvasStatisticInner({
       transition={{ duration: 0.3 }}
       className="p-4 h-full flex flex-col justify-center"
     >
-      {title && (
-        <div className="text-xs text-muted-foreground mb-1">{title}</div>
-      )}
-      <div className="flex items-baseline gap-1">
-        {prefix && (
-          <span className="text-xl text-muted-foreground">{prefix}</span>
+      <div role="img" aria-label={`${title ? title + ": " : ""}${prefix || ""}${formattedValue}${suffix || ""}`}>
+        {title && (
+          <div className="text-xs text-muted-foreground mb-1">{title}</div>
         )}
-        <span className="text-3xl font-bold text-foreground">
-          {formattedValue}
-        </span>
-        {suffix && (
-          <span className="text-xl text-muted-foreground">{suffix}</span>
-        )}
+        <div className="flex items-baseline gap-1">
+          {prefix && (
+            <span className="text-xl text-muted-foreground">{prefix}</span>
+          )}
+          <span className="text-3xl font-bold text-foreground">
+            {formattedValue}
+          </span>
+          {suffix && (
+            <span className="text-xl text-muted-foreground">{suffix}</span>
+          )}
+        </div>
       </div>
     </motion.div>
   );

@@ -602,6 +602,9 @@ function CanvasWorkspace({
   const [showCanvas, setShowCanvas] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Stable callback for canvas onHide — avoids breaking memo on DashboardCanvas / SimpleCanvasGrid
+  const handleHideCanvas = useCallback(() => setShowCanvas(false), []);
+
   // Slash command menu state
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashMenuIndex, setSlashMenuIndex] = useState(0);
@@ -937,7 +940,7 @@ function CanvasWorkspace({
               focusedCardId={state.focusedCardId}
               streamingCardIds={streamingCardIds}
               deploymentId={deploymentId}
-              onHide={() => setShowCanvas(false)}
+              onHide={handleHideCanvas}
             />
           ) : (
             <SimpleCanvasGrid
@@ -947,7 +950,7 @@ function CanvasWorkspace({
               focusedCardId={state.focusedCardId}
               streamingCardIds={streamingCardIds}
               deploymentId={deploymentId}
-              onHide={() => setShowCanvas(false)}
+              onHide={handleHideCanvas}
               dashboardGroups={state.dashboardGroups}
               zoom={state.zoom}
               onSendMessage={sendMessage}

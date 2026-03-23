@@ -73,7 +73,7 @@ function CanvasFormInner({
           <div key={field.name} className="space-y-1">
             <label htmlFor={`field-${field.name}`} className="text-xs font-medium text-muted-foreground">
               {field.label}
-              {field.required && <span className="text-red-400 ml-0.5">*</span>}
+              {field.required && <span className="text-red-600 dark:text-red-400 ml-0.5">*</span>}
             </label>
 
             {field.type === "textarea" ? (

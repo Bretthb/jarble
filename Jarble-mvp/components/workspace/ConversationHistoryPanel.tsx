@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { Plus, MessageSquare, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -28,7 +29,7 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export default function ConversationHistoryPanel({
+function ConversationHistoryPanel({
   conversations,
   activeConversationId,
   onSelectConversation,
@@ -132,3 +133,5 @@ export default function ConversationHistoryPanel({
     </div>
   );
 }
+
+export default memo(ConversationHistoryPanel);

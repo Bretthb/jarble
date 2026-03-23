@@ -125,7 +125,7 @@ export function useCanvasChat(
   const rafIdRef = useRef<number | null>(null);
   const targetReasoningRef = useRef<string>("");
   const displayedReasoningLenRef = useRef<number>(0);
-  const reasoningRafIdRef = useRef<number | null>(null);
+  // reasoningRafIdRef removed — merged into single rafIdRef loop
   // Design intent tracking — persists style choices across the session
   const designContextRef = useRef<Record<string, unknown> | null>(null);
   const CHARS_PER_FRAME = 8; // ~480 chars/sec at 60fps — fast but visible
@@ -259,10 +259,6 @@ export function useCanvasChat(
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
-      }
-      if (reasoningRafIdRef.current !== null) {
-        cancelAnimationFrame(reasoningRafIdRef.current);
-        reasoningRafIdRef.current = null;
       }
       abortRef.current?.abort();
     };
@@ -504,39 +500,47 @@ export function useCanvasChat(
         const cardsAddedThisStream: CanvasCard[] = [];
         let textContentCount = 0;
 
-        // Typewriter reveal: target accumulates instantly, displayed catches up per frame
+        // Merged typewriter reveal: single rAF loop advances both text + reasoning
+        // React 18+ batches setState calls within the same synchronous scope into one render,
+        // so this halves renders from ~120/sec to ~60/sec when both streams are active.
+        function scheduleTypewriter() {
+          if (rafIdRef.current !== null) return; // already scheduled
+          function tick() {
+            let needsMore = false;
+
+            // Advance text
+            const textTarget = targetTextRef.current;
+            if (displayedLenRef.current < textTarget.length) {
+              displayedLenRef.current = Math.min(displayedLenRef.current + CHARS_PER_FRAME, textTarget.length);
+              setStreamingText(textTarget.slice(0, displayedLenRef.current));
+              needsMore = displayedLenRef.current < textTarget.length;
+            }
+
+            // Advance reasoning
+            const reasoningTarget = targetReasoningRef.current;
+            if (displayedReasoningLenRef.current < reasoningTarget.length) {
+              displayedReasoningLenRef.current = Math.min(displayedReasoningLenRef.current + CHARS_PER_FRAME, reasoningTarget.length);
+              setStreamingReasoning(reasoningTarget.slice(0, displayedReasoningLenRef.current));
+              needsMore = needsMore || displayedReasoningLenRef.current < reasoningTarget.length;
+            }
+
+            if (needsMore) {
+              rafIdRef.current = requestAnimationFrame(tick);
+            } else {
+              rafIdRef.current = null;
+            }
+          }
+          rafIdRef.current = requestAnimationFrame(tick);
+        }
+
         function scheduleTextUpdate(text: string) {
           targetTextRef.current = text;
-          if (rafIdRef.current === null) {
-            function tick() {
-              const target = targetTextRef.current;
-              if (displayedLenRef.current < target.length) {
-                displayedLenRef.current = Math.min(displayedLenRef.current + CHARS_PER_FRAME, target.length);
-                setStreamingText(target.slice(0, displayedLenRef.current));
-                rafIdRef.current = requestAnimationFrame(tick);
-              } else {
-                rafIdRef.current = null;
-              }
-            }
-            rafIdRef.current = requestAnimationFrame(tick);
-          }
+          scheduleTypewriter();
         }
 
         function scheduleReasoningUpdate(text: string) {
           targetReasoningRef.current = text;
-          if (reasoningRafIdRef.current === null) {
-            function tick() {
-              const target = targetReasoningRef.current;
-              if (displayedReasoningLenRef.current < target.length) {
-                displayedReasoningLenRef.current = Math.min(displayedReasoningLenRef.current + CHARS_PER_FRAME, target.length);
-                setStreamingReasoning(target.slice(0, displayedReasoningLenRef.current));
-                reasoningRafIdRef.current = requestAnimationFrame(tick);
-              } else {
-                reasoningRafIdRef.current = null;
-              }
-            }
-            reasoningRafIdRef.current = requestAnimationFrame(tick);
-          }
+          scheduleTypewriter();
         }
 
         // Labeled outer loop so RUN_FINISHED can break out of both loops cleanly
@@ -884,14 +888,10 @@ export function useCanvasChat(
           blockStartTimes.clear();
         }
 
-        // Cancel any pending rAF and flush the final text immediately
+        // Cancel pending rAF and flush the final text immediately
         if (rafIdRef.current !== null) {
           cancelAnimationFrame(rafIdRef.current);
           rafIdRef.current = null;
-        }
-        if (reasoningRafIdRef.current !== null) {
-          cancelAnimationFrame(reasoningRafIdRef.current);
-          reasoningRafIdRef.current = null;
         }
         setStreamingText(stripUIMarkers(accumulatedText));
         setStreamingReasoning(reasoningText);
@@ -943,14 +943,10 @@ export function useCanvasChat(
         // The generation check prevents the abort race: when request A is aborted
         // and request B starts, A's finally must not clear B's streaming state.
         if (generationRef.current === generation) {
-          // Cancel any pending rAF to prevent stale updates
+          // Cancel pending rAF to prevent stale updates
           if (rafIdRef.current !== null) {
             cancelAnimationFrame(rafIdRef.current);
             rafIdRef.current = null;
-          }
-          if (reasoningRafIdRef.current !== null) {
-            cancelAnimationFrame(reasoningRafIdRef.current);
-            reasoningRafIdRef.current = null;
           }
           isStreamingRef.current = false;
           editModeRef.current = null;
