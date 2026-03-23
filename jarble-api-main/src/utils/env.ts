@@ -56,6 +56,12 @@ const envSchema = z.object({
   // and service proxy run in the same process).
   MESH_GATEWAY_SECRET: z.string().optional(),
 
+  // Admin user IDs — comma-separated Auth0 user IDs for marketplace moderation
+  ADMIN_USER_IDS: z.string().optional().default(""),
+
+  // Resend — transactional email service, disabled if not set
+  RESEND_API_KEY: z.string().optional().default(""),
+
   // Stripe — all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),

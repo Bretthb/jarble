@@ -14,6 +14,8 @@ import {
   CREDIT_PLANS,
   DEFAULT_CREDIT_PLAN,
   DEFAULT_INCLUDED_MODEL,
+  MANAGED_KEY_PLANS,
+  DEFAULT_MANAGED_KEY_PLAN,
   CPU_OPTIONS,
   MEMORY_OPTIONS,
   STORAGE_OPTIONS,
@@ -433,5 +435,43 @@ describe("DEFAULT_INCLUDED_MODEL", () => {
   it("exists in LLM_MODELS", () => {
     const found = LLM_MODELS.find(m => m.id === DEFAULT_INCLUDED_MODEL);
     expect(found).toBeDefined();
+  });
+});
+
+// ── Managed Key Plans ──────────────────────────────────────────────────────
+
+describe("MANAGED_KEY_PLANS", () => {
+  it("has exactly 5 entries", () => {
+    expect(MANAGED_KEY_PLANS.length).toBe(5);
+  });
+
+  it("each plan has value, label, and description", () => {
+    for (const plan of MANAGED_KEY_PLANS) {
+      expect(typeof plan.value).toBe("number");
+      expect(typeof plan.label).toBe("string");
+      expect(typeof plan.description).toBe("string");
+    }
+  });
+
+  it("exactly one plan has isDefault: true", () => {
+    const defaults = MANAGED_KEY_PLANS.filter(p => p.isDefault === true);
+    expect(defaults.length).toBe(1);
+  });
+
+  it("values are in ascending order", () => {
+    for (let i = 1; i < MANAGED_KEY_PLANS.length; i++) {
+      expect(MANAGED_KEY_PLANS[i].value).toBeGreaterThan(
+        MANAGED_KEY_PLANS[i - 1].value
+      );
+    }
+  });
+
+  it("DEFAULT_MANAGED_KEY_PLAN matches the default plan value", () => {
+    const defaultPlan = MANAGED_KEY_PLANS.find(p => p.isDefault);
+    expect(DEFAULT_MANAGED_KEY_PLAN).toBe(defaultPlan?.value);
+  });
+
+  it("DEFAULT_MANAGED_KEY_PLAN is 5", () => {
+    expect(DEFAULT_MANAGED_KEY_PLAN).toBe(5);
   });
 });

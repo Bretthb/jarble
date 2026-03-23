@@ -25,7 +25,7 @@ import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
 import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
 import { isAdmin } from "../../utils/admin.js";
 import { RESOURCE_TIERS } from "../../k8s/constants.js";
-import { validateThemeConfig } from "@jarble/component-manifest";
+import { validateThemeConfig, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 
 const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, personaTemplates } = tables;
 
@@ -132,18 +132,11 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      // Built-in component metadata (9 primitives)
-      const builtins = [
-        { name: "card", description: "Simple card with title, subtitle, and body text" },
-        { name: "data_table", description: "Table with column headers and data rows" },
-        { name: "stat_grid", description: "Grid of metric cards with labels, values, and change indicators" },
-        { name: "key_value", description: "List of key-value pairs" },
-        { name: "code_block", description: "Syntax-highlighted code snippet" },
-        { name: "alert", description: "Notification banner (info, success, warning, error)" },
-        { name: "progress", description: "Progress bar with label and percentage" },
-        { name: "image", description: "Image with optional alt text and caption" },
-        { name: "layout", description: "Container that renders an array of child components" },
-      ];
+      // Built-in component metadata — derived from the canonical component manifest
+      const builtins = Object.entries(COMPONENT_MANIFEST).map(([name, entry]) => ({
+        name,
+        description: entry.description,
+      }));
 
       // Custom/library components from PVC (only if pod is running)
       const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;

@@ -91,6 +91,23 @@ export const COMPONENT_NAME_MAP: Record<string, string> = {
   Widget: "embed",
   Embed: "embed",
   WebEmbed: "embed",
+  // Map aliases
+  map_view: "map",
+  MapView: "map",
+  location: "map",
+  // Carousel aliases
+  slider: "carousel",
+  slideshow: "carousel",
+  Carousel: "carousel",
+  // Confirmation aliases
+  confirm: "confirmation",
+  dialog: "confirmation",
+  Confirmation: "confirmation",
+  // Audio/Video aliases
+  audio_player: "audio",
+  video_player: "video",
+  AudioPlayer: "audio",
+  VideoPlayer: "video",
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

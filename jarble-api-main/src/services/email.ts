@@ -4,10 +4,9 @@
  */
 import { Resend } from "resend";
 import { logger } from "../utils/logger.js";
+import { env } from "../utils/env.js";
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-
-const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
+const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
 
 const FROM_EMAIL = "Jarble <onboarding@resend.dev>";
 

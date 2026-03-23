@@ -105,12 +105,13 @@ try {
     "chart", "tabs", "accordion", "badge", "list",
     "timeline", "divider", "metric_card", "header",
     "button_group", "form", "code_editor", "spreadsheet",
-    "sandbox", "video",
-    "audio", "avatar", "blockquote", "text_message",
-    "image_gallery", "map",
+    "sandbox", "marketplace_sandbox", "sandpack_sandbox",
+    "video", "embed", "audio", "avatar", "blockquote",
+    "text_message", "image_gallery", "map",
     "descriptions", "steps", "result", "carousel",
-    "statistic", "tag_cloud",
-    "tree", "marketplace_sandbox",
+    "statistic", "tag_cloud", "tree",
+    "reasoning", "tool", "sources", "page", "confirmation",
+    "canvas",
   ];
   BUILTIN_DESCRIPTIONS = {};
 }
@@ -393,7 +394,7 @@ function listCustomComponents() {
 const TOOLS = [
   {
     name: "render_ui",
-    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports built-in components (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, metric_card, header, button_group, form, code_editor, spreadsheet, sandbox) and custom bot-defined components. For data display (charts, tables, KPIs, metrics), use built-in components for speed and reliability. For anything creative, custom, or visually rich — dashboards with custom styling, interactive widgets, data visualizations beyond basic charts, landing pages, custom UIs — use sandbox (HTML/CSS/JS) or sandpack_sandbox (full React/TypeScript). Sandbox components support Tailwind CSS via CDN (https://cdn.tailwindcss.com/3.4.1), modern animations, and the full power of any allowed CDN library. Sandbox supports moduleJs (ES module code with import statements) and importMap (bare specifier to CDN URL mapping). Default imports include three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone — just use import statements. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
+    description: "Render a UI component on the Jarble canvas. The result will be displayed as a rich visual component in the user's dashboard. Supports 45+ built-in components: card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, metric_card, header, button_group, form, code_editor, spreadsheet, sandbox, sandpack_sandbox, video, embed, audio, avatar, blockquote, text_message, image_gallery, map, descriptions, steps, result, carousel, statistic, tag_cloud, tree, reasoning, tool, sources, page, confirmation. Also supports custom bot-defined components. For data display (charts, tables, KPIs, metrics), use built-in components for speed and reliability. For anything creative, custom, or visually rich — dashboards with custom styling, interactive widgets, data visualizations beyond basic charts, landing pages, custom UIs — use sandbox (HTML/CSS/JS) or sandpack_sandbox (full React/TypeScript). Sandbox components support Tailwind CSS via CDN (https://cdn.tailwindcss.com/3.4.1), modern animations, and the full power of any allowed CDN library. Sandbox supports moduleJs (ES module code with import statements) and importMap (bare specifier to CDN URL mapping). Default imports include three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone — just use import statements. IMPORTANT: Return the result text to the user as-is so the frontend can parse and render it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2646,6 +2647,27 @@ const COMPONENT_REFERENCE = {
   spreadsheet: "`{data?: [{...}], title?, height?}` — editable Excel-like grid",
   sandbox: "`{html, css?, js?, moduleJs?, importMap?: {}, props?: {}, height?, title?, libraries?: string[]}` — sandboxed iframe for live JS/animations/3D. CRITICAL: html=ONLY body HTML. js=classic JavaScript (UMD globals). moduleJs=ES module JS with import statements. importMap=maps bare specifiers to CDN URLs (e.g. {\"react\":\"https://esm.sh/react@18\"}). libraries=CDN URLs loaded as <script> tags. Default import map includes: three, d3, chart.js, leaflet, react, react-dom, gsap, p5, tone — no importMap needed for these packages, just use import statements in moduleJs. Use for: gauges, maps, scatter plots, heatmaps, 3D, animations, candlestick charts, word clouds, React/Vue/Svelte components, or ANY custom visualization.",
   video: "`{url, title?, controls?: true, loop?: false, muted?: false}` — video/livestream player. Supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct MP4/HLS URLs. Use for livestreams (e.g. YouTube Live, Twitch channels). Just pass the URL.",
+  embed: "`{url, title?, height?, provider?}` — third-party widget embed (Google Maps, TradingView, Spotify, CodePen, Figma, social posts). Just pass the URL.",
+  audio: "`{src, title?, autoplay?}` — HTML5 audio player",
+  avatar: '`{name, src?, subtitle?, size?: "sm"|"md"|"lg"}` — user avatar with image or initials fallback',
+  blockquote: '`{text, attribution?, variant?: "default"|"info"|"warning"}` — styled quote block',
+  text_message: "`{botText, userText?}` — chat-style message bubble",
+  image_gallery: "`{images: [{src, alt?, caption?}], title?, columns?}` — grid of images with click-to-zoom",
+  map: "`{center: [lat, lng], zoom?, markers?: [{lat, lng, label?}], title?}` — interactive Leaflet map",
+  descriptions: "`{title?, items: [{label, value, span?}], columns?, bordered?}` — key-value description list",
+  steps: '`{current, items: [{title, description?, icon?}], direction?: "vertical"|"horizontal"}` — step-by-step progress indicator',
+  result: '`{status: "success"|"error"|"info"|"warning", title, subtitle?}` — status result page with icon',
+  carousel: "`{items: [{title?, description?, image?}], autoplay?}` — swipeable slide carousel",
+  statistic: "`{value, title?, prefix?, suffix?, precision?, isCountdown?, countdownTarget?}` — large number display with optional countdown",
+  tag_cloud: '`{tags: [{text, color?, size?: "small"|"medium"|"large"}], title?}` — collection of colored tags',
+  tree: "`{data: [{title, key, children?}], title?, defaultExpandAll?}` — expandable tree hierarchy",
+  marketplace_sandbox: "`{html, css?, js?, props?: {}, height?, title?, libraries?: string[], marketplaceId?}` — double-iframe sandbox for marketplace components",
+  sandpack_sandbox: "`{files: {'/App.tsx': code}, dependencies?: {pkg: version}, template?: 'react-ts', title?, height?, entryFile?}` — full npm sandbox for complex multi-file React/TypeScript components",
+  reasoning: '`{title?, content, collapsed?, duration?, steps?: [{label, description?, status?}]}` — collapsible AI thinking/reasoning block',
+  tool: '`{name, status: "running"|"complete"|"error", description?, inputs?, output?, error?, duration?}` — function/tool call visualization',
+  sources: "`{items: [{title, url?, snippet?, icon?, relevance?}], title?}` — citation and reference list",
+  page: '`{type: "dashboard"|"settings"|"kanban"|"crm"|"landing"|"data_explorer"|"form_wizard", title, sections: Record<string, Component[]>, navigation?: {tabs?: string[]}}` — full-screen multi-component page layout',
+  confirmation: '`{title, description, severity: "info"|"warning"|"danger", actions: [{id, label}], confirmationId, timeout?, metadata?}` — action confirmation card with approve/reject buttons',
 };
 
 // Copy-paste examples for the most error-prone components
@@ -2660,13 +2682,26 @@ const COMPONENT_EXAMPLES = {
   alert: '```jarble_ui\n{"component": "alert", "props": {"title": "Deploy Complete", "message": "v2.3.1 is live", "variant": "success"}, "layout_hint": "third"}\n```',
 };
 
+// Components that should redirect to sandbox for dashboard/multi-viz use cases
+const SANDBOX_REDIRECT_COMPONENTS = new Set(["chart", "data_table", "metric_card", "stat_grid", "spreadsheet"]);
+
 function executeComponentReference(args) {
   const name = args?.component;
 
   if (name) {
     // Check built-in components first
     if (COMPONENT_REFERENCE[name]) {
-      const lines = [`**${name}** — props: ${COMPONENT_REFERENCE[name]}`];
+      const lines = [];
+
+      // For chart-like components, prepend a strong sandbox redirect
+      if (SANDBOX_REDIRECT_COMPONENTS.has(name)) {
+        lines.push(`**RECOMMENDATION:** For dashboards, analytics, or any response with 2+ visual elements, use **sandbox** instead of ${name}. Build the entire UI in one sandbox with Tailwind CSS (cdn.tailwindcss.com) + Chart.js (esm.sh/chart.js@4/auto). This produces dramatically better, more cohesive results.`);
+        lines.push("");
+        lines.push(`Only use the typed \`${name}\` component for simple standalone displays. Here are its props if you still need them:`);
+        lines.push("");
+      }
+
+      lines.push(`**${name}** — props: ${COMPONENT_REFERENCE[name]}`);
       if (BUILTIN_SCHEMAS[name]) {
         lines.push("");
         lines.push("**JSON Schema:**");
@@ -2727,11 +2762,12 @@ function executeComponentReference(args) {
     "## Display",
   ];
   const categories = {
-    "Display": ["card", "data_table", "stat_grid", "key_value", "code_block", "alert", "progress", "image", "chart", "tabs", "accordion", "badge", "list", "timeline", "divider", "metric_card", "header", "layout"],
-    "Interactive": ["button_group", "form"],
+    "Display": ["card", "data_table", "stat_grid", "key_value", "code_block", "alert", "progress", "image", "chart", "tabs", "accordion", "badge", "list", "timeline", "divider", "metric_card", "header", "layout", "avatar", "blockquote", "text_message", "descriptions", "steps", "result", "statistic", "tag_cloud", "tree", "reasoning", "tool", "sources"],
+    "Interactive": ["button_group", "form", "confirmation"],
     "Data": ["spreadsheet"],
-    "Specialized": ["code_editor"],
-    "Sandbox": ["sandbox"],
+    "Media": ["video", "embed", "audio", "image_gallery", "carousel", "map"],
+    "Specialized": ["code_editor", "sandpack_sandbox", "page"],
+    "Sandbox": ["sandbox", "marketplace_sandbox"],
   };
 
   let first = true;
@@ -2739,7 +2775,7 @@ function executeComponentReference(args) {
     if (!first) lines.push("");
     lines.push(`## ${cat}`);
     for (const c of comps) {
-      lines.push(`- \`${c}\` — ${COMPONENT_REFERENCE[c]}`);
+      lines.push(`- \`${c}\` — ${COMPONENT_REFERENCE[c] || "See component_reference for details"}`);
     }
     first = false;
   }

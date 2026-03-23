@@ -8,6 +8,9 @@
  *
  * If the env var is unset or empty, a warning is logged at import time
  * and all admin checks will fail (no one has admin access).
+ *
+ * Note: ADMIN_USER_IDS is also validated in env.ts (Zod schema) for
+ * documentation and startup-time visibility.
  */
 
 function parseAdminUserIds(raw: string | undefined): Set<string> {
