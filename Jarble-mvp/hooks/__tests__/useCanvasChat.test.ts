@@ -17,6 +17,13 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/trpc", () => ({
   API_URL: "http://localhost:3001",
+  trpc: {
+    deployment: {
+      syncChatSession: { useMutation: () => ({ mutateAsync: vi.fn(), isPending: false }) },
+      listChatSessions: { useQuery: () => ({ data: undefined, isLoading: false }) },
+    },
+    useUtils: () => ({}),
+  },
 }));
 
 vi.mock("@/components/workspace/autoLayout", () => ({
