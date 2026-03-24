@@ -1,6 +1,6 @@
 # Jarble Platform Roadmap
 
-> **Last updated:** 2026-03-14
+> **Last updated:** 2026-03-23
 >
 > Jarble is a no-code AI bot deployment platform where users deploy LLM-powered bots, benchmark them against each other, build generative UI dashboards, and buy & sell services in a marketplace — all without writing code.
 
@@ -239,6 +239,42 @@ API keys, agent mesh, and open protocols for developers building on Jarble.
 
 ---
 
+## Pillar 6: Orchestration (Flow Engine)
+
+Visual, no-code pipelines that chain agents, transforms, conditions, and outputs into complex automated workflows.
+
+### Current State (Shipped — Session 20)
+
+- **Flow DAG execution engine** — `flowEngine.ts` executes directed acyclic graphs of agent nodes; topological sort ensures correct execution order
+- **4 node types** — `deployment` (calls a bot), `transform` (JS/Python script), `condition` (branching logic), `output` (final result)
+- **Pause/resume (human-in-the-loop)** — flows can pause at a node awaiting human input, then resume via REST
+- **Nested flows** — a flow node can invoke another flow as a sub-graph
+- **Flows tRPC router** — 8 procedures: list, getById, listExecutions, create, update, delete, duplicate, generateFromPrompt
+- **AI flow builder** — `generateFromPrompt` mutation calls the configured LLM to convert a natural-language description into a `FlowDefinition` with auto-computed grid layout
+- **Flow execution REST endpoints** — execute, resume, and SSE-stream execution events
+- **9 SSE event types** — snapshot, step:started, step:finished, step:iteration, flow:state, flow:paused, flow:error, substep:started, substep:finished
+- **@xyflow/react canvas** — drag-and-drop visual flow builder in the frontend
+
+### Phase 1: Flow Engine (Next Priorities, informed by CrewAI/LangGraph research)
+
+- [ ] **Typed state schemas** — define strict JSON schemas for data passing between flow nodes (prevent silent data mismatches)
+- [ ] **Multi-instance execution** — launch N parallel executions of the same flow with different input payloads (fan-out pattern)
+- [ ] **Execution persistence** — store running executions in DB (currently in-memory only); survive API restarts
+- [ ] **Flow versioning** — immutable flow snapshots; rollback to a previous version without losing execution history
+- [ ] **Long-term agent memory** — persistent per-session memory for deployment nodes (vector store or structured DB)
+- [ ] **Retry policies** — configurable retry count + backoff per node; dead-letter queue for failures
+- [ ] **Flow marketplace** — publish and sell flow templates in the service marketplace
+
+### Phase 2: Observability & Collaboration
+
+- [ ] **Execution history viewer** — UI to browse past executions, inspect step results, and replay from any checkpoint
+- [ ] **Step-level cost tracking** — break down credit consumption per node per execution
+- [ ] **Shared flows** — collaborate on flows with team members (read/edit permissions)
+- [ ] **Webhook triggers** — start a flow from an external HTTP event
+- [ ] **Scheduled flows** — cron-triggered flow execution (daily report, weekly digest, etc.)
+
+---
+
 ## Cross-Cutting Concerns
 
 These span all five pillars and are ongoing priorities.
@@ -246,7 +282,7 @@ These span all five pillars and are ongoing priorities.
 ### Security & Compliance
 - [ ] SOC 2 Type II audit
 - [ ] GDPR data export and deletion flows
-- [ ] Per-deployment audit logging (who changed what, when)
+- [x] ~~Per-deployment audit logging~~ — ✅ Done (Session 20). Admin action audit logging via `auditLog.ts` + `audit_logs` table
 - [ ] Sandbox escape fuzzing and hardening
 - [ ] Rotate encryption keys without downtime
 
@@ -254,7 +290,9 @@ These span all five pillars and are ongoing priorities.
 - [ ] Multi-region K3s clusters (currently single Hetzner region)
 - [ ] Database read replicas for leaderboard/explore queries
 - [ ] CDN for static canvas assets and exported dashboards
-- [ ] Observability — distributed tracing (OpenTelemetry), error tracking (Sentry), metrics (Prometheus/Grafana)
+- [x] ~~Prometheus metrics integration~~ — ✅ Done (Session 20). `prometheus.ts` client + admin panel surfaces cluster metrics, timeseries, and alerts
+- [ ] Distributed tracing (OpenTelemetry)
+- [ ] Grafana dashboards for cluster health visualization
 
 ### Platform UX
 - [ ] Mobile-responsive canvas and workspace

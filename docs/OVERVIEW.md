@@ -1,7 +1,7 @@
 # Complete Overview & Roadmap
 
 <aside>
-📅 Last updated: March 19, 2026 (Session 19 — Agent Forking Flywheel: Leaderboard, Public Agent Profiles, Forkability Score, Benchmarks Router, Platform Agents, Resource Tiers, Compose Endpoint)
+📅 Last updated: March 23, 2026 (Session 20 — Orchestration Engine: Flow DAG execution, Admin Panel, Beta Signup system, 174 tRPC procedures across 15 routers, AI flow builder, Prometheus metrics, Audit logs)
 
 </aside>
 
@@ -18,6 +18,7 @@ Jarble is a **no-code AI deployment platform** that lets users deploy AI-powered
 | Frontend | Next.js 15 (App Router), React 19, TypeScript |
 | Styling | Tailwind CSS v4, shadcn/ui (40+ components), Framer Motion |
 | Chat UI | @assistant-ui/react (ExternalStoreRuntime) |
+| Flow Canvas | @xyflow/react (DAG flow builder) |
 | API | Express + tRPC, SuperJSON serialization |
 | Database | Drizzle ORM — MySQL (prod), PostgreSQL (alt), SQLite (dev) |
 | Auth | Auth0 (Email/Password, Google OAuth, GitHub OAuth) |
@@ -53,6 +54,10 @@ graph TB
         MKT[Marketplace Router]
         SVC[Services Router]
         BM[Benchmarks Router]
+        AC[Agent Credits Router]
+        AK[API Keys Router]
+        FL[Flows Router]
+        ADM[Admin Router]
         WH[Auth0 Webhook Endpoint]
     end
 
@@ -69,6 +74,10 @@ graph TB
         SVCCARD[ServiceCard Validator]
         FORKABILITY[Forkability Scorer]
         COMPOSE[Dashboard Composer]
+        FLOWENG[Flow Execution Engine]
+        AUDITLOG[Audit Log Service]
+        EMAIL[Email Service - Resend]
+        PROMETHEUS[Prometheus Client]
     end
 
     subgraph "Shared Package"
@@ -204,7 +213,7 @@ graph TB
         U5[resendVerificationEmail - protected]
     end
 
-    subgraph "Deployment Router - 22 procedures"
+    subgraph "Deployment Router - 37 procedures"
         D1[canDeploy - query]
         D2[list - query]
         D2b[listLinkableDeployments - query]
@@ -263,7 +272,7 @@ graph TB
         SK4[uninstall - protected mutation]
     end
 
-    subgraph "Marketplace Router - 22 procedures"
+    subgraph "Marketplace Router - 23 procedures"
         MKT1[browse - public query]
         MKT2[getById - public query]
         MKT3[getFeatured - public query]
@@ -288,17 +297,21 @@ graph TB
         MKT22[rejectComponent - protected mutation]
     end
 
-    subgraph "Template Router"
+    subgraph "Template Router - 4 procedures"
         T1[list - public query]
+        T2[getById - public query]
+        T3[getByCategory - public query]
+        T4[getCategories - public query]
     end
 
-    subgraph "Services Router - 6 procedures"
+    subgraph "Services Router - 26 procedures"
         SV1[list - public query]
         SV2[get - public query]
         SV3[install - protected mutation]
         SV4[uninstall - protected mutation]
         SV5[publish - protected mutation]
         SV6[listByCreator - public query]
+        SV7["... 20 more procedures (draft lifecycle, admin approval, creator analytics, etc.)"]
     end
 
     subgraph "Benchmarks Router - 14 procedures"
@@ -316,6 +329,53 @@ graph TB
         BM12[respondToServiceReview - protected mutation]
         BM13[adminFeature - protected admin mutation]
         BM14[adminUnfeature - protected admin mutation]
+    end
+
+    subgraph "Agent Credits Router - 4 procedures"
+        AC1[getBalance - protected query]
+        AC2[getTransactions - protected query]
+        AC3[addCredits - protected mutation]
+        AC4[deductCredits - protected mutation]
+    end
+
+    subgraph "API Keys Router - 4 procedures"
+        AK1[list - protected query]
+        AK2[create - protected mutation]
+        AK3[revoke - protected mutation]
+        AK4[getUsage - protected query]
+    end
+
+    subgraph "Flows Router - 8 procedures"
+        FL1[list - protected query]
+        FL2[getById - protected query]
+        FL3[listExecutions - protected query]
+        FL4[create - protected mutation]
+        FL5[update - protected mutation]
+        FL6[delete - protected mutation]
+        FL7[duplicate - protected mutation]
+        FL8[generateFromPrompt - protected mutation]
+    end
+
+    subgraph "Admin Router - 19 procedures"
+        AD1[getStats - admin query]
+        AD2[listUsers - admin query]
+        AD3[getUserById - admin query]
+        AD4[updateUserRole - admin mutation]
+        AD5[listAllDeployments - admin query]
+        AD6[getDeploymentById - admin query]
+        AD7[adminStartDeployment - admin mutation]
+        AD8[adminStopDeployment - admin mutation]
+        AD9[adminRestartDeployment - admin mutation]
+        AD10[adminDeleteDeployment - admin mutation]
+        AD11[getRevenueStats - admin query]
+        AD12[getSystemHealth - admin query]
+        AD13[getAuditLogs - admin query]
+        AD14[getClusterMetrics - admin query]
+        AD15[getMetricsTimeSeries - admin query]
+        AD16[getClusterAlerts - admin query]
+        AD17[listBetaSignups - admin query]
+        AD18[sendBetaInvite - admin mutation]
+        AD19[sendBetaInviteAll - admin mutation]
     end
 ```
 
@@ -348,6 +408,10 @@ graph TB
 | GET | /api/public/leaderboard/:domainSlug | None | Public domain leaderboard with forkability scores (no auth, cached 60s) |
 | GET | /api/public/agents/:deploymentId/profile | None | Public agent profile with domain scores and forkability score (no auth, cached 30s) |
 | POST | /api/pod/compose | Pod gateway token | Parallel dashboard composition — fans out N component agent calls concurrently (max 8) |
+| POST | /api/beta-signup | None | Public beta waitlist signup (name, email, useCase, experience) |
+| POST | /api/flows/:flowId/execute | JWT | Execute a flow DAG; returns execution ID and SSE stream |
+| POST | /api/flows/:flowId/executions/:execId/resume | JWT | Resume a paused flow (human-in-the-loop) |
+| GET | /api/flows/:flowId/executions/:execId/stream | JWT | SSE stream of flow execution events (8 event types) |
 | GET | /debug/db | None | View DB tables (dev only) |
 
 ---
@@ -550,11 +614,62 @@ erDiagram
         timestamp createdAt
     }
 
+    orchestrationFlows {
+        varchar id PK "flw_xxx"
+        varchar userId FK
+        varchar name
+        text description
+        text definition "JSON FlowDefinition"
+        varchar status "draft/published/archived"
+        boolean isPublic
+        int forkCount
+        varchar forkedFromId FK
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    flowExecutions {
+        varchar id PK "fex_xxx"
+        varchar flowId FK
+        varchar userId FK
+        varchar status "running/completed/failed/paused"
+        text stepResults "JSON"
+        int totalCreditsCharged
+        text error
+        timestamp startedAt
+        timestamp completedAt
+        timestamp createdAt
+    }
+
+    auditLogs {
+        varchar id PK
+        varchar userId FK
+        varchar action "admin action name"
+        text details "JSON"
+        varchar targetType
+        varchar targetId
+        timestamp createdAt
+    }
+
+    betaSignups {
+        varchar id PK
+        varchar name
+        varchar email UK
+        text useCase
+        varchar experience
+        boolean invited
+        timestamp invitedAt
+        timestamp createdAt
+    }
+
     users ||--o{ deployments : "has many"
     users ||--o| creatorProfiles : "has one"
     users ||--o{ componentInstalls : "has many"
     users ||--o{ componentPurchases : "has many"
     users ||--o{ componentReviews : "has many"
+    users ||--o{ orchestrationFlows : "has many"
+    users ||--o{ flowExecutions : "has many"
+    users ||--o{ auditLogs : "performed by"
     runtimeCatalog ||--o{ deployments : "used by"
     deployments ||--o{ platformCredentials : "has many"
     deployments ||--o{ deploymentSkills : "has many"
@@ -572,6 +687,7 @@ erDiagram
     marketplaceServices ||--o{ serviceComponents : "has many"
     marketplaceServices ||--o{ serviceSkills : "has many"
     marketplaceServices ||--o{ serviceInstalls : "installed via"
+    orchestrationFlows ||--o{ flowExecutions : "has many"
 ```
 
 ---
@@ -1133,6 +1249,17 @@ flowchart TD
 - [x]  **`llmMode: "platform"` LLM mode** — Platform agents use `AGENT_LLM_API_KEY` (falling back to `OPENROUTER_API_KEY`) injected by `openclaw.ts:getSecretEntries()` instead of a user-provided key
 - [x]  **`deployment.platformFork` mutation** — Admin-only tRPC mutation to fork any deployment as a platform agent with a chosen resource tier and platform LLM mode
 - [x]  **Parallel dashboard compose endpoint** — `POST /api/pod/compose` (pod gateway auth) fans out up to 8 component agent calls concurrently via `Promise.allSettled()`, returns jarble_ui sandbox blocks. The `compose_dashboard` MCP tool invokes this endpoint
+- [x]  **Flow DAG execution engine** — `src/services/flowEngine.ts` executes flows as topological DAGs; supports `deployment`, `transform`, `condition`, `output` node types; pause/resume (human-in-the-loop); nested flows; 10-min timeout; in-memory reconnect map
+- [x]  **Flows tRPC router** — 8 procedures: list, getById, listExecutions, create, update, delete (soft/hard), duplicate (fork with `flw_` ID prefix), generateFromPrompt (AI flow builder via `AGENT_LLM_MODEL`)
+- [x]  **Flow execution REST endpoints** — `POST /api/flows/:flowId/execute`, `POST /api/flows/:flowId/executions/:execId/resume`, `GET /api/flows/:flowId/executions/:execId/stream` (SSE, max 5 concurrent per user)
+- [x]  **Flow SSE events** — 9 event types: `jarble.flow.snapshot`, `jarble.flow.step.started`, `jarble.flow.step.finished`, `jarble.flow.step.iteration`, `jarble.flow.state`, `jarble.flow.paused`, `jarble.flow.error`, `jarble.flow.substep.started`, `jarble.flow.substep.finished`
+- [x]  **Admin tRPC router** — 19 procedures gated by `adminProcedure` (role: `super_admin`): user management, deployment admin controls, revenue stats, system health, audit logs, Prometheus cluster metrics, beta signup management
+- [x]  **Prometheus integration** — `src/services/prometheus.ts` with `queryInstant()`, `queryRange()`, `getActiveAlerts()`; admin metrics endpoints proxy to configured `PROMETHEUS_URL`
+- [x]  **Audit log service** — `src/services/auditLog.ts` `logAdminAction()` writes all admin mutations to `audit_logs` table with userId, action, details JSON, targetType, targetId
+- [x]  **Beta signup system** — `beta_signups` table + `POST /api/beta-signup` (public, no auth) + `admin.listBetaSignups` / `admin.sendBetaInvite` / `admin.sendBetaInviteAll` mutations + Resend email via `src/services/email.ts`
+- [x]  **4 new DB tables** — `orchestration_flows`, `flow_executions`, `audit_logs`, `beta_signups` across all 3 schema variants
+- [x]  **Agent Credits router** — 4 procedures: getBalance, getTransactions, addCredits, deductCredits
+- [x]  **API Keys router** — 4 procedures: list, create, revoke, getUsage
 
 ## Infrastructure ✅
 
@@ -1207,6 +1334,13 @@ flowchart TD
 20. ~~Agent Forking Flywheel (Phase 1: Discovery)~~ — ✅ Done (Session 19). Benchmarks router (14 procedures), public leaderboard REST, public agent profile REST, forkability score utility, admin feature/unfeature mutations
 21. ~~Agent Forking Flywheel (Phase 2: Platform Agents)~~ — ✅ Done (Session 19). `isPlatform` + `resourceTier` deployment columns, `RESOURCE_TIERS` constant, `llmMode: "platform"` with platform key injection, `deployment.platformFork` admin mutation, enforcement bypasses for platform agents
 22. ~~Parallel dashboard compose~~ — ✅ Done (Session 19). `POST /api/pod/compose` fans out up to 8 component agent calls concurrently; `compose_dashboard` MCP tool
+23. ~~Flow DAG execution engine~~ — ✅ Done (Session 20). `flowEngine.ts` executes flows as topological DAGs with `deployment`, `transform`, `condition`, `output` node types; pause/resume; 10-min timeout
+24. ~~Flows tRPC router~~ — ✅ Done (Session 20). 8 procedures: list, getById, listExecutions, create, update, delete, duplicate, generateFromPrompt (AI flow builder)
+25. ~~Flow execution REST + SSE endpoints~~ — ✅ Done (Session 20). Execute, resume, and stream flow events; max 5 concurrent SSE connections per user
+26. ~~Admin tRPC router~~ — ✅ Done (Session 20). 19 admin-only procedures: user management, deployment controls, revenue stats, system health, Prometheus cluster metrics, audit logs
+27. ~~Beta signup system~~ — ✅ Done (Session 20). `POST /api/beta-signup` (public) + `admin.listBetaSignups` + `admin.sendBetaInvite` + Resend email integration
+28. ~~Audit log service~~ — ✅ Done (Session 20). `auditLog.ts` writes all admin mutations to `audit_logs` table
+29. ~~Prometheus integration~~ — ✅ Done (Session 20). `prometheus.ts` queries cluster Prometheus; admin panel surfaces metrics, timeseries, and alerts
 
 ## 🟢 Nice-to-Have (Future)
 
@@ -1216,6 +1350,10 @@ flowchart TD
 4. Cluster auto-scaling based on deployments
 5. Telegram Mini Apps — Full canvas UI within Telegram
 6. Platform-conditional prompts — Skip web-specific prompt sections on non-web platforms (~1,250 token savings)
+7. Typed state schemas for flow nodes — Strong typing for data passing between flow steps (inspired by CrewAI/LangGraph research)
+8. Long-term memory for agents — Persistent conversation memory across sessions (vector store or structured DB)
+9. Multi-instance flow execution — Parallel execution of the same flow with different inputs (fan-out pattern)
+10. Flow versioning — Immutable flow snapshots with rollback support
 
 ---
 
@@ -1270,6 +1408,9 @@ Shared Package: @jarble/component-manifest — 37+ component entries with Zod sc
 - `AGENT_LLM_API_KEY` — LLM key used by platform agents (`llmMode: "platform"`) and the compose endpoint. Falls back to `OPENROUTER_API_KEY`
 - `AGENT_LLM_PROVIDER` — LLM provider for platform/compose calls (`anthropic`/`openai`/`openrouter`/`google`; default: `openrouter`)
 - `AGENT_LLM_MODEL` — Model for platform/compose calls (default: `anthropic/claude-sonnet-4-20250514`)
+- `ADMIN_USER_IDS` — Comma-separated Auth0 user IDs that are auto-granted `super_admin` role on login (optional)
+- `RESEND_API_KEY` — Resend API key for sending beta welcome emails (optional; beta invites silently skipped if absent)
+- `PROMETHEUS_URL` — Base URL for cluster Prometheus (e.g., `http://prometheus:9090`); required for admin cluster metrics endpoints (optional)
 
 ### Terraform (terraform.tfvars)
 
@@ -1397,22 +1538,29 @@ monorepo/
 │   │   │   ├── serviceProxy.ts        # POST /api/services/proxy/:deploymentId/:serviceId/:skillName
 │   │   │   ├── mcp.ts                 # POST/GET/DELETE /api/mcp/:deploymentId (Streamable HTTP)
 │   │   │   ├── diagnose.ts            # GET /api/deployments/:id/diagnose
+│   │   │   ├── flowExecution.ts       # POST/GET /api/flows/:flowId/execute|executions/:execId/stream|resume
+│   │   │   ├── beta.ts                # POST /api/beta-signup (public, no auth)
 │   │   │   └── debug.ts               # GET /debug/db, POST /debug/deployment/:id/status (dev only)
 │   │   ├── trpc/routers/
-│   │   │   ├── deployment.ts          # 21 procedures: CRUD + canvas components + linking
-│   │   │   ├── openrouter.ts          # 8 procedures: key provisioning, usage, validation
-│   │   │   ├── user.ts                # 5 procedures: profile management + email resend
-│   │   │   ├── billing.ts             # 3 procedures: overview, invoices, subscriptions
+│   │   │   ├── deployment.ts          # 37 procedures: CRUD + canvas components + linking + platformFork
+│   │   │   ├── openrouter.ts          # 10 procedures: key provisioning, usage, validation
+│   │   │   ├── user.ts                # 6 procedures: profile management + email resend + deleteAccount
+│   │   │   ├── billing.ts             # 4 procedures: overview, invoices, subscriptions, getManagedKeyUsage
 │   │   │   ├── runtimeCatalog.ts      # 4 procedures: runtime listing + capabilities
 │   │   │   ├── platformCredentials.ts # 7 procedures: cred CRUD + QR status + Telegram pairing
 │   │   │   ├── skills.ts              # 4 procedures: catalog, install, uninstall
-│   │   │   ├── marketplace.ts         # 22 procedures: browse, install, review, creator, admin
-│   │   │   ├── services.ts            # 6 procedures: list, get, install, uninstall, publish, listByCreator
-│   │   │   └── template.ts            # 1 procedure: static templates
+│   │   │   ├── marketplace.ts         # 23 procedures: browse, install, review, creator, admin, builtinSchemas
+│   │   │   ├── services.ts            # 26 procedures: CRUD + draft lifecycle + admin approval + analytics
+│   │   │   ├── template.ts            # 4 procedures: list, getById, getByCategory, getCategories
+│   │   │   ├── benchmarks.ts          # 14 procedures: domain taxonomy, ratings, leaderboard, reviews
+│   │   │   ├── agentCredits.ts        # 4 procedures: getBalance, getTransactions, addCredits, deductCredits
+│   │   │   ├── apiKeys.ts             # 4 procedures: list, create, revoke, getUsage
+│   │   │   ├── flows.ts               # 8 procedures: CRUD + duplicate + listExecutions + generateFromPrompt
+│   │   │   └── admin.ts               # 19 procedures: user mgmt, deployment admin, metrics, beta signups
 │   │   ├── db/
-│   │   │   ├── schema.ts             # MySQL schema (incl. marketplace + services tables)
+│   │   │   ├── schema.ts             # MySQL schema (incl. marketplace + services + flows + admin tables)
 │   │   │   ├── schema.pg.ts          # PostgreSQL schema (production)
-│   │   │   ├── schema.sqlite.ts      # SQLite schema (dev)
+│   │   │   ├── schema.sqlite.ts      # SQLite schema (dev, incl. orchestrationFlows, flowExecutions, auditLogs, betaSignups)
 │   │   │   ├── init.ts               # SQLite CREATE TABLE + seed
 │   │   │   ├── migrate.pg.ts         # PostgreSQL migration runner
 │   │   │   └── seed.pg.ts            # Production seed (runtime_catalog)
@@ -1449,7 +1597,11 @@ monorepo/
 │   │   │   ├── serviceHandshake.ts   # Install-time handshake with creator remote APIs
 │   │   │   ├── statusReconciler.ts   # Background DB↔K8s status sync (fixes stuck "creating")
 │   │   │   ├── subscriptionEnforcement.ts # Background subscription validation (5-min cycle)
-│   │   │   └── storageEnforcement.ts # Background storage quota enforcement (5-min cycle)
+│   │   │   ├── storageEnforcement.ts # Background storage quota enforcement (5-min cycle)
+│   │   │   ├── flowEngine.ts         # Flow DAG execution engine (topological sort, pause/resume)
+│   │   │   ├── auditLog.ts           # Admin action audit logging to audit_logs table
+│   │   │   ├── email.ts              # Email sending via Resend (beta welcome emails)
+│   │   │   └── prometheus.ts         # Prometheus query client (queryInstant, queryRange, getActiveAlerts)
 │   │   └── k8s/                       # K8s orchestration modules (lifecycle, exec, secrets, status, logs)
 │   ├── k8s/                           # K8s manifests
 │   │   ├── deployment.yaml            # API deployment + RBAC + Ingress (TLS)
@@ -1491,7 +1643,7 @@ monorepo/
 ---
 
 <aside>
-📚 This document provides a complete snapshot of the Jarble platform as of March 9, 2026 (Session 17). Use the roadmap section to prioritize next steps.
+📚 This document provides a complete snapshot of the Jarble platform as of March 23, 2026 (Session 20). Use the roadmap section to prioritize next steps.
 
 </aside>
 
@@ -1557,7 +1709,7 @@ flowchart TB
         MULTI_VALIDATE["✅ Multi-Provider Key Validation"]
         MARKETPLACE_API["✅ Marketplace Router (22 procedures)"]
         SKILLS_API["✅ Skills Router (4 procedures)"]
-        SERVICES_API["✅ Services Router (6 procedures)"]
+        SERVICES_API["✅ Services Router (26 procedures)"]
         SVCPROXY_API["✅ Service Proxy + HMAC + Circuit Breaker"]
         ARTIFACT_API["✅ Artifact CRUD Endpoints"]
         ERRHARDEN["✅ Error Resilience (SSE, pending block, expansion limits)"]
@@ -1568,6 +1720,11 @@ flowchart TB
         CHAT_SSE["✅ Chat SSE (tambo-agent)"]
         LIBURL_VAL["✅ Server-side Library URL Validation"]
         STATUS_RECON["✅ Status Reconciler"]
+        FLOWS_API["✅ Flow Engine + Flows Router (8 procedures)"]
+        ADMIN_API["✅ Admin Router (19 procedures)"]
+        BETA_API["✅ Beta Signup System"]
+        AUDIT_API["✅ Audit Log Service"]
+        PROMETHEUS_API["✅ Prometheus Integration"]
     end
 
     subgraph DONE_INFRA["✅ DONE — Infrastructure"]
@@ -1642,6 +1799,16 @@ flowchart TB
         PODPERF_DONE["✅ Pod Performance Optimizations\nSession 17"]
         SECHARDEN_DONE["✅ Security Hardening (HSTS, X-Frame, CDN)\nSession 17"]
         TESTS_DONE["✅ Test Suite 1,301 tests\nSession 17"]
+        SANDBOX_FIRST["✅ Sandbox-First Strategy\nSession 18"]
+        AGENT_ORCH["✅ Agent Orchestration SSE\nSession 18"]
+        BENCHMARKS_DONE["✅ Benchmarks Router + Leaderboard\nSession 19"]
+        PLATFORM_AGENTS["✅ Platform Agents + Forking\nSession 19"]
+        COMPOSE_DONE["✅ Dashboard Compose\nSession 19"]
+        FLOWS_DONE["✅ Flow Engine + Router\nSession 20"]
+        ADMIN_DONE["✅ Admin Router (19 procedures)\nSession 20"]
+        BETA_DONE["✅ Beta Signup + Email\nSession 20"]
+        AUDIT_DONE["✅ Audit Logs\nSession 20"]
+        PROMETHEUS_DONE["✅ Prometheus Integration\nSession 20"]
     end
 
     subgraph DONE_DEPLOY["✅ DONE — Production Readiness"]

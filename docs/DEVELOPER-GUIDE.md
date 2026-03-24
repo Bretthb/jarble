@@ -18,6 +18,7 @@
 10. [Config Sync — The Two-Way Mirror](#10-config-sync--the-two-way-mirror)
 11. [Canvas Components & The Shared Manifest](#11-canvas-components--the-shared-manifest)
 12. [Real-Time Updates (SSE)](#12-real-time-updates-sse)
+    - 12.5. [The Flow Engine (Orchestration)](#125-the-flow-engine-orchestration)
 13. [Authentication Flow](#13-authentication-flow)
 14. [Payments (Stripe)](#14-payments-stripe)
 15. [Encryption](#15-encryption)
@@ -25,6 +26,8 @@
 17. [Runtime Images (Docker)](#17-runtime-images-docker)
 18. [The Database](#18-the-database)
 19. [Environment Variables](#19-environment-variables)
+    - 19.5. [Running Tests](#195-running-tests)
+    - 19.6. [Mobile Development Notes](#196-mobile-development-notes)
 20. [Local Development Setup](#20-local-development-setup)
 21. [Production Deployment](#21-production-deployment)
 22. [Common Workflows](#22-common-workflows)
@@ -360,17 +363,21 @@ graph TD
     REQ["Incoming Request<br/>POST /trpc/deployment.list"] --> MW["Auth Middleware<br/>JWT verification"]
     MW --> ROUTER{"Which Router?"}
 
-    ROUTER -->|"deployment.*"| DEPLOY["deployment.ts<br/>22 procedures"]
-    ROUTER -->|"openrouter.*"| OR["openrouter.ts<br/>8 procedures"]
-    ROUTER -->|"user.*"| USER["user.ts<br/>5 procedures"]
-    ROUTER -->|"billing.*"| BILL["billing.ts<br/>3 procedures"]
+    ROUTER -->|"deployment.*"| DEPLOY["deployment.ts<br/>37 procedures"]
+    ROUTER -->|"openrouter.*"| OR["openrouter.ts<br/>10 procedures"]
+    ROUTER -->|"user.*"| USER["user.ts<br/>6 procedures"]
+    ROUTER -->|"billing.*"| BILL["billing.ts<br/>4 procedures"]
     ROUTER -->|"platformCredentials.*"| PLAT["platformCredentials.ts<br/>7 procedures"]
     ROUTER -->|"runtimeCatalog.*"| RUNTIME["runtimeCatalog.ts<br/>4 procedures"]
-    ROUTER -->|"template.*"| TMPL["template.ts<br/>1 procedure"]
+    ROUTER -->|"template.*"| TMPL["template.ts<br/>4 procedures"]
     ROUTER -->|"skills.*"| SKILLS["skills.ts<br/>4 procedures"]
-    ROUTER -->|"marketplace.*"| MKT["marketplace.ts<br/>22 procedures"]
-    ROUTER -->|"services.*"| SVC["services.ts<br/>6 procedures"]
+    ROUTER -->|"marketplace.*"| MKT["marketplace.ts<br/>23 procedures"]
+    ROUTER -->|"services.*"| SVC["services.ts<br/>26 procedures"]
     ROUTER -->|"benchmarks.*"| BM["benchmarks.ts<br/>14 procedures"]
+    ROUTER -->|"flows.*"| FLOWS["flows.ts<br/>8 procedures"]
+    ROUTER -->|"admin.*"| ADMIN["admin.ts<br/>19 procedures"]
+    ROUTER -->|"agentCredits.*"| AC["agentCredits.ts<br/>4 procedures"]
+    ROUTER -->|"apiKeys.*"| AK["apiKeys.ts<br/>4 procedures"]
 
     DEPLOY --> DB[("Database")]
     DEPLOY --> K8S["K8s Cluster"]
@@ -382,17 +389,21 @@ graph TD
 
 ```
 src/trpc/routers/
-  ├── deployment.ts          ← 22 procedures (CRUD + canvas components + lifecycle + platformFork)
-  ├── openrouter.ts          ← 8 procedures (LLM key management)
-  ├── user.ts                ← 5 procedures (profile, email verify)
-  ├── billing.ts             ← 3 procedures (overview, invoices, subscriptions)
+  ├── deployment.ts          ← 37 procedures (CRUD + canvas components + lifecycle + platformFork)
+  ├── openrouter.ts          ← 10 procedures (LLM key management)
+  ├── user.ts                ← 6 procedures (profile, email verify, account deletion)
+  ├── billing.ts             ← 4 procedures (overview, invoices, subscriptions, managed key usage)
   ├── platformCredentials.ts ← 7 procedures (Discord/Slack tokens, WhatsApp QR, Telegram pairing)
   ├── runtimeCatalog.ts      ← 4 procedures (list available runtimes)
   ├── skills.ts              ← 4 procedures (skills catalog, install/uninstall)
-  ├── marketplace.ts         ← 22 procedures (browse, install, review, creator, admin)
-  ├── services.ts            ← 6 procedures (service marketplace: list, get, install, uninstall, publish, listByCreator)
+  ├── marketplace.ts         ← 23 procedures (browse, install, review, creator, admin, builtin schemas)
+  ├── services.ts            ← 26 procedures (full lifecycle: draft, publish, install, admin, creator analytics)
   ├── benchmarks.ts          ← 14 procedures (domains, ratings, leaderboard, service metrics + reviews, admin curation)
-  └── template.ts            ← 1 procedure (bot templates)
+  ├── template.ts            ← 4 procedures (persona templates: list, getById, getByCategory, getCategories)
+  ├── flows.ts               ← 8 procedures (orchestration flow CRUD + execution history + LLM generation)
+  ├── admin.ts               ← 19 procedures (user mgmt, deployment control, Prometheus metrics, audit logs, beta)
+  ├── agentCredits.ts        ← 4 procedures (credit balance, history, purchase, call history)
+  └── apiKeys.ts             ← 4 procedures (developer API key CRUD)
 ```
 
 ### Fire-and-Forget Pattern
@@ -1495,6 +1506,64 @@ The browser's `EventSource` API (used for SSE) can't set custom headers. So we p
 
 ---
 
+## 12.5. The Flow Engine (Orchestration)
+
+### What Is a Flow?
+
+A **flow** is a visual DAG (directed acyclic graph) of nodes connected by edges. Each node represents one step of work — calling a deployment (bot), running a transform, evaluating a condition, or rendering an output. Flows let you chain multiple bots and services into multi-step agent pipelines without writing code.
+
+**Analogy:** Think of a flow like a **factory assembly line**. Each station (node) does one job, then passes the product to the next station (edge). The line can branch (condition node) or merge (multiple inputs to one node). A human-in-the-loop node is like a quality control checkpoint — the line pauses until a human approves and the line resumes.
+
+### Node Types
+
+| Type | What It Does |
+|---|---|
+| `deployment` | Calls a bot deployment (sends a message, gets a response) |
+| `transform` | Transforms the previous node's output (filter, format, extract) |
+| `condition` | Branches to different nodes based on a condition expression |
+| `output` | Renders the result (renders a UI component, logs, returns to caller) |
+
+### How Execution Works
+
+```mermaid
+flowchart TD
+    START([User POSTs to /api/flows/:flowId/execute]) --> CREATE["Create FlowExecutionEngine<br/>(executionId generated)"]
+    CREATE --> TOPOLOGICAL["Topological sort of nodes<br/>(respects edge dependencies)"]
+    TOPOLOGICAL --> LOOP{Next node?}
+
+    LOOP -->|Yes| EXECUTE["Execute node<br/>(call deployment / transform / etc.)"]
+    EXECUTE --> EMIT["Emit step:started / step:finished events"]
+    EMIT --> LOOP
+
+    LOOP -->|Human-in-the-loop| PAUSE["Emit flow:paused<br/>(with inputSchema)"]
+    PAUSE --> WAIT["Wait for POST .../resume"]
+    WAIT --> RESUME["Resume from paused node<br/>with user input"]
+    RESUME --> LOOP
+
+    LOOP -->|No more nodes| COMPLETE["Emit flow:state { status: completed }"]
+    COMPLETE --> PERSIST["Write final state to flow_executions table"]
+```
+
+The engine runs in the background (fire-and-forget from the POST handler). The client connects to the `GET .../stream` SSE endpoint to receive real-time events. If the client disconnects and reconnects, the `jarble.flow.snapshot` event sends the current state so the client can catch up.
+
+### How to Add a New Flow Node Type
+
+1. Add the type to the `FlowNodeSchema` enum in `jarble-api-main/src/trpc/routers/flows.ts`
+2. Add an execution handler in `jarble-api-main/src/services/flowEngine.ts` — the `executeNode(node, context)` switch statement
+3. The new type automatically appears in the canvas editor (frontend reads the schema via tRPC)
+4. Add a corresponding node component in `Jarble-mvp/components/canvas/flow/` if custom rendering is needed
+
+### The AI Flow Builder
+
+Users can describe a flow in plain English and the system generates a `FlowDefinition` using the `WORKFLOW_AGENT_SYSTEM_PROMPT`. The `flows.generateFromPrompt` mutation:
+
+1. Sends the user's prompt to the configured `AGENT_LLM_MODEL`
+2. The LLM returns a JSON plan: `{ plan: [{ step, action, service, skill, description, dependsOn }], summary, parallelizable }`
+3. The server converts the plan into `FlowNode[]` and `FlowEdge[]` (auto-layouts on a grid)
+4. Returns `{ definition, summary, estimatedSteps, parallelizable }` — unsaved, ready to pass to `flows.create`
+
+---
+
 ## 13. Authentication Flow
 
 We use **Auth0** for authentication. We never see or store user passwords.
@@ -2040,6 +2109,55 @@ erDiagram
         text signingSecret "AES-256-GCM encrypted HMAC secret"
         text remoteApiConfig "ServiceCard JSON"
     }
+
+    auditLogs {
+        string id PK
+        string userId FK
+        string action
+        string targetType
+        string targetId
+        text metadata
+        string ipAddress
+        timestamp createdAt
+    }
+
+    betaSignups {
+        string id PK
+        string name
+        string email UK
+        string status "pending or invited"
+        text useCase
+        string experience
+        timestamp invitedAt
+        timestamp createdAt
+    }
+
+    orchestrationFlows {
+        string id PK "flw_xxx"
+        string userId FK
+        string name
+        text description
+        text definition "JSON: { nodes: FlowNode[], edges: FlowEdge[] }"
+        string status "draft | published | archived"
+        boolean isPublic
+        int forkCount
+        string forkedFromId FK
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    flowExecutions {
+        string id PK "fex_xxx"
+        string flowId FK
+        string userId FK
+        string status "pending | running | completed | failed | cancelled"
+        text stepResults "JSON: Record<nodeId, { status, result, error, durationMs }>"
+        int totalCreditsCharged
+        text error
+        timestamp startedAt
+        timestamp completedAt
+        timestamp createdAt
+    }
 ```
 
 ### The ORM (Drizzle)
@@ -2116,7 +2234,83 @@ OPENROUTER_MANAGEMENT_KEY=sk-or-...   # For tenant key provisioning
 
 # Encryption (32-byte hex = 64 hex chars)
 API_KEY_ENCRYPTION_KEY=0123456789abcdef...
+
+# Agent / Flow LLM (for flow generation, platform agents, dashboard compose)
+AGENT_LLM_API_KEY=sk-ant-...            # Falls back to OPENROUTER_API_KEY
+AGENT_LLM_PROVIDER=openrouter           # anthropic | openai | openrouter | google
+AGENT_LLM_MODEL=anthropic/claude-sonnet-4-20250514
+
+# Admin & Beta
+ADMIN_USER_IDS=user_abc,user_def        # Comma-separated user IDs granted super_admin on login
+RESEND_API_KEY=re_...                   # For sending beta invite emails (optional)
+
+# Monitoring
+PROMETHEUS_URL=http://prometheus:9090   # Cluster Prometheus URL for admin metrics (optional)
 ```
+
+---
+
+## 19.5. Running Tests
+
+### API Tests
+
+```bash
+cd jarble-api-main
+npm run test          # Run all Vitest unit tests
+npm run typecheck     # TypeScript type-check (no output = pass)
+```
+
+The API test suite has **82 test files** covering routers, services, utilities, and the flow engine. Tests run against an in-memory SQLite database — no external dependencies required.
+
+Key test areas:
+- `src/trpc/routers/*.test.ts` — tRPC procedure tests (input validation, auth guards, DB interactions)
+- `src/services/*.test.ts` — Service unit tests (flowEngine, auditLog, prometheus)
+- `src/utils/*.test.ts` — Utility function tests (encryption, env, slugs)
+
+### Frontend Tests
+
+```bash
+cd Jarble-mvp
+npm run test          # Run all Vitest unit tests
+npm run check         # TypeScript type-check
+npm run check:manifest  # Verify manifest ↔ component sync
+```
+
+The frontend test suite has **37 test files** covering hooks, utilities, component rendering, and canvas logic.
+
+### Running Both Test Suites
+
+```bash
+# From the monorepo root
+cd jarble-api-main && npm run test
+cd ../Jarble-mvp && npm run test
+```
+
+---
+
+## 19.6. Mobile Development Notes
+
+The frontend is primarily designed for desktop (the deployment wizard, canvas workspace, and configuration tabs require significant horizontal space). However, the public-facing chat page (`/d/[id]`) is fully responsive.
+
+**Breakpoints used (Tailwind v4):**
+
+| Breakpoint | Width | Behavior |
+|---|---|---|
+| default (mobile) | < 640px | Single-column layout, sidebar hidden |
+| `sm` | ≥ 640px | Form columns start expanding |
+| `md` | ≥ 768px | Sidebar visible, two-column layouts |
+| `lg` | ≥ 1024px | Full canvas workspace, three-column |
+| `xl` | ≥ 1280px | Dashboard optimized |
+
+**Chat page (`/d/[id]`) responsive behavior:**
+- On mobile, the canvas panel hides and only the chat panel shows
+- The conversation history sidebar is hidden below `md` breakpoint (accessible via toggle)
+- Canvas cards render in a single scrollable column on mobile
+
+**Wizard and dashboard:**
+- The onboarding wizard is capped at `max-w-2xl` and centers on large screens
+- The main dashboard requires at least `md` width to display the deployment grid usably
+- The service marketplace tabs collapse to a scrollable tab strip below `sm`
 
 ---
 
@@ -2180,6 +2374,10 @@ The API starts with an **in-memory SQLite database** pre-seeded with test data. 
 | Benchmarks / leaderboard | Yes | tRPC procedures and public REST endpoints work with SQLite (empty on fresh start) |
 | Platform agents / platformFork | Yes | Admin-only mutation works with MOCK_K8S. Requires `AGENT_LLM_API_KEY` or `OPENROUTER_API_KEY` for platform mode inference |
 | Dashboard compose | Partial | `POST /api/pod/compose` requires `AGENT_LLM_API_KEY` or `OPENROUTER_API_KEY` and pod gateway auth |
+| Flow engine (create/run) | Yes | tRPC flows.* and flow execution REST routes work with SQLite. SSE streaming works locally |
+| Flow AI builder | Partial | `flows.generateFromPrompt` requires `AGENT_LLM_API_KEY` or `OPENROUTER_API_KEY` |
+| Admin panel | Partial | Admin tRPC procedures work locally with `ADMIN_USER_IDS` set. Prometheus metrics need a running Prometheus |
+| Beta signups | Yes | `POST /api/beta-signup` writes to SQLite. Email sending requires `RESEND_API_KEY` |
 
 ---
 
