@@ -778,10 +778,11 @@ export const deploymentRouter = router({
           }, managedBy);
           logger.info({ deploymentId }, "K8s createDeployment returned, polling for readiness...");
 
-          // Poll for pod readiness instead of immediately setting "running"
+          // Poll for pod readiness — 90 attempts × 2s = 180s timeout
+          // Pods can take 2-3 minutes for npm install + OpenClaw startup
           await new Promise((r) => setTimeout(r, 1500));
           let ready = false;
-          for (let i = 0; i < 30; i++) {
+          for (let i = 0; i < 90; i++) {
             const podStatus = await getDeploymentPodStatus(deploymentId, managedBy);
             if (podStatus.status === "running") { ready = true; break; }
             if (podStatus.status === "failed") break;

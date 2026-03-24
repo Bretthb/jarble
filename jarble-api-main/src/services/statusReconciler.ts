@@ -41,7 +41,7 @@ export async function reconcileStatuses(): Promise<void> {
     // Find deployments that might have drifted
     // Limit to 100 per cycle to prevent overwhelming K8s API at scale
     const driftCandidates = await db.query.deployments.findMany({
-      where: inArray(deployments.status, ["creating", "running", "restarting", "reloading"]),
+      where: inArray(deployments.status, ["creating", "running", "restarting", "reloading", "failed"]),
       columns: { id: true, status: true, name: true, updatedAt: true, managedBy: true },
       limit: 100,
       orderBy: (d, { desc }) => [desc(d.updatedAt)], // Prioritize recently changed

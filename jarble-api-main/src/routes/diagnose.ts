@@ -150,12 +150,27 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
       suggestion: "Status may be stale — try restarting",
     });
   } else if (!dbSaysRunning && podRunning) {
-    checks.push({
-      name: "DB Status Match",
-      status: "warning",
-      detail: `DB says "${deployment.status}" but pod is running`,
-      suggestion: "Status desync — pod may recover on its own",
-    });
+    // Auto-fix: DB says failed/creating but pod is running — update DB to match reality
+    try {
+      await db.update(tables.deployments)
+        .set({ status: "running", error: null })
+        .where(eq(tables.deployments.id, deployment.id));
+      log.info({ deploymentId: deployment.id, oldStatus: deployment.status }, "Auto-fixed status desync: set to running");
+      checks.push({
+        name: "DB Status Match",
+        status: "ok",
+        detail: `Fixed: was "${deployment.status}", now "running" (pod confirmed alive)`,
+        suggestion: "Status was desynced — automatically corrected",
+      });
+    } catch (fixErr) {
+      log.error({ deploymentId: deployment.id, err: fixErr }, "Failed to auto-fix status desync");
+      checks.push({
+        name: "DB Status Match",
+        status: "warning",
+        detail: `DB says "${deployment.status}" but pod is running`,
+        suggestion: "Status desync — could not auto-fix",
+      });
+    }
   } else {
     checks.push({
       name: "DB Status Match",
