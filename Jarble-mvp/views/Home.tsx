@@ -44,7 +44,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground relative">
+    <div className="min-h-screen bg-background text-foreground relative overflow-x-hidden">
       <MarketingNav />
 
       {/* Beta Banner */}
