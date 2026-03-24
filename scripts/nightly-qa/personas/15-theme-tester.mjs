@@ -5,6 +5,7 @@
 
 import { BrowserSession } from "../lib/browser.mjs";
 import { testStep, TestStatus, Thresholds, Viewports } from "../lib/types.mjs";
+import { injectAuth } from "../lib/auth.mjs";
 
 export default async function runThemeTester({ baseUrl, config = {} }) {
   const session = new BrowserSession("15-theme-tester");
@@ -13,17 +14,9 @@ export default async function runThemeTester({ baseUrl, config = {} }) {
   try {
     await session.start();
 
-    // Inject auth token
+    // Inject Auth0 session for authenticated pages
     if (config.authToken) {
-      await session.context.addCookies([{
-        name: 'auth_token',
-        value: config.authToken,
-        domain: new URL(baseUrl).hostname,
-        path: '/',
-      }]);
-      await session.page.addInitScript((token) => {
-        localStorage.setItem('jarble_qa_token', token);
-      }, config.authToken);
+      await injectAuth(session.context, session.page, config.authToken);
     }
 
     // Step 1: Navigate to deployment chat page

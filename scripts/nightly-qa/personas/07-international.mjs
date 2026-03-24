@@ -5,6 +5,7 @@
 
 import { BrowserSession } from "../lib/browser.mjs";
 import { testStep, TestStatus, Thresholds } from "../lib/types.mjs";
+import { injectAuth } from "../lib/auth.mjs";
 
 export default async function runInternational({ baseUrl, config = {} }) {
   const session = new BrowserSession("07-international", {
@@ -16,17 +17,9 @@ export default async function runInternational({ baseUrl, config = {} }) {
   try {
     await session.start();
 
-    // Inject auth token
+    // Inject Auth0 session for authenticated pages
     if (config.authToken) {
-      await session.context.addCookies([{
-        name: 'auth_token',
-        value: config.authToken,
-        domain: new URL(baseUrl).hostname,
-        path: '/',
-      }]);
-      await session.page.addInitScript((token) => {
-        localStorage.setItem('jarble_qa_token', token);
-      }, config.authToken);
+      await injectAuth(session.context, session.page, config.authToken);
     }
 
     // Step 1: Load page with Japanese locale
@@ -202,12 +195,7 @@ export default async function runInternational({ baseUrl, config = {} }) {
     });
     await rtlSession.start();
     if (config.authToken) {
-      await rtlSession.context.addCookies([{
-        name: 'auth_token',
-        value: config.authToken,
-        domain: new URL(baseUrl).hostname,
-        path: '/',
-      }]);
+      await injectAuth(rtlSession.context, rtlSession.page, config.authToken);
     }
     const rtlLoadTime = await rtlSession.navigate(baseUrl);
     steps.push(
