@@ -21,3 +21,15 @@ The platformCredentials router has NO `list` procedure. Correct procedure names 
 Also: `runtimeCatalog.getById` requires a **numeric** `id`, not a string. Passing `"test"` returns 400 BAD_REQUEST.
 `services.get` requires `serviceId` field, not `id`.
 `benchmarks.leaderboard` requires `domainSlug` field, not `domainId`.
+
+Admin router procedure names (NOT `getUsers`/`getMetrics` — those return 404):
+- `admin.listUsers` — list all users (adminProcedure, returns 403 for non-admin)
+- `admin.getStats` — platform stats / metrics (adminProcedure, returns 403 for non-admin)
+- `admin.getRevenueStats`, `admin.getSystemHealth`, `admin.getClusterMetrics` — other admin queries
+- `admin.listAllDeployments`, `admin.getUserById`, `admin.updateUserRole` — other admin procedures
+
+`marketplace.getReviews` requires `{ componentId: string }` input, returns paginated reviews with summary.
+`services.listByCreator` requires `{ creatorId: string }` input, is a public procedure.
+`benchmarks.getPublicProfile` requires `{ deploymentId: string }`, returns 404 for unknown deployments.
+`benchmarks.serviceLeaderboard` requires `{ serviceId: string }`, returns 200 with empty entries for unknown IDs.
+`benchmarks.getServiceReviews` requires `{ serviceId: string }`, returns 200 with empty array for unknown IDs.
