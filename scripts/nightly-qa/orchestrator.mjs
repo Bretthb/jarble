@@ -2,7 +2,7 @@
 /**
  * Nightly QA Orchestrator
  *
- * Runs 12 persona-based test suites against the deployed Jarble platform.
+ * Runs 18 persona-based test suites against the deployed Jarble platform.
  * Captures screenshots, console logs, network errors, and performance metrics.
  * Generates an HTML report at scripts/nightly-qa/reports/YYYY-MM-DD.html
  *
@@ -62,6 +62,12 @@ const ALL_PERSONAS = [
   { num: 10, file: "./personas/10-flow-builder.mjs" },
   { num: 11, file: "./personas/11-multi-deploy.mjs" },
   { num: 12, file: "./personas/12-api-consumer.mjs" },
+  { num: 13, file: "./personas/13-admin-panel.mjs" },
+  { num: 14, file: "./personas/14-deployment-config.mjs" },
+  { num: 15, file: "./personas/15-theme-tester.mjs" },
+  { num: 16, file: "./personas/16-file-knowledge.mjs" },
+  { num: 17, file: "./personas/17-conversation-manager.mjs" },
+  { num: 18, file: "./personas/18-component-gallery.mjs" },
 ];
 
 const PERSONAS = selectedPersonas

@@ -61,4 +61,10 @@ export const PersonaRegistry = [
   { id: "10-flow-builder",        name: "Flow Builder",        icon: "git-branch",   description: "Deployments page, flow canvas, flow creation" },
   { id: "11-multi-deploy",        name: "Multi Deploy",        icon: "layers",       description: "Multiple deployments, resource map, linked keys" },
   { id: "12-api-consumer",        name: "API Consumer",        icon: "terminal",     description: "Direct tRPC and REST API calls without browser" },
+  { id: "13-admin-panel",        name: "Admin Panel Tester",  icon: "shield",       description: "Admin area — sidebar, data tables, audit log, system health" },
+  { id: "14-deployment-config",  name: "Deployment Config",   icon: "sliders",      description: "Deployment configuration sidebar — Model, Platform, Advanced tabs" },
+  { id: "15-theme-tester",       name: "Theme Tester",        icon: "palette",      description: "Theme switching, CSS variables, responsive styling" },
+  { id: "16-file-knowledge",     name: "File & Knowledge",    icon: "folder",       description: "File management and knowledge panel features" },
+  { id: "17-conversation-manager", name: "Conversation Manager", icon: "message-square", description: "Conversation history — sidebar, new chat, switching, localStorage" },
+  { id: "18-component-gallery",  name: "Component Gallery",   icon: "layout",       description: "Canvas components — catalog, rendering, hydration" },
 ];
