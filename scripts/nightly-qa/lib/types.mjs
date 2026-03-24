@@ -67,4 +67,11 @@ export const PersonaRegistry = [
   { id: "16-file-knowledge",     name: "File & Knowledge",    icon: "folder",       description: "File management and knowledge panel features" },
   { id: "17-conversation-manager", name: "Conversation Manager", icon: "message-square", description: "Conversation history — sidebar, new chat, switching, localStorage" },
   { id: "18-component-gallery",  name: "Component Gallery",   icon: "layout",       description: "Canvas components — catalog, rendering, hydration" },
+  { id: "19-deployment-creator", name: "Deployment Creator",  icon: "rocket",       description: "Full wizard flow — creates, verifies, and cleans up a deployment" },
+  { id: "20-chat-tester",        name: "Chat Tester",         icon: "message-circle", description: "Sends messages, verifies streaming responses, tests conversation switching" },
+  { id: "21-file-uploader",      name: "File Uploader",       icon: "upload",       description: "Uploads files, verifies round-trip, tests knowledge panel" },
+  { id: "22-flow-runner",        name: "Flow Runner",         icon: "play",         description: "Creates, runs, duplicates, and cleans up flows" },
+  { id: "23-config-editor",      name: "Config Editor",       icon: "edit",         description: "Edits deployment config, changes system prompt, inspects all tabs" },
+  { id: "24-canvas-interactor",  name: "Canvas Interactor",   icon: "move",         description: "Generates canvas cards, context menus, zoom, drag, close" },
+  { id: "25-chaos-monkey",       name: "Chaos Monkey",        icon: "alert-triangle", description: "Randomized adversarial testing — XSS, malformed data, unauthorized access" },
 ];
