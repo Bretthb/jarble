@@ -229,15 +229,26 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
       engine.cancel();
     }, 10 * 60 * 1000);
 
+    // Max pause duration: 30 minutes. If not resumed, clean up.
+    const MAX_PAUSE_DURATION = 30 * 60 * 1000;
+
     engine
       .execute()
       .then((state) => {
-        // If paused, don't clean up — keep the execution alive for resume
-        if (state.status === "paused") {
-          // Don't clear timeout or schedule cleanup — engine is still alive
+        clearTimeout(executionTimeout);
+        if ((state.status as string) === "paused") {
+          // Keep execution alive for resume, but schedule cleanup if never resumed
+          log.info({ executionId }, "Flow paused — waiting for resume (max 30min)");
+          setTimeout(() => {
+            const entry = runningExecutions.get(executionId);
+            if (entry && (entry.engine.executionState.status as string) === "paused") {
+              log.warn({ executionId }, "Paused flow expired (30min) — cleaning up");
+              entry.engine.cancel();
+              runningExecutions.delete(executionId);
+            }
+          }, MAX_PAUSE_DURATION);
           return;
         }
-        clearTimeout(executionTimeout);
         scheduleExecutionCleanup(executionId);
       })
       .catch((err) => {

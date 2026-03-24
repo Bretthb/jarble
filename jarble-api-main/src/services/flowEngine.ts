@@ -914,6 +914,16 @@ export class FlowExecutionEngine extends EventEmitter {
       throw new Error(`Subflow "${flowId}" has invalid definition`);
     }
 
+    // Enforce cumulative node budget (prevent subflow amplification)
+    const MAX_TOTAL_NODES = 100;
+    const parentNodeCount = this.definition.nodes.length;
+    const childNodeCount = childDefinition.nodes.length;
+    if (parentNodeCount + childNodeCount > MAX_TOTAL_NODES) {
+      throw new Error(
+        `Subflow "${flowId}" would exceed total node budget: ${parentNodeCount} parent + ${childNodeCount} child > ${MAX_TOTAL_NODES} max`
+      );
+    }
+
     // Create child engine
     const childExecId = `${this.state.executionId}_sub_${node.id}`;
     const childEngine = new FlowExecutionEngine(
@@ -1113,6 +1123,10 @@ export class FlowExecutionEngine extends EventEmitter {
       }
     }
 
+    // No operator found — warn about potentially malformed condition
+    if (resolved && resolved.length > 10) {
+      log.warn({ condition, resolved }, "Condition has no recognized operator — treating as truthy check");
+    }
     return !!resolved && resolved !== "false" && resolved !== "0";
   }
 

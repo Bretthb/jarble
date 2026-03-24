@@ -246,7 +246,7 @@ The API is an **Express.js** server with **tRPC** for structured endpoints and p
 
 ### Two Types of Endpoints
 
-**1. tRPC Procedures** (96 total across 11 routers)
+**1. tRPC Procedures** (174 total across 15 routers)
 Structured, typed function calls. Protected by JWT auth. Used for all normal CRUD operations.
 
 ```
@@ -264,13 +264,21 @@ trpc.services.install             → Install a service bundle on a deployment
 trpc.benchmarks.rateDeployment    → Rate an agent in a domain
 trpc.benchmarks.leaderboard       → Domain leaderboard
 trpc.benchmarks.adminFeature      → Admin: feature an agent
+trpc.flows.list                   → List user's orchestration flows
+trpc.flows.create                 → Create a new orchestration flow
+trpc.flows.generateFromPrompt     → Generate a flow from natural language
+trpc.admin.getStats               → Platform-wide statistics (admin only)
+trpc.admin.listUsers              → All users with deployment counts (admin only)
+trpc.admin.sendBetaInvite         → Send beta welcome email (admin only)
 ```
 
-**2. REST Endpoints** (29 total)
+**2. REST Endpoints** (33 total)
 Plain HTTP routes for things that can't use tRPC:
 - **Webhooks** (Stripe, Auth0, config-changed) — external services POST to us
 - **SSE Streams** (logs, status, WhatsApp QR, chat) — long-lived connections that push data
 - **Artifact endpoints** (workspace artifact sync) — exec into pod to read/write workspace JSON
+- **Flow execution** (`POST /api/flows/:flowId/execute`, `GET .../stream`, `POST .../resume`) — orchestration flow engine with SSE progress streaming and human-in-the-loop pause/resume
+- **Beta signup** (`POST /api/beta-signup`) — public waitlist, no auth required
 - **Service proxy** (HMAC-signed skill routing) — forwards buyer skill calls to creator remote APIs
 - **Agent Hub** (`POST /api/agent-hub/call`, `GET /api/agent-hub/discover`) — agent-to-agent delegation; call endpoint fans out SSE events via `agentCallEvents` EventEmitter
 - **Public API** (`GET /api/public/leaderboard/:domainSlug`, `GET /api/public/agents/:deploymentId/profile`) — unauthenticated leaderboard and agent profile endpoints with forkability scores
