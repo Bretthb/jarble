@@ -104,7 +104,7 @@ function SimpleCanvasGridInner({
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
-    const closeOnEscape = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    const closeOnEscape = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") close(); };
     window.addEventListener("click", close);
     window.addEventListener("contextmenu", close);
     window.addEventListener("keydown", closeOnEscape);

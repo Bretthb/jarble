@@ -1,12 +1,11 @@
 "use client";
 
-import type PostHog from "posthog-js";
-
 const key = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const host = process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com";
 
 let initialized = false;
-let posthogInstance: PostHog | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let posthogInstance: any = null;
 
 /**
  * Lazily initializes PostHog analytics.
@@ -29,7 +28,8 @@ export async function initPostHog(): Promise<void> {
  * Returns the PostHog instance, loading the library if needed.
  * Returns null if PostHog is not configured (no NEXT_PUBLIC_POSTHOG_KEY).
  */
-export async function getPostHog(): Promise<PostHog | null> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getPostHog(): Promise<any> {
   if (!key || typeof window === "undefined") return null;
   if (!initialized) await initPostHog();
   return posthogInstance;

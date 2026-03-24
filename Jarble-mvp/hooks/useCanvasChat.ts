@@ -207,7 +207,7 @@ export function useCanvasChat(
     hasMergedServer.current = true;
     const serverSessions = serverSessionsQuery.data;
     if (serverSessions.length === 0) return;
-    const merged = mergeServerSessions(deploymentId, serverSessions as Array<{ id: string; title: string; createdAt: string; updatedAt: string }>);
+    const merged = mergeServerSessions(deploymentId, serverSessions as unknown as Array<{ id: string; title: string; createdAt: string; updatedAt: string }>);
     setConversations(merged.conversations);
   }, [deploymentId, serverSessionsQuery.data]);
 

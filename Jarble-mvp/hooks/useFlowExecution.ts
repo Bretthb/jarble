@@ -16,19 +16,30 @@ export interface FlowStepStatus {
   credits?: number;
   /** Streaming inner text from deployment steps (e.g. LLM output) */
   innerText?: string;
+  /** Current iteration number for cycle/loop nodes */
+  iteration?: number;
+  /** Maximum iterations allowed for cycle/loop nodes */
+  maxIterations?: number;
+  /** Substeps for nested/subflow nodes */
+  substeps?: FlowStepStatus[];
 }
 
 export interface FlowExecutionState {
   executionId: string | null;
-  status: "idle" | "running" | "completed" | "failed";
+  status: "idle" | "running" | "completed" | "failed" | "paused";
   steps: Map<string, FlowStepStatus>;
   totalCredits: number;
   error?: string;
+  /** Node ID that is currently paused waiting for human input */
+  pausedNodeId?: string;
+  /** JSON Schema describing the expected input for the paused node */
+  inputSchema?: Record<string, unknown>;
 }
 
 interface UseFlowExecutionReturn {
   state: FlowExecutionState;
   startExecution: (flowId: string) => Promise<void>;
+  resumeExecution: (nodeId: string, input: unknown) => Promise<void>;
   cancel: () => void;
   reconnect: (executionId: string) => void;
   isConnected: boolean;
@@ -101,9 +112,9 @@ export function useFlowExecution(): UseFlowExecutionReturn {
 
             // Snapshot: initial state of all steps on reconnect
             if (type === "jarble.flow.snapshot") {
-              const steps = Array.isArray(data.steps)
-                ? new Map(data.steps.map((s: FlowStepStatus) => [s.nodeId, s]))
-                : new Map<string, FlowStepStatus>();
+              const steps: Map<string, FlowStepStatus> = Array.isArray(data.steps)
+                ? new Map(data.steps.map((s: FlowStepStatus) => [s.nodeId, s] as [string, FlowStepStatus]))
+                : new Map();
               setState({
                 executionId: data.executionId || executionId,
                 status: data.status || "running",
@@ -149,15 +160,93 @@ export function useFlowExecution(): UseFlowExecutionReturn {
             if (type === "jarble.flow.step.text_delta") {
               setState((prev) => {
                 const next = new Map(prev.steps);
-                const existing = next.get(data.nodeId) || {
+                const existing: FlowStepStatus = next.get(data.nodeId) || {
                   nodeId: data.nodeId,
                   label: "",
-                  status: "running" as const,
+                  status: "running",
+                  innerText: "",
                 };
                 next.set(data.nodeId, {
                   ...existing,
                   innerText: (existing.innerText || "") + (data.delta || ""),
                 });
+                return { ...prev, steps: next };
+              });
+            }
+
+            // Flow paused for human-in-the-loop input
+            if (type === "jarble.flow.paused") {
+              setState((prev) => ({
+                ...prev,
+                status: "paused",
+                pausedNodeId: data.nodeId,
+                inputSchema: data.inputSchema,
+              }));
+              // Also update the specific step to show paused status
+              setState((prev) => {
+                const next = new Map(prev.steps);
+                const existing = next.get(data.nodeId);
+                if (existing) {
+                  next.set(data.nodeId, { ...existing, status: "running" });
+                }
+                return { ...prev, steps: next };
+              });
+            }
+
+            // Iteration event for cycle/loop nodes
+            if (type === "jarble.flow.step.iteration") {
+              setState((prev) => {
+                const next = new Map(prev.steps);
+                const existing = next.get(data.nodeId);
+                if (existing) {
+                  next.set(data.nodeId, {
+                    ...existing,
+                    iteration: data.iteration,
+                    maxIterations: data.maxIterations,
+                  });
+                }
+                return { ...prev, steps: next };
+              });
+            }
+
+            // Substep started (nested/subflow execution)
+            if (type === "jarble.flow.substep.started") {
+              setState((prev) => {
+                const next = new Map(prev.steps);
+                const parent = next.get(data.parentNodeId);
+                if (parent) {
+                  const substeps = parent.substeps ? [...parent.substeps] : [];
+                  substeps.push({
+                    nodeId: data.nodeId,
+                    label: data.label,
+                    status: "running",
+                  });
+                  next.set(data.parentNodeId, { ...parent, substeps });
+                }
+                return { ...prev, steps: next };
+              });
+            }
+
+            // Substep finished (nested/subflow execution)
+            if (type === "jarble.flow.substep.finished") {
+              setState((prev) => {
+                const next = new Map(prev.steps);
+                const parent = next.get(data.parentNodeId);
+                if (parent && parent.substeps) {
+                  const substeps = parent.substeps.map((s) =>
+                    s.nodeId === data.nodeId
+                      ? {
+                          ...s,
+                          status: data.status as FlowStepStatus["status"],
+                          result: data.result,
+                          error: data.error,
+                          durationMs: data.durationMs,
+                          credits: data.credits,
+                        }
+                      : s
+                  );
+                  next.set(data.parentNodeId, { ...parent, substeps });
+                }
                 return { ...prev, steps: next };
               });
             }
@@ -310,10 +399,68 @@ export function useFlowExecution(): UseFlowExecutionReturn {
     cleanup();
     setState((prev) => ({
       ...prev,
-      status: prev.status === "running" ? "failed" : prev.status,
-      error: prev.status === "running" ? "Execution cancelled" : prev.error,
+      status: prev.status === "running" || prev.status === "paused" ? "failed" : prev.status,
+      error: prev.status === "running" || prev.status === "paused" ? "Execution cancelled" : prev.error,
+      pausedNodeId: undefined,
+      inputSchema: undefined,
     }));
   }, [cleanup]);
+
+  // ─── Resume paused execution (human-in-the-loop) ───────────────
+
+  const resumeExecution = useCallback(
+    async (nodeId: string, input: unknown) => {
+      if (!isAuthenticated) return;
+
+      const flowId = activeFlowIdRef.current;
+      const execId = state.executionId;
+      if (!flowId || !execId) return;
+
+      try {
+        const token = await getAccessTokenSilently();
+        const res = await fetch(
+          `${API_URL}/api/flows/${encodeURIComponent(flowId)}/executions/${encodeURIComponent(execId)}/resume`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ nodeId, input }),
+          }
+        );
+
+        if (!res.ok) {
+          const body = await res.text();
+          setState((prev) => ({
+            ...prev,
+            error: `Resume failed: ${res.status} ${body}`,
+          }));
+          return;
+        }
+
+        // Clear paused state and transition back to running
+        setState((prev) => ({
+          ...prev,
+          status: "running",
+          pausedNodeId: undefined,
+          inputSchema: undefined,
+        }));
+
+        // Reconnect to SSE to get remaining events
+        cleanup();
+        cancelledRef.current = false;
+        retryCountRef.current = 0;
+        await connectToStream(execId);
+      } catch (err) {
+        setState((prev) => ({
+          ...prev,
+          error: err instanceof Error ? err.message : "Failed to resume execution",
+        }));
+      }
+    },
+    [isAuthenticated, state.executionId, getAccessTokenSilently, cleanup, connectToStream]
+  );
 
   // ─── Reconnect to existing execution (e.g. after page reload) ──
 
@@ -339,6 +486,7 @@ export function useFlowExecution(): UseFlowExecutionReturn {
   return {
     state,
     startExecution,
+    resumeExecution,
     cancel,
     reconnect,
     isConnected,
