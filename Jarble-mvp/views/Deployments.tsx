@@ -1706,7 +1706,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     mutation.definition = {
       nodes: activeFlow.nodes.map((n) => ({
         id: n.id,
-        type: (n.type ?? "deployment") as "deployment" | "transform" | "condition" | "output",
+        type: (n.type === "flowDeployment" ? "deployment" : (n.type ?? "deployment")) as "deployment" | "transform" | "condition" | "output",
         deploymentId: n.data?.id,
         label: n.data?.name ?? n.id,
         config: {} as Record<string, unknown>,
