@@ -245,7 +245,7 @@ export class FlowExecutionEngine extends EventEmitter {
     try {
       await this.executeStateMachine();
     } catch (err: any) {
-      if (this.state.status !== "paused") {
+      if ((this.state.status as string) !== "paused") {
         this.state.status = "failed";
         this.emit("flow:error", {
           executionId: this.state.executionId,
@@ -255,7 +255,7 @@ export class FlowExecutionEngine extends EventEmitter {
     }
 
     // If paused, don't finalize — resume() will continue
-    if (this.state.status === "paused") {
+    if ((this.state.status as string) === "paused") {
       // Checkpoint the paused state
       await this.checkpointState().catch((err) => {
         log.warn({ executionId: this.state.executionId, err }, "Paused checkpoint failed (non-fatal)");
