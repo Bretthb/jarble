@@ -95,26 +95,32 @@ For each test goal, spawn the appropriate agent using the **Agent tool**:
 - **Group authenticated UI goals together** — the explorer stays logged in within a session, so run all auth-required UI goals in one explorer spawn to avoid logging in repeatedly
 - Wait for each agent to return before spawning the next
 
-**Example spawn prompt for qa-explorer-ui**:
+**Example spawn prompt for qa-explorer-ui (authenticated)**:
 ```
-TEST GOAL: Verify the deployment wizard creates a deployment successfully
-TYPE: ui
-AUTH REQUIRED: yes
-TARGET: /onboarding/new
+TEST GOALS (run all in one session after logging in):
+1. Verify dashboard loads and shows deployments list
+2. Navigate to /onboarding/new and verify wizard loads
+3. Navigate to /billing and verify billing page loads
 
-AUTH INJECTION (run via playwright_evaluate before navigating to authenticated pages):
-localStorage.setItem('@@auth0spajs@@::1VR30862RmZIFR44UIM8aVHYEt3K2Rsh::https://api.jarble.ai::openid profile email offline_access', '...');
-localStorage.setItem('@@auth0spajs@@::1VR30862RmZIFR44UIM8aVHYEt3K2Rsh::@@user@@', '...');
-document.cookie = 'auth0.1VR30862RmZIFR44UIM8aVHYEt3K2Rsh.is.authenticated=true; path=/';
+AUTH: Log in through the Auth0 UI (do NOT inject localStorage).
+QA_EMAIL: smallradcomp@gmail.com
+QA_PASSWORD: P@ssw0rdSS
+
+Login steps:
+1. Navigate to http://localhost:3000
+2. Find and click the "Sign In" or "Log In" button
+3. On the Auth0 page, fill email and password
+4. Click Continue/Log In
+5. Wait for redirect to /dashboard
+6. You are now authenticated — test all goals without logging in again
 
 BASE_URL: http://localhost:3000
 API_URL: http://localhost:3001
 
-PASS CRITERIA: Wizard completes all steps, deployment appears in dashboard
-FAIL CRITERIA: Any step fails to load, 5xx errors, wizard cannot proceed
-
 Report results using the === QA RESULT === structured format.
 ```
+
+**IMPORTANT**: Do NOT use localStorage injection for browser auth. The Auth0 tenant has refresh token rotation enabled which invalidates injected tokens. Always log in through the real Auth0 UI via Playwright MCP.
 
 ### Phase 5: Collect and Analyze Results
 

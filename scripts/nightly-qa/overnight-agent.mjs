@@ -303,7 +303,7 @@ function pruneOldReports() {
 // ── Build Orchestrator Prompt ────────────────────────────────────────────
 
 function buildPrompt(context) {
-  const { token, diffStat, currentSha, focus, lastRun } = context;
+  const { token, email, password, anthropicKey, diffStat, currentSha, focus, lastRun } = context;
 
   let prompt = `Run a QA cycle for the Jarble platform.
 
@@ -313,10 +313,28 @@ GIT_SHA: ${currentSha}
 TIMESTAMP: ${new Date().toISOString()}
 `;
 
+  // Auth credentials for browser login
+  if (email && password) {
+    prompt += `
+AUTH CREDENTIALS (for browser-based testing — log in via Auth0 UI):
+QA_EMAIL: ${email}
+QA_PASSWORD: ${password}
+IMPORTANT: Do NOT inject localStorage. Log in through the real Auth0 UI using Playwright MCP.
+`;
+  }
+
+  // Bearer token for API testing
   if (token) {
-    prompt += `\nQA_AUTH_TOKEN: ${token}\n`;
-  } else {
-    prompt += `\nNO AUTH TOKEN AVAILABLE — skip all auth-required test goals.\n`;
+    prompt += `\nAUTH_TOKEN (for API testing via curl — use as Bearer token): ${token}\n`;
+  }
+
+  if (!email && !token) {
+    prompt += `\nNO AUTH AVAILABLE — skip all auth-required test goals.\n`;
+  }
+
+  // Anthropic key for deployment creation tests
+  if (anthropicKey) {
+    prompt += `\nQA_ANTHROPIC_KEY (for deployment wizard — use as LLM provider API key): ${anthropicKey}\n`;
   }
 
   prompt += `\nGIT CHANGES SINCE LAST RUN:\n${diffStat}\n`;
@@ -388,6 +406,9 @@ async function runCycle(state, env) {
     log.log("INFO", "dispatch", "Building orchestrator prompt...");
     const prompt = buildPrompt({
       token,
+      email: env.QA_EMAIL || process.env.QA_EMAIL,
+      password: env.QA_PASSWORD || process.env.QA_PASSWORD,
+      anthropicKey: env.QA_ANTHROPIC_KEY || process.env.QA_ANTHROPIC_KEY,
       diffStat,
       currentSha,
       focus: FOCUS,
