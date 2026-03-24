@@ -19,6 +19,7 @@ import helmet from "helmet";
 import { globalLimiter, authLimiter } from "./middleware/rateLimit.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { requestLoggingMiddleware } from "./middleware/requestLogging.js";
+import { trpcCacheMiddleware } from "./middleware/cache.js";
 
 // Route modules
 import { stripeWebhookHandler, stripeRouter } from "./routes/stripe.js";
@@ -148,8 +149,8 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// tRPC handler
-app.use("/trpc", authLimiter, createExpressMiddleware({
+// tRPC handler — cache middleware sets Cache-Control on read-heavy queries
+app.use("/trpc", trpcCacheMiddleware(), authLimiter, createExpressMiddleware({
   router: appRouter,
   createContext,
   onError: ({ error, path, ctx }) => {

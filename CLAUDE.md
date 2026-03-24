@@ -26,7 +26,14 @@ Each deployment gets a **web chat interface** (`/d/[id]`) where users interact w
 ├── jarble-api-main/     # Express + tRPC API backend
 ├── shared/              # Shared packages
 │   └── component-manifest/  # Single source of truth for component metadata
-├── scripts/             # CI/build scripts
+├── scripts/             # CI/build scripts + agent dev tooling
+│   └── agent-dev/       # Agent development scripts (formerly jarble-dev/)
+├── docs/                # Project documentation
+│   ├── work-sessions/   # Work session logs (formerly Work-Sessions/)
+│   ├── research/        # Research notes (formerly research/)
+│   ├── OVERVIEW.md      # Platform overview and architecture
+│   ├── API-ENDPOINTS.md # Full API reference
+│   └── DEVELOPER-GUIDE.md # Developer walkthrough
 ├── infrastructure/      # Terraform IaC + Auth0 config
 └── runtimes/            # Bot runtime implementations (openclaw, zeroclaw)
 ```
@@ -38,7 +45,7 @@ Each deployment gets a **web chat interface** (`/d/[id]`) where users interact w
 npm run dev          # Start dev server on :3000
 npm run build        # Production build
 npm run check        # TypeScript type-check (tsc --noEmit)
-npm run test         # Run Vitest unit tests
+npm run test         # Run Vitest unit tests (37 test files in src/)
 npm run check:manifest   # Verify manifest ↔ component sync
 ```
 
@@ -47,7 +54,7 @@ npm run check:manifest   # Verify manifest ↔ component sync
 npm run dev          # Start with file watching (tsx watch)
 npm run dev:test     # Start with SQLite (USE_SQLITE=true) for local dev
 npm run typecheck    # TypeScript type-check
-npm run test         # Run Vitest unit tests
+npm run test         # Run Vitest unit tests (82 test files in src/)
 npm run db:push      # Push schema to database
 npm run db:studio    # Open Drizzle Studio
 ```
@@ -68,13 +75,14 @@ cd Jarble-mvp && npm run dev
 - **Auth**: Auth0 (JWT + JWKS), **Payments**: Stripe, **Infra**: Hetzner Cloud, Terraform, K3s, Longhorn
 
 ## tRPC Router Structure
-9 routers with 73+ procedures at `/trpc`:
-`user`, `deployment`, `runtimeCatalog`, `openrouter`, `billing`, `platformCredentials`, `template`, `marketplace` (components), `services` (service marketplace + hosted dashboard)
+15 routers with 80+ procedures at `/trpc`:
+`user`, `deployment`, `runtimeCatalog`, `openrouter`, `billing`, `platformCredentials`, `template`, `marketplace` (components), `services` (service marketplace + hosted dashboard), `flows` (flow CRUD + execution), `admin`, `agentCredits`, `apiKeys`, `benchmarks`, `skills`
 
 ## Frontend-Backend Communication
 - **tRPC + React Query**: Type-safe API calls with automatic caching
 - **SSE Streams**: Real-time status (`useStatusStream`), logs (`useLogStream`), QR pairing (`useQrStream`)
 - **Chat SSE**: `POST /api/tambo-agent` streams bot responses (text deltas + UI blocks + reasoning events)
+- **Flow SSE**: `POST /api/flows/:flowId/execute` starts execution and returns an `executionId`; client reconnects to `GET /api/flows/executions/:executionId/stream` for the live event stream
 - **Auth0 Bearer tokens**: Automatically attached via tRPC link headers
 
 ## Chat UX Features
@@ -111,6 +119,54 @@ Card actions (Ask, Select, Split, Save, Publish, Close) are accessed via:
 - **Small `...` button** in top-right corner on hover — opens same menu
 - Context menu renders at the canvas root level (not inside cards) to avoid CSS transform positioning issues
 
+## Orchestration System (Flow Engine)
+
+The platform includes a multi-agent flow orchestration system that lets users build and execute DAG-based pipelines of deployments, transforms, and decisions.
+
+### Flow Engine (`jarble-api-main/src/services/flowEngine.ts`)
+- **Execution model**: State-machine DAG — finds entry nodes (no incoming edges), executes in topological order with parallel batches where possible
+- **Cycle support**: Nodes in cycles run up to `maxIterations` times (default 10) — enables agent feedback loops
+- **Human-in-the-loop (HITL)**: `waitForInput` nodes pause execution until `resume()` is called with user input; this triggers `jarble.flow.paused` SSE and a `/api/flows/executions/:id/resume` REST endpoint
+- **Nested flows**: `subflow` nodes spin up a child `FlowEngine` and stream its events as `jarble.flow.substep.*` events
+- **Template variables**: Node configs support `{{stepN_result.field}}` syntax resolved at runtime from prior step results
+- **Node types**: `deployment` (call a Jarble bot), `transform` (JS expression), `condition` (branch on expression result), `output` (collect results), `waitForInput`, `subflow`
+- **Credit billing**: Deployment nodes consume agent credits via `executeAgentCall()`
+
+### Flow CRUD (`jarble-api-main/src/trpc/routers/flows.ts`)
+8 tRPC procedures (all `protectedProcedure`):
+- `list` — list all flows for the authed user
+- `getById` — fetch a single flow with its definition
+- `create` — create a new flow
+- `update` — update name, description, or node/edge definition
+- `delete` — delete a flow and its execution history
+- `duplicate` — copy a flow with a new name
+- `listExecutions` — paginated execution history for a flow
+- `generateFromPrompt` — LLM-generated flow definition from a natural-language prompt
+
+### Flow Execution Routes (`jarble-api-main/src/routes/flowExecution.ts`)
+- `POST /api/flows/:flowId/execute` — authenticated, starts execution, returns `{ executionId }` as JSON; execution runs in background
+- `GET /api/flows/executions/:executionId/stream` — SSE stream; client connects after receiving `executionId`; supports reconnect with buffered replay
+- `POST /api/flows/executions/:executionId/resume` — unpauses a `waitForInput` node with user-provided input
+- Rate-limited to 5 concurrent SSE connections per user (`MAX_FLOW_SSE_PER_USER`)
+
+### Flow SSE Events
+9 event types emitted on the `GET .../stream` endpoint:
+
+| Event | When |
+|-------|------|
+| `jarble.flow.snapshot` | On reconnect — full current state |
+| `jarble.flow.step.started` | A node begins executing |
+| `jarble.flow.step.finished` | A node completes (with result) |
+| `jarble.flow.step.iteration` | A cyclic node iterates again |
+| `jarble.flow.state` | Overall execution state changes |
+| `jarble.flow.paused` | Execution paused at `waitForInput` node |
+| `jarble.flow.error` | An execution error occurred |
+| `jarble.flow.substep.started` | A subflow child node started |
+| `jarble.flow.substep.finished` | A subflow child node finished |
+
+### Flow Canvas (`Jarble-mvp/views/Deployments.tsx`)
+Flow graphs are visualized and edited using `@xyflow/react` (`ReactFlow`, `useNodesState`, `useEdgesState`, `ReactFlowProvider`). Custom node and edge types are rendered inline on the canvas. The view also uses the `flows` tRPC router for CRUD operations.
+
 ## Path Aliases & Zod Version Split
 
 **Critical**: Frontend uses **Zod v4**, API uses **Zod v3**. Each tsconfig pins the `zod` path to its own `node_modules/zod`. The shared `component-manifest` package must work with both — don't construct Zod schemas that cross the version boundary.
@@ -141,9 +197,16 @@ Card actions (Ask, Select, Split, Save, Publish, Close) are accessed via:
 
 ### Adding a New Canvas Component
 1. Create `Jarble-mvp/components/canvas/components/Canvas{Name}.tsx` — **no wrapper styling** (use `p-3 h-full`)
-2. Add entry to `shared/component-manifest/components/{name}.ts`
-3. Register in `shared/component-manifest/index.ts`
-4. Run `npm run check:manifest`
+2. Wrap content in `<FadeIn>` from `components/canvas/FadeIn.tsx` for consistent mount animation (framer-motion is not used — 22+ components use this lightweight wrapper instead)
+3. Add entry to `shared/component-manifest/components/{name}.ts`
+4. Register in `shared/component-manifest/index.ts`
+5. Run `npm run check:manifest`
+
+### Adding a New Flow Node Type
+1. Add the type literal to `FlowNode["type"]` union in `jarble-api-main/src/services/flowEngine.ts`
+2. Add a handler branch in `FlowEngine.executeStep()` — call the appropriate private method (follow the pattern of `executeTransformNode`, `executeConditionNode`, etc.)
+3. Add the new node type to the `@xyflow/react` node-type registry in `Jarble-mvp/views/Deployments.tsx` with a matching custom node component
+4. Update the `generateFromPrompt` system prompt in `flows.ts` so the LLM knows the new type exists
 
 ### Claude Max OAuth Tokens
 `sk-ant-oat*` tokens can't be validated via Anthropic API — auto-passed by prefix in `openrouter.ts:validateProviderKey`. Use Bearer auth (not `x-api-key`).
@@ -162,6 +225,15 @@ Wizard steps and config tabs driven by `Jarble-mvp/views/onboarding/wizardStepCo
 | `components/workspace/SimpleCanvasGrid.tsx` | Freeform canvas — card rendering, context menu, drag/resize |
 | `components/canvas/CanvasActionContext.tsx` | Action dispatch context — `content_edit`, UI actions |
 | `components/canvas/components/CanvasCodeBlock.tsx` | Code block — shiki highlighting, inline edit, copy |
+| `components/canvas/FadeIn.tsx` | Lightweight mount-animation wrapper used by 22+ canvas components |
+
+### Key Flow / Orchestration Files
+| File | Purpose |
+|------|---------|
+| `jarble-api-main/src/services/flowEngine.ts` | DAG state-machine executor — cycles, HITL, subflows, parallel batches |
+| `jarble-api-main/src/trpc/routers/flows.ts` | Flow CRUD tRPC router — 8 procedures |
+| `jarble-api-main/src/routes/flowExecution.ts` | SSE streaming + resume REST endpoints for flow execution |
+| `Jarble-mvp/views/Deployments.tsx` | Flow canvas UI — @xyflow/react with custom nodes/edges |
 
 ## Environment Variables
 
@@ -175,6 +247,8 @@ STRIPE_SECRET_KEY=sk_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 OPENROUTER_API_KEY=sk-or-...
 ENCRYPTION_KEY=...              # AES-256-GCM key for platform credentials
+RESEND_API_KEY=re_...           # Optional — transactional email via Resend
+ADMIN_USER_IDS=auth0|...,auth0|... # Optional — comma-separated Auth0 IDs for admin router access
 ```
 
 ### Frontend (Jarble-mvp/.env.local)

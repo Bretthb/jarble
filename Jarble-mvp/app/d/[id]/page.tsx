@@ -202,7 +202,7 @@ export default function DeploymentChatPage() {
         {/* Content skeleton */}
         <div className="flex-1 flex overflow-hidden">
           {/* Chat panel skeleton */}
-          <div className="w-[400px] flex flex-col border-r border-border/40">
+          <div className="w-full md:w-[400px] flex flex-col border-r border-border/40">
             <div className="flex-1 p-4 space-y-4">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className={cn("flex gap-2", i % 2 === 0 ? "" : "justify-end")}>
@@ -214,8 +214,8 @@ export default function DeploymentChatPage() {
               <Skeleton className="h-10 w-full rounded-lg" />
             </div>
           </div>
-          {/* Canvas skeleton */}
-          <div className="flex-1 bg-secondary/10 p-6">
+          {/* Canvas skeleton (hidden on mobile) */}
+          <div className="hidden md:block flex-1 bg-secondary/10 p-6">
             <div className="grid grid-cols-2 gap-4">
               <Skeleton className="h-40 rounded-lg" />
               <Skeleton className="h-40 rounded-lg" />
@@ -355,9 +355,9 @@ function WorkspacePage({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-none">
             <EssentialControls deploymentId={deploymentId} status={liveStatus} />
-            <div className="w-px h-5 bg-border/60" />
+            <div className="w-px h-5 bg-border/60 hidden sm:block" />
             <Button
               variant={historyOpen ? "secondary" : "ghost"}
               size="sm"
@@ -367,7 +367,7 @@ function WorkspacePage({
                   return !v;
                 });
               }}
-              className="h-8 w-8 p-0"
+              className="h-8 w-8 p-0 shrink-0"
               title="Conversation history"
             >
               <MessageSquareText className="w-4 h-4" />
@@ -381,7 +381,7 @@ function WorkspacePage({
                   return !v;
                 });
               }}
-              className="h-8 w-8 p-0"
+              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
               title="Files"
             >
               <FolderOpen className="w-4 h-4" />
@@ -395,7 +395,7 @@ function WorkspacePage({
                   return !v;
                 });
               }}
-              className="h-8 w-8 p-0"
+              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
               title="Knowledge Base"
             >
               <Brain className="w-4 h-4" />
@@ -418,7 +418,7 @@ function WorkspacePage({
                   return !v;
                 });
               }}
-              className="h-8 w-8 p-0"
+              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
               title="Hosted Services"
             >
               <Server className="w-4 h-4" />
@@ -427,7 +427,7 @@ function WorkspacePage({
               variant={marketplaceOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setMarketplaceOpen((v) => !v)}
-              className="h-8 w-8 p-0"
+              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
               title="Marketplace"
             >
               <Store className="w-4 h-4" />
@@ -441,7 +441,7 @@ function WorkspacePage({
                   return !v;
                 });
               }}
-              className="h-8 w-8 p-0"
+              className="h-8 w-8 p-0 shrink-0"
               title="Configuration"
             >
               <Settings className="w-4 h-4" />
@@ -787,14 +787,22 @@ function CanvasWorkspace({
         />
       )}
 
-      {/* Chat Panel -- always visible */}
+      {/* Chat Panel -- always visible; full-width on mobile, resizable on desktop */}
       <div
         className={cn(
           "flex flex-col bg-background",
-          canvasSidebarVisible ? "shrink-0" : "flex-1 max-w-3xl mx-auto border-x border-border/40"
+          canvasSidebarVisible
+            ? "w-full md:shrink-0"
+            : "flex-1 max-w-3xl mx-auto border-x border-border/40"
         )}
-        style={canvasSidebarVisible ? { width: chatWidth } : undefined}
+        style={canvasSidebarVisible ? { ["--chat-width" as string]: `${chatWidth}px` } : undefined}
       >
+        {/* Apply desktop chat width via inline style only at md+ */}
+        <style>{`
+          @media (min-width: 768px) {
+            [style*="--chat-width"] { width: var(--chat-width) !important; }
+          }
+        `}</style>
         {/* Chat messages via assistant-ui — keyed so runtime resets on conversation switch */}
         <KeyedChatPanel
           key={activeConversationId ?? "default"}
@@ -910,13 +918,13 @@ function CanvasWorkspace({
         </div>
       </div>
 
-      {/* Resize handle -- between chat panel and dashboard grid */}
+      {/* Resize handle -- between chat panel and dashboard grid (hidden on mobile) */}
       {canvasSidebarVisible && (
         <div
           onMouseDown={handleResizeStart}
           className={cn(
             "w-1.5 shrink-0 cursor-col-resize relative z-10 group",
-            "flex items-center justify-center",
+            "hidden md:flex items-center justify-center",
             isResizingChat ? "bg-primary/30" : "bg-transparent hover:bg-border/60",
             "transition-colors duration-150"
           )}
@@ -929,9 +937,9 @@ function CanvasWorkspace({
         </div>
       )}
 
-      {/* Dashboard Grid Panel -- for UI blocks only */}
+      {/* Dashboard Grid Panel -- for UI blocks only (hidden on mobile — chat is full-width) */}
       {canvasSidebarVisible && (
-        <div className="flex-1 flex flex-col overflow-hidden relative min-w-[300px] bg-secondary/10 border-l border-border/40">
+        <div className="hidden md:flex flex-1 flex-col overflow-hidden relative min-w-[300px] bg-secondary/10 border-l border-border/40">
           {state.mode === "dashboard" ? (
             <DashboardCanvas
               cards={state.cards}

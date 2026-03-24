@@ -235,9 +235,9 @@ export default function Dashboard() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         {/* Email Verification Banner */}
         {!emailVerified && (
-          <div className="mb-6 flex items-center gap-3 rounded-lg border border-border bg-secondary/50 px-4 py-3">
+          <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center gap-3 rounded-lg border border-border bg-secondary/50 px-4 py-3">
             <MailWarning className="w-5 h-5 text-muted-foreground shrink-0" />
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-medium">Verify your email to deploy</p>
               <p className="text-xs text-muted-foreground">
                 Check your inbox for a verification link from Jarble. You need to verify your email before creating deployments.
@@ -251,7 +251,7 @@ export default function Dashboard() {
                 resendVerificationMutation.mutate();
               }}
               disabled={isResendingVerification}
-              className="shrink-0 border-border hover:bg-secondary/50"
+              className="shrink-0 border-border hover:bg-secondary/50 w-full sm:w-auto"
             >
               {isResendingVerification ? (
                 <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
@@ -502,8 +502,8 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData
           )}
 
           {/* Row 2: Metadata + Actions */}
-          <div className="flex items-center justify-between pt-3 border-t border-border/50">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between gap-2 pt-3 border-t border-border/50">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs text-muted-foreground min-w-0">
               {/* Cancelling badge */}
               {deployment.cancelledAt && deployment.cancelAtPeriodEnd && (() => {
                 const cancelDays = Math.max(0, Math.ceil((new Date(deployment.cancelAtPeriodEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));

@@ -37,12 +37,17 @@ import {
   GripVertical,
   Coins,
   ChevronRight,
+  RotateCcw,
+  Pause,
+  Send,
+  Workflow,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { runtimeNeedsLlm } from "./onboarding/wizardStepConfig";
 import {
@@ -107,6 +112,16 @@ type FlowNodeData = DeploymentData & {
   executionError?: string;
   /** Streaming inner text from a running deployment step */
   executionInnerText?: string;
+  /** Whether this node is paused waiting for human input */
+  executionPaused?: boolean;
+  /** Current iteration for cycle/loop nodes */
+  executionIteration?: number;
+  /** Max iterations for cycle/loop nodes */
+  executionMaxIterations?: number;
+  /** Substeps for nested/subflow nodes */
+  executionSubsteps?: FlowStepStatus[];
+  /** Callback for resuming paused nodes */
+  onResumeInput?: (input: string) => void;
   [key: string]: unknown;
 };
 
@@ -255,11 +270,13 @@ function getLayoutedElements<T extends Record<string, unknown>>(
 // ─── Execution status helpers ────────────────────────────────────────
 
 function executionStatusColor(
-  status?: FlowStepStatus["status"]
+  status?: FlowStepStatus["status"] | "paused"
 ): string {
   switch (status) {
     case "running":
       return "border-blue-500";
+    case "paused":
+      return "border-amber-500";
     case "completed":
       return "border-emerald-500";
     case "failed":
@@ -273,11 +290,13 @@ function executionStatusColor(
 }
 
 function executionStatusRingColor(
-  status?: FlowStepStatus["status"]
+  status?: FlowStepStatus["status"] | "paused"
 ): string {
   switch (status) {
     case "running":
       return "ring-blue-500/30";
+    case "paused":
+      return "ring-amber-500/30";
     case "completed":
       return "ring-emerald-500/30";
     case "failed":
@@ -451,7 +470,7 @@ function DeploymentDetailPanel({
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: -320, opacity: 0 }}
       transition={{ type: "spring", damping: 25, stiffness: 300 }}
-      className="fixed left-0 top-[57px] bottom-0 z-40 w-80 border-r border-border bg-card shadow-xl flex flex-col overflow-hidden"
+      className="fixed left-0 top-[57px] bottom-0 z-40 w-full sm:w-80 border-r border-border bg-card shadow-xl flex flex-col overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
         <h3 className="font-semibold text-sm truncate flex-1 mr-2">
@@ -714,11 +733,34 @@ function FlowDeploymentNode({
   data: FlowNodeData;
   selected?: boolean;
 }) {
-  const execStatus = data.executionStatus;
+  const execStatus = data.executionPaused ? ("paused" as const) : data.executionStatus;
   const isRunning = execStatus === "running";
+  const isPaused = execStatus === "paused";
   const isCompleted = execStatus === "completed";
   const isFailed = execStatus === "failed";
   const isSkipped = execStatus === "skipped";
+  const hasIteration = data.executionIteration != null;
+  const hasSubsteps = data.executionSubsteps && data.executionSubsteps.length > 0;
+
+  const [hitlInput, setHitlInput] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmitInput = useCallback(() => {
+    if (!hitlInput.trim() || !data.onResumeInput) return;
+    setIsSubmitting(true);
+    data.onResumeInput(hitlInput.trim());
+    setHitlInput("");
+    setIsSubmitting(false);
+  }, [hitlInput, data]);
+
+  // Substep progress for subflow nodes
+  const substepCompleted = hasSubsteps
+    ? data.executionSubsteps!.filter((s) => s.status === "completed" || s.status === "failed").length
+    : 0;
+  const substepTotal = hasSubsteps ? data.executionSubsteps!.length : 0;
+  const substepCredits = hasSubsteps
+    ? data.executionSubsteps!.reduce((sum, s) => sum + (s.credits ?? 0), 0)
+    : 0;
 
   return (
     <div
@@ -727,7 +769,7 @@ function FlowDeploymentNode({
         w-[220px] overflow-hidden
         ${executionStatusColor(execStatus)}
         ${selected ? "ring-2 ring-primary/40 shadow-md" : "hover:shadow-md"}
-        ${isRunning ? "ring-2 " + executionStatusRingColor(execStatus) : ""}
+        ${isRunning || isPaused ? "ring-2 " + executionStatusRingColor(execStatus) : ""}
         ${executionStatusRingColor(execStatus)}
       `}
     >
@@ -743,6 +785,31 @@ function FlowDeploymentNode({
             }}
           />
           <div className="absolute inset-[2px] rounded-[10px] bg-card" />
+        </div>
+      )}
+
+      {/* Animated border for paused state (amber, slower pulse) */}
+      {isPaused && (
+        <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
+          <div
+            className="absolute inset-[-2px] rounded-xl"
+            style={{
+              background:
+                "conic-gradient(from 0deg, transparent, hsl(38 92% 50%), transparent 30%)",
+              animation: "flow-spin 3s linear infinite",
+            }}
+          />
+          <div className="absolute inset-[2px] rounded-[10px] bg-card" />
+        </div>
+      )}
+
+      {/* Iteration badge (top-right corner for cycle/loop nodes) */}
+      {hasIteration && (
+        <div className="absolute top-1.5 right-1.5 z-20 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/25">
+          <RotateCcw className="w-2.5 h-2.5 text-violet-400" />
+          <span className="text-[9px] font-semibold text-violet-400">
+            {data.executionIteration}/{data.executionMaxIterations ?? "?"}
+          </span>
         </div>
       )}
 
@@ -777,6 +844,9 @@ function FlowDeploymentNode({
           {isRunning && (
             <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
           )}
+          {isPaused && (
+            <Pause className="w-4 h-4 text-amber-500 shrink-0" />
+          )}
           {isSkipped && (
             <Circle className="w-4 h-4 text-stone-400 shrink-0" />
           )}
@@ -809,6 +879,40 @@ function FlowDeploymentNode({
           )}
         </div>
 
+        {/* Subflow progress indicator */}
+        {hasSubsteps && (
+          <div className="mt-1.5 px-1.5 py-1 rounded bg-violet-500/5 border border-violet-500/10">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Workflow className="w-3 h-3 text-violet-400" />
+              <span className="text-[10px] font-medium text-violet-400">
+                {isRunning ? "Running subflow..." : "Subflow"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground">
+                Step {substepCompleted}/{substepTotal}
+              </span>
+              {/* Mini progress bar */}
+              <div className="flex-1 h-1 rounded-full bg-violet-500/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-violet-500/60 transition-all duration-300"
+                  style={{
+                    width: substepTotal > 0 ? `${(substepCompleted / substepTotal) * 100}%` : "0%",
+                  }}
+                />
+              </div>
+            </div>
+            {isCompleted && substepCredits > 0 && (
+              <div className="flex items-center gap-0.5 mt-0.5">
+                <Coins className="w-2.5 h-2.5 text-amber-400" />
+                <span className="text-[9px] font-medium text-amber-400">
+                  {substepCredits.toFixed(4)} subflow credits
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Streaming inner text preview */}
         {isRunning && data.executionInnerText && (
           <div className="mt-1.5 px-1.5 py-1 rounded bg-blue-500/5 border border-blue-500/10 max-h-[48px] overflow-hidden">
@@ -817,6 +921,36 @@ function FlowDeploymentNode({
                 ? "\u2026" + data.executionInnerText.slice(-200)
                 : data.executionInnerText}
             </p>
+          </div>
+        )}
+
+        {/* HITL: Paused / waiting for input */}
+        {isPaused && (
+          <div className="mt-1.5 px-1.5 py-1.5 rounded bg-amber-500/5 border border-amber-500/20">
+            <p className="text-[10px] font-medium text-amber-500 mb-1.5 flex items-center gap-1">
+              <Pause className="w-3 h-3" />
+              Waiting for input...
+            </p>
+            <div className="flex items-center gap-1">
+              <Input
+                value={hitlInput}
+                onChange={(e) => setHitlInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSubmitInput();
+                }}
+                placeholder="Type your response..."
+                className="h-6 text-[10px] px-1.5 bg-card/80 border-amber-500/30 focus-visible:ring-amber-500/30"
+                disabled={isSubmitting}
+              />
+              <Button
+                size="sm"
+                onClick={handleSubmitInput}
+                disabled={!hitlInput.trim() || isSubmitting}
+                className="h-6 w-6 p-0 bg-amber-600 hover:bg-amber-700 text-white shrink-0"
+              >
+                <Send className="w-3 h-3" />
+              </Button>
+            </div>
           </div>
         )}
 
@@ -1003,7 +1137,7 @@ function FlowToolbar({
   };
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card/80 backdrop-blur-sm">
+    <div className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 border-b border-border bg-card/80 backdrop-blur-sm overflow-x-auto scrollbar-none">
       {/* Flow name (editable) */}
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <GitBranch className="w-4 h-4 text-primary shrink-0" />
@@ -1057,7 +1191,7 @@ function FlowToolbar({
       )}
 
       {/* Action buttons */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 shrink-0">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -1196,11 +1330,15 @@ function FlowCanvas({
   flow,
   onUpdateFlow,
   executionSteps,
+  pausedNodeId,
+  onResumeInput,
 }: {
   deployments: DeploymentData[];
   flow: FlowDefinition;
   onUpdateFlow: (updates: Partial<FlowDefinition>) => void;
   executionSteps: Map<string, FlowStepStatus>;
+  pausedNodeId?: string;
+  onResumeInput?: (nodeId: string, input: string) => void;
 }) {
   const { fitView } = useReactFlow();
 
@@ -1208,6 +1346,7 @@ function FlowCanvas({
   const nodesWithExecution: Node<FlowNodeData>[] = useMemo(() => {
     return flow.nodes.map((node) => {
       const stepStatus = executionSteps.get(node.id);
+      const isPaused = pausedNodeId === node.id;
       return {
         ...node,
         data: {
@@ -1217,10 +1356,17 @@ function FlowCanvas({
           executionDurationMs: stepStatus?.durationMs,
           executionError: stepStatus?.error,
           executionInnerText: stepStatus?.innerText,
+          executionPaused: isPaused,
+          executionIteration: stepStatus?.iteration,
+          executionMaxIterations: stepStatus?.maxIterations,
+          executionSubsteps: stepStatus?.substeps,
+          onResumeInput: isPaused && onResumeInput
+            ? (input: string) => onResumeInput(node.id, input)
+            : undefined,
         },
       };
     });
-  }, [flow.nodes, executionSteps]);
+  }, [flow.nodes, executionSteps, pausedNodeId, onResumeInput]);
 
   // Merge execution state into edges
   const edgesWithExecution: Edge[] = useMemo(() => {
@@ -1459,7 +1605,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     return overrides ? { ...base, ...overrides } : base;
   }, [flows, activeFlowId, localOverrides]);
 
-  const { state: execState, startExecution, cancel } = useFlowExecution();
+  const { state: execState, startExecution, resumeExecution, cancel } = useFlowExecution();
 
   // ── Mutations ─────────────────────────────────────────────────────
 
@@ -1632,7 +1778,15 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     cancel();
   }, [cancel]);
 
-  const isExecuting = execState.status === "running";
+  // ── Resume paused execution (HITL) ─────────────────────────────
+  const handleResumeInput = useCallback(
+    (nodeId: string, input: string) => {
+      resumeExecution(nodeId, input);
+    },
+    [resumeExecution]
+  );
+
+  const isExecuting = execState.status === "running" || execState.status === "paused";
   const isLoading = flowsQuery.isLoading;
   const isMutating = createFlowMutation.isPending || updateFlowMutation.isPending || deleteFlowMutation.isPending;
 
@@ -1690,6 +1844,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
             flow={activeFlow}
             onUpdateFlow={handleUpdateFlow}
             executionSteps={execState.steps}
+            pausedNodeId={execState.pausedNodeId}
+            onResumeInput={handleResumeInput}
           />
         </ReactFlowProvider>
       ) : (
@@ -1891,7 +2047,7 @@ export default function Deployments() {
               {deployments.length > 0 ? (
                 <div className="flex flex-col">
                   {/* Filter Bar */}
-                  <div className="flex items-center gap-3 flex-wrap pb-4">
+                  <div className="flex items-center gap-2 sm:gap-3 flex-wrap pb-4 overflow-x-auto scrollbar-none">
                     <button
                       onClick={() => setShowCreditPools((v) => !v)}
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
@@ -1953,7 +2109,7 @@ export default function Deployments() {
                   {/* Graph */}
                   <div
                     className="rounded-xl border border-border/60 overflow-hidden"
-                    style={{ height: "calc(100vh - 280px)" }}
+                    style={{ height: "calc(100vh - 280px)", minHeight: "300px" }}
                   >
                     <ErrorBoundary>
                       <ReactFlowProvider>
