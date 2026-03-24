@@ -51,6 +51,7 @@ import { attachTerminalWs } from "./routes/terminal.js";
 import { betaRouter } from "./routes/beta.js";
 import { attachChatControlWs } from "./routes/chatControl.js";
 import { flowExecutionRouter } from "./routes/flowExecution.js";
+import { flowChatRouter } from "./routes/flowChat.js";
 
 const app = express();
 
@@ -133,6 +134,7 @@ app.use("/api/agent-hub", agentHubRouter);
 app.use("/api/public", publicApiRouter);
 app.use("/api/beta-signup", betaRouter);
 app.use("/api/flows", authLimiter, flowExecutionRouter);
+app.use("/api/flows", authLimiter, flowChatRouter);
 
 // Debug endpoints — dev only
 if (env.NODE_ENV === "development") {

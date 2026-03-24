@@ -51,3 +51,8 @@ export const CUSTOM_FLOW_PAUSED = "jarble.flow.paused";
 export const CUSTOM_FLOW_SUBSTEP_STARTED = "jarble.flow.substep.started";
 export const CUSTOM_FLOW_SUBSTEP_FINISHED = "jarble.flow.substep.finished";
 export const CUSTOM_AGENT_HANDOFF = "jarble.agent.handoff";
+
+// ── Flow Delegation Events (Bot Team Builder) ───────────────────────────
+export const CUSTOM_FLOW_DELEGATION_START = "jarble.flow.delegation.start";
+export const CUSTOM_FLOW_DELEGATION_END = "jarble.flow.delegation.end";
+export const CUSTOM_FLOW_CHAT_MESSAGE = "jarble.flow.chat.message";

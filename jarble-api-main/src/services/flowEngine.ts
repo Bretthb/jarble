@@ -31,6 +31,13 @@ export interface FlowNode {
   serviceId?: string;
   skillName?: string;
   label: string;
+  // Bot team fields
+  role?: string;              // "CTO", "Chart Generator", etc.
+  goal?: string;              // "Oversee technical architecture"
+  canDelegate?: boolean;      // Can this bot delegate to connected bots?
+  contextScope?: "task" | "summary" | "full"; // What context to pass
+  modelOverride?: string;     // Override deployment's default model
+  isEntryPoint?: boolean;     // Is this the bot users talk to?
   config?: Record<string, unknown>;
   position: { x: number; y: number };
   /** Max iterations when this node is part of a cycle. Default: 10 */
@@ -43,8 +50,12 @@ export interface FlowEdge {
   target: string;
   sourceHandle?: string;
   targetHandle?: string;
+  type?: "delegates" | "reports" | "collaborates"; // Communication channel type
+  contextScope?: "task" | "summary" | "full";      // Per-edge context override
   label?: string;
   condition?: string;
+  /** Max iterations for feedback loops on this edge */
+  maxIterations?: number;
 }
 
 export interface FlowDefinition {

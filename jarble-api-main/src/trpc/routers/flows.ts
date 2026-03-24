@@ -29,13 +29,21 @@ const generateExecutionId = () => `fex_${nanoid()}`;
 
 const FlowNodeSchema = z.object({
   id: z.string().min(1),
-  type: z.enum(["deployment", "transform", "condition", "output"]),
+  type: z.enum(["deployment", "transform", "condition", "output", "waitForInput", "subflow"]),
   deploymentId: z.string().optional(),
   serviceId: z.string().optional(),
   skillName: z.string().optional(),
   label: z.string().min(1),
+  // Bot team fields
+  role: z.string().optional(),
+  goal: z.string().optional(),
+  canDelegate: z.boolean().optional(),
+  contextScope: z.enum(["task", "summary", "full"]).optional(),
+  modelOverride: z.string().optional(),
+  isEntryPoint: z.boolean().optional(),
   config: z.record(z.unknown()).optional(),
   position: z.object({ x: z.number(), y: z.number() }),
+  maxIterations: z.number().int().min(1).max(100).optional(),
 });
 
 const FlowEdgeSchema = z.object({
@@ -44,8 +52,11 @@ const FlowEdgeSchema = z.object({
   target: z.string().min(1),
   sourceHandle: z.string().optional(),
   targetHandle: z.string().optional(),
+  type: z.enum(["delegates", "reports", "collaborates"]).optional(),
+  contextScope: z.enum(["task", "summary", "full"]).optional(),
   label: z.string().optional(),
   condition: z.string().optional(),
+  maxIterations: z.number().int().min(1).max(100).optional(),
 });
 
 const FlowDefinitionSchema = z.object({
@@ -134,6 +145,8 @@ export const flowsRouter = router({
         description: z.string().optional(),
         definition: FlowDefinitionSchema,
         status: z.enum(["draft", "published"]).default("draft"),
+        entryNodeId: z.string().optional(),
+        teamType: z.enum(["hierarchy", "pipeline", "collaborative"]).default("hierarchy"),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -151,6 +164,8 @@ export const flowsRouter = router({
         isPublic: false,
         forkCount: 0,
         forkedFromId: null,
+        entryNodeId: input.entryNodeId ?? null,
+        teamType: input.teamType,
         createdAt: now,
         updatedAt: now,
       });
@@ -172,6 +187,8 @@ export const flowsRouter = router({
         definition: FlowDefinitionSchema.optional(),
         status: z.enum(["draft", "published", "archived"]).optional(),
         isPublic: z.boolean().optional(),
+        entryNodeId: z.string().nullable().optional(),
+        teamType: z.enum(["hierarchy", "pipeline", "collaborative"]).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -202,6 +219,8 @@ export const flowsRouter = router({
       if (input.definition !== undefined) updates.definition = JSON.stringify(input.definition);
       if (input.status !== undefined) updates.status = input.status;
       if (input.isPublic !== undefined) updates.isPublic = input.isPublic;
+      if (input.entryNodeId !== undefined) updates.entryNodeId = input.entryNodeId;
+      if (input.teamType !== undefined) updates.teamType = input.teamType;
 
       await db
         .update(orchestrationFlows)
@@ -314,6 +333,8 @@ export const flowsRouter = router({
         isPublic: false,
         forkCount: 0,
         forkedFromId: input.sourceFlowId,
+        entryNodeId: sourceFlow.entryNodeId,
+        teamType: sourceFlow.teamType,
         createdAt: now,
         updatedAt: now,
       });

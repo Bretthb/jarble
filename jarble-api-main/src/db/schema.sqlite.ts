@@ -410,6 +410,8 @@ export const orchestrationFlows = sqliteTable("orchestration_flows", {
   isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
   forkCount: integer("fork_count").notNull().default(0),
   forkedFromId: text("forked_from_id"),
+  entryNodeId: text("entry_node_id"),
+  teamType: text("team_type").notNull().default("hierarchy"),  // hierarchy | pipeline | collaborative
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 }, (table) => ({

@@ -748,6 +748,8 @@ export const orchestrationFlows = mysqlTable("orchestration_flows", {
   isPublic: boolean("is_public").notNull().default(false),
   forkCount: int("fork_count").notNull().default(0),
   forkedFromId: varchar("forked_from_id", { length: 255 }),
+  entryNodeId: varchar("entry_node_id", { length: 255 }),
+  teamType: varchar("team_type", { length: 20 }).notNull().default("hierarchy"),  // hierarchy | pipeline | collaborative
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({

@@ -41,6 +41,16 @@ import {
   Pause,
   Send,
   Workflow,
+  Star,
+  ArrowRight,
+  ArrowLeftRight,
+  MessageSquare,
+  Users,
+  ChevronDown,
+  Network,
+  Zap,
+  Shield,
+  Eye,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
@@ -73,7 +83,10 @@ import {
   ReactFlowProvider,
   BaseEdge,
   getBezierPath,
+  getStraightPath,
+  EdgeLabelRenderer,
   type EdgeProps,
+  MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
@@ -101,8 +114,27 @@ type DeploymentNodeData = DeploymentData & {
   [key: string]: unknown;
 };
 
+/** Edge type for orchestration edges */
+type FlowEdgeType = "delegates" | "reports" | "collaborates";
+
+/** Context scope for delegation */
+type ContextScope = "task" | "summary" | "full";
+
+/** Team topology type */
+type TeamType = "hierarchy" | "pipeline" | "collaborative";
+
 /** Data shape for nodes on the flow canvas */
 type FlowNodeData = DeploymentData & {
+  /** Role of this bot in the team */
+  role?: string;
+  /** Goal / mission for this bot */
+  goal?: string;
+  /** Whether this bot can delegate to connected bots */
+  canDelegate?: boolean;
+  /** Context scope for delegation from this node */
+  contextScope?: ContextScope;
+  /** Whether this is the entry point (user talks to this bot) */
+  isEntryPoint?: boolean;
   /** Current execution status for this step */
   executionStatus?: FlowStepStatus["status"];
   /** Credits charged for this step in current execution */
@@ -123,6 +155,15 @@ type FlowNodeData = DeploymentData & {
   executionSubsteps?: FlowStepStatus[];
   /** Callback for resuming paused nodes */
   onResumeInput?: (input: string) => void;
+  [key: string]: unknown;
+};
+
+/** Data shape for flow edges */
+type FlowEdgeData = {
+  /** Edge type: delegates, reports, or collaborates */
+  edgeType?: FlowEdgeType;
+  /** Execution status for animation */
+  executionStatus?: FlowStepStatus["status"];
   [key: string]: unknown;
 };
 
@@ -148,6 +189,7 @@ interface FlowDefinition {
   nodes: Node<FlowNodeData>[];
   edges: Edge[];
   status: string;
+  teamType: TeamType;
   createdAt: number;
   updatedAt: number;
 }
@@ -159,16 +201,49 @@ function parseApiFlow(row: ApiFlow): FlowDefinition {
   try {
     const def = JSON.parse(row.definition);
     nodes = Array.isArray(def.nodes)
-      ? def.nodes.map((n: Node<FlowNodeData>) => ({
-          ...n,
-          // Restore ReactFlow type — API stores "deployment" but ReactFlow needs "flowDeployment"
-          type: "flowDeployment",
+      ? def.nodes.map((n: any) => {
+          // Restore orchestration fields from config
+          const config = n.config || {};
+          return {
+            ...n,
+            type: "flowDeployment",
+            data: {
+              ...(n.data || {}),
+              id: n.deploymentId || n.data?.id || n.id,
+              name: n.label || n.data?.name || n.id,
+              role: config.role || n.data?.role || "",
+              goal: config.goal || n.data?.goal || "",
+              canDelegate: config.canDelegate ?? n.data?.canDelegate ?? true,
+              contextScope: config.contextScope || n.data?.contextScope || "task",
+              isEntryPoint: config.isEntryPoint || n.data?.isEntryPoint || false,
+            },
+          };
+        })
+      : [];
+    // Restore edge types from label field (where we store them)
+    edges = Array.isArray(def.edges)
+      ? def.edges.map((e: any) => ({
+          ...e,
+          data: {
+            ...(e.data || {}),
+            edgeType: e.label && ["delegates", "reports", "collaborates"].includes(e.label)
+              ? e.label
+              : (e.data?.edgeType || "delegates"),
+          },
         }))
       : [];
-    edges = Array.isArray(def.edges) ? def.edges : [];
   } catch {
     // Corrupted definition — treat as empty
   }
+  // Extract teamType from definition or API row
+  let teamType: TeamType = "hierarchy";
+  try {
+    const def = JSON.parse(row.definition);
+    if (def.teamType && ["hierarchy", "pipeline", "collaborative"].includes(def.teamType)) {
+      teamType = def.teamType;
+    }
+  } catch { /* ignore */ }
+
   return {
     id: row.id,
     name: row.name,
@@ -176,6 +251,7 @@ function parseApiFlow(row: ApiFlow): FlowDefinition {
     nodes,
     edges,
     status: row.status,
+    teamType,
     createdAt: new Date(row.createdAt).getTime(),
     updatedAt: new Date(row.updatedAt).getTime(),
   };
@@ -232,6 +308,8 @@ function llmModeLabel(mode: string): string {
 
 const NODE_WIDTH = 72;
 const NODE_HEIGHT = 92;
+const FLOW_NODE_W = 260;
+const FLOW_NODE_H = 140;
 
 function getLayoutedElements<T extends Record<string, unknown>>(
   nodes: Node<T>[],
@@ -272,6 +350,84 @@ function getLayoutedElements<T extends Record<string, unknown>>(
   });
 
   return { nodes: layoutedNodes, edges };
+}
+
+/** Layout for flow canvas with team topology awareness */
+function getFlowLayoutedElements(
+  nodes: Node<FlowNodeData>[],
+  edges: Edge[],
+  teamType: TeamType,
+): { nodes: Node<FlowNodeData>[]; edges: Edge[] } {
+  if (nodes.length === 0) return { nodes, edges };
+
+  if (teamType === "collaborative") {
+    // Circular layout for collaborative teams
+    const entryNode = nodes.find((n) => n.data?.isEntryPoint);
+    const otherNodes = nodes.filter((n) => n.id !== entryNode?.id);
+    const count = otherNodes.length;
+    const radius = Math.max(200, count * 60);
+    const cx = 400;
+    const cy = 400;
+
+    const layouted: Node<FlowNodeData>[] = [];
+
+    // Entry node in center
+    if (entryNode) {
+      layouted.push({
+        ...entryNode,
+        position: { x: cx - FLOW_NODE_W / 2, y: cy - FLOW_NODE_H / 2 },
+      });
+    }
+
+    // Other nodes in a circle
+    otherNodes.forEach((node, i) => {
+      const angle = (2 * Math.PI * i) / count - Math.PI / 2;
+      layouted.push({
+        ...node,
+        position: {
+          x: cx + radius * Math.cos(angle) - FLOW_NODE_W / 2,
+          y: cy + radius * Math.sin(angle) - FLOW_NODE_H / 2,
+        },
+      });
+    });
+
+    return { nodes: layouted, edges };
+  }
+
+  // Hierarchy (TB) or Pipeline (LR)
+  const direction = teamType === "pipeline" ? "LR" : "TB";
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({
+    rankdir: direction,
+    nodesep: direction === "LR" ? 100 : 120,
+    ranksep: direction === "LR" ? 200 : 160,
+    marginx: 60,
+    marginy: 60,
+  });
+
+  for (const node of nodes) {
+    g.setNode(node.id, { width: FLOW_NODE_W, height: FLOW_NODE_H });
+  }
+
+  for (const edge of edges) {
+    g.setEdge(edge.source, edge.target);
+  }
+
+  dagre.layout(g);
+
+  const layouted = nodes.map((node) => {
+    const pos = g.node(node.id);
+    return {
+      ...node,
+      position: {
+        x: pos.x - FLOW_NODE_W / 2,
+        y: pos.y - FLOW_NODE_H / 2,
+      },
+    };
+  });
+
+  return { nodes: layouted, edges };
 }
 
 // ─── Execution status helpers ────────────────────────────────────────
@@ -730,8 +886,43 @@ function DeploymentGraph({
 
 // ─── Flow Node: deployment step in the orchestration flow ───────────
 
-const FLOW_NODE_WIDTH = 220;
-const FLOW_NODE_HEIGHT = 100;
+const FLOW_NODE_WIDTH = 260;
+const FLOW_NODE_HEIGHT = 140;
+
+/** Get the left border color based on node role characteristics */
+function getNodeBorderColor(data: FlowNodeData): string {
+  if (data.isEntryPoint) return "border-l-blue-500";
+  if (data.canDelegate !== false) return "border-l-emerald-500";
+  if (data.role && /review|report|qa|audit/i.test(data.role)) return "border-l-amber-500";
+  return "border-l-zinc-500";
+}
+
+/** Get the left border accent as an HSL value for glow effects */
+function getNodeAccentHsl(data: FlowNodeData): string {
+  if (data.isEntryPoint) return "hsl(217, 91%, 60%)";
+  if (data.canDelegate !== false) return "hsl(160, 84%, 39%)";
+  if (data.role && /review|report|qa|audit/i.test(data.role)) return "hsl(38, 92%, 50%)";
+  return "hsl(240, 5%, 65%)";
+}
+
+/** Get context scope label */
+function contextScopeLabel(scope?: ContextScope): string {
+  switch (scope) {
+    case "task": return "Task";
+    case "summary": return "Summary";
+    case "full": return "Full";
+    default: return "Task";
+  }
+}
+
+/** Get context scope color */
+function contextScopeColor(scope?: ContextScope): string {
+  switch (scope) {
+    case "full": return "bg-red-500/10 text-red-400 border-red-500/20";
+    case "summary": return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+    default: return "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
+  }
+}
 
 function FlowDeploymentNode({
   data,
@@ -760,7 +951,6 @@ function FlowDeploymentNode({
     setIsSubmitting(false);
   }, [hitlInput, data]);
 
-  // Substep progress for subflow nodes
   const substepCompleted = hasSubsteps
     ? data.executionSubsteps!.filter((s) => s.status === "completed" || s.status === "failed").length
     : 0;
@@ -769,25 +959,28 @@ function FlowDeploymentNode({
     ? data.executionSubsteps!.reduce((sum, s) => sum + (s.credits ?? 0), 0)
     : 0;
 
+  const borderLeftClass = getNodeBorderColor(data);
+  const accentHsl = getNodeAccentHsl(data);
+
   return (
     <div
       className={`
-        relative rounded-xl border-2 bg-card shadow-sm transition-all
-        w-[220px] overflow-hidden
-        ${executionStatusColor(execStatus)}
-        ${selected ? "ring-2 ring-primary/40 shadow-md" : "hover:shadow-md"}
+        relative rounded-xl border bg-card/95 backdrop-blur-sm transition-all duration-200
+        w-[260px] overflow-hidden border-l-[3px]
+        ${borderLeftClass}
+        ${execStatus && execStatus !== "pending" ? executionStatusColor(execStatus) : "border-border/60"}
+        ${selected ? "ring-2 ring-primary/30 shadow-lg scale-[1.02]" : "shadow-md hover:shadow-lg hover:scale-[1.01]"}
         ${isRunning || isPaused ? "ring-2 " + executionStatusRingColor(execStatus) : ""}
-        ${executionStatusRingColor(execStatus)}
       `}
+      style={{ borderLeftColor: undefined }}
     >
-      {/* Animated border for running state */}
+      {/* Animated conic gradient border for running state */}
       {isRunning && (
-        <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
+        <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none z-0">
           <div
             className="absolute inset-[-2px] rounded-xl"
             style={{
-              background:
-                "conic-gradient(from 0deg, transparent, hsl(217 91% 60%), transparent 30%)",
+              background: `conic-gradient(from 0deg, transparent, ${accentHsl}, transparent 30%)`,
               animation: "flow-spin 2s linear infinite",
             }}
           />
@@ -795,14 +988,13 @@ function FlowDeploymentNode({
         </div>
       )}
 
-      {/* Animated border for paused state (amber, slower pulse) */}
+      {/* Animated border for paused state */}
       {isPaused && (
-        <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
+        <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none z-0">
           <div
             className="absolute inset-[-2px] rounded-xl"
             style={{
-              background:
-                "conic-gradient(from 0deg, transparent, hsl(38 92% 50%), transparent 30%)",
+              background: "conic-gradient(from 0deg, transparent, hsl(38 92% 50%), transparent 30%)",
               animation: "flow-spin 3s linear infinite",
             }}
           />
@@ -810,9 +1002,9 @@ function FlowDeploymentNode({
         </div>
       )}
 
-      {/* Iteration badge (top-right corner for cycle/loop nodes) */}
+      {/* Iteration badge */}
       {hasIteration && (
-        <div className="absolute top-1.5 right-1.5 z-20 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/25">
+        <div className="absolute top-2 right-2 z-20 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/25">
           <RotateCcw className="w-2.5 h-2.5 text-violet-400" />
           <span className="text-[9px] font-semibold text-violet-400">
             {data.executionIteration}/{data.executionMaxIterations ?? "?"}
@@ -824,71 +1016,109 @@ function FlowDeploymentNode({
       <Handle
         type="target"
         position={Position.Left}
-        className="!w-3 !h-3 !bg-muted-foreground/50 !border-2 !border-card hover:!bg-primary !transition-colors"
+        className="!w-3 !h-3 !bg-muted-foreground/40 !border-2 !border-card hover:!bg-primary !transition-colors !-left-1.5"
       />
 
       {/* Output handle (right) */}
       <Handle
         type="source"
         position={Position.Right}
-        className="!w-3 !h-3 !bg-muted-foreground/50 !border-2 !border-card hover:!bg-primary !transition-colors"
+        className="!w-3 !h-3 !bg-muted-foreground/40 !border-2 !border-card hover:!bg-primary !transition-colors !-right-1.5"
       />
 
       {/* Content */}
-      <div className="relative z-10 p-3">
-        {/* Top row: name + status icon */}
-        <div className="flex items-center gap-2 mb-1.5">
+      <div className="relative z-10 p-3 space-y-2">
+        {/* Row 1: Entry star + Icon + Bot Name + Execution status */}
+        <div className="flex items-center gap-2">
+          {data.isEntryPoint && (
+            <Star className="w-3.5 h-3.5 text-blue-400 fill-blue-400 shrink-0" />
+          )}
           <Bot className="w-4 h-4 text-muted-foreground shrink-0" />
-          <span className="text-sm font-semibold text-foreground truncate flex-1">
+          <span className="text-[13px] font-semibold text-foreground truncate flex-1 leading-tight">
             {data.name}
           </span>
-          {isCompleted && (
-            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-          )}
-          {isFailed && (
-            <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          )}
-          {isRunning && (
-            <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
-          )}
-          {isPaused && (
-            <Pause className="w-4 h-4 text-amber-500 shrink-0" />
-          )}
-          {isSkipped && (
-            <Circle className="w-4 h-4 text-stone-400 shrink-0" />
-          )}
+          {isCompleted && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}
+          {isFailed && <XCircle className="w-4 h-4 text-red-500 shrink-0" />}
+          {isRunning && <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />}
+          {isPaused && <Pause className="w-4 h-4 text-amber-500 shrink-0" />}
+          {isSkipped && <Circle className="w-4 h-4 text-stone-400 shrink-0" />}
         </div>
 
-        {/* Deployment status + runtime */}
-        <div className="flex items-center gap-2 mb-1">
+        {/* Row 2: Role */}
+        {data.role && (
+          <p className="text-[11px] font-semibold text-foreground/80 truncate leading-tight">
+            Role: {data.role}
+          </p>
+        )}
+
+        {/* Row 3: Goal (truncated to 2 lines) */}
+        {data.goal && (
+          <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2">
+            {data.goal}
+          </p>
+        )}
+
+        {/* Row 4: Status + Runtime */}
+        <div className="flex items-center gap-2">
           <StatusBadge status={data.status} compact />
           <span className="text-[10px] text-muted-foreground truncate">
             {data.runtime}
           </span>
         </div>
 
-        {/* Execution info row */}
-        <div className="flex items-center gap-3 mt-1.5">
-          {data.executionCredits != null && data.executionCredits > 0 && (
-            <div className="flex items-center gap-0.5">
-              <Coins className="w-3 h-3 text-amber-400" />
-              <span className="text-[10px] font-medium text-amber-400">
-                {data.executionCredits.toFixed(4)}
-              </span>
-            </div>
-          )}
-          {data.executionDurationMs != null && (
-            <span className="text-[10px] text-muted-foreground">
-              {data.executionDurationMs < 1000
-                ? `${data.executionDurationMs}ms`
-                : `${(data.executionDurationMs / 1000).toFixed(1)}s`}
-            </span>
-          )}
+        {/* Row 5: Badges (delegation + context scope) */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span
+            className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium border ${
+              data.canDelegate !== false
+                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                : "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
+            }`}
+          >
+            {data.canDelegate !== false ? (
+              <>
+                <Network className="w-2.5 h-2.5" />
+                Can delegate
+              </>
+            ) : (
+              <>
+                <ArrowRight className="w-2.5 h-2.5" />
+                Direct only
+              </>
+            )}
+          </span>
+          <span
+            className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium border ${contextScopeColor(data.contextScope)}`}
+          >
+            <Eye className="w-2.5 h-2.5" />
+            {contextScopeLabel(data.contextScope)}
+          </span>
         </div>
+
+        {/* Execution info row */}
+        {(data.executionCredits != null && data.executionCredits > 0 || data.executionDurationMs != null) && (
+          <div className="flex items-center gap-3">
+            {data.executionCredits != null && data.executionCredits > 0 && (
+              <div className="flex items-center gap-0.5">
+                <Coins className="w-3 h-3 text-amber-400" />
+                <span className="text-[10px] font-medium text-amber-400">
+                  {data.executionCredits.toFixed(4)}
+                </span>
+              </div>
+            )}
+            {data.executionDurationMs != null && (
+              <span className="text-[10px] text-muted-foreground">
+                {data.executionDurationMs < 1000
+                  ? `${data.executionDurationMs}ms`
+                  : `${(data.executionDurationMs / 1000).toFixed(1)}s`}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Subflow progress indicator */}
         {hasSubsteps && (
-          <div className="mt-1.5 px-1.5 py-1 rounded bg-violet-500/5 border border-violet-500/10">
+          <div className="px-1.5 py-1 rounded bg-violet-500/5 border border-violet-500/10">
             <div className="flex items-center gap-1.5 mb-1">
               <Workflow className="w-3 h-3 text-violet-400" />
               <span className="text-[10px] font-medium text-violet-400">
@@ -899,7 +1129,6 @@ function FlowDeploymentNode({
               <span className="text-[10px] text-muted-foreground">
                 Step {substepCompleted}/{substepTotal}
               </span>
-              {/* Mini progress bar */}
               <div className="flex-1 h-1 rounded-full bg-violet-500/10 overflow-hidden">
                 <div
                   className="h-full rounded-full bg-violet-500/60 transition-all duration-300"
@@ -922,7 +1151,7 @@ function FlowDeploymentNode({
 
         {/* Streaming inner text preview */}
         {isRunning && data.executionInnerText && (
-          <div className="mt-1.5 px-1.5 py-1 rounded bg-blue-500/5 border border-blue-500/10 max-h-[48px] overflow-hidden">
+          <div className="px-1.5 py-1 rounded bg-blue-500/5 border border-blue-500/10 max-h-[48px] overflow-hidden">
             <p className="text-[10px] text-blue-300/80 leading-tight line-clamp-3 whitespace-pre-wrap break-words">
               {data.executionInnerText.length > 200
                 ? "\u2026" + data.executionInnerText.slice(-200)
@@ -933,7 +1162,7 @@ function FlowDeploymentNode({
 
         {/* HITL: Paused / waiting for input */}
         {isPaused && (
-          <div className="mt-1.5 px-1.5 py-1.5 rounded bg-amber-500/5 border border-amber-500/20">
+          <div className="px-1.5 py-1.5 rounded bg-amber-500/5 border border-amber-500/20">
             <p className="text-[10px] font-medium text-amber-500 mb-1.5 flex items-center gap-1">
               <Pause className="w-3 h-3" />
               Waiting for input...
@@ -942,9 +1171,7 @@ function FlowDeploymentNode({
               <Input
                 value={hitlInput}
                 onChange={(e) => setHitlInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSubmitInput();
-                }}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSubmitInput(); }}
                 placeholder="Type your response..."
                 className="h-6 text-[10px] px-1.5 bg-card/80 border-amber-500/30 focus-visible:ring-amber-500/30"
                 disabled={isSubmitting}
@@ -963,7 +1190,7 @@ function FlowDeploymentNode({
 
         {/* Error message */}
         {data.executionError && (
-          <p className="mt-1.5 text-[10px] text-red-400 line-clamp-2">
+          <p className="text-[10px] text-red-400 line-clamp-2">
             {data.executionError}
           </p>
         )}
@@ -972,7 +1199,35 @@ function FlowDeploymentNode({
   );
 }
 
-// ─── Flow Edge: animated edge between flow nodes ─────────────────────
+// ─── Edge color + style by type ──────────────────────────────────────
+
+function edgeTypeColor(edgeType?: FlowEdgeType): string {
+  switch (edgeType) {
+    case "delegates": return "hsl(217, 91%, 60%)";   // blue-500
+    case "reports": return "hsl(38, 92%, 50%)";       // amber-500
+    case "collaborates": return "hsl(263, 70%, 50%)"; // violet-500
+    default: return "hsl(217, 91%, 60%)";
+  }
+}
+
+function edgeTypeLabel(edgeType?: FlowEdgeType): string {
+  switch (edgeType) {
+    case "delegates": return "delegates";
+    case "reports": return "reports";
+    case "collaborates": return "collaborates";
+    default: return "delegates";
+  }
+}
+
+function edgeTypeDashArray(edgeType?: FlowEdgeType): string | undefined {
+  switch (edgeType) {
+    case "reports": return "6 4";
+    case "collaborates": return undefined;
+    default: return undefined;
+  }
+}
+
+// ─── Flow Edge: redesigned with type labels ──────────────────────────
 
 function FlowEdge({
   id,
@@ -985,14 +1240,16 @@ function FlowEdge({
   data,
   style,
 }: EdgeProps) {
-  const edgeData = data as
-    | { executionStatus?: FlowStepStatus["status"] }
-    | undefined;
+  const edgeData = data as FlowEdgeData | undefined;
+  const edgeType = edgeData?.edgeType || "delegates";
   const execStatus = edgeData?.executionStatus;
-  const color = executionEdgeColor(execStatus);
+
+  // During execution, use execution color; otherwise use edge type color
+  const isExecuting = !!execStatus && execStatus !== "pending";
+  const color = isExecuting ? executionEdgeColor(execStatus) : edgeTypeColor(edgeType);
   const isRunning = execStatus === "running";
 
-  const [edgePath] = getBezierPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -1001,21 +1258,38 @@ function FlowEdge({
     targetPosition,
   });
 
+  const dashArray = isRunning ? "8 4" : edgeTypeDashArray(edgeType);
+
+  // Edge type dropdown state
+  const [showDropdown, setShowDropdown] = useState(false);
+
   return (
     <>
+      {/* Invisible wide hit area for easier selection */}
+      <BaseEdge
+        id={`${id}-hitarea`}
+        path={edgePath}
+        style={{
+          stroke: "transparent",
+          strokeWidth: 20,
+          fill: "none",
+        }}
+      />
+
+      {/* Main edge path */}
       <BaseEdge
         id={id}
         path={edgePath}
         style={{
           ...style,
           stroke: color,
-          strokeWidth: 2,
-          strokeDasharray: isRunning ? "8 4" : undefined,
-          animation: isRunning
-            ? "flow-dash 0.6s linear infinite"
-            : undefined,
+          strokeWidth: edgeType === "collaborates" ? 2.5 : 2,
+          strokeDasharray: dashArray,
+          animation: isRunning ? "flow-dash 0.6s linear infinite" : undefined,
         }}
+        markerEnd={edgeType !== "collaborates" ? `url(#marker-${edgeType}-${id})` : undefined}
       />
+
       {/* Glow effect for running edges */}
       {isRunning && (
         <BaseEdge
@@ -1023,13 +1297,102 @@ function FlowEdge({
           path={edgePath}
           style={{
             stroke: color,
-            strokeWidth: 6,
-            strokeOpacity: 0.15,
+            strokeWidth: 8,
+            strokeOpacity: 0.12,
             strokeDasharray: "8 4",
             animation: "flow-dash 0.6s linear infinite",
           }}
         />
       )}
+
+      {/* SVG defs for arrow markers */}
+      <defs>
+        <marker
+          id={`marker-delegates-${id}`}
+          viewBox="0 0 12 12"
+          refX="10"
+          refY="6"
+          markerWidth="8"
+          markerHeight="8"
+          orient="auto"
+        >
+          <path d="M 2 2 L 10 6 L 2 10 z" fill={color} />
+        </marker>
+        <marker
+          id={`marker-reports-${id}`}
+          viewBox="0 0 12 12"
+          refX="2"
+          refY="6"
+          markerWidth="8"
+          markerHeight="8"
+          orient="auto-start-reverse"
+        >
+          <path d="M 10 2 L 2 6 L 10 10 z" fill={color} />
+        </marker>
+      </defs>
+
+      {/* Floating label pill */}
+      <EdgeLabelRenderer>
+        <div
+          className="nodrag nopan pointer-events-auto"
+          style={{
+            position: "absolute",
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+          }}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowDropdown((v) => !v);
+            }}
+            className={`
+              relative flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium
+              border backdrop-blur-sm transition-all cursor-pointer
+              hover:scale-105 active:scale-95
+              ${edgeType === "delegates" ? "bg-blue-500/15 text-blue-400 border-blue-500/25 hover:bg-blue-500/25" : ""}
+              ${edgeType === "reports" ? "bg-amber-500/15 text-amber-400 border-amber-500/25 hover:bg-amber-500/25" : ""}
+              ${edgeType === "collaborates" ? "bg-violet-500/15 text-violet-400 border-violet-500/25 hover:bg-violet-500/25" : ""}
+            `}
+          >
+            {edgeType === "delegates" && <ArrowRight className="w-2.5 h-2.5" />}
+            {edgeType === "reports" && <ArrowRight className="w-2.5 h-2.5 rotate-180" />}
+            {edgeType === "collaborates" && <ArrowLeftRight className="w-2.5 h-2.5" />}
+            {edgeTypeLabel(edgeType)}
+            <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+          </button>
+
+          {/* Edge type dropdown */}
+          {showDropdown && (
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 bg-card border border-border rounded-lg shadow-xl py-1 min-w-[130px]">
+              {(["delegates", "reports", "collaborates"] as FlowEdgeType[]).map((type) => (
+                <button
+                  key={type}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Dispatch a custom event to update the edge type
+                    window.dispatchEvent(
+                      new CustomEvent("flow-edge-type-change", {
+                        detail: { edgeId: id, edgeType: type },
+                      })
+                    );
+                    setShowDropdown(false);
+                  }}
+                  className={`
+                    w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-medium transition-colors
+                    ${type === edgeType ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"}
+                  `}
+                >
+                  {type === "delegates" && <ArrowRight className="w-3 h-3 text-blue-400" />}
+                  {type === "reports" && <ArrowRight className="w-3 h-3 text-amber-400 rotate-180" />}
+                  {type === "collaborates" && <ArrowLeftRight className="w-3 h-3 text-violet-400" />}
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                  {type === edgeType && <CheckCircle2 className="w-3 h-3 ml-auto text-primary" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </EdgeLabelRenderer>
     </>
   );
 }
@@ -1054,47 +1417,116 @@ function FlowPaletteSidebar({
   onAddNode: (deployment: DeploymentData) => void;
 }) {
   const available = deployments.filter((d) => !nodesOnCanvas.has(d.id));
+  const onCanvas = deployments.filter((d) => nodesOnCanvas.has(d.id));
 
   return (
-    <div className="w-56 border-r border-border bg-card/50 flex flex-col shrink-0">
-      <div className="px-3 py-2.5 border-b border-border">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-          Available Deployments
+    <div className="w-60 border-r border-border/60 bg-card/30 backdrop-blur-sm flex flex-col shrink-0">
+      {/* Header */}
+      <div className="px-3 py-3 border-b border-border/60">
+        <div className="flex items-center gap-2 mb-1">
+          <Users className="w-3.5 h-3.5 text-primary" />
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+            Bot Team
+          </p>
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          Click to add bots to your team canvas
         </p>
       </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {available.length === 0 && (
-          <p className="text-xs text-muted-foreground text-center py-6">
-            All deployments are on the canvas
-          </p>
+
+      {/* Available section */}
+      <div className="flex-1 overflow-y-auto">
+        {available.length > 0 && (
+          <div className="p-2">
+            <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 font-medium px-1 mb-1.5">
+              Available ({available.length})
+            </p>
+            <div className="space-y-1">
+              {available.map((dep) => (
+                <button
+                  key={dep.id}
+                  onClick={() => onAddNode(dep)}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg border border-border/40 bg-card/60 hover:bg-secondary/60 hover:border-primary/30 transition-all text-left group"
+                >
+                  <div className="relative shrink-0">
+                    <div className="w-8 h-8 rounded-lg bg-secondary/80 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                      <Bot className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                    </div>
+                    <div
+                      className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-card ${statusDotColor(dep.status)} ${isAnimatedStatus(dep.status) ? "animate-pulse" : ""}`}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate text-foreground">
+                      {dep.name}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground truncate">
+                      {dep.runtime} &middot; {statusLabel(dep.status)}
+                    </p>
+                  </div>
+                  <Plus className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-primary transition-colors shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
         )}
-        {available.map((dep) => (
-          <button
-            key={dep.id}
-            onClick={() => onAddNode(dep)}
-            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-border/60 bg-card hover:bg-secondary/50 hover:border-primary/30 transition-all text-left group"
-          >
-            <div className="relative shrink-0">
-              <Bot className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-              <div
-                className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${statusDotColor(dep.status)}`}
-              />
+
+        {/* On canvas section */}
+        {onCanvas.length > 0 && (
+          <div className="p-2 border-t border-border/40">
+            <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 font-medium px-1 mb-1.5">
+              On Canvas ({onCanvas.length})
+            </p>
+            <div className="space-y-1">
+              {onCanvas.map((dep) => (
+                <div
+                  key={dep.id}
+                  className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-border/20 bg-secondary/20 text-left opacity-60"
+                >
+                  <div className="relative shrink-0">
+                    <div className="w-8 h-8 rounded-lg bg-secondary/50 flex items-center justify-center">
+                      <Bot className="w-4 h-4 text-muted-foreground/60" />
+                    </div>
+                    <div
+                      className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-card ${statusDotColor(dep.status)}`}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate text-foreground/60">
+                      {dep.name}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/60 truncate">
+                      {dep.runtime}
+                    </p>
+                  </div>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500/50 shrink-0" />
+                </div>
+              ))}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium truncate text-foreground">
-                {dep.name}
-              </p>
-              <p className="text-[10px] text-muted-foreground truncate">
-                {dep.runtime}
-              </p>
-            </div>
-            <ChevronRight className="w-3 h-3 text-muted-foreground/50 group-hover:text-primary transition-colors shrink-0" />
-          </button>
-        ))}
+          </div>
+        )}
+
+        {deployments.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+            <Bot className="w-8 h-8 text-muted-foreground/30 mb-3" />
+            <p className="text-xs text-muted-foreground mb-1">No deployments yet</p>
+            <p className="text-[10px] text-muted-foreground/60">
+              Create deployments first, then build your team here
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+// ─── Team Type Config ─────────────────────────────────────────────────
+
+const TEAM_TYPE_OPTIONS: { value: TeamType; label: string; icon: typeof Network; desc: string }[] = [
+  { value: "hierarchy", label: "Hierarchy", icon: GitBranch, desc: "Top-down delegation (org chart)" },
+  { value: "pipeline", label: "Pipeline", icon: ArrowRight, desc: "Sequential processing (assembly line)" },
+  { value: "collaborative", label: "Collaborative", icon: ArrowLeftRight, desc: "Multi-directional (team meeting)" },
+];
 
 // ─── Flow Toolbar ────────────────────────────────────────────────────
 
@@ -1107,10 +1539,14 @@ function FlowToolbar({
   onAutoLayout,
   onNewFlow,
   onDeleteFlow,
+  onChatWithTeam,
   isExecuting,
   isSaved,
   totalCredits,
   hasFlow,
+  teamType,
+  onTeamTypeChange,
+  entryNodeName,
 }: {
   flowName: string;
   onFlowNameChange: (name: string) => void;
@@ -1120,18 +1556,36 @@ function FlowToolbar({
   onAutoLayout: () => void;
   onNewFlow: () => void;
   onDeleteFlow: () => void;
+  onChatWithTeam: () => void;
   isExecuting: boolean;
   isSaved: boolean;
   totalCredits: number;
   hasFlow: boolean;
+  teamType: TeamType;
+  onTeamTypeChange: (type: TeamType) => void;
+  entryNodeName: string | null;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(flowName);
+  const [showTeamTypeDropdown, setShowTeamTypeDropdown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const teamTypeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setEditValue(flowName);
   }, [flowName]);
+
+  // Close team type dropdown on outside click
+  useEffect(() => {
+    if (!showTeamTypeDropdown) return;
+    const handleClick = (e: MouseEvent) => {
+      if (teamTypeRef.current && !teamTypeRef.current.contains(e.target as HTMLElement)) {
+        setShowTeamTypeDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showTeamTypeDropdown]);
 
   const handleCommit = () => {
     const trimmed = editValue.trim();
@@ -1143,10 +1597,13 @@ function FlowToolbar({
     setIsEditing(false);
   };
 
+  const currentTeamType = TEAM_TYPE_OPTIONS.find((o) => o.value === teamType) || TEAM_TYPE_OPTIONS[0];
+  const TeamTypeIcon = currentTeamType.icon;
+
   return (
-    <div className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 border-b border-border bg-card/80 backdrop-blur-sm overflow-x-auto scrollbar-none">
+    <div className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 border-b border-border/60 bg-card/80 backdrop-blur-sm overflow-x-auto scrollbar-none">
       {/* Flow name (editable) */}
-      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+      <div className="flex items-center gap-1.5 min-w-0 shrink-0">
         <GitBranch className="w-4 h-4 text-primary shrink-0" />
         {isEditing ? (
           <input
@@ -1156,59 +1613,96 @@ function FlowToolbar({
             onBlur={handleCommit}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleCommit();
-              if (e.key === "Escape") {
-                setEditValue(flowName);
-                setIsEditing(false);
-              }
+              if (e.key === "Escape") { setEditValue(flowName); setIsEditing(false); }
             }}
-            className="bg-transparent border-b border-primary text-sm font-semibold text-foreground outline-none min-w-[120px] max-w-[240px]"
+            className="bg-transparent border-b border-primary text-sm font-semibold text-foreground outline-none min-w-[120px] max-w-[200px]"
             autoFocus
           />
         ) : (
           <button
-            onClick={() => {
-              if (hasFlow) {
-                setIsEditing(true);
-              }
-            }}
-            className="flex items-center gap-1 text-sm font-semibold text-foreground hover:text-primary transition-colors truncate"
+            onClick={() => { if (hasFlow) setIsEditing(true); }}
+            className="flex items-center gap-1 text-sm font-semibold text-foreground hover:text-primary transition-colors truncate max-w-[180px]"
             disabled={!hasFlow}
           >
             {flowName || "Untitled Flow"}
-            {hasFlow && (
-              <Pencil className="w-3 h-3 text-muted-foreground" />
-            )}
+            {hasFlow && <Pencil className="w-3 h-3 text-muted-foreground shrink-0" />}
           </button>
         )}
-
-        {/* Save indicator */}
         {hasFlow && !isSaved && (
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
         )}
       </div>
+
+      {/* Entry point indicator */}
+      {hasFlow && entryNodeName && (
+        <div className="hidden md:flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/8 border border-blue-500/15">
+          <Star className="w-3 h-3 text-blue-400 fill-blue-400" />
+          <span className="text-[10px] font-medium text-blue-400 truncate max-w-[100px]">
+            Entry: {entryNodeName}
+          </span>
+        </div>
+      )}
+
+      {/* Team type selector */}
+      {hasFlow && (
+        <div ref={teamTypeRef} className="relative shrink-0">
+          <button
+            onClick={() => setShowTeamTypeDropdown((v) => !v)}
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border/60 bg-card hover:bg-secondary/50 transition-colors text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            <TeamTypeIcon className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{currentTeamType.label}</span>
+            <ChevronDown className="w-3 h-3 opacity-60" />
+          </button>
+
+          {showTeamTypeDropdown && (
+            <div className="absolute top-full left-0 mt-1 z-50 bg-card border border-border rounded-lg shadow-xl py-1 min-w-[220px]">
+              {TEAM_TYPE_OPTIONS.map((opt) => {
+                const Icon = opt.icon;
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => { onTeamTypeChange(opt.value); setShowTeamTypeDropdown(false); }}
+                    className={`w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors ${
+                      opt.value === teamType ? "bg-secondary" : "hover:bg-secondary/50"
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${opt.value === teamType ? "text-primary" : "text-muted-foreground"}`} />
+                    <div>
+                      <p className={`text-xs font-medium ${opt.value === teamType ? "text-foreground" : "text-muted-foreground"}`}>
+                        {opt.label}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground/70">{opt.desc}</p>
+                    </div>
+                    {opt.value === teamType && <CheckCircle2 className="w-3.5 h-3.5 text-primary ml-auto mt-0.5 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Spacer */}
+      <div className="flex-1" />
 
       {/* Credits display */}
       {totalCredits > 0 && (
         <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/20">
           <Coins className="w-3.5 h-3.5 text-amber-400" />
           <span className="text-xs font-medium text-amber-400">
-            {totalCredits.toFixed(4)} credits
+            {totalCredits.toFixed(4)}
           </span>
         </div>
       )}
 
       {/* Action buttons */}
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-1 shrink-0">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onNewFlow}
-              className="h-7 px-2.5"
-            >
+            <Button variant="outline" size="sm" onClick={onNewFlow} className="h-7 px-2.5">
               <Plus className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline ml-1">New Flow</span>
+              <span className="hidden sm:inline ml-1">New</span>
             </Button>
           </TooltipTrigger>
           <TooltipContent>Create a new flow</TooltipContent>
@@ -1218,12 +1712,7 @@ function FlowToolbar({
           <>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onAutoLayout}
-                  className="h-7 px-2.5"
-                >
+                <Button variant="outline" size="sm" onClick={onAutoLayout} className="h-7 px-2.5">
                   <LayoutGrid className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline ml-1">Layout</span>
                 </Button>
@@ -1233,40 +1722,44 @@ function FlowToolbar({
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onSave}
-                  disabled={isSaved}
-                  className="h-7 px-2.5"
-                >
+                <Button variant="outline" size="sm" onClick={onSave} disabled={isSaved} className="h-7 px-2.5">
                   <Save className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline ml-1">Save</span>
                 </Button>
               </TooltipTrigger>
+              <TooltipContent>{isSaved ? "All changes saved" : "Save flow"}</TooltipContent>
+            </Tooltip>
+
+            <div className="w-px h-5 bg-border mx-0.5" />
+
+            {/* Chat with Team button */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onChatWithTeam}
+                  disabled={!entryNodeName}
+                  className="h-7 px-2.5 border-blue-500/20 text-blue-400 hover:bg-blue-500/10 hover:text-blue-300"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline ml-1">Chat</span>
+                </Button>
+              </TooltipTrigger>
               <TooltipContent>
-                {isSaved ? "All changes saved" : "Save flow"}
+                {entryNodeName ? `Chat with ${entryNodeName}` : "Set an entry point first"}
               </TooltipContent>
             </Tooltip>
 
             <div className="w-px h-5 bg-border mx-0.5" />
 
             {isExecuting ? (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={onCancel}
-                className="h-7 px-3"
-              >
+              <Button variant="destructive" size="sm" onClick={onCancel} className="h-7 px-3">
                 <Square className="w-3.5 h-3.5 mr-1" />
                 Stop
               </Button>
             ) : (
-              <Button
-                size="sm"
-                onClick={onRun}
-                className="h-7 px-3 bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
+              <Button size="sm" onClick={onRun} className="h-7 px-3 bg-emerald-600 hover:bg-emerald-700 text-white">
                 <Play className="w-3.5 h-3.5 mr-1" />
                 Run
               </Button>
@@ -1276,12 +1769,7 @@ function FlowToolbar({
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onDeleteFlow}
-                  className="h-7 px-2 text-muted-foreground hover:text-red-400"
-                >
+                <Button variant="ghost" size="sm" onClick={onDeleteFlow} className="h-7 px-2 text-muted-foreground hover:text-red-400">
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
@@ -1316,12 +1804,12 @@ function FlowListSidebar({
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all whitespace-nowrap ${
             flow.id === activeFlowId
               ? "bg-primary/10 border-primary/30 text-primary"
-              : "bg-secondary border-border text-muted-foreground hover:text-foreground"
+              : "bg-secondary/80 border-border text-muted-foreground hover:text-foreground hover:border-primary/20"
           }`}
         >
-          <GitBranch className="w-3 h-3" />
+          <Users className="w-3 h-3" />
           {flow.name}
-          <span className="text-muted-foreground">
+          <span className="text-muted-foreground/70">
             ({flow.nodes.length})
           </span>
         </button>
@@ -1339,6 +1827,8 @@ function FlowCanvas({
   executionSteps,
   pausedNodeId,
   onResumeInput,
+  selectedNodeId,
+  onSelectNode,
 }: {
   deployments: DeploymentData[];
   flow: FlowDefinition;
@@ -1346,6 +1836,8 @@ function FlowCanvas({
   executionSteps: Map<string, FlowStepStatus>;
   pausedNodeId?: string;
   onResumeInput?: (nodeId: string, input: string) => void;
+  selectedNodeId: string | null;
+  onSelectNode: (id: string | null) => void;
 }) {
   const { fitView } = useReactFlow();
 
@@ -1356,6 +1848,7 @@ function FlowCanvas({
       const isPaused = pausedNodeId === node.id;
       return {
         ...node,
+        selected: node.id === selectedNodeId,
         data: {
           ...node.data,
           executionStatus: stepStatus?.status,
@@ -1373,18 +1866,19 @@ function FlowCanvas({
         },
       };
     });
-  }, [flow.nodes, executionSteps, pausedNodeId, onResumeInput]);
+  }, [flow.nodes, executionSteps, pausedNodeId, onResumeInput, selectedNodeId]);
 
-  // Merge execution state into edges
+  // Merge execution state into edges (preserve edgeType)
   const edgesWithExecution: Edge[] = useMemo(() => {
     return flow.edges.map((edge) => {
-      // Edge takes the status of its target node
       const targetStatus = executionSteps.get(edge.target);
+      const existingData = (edge.data as FlowEdgeData) || {};
       return {
         ...edge,
         type: "flowEdge",
         data: {
-          ...((edge.data as Record<string, unknown>) || {}),
+          ...existingData,
+          edgeType: existingData.edgeType || "delegates",
           executionStatus: targetStatus?.status,
         },
       };
@@ -1403,22 +1897,51 @@ function FlowCanvas({
     setEdges(edgesWithExecution);
   }, [edgesWithExecution, setEdges]);
 
+  // Listen for edge type change events from the FlowEdge label dropdown
+  useEffect(() => {
+    const handleEdgeTypeChange = (e: Event) => {
+      const { edgeId, edgeType } = (e as CustomEvent).detail;
+      onUpdateFlow({
+        edges: flow.edges.map((edge) => {
+          if (edge.id === edgeId) {
+            return {
+              ...edge,
+              data: { ...((edge.data as FlowEdgeData) || {}), edgeType },
+            };
+          }
+          return edge;
+        }),
+      });
+    };
+    window.addEventListener("flow-edge-type-change", handleEdgeTypeChange);
+    return () => window.removeEventListener("flow-edge-type-change", handleEdgeTypeChange);
+  }, [flow.edges, onUpdateFlow]);
+
+  // Handle node click for selection
+  const onNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node<FlowNodeData>) => {
+      onSelectNode(node.id);
+    },
+    [onSelectNode]
+  );
+
+  // Handle canvas click to deselect
+  const onPaneClick = useCallback(() => {
+    onSelectNode(null);
+  }, [onSelectNode]);
+
   // Handle node position changes (drag)
   const handleNodesChange: OnNodesChange<Node<FlowNodeData>> = useCallback(
     (changes) => {
       onNodesChange(changes);
 
-      // Persist position changes
       const positionChanges = changes.filter(
         (c) => c.type === "position" && !("dragging" in c && c.dragging)
       );
       if (positionChanges.length > 0) {
-        // Debounced save happens via the dirty flag
         onUpdateFlow({
           nodes: flow.nodes.map((n) => {
-            const change = positionChanges.find(
-              (c) => "id" in c && c.id === n.id
-            );
+            const change = positionChanges.find((c) => "id" in c && c.id === n.id);
             if (change && "position" in change && change.position) {
               return { ...n, position: change.position };
             }
@@ -1430,17 +1953,13 @@ function FlowCanvas({
     [onNodesChange, onUpdateFlow, flow.nodes]
   );
 
-  // Handle edge creation (connecting nodes)
+  // Handle edge creation (connecting nodes) -- defaults to "delegates" type
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
-      // Prevent duplicate edges
       const exists = flow.edges.some(
-        (e) =>
-          e.source === connection.source && e.target === connection.target
+        (e) => e.source === connection.source && e.target === connection.target
       );
       if (exists) return;
-
-      // Prevent self-connections
       if (connection.source === connection.target) return;
 
       const newEdge: Edge = {
@@ -1448,7 +1967,7 @@ function FlowCanvas({
         source: connection.source!,
         target: connection.target!,
         type: "flowEdge",
-        data: {},
+        data: { edgeType: "delegates" as FlowEdgeType },
       };
 
       setEdges((eds) => addEdge(newEdge, eds));
@@ -1464,9 +1983,7 @@ function FlowCanvas({
 
       const removals = changes.filter((c) => c.type === "remove");
       if (removals.length > 0) {
-        const removedIds = new Set(
-          removals.map((c) => ("id" in c ? c.id : ""))
-        );
+        const removedIds = new Set(removals.map((c) => ("id" in c ? c.id : "")));
         onUpdateFlow({
           edges: flow.edges.filter((e) => !removedIds.has(e.id)),
         });
@@ -1481,12 +1998,13 @@ function FlowCanvas({
       const deletedIds = new Set(deleted.map((n) => n.id));
       onUpdateFlow({
         nodes: flow.nodes.filter((n) => !deletedIds.has(n.id)),
-        edges: flow.edges.filter(
-          (e) => !deletedIds.has(e.source) && !deletedIds.has(e.target)
-        ),
+        edges: flow.edges.filter((e) => !deletedIds.has(e.source) && !deletedIds.has(e.target)),
       });
+      if (selectedNodeId && deletedIds.has(selectedNodeId)) {
+        onSelectNode(null);
+      }
     },
-    [onUpdateFlow, flow.nodes, flow.edges]
+    [onUpdateFlow, flow.nodes, flow.edges, selectedNodeId, onSelectNode]
   );
 
   const onInit = useCallback(() => {
@@ -1499,22 +2017,26 @@ function FlowCanvas({
     [flow.nodes]
   );
 
-  // Add deployment as a flow node
+  // Add deployment as a flow node with defaults
   const handleAddNode = useCallback(
     (dep: DeploymentData) => {
-      // Calculate a position that doesn't overlap existing nodes
-      const rightmostX = flow.nodes.reduce(
-        (max, n) => Math.max(max, n.position.x),
-        0
-      );
+      const rightmostX = flow.nodes.reduce((max, n) => Math.max(max, n.position.x), 0);
+      const hasEntry = flow.nodes.some((n) => n.data?.isEntryPoint);
       const newNode: Node<FlowNodeData> = {
         id: dep.id,
         type: "flowDeployment",
         position: {
-          x: flow.nodes.length > 0 ? rightmostX + FLOW_NODE_WIDTH + 60 : 100,
-          y: 100,
+          x: flow.nodes.length > 0 ? rightmostX + FLOW_NODE_WIDTH + 80 : 100,
+          y: 150,
         },
-        data: { ...dep },
+        data: {
+          ...dep,
+          role: "",
+          goal: "",
+          canDelegate: true,
+          contextScope: "task",
+          isEntryPoint: !hasEntry, // First node added becomes entry point
+        },
       };
       onUpdateFlow({ nodes: [...flow.nodes, newNode] });
     },
@@ -1541,11 +2063,13 @@ function FlowCanvas({
           onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
           onNodesDelete={onNodesDelete}
+          onNodeClick={onNodeClick}
+          onPaneClick={onPaneClick}
           onInit={onInit}
           fitView
           fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
           proOptions={{ hideAttribution: true }}
-          minZoom={0.2}
+          minZoom={0.15}
           maxZoom={2}
           nodesDraggable={true}
           nodesConnectable={true}
@@ -1555,22 +2079,45 @@ function FlowCanvas({
             type: "flowEdge",
           }}
           connectionLineStyle={{
-            stroke: "hsl(var(--primary))",
+            stroke: "hsl(217, 91%, 60%)",
             strokeWidth: 2,
             strokeDasharray: "6 3",
           }}
         >
-          <Background gap={20} size={1} className="!bg-background" />
+          <Background
+            gap={24}
+            size={1}
+            className="!bg-background"
+            color="hsl(var(--border) / 0.3)"
+          />
           <Controls
             showInteractive={false}
-            className="!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground [&>button:hover]:!bg-secondary"
+            className="!bg-card !border-border/60 !shadow-lg !rounded-lg [&>button]:!bg-card [&>button]:!border-border/60 [&>button]:!text-foreground [&>button:hover]:!bg-secondary"
           />
           <MiniMap
-            className="!bg-card !border-border"
-            nodeColor={() => "hsl(var(--primary))"}
+            className="!bg-card/80 !border-border/60 !rounded-lg !shadow-lg"
+            nodeColor={(node) => {
+              const d = node.data as FlowNodeData | undefined;
+              if (d?.isEntryPoint) return "hsl(217, 91%, 60%)";
+              if (d?.canDelegate !== false) return "hsl(160, 84%, 39%)";
+              return "hsl(var(--muted-foreground))";
+            }}
             maskColor="hsl(var(--background) / 0.7)"
           />
         </ReactFlow>
+
+        {/* Selected node placeholder (for future config panel) */}
+        {selectedNodeId && (
+          <div className="absolute top-3 right-3 z-20 bg-card/90 backdrop-blur-sm border border-border/60 rounded-lg shadow-lg px-3 py-2 max-w-[200px]">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1">Selected Node</p>
+            <p className="text-xs font-medium text-foreground truncate">
+              {flow.nodes.find((n) => n.id === selectedNodeId)?.data?.name || selectedNodeId}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Click to configure (panel coming soon)
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1580,6 +2127,9 @@ function FlowCanvas({
 
 function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   const utils = trpc.useUtils();
+
+  // ── Selected node state (for config panel) ────────────────────────
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   // ── Fetch flows from API ──────────────────────────────────────────
   const flowsQuery = trpc.flows.list.useQuery(undefined, {
@@ -1605,9 +2155,9 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
           return {
             ...n,
             data: {
-              id: depId,
-              name: (n as any).label || n.data?.name || depId,
               ...n.data,
+              id: n.data?.id || depId,
+              name: n.data?.name || (n as any).label || depId,
             } as FlowNodeData,
           };
         });
@@ -1663,10 +2213,10 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
 
   // ── Create new flow ───────────────────────────────────────────────
   const handleNewFlow = useCallback(() => {
-    const name = `Flow ${flows.length + 1}`;
+    const name = `Team ${flows.length + 1}`;
     createFlowMutation.mutate({
       name,
-      definition: { nodes: [], edges: [] },
+      definition: { nodes: [], edges: [], teamType: "hierarchy" } as any,
       status: "draft",
     });
   }, [flows.length, createFlowMutation]);
@@ -1725,24 +2275,37 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     if (overrides.status !== undefined) mutation.status = overrides.status as "draft" | "published" | "archived";
 
     // Always send the current definition (nodes + edges may have changed)
+    // Include orchestration fields (role, goal, canDelegate, etc.) in config
     mutation.definition = {
       nodes: activeFlow.nodes.map((n) => ({
         id: n.id,
         type: (n.type === "flowDeployment" ? "deployment" : (n.type ?? "deployment")) as "deployment" | "transform" | "condition" | "output",
         deploymentId: n.data?.id,
         label: n.data?.name ?? n.id,
-        config: {} as Record<string, unknown>,
+        config: {
+          role: n.data?.role || "",
+          goal: n.data?.goal || "",
+          canDelegate: n.data?.canDelegate ?? true,
+          contextScope: n.data?.contextScope || "task",
+          isEntryPoint: n.data?.isEntryPoint || false,
+        } as Record<string, unknown>,
         position: n.position,
       })),
-      edges: activeFlow.edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        sourceHandle: e.sourceHandle ?? undefined,
-        targetHandle: e.targetHandle ?? undefined,
-        label: typeof e.label === "string" ? e.label : undefined,
-      })),
-    };
+      edges: activeFlow.edges.map((e) => {
+        const edgeData = (e.data as FlowEdgeData) || {};
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle ?? undefined,
+          targetHandle: e.targetHandle ?? undefined,
+          label: edgeData.edgeType || "delegates",
+          condition: undefined,
+        };
+      }),
+      // Store teamType in the definition JSON so it persists
+      ...(activeFlow.teamType ? { teamType: activeFlow.teamType } : {}),
+    } as typeof mutation.definition;
 
     updateFlowMutation.mutate(mutation, {
       onSuccess: () => {
@@ -1785,15 +2348,29 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     [handleUpdateFlow]
   );
 
+  // ── Team type change ──────────────────────────────────────────────
+  const handleTeamTypeChange = useCallback(
+    (type: TeamType) => {
+      if (!activeFlow) return;
+      handleUpdateFlow({ teamType: type });
+      // Auto re-layout with new topology
+      const { nodes: layouted, edges } = getFlowLayoutedElements(
+        activeFlow.nodes,
+        activeFlow.edges,
+        type,
+      );
+      handleUpdateFlow({ nodes: layouted, edges, teamType: type });
+    },
+    [activeFlow, handleUpdateFlow]
+  );
+
   // ── Auto layout ───────────────────────────────────────────────────
   const handleAutoLayout = useCallback(() => {
     if (!activeFlow || activeFlow.nodes.length === 0) return;
-    const { nodes: layouted, edges } = getLayoutedElements<FlowNodeData>(
+    const { nodes: layouted, edges } = getFlowLayoutedElements(
       activeFlow.nodes,
       activeFlow.edges,
-      "LR",
-      FLOW_NODE_WIDTH,
-      FLOW_NODE_HEIGHT
+      activeFlow.teamType || "hierarchy",
     );
     handleUpdateFlow({ nodes: layouted, edges });
   }, [activeFlow, handleUpdateFlow]);
@@ -1816,6 +2393,18 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     },
     [resumeExecution]
   );
+
+  // ── Chat with team (placeholder for POST /api/flows/:flowId/chat) ──
+  const handleChatWithTeam = useCallback(() => {
+    if (!activeFlowId) return;
+    // TODO: Open chat panel to talk to the entry bot
+    // This will call POST /api/flows/:flowId/chat
+    console.log("Chat with team:", activeFlowId);
+  }, [activeFlowId]);
+
+  // ── Derived state ──────────────────────────────────────────────────
+  const entryNode = activeFlow?.nodes.find((n) => n.data?.isEntryPoint);
+  const entryNodeName = entryNode?.data?.name ?? null;
 
   const isExecuting = execState.status === "running" || execState.status === "paused";
   const isLoading = flowsQuery.isLoading;
@@ -1861,10 +2450,14 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         onAutoLayout={handleAutoLayout}
         onNewFlow={handleNewFlow}
         onDeleteFlow={handleDeleteFlow}
+        onChatWithTeam={handleChatWithTeam}
         isExecuting={isExecuting}
         isSaved={isSaved && !isMutating}
         totalCredits={execState.totalCredits}
         hasFlow={!!activeFlow}
+        teamType={activeFlow?.teamType ?? "hierarchy"}
+        onTeamTypeChange={handleTeamTypeChange}
+        entryNodeName={entryNodeName}
       />
 
       {/* Canvas or empty state */}
@@ -1877,6 +2470,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
             executionSteps={execState.steps}
             pausedNodeId={execState.pausedNodeId}
             onResumeInput={handleResumeInput}
+            selectedNodeId={selectedNodeId}
+            onSelectNode={setSelectedNodeId}
           />
         </ReactFlowProvider>
       ) : (
@@ -1887,10 +2482,12 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
             transition={{ duration: 0.5 }}
             className="text-center"
           >
-            <GitBranch className="w-12 h-12 mx-auto mb-4 text-muted-foreground/40" />
-            <h3 className="text-lg font-semibold mb-1">No flows yet</h3>
-            <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">
-              Create a flow to orchestrate your deployments as a pipeline
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary/5 border border-primary/10 flex items-center justify-center">
+              <Users className="w-8 h-8 text-primary/40" />
+            </div>
+            <h3 className="text-lg font-semibold mb-1">Build Your Bot Team</h3>
+            <p className="text-muted-foreground text-sm mb-6 max-w-sm mx-auto">
+              Wire your bots together into coordinated teams. Define roles, delegation paths, and communication channels.
             </p>
             <Button
               onClick={handleNewFlow}
@@ -1902,7 +2499,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
               ) : (
                 <Plus className="w-4 h-4 mr-2" />
               )}
-              Create Your First Flow
+              Create Your First Team
             </Button>
           </motion.div>
         </div>
@@ -1925,6 +2522,23 @@ function FlowAnimationStyles() {
         to {
           transform: rotate(360deg);
         }
+      }
+      /* Smooth hover transitions for flow nodes */
+      .react-flow__node {
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      /* Edge label animations */
+      .react-flow__edge-text {
+        transition: fill 0.2s ease;
+      }
+      /* Connection line animation */
+      .react-flow__connection-line {
+        stroke-dasharray: 6 3;
+        animation: flow-dash 0.6s linear infinite;
+      }
+      /* MiniMap styling */
+      .react-flow__minimap {
+        border-radius: 8px;
       }
     `}</style>
   );
@@ -2068,8 +2682,8 @@ export default function Deployments() {
                 Linked Deployments
               </TabsTrigger>
               <TabsTrigger value="flows" className="gap-1.5">
-                <GitBranch className="w-3.5 h-3.5" />
-                Flows
+                <Users className="w-3.5 h-3.5" />
+                Bot Teams
               </TabsTrigger>
               <TabsTrigger value="resource-map" className="gap-1.5">
                 <LayoutGrid className="w-3.5 h-3.5" />

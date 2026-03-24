@@ -531,6 +531,8 @@ const CREATE_TABLES_SQL = `
     is_public INTEGER DEFAULT 0 NOT NULL,
     fork_count INTEGER DEFAULT 0 NOT NULL,
     forked_from_id TEXT,
+    entry_node_id TEXT,
+    team_type TEXT DEFAULT 'hierarchy' NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
