@@ -23,6 +23,8 @@ import { execSync, execFileSync } from "child_process";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, readdirSync, statSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
+import { QALogger } from "./lib/logger.mjs";
+import { generateDashboard } from "./lib/dashboard.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "../..");
@@ -335,8 +337,9 @@ TIMESTAMP: ${new Date().toISOString()}
 // ── Run Cycle ────────────────────────────────────────────────────────────
 
 async function runCycle(state, env) {
-  const cycleStart = Date.now();
   state.runCount++;
+  const cycleId = `cycle-${state.runCount}-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-")}`;
+  const log = new QALogger(cycleId);
 
   console.log(`\n${"=".repeat(60)}`);
   console.log(`  QA Cycle #${state.runCount} — ${new Date().toLocaleTimeString()}`);
@@ -344,30 +347,45 @@ async function runCycle(state, env) {
   console.log(`${"=".repeat(60)}\n`);
 
   // Health checks
-  console.log("  Checking servers...");
+  log.log("INFO", "health", "Checking servers...");
   const [feOk, apiOk] = await Promise.all([
     healthCheck(BASE_URL, "Frontend"),
     healthCheck(`${API_URL}/health`, "API"),
   ]);
 
   if (!feOk || !apiOk) {
-    console.error("  Servers not reachable. Skipping cycle.");
+    log.error("health", "Servers not reachable — skipping cycle");
+    log.finalize({ total: 0, passed: 0, failed: 0, warned: 0, skipped: 0, status: "SERVERS_DOWN" });
     return;
   }
-  console.log("  Servers OK.");
+  log.log("PASS", "health", `Servers OK (Frontend: ${BASE_URL}, API: ${API_URL})`);
 
-  // Auth token (auto-refreshes via Auth0 password grant if credentials are set)
+  // Auth token
+  log.log("INFO", "auth", "Fetching auth token...");
   const token = await getAuthToken(env);
+  if (token) {
+    log.log("PASS", "auth", "Auth token obtained");
+  } else {
+    log.log("WARN", "auth", "No auth token — auth-required tests will be skipped");
+  }
 
   // Git info
   const { currentSha, diffStat } = getGitInfo(state.lastRunSha);
-  console.log(`  Git SHA: ${currentSha}`);
+  log.log("INFO", "discovery", `Git SHA: ${currentSha}`, { sha: currentSha });
+  log.log("INFO", "discovery", `Changes since last run`, { diffStat: diffStat.slice(0, 500) });
 
   // Lock
-  if (!acquireLock()) return;
+  if (!acquireLock()) {
+    log.error("lock", "Another cycle is running — skipping");
+    log.finalize({ total: 0, passed: 0, failed: 0, warned: 0, skipped: 0, status: "LOCKED" });
+    return;
+  }
+
+  let summary = { total: 0, passed: 0, failed: 0, warned: 0, skipped: 0 };
 
   try {
     // Build prompt
+    log.log("INFO", "dispatch", "Building orchestrator prompt...");
     const prompt = buildPrompt({
       token,
       diffStat,
@@ -377,7 +395,7 @@ async function runCycle(state, env) {
     });
 
     // Invoke Claude Code
-    console.log("  Starting QA orchestrator...\n");
+    log.agentStart("qa-orchestrator", FOCUS || "full QA cycle");
 
     const args = [
       "-p", prompt,
@@ -397,16 +415,18 @@ async function runCycle(state, env) {
         encoding: "utf-8",
         timeout: CYCLE_TIMEOUT,
         env: { ...process.env, ...env },
-        maxBuffer: 50 * 1024 * 1024, // 50MB buffer for large outputs
+        maxBuffer: 50 * 1024 * 1024,
       });
+      log.agentEnd("qa-orchestrator", "COMPLETE");
     } catch (err) {
       if (err.killed) {
-        console.error("  Cycle timed out (30 min limit).");
+        log.error("dispatch", "Cycle timed out (30 min limit)", err);
       } else if (err.stdout) {
         output = err.stdout;
-        console.warn("  Claude exited with non-zero status (may have found failures).");
+        log.log("WARN", "dispatch", "Claude exited with non-zero status");
       } else {
-        console.error("  Claude invocation failed:", err.message);
+        log.error("dispatch", "Claude invocation failed", err);
+        log.finalize(summary);
         return;
       }
     }
@@ -415,44 +435,67 @@ async function runCycle(state, env) {
       console.log(output);
     }
 
-    // Save report
+    // Save raw output
     mkdirSync(REPORTS_DIR, { recursive: true });
     const timestamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
     const reportPath = join(REPORTS_DIR, `${timestamp}-raw.txt`);
     writeFileSync(reportPath, output || "(no output)");
-    console.log(`  Raw output saved to: ${reportPath}`);
+    log.log("INFO", "report", `Raw output saved: ${reportPath}`);
 
-    // Parse results summary from output
+    // Parse results
     const cycleMatch = output?.match(/=== QA CYCLE COMPLETE ===([\s\S]*?)=== END CYCLE ===/);
     if (cycleMatch) {
-      const summary = cycleMatch[1];
-      console.log("\n  --- Cycle Summary ---");
-      console.log(summary.trim().split("\n").map(l => `  ${l}`).join("\n"));
+      const summaryText = cycleMatch[1];
 
-      // Extract pass/fail counts
-      const passMatch = summary.match(/Passed:\s*(\d+)/);
-      const failMatch = summary.match(/Failed:\s*(\d+)/);
-      const totalMatch = summary.match(/Goals tested:\s*(\d+)/);
+      const passMatch = summaryText.match(/Passed:\s*(\d+)/);
+      const failMatch = summaryText.match(/Failed:\s*(\d+)/);
+      const warnMatch = summaryText.match(/Warned:\s*(\d+)/);
+      const totalMatch = summaryText.match(/Goals tested:\s*(\d+)/);
+      const skipMatch = summaryText.match(/Skipped:\s*(\d+)/);
 
-      if (passMatch) state.cumulativePass += parseInt(passMatch[1]);
-      if (failMatch) state.cumulativeFail += parseInt(failMatch[1]);
-      if (totalMatch && passMatch) {
-        state.lastRunPassRate = parseInt(passMatch[1]) / parseInt(totalMatch[1]);
+      summary.passed = passMatch ? parseInt(passMatch[1]) : 0;
+      summary.failed = failMatch ? parseInt(failMatch[1]) : 0;
+      summary.warned = warnMatch ? parseInt(warnMatch[1]) : 0;
+      summary.total = totalMatch ? parseInt(totalMatch[1]) : 0;
+      summary.skipped = skipMatch ? parseInt(skipMatch[1]) : 0;
+
+      state.cumulativePass += summary.passed;
+      state.cumulativeFail += summary.failed;
+      if (summary.total > 0) {
+        state.lastRunPassRate = summary.passed / summary.total;
       }
+
+      // Log individual results
+      const failureLines = summaryText.match(/^\s*-\s+.+/gm) || [];
+      for (const line of failureLines) {
+        const trimmed = line.trim().replace(/^-\s*/, "");
+        if (trimmed.includes("FAIL") || trimmed.includes("fail")) {
+          log.goalResult(trimmed, "FAIL");
+        }
+      }
+
+      log.log("INFO", "summary", `Goals: ${summary.total} | Pass: ${summary.passed} | Fail: ${summary.failed} | Warn: ${summary.warned} | Skip: ${summary.skipped}`);
     } else {
-      console.log("  Could not parse cycle summary from output.");
+      log.log("WARN", "summary", "Could not parse structured cycle summary from output");
     }
 
     // Update state
     state.lastRunSha = currentSha;
     state.lastRunTimestamp = new Date().toISOString();
 
-    const duration = ((Date.now() - cycleStart) / 1000 / 60).toFixed(1);
-    console.log(`\n  Cycle completed in ${duration} minutes.`);
-    console.log(`  Cumulative: ${state.cumulativePass} pass, ${state.cumulativeFail} fail across ${state.runCount} runs.`);
+    log.log("INFO", "cycle", `Cumulative: ${state.cumulativePass} pass, ${state.cumulativeFail} fail across ${state.runCount} runs`);
 
   } finally {
     releaseLock();
+    const logFile = log.finalize(summary);
+
+    // Generate dashboard after each cycle
+    try {
+      const dashPath = generateDashboard();
+      console.log(`\n  Dashboard: ${dashPath}`);
+    } catch (err) {
+      console.error(`  Dashboard generation failed: ${err.message}`);
+    }
   }
 }
 

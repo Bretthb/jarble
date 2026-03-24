@@ -89,3 +89,4 @@ scripts/nightly-qa/reports/
 scripts/nightly-qa/.env
 scripts/nightly-qa/.qa-state.json
 scripts/nightly-qa/.qa-lock
+scripts/nightly-qa/logs/
