@@ -1,6 +1,6 @@
 # Jarble API Endpoints Reference
 
-> Complete reference for every API endpoint in the Jarble platform. Covers all 174 tRPC procedures and 32 REST endpoints.
+> Complete reference for every API endpoint in the Jarble platform. Covers all 174 tRPC procedures and 34 REST endpoints.
 > Last updated: March 23, 2026 (Session 20)
 
 ---
@@ -1135,7 +1135,7 @@ Unauthenticated endpoints for the Agent Forking Flywheel discovery layer. Intend
 |----------|-------|------|-----------|-----------|
 | tRPC Queries | 87 | public/protected/admin | 120 req/min | No |
 | tRPC Mutations | 87 | protected/admin | 120 req/min | No |
-| REST Webhooks | 4 | signature/M2M/deploymentId/none | global/exempt | No |
+| REST Webhooks | 5 | signature/M2M/deploymentId/none/none | global/exempt | No |
 | REST Payment | 2 | JWT Bearer | 10 req/min | No |
 | REST Chat | 1 | JWT Bearer | 120 req/min | Yes |
 | REST Artifact | 4 | JWT Bearer | global/1/s | No |
@@ -1147,7 +1147,7 @@ Unauthenticated endpoints for the Agent Forking Flywheel discovery layer. Intend
 | SSE Streams | 3 | JWT (header or query) | 120 req/min | Yes |
 | MCP Endpoints | 5 | JWT Bearer | global | Mixed |
 | Health/Debug | 5 | none | exempt | No |
-| **Total** | **207** | -- | -- | -- |
+| **Total** | **208** | -- | -- | -- |
 
 ### Quick Reference by Router
 
@@ -1169,8 +1169,8 @@ Unauthenticated endpoints for the Agent Forking Flywheel discovery layer. Intend
 | `agentCredits` | 3 | 1 | 4 |
 | `apiKeys` | 2 | 2 | 4 |
 | **tRPC Total** | **88** | **86** | **174** |
-| REST endpoints | -- | -- | **33** |
-| **Grand Total** | -- | -- | **207** |
+| REST endpoints | -- | -- | **34** |
+| **Grand Total** | -- | -- | **208** |
 
 ### Key Files
 
