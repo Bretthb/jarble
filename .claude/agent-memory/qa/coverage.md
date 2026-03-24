@@ -8,14 +8,16 @@
 | /pricing | 2026-03-24 | PASS | qa-explorer-ui |
 | /about | 2026-03-24 | PASS | qa-explorer-ui |
 | /login | 2026-03-24 | PASS | qa-explorer-ui |
-| /register | 2026-03-24 | PASS (→ /login) | qa-explorer-ui |
+| /register | 2026-03-24 | PASS (-> /login) | qa-explorer-ui |
 | /marketplace | 2026-03-24 | PASS | qa-explorer-ui |
 | /explore | 2026-03-24 | PASS | qa-explorer-ui |
 | /docs | 2026-03-24 | PASS | qa-explorer-ui |
-| /dashboard | 2026-03-24 | ENV_SKIP (auth) | qa-explorer-ui |
-| /billing | 2026-03-24 | ENV_SKIP (auth) | qa-explorer-ui |
-| /settings | 2026-03-24 | ENV_SKIP (auth) | qa-explorer-ui |
-| /deployments | 2026-03-24 | ENV_SKIP (auth) | qa-explorer-ui |
+| /privacy | 2026-03-24 | PASS | qa-explorer-ui |
+| /terms | 2026-03-24 | PASS | qa-explorer-ui |
+| /dashboard | 2026-03-24 | WARN (first-load PASS, refresh_token rotation clears session) | qa-explorer-ui |
+| /billing | 2026-03-24 | ENV_SKIP (auth refresh_token rotation) | qa-explorer-ui |
+| /settings | 2026-03-24 | ENV_SKIP (auth refresh_token rotation) | qa-explorer-ui |
+| /deployments | 2026-03-24 | ENV_SKIP (auth refresh_token rotation) | qa-explorer-ui |
 | /onboarding/[id] | never | - | - |
 | /d/[id] | never | - | - |
 | /d/[id]/configure | never | - | - |
@@ -30,8 +32,6 @@
 | /docs/marketplace | never | - | - |
 | /docs/platform | never | - | - |
 | /docs/security | never | - | - |
-| /privacy | never | - | - |
-| /terms | never | - | - |
 | /admin | never | - | - |
 | /admin/* (7 sub-pages) | never | - | - |
 
@@ -46,7 +46,7 @@
 | runtimeCatalog.getBySlug | 2026-03-24 | PASS |
 | runtimeCatalog.getById | 2026-03-24 | PASS (openclaw details) |
 | runtimeCatalog.getCapabilities | 2026-03-24 | PASS (needsLlm, hasPlatforms, etc.) |
-| template.list | 2026-03-24 | PASS |
+| template.list | 2026-03-24 | PASS (13 templates) |
 | template.getCategories | 2026-03-24 | PASS |
 | template.getById | 2026-03-24 | PASS (null for "1") |
 | template.listByCategory | 2026-03-24 | PASS (2 in "general") |
@@ -72,16 +72,16 @@
 
 ### Protected Procedures (Auth Verified)
 
-| Router.Procedure | Unauthed→401 | Authed Response | Last Tested |
+| Router.Procedure | Unauthed->401 | Authed Response | Last Tested |
 |-----------------|-------------|-----------------|------------|
 | user.me | null (not 401) | 200 — email, role, freeDeploymentUsed | 2026-03-24 |
 | deployment.list | YES (401) | 200 — empty array | 2026-03-24 |
 | deployment.create | YES (401) | not tested with valid input | 2026-03-24 |
-| billing.getOverview | YES (401) | 200 — totalMonthlyCents:0 | 2026-03-24 |
+| billing.getOverview | YES (401) | 200 — totalMonthlyCents:0, activeSubscriptionCount:0 | 2026-03-24 |
 | flows.list | YES (401) | 200 — empty array | 2026-03-24 |
 | agentCredits.getBalance | YES (401) | 200 — balance:0, 3 tiers | 2026-03-24 |
 | apiKeys.list | YES (401) | 200 — empty array | 2026-03-24 |
-| skills.listCatalog | not tested unauthed | 200 — 22 skills | 2026-03-24 |
+| skills.listCatalog | not tested unauthed | 200 — 23 skills | 2026-03-24 |
 | platformCredentials.getByDeployment | not tested unauthed | 404 (no deployment) | 2026-03-24 |
 
 ## Security Tests

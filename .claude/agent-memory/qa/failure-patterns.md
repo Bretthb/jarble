@@ -13,15 +13,19 @@ Recurring issues discovered by QA agents and their root causes.
 - **Frequency**: Deterministic
 - **Resolution**: Use `?input={"json":{"key":"value"}}` format always
 
-### FP-002: Auth0 SPA SDK session injection fails with useRefreshTokens
+### FP-002: Auth0 SPA SDK session injection — refresh_token rotation
 
-- **Pattern**: All authenticated frontend pages show "Please log in to view..." despite valid access_token in localStorage
-- **Root cause**: `Auth0Provider.tsx` uses `useRefreshTokens={true}`. SDK's `_getTokenUsingRefreshToken()` needs `refresh_token` in cache body. Injection only provides `access_token`.
-- **Classification**: ENVIRONMENT (QA infrastructure issue)
-- **First seen**: 2026-03-24
-- **Frequency**: Deterministic — blocks ALL authenticated UI tests
-- **Resolution**: Fix `scripts/nightly-qa/lib/auth.mjs` to capture refresh_token from Auth0 ROPG response and include it in injection payload
-- **Console signature**: `[Auth] Token refresh failed: Missing Refresh Token (audience: 'https://api.jarble.ai')`
+- **Pattern**: Authenticated pages show content on first load, then clear to "Please log in" on subsequent navigations
+- **Root cause**: Auth0 has refresh token rotation enabled. The ROPG-granted refresh_token is single-use. The Auth0 SPA SDK consumes it on the first background refresh, then subsequent refreshes fail because the original injected token is invalidated.
+- **Classification**: ENVIRONMENT (Auth0 tenant config issue)
+- **First seen**: 2026-03-24 (evolved from original FP-002 which was missing refresh_token entirely)
+- **Frequency**: Deterministic — first navigation works, all subsequent fail
+- **Console signature**: `[Auth] Token refresh failed: a: Unknown or invalid refresh token.` + HTTP 403 from `jarble-dev.us.auth0.com/oauth/token`
+- **Resolution options**:
+  1. Disable refresh token rotation in Auth0 dev tenant
+  2. Block the SDK's refresh attempt in test mode (intercept network)
+  3. Accept first-load testing as sufficient proof of page functionality
+- **Note**: The ORIGINAL FP-002 (missing refresh_token entirely) is now FIXED — injection format with refresh_token IS correct and works for initial page load
 
 ### FP-003: Stale tRPC procedure names in test goals
 

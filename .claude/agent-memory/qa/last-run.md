@@ -1,64 +1,65 @@
 # Last QA Run
 
 ## Run Details
-- **Timestamp**: 2026-03-24T14:58:37Z
-- **Git SHA**: 5da8a9e
-- **Duration**: ~12 minutes
-- **Pass rate**: 67% (8 pass, 1 warn, 4 env-skip)
+- **Timestamp**: 2026-03-24T15:23:29Z
+- **Git SHA**: 01eab8e
+- **Duration**: ~15 minutes
+- **Pass rate**: 43% (3 pass, 1 warn, 3 env-skip out of 7 goals)
 - **Real bugs found**: 0
-- **Environment issues**: 1 (auth injection incompatible with useRefreshTokens)
+- **Environment issues**: 1 (Auth0 refresh token rotation invalidates injected refresh_token)
 
 ## Goals Tested
 
 | # | Goal | Type | Status | Notes |
 |---|------|------|--------|-------|
-| 1 | Authenticated tRPC endpoints (8 endpoints) | API | WARN | 6/8 passed; 2 stale procedure names corrected |
-| 2 | Dashboard page with auth | UI | ENV_SKIP | Auth0 SDK useRefreshTokens needs refresh_token |
-| 3 | Billing page with auth | UI | ENV_SKIP | Same root cause |
-| 4 | Settings page with auth | UI | ENV_SKIP | Same root cause |
-| 5 | Deployments page with auth | UI | ENV_SKIP | Same root cause |
-| 6 | Marketplace page | UI | PASS | 3 components, search, filters, tabs |
-| 7 | Explore page | UI | PASS | All 4 sections, empty states correct |
-| 8 | Public tRPC coverage gaps (8 endpoints) | API | PASS | All valid |
-| 9 | Docs page | UI | PASS | 7 sections, sidebar, search |
-| 10 | Register page | UI | PASS | Redirects to /login correctly |
-| 11 | Homepage regression | UI | PASS | All sections intact |
-| 12 | Public API regression (5 endpoints) | API | PASS | All healthy |
+| 1 | Dashboard page with auth | UI | WARN | Renders correctly on FIRST load. Auth0 SDK background refresh rejects token (403). Session cleared on 2nd navigation. |
+| 2 | Deployments page with auth | UI | ENV_SKIP | Same refresh_token rotation issue as Goal 1 |
+| 3 | Billing page with auth | UI | ENV_SKIP | Same refresh_token rotation issue as Goal 1 |
+| 4 | Settings page with auth | UI | ENV_SKIP | Same refresh_token rotation issue as Goal 1 |
+| 5 | Authenticated API endpoints (11) | API | PASS | 11/11 passed (8 authed + 1 unauthed + 3 public) |
+| 6 | Privacy + Terms pages | UI | PASS | Both render with 14 sections each, comprehensive content |
+| 7 | Homepage regression | UI | PASS | All sections intact, no regressions |
 
 ## Failures
-None (real bugs). All failures are environment issues.
+None (real bugs). All issues are environment-level.
 
 ## Environment Issues
 
-### Auth0 SPA SDK session injection incompatible with useRefreshTokens
-- **Affects**: Goals 2-5 (all authenticated UI pages)
-- **Root cause**: `Auth0Provider.tsx` uses `useRefreshTokens={true}`. SDK calls `_getTokenUsingRefreshToken()` on init, needs `refresh_token` in localStorage cache. Our injection only has `access_token`.
-- **Console error**: `[Auth] Token refresh failed: Missing Refresh Token`
-- **Fix needed**: `scripts/nightly-qa/lib/auth.mjs` must capture and pass `refresh_token` from Auth0 ROPG response
+### Auth0 Refresh Token Rotation Invalidates Injected Token
+- **Affects**: Goals 1-4 (all authenticated UI pages after first navigation)
+- **Root cause**: Auth0 has refresh token rotation enabled. The ROPG-granted refresh_token is valid for exactly ONE use. When the Auth0 SPA SDK detects the `auth0.*.is.authenticated` cookie, it immediately calls `POST /oauth/token` to refresh, consuming the single-use token. The refreshed token is returned by Auth0 but the SDK stores it internally — so on subsequent navigations the original injected token is gone.
+- **Console error**: `[Auth] Token refresh failed: a: Unknown or invalid refresh token.`
+- **Key insight**: The dashboard DID render authenticated content on the first load (before SDK refresh kicked in), proving the page code is correct and the injection format is valid.
+- **Impact**: Auth-UI testing can verify first-load rendering but not navigation flows.
+- **Possible fixes**:
+  1. Disable refresh token rotation in Auth0 dev tenant settings
+  2. Intercept and block the SDK's refresh attempt in test mode
+  3. Accept first-load testing as sufficient (proves page rendering works)
 
 ## Warnings
 
-### Stale procedure names in test plan
-- `skills.list` → correct: `skills.listCatalog`
-- `platformCredentials.list` → correct: `platformCredentials.getByDeployment`
+### Dashboard First-Load PASS, Second-Load FAIL
+- Dashboard on first load showed: user avatar "SM", email "smallradcomp@gmail.com", "Deployments" heading, "No deployments yet" empty state, email verification banner
+- After SDK consumed refresh_token: session cleared, shows "Please log in to view your dashboard"
+- This is an environment issue, not a code bug
 
 ## Key Observations
 - API auth works perfectly — all 8 authed endpoints return correct data via Bearer token
-- user.me returns: email=smallradcomp@gmail.com, role=user, freeDeploymentUsed=false
-- agentCredits: 3 tiers (500/$5, 2500/$20, 10000/$100)
-- skills.listCatalog: 22 skills (Web Search, Weather, Calculator, etc.)
-- Marketplace: 3 components (Sales Dashboard, Analytics Chart, Contact Form)
-- Explore: 4 sections with proper empty states
-- Docs: 7 doc sections with sidebar nav and search
-- Homepage: beta banner (March 29th), hero, chat preview, 20+ integrations, 6 features
-- All API responses under 15ms
+- skills.listCatalog now returns 23 skills (was 22 in previous run — 1 new skill added)
+- Privacy page: 14 sections including GDPR, EU AI Act, data minimization — genuine platform-specific content
+- Terms page: 14 sections including AI-specific terms, BYOK model — not boilerplate
+- Both legal pages last updated March 10, 2026, with Table of Contents and anchor links
+- Homepage: Beta banner (March 29th), hero, chat preview, 20+ integrations, 6 features — consistent with previous runs
+- All API response times under 0.3s (user.me slowest at 0.209s, others <15ms)
 
 ## Healer Actions
 (none needed — no real bugs found)
 
 ## Next Run Priorities
-1. Fix auth injection to include refresh_token, then retest dashboard/billing/settings/deployments
+1. Investigate disabling Auth0 refresh token rotation for dev tenant to enable full auth UI testing
 2. Test onboarding wizard flow (create deployment)
-3. Test chat page (/d/[id])
+3. Test chat page (/d/[id]) — requires a deployment to exist
 4. Run security tests (XSS, injection, auth bypass)
-5. Test remaining docs sub-pages
+5. Test docs sub-pages (/docs/api, /docs/architecture, etc.)
+6. Test marketplace detail page (/marketplace/[id])
+7. Test /beta and /analytics pages

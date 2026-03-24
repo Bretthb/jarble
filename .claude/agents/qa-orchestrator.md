@@ -60,48 +60,57 @@ Generate 5-15 test goals per cycle depending on what changed. Don't test everyth
 
 ### Phase 3: Auth Preparation
 
-If any test goals require authentication, prepare the auth injection data for explorer agents.
+If any test goals require authentication, fetch a full token set (access_token + refresh_token + id_token) and build the browser injection script.
 
-The overnight runner passes the auth token via the prompt. To inject it into the browser for authenticated page testing, you need to set up Auth0 SPA SDK localStorage entries. The app uses `useRefreshTokens={true}`, so the cache entry MUST include a `refresh_token`.
+The app uses `useRefreshTokens={true}` in Auth0Provider, so the localStorage cache entry **MUST include a refresh_token** or the SDK will reject it and redirect to login.
 
-**Step 1**: Fetch both access_token and refresh_token. Use the Bash tool to call Auth0's password grant:
+**Fetch tokens via Bash**:
 
 ```bash
 curl -s -X POST https://jarble-dev.us.auth0.com/oauth/token \
   -H "Content-Type: application/json" \
-  -d '{"grant_type":"password","username":"'$QA_EMAIL'","password":"'$QA_PASSWORD'","client_id":"1VR30862RmZIFR44UIM8aVHYEt3K2Rsh","audience":"https://api.jarble.ai","scope":"openid profile email offline_access"}'
+  -d '{"grant_type":"password","username":"EMAIL","password":"PASSWORD","client_id":"1VR30862RmZIFR44UIM8aVHYEt3K2Rsh","audience":"https://api.jarble.ai","scope":"openid profile email offline_access"}'
 ```
 
-If `QA_EMAIL` and `QA_PASSWORD` are not available in the environment, check `.claude/agent-memory/qa/` or the prompt context for the token.
+Replace EMAIL and PASSWORD with the values from the prompt context (the overnight runner provides them via `QA_EMAIL` and `QA_PASSWORD` environment variables, or they may be embedded in the prompt).
 
-**Step 2**: Decode the access_token JWT payload (base64url decode second segment) to extract `sub`, `email`, etc.
+**Parse the response** — it returns JSON with `access_token`, `id_token`, `refresh_token`, `expires_in`, `token_type`, `scope`.
 
-**Step 3**: Build the localStorage injection for explorer agents:
+**Build the injection script** — decode the `id_token` JWT payload to get user claims (sub, email, name), then construct this JavaScript that the explorer will run via `playwright_evaluate`:
 
 ```javascript
-// Cache key — must match what Auth0 SPA SDK expects
-const cacheKey = `@@auth0spajs@@::1VR30862RmZIFR44UIM8aVHYEt3K2Rsh::https://api.jarble.ai::openid profile email offline_access`;
-const cacheValue = JSON.stringify({
-  body: {
-    access_token: ACCESS_TOKEN,
-    refresh_token: REFRESH_TOKEN,  // REQUIRED — app uses useRefreshTokens
-    id_token: ID_TOKEN,            // Include if returned by Auth0
-    token_type: "Bearer",
-    expires_in: 86400,
-    scope: "openid profile email offline_access"
-  },
-  expiresAt: Math.floor(Date.now()/1000) + 86400
-});
-
-// User key
-const userKey = `@@auth0spajs@@::1VR30862RmZIFR44UIM8aVHYEt3K2Rsh::@@user@@`;
-const userValue = JSON.stringify({ sub, email, name, email_verified: true });
-
-// Auth cookie
-document.cookie = 'auth0.1VR30862RmZIFR44UIM8aVHYEt3K2Rsh.is.authenticated=true; path=/';
+// All values must come from the actual token response — do NOT hardcode or fake them
+localStorage.setItem(
+  '@@auth0spajs@@::1VR30862RmZIFR44UIM8aVHYEt3K2Rsh::https://api.jarble.ai::openid profile email offline_access',
+  JSON.stringify({
+    body: {
+      client_id: '1VR30862RmZIFR44UIM8aVHYEt3K2Rsh',
+      access_token: '<ACCESS_TOKEN>',
+      id_token: '<ID_TOKEN>',
+      refresh_token: '<REFRESH_TOKEN>',
+      scope: 'openid profile email offline_access',
+      expires_in: 86400,
+      token_type: 'Bearer',
+      decodedToken: { user: {sub, email, name, ...}, claims: {sub, email, name, ...} },
+      audience: 'https://api.jarble.ai'
+    },
+    expiresAt: <UNIX_TIMESTAMP>
+  })
+);
+localStorage.setItem(
+  '@@auth0spajs@@::1VR30862RmZIFR44UIM8aVHYEt3K2Rsh::@@user@@',
+  JSON.stringify({
+    decodedToken: { user: {sub, email, name, ...}, claims: {sub, email, name, ...} }
+  })
+);
+document.cookie = 'auth0.1VR30862RmZIFR44UIM8aVHYEt3K2Rsh.is.authenticated=true; path=/; max-age=86400';
 ```
 
-Include the complete injection code (with actual token values) in every explorer agent prompt that requires auth. The explorer will run this via `playwright_evaluate` before navigating to authenticated pages.
+**CRITICAL**: Replace all `<PLACEHOLDER>` values with real token data. The `refresh_token` field is mandatory — without it, the Auth0 SDK redirects to login.
+
+Include this complete injection script (with real values substituted) in every explorer agent prompt that requires auth. Also include the raw `access_token` for API calls the explorer might make via fetch.
+
+**Also store the access_token** for the API tester agent — it only needs the Bearer token, not the browser injection.
 
 ### Phase 4: Dispatch Specialist Agents
 
