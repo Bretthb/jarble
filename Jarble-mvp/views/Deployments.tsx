@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth0 } from "@auth0/auth0-react";
-import { trpc } from "@/lib/trpc";
+import { trpc, API_URL } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +60,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ResourceMapView from "./ResourceMapView";
+import FlowNodeConfigPanel from "@/components/workspace/FlowNodeConfigPanel";
+import type { FlowNodeConfig } from "@/components/workspace/FlowNodeConfigPanel";
+import FlowExecutionTimeline from "@/components/workspace/FlowExecutionTimeline";
+import type { FlowExecutionStep } from "@/components/workspace/FlowExecutionTimeline";
 import { runtimeNeedsLlm } from "./onboarding/wizardStepConfig";
 import {
   ReactFlow,
@@ -1012,19 +1016,23 @@ function FlowDeploymentNode({
         </div>
       )}
 
-      {/* Input handle (left) */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        className="!w-3 !h-3 !bg-muted-foreground/40 !border-2 !border-card hover:!bg-primary !transition-colors !-left-1.5"
-      />
+      {/* Input handle (left) — larger hit area for easier connections */}
+      <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center z-20">
+        <Handle
+          type="target"
+          position={Position.Left}
+          className="!w-4 !h-4 !bg-muted-foreground/40 !border-2 !border-card hover:!bg-primary hover:!scale-125 !transition-all !relative !left-0 !top-0 !translate-x-0 !translate-y-0"
+        />
+      </div>
 
-      {/* Output handle (right) */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="!w-3 !h-3 !bg-muted-foreground/40 !border-2 !border-card hover:!bg-primary !transition-colors !-right-1.5"
-      />
+      {/* Output handle (right) — larger hit area for easier connections */}
+      <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center z-20">
+        <Handle
+          type="source"
+          position={Position.Right}
+          className="!w-4 !h-4 !bg-muted-foreground/40 !border-2 !border-card hover:!bg-primary hover:!scale-125 !transition-all !relative !left-0 !top-0 !translate-x-0 !translate-y-0"
+        />
+      </div>
 
       {/* Content */}
       <div className="relative z-10 p-3 space-y-2">
@@ -2074,13 +2082,14 @@ function FlowCanvas({
           nodesDraggable={true}
           nodesConnectable={true}
           elementsSelectable={true}
+          connectionMode={"loose" as any}
           deleteKeyCode={["Backspace", "Delete"]}
           defaultEdgeOptions={{
             type: "flowEdge",
           }}
           connectionLineStyle={{
             stroke: "hsl(217, 91%, 60%)",
-            strokeWidth: 2,
+            strokeWidth: 3,
             strokeDasharray: "6 3",
           }}
         >
@@ -2106,19 +2115,61 @@ function FlowCanvas({
           />
         </ReactFlow>
 
-        {/* Selected node placeholder (for future config panel) */}
-        {selectedNodeId && (
-          <div className="absolute top-3 right-3 z-20 bg-card/90 backdrop-blur-sm border border-border/60 rounded-lg shadow-lg px-3 py-2 max-w-[200px]">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1">Selected Node</p>
-            <p className="text-xs font-medium text-foreground truncate">
-              {flow.nodes.find((n) => n.id === selectedNodeId)?.data?.name || selectedNodeId}
-            </p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">
-              Click to configure (panel coming soon)
-            </p>
-          </div>
-        )}
       </div>
+
+      {/* Config panel for selected node */}
+      {selectedNodeId && (() => {
+        const selectedNode = flow.nodes.find((n) => n.id === selectedNodeId);
+        if (!selectedNode) return null;
+        const nodeConfig: FlowNodeConfig = {
+          id: selectedNode.id,
+          deploymentId: selectedNode.data?.id,
+          label: selectedNode.data?.name || selectedNode.id,
+          role: selectedNode.data?.role,
+          goal: selectedNode.data?.goal,
+          canDelegate: selectedNode.data?.canDelegate,
+          contextScope: selectedNode.data?.contextScope,
+          isEntryPoint: selectedNode.data?.isEntryPoint,
+        };
+        return (
+          <FlowNodeConfigPanel
+            node={nodeConfig}
+            deploymentName={selectedNode.data?.name}
+            deploymentRuntime={selectedNode.data?.runtime}
+            deploymentStatus={selectedNode.data?.status}
+            onUpdate={(nodeId, updates) => {
+              onUpdateFlow({
+                nodes: flow.nodes.map((n) => {
+                  if (n.id !== nodeId) return n;
+                  return {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      ...(updates.role !== undefined ? { role: updates.role } : {}),
+                      ...(updates.goal !== undefined ? { goal: updates.goal } : {}),
+                      ...(updates.canDelegate !== undefined ? { canDelegate: updates.canDelegate } : {}),
+                      ...(updates.contextScope !== undefined ? { contextScope: updates.contextScope } : {}),
+                      ...(updates.isEntryPoint !== undefined ? { isEntryPoint: updates.isEntryPoint } : {}),
+                    },
+                  };
+                }),
+              });
+            }}
+            onClose={() => onSelectNode(null)}
+            onSetEntryPoint={(nodeId) => {
+              onUpdateFlow({
+                nodes: flow.nodes.map((n) => ({
+                  ...n,
+                  data: {
+                    ...n.data,
+                    isEntryPoint: n.id === nodeId,
+                  },
+                })),
+              });
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -2375,11 +2426,14 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     handleUpdateFlow({ nodes: layouted, edges });
   }, [activeFlow, handleUpdateFlow]);
 
-  // ── Run flow ──────────────────────────────────────────────────────
-  const handleRun = useCallback(() => {
+  // ── Run flow (auto-save first if unsaved) ────────────────────────
+  const handleRun = useCallback(async () => {
     if (!activeFlowId) return;
+    if (!isSaved) {
+      handleSave();
+    }
     startExecution(activeFlowId);
-  }, [activeFlowId, startExecution]);
+  }, [activeFlowId, isSaved, handleSave, startExecution]);
 
   // ── Cancel ────────────────────────────────────────────────────────
   const handleCancel = useCallback(() => {
@@ -2394,13 +2448,79 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     [resumeExecution]
   );
 
-  // ── Chat with team (placeholder for POST /api/flows/:flowId/chat) ──
+  // ── Chat with team ────────────────────────────────────────────────
+  const { getAccessTokenSilently } = useAuth0();
+  const [showFlowChat, setShowFlowChat] = useState(false);
+  const [flowChatMessages, setFlowChatMessages] = useState<Array<{ role: string; content: string }>>([]);
+  const [flowChatInput, setFlowChatInput] = useState("");
+  const [flowChatLoading, setFlowChatLoading] = useState(false);
+
   const handleChatWithTeam = useCallback(() => {
     if (!activeFlowId) return;
-    // TODO: Open chat panel to talk to the entry bot
-    // This will call POST /api/flows/:flowId/chat
-    console.log("Chat with team:", activeFlowId);
+    setShowFlowChat(true);
   }, [activeFlowId]);
+
+  const handleFlowChatSend = useCallback(async () => {
+    if (!flowChatInput.trim() || !activeFlowId || flowChatLoading) return;
+    const userMsg = flowChatInput.trim();
+    setFlowChatInput("");
+    setFlowChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+    setFlowChatLoading(true);
+
+    try {
+      const token = await getAccessTokenSilently();
+      const res = await fetch(`${API_URL}/api/flows/${activeFlowId}/chat`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMsg }),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        setFlowChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${err}` }]);
+      } else {
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+        let assistantText = "";
+
+        while (reader) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n");
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === "TEXT_MESSAGE_CONTENT" && data.delta) {
+                assistantText += data.delta;
+                setFlowChatMessages((prev) => {
+                  const msgs = [...prev];
+                  const last = msgs[msgs.length - 1];
+                  if (last?.role === "assistant") {
+                    msgs[msgs.length - 1] = { ...last, content: assistantText };
+                  } else {
+                    msgs.push({ role: "assistant", content: assistantText });
+                  }
+                  return msgs;
+                });
+              }
+            } catch {
+              // skip non-JSON lines
+            }
+          }
+        }
+
+        if (!assistantText) {
+          setFlowChatMessages((prev) => [...prev, { role: "assistant", content: "(No response)" }]);
+        }
+      }
+    } catch (err: any) {
+      setFlowChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${err.message}` }]);
+    } finally {
+      setFlowChatLoading(false);
+    }
+  }, [flowChatInput, activeFlowId, flowChatLoading, getAccessTokenSilently]);
 
   // ── Derived state ──────────────────────────────────────────────────
   const entryNode = activeFlow?.nodes.find((n) => n.data?.isEntryPoint);
@@ -2462,18 +2582,98 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
 
       {/* Canvas or empty state */}
       {activeFlow ? (
-        <ReactFlowProvider>
-          <FlowCanvas
-            deployments={deployments}
-            flow={activeFlow}
-            onUpdateFlow={handleUpdateFlow}
-            executionSteps={execState.steps}
-            pausedNodeId={execState.pausedNodeId}
-            onResumeInput={handleResumeInput}
-            selectedNodeId={selectedNodeId}
-            onSelectNode={setSelectedNodeId}
-          />
-        </ReactFlowProvider>
+        <div className="flex-1 flex flex-col min-h-0 relative">
+          <ReactFlowProvider>
+            <FlowCanvas
+              deployments={deployments}
+              flow={activeFlow}
+              onUpdateFlow={handleUpdateFlow}
+              executionSteps={execState.steps}
+              pausedNodeId={execState.pausedNodeId}
+              onResumeInput={handleResumeInput}
+              selectedNodeId={selectedNodeId}
+              onSelectNode={setSelectedNodeId}
+            />
+          </ReactFlowProvider>
+
+          {/* Execution timeline at bottom when flow is executing */}
+          {execState.status !== "idle" && (
+            <FlowExecutionTimeline
+              steps={Array.from(execState.steps.values()).map((s): FlowExecutionStep => ({
+                nodeId: s.nodeId,
+                label: s.label,
+                status: s.status,
+                durationMs: s.durationMs,
+                credits: s.credits,
+              }))}
+              totalCredits={execState.totalCredits}
+              status={execState.status}
+              onClose={() => {
+                // Only allow closing if not actively running
+                if (execState.status !== "running") {
+                  cancel();
+                }
+              }}
+            />
+          )}
+
+          {/* Chat with Team panel overlay (right side of canvas) */}
+          {showFlowChat && (
+            <div className="absolute right-0 top-0 bottom-0 w-96 bg-card border-l border-border z-50 flex flex-col">
+              <div className="flex items-center justify-between p-3 border-b border-border">
+                <h3 className="text-sm font-semibold">Chat with Team</h3>
+                <button onClick={() => setShowFlowChat(false)} className="p-1 rounded hover:bg-secondary">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                {flowChatMessages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <MessageSquare className="w-8 h-8 text-muted-foreground/30 mb-3" />
+                    <p className="text-xs text-muted-foreground">Send a message to your bot team</p>
+                    {entryNodeName && (
+                      <p className="text-[10px] text-muted-foreground/60 mt-1">
+                        Messages go to {entryNodeName} (entry point)
+                      </p>
+                    )}
+                  </div>
+                )}
+                {flowChatMessages.map((msg, i) => (
+                  <div key={i} className={`text-sm ${msg.role === "user" ? "text-right" : ""}`}>
+                    <div className={`inline-block max-w-[85%] rounded-lg px-3 py-2 ${
+                      msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary"
+                    }`}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
+                {flowChatLoading && (
+                  <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Thinking...
+                  </div>
+                )}
+              </div>
+              <div className="p-3 border-t border-border">
+                <div className="flex gap-2">
+                  <input
+                    value={flowChatInput}
+                    onChange={(e) => setFlowChatInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleFlowChatSend()}
+                    placeholder="Message the team..."
+                    className="flex-1 bg-secondary rounded-lg px-3 py-2 text-sm outline-none"
+                  />
+                  <button
+                    onClick={handleFlowChatSend}
+                    disabled={flowChatLoading}
+                    className="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         <div className="flex-1 flex items-center justify-center">
           <motion.div
@@ -2526,6 +2726,12 @@ function FlowAnimationStyles() {
       /* Smooth hover transitions for flow nodes */
       .react-flow__node {
         transition: transform 0.15s ease, box-shadow 0.15s ease;
+        overflow: visible !important;
+      }
+      /* Ensure handles are always interactive and above node content */
+      .react-flow__handle {
+        z-index: 20 !important;
+        pointer-events: all !important;
       }
       /* Edge label animations */
       .react-flow__edge-text {
