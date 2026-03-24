@@ -218,6 +218,91 @@ KEY FINDINGS:
 === END CYCLE ===
 ```
 
+### Phase 4.5: Run Unit/Integration Tests
+
+Before dispatching browser agents, run the existing test suites to catch code-level regressions:
+
+```bash
+# API tests
+cd jarble-api-main && npx vitest run --reporter=verbose 2>&1 | tail -20
+
+# Frontend tests
+cd Jarble-mvp && npx vitest run --reporter=verbose 2>&1 | tail -20
+```
+
+If any tests fail, include them in the results as FAIL with the test name and error. Dispatch the healer for each failing unit test — these are often the easiest to auto-fix.
+
+## Test Category Templates
+
+When generating test goals, use these templates for specific feature areas:
+
+### Chat/Streaming Testing
+```
+TEST GOAL: Send a message in the chat and verify streaming response
+TYPE: ui
+AUTH REQUIRED: yes
+TARGET: /d/[deploymentId]
+STEPS:
+1. Navigate to /d/[deploymentId] (use a deployment ID from the API)
+2. Find the chat input (textbox)
+3. Type "Hello, what can you do?"
+4. Click send or press Enter
+5. Wait up to 30 seconds for a streaming response
+6. Verify: assistant message appears, text content is non-empty
+7. Check for any canvas component blocks (charts, code, etc.)
+8. Take a screenshot of the conversation
+PASS CRITERIA: Bot responds with text content within 30 seconds
+FAIL CRITERIA: No response, error message, blank screen, 500 error
+NOTES: The bot streams via SSE — response builds up character by character
+```
+
+### Mobile Viewport Testing
+For any UI test goal, you can request the explorer test at mobile viewport by adding:
+```
+VIEWPORT: mobile (375x812)
+```
+The explorer will use `playwright_evaluate` to set `window.innerWidth` context or resize the viewport. Key things to check on mobile:
+- No horizontal scrollbar overflow
+- Touch targets are at least 44px
+- Text is readable (14px minimum)
+- Navigation collapses to hamburger menu
+- Forms are full-width
+- Modals/dropdowns don't overflow the screen
+
+### Flow Orchestration Testing
+```
+TEST GOAL: Create, execute, and verify a flow
+TYPE: api
+AUTH REQUIRED: yes
+STEPS:
+1. POST /trpc/flows.create with a simple 2-node flow (deployment → output)
+2. GET /trpc/flows.getById to verify it was created
+3. POST /api/flows/{flowId}/execute to start execution
+4. GET /api/flows/executions/{executionId}/stream (SSE) to monitor
+5. Verify execution completes or times out gracefully
+6. DELETE /trpc/flows.delete to clean up
+PASS CRITERIA: Flow creates, executes, and can be deleted
+```
+
+### Deployment Wizard Testing
+```
+TEST GOAL: Complete the deployment wizard end-to-end
+TYPE: ui
+AUTH REQUIRED: yes
+TARGET: /onboarding/new
+STEPS:
+1. Navigate to /onboarding/new
+2. Enter deployment name "QA-Test-Bot-{timestamp}"
+3. Select OpenClaw runtime
+4. Select Anthropic as LLM provider
+5. Enter API key from QA_ANTHROPIC_KEY env var (or use dev-test prefix)
+6. Skip platform credentials
+7. Click Create/Deploy
+8. Verify redirect to dashboard or deployment page
+PASS CRITERIA: Wizard completes, deployment appears
+NOTES: Clean up test deployment after verification
+```
+
 ## Important Rules
 
 - You are a **coordinator**, not a tester. Never use Playwright MCP yourself — delegate to specialist agents.
@@ -226,3 +311,6 @@ KEY FINDINGS:
 - If a previous run's memory shows an area is stable (passed 5+ times), deprioritize it.
 - If the auth token is missing or expired, mark all auth-required goals as SKIP and note it in the report.
 - Budget your cycle — aim for 5-15 test goals per run, not 50.
+- **Always run unit tests** (`npm test`) as part of every cycle — this catches regressions that browser testing might miss.
+- **Alternate viewports**: At least once per 3 cycles, include a mobile viewport test goal.
+- **Chat testing**: At least once per 3 cycles, test the chat interface with a real message if a deployment exists.

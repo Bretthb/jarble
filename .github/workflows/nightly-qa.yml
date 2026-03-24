@@ -1,0 +1,116 @@
+name: Nightly QA (Agentic)
+
+on:
+  schedule:
+    - cron: '0 5 * * *'  # 5 AM UTC (midnight EST) every night
+  workflow_dispatch:       # Manual trigger
+    inputs:
+      focus:
+        description: 'Focus area (e.g., "dashboard", "chat", "api")'
+        required: false
+        type: string
+      cycles:
+        description: 'Number of QA cycles to run'
+        required: false
+        default: '3'
+        type: string
+
+jobs:
+  nightly-qa:
+    name: Agentic QA
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      USE_SQLITE: true
+      NODE_ENV: development
+      AUTH0_DOMAIN: jarble-dev.us.auth0.com
+      AUTH0_AUDIENCE: https://api.jarble.ai
+      QA_EMAIL: ${{ secrets.QA_EMAIL }}
+      QA_PASSWORD: ${{ secrets.QA_PASSWORD }}
+      QA_ANTHROPIC_KEY: ${{ secrets.QA_ANTHROPIC_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            jarble-api-main/package-lock.json
+            Jarble-mvp/package-lock.json
+
+      # Install dependencies
+      - name: Install API dependencies
+        run: cd jarble-api-main && npm ci
+
+      - name: Install frontend dependencies
+        run: cd Jarble-mvp && npm ci
+
+      # Install Claude Code CLI
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      # Install Playwright browsers
+      - name: Install Playwright
+        run: npx playwright install chromium
+
+      # Start dev servers
+      - name: Start API server
+        run: |
+          cd jarble-api-main
+          npx cross-env USE_SQLITE=true NODE_ENV=development tsx src/index.ts &
+          sleep 10
+          curl -f http://localhost:3001/health
+
+      - name: Start frontend server
+        run: |
+          cd Jarble-mvp
+          npx next dev -p 3000 &
+          sleep 20
+          curl -f http://localhost:3000 || true
+
+      # Run QA
+      - name: Run agentic QA
+        run: |
+          FOCUS="${{ github.event.inputs.focus }}"
+          CYCLES="${{ github.event.inputs.cycles || '3' }}"
+          ARGS="--cycles $CYCLES --max-budget 30 --nightly-budget 100"
+          if [ -n "$FOCUS" ]; then
+            ARGS="$ARGS --focus \"$FOCUS\""
+          fi
+          node scripts/nightly-qa/overnight-agent.mjs $ARGS --verbose
+        timeout-minutes: 90
+
+      # Upload reports
+      - name: Upload QA reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-reports-${{ github.run_number }}
+          path: scripts/nightly-qa/reports/
+          retention-days: 30
+
+      # Upload agent memory updates
+      - name: Upload agent memory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-memory-${{ github.run_number }}
+          path: .claude/agent-memory/qa/
+          retention-days: 30
+
+      # Post summary as check annotation
+      - name: Post QA summary
+        if: always()
+        run: |
+          LATEST=$(ls -t scripts/nightly-qa/reports/*-raw.txt 2>/dev/null | head -1)
+          if [ -f "$LATEST" ]; then
+            echo "## QA Report" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            # Extract the cycle complete block
+            sed -n '/=== QA CYCLE COMPLETE ===/,/=== END CYCLE ===/p' "$LATEST" >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No structured summary found" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No QA reports generated" >> $GITHUB_STEP_SUMMARY
+          fi

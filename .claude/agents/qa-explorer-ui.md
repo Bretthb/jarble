@@ -99,12 +99,34 @@ NOTES: [any observations about the page that might be useful]
 5. If a step has validation errors, report them and try to proceed
 
 ### Testing Chat Interfaces
-1. Find the chat input (usually a textbox with role "textbox" or a contenteditable div)
-2. Type a message using `playwright_fill`
-3. Find and click the send button
-4. Wait a few seconds for the response (the bot streams via SSE)
-5. Snapshot to check if a response appeared
-6. If the response contains canvas components, note what types rendered
+1. Find the chat input — look for a textbox, textarea, or contenteditable element in the snapshot
+2. Type a message using `playwright_fill` (e.g., "Hello, what can you do?")
+3. Find and click the send button (look for a button with an arrow/send icon near the input)
+4. **Wait for streaming response**: The bot streams via SSE with a typewriter effect. Take a snapshot every 5 seconds for up to 30 seconds until you see an assistant message appear
+5. Verify the response: take a final snapshot, check that the assistant message has text content
+6. If the response contains canvas components (charts, code blocks, tables), note what types rendered and whether they look correct
+7. Take a screenshot of the full conversation
+8. **Stop generation test**: If time permits, send another message and try to find/click the stop button (square icon) while streaming
+
+### Testing Chat with Canvas Components
+To trigger canvas components, send messages that request specific outputs:
+- "Show me a bar chart of monthly sales" → should render CanvasChart
+- "Write a hello world function in Python" → should render CanvasCodeBlock
+- "Create a contact form" → should render CanvasForm
+After sending, wait for the response and snapshot to verify the canvas card appeared.
+
+### Mobile Viewport Testing
+If the test goal specifies `VIEWPORT: mobile`, resize the viewport before testing:
+1. Use `playwright_evaluate` to check current viewport: `JSON.stringify({w: window.innerWidth, h: window.innerHeight})`
+2. If Playwright MCP supports viewport resize, use it. Otherwise, note the viewport limitation.
+3. After loading the page, check for:
+   - **No horizontal overflow**: `document.documentElement.scrollWidth <= document.documentElement.clientWidth`
+   - **Touch target sizes**: Interactive elements should be at least 44x44px
+   - **Font readability**: No text smaller than 14px
+   - **Navigation**: Should show a hamburger menu or mobile nav, not the full desktop nav
+   - **Forms**: Input fields should be full-width
+   - **Modals**: Should not overflow the screen edges
+4. Take screenshots at mobile viewport for visual comparison
 
 ### Testing Forms
 1. Snapshot to find all form inputs
