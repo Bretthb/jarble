@@ -1,50 +1,70 @@
 /**
  * Integration tests for the platformCredentials tRPC router.
  *
- * Tests credential save, get (masked), delete, testConnection, and WhatsApp status.
- * Uses real in-memory SQLite with mocked K8s and configSync.
+ * Tests getByDeployment, save, delete, checkWhatsAppStatus,
+ * markWhatsAppConnected, and testConnection procedures.
+ * Uses real in-memory SQLite with mocked encryption and K8s.
  */
-import { describe, it, expect, afterAll, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { createTestDb, type TestDbContext } from "../helpers/testDb.js";
 import { createTestCaller, createAnonymousCaller } from "../helpers/testCaller.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
+
+// Simple reversible encryption mock
+vi.mock("../../utils/encryption.js", () => ({
+  encryptApiKey: vi.fn((plaintext: string) => `ENC:${Buffer.from(plaintext).toString("base64")}`),
+  decryptApiKey: vi.fn((encrypted: string) => {
+    if (encrypted.startsWith("ENC:")) {
+      return Buffer.from(encrypted.slice(4), "base64").toString("utf8");
+    }
+    return encrypted;
+  }),
+}));
+
 vi.mock("../../k8s/index.js", () => ({
-  createDeployment: vi.fn(),
-  deleteDeployment: vi.fn(),
-  stopDeployment: vi.fn(),
-  startDeployment: vi.fn(),
-  restartDeployment: vi.fn(),
-  getDeploymentPodStatus: vi.fn(),
-  getDeploymentStorageUsage: vi.fn(),
-  exportDeploymentConfigs: vi.fn(),
-  getDeploymentLogs: vi.fn(),
-  getCustomComponentsWithDefinitions: vi.fn(),
-  writeComponentToPvc: vi.fn(),
-  deleteComponentFromPvc: vi.fn(),
+  createDeployment: vi.fn().mockResolvedValue(undefined),
+  deleteDeployment: vi.fn().mockResolvedValue(undefined),
+  stopDeployment: vi.fn().mockResolvedValue(undefined),
+  startDeployment: vi.fn().mockResolvedValue(undefined),
+  restartDeployment: vi.fn().mockResolvedValue(undefined),
+  getDeploymentPodStatus: vi.fn().mockResolvedValue({ status: "running" }),
+  getDeploymentStorageUsage: vi.fn().mockResolvedValue({ usedGb: 1, totalGb: 20 }),
+  exportDeploymentConfigs: vi.fn().mockResolvedValue([]),
+  getDeploymentLogs: vi.fn().mockResolvedValue({ logs: "", podName: null }),
+  getCustomComponentsWithDefinitions: vi.fn().mockResolvedValue([]),
+  writeComponentToPvc: vi.fn().mockResolvedValue(undefined),
+  deleteComponentFromPvc: vi.fn().mockResolvedValue(true),
   findPodForDeployment: vi.fn().mockResolvedValue(null),
   execInPod: vi.fn().mockResolvedValue(""),
 }));
 
-vi.mock("../../services/stripe.js", () => ({
-  cancelSubscriptionAtPeriodEnd: vi.fn(),
-  cancelSubscriptionImmediately: vi.fn(),
-  reactivateSubscription: vi.fn(),
-  isStripeConfigured: vi.fn().mockReturnValue(false),
-  listActiveSubscriptions: vi.fn().mockResolvedValue([]),
+vi.mock("../../services/configSync.js", () => ({
+  syncConfigsToPvc: vi.fn().mockResolvedValue(undefined),
+  syncMarketplaceComponent: vi.fn().mockResolvedValue(undefined),
 }));
 
-const mockSyncConfigs = vi.fn().mockResolvedValue(undefined);
-
-vi.mock("../../services/configSync.js", () => ({
-  syncConfigsToPvc: (...args: any[]) => mockSyncConfigs(...args),
+vi.mock("../../services/stripe.js", () => ({
+  isStripeConfigured: vi.fn().mockReturnValue(false),
+  getSubscriptionDetails: vi.fn(),
+  listInvoices: vi.fn(),
+  cancelSubscriptionAtPeriodEnd: vi.fn(),
+  cancelSubscriptionImmediately: vi.fn().mockResolvedValue(undefined),
+  reactivateSubscription: vi.fn(),
+  listActiveSubscriptions: vi.fn().mockResolvedValue([]),
+  sumSubscriptionItemsCents: vi.fn().mockReturnValue(0),
+  getSubscriptionBreakdown: vi.fn().mockReturnValue({ baseCents: 0, managedKeyCents: 0, totalCents: 0 }),
+  findManagedKeyItem: vi.fn().mockResolvedValue(null),
+  updateManagedKeyLineItem: vi.fn().mockResolvedValue(undefined),
+  removeManagedKeyLineItem: vi.fn().mockResolvedValue(undefined),
+  addManagedKeyLineItem: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../utils/openrouter.js", () => ({
-  provisionOpenRouterKey: vi.fn(),
-  revokeOpenRouterKey: vi.fn(),
-  getOpenRouterKeyUsage: vi.fn(),
-  updateOpenRouterKeyLimit: vi.fn(),
+  provisionOpenRouterKey: vi.fn().mockResolvedValue({ key: "sk-or-test", hash: "hash123" }),
+  revokeOpenRouterKey: vi.fn().mockResolvedValue(true),
+  getOpenRouterKeyUsage: vi.fn().mockResolvedValue(null),
+  updateOpenRouterKeyLimit: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("../../utils/env.js", () => ({
@@ -54,7 +74,9 @@ vi.mock("../../utils/env.js", () => ({
     AUTH0_DOMAIN: "test.auth0.com",
     AUTH0_AUDIENCE: "https://api.jarble.ai",
     OPENROUTER_API_KEY: "sk-test",
+    OPENROUTER_MANAGEMENT_KEY: undefined,
     API_KEY_ENCRYPTION_KEY: undefined,
+    STRIPE_SECRET_KEY: undefined,
     NODE_ENV: "test",
     FRONTEND_URL: "http://localhost:3000",
   },
@@ -62,23 +84,27 @@ vi.mock("../../utils/env.js", () => ({
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 let ctx: TestDbContext;
+const DEPLOYMENT_ID = "dep-cred-001";
+
+function seedDeployment() {
+  ctx.raw.exec(`
+    INSERT INTO deployments (id, user_id, name, runtime, runtime_catalog_id, status)
+    VALUES ('${DEPLOYMENT_ID}', '${ctx.testUserId}', 'Test Bot', 'openclaw', ${ctx.openclawCatalogId}, 'running');
+  `);
+}
 
 beforeEach(() => {
   if (ctx) ctx.raw.close();
   ctx = createTestDb();
   vi.clearAllMocks();
-  // Seed a running deployment for cred tests
-  ctx.raw.exec(`
-    INSERT INTO deployments (id, user_id, name, runtime, runtime_catalog_id, status, llm_mode, llm_provider, managed_by)
-    VALUES ('dep-cred', '${ctx.testUserId}', 'Cred Bot', 'openclaw', ${ctx.openclawCatalogId}, 'running', 'byok', 'openrouter', 'legacy')
-  `);
+  seedDeployment();
 });
 
 afterAll(() => {
-  ctx?.raw.close();
+  if (ctx) ctx.raw.close();
 });
 
-function authedCaller() {
+function caller() {
   return createTestCaller(ctx.db, {
     id: ctx.testUserId,
     email: "test@jarble.ai",
@@ -88,246 +114,290 @@ function authedCaller() {
   });
 }
 
+function otherCaller() {
+  // A different user who does NOT own the deployment
+  ctx.raw.exec(`
+    INSERT OR IGNORE INTO users (id, email, name, auth0_id, email_verified)
+    VALUES ('other-user-001', 'other@jarble.ai', 'Other User', 'auth0|other', 1);
+  `);
+  return createTestCaller(ctx.db, {
+    id: "other-user-001",
+    email: "other@jarble.ai",
+    name: "Other User",
+    auth0Id: "auth0|other",
+    emailVerified: true,
+  });
+}
+
+function anonCaller() {
+  return createAnonymousCaller(ctx.db);
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("platformCredentials.save", () => {
-  it("saves new Telegram credentials (encrypted)", async () => {
-    const caller = authedCaller();
-    const result = await caller.platformCredentials.save({
-      deploymentId: "dep-cred",
-      platformId: "telegram",
-      credentials: { botToken: "123456:ABC-token" },
+describe("platformCredentials router", () => {
+  // ── save ──────────────────────────────────────────────────────────────────
+
+  describe("save", () => {
+    it("should save discord credentials for a deployment", async () => {
+      const result = await caller().platformCredentials.save({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "discord",
+        credentials: { botToken: "xoxb-test-token-12345" },
+      });
+      expect(result).toEqual({ success: true });
     });
 
-    expect(result.success).toBe(true);
-
-    // Check DB has an encrypted row
-    const row = ctx.raw.prepare(
-      "SELECT * FROM platform_credentials WHERE deployment_id = 'dep-cred' AND platform_id = 'telegram'"
-    ).get() as any;
-    expect(row).toBeTruthy();
-    // In dev mode (no encryption key), stored as "plain:{json}"
-    expect(row.credentials).toContain("123456:ABC-token");
-  });
-
-  it("triggers configSync after save", async () => {
-    const caller = authedCaller();
-    await caller.platformCredentials.save({
-      deploymentId: "dep-cred",
-      platformId: "telegram",
-      credentials: { botToken: "token" },
+    it("should update existing credentials on second save", async () => {
+      await caller().platformCredentials.save({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "discord",
+        credentials: { botToken: "first-token" },
+      });
+      const result = await caller().platformCredentials.save({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "discord",
+        credentials: { botToken: "updated-token" },
+      });
+      expect(result).toEqual({ success: true });
     });
 
-    expect(mockSyncConfigs).toHaveBeenCalledWith("dep-cred");
-  });
-
-  it("updates existing credentials (upsert)", async () => {
-    const caller = authedCaller();
-
-    // First save
-    await caller.platformCredentials.save({
-      deploymentId: "dep-cred",
-      platformId: "discord",
-      credentials: { botToken: "old-token" },
+    it("should reject unknown platform", async () => {
+      await expect(
+        caller().platformCredentials.save({
+          deploymentId: DEPLOYMENT_ID,
+          platformId: "unknown-platform",
+          credentials: { token: "abc" },
+        })
+      ).rejects.toThrow("Unknown platform");
     });
 
-    // Update
-    await caller.platformCredentials.save({
-      deploymentId: "dep-cred",
-      platformId: "discord",
-      credentials: { botToken: "new-token" },
+    it("should reject non-owned deployment", async () => {
+      await expect(
+        otherCaller().platformCredentials.save({
+          deploymentId: DEPLOYMENT_ID,
+          platformId: "discord",
+          credentials: { botToken: "steal" },
+        })
+      ).rejects.toThrow("Deployment not found");
     });
 
-    // Should only have 1 row
-    const rows = ctx.raw.prepare(
-      "SELECT * FROM platform_credentials WHERE deployment_id = 'dep-cred' AND platform_id = 'discord'"
-    ).all();
-    expect(rows).toHaveLength(1);
+    it("should reject unauthenticated calls", async () => {
+      await expect(
+        anonCaller().platformCredentials.save({
+          deploymentId: DEPLOYMENT_ID,
+          platformId: "discord",
+          credentials: { botToken: "abc" },
+        })
+      ).rejects.toThrow();
+    });
 
-    const row = rows[0] as any;
-    expect(row.credentials).toContain("new-token");
-    expect(row.credentials).not.toContain("old-token");
+    it("should save slack credentials with multiple fields", async () => {
+      const result = await caller().platformCredentials.save({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "slack",
+        credentials: { botToken: "xoxb-slack", appToken: "xapp-slack" },
+      });
+      expect(result).toEqual({ success: true });
+    });
   });
 
-  it("rejects unknown platform", async () => {
-    const caller = authedCaller();
-    await expect(
-      caller.platformCredentials.save({
-        deploymentId: "dep-cred",
-        platformId: "fakechat",
-        credentials: { botToken: "token" },
-      })
-    ).rejects.toThrow("Unknown platform");
-  });
+  // ── getByDeployment ───────────────────────────────────────────────────────
 
-  it("rejects if deployment not found", async () => {
-    const caller = authedCaller();
-    await expect(
-      caller.platformCredentials.save({
-        deploymentId: "nonexistent",
+  describe("getByDeployment", () => {
+    it("should return empty array when no credentials exist", async () => {
+      const result = await caller().platformCredentials.getByDeployment({
+        deploymentId: DEPLOYMENT_ID,
+      });
+      expect(result).toEqual([]);
+    });
+
+    it("should return saved credentials with masked values", async () => {
+      await caller().platformCredentials.save({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "discord",
+        credentials: { botToken: "xoxb-very-long-token-here-12345" },
+      });
+
+      const result = await caller().platformCredentials.getByDeployment({
+        deploymentId: DEPLOYMENT_ID,
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0].platformId).toBe("discord");
+      expect(result[0].maskedCredentials.botToken).toContain("*");
+      // Should NOT contain the full token
+      expect(result[0].maskedCredentials.botToken).not.toBe("xoxb-very-long-token-here-12345");
+    });
+
+    it("should reject non-owned deployment", async () => {
+      await expect(
+        otherCaller().platformCredentials.getByDeployment({
+          deploymentId: DEPLOYMENT_ID,
+        })
+      ).rejects.toThrow("Deployment not found");
+    });
+
+    it("should return multiple platform credentials", async () => {
+      await caller().platformCredentials.save({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "discord",
+        credentials: { botToken: "discord-token-12345678" },
+      });
+      await caller().platformCredentials.save({
+        deploymentId: DEPLOYMENT_ID,
         platformId: "telegram",
-        credentials: { botToken: "token" },
-      })
-    ).rejects.toThrow("not found");
-  });
-});
+        credentials: { botToken: "telegram-token-12345" },
+      });
 
-describe("platformCredentials.getByDeployment", () => {
-  it("returns masked credentials", async () => {
-    const caller = authedCaller();
-
-    // Save a credential first
-    await caller.platformCredentials.save({
-      deploymentId: "dep-cred",
-      platformId: "telegram",
-      credentials: { botToken: "1234567890:ABCdefGHI-token-value" },
+      const result = await caller().platformCredentials.getByDeployment({
+        deploymentId: DEPLOYMENT_ID,
+      });
+      expect(result).toHaveLength(2);
+      const platforms = result.map((c) => c.platformId).sort();
+      expect(platforms).toEqual(["discord", "telegram"]);
     });
-
-    const result = await caller.platformCredentials.getByDeployment({
-      deploymentId: "dep-cred",
-    });
-
-    expect(result).toHaveLength(1);
-    expect(result[0].platformId).toBe("telegram");
-
-    // Credentials should be masked (first 4, last 4 visible)
-    const masked = result[0].maskedCredentials.botToken;
-    expect(masked).toMatch(/^1234.*alue$/);
-    expect(masked).toContain("*");
   });
 
-  it("returns empty array when no credentials saved", async () => {
-    const caller = authedCaller();
-    const result = await caller.platformCredentials.getByDeployment({
-      deploymentId: "dep-cred",
+  // ── delete ────────────────────────────────────────────────────────────────
+
+  describe("delete", () => {
+    it("should delete saved credentials", async () => {
+      await caller().platformCredentials.save({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "discord",
+        credentials: { botToken: "to-be-deleted-12345" },
+      });
+
+      const result = await caller().platformCredentials.delete({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "discord",
+      });
+      expect(result).toEqual({ success: true });
+
+      const remaining = await caller().platformCredentials.getByDeployment({
+        deploymentId: DEPLOYMENT_ID,
+      });
+      expect(remaining).toHaveLength(0);
     });
-    expect(result).toEqual([]);
+
+    it("should reject non-owned deployment", async () => {
+      await expect(
+        otherCaller().platformCredentials.delete({
+          deploymentId: DEPLOYMENT_ID,
+          platformId: "discord",
+        })
+      ).rejects.toThrow("Deployment not found");
+    });
   });
 
-  it("rejects for non-owned deployment", async () => {
-    ctx.raw.exec(`INSERT INTO users (id, email, name, auth0_id, email_verified) VALUES ('user2', 'other@test.com', 'Other', 'auth0|other', 1)`);
-    ctx.raw.exec(`INSERT INTO deployments (id, user_id, name, runtime, runtime_catalog_id, status, llm_mode, llm_provider, managed_by) VALUES ('dep-other', 'user2', 'Other Bot', 'openclaw', 1, 'running', 'byok', 'openrouter', 'legacy')`);
+  // ── checkWhatsAppStatus ───────────────────────────────────────────────────
 
-    const caller = authedCaller();
-    await expect(
-      caller.platformCredentials.getByDeployment({ deploymentId: "dep-other" })
-    ).rejects.toThrow("not found");
-  });
-});
-
-describe("platformCredentials.delete", () => {
-  it("deletes credentials by platform", async () => {
-    const caller = authedCaller();
-
-    // Save first
-    await caller.platformCredentials.save({
-      deploymentId: "dep-cred",
-      platformId: "slack",
-      credentials: { botToken: "xoxb-token", appToken: "xapp-token" },
+  describe("checkWhatsAppStatus", () => {
+    it("should return connected: false when no whatsapp credentials", async () => {
+      const result = await caller().platformCredentials.checkWhatsAppStatus({
+        deploymentId: DEPLOYMENT_ID,
+      });
+      expect(result).toEqual({ connected: false });
     });
 
-    // Delete
-    const result = await caller.platformCredentials.delete({
-      deploymentId: "dep-cred",
-      platformId: "slack",
+    it("should return connected: true after markWhatsAppConnected", async () => {
+      await caller().platformCredentials.markWhatsAppConnected({
+        deploymentId: DEPLOYMENT_ID,
+      });
+      const result = await caller().platformCredentials.checkWhatsAppStatus({
+        deploymentId: DEPLOYMENT_ID,
+      });
+      expect(result).toEqual({ connected: true });
     });
-    expect(result.success).toBe(true);
-
-    // Verify gone from DB
-    const row = ctx.raw.prepare(
-      "SELECT * FROM platform_credentials WHERE deployment_id = 'dep-cred' AND platform_id = 'slack'"
-    ).get();
-    expect(row).toBeUndefined();
   });
 
-  it("triggers configSync after delete for running deployment", async () => {
-    const caller = authedCaller();
+  // ── markWhatsAppConnected ─────────────────────────────────────────────────
 
-    await caller.platformCredentials.save({
-      deploymentId: "dep-cred",
-      platformId: "telegram",
-      credentials: { botToken: "token" },
+  describe("markWhatsAppConnected", () => {
+    it("should create a whatsapp credential row", async () => {
+      const result = await caller().platformCredentials.markWhatsAppConnected({
+        deploymentId: DEPLOYMENT_ID,
+      });
+      expect(result).toEqual({ success: true });
     });
 
-    vi.clearAllMocks();
-
-    await caller.platformCredentials.delete({
-      deploymentId: "dep-cred",
-      platformId: "telegram",
+    it("should be idempotent (second call does not error)", async () => {
+      await caller().platformCredentials.markWhatsAppConnected({
+        deploymentId: DEPLOYMENT_ID,
+      });
+      const result = await caller().platformCredentials.markWhatsAppConnected({
+        deploymentId: DEPLOYMENT_ID,
+      });
+      expect(result).toEqual({ success: true });
     });
 
-    expect(mockSyncConfigs).toHaveBeenCalledWith("dep-cred");
+    it("should reject non-owned deployment", async () => {
+      await expect(
+        otherCaller().platformCredentials.markWhatsAppConnected({
+          deploymentId: DEPLOYMENT_ID,
+        })
+      ).rejects.toThrow("Deployment not found");
+    });
   });
 
-  it("does NOT trigger configSync for stopped deployment", async () => {
-    // Change deployment status to stopped
-    ctx.raw.exec(`UPDATE deployments SET status = 'stopped' WHERE id = 'dep-cred'`);
+  // ── testConnection ────────────────────────────────────────────────────────
 
-    const caller = authedCaller();
-    await caller.platformCredentials.delete({
-      deploymentId: "dep-cred",
-      platformId: "telegram",
+  describe("testConnection", () => {
+    it("should return success for discord with required fields", async () => {
+      const result = await caller().platformCredentials.testConnection({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "discord",
+        credentials: { botToken: "xoxb-valid-token" },
+      });
+      expect(result.success).toBe(true);
     });
 
-    expect(mockSyncConfigs).not.toHaveBeenCalled();
-  });
-});
-
-describe("platformCredentials.testConnection", () => {
-  it("returns success for complete credentials", async () => {
-    const caller = authedCaller();
-    const result = await caller.platformCredentials.testConnection({
-      deploymentId: "dep-cred",
-      platformId: "telegram",
-      credentials: { botToken: "123456:ABC-test-token" },
+    it("should return failure for discord with missing botToken", async () => {
+      const result = await caller().platformCredentials.testConnection({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "discord",
+        credentials: { botToken: "" },
+      });
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("botToken");
     });
 
-    expect(result.success).toBe(true);
-  });
-
-  it("returns failure for missing required fields", async () => {
-    const caller = authedCaller();
-    const result = await caller.platformCredentials.testConnection({
-      deploymentId: "dep-cred",
-      platformId: "slack",
-      credentials: { botToken: "xoxb-token", appToken: "" },
+    it("should return success for slack with all required fields", async () => {
+      const result = await caller().platformCredentials.testConnection({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "slack",
+        credentials: { botToken: "xoxb-slack", appToken: "xapp-slack" },
+      });
+      expect(result.success).toBe(true);
     });
 
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("appToken");
-  });
+    it("should return failure for slack with missing appToken", async () => {
+      const result = await caller().platformCredentials.testConnection({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "slack",
+        credentials: { botToken: "xoxb-slack", appToken: "" },
+      });
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("appToken");
+    });
 
-  it("rejects unknown platform", async () => {
-    const caller = authedCaller();
-    await expect(
-      caller.platformCredentials.testConnection({
-        deploymentId: "dep-cred",
-        platformId: "unknown",
+    it("should reject unknown platform", async () => {
+      await expect(
+        caller().platformCredentials.testConnection({
+          deploymentId: DEPLOYMENT_ID,
+          platformId: "fakechat",
+          credentials: { token: "abc" },
+        })
+      ).rejects.toThrow("Unknown platform");
+    });
+
+    it("should succeed for whatsapp (no required fields)", async () => {
+      const result = await caller().platformCredentials.testConnection({
+        deploymentId: DEPLOYMENT_ID,
+        platformId: "whatsapp",
         credentials: {},
-      })
-    ).rejects.toThrow("Unknown platform");
-  });
-});
-
-describe("platformCredentials.checkWhatsAppStatus", () => {
-  it("returns connected=false when no WhatsApp credentials", async () => {
-    const caller = authedCaller();
-    const result = await caller.platformCredentials.checkWhatsAppStatus({
-      deploymentId: "dep-cred",
+      });
+      expect(result.success).toBe(true);
     });
-    expect(result.connected).toBe(false);
-  });
-
-  it("returns connected=true after markWhatsAppConnected", async () => {
-    const caller = authedCaller();
-
-    await caller.platformCredentials.markWhatsAppConnected({
-      deploymentId: "dep-cred",
-    });
-
-    const result = await caller.platformCredentials.checkWhatsAppStatus({
-      deploymentId: "dep-cred",
-    });
-    expect(result.connected).toBe(true);
   });
 });

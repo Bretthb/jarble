@@ -1,13 +1,14 @@
 /**
  * Integration tests for the template tRPC router.
  *
- * Tests the DB-backed persona template system.
+ * Tests list, getById, listByCategory, and getCategories procedures.
+ * Uses real in-memory SQLite with seeded persona template data.
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { createTestDb, type TestDbContext } from "../helpers/testDb.js";
 import { createTestCaller, createAnonymousCaller } from "../helpers/testCaller.js";
 
-// ── Mocks (required because appRouter imports all routers) ──────────────────
+// ── Mocks ────────────────────────────────────────────────────────────────────
 
 vi.mock("../../k8s/index.js", () => ({
   createDeployment: vi.fn().mockResolvedValue(undefined),
@@ -26,17 +27,25 @@ vi.mock("../../k8s/index.js", () => ({
   execInPod: vi.fn().mockResolvedValue(""),
 }));
 
-vi.mock("../../services/stripe.js", () => ({
-  cancelSubscriptionAtPeriodEnd: vi.fn(),
-  cancelSubscriptionImmediately: vi.fn().mockResolvedValue(undefined),
-  reactivateSubscription: vi.fn(),
-  isStripeConfigured: vi.fn().mockReturnValue(false),
-  listActiveSubscriptions: vi.fn().mockResolvedValue([]),
-}));
-
 vi.mock("../../services/configSync.js", () => ({
   syncConfigsToPvc: vi.fn().mockResolvedValue(undefined),
   syncMarketplaceComponent: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../services/stripe.js", () => ({
+  isStripeConfigured: vi.fn().mockReturnValue(false),
+  getSubscriptionDetails: vi.fn(),
+  listInvoices: vi.fn(),
+  cancelSubscriptionAtPeriodEnd: vi.fn(),
+  cancelSubscriptionImmediately: vi.fn().mockResolvedValue(undefined),
+  reactivateSubscription: vi.fn(),
+  listActiveSubscriptions: vi.fn().mockResolvedValue([]),
+  sumSubscriptionItemsCents: vi.fn().mockReturnValue(0),
+  getSubscriptionBreakdown: vi.fn().mockReturnValue({ baseCents: 0, managedKeyCents: 0, totalCents: 0 }),
+  findManagedKeyItem: vi.fn().mockResolvedValue(null),
+  updateManagedKeyLineItem: vi.fn().mockResolvedValue(undefined),
+  removeManagedKeyLineItem: vi.fn().mockResolvedValue(undefined),
+  addManagedKeyLineItem: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../utils/openrouter.js", () => ({
@@ -67,142 +76,160 @@ let ctx: TestDbContext;
 beforeEach(() => {
   if (ctx) ctx.raw.close();
   ctx = createTestDb();
+  vi.clearAllMocks();
 });
 
 afterAll(() => {
-  ctx?.raw.close();
+  if (ctx) ctx.raw.close();
 });
+
+function anonCaller() {
+  return createAnonymousCaller(ctx.db);
+}
+
+function caller() {
+  return createTestCaller(ctx.db, {
+    id: ctx.testUserId,
+    email: "test@jarble.ai",
+    name: "Test User",
+    auth0Id: ctx.testAuth0Id,
+    emailVerified: true,
+  });
+}
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("template.list", () => {
-  it("returns an array of persona templates", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.list();
+describe("template router", () => {
+  // ── list ──────────────────────────────────────────────────────────────────
 
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.length).toBeGreaterThan(0);
-  });
-
-  it("returns templates with required fields", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.list();
-
-    for (const t of result) {
-      expect(t).toHaveProperty("id");
-      expect(t).toHaveProperty("name");
-      expect(t).toHaveProperty("slug");
-      expect(t).toHaveProperty("category");
-      expect(t).toHaveProperty("systemPrompt");
-      expect(typeof t.id).toBe("string");
-      expect(typeof t.name).toBe("string");
-      expect(typeof t.category).toBe("string");
-      expect(typeof t.systemPrompt).toBe("string");
-    }
-  });
-
-  it("includes seeded persona templates", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.list();
-
-    const general = result.find((t: any) => t.slug === "general-assistant");
-    expect(general).toBeDefined();
-    expect(general!.name).toBe("General Assistant");
-    expect(general!.category).toBe("general");
-  });
-
-  it("is accessible without authentication (public procedure)", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.list();
-    expect(result.length).toBeGreaterThan(0);
-  });
-
-  it("is accessible with authentication too", async () => {
-    const caller = createTestCaller(ctx.db, {
-      id: ctx.testUserId,
-      email: "test@jarble.ai",
-      name: "Test User",
-      auth0Id: ctx.testAuth0Id,
-      emailVerified: true,
+  describe("list", () => {
+    it("should return all active persona templates", async () => {
+      const result = await anonCaller().template.list();
+      expect(result).toHaveLength(3);
     });
 
-    const result = await caller.template.list();
-    expect(result.length).toBeGreaterThan(0);
+    it("should return templates sorted by sortOrder", async () => {
+      const result = await anonCaller().template.list();
+      const orders = result.map((t: any) => t.sortOrder);
+      expect(orders).toEqual([0, 1, 2]);
+    });
+
+    it("should not return inactive templates", async () => {
+      ctx.raw.exec(`UPDATE persona_templates SET is_active = 0 WHERE slug = 'sales-coach'`);
+      const result = await anonCaller().template.list();
+      expect(result).toHaveLength(2);
+    });
+
+    it("should parse showcasePrompts JSON field", async () => {
+      const result = await anonCaller().template.list();
+      const general = result.find((t: any) => t.slug === "general-assistant");
+      expect(general).toBeDefined();
+      expect(Array.isArray(general!.showcasePrompts)).toBe(true);
+      expect(general!.showcasePrompts.length).toBeGreaterThan(0);
+    });
+
+    it("should return parsed recommendedTools as array", async () => {
+      const result = await anonCaller().template.list();
+      // recommendedTools is null in seed data, should return []
+      expect(result[0].recommendedTools).toEqual([]);
+    });
+
+    it("should return parsed exampleConversation as array", async () => {
+      const result = await anonCaller().template.list();
+      expect(result[0].exampleConversation).toEqual([]);
+    });
+
+    it("should include all expected fields", async () => {
+      const result = await anonCaller().template.list();
+      const t = result[0];
+      expect(t.id).toBeDefined();
+      expect(t.name).toBeDefined();
+      expect(t.slug).toBeDefined();
+      expect(t.category).toBeDefined();
+      expect(t.systemPrompt).toBeDefined();
+    });
   });
 
-  it("returns exactly 3 seeded templates", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.list();
-    expect(result).toHaveLength(3);
+  // ── getById ───────────────────────────────────────────────────────────────
+
+  describe("getById", () => {
+    it("should return a template by ID", async () => {
+      const result = await anonCaller().template.getById({ id: "persona-general" });
+      expect(result).toBeDefined();
+      expect(result!.slug).toBe("general-assistant");
+      expect(result!.name).toBe("General Assistant");
+    });
+
+    it("should return null for non-existent ID", async () => {
+      const result = await anonCaller().template.getById({ id: "nonexistent" });
+      expect(result).toBeNull();
+    });
+
+    it("should parse JSON fields on single result", async () => {
+      const result = await anonCaller().template.getById({ id: "persona-dev" });
+      expect(result).toBeDefined();
+      expect(Array.isArray(result!.showcasePrompts)).toBe(true);
+    });
+
+    it("should include system prompt", async () => {
+      const result = await anonCaller().template.getById({ id: "persona-general" });
+      expect(result!.systemPrompt).toContain("helpful");
+    });
   });
 
-  it("all templates have unique IDs", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.list();
+  // ── listByCategory ────────────────────────────────────────────────────────
 
-    const ids = result.map((t: any) => t.id);
-    expect(new Set(ids).size).toBe(ids.length);
+  describe("listByCategory", () => {
+    it("should filter templates by category", async () => {
+      const result = await anonCaller().template.listByCategory({ category: "general" });
+      expect(result).toHaveLength(1);
+      expect(result[0].slug).toBe("general-assistant");
+    });
+
+    it("should return technical templates", async () => {
+      const result = await anonCaller().template.listByCategory({ category: "technical" });
+      expect(result).toHaveLength(1);
+      expect(result[0].slug).toBe("full-stack-developer");
+    });
+
+    it("should return empty array for non-existent category", async () => {
+      const result = await anonCaller().template.listByCategory({ category: "nonexistent" });
+      expect(result).toHaveLength(0);
+    });
+
+    it("should not include inactive templates in category results", async () => {
+      ctx.raw.exec(`UPDATE persona_templates SET is_active = 0 WHERE category = 'general'`);
+      const result = await anonCaller().template.listByCategory({ category: "general" });
+      expect(result).toHaveLength(0);
+    });
   });
 
-  it("parses JSON fields correctly", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.list();
+  // ── getCategories ─────────────────────────────────────────────────────────
 
-    for (const t of result) {
-      expect(Array.isArray(t.showcasePrompts)).toBe(true);
-      expect(Array.isArray(t.recommendedTools)).toBe(true);
-    }
-  });
+  describe("getCategories", () => {
+    it("should return distinct categories with counts", async () => {
+      const result = await anonCaller().template.getCategories();
+      expect(result.length).toBe(3);
+    });
 
-  it("returns consistent results across calls", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result1 = await caller.template.list();
-    const result2 = await caller.template.list();
-    expect(result1).toEqual(result2);
-  });
-});
+    it("should include correct category names", async () => {
+      const result = await anonCaller().template.getCategories();
+      const categories = result.map((c: any) => c.category).sort();
+      expect(categories).toEqual(["business", "general", "technical"]);
+    });
 
-describe("template.getById", () => {
-  it("returns a persona by id", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.getById({ id: "persona-general" });
-    expect(result).toBeDefined();
-    expect(result!.name).toBe("General Assistant");
-  });
+    it("should have count of 1 for each seeded category", async () => {
+      const result = await anonCaller().template.getCategories();
+      for (const cat of result) {
+        expect(cat.count).toBe(1);
+      }
+    });
 
-  it("returns null for nonexistent id", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.getById({ id: "nonexistent" });
-    expect(result).toBeNull();
-  });
-});
-
-describe("template.listByCategory", () => {
-  it("returns personas filtered by category", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.listByCategory({ category: "technical" });
-    expect(result.length).toBe(1);
-    expect(result[0].slug).toBe("full-stack-developer");
-  });
-
-  it("returns empty array for unknown category", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.listByCategory({ category: "nonexistent" });
-    expect(result).toHaveLength(0);
-  });
-});
-
-describe("template.getCategories", () => {
-  it("returns categories with counts", async () => {
-    const caller = createAnonymousCaller(ctx.db);
-    const result = await caller.template.getCategories();
-
-    expect(result.length).toBeGreaterThan(0);
-    for (const cat of result) {
-      expect(cat).toHaveProperty("category");
-      expect(cat).toHaveProperty("count");
-      expect(typeof cat.category).toBe("string");
-      expect(typeof cat.count).toBe("number");
-    }
+    it("should not count inactive templates", async () => {
+      ctx.raw.exec(`UPDATE persona_templates SET is_active = 0 WHERE category = 'general'`);
+      const result = await anonCaller().template.getCategories();
+      const general = result.find((c: any) => c.category === "general");
+      expect(general).toBeUndefined();
+    });
   });
 });
