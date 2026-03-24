@@ -2,7 +2,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { router, protectedProcedure, publicProcedure } from "../middleware.js";
 import { tables, dbDate, type DbClient } from "../../db/index.js";
-import { eq, and, or, isNull, sql } from "drizzle-orm";
+import { eq, and, or, isNull, sql, inArray } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod } from "../../k8s/index.js";
 import type { ManagedBy, IsolationLevel } from "../../k8s/constants.js";
 import { getPvcMountPath, getContainerName, getContainerHome } from "../../k8s/constants.js";
@@ -27,7 +27,7 @@ import { isAdmin } from "../../utils/admin.js";
 import { RESOURCE_TIERS } from "../../k8s/constants.js";
 import { validateThemeConfig, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 
-const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, personaTemplates, chatSessions, chatMessages } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, personaTemplates, chatSessions, chatMessages, agentCalls, orchestrationFlows } = tables;
 
 /**
  * Helper: Check free deployment status for a user.
@@ -2134,4 +2134,141 @@ export const deploymentRouter = router({
       await ctx.db.delete(chatSessions).where(eq(chatSessions.id, input.sessionId));
       return { success: true };
     }),
+
+  // ── Resource Graph ────────────────────────────────────────────────────
+  // Returns the deployment relationship graph for a user — all implicit
+  // data-sharing connections between their deployments.
+  getResourceGraph: protectedProcedure.query(async ({ ctx }) => {
+    // 1. Get all user's deployments
+    const userDeps = await ctx.db.query.deployments.findMany({
+      where: eq(deployments.userId, ctx.user.id),
+      columns: {
+        id: true,
+        name: true,
+        runtime: true,
+        status: true,
+        llmProvider: true,
+        llmModel: true,
+        llmApiKeySourceDeploymentId: true,
+      },
+    });
+
+    const userDepIds = userDeps.map(d => d.id);
+    if (userDepIds.length === 0) {
+      return { nodes: [], edges: [] };
+    }
+
+    // 2. Build shared API key edges
+    const apiKeyEdges: { source: string; target: string; type: "api_key_share" }[] = [];
+    for (const dep of userDeps) {
+      if (dep.llmApiKeySourceDeploymentId) {
+        apiKeyEdges.push({
+          source: dep.llmApiKeySourceDeploymentId,
+          target: dep.id,
+          type: "api_key_share",
+        });
+      }
+    }
+
+    // 3. Build agent call edges (from agentCalls table)
+    // Filter out flow-originated calls (callerDeploymentId starts with "flow_")
+    const calls = await ctx.db.select({
+      caller: agentCalls.callerDeploymentId,
+      callee: agentCalls.calleeDeploymentId,
+      count: sql<number>`count(*)`,
+      totalCredits: sql<number>`coalesce(sum(${agentCalls.creditsCharged}), 0)`,
+    })
+      .from(agentCalls)
+      .where(and(
+        inArray(agentCalls.callerDeploymentId, userDepIds),
+        inArray(agentCalls.calleeDeploymentId, userDepIds),
+        sql`${agentCalls.callerDeploymentId} NOT LIKE 'flow_%'`,
+      ))
+      .groupBy(agentCalls.callerDeploymentId, agentCalls.calleeDeploymentId);
+
+    const agentCallEdges = calls.map(c => ({
+      source: c.caller,
+      target: c.callee,
+      type: "agent_call" as const,
+      callCount: Number(c.count),
+      totalCredits: Number(c.totalCredits),
+    }));
+
+    // 4. Build flow connection edges (from orchestration_flows)
+    const userFlows = await ctx.db.query.orchestrationFlows.findMany({
+      where: eq(orchestrationFlows.userId, ctx.user.id),
+      columns: { id: true, name: true, definition: true },
+    });
+
+    const flowEdges: { source: string; target: string; type: "flow_connection"; flowId: string; flowName: string }[] = [];
+    for (const flow of userFlows) {
+      try {
+        const def = typeof flow.definition === "string" ? JSON.parse(flow.definition) : flow.definition;
+        if (!def?.nodes || !def?.edges) continue;
+
+        // Map nodeId -> deploymentId for nodes referencing user's deployments
+        const nodeDeploymentMap = new Map<string, string>();
+        for (const node of def.nodes as Array<{ id: string; deploymentId?: string }>) {
+          if (node.deploymentId && userDepIds.includes(node.deploymentId)) {
+            nodeDeploymentMap.set(node.id, node.deploymentId);
+          }
+        }
+
+        for (const edge of def.edges as Array<{ source: string; target: string }>) {
+          const sourceDep = nodeDeploymentMap.get(edge.source);
+          const targetDep = nodeDeploymentMap.get(edge.target);
+          if (sourceDep && targetDep && sourceDep !== targetDep) {
+            flowEdges.push({
+              source: sourceDep,
+              target: targetDep,
+              type: "flow_connection",
+              flowId: flow.id,
+              flowName: flow.name,
+            });
+          }
+        }
+      } catch { /* skip invalid definitions */ }
+    }
+
+    // 5. Build shared platform credential edges
+    const creds = await ctx.db.query.platformCredentials.findMany({
+      where: inArray(platformCredentials.deploymentId, userDepIds),
+      columns: { deploymentId: true, platformId: true },
+    });
+
+    const platformGroups = new Map<string, string[]>();
+    for (const cred of creds) {
+      const group = platformGroups.get(cred.platformId) || [];
+      group.push(cred.deploymentId);
+      platformGroups.set(cred.platformId, group);
+    }
+
+    const platformEdges: { source: string; target: string; type: "shared_platform"; platform: string }[] = [];
+    for (const [platform, depIds] of platformGroups) {
+      if (depIds.length > 1) {
+        // Star topology: connect first to all others
+        for (let i = 1; i < depIds.length; i++) {
+          platformEdges.push({ source: depIds[0], target: depIds[i], type: "shared_platform", platform });
+        }
+      }
+    }
+
+    // 6. Return the graph
+    return {
+      nodes: userDeps.map(d => ({
+        id: d.id,
+        name: d.name,
+        runtime: d.runtime,
+        status: d.status,
+        llmProvider: d.llmProvider,
+        llmModel: d.llmModel,
+      })),
+      edges: [
+        ...apiKeyEdges,
+        ...agentCallEdges,
+        ...flowEdges,
+        ...platformEdges,
+      ],
+    };
+  }),
 });

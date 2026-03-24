@@ -49,6 +49,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import ResourceMapView from "./ResourceMapView";
 import { runtimeNeedsLlm } from "./onboarding/wizardStepConfig";
 import {
   ReactFlow,
@@ -2040,6 +2041,10 @@ export default function Deployments() {
                 <GitBranch className="w-3.5 h-3.5" />
                 Flows
               </TabsTrigger>
+              <TabsTrigger value="resource-map" className="gap-1.5">
+                <LayoutGrid className="w-3.5 h-3.5" />
+                Resource Map
+              </TabsTrigger>
             </TabsList>
 
             {/* ── Deployments Tab (original view) ── */}
@@ -2172,6 +2177,11 @@ export default function Deployments() {
                   <FlowView deployments={deployments} />
                 </ErrorBoundary>
               </div>
+            </TabsContent>
+
+            {/* ── Resource Map Tab ── */}
+            <TabsContent value="resource-map" className="flex-1">
+              <ResourceMapView deployments={deployments} />
             </TabsContent>
           </Tabs>
         )}
