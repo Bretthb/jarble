@@ -21,6 +21,7 @@ export default async function runMobileUser({ baseUrl }) {
     steps.push(
       testStep("Homepage loads (mobile)", loadTime < Thresholds.PAGE_LOAD ? TestStatus.PASS : TestStatus.WARN, { loadTime: `${loadTime}ms`, viewport: "375x812" })
     );
+    await session.page.waitForTimeout(3000);
     await session.screenshot("mobile-homepage");
 
     // Step 2: Check no horizontal overflow
@@ -35,7 +36,7 @@ export default async function runMobileUser({ baseUrl }) {
     );
 
     // Step 3: Check hero is readable on mobile
-    const heroText = await session.safeTextContent("h1");
+    const heroText = await session.safeTextContent("h2");
     steps.push(
       testStep("Hero text visible on mobile", heroText && heroText.trim().length > 0 ? TestStatus.PASS : TestStatus.FAIL, { text: heroText?.slice(0, 60) })
     );
