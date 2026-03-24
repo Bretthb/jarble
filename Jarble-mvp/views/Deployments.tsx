@@ -1714,7 +1714,7 @@ function FlowToolbar({
               <span className="hidden sm:inline ml-1.5">New</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Create a new flow</TooltipContent>
+          <TooltipContent>Create a new bot team</TooltipContent>
         </Tooltip>
 
         {hasFlow && (
@@ -2730,10 +2730,34 @@ function FlowAnimationStyles() {
         transition: transform 0.15s ease, box-shadow 0.15s ease;
         overflow: visible !important;
       }
-      /* Ensure handles are always interactive and above node content */
+      /* Ensure handles are always interactive, visible, and above node content */
       .react-flow__handle {
         z-index: 20 !important;
         pointer-events: all !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+      }
+      .react-flow__handle.source {
+        width: 20px !important;
+        height: 20px !important;
+        background: #3b82f6 !important;
+        border: 3px solid #1e3a5f !important;
+        border-radius: 50% !important;
+        box-shadow: 0 0 6px rgba(59,130,246,0.5) !important;
+        right: -10px !important;
+      }
+      .react-flow__handle.target {
+        width: 20px !important;
+        height: 20px !important;
+        background: #10b981 !important;
+        border: 3px solid #064e3b !important;
+        border-radius: 50% !important;
+        box-shadow: 0 0 6px rgba(16,185,129,0.5) !important;
+        left: -10px !important;
+      }
+      .react-flow__handle:hover {
+        transform: scale(1.4) !important;
+        box-shadow: 0 0 12px rgba(59,130,246,0.8) !important;
       }
       /* Edge label animations */
       .react-flow__edge-text {
