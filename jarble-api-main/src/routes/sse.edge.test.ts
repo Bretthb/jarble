@@ -94,7 +94,7 @@ import {
 
 const mockVerifyToken = vi.mocked(verifyToken);
 const mockGetUserFromToken = vi.mocked(getUserFromToken);
-const mockDb = vi.mocked(db);
+const mockDb = vi.mocked(db) as any;
 const mockStreamLogs = vi.mocked(streamDeploymentLogs);
 const mockFindPod = vi.mocked(findPodForDeployment);
 const mockStreamExec = vi.mocked(streamExecInPod);

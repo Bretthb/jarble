@@ -281,3 +281,17 @@ NEXT_PUBLIC_AUTH0_AUDIENCE=https://api.jarble.ai
 
 Pre-configured agents in `.claude/agents/`:
 `accessibility-auditor`, `code-reviewer`, `docs-updater`, `auth0-debugger`, `canvas-component-builder`, `design-system-reviewer`, `drizzle-db-schema`, `jarble-api-debugger`, `k8s-pod-lifecycle-debugger`, `mcp-server`, `nextjs-frontend-debugger`, `performance-bundle-analyzer`, `runtime-handler`, `sse-stream-debugger`, `stripe-webhook-debugger`, `tambo-integration-reviewer`, `terraform-infra`, `test-writer`
+
+### Agentic Overnight QA System
+
+6 QA-specific agents that run overnight to autonomously test, debug, and fix the platform:
+- `qa-orchestrator` — Brain: reads git diffs, generates dynamic test goals, coordinates specialists
+- `qa-explorer-ui` — Browser testing via Playwright MCP accessibility tree (no CSS selectors)
+- `qa-api-tester` — Tests tRPC endpoints directly via curl
+- `qa-chaos` — Adversarial testing: XSS, injection, race conditions
+- `qa-healer` — Investigates failures, applies fixes in git worktree, creates draft PRs
+- `qa-reporter` — HTML reports, GitHub issues for unfixed bugs
+
+**How to run**: `node scripts/nightly-qa/overnight-agent.mjs` (see `scripts/nightly-qa/README.md` for full docs)
+
+**Key design**: Tests are dynamic, not scripted. The orchestrator reads `git diff` and CLAUDE.md each cycle to discover what changed and decide what to test. When you add a new page, router, or component, it gets tested automatically — no script updates needed. Agent memory (`.claude/agent-memory/qa/`) tracks coverage, failure patterns, and regression watchlists across runs.

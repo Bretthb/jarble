@@ -112,8 +112,8 @@ function getCallHandler() {
 }
 
 describe("agentHub /call route — agent call event emission", () => {
-  let startHandler: ReturnType<typeof vi.fn>;
-  let endHandler: ReturnType<typeof vi.fn>;
+  let startHandler: (...args: any[]) => void;
+  let endHandler: (...args: any[]) => void;
   let callHandler: Function;
 
   beforeEach(() => {

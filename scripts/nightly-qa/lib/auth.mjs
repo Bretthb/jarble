@@ -5,7 +5,7 @@
  * that Auth0 SPA SDK expects, so pages load as authenticated.
  */
 
-const AUTH0_CLIENT_ID = "1VR30862RmZIFR44UIM8aVHYEt3K2Rsg";
+const AUTH0_CLIENT_ID = "1VR30862RmZIFR44UIM8aVHYEt3K2Rsh";
 const AUTH0_AUDIENCE = "https://api.jarble.ai";
 const SCOPE = "openid profile email offline_access";
 

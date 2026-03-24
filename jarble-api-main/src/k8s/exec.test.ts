@@ -48,8 +48,8 @@ describe("execInPod", () => {
   it("executes command and returns stdout", async () => {
     mockExecClient.exec.mockImplementation(
       (_ns, _pod, _container, _cmd, stdout, _stderr, _stdin, _tty, callback) => {
-        stdout.write("hello world");
-        callback({ status: "Success" });
+        stdout!.write("hello world");
+        callback!({ status: "Success" });
         return Promise.resolve({} as any);
       }
     );
@@ -61,7 +61,7 @@ describe("execInPod", () => {
   it("passes correct arguments to exec client", async () => {
     mockExecClient.exec.mockImplementation(
       (_ns, _pod, _container, _cmd, _stdout, _stderr, _stdin, _tty, callback) => {
-        callback({ status: "Success" });
+        callback!({ status: "Success" });
         return Promise.resolve({} as any);
       }
     );
@@ -86,7 +86,7 @@ describe("execInPod", () => {
     mockExecClient.exec.mockImplementation(
       (_ns, _pod, container, _cmd, _stdout, _stderr, _stdin, _tty, callback) => {
         capturedContainer = container;
-        callback({ status: "Success" });
+        callback!({ status: "Success" });
         return Promise.resolve({} as any);
       }
     );
@@ -99,7 +99,7 @@ describe("execInPod", () => {
   it("throws on exec failure with status message", async () => {
     mockExecClient.exec.mockImplementation(
       (_ns, _pod, _container, _cmd, _stdout, _stderr, _stdin, _tty, callback) => {
-        callback({ status: "Failure", message: "command not found" });
+        callback!({ status: "Failure", message: "command not found" });
         return Promise.resolve({} as any);
       }
     );
@@ -110,8 +110,8 @@ describe("execInPod", () => {
   it("throws on exec failure with stderr content", async () => {
     mockExecClient.exec.mockImplementation(
       (_ns, _pod, _container, _cmd, _stdout, stderr, _stdin, _tty, callback) => {
-        stderr.write("permission denied");
-        callback({ status: "Failure" });
+        stderr!.write("permission denied");
+        callback!({ status: "Failure" });
         return Promise.resolve({} as any);
       }
     );
@@ -128,7 +128,7 @@ describe("execInPod", () => {
   it("returns empty string for commands with no output", async () => {
     mockExecClient.exec.mockImplementation(
       (_ns, _pod, _container, _cmd, _stdout, _stderr, _stdin, _tty, callback) => {
-        callback({ status: "Success" });
+        callback!({ status: "Success" });
         return Promise.resolve({} as any);
       }
     );
@@ -145,7 +145,7 @@ describe("execInPodWithStdin", () => {
   it("sends stdin content to exec", async () => {
     mockExecClient.exec.mockImplementation(
       (_ns, _pod, _container, _cmd, _stdout, _stderr, _stdin, _tty, callback) => {
-        callback({ status: "Success" });
+        callback!({ status: "Success" });
         return Promise.resolve({} as any);
       }
     );
@@ -166,8 +166,8 @@ describe("execInPodWithStdin", () => {
   it("throws on exec failure", async () => {
     mockExecClient.exec.mockImplementation(
       (_ns, _pod, _container, _cmd, _stdout, stderr, _stdin, _tty, callback) => {
-        stderr.write("write error");
-        callback({ status: "Failure", message: "write failed" });
+        stderr!.write("write error");
+        callback!({ status: "Failure", message: "write failed" });
         return Promise.resolve({} as any);
       }
     );
@@ -191,7 +191,7 @@ describe("execInPodWithStdin", () => {
   it("uses custom container name", async () => {
     mockExecClient.exec.mockImplementation(
       (_ns, _pod, _container, _cmd, _stdout, _stderr, _stdin, _tty, callback) => {
-        callback({ status: "Success" });
+        callback!({ status: "Success" });
         return Promise.resolve({} as any);
       }
     );

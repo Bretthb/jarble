@@ -1124,7 +1124,7 @@ export class FlowExecutionEngine extends EventEmitter {
     }
 
     // No operator found — warn about potentially malformed condition
-    if (resolved && resolved.length > 10) {
+    if (resolved && resolvedStr.length > 10) {
       log.warn({ condition, resolved }, "Condition has no recognized operator — treating as truthy check");
     }
     return !!resolved && resolved !== "false" && resolved !== "0";

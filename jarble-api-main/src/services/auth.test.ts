@@ -194,7 +194,7 @@ describe("auth", () => {
       vi.resetModules();
       vi.doMock("jose", () => ({
         createRemoteJWKSet: vi.fn(() => "mock-jwks"),
-        jwtVerify: vi.fn().mockRejectedValue(new jose.errors.JWTExpired("token expired")),
+        jwtVerify: vi.fn().mockRejectedValue(new jose.errors.JWTExpired("token expired", { sub: "test" })),
       }));
 
       const mod = await import("./auth.js");
@@ -245,7 +245,7 @@ describe("auth", () => {
       const mod = await import("./auth.js");
       await mod.verifyToken("token");
 
-      const url = mockCreateRemoteJWKSet.mock.calls[0][0] as URL;
+      const url = (mockCreateRemoteJWKSet.mock.calls[0] as any[])[0] as URL;
       expect(url.toString()).toBe("https://test.auth0.com/.well-known/jwks.json");
     });
   });

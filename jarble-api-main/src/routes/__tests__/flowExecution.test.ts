@@ -208,7 +208,7 @@ describe("POST /api/flows/:flowId/execute", () => {
     });
 
     expect(res.status).toBe(401);
-    const body = await res.json();
+    const body: any = await res.json();
     expect(body.error).toContain("Unauthorized");
   });
 
@@ -232,7 +232,7 @@ describe("POST /api/flows/:flowId/execute", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body: any = await res.json();
     expect(body.error).toContain("Missing flow definition");
   });
 
@@ -244,7 +244,7 @@ describe("POST /api/flows/:flowId/execute", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body: any = await res.json();
     expect(body.error).toContain("nodes and edges must be arrays");
   });
 
@@ -266,7 +266,7 @@ describe("POST /api/flows/:flowId/execute", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body: any = await res.json();
     expect(body.error).toContain("maximum 50 nodes");
   });
 
@@ -335,7 +335,7 @@ describe("GET /api/flows/:flowId/executions/:execId/stream", () => {
       { headers: { Authorization: "Bearer valid-token" } }
     );
     expect(res.status).toBe(404);
-    const body = await res.json();
+    const body: any = await res.json();
     expect(body.error).toContain("not found");
   });
 });

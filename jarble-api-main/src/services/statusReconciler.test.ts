@@ -33,7 +33,7 @@ import { db } from "../db/index.js";
 import { getDeploymentPodStatus } from "../k8s/index.js";
 import { reconcileStatuses, startStatusReconciler } from "./statusReconciler.js";
 
-const mockDb = vi.mocked(db);
+const mockDb = vi.mocked(db) as any;
 const mockGetPodStatus = vi.mocked(getDeploymentPodStatus);
 
 function setupUpdateChain() {

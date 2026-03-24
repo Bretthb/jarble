@@ -258,7 +258,7 @@ describe("Public API routes", () => {
         `${baseUrl}/public/leaderboard/coding?metric=invalid`
       );
       expect(res.status).toBe(400);
-      const body = await res.json();
+      const body: any = await res.json();
       expect(body.error).toContain("Invalid metric");
       expect(body.error).toContain("overall");
     });
@@ -284,7 +284,7 @@ describe("Public API routes", () => {
       setupLeaderboardMocks(null);
       const res = await fetch(`${baseUrl}/public/leaderboard/nonexistent`);
       expect(res.status).toBe(404);
-      const body = await res.json();
+      const body: any = await res.json();
       expect(body.error).toContain("not found");
     });
 
@@ -292,7 +292,7 @@ describe("Public API routes", () => {
       setupLeaderboardMocks({ id: "d1", displayName: "Coding" }, []);
       const res = await fetch(`${baseUrl}/public/leaderboard/coding`);
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body: any = await res.json();
       expect(body.domain).toEqual({ name: "Coding", slug: "coding" });
       expect(body.metric).toBe("overall");
       expect(body.entries).toEqual([]);
@@ -322,7 +322,7 @@ describe("Public API routes", () => {
 
       const res = await fetch(`${baseUrl}/public/leaderboard/coding`);
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body: any = await res.json();
 
       expect(body.entries).toHaveLength(1);
       const entry = body.entries[0];
@@ -360,7 +360,7 @@ describe("Public API routes", () => {
     it("defaults metric to overall when not specified", async () => {
       setupLeaderboardMocks({ id: "d1", displayName: "Coding" }, []);
       const res = await fetch(`${baseUrl}/public/leaderboard/coding`);
-      const body = await res.json();
+      const body: any = await res.json();
       expect(body.metric).toBe("overall");
     });
 
@@ -370,7 +370,7 @@ describe("Public API routes", () => {
       // The 400 check happens before DB, so we need a valid metric
       // With the mock throwing on the first .limit() call (domain lookup), we get 500
       expect(res.status).toBe(500);
-      const body = await res.json();
+      const body: any = await res.json();
       expect(body.error).toContain("failed");
     });
   });
@@ -382,7 +382,7 @@ describe("Public API routes", () => {
       mockLimit.mockResolvedValue([]);
       const res = await fetch(`${baseUrl}/public/agents/nonexistent/profile`);
       expect(res.status).toBe(404);
-      const body = await res.json();
+      const body: any = await res.json();
       expect(body.error).toContain("not found");
     });
 
@@ -432,7 +432,7 @@ describe("Public API routes", () => {
 
       const res = await fetch(`${baseUrl}/public/agents/dep-1/profile`);
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body: any = await res.json();
 
       expect(body.id).toBe("dep-1");
       expect(body.name).toBe("CodingBot");
@@ -468,7 +468,7 @@ describe("Public API routes", () => {
       mockLimit.mockRejectedValue(new Error("DB gone"));
       const res = await fetch(`${baseUrl}/public/agents/dep-1/profile`);
       expect(res.status).toBe(500);
-      const body = await res.json();
+      const body: any = await res.json();
       expect(body.error).toContain("failed");
     });
   });
