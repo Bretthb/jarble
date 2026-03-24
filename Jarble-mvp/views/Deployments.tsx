@@ -1588,10 +1588,32 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
 
   const flows: FlowDefinition[] = useMemo(() => {
     if (!flowsQuery.data) return [];
+    // Build a lookup map for enriching flow nodes with deployment data
+    const depMap = new Map(deployments.map((d) => [d.id, d]));
     return (flowsQuery.data as unknown as ApiFlow[])
       .filter((f) => f.status !== "archived")
-      .map(parseApiFlow);
-  }, [flowsQuery.data]);
+      .map((row) => {
+        const flow = parseApiFlow(row);
+        // Enrich nodes with full deployment data (API only stores deploymentId + label)
+        flow.nodes = flow.nodes.map((n) => {
+          const depId = (n as any).deploymentId || n.data?.id || n.id;
+          const dep = depMap.get(depId);
+          if (dep) {
+            return { ...n, data: { ...dep, ...n.data } as FlowNodeData };
+          }
+          // Fallback: construct minimal data from stored fields
+          return {
+            ...n,
+            data: {
+              id: depId,
+              name: (n as any).label || n.data?.name || depId,
+              ...n.data,
+            } as FlowNodeData,
+          };
+        });
+        return flow;
+      });
+  }, [flowsQuery.data, deployments]);
 
   const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
 
