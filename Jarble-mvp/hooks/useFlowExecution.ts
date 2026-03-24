@@ -112,9 +112,18 @@ export function useFlowExecution(): UseFlowExecutionReturn {
 
             // Snapshot: initial state of all steps on reconnect
             if (type === "jarble.flow.snapshot") {
-              const steps: Map<string, FlowStepStatus> = Array.isArray(data.steps)
-                ? new Map(data.steps.map((s: FlowStepStatus) => [s.nodeId, s] as [string, FlowStepStatus]))
-                : new Map();
+              // Backend sends stepResults as an object { nodeId: StepResult }
+              const steps = new Map<string, FlowStepStatus>();
+              const stepResults = data.stepResults || data.steps;
+              if (stepResults && typeof stepResults === "object" && !Array.isArray(stepResults)) {
+                for (const [nodeId, result] of Object.entries(stepResults)) {
+                  steps.set(nodeId, { nodeId, ...(result as Record<string, unknown>) } as unknown as FlowStepStatus);
+                }
+              } else if (Array.isArray(stepResults)) {
+                for (const s of stepResults as FlowStepStatus[]) {
+                  steps.set(s.nodeId, s);
+                }
+              }
               setState({
                 executionId: data.executionId || executionId,
                 status: data.status || "running",

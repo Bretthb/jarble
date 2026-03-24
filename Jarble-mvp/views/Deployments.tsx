@@ -158,7 +158,13 @@ function parseApiFlow(row: ApiFlow): FlowDefinition {
   let edges: Edge[] = [];
   try {
     const def = JSON.parse(row.definition);
-    nodes = Array.isArray(def.nodes) ? def.nodes : [];
+    nodes = Array.isArray(def.nodes)
+      ? def.nodes.map((n: Node<FlowNodeData>) => ({
+          ...n,
+          // Restore ReactFlow type — API stores "deployment" but ReactFlow needs "flowDeployment"
+          type: "flowDeployment",
+        }))
+      : [];
     edges = Array.isArray(def.edges) ? def.edges : [];
   } catch {
     // Corrupted definition — treat as empty
@@ -1582,7 +1588,9 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
 
   const flows: FlowDefinition[] = useMemo(() => {
     if (!flowsQuery.data) return [];
-    return (flowsQuery.data as unknown as ApiFlow[]).map(parseApiFlow);
+    return (flowsQuery.data as unknown as ApiFlow[])
+      .filter((f) => f.status !== "archived")
+      .map(parseApiFlow);
   }, [flowsQuery.data]);
 
   const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
@@ -1730,7 +1738,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   const handleDeleteFlow = useCallback(() => {
     if (!activeFlowId) return;
     deleteFlowMutation.mutate(
-      { id: activeFlowId, hard: false },
+      { id: activeFlowId, hard: true },
       {
         onSuccess: () => {
           // Clear local overrides for deleted flow

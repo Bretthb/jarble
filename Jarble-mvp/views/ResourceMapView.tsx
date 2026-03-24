@@ -181,6 +181,9 @@ function layoutResourceGraph<T extends Record<string, unknown>>(
 
   const layoutedNodes = nodes.map((node) => {
     const pos = g.node(node.id);
+    if (!pos) {
+      return { ...node, position: node.position ?? { x: 0, y: 0 } };
+    }
     return {
       ...node,
       position: {
