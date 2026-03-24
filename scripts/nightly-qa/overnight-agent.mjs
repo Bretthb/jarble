@@ -183,13 +183,13 @@ async function fetchPasswordToken(env) {
 }
 
 async function getAuthToken(env) {
-  // Priority 1: M2M token (best — no user credentials needed, never expires)
-  const m2m = await fetchM2MToken(env);
-  if (m2m) return m2m;
-
-  // Priority 2: Password grant (needs email/password but auto-refreshes)
+  // Priority 1: Password grant (tests as real user with real data)
   const pwd = await fetchPasswordToken(env);
   if (pwd) return pwd;
+
+  // Priority 2: M2M token (works for API-only testing, but creates empty user)
+  const m2m = await fetchM2MToken(env);
+  if (m2m) return m2m;
 
   // Fall back to static token from .env
   const token = env.QA_AUTH_TOKEN || process.env.QA_AUTH_TOKEN;

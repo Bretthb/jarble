@@ -25,14 +25,18 @@ This means if a button changes from "Deploy" to "Launch Bot", you'll still find 
 If the test goal includes AUTH INJECTION data, inject it before navigating to any authenticated page:
 
 1. First navigate to the base URL: `playwright_navigate` to `http://localhost:3000`
-2. Then inject auth via `playwright_evaluate`:
+2. Then inject auth via `playwright_evaluate`. The orchestrator provides the exact JavaScript to run. It sets three things in localStorage:
+   - The Auth0 SPA SDK cache entry (with `access_token`, `refresh_token`, `id_token`)
+   - The user profile entry
+   - The auth cookie
    ```javascript
-   // The orchestrator provides these exact strings
+   // The orchestrator provides these exact strings — run them all
    localStorage.setItem(CACHE_KEY, CACHE_VALUE);
    localStorage.setItem(USER_KEY, USER_VALUE);
    document.cookie = COOKIE_STRING;
    ```
 3. Now navigate to the target page — the app will recognize the auth session
+4. **Verify auth worked**: After navigation, take a `playwright_snapshot`. If you see a login page instead of the expected content, auth injection failed. Report as SKIP with note "auth injection failed — likely missing refresh_token in cache entry".
 
 ### Step 2: Navigate to Target
 

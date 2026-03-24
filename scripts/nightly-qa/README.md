@@ -223,6 +223,40 @@ Each cycle spawns 3-6 Claude Code subagents (Opus + Sonnet). Typical costs:
 - **Full overnight** (8 hours, 10 cycles): $50-150
 - Budget caps prevent runaway costs (`--max-budget` per cycle, `--nightly-budget` total)
 
+## Running Against Vercel (Production/Staging)
+
+The QA system works against any deployed instance, not just localhost. When the platform is deployed to Vercel:
+
+```bash
+# Test against your Vercel deployment
+node scripts/nightly-qa/overnight-agent.mjs \
+  --base-url https://your-app.vercel.app \
+  --api-url https://your-api-url.vercel.app \
+  --cycles 1 --verbose
+```
+
+### What changes for Vercel
+
+| Concern | Local | Vercel |
+|---------|-------|--------|
+| Frontend URL | `http://localhost:3000` | `https://your-app.vercel.app` |
+| API URL | `http://localhost:3001` | Your API deployment URL |
+| Auth0 tenant | `jarble-dev.us.auth0.com` | Same (or production tenant) |
+| Database | SQLite (seed data) | MySQL/PostgreSQL (real data) |
+| Healer fixes | Creates PRs from local worktree | Same — PRs against the repo |
+| Git diff | Reads local repo | Same — reads local repo |
+
+### Auth for Vercel
+
+Use the same `QA_EMAIL` + `QA_PASSWORD` in `.env`. The password grant works against the same Auth0 tenant regardless of where the app is deployed. If you switch to a production Auth0 tenant, update `AUTH0_DOMAIN` in the runner script.
+
+### Things to watch out for
+
+- **Rate limits**: Vercel has request limits on free/hobby plans. Use `--interval 60` or higher.
+- **Cold starts**: Serverless functions may take a few seconds on first request. The explorer agent handles this naturally (it waits for page loads).
+- **Real data**: Testing against production means the chaos agent could create test deployments in your real database. It uses `QA-Test-` prefixed names for cleanup, but review the chaos agent's behavior before running against production.
+- **API URL**: If your API is deployed separately (not on Vercel), use the correct URL. If it's behind the same Vercel deployment at `/api`, the `--api-url` should match.
+
 ## Troubleshooting
 
 **"Servers not reachable"**: Start both dev servers before running the overnight script.

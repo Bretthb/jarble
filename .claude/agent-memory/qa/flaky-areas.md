@@ -15,4 +15,4 @@ Each entry should include:
 
 ---
 
-(No flaky areas recorded yet — will be populated after initial QA runs)
+(No flaky areas recorded yet — 2 runs completed, no intermittent failures observed. All failures have been deterministic environment issues.)
