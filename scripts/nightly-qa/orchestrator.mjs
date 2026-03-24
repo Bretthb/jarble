@@ -18,13 +18,29 @@
  *   --verbose            Print detailed step output
  */
 
-import { existsSync, mkdirSync } from "fs";
-import { resolve, dirname } from "path";
+import { existsSync, mkdirSync, readFileSync } from "fs";
+import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { generateReport } from "./lib/reporter.mjs";
 import { PersonaRegistry } from "./lib/types.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Load .env file for auth tokens (gitignored)
+const envPath = join(__dirname, ".env");
+if (existsSync(envPath)) {
+  const envContent = readFileSync(envPath, "utf-8");
+  for (const line of envContent.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx > 0) {
+      const key = trimmed.slice(0, eqIdx).trim();
+      const value = trimmed.slice(eqIdx + 1).trim();
+      if (!process.env[key]) process.env[key] = value;
+    }
+  }
+}
 
 // --- Parse CLI args ---
 function getArg(name, fallback) {
@@ -36,8 +52,10 @@ function hasFlag(name) {
   return process.argv.includes(`--${name}`);
 }
 
-const BASE_URL = getArg("base-url", "http://localhost:3000");
-const API_URL = getArg("api-url", BASE_URL.replace(":3000", ":3001"));
+const BASE_URL = getArg("base-url", process.env.QA_BASE_URL || "http://localhost:3000");
+const API_URL = getArg("api-url", process.env.QA_API_URL || BASE_URL.replace(":3000", ":3001"));
+const AUTH_TOKEN = process.env.QA_AUTH_TOKEN || null;
+const ANTHROPIC_KEY = process.env.QA_ANTHROPIC_KEY || null;
 const PARALLEL = parseInt(getArg("parallel", "1"), 10);
 const TIMEOUT = parseInt(getArg("timeout", "120000"), 10);
 const VERBOSE = hasFlag("verbose");
@@ -134,7 +152,7 @@ async function main() {
   console.log(`  Timeout:   ${TIMEOUT}ms per persona`);
   console.log(`  ${"=".repeat(50)}\n`);
 
-  const config = { baseUrl: BASE_URL, apiUrl: API_URL, verbose: VERBOSE };
+  const config = { baseUrl: BASE_URL, apiUrl: API_URL, verbose: VERBOSE, authToken: AUTH_TOKEN, anthropicKey: ANTHROPIC_KEY };
   const results = await runInBatches(PERSONAS, config, PARALLEL);
 
   // Print summary

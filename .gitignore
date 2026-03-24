@@ -86,3 +86,4 @@ scripts/nightly-qa/reports/
 !.claude/agent-memory/
 !.claude/settings.json
 !.claude/settings.local.json
+scripts/nightly-qa/.env

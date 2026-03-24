@@ -6,8 +6,8 @@
 import { ApiClient } from "../lib/apiClient.mjs";
 import { testStep, TestStatus, Thresholds } from "../lib/types.mjs";
 
-export default async function runApiConsumer({ apiUrl }) {
-  const api = new ApiClient(apiUrl);
+export default async function runApiConsumer({ apiUrl, authToken }) {
+  const api = new ApiClient(apiUrl, authToken);
   const steps = [];
 
   try {
