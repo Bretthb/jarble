@@ -60,57 +60,23 @@ Generate 5-15 test goals per cycle depending on what changed. Don't test everyth
 
 ### Phase 3: Auth Preparation
 
-If any test goals require authentication, fetch a full token set (access_token + refresh_token + id_token) and build the browser injection script.
+Two auth mechanisms are used for different agent types:
 
-The app uses `useRefreshTokens={true}` in Auth0Provider, so the localStorage cache entry **MUST include a refresh_token** or the SDK will reject it and redirect to login.
+**For browser-based agents (qa-explorer-ui):** The explorer logs in through the actual Auth0 UI using Playwright MCP — clicking the login button, filling email/password on the Auth0 page, and waiting for redirect. This works reliably because it's the same flow a real user takes. Pass the credentials in the explorer's prompt:
+```
+QA_EMAIL: <email from prompt context>
+QA_PASSWORD: <password from prompt context>
+```
 
-**Fetch tokens via Bash**:
-
+**For API-based agents (qa-api-tester, qa-chaos):** Fetch a Bearer token via the password grant:
 ```bash
 curl -s -X POST https://jarble-dev.us.auth0.com/oauth/token \
   -H "Content-Type: application/json" \
   -d '{"grant_type":"password","username":"EMAIL","password":"PASSWORD","client_id":"1VR30862RmZIFR44UIM8aVHYEt3K2Rsh","audience":"https://api.jarble.ai","scope":"openid profile email offline_access"}'
 ```
+Extract `access_token` from the response and pass it to API agents as `AUTH_TOKEN`.
 
-Replace EMAIL and PASSWORD with the values from the prompt context (the overnight runner provides them via `QA_EMAIL` and `QA_PASSWORD` environment variables, or they may be embedded in the prompt).
-
-**Parse the response** — it returns JSON with `access_token`, `id_token`, `refresh_token`, `expires_in`, `token_type`, `scope`.
-
-**Build the injection script** — decode the `id_token` JWT payload to get user claims (sub, email, name), then construct this JavaScript that the explorer will run via `playwright_evaluate`:
-
-```javascript
-// All values must come from the actual token response — do NOT hardcode or fake them
-localStorage.setItem(
-  '@@auth0spajs@@::1VR30862RmZIFR44UIM8aVHYEt3K2Rsh::https://api.jarble.ai::openid profile email offline_access',
-  JSON.stringify({
-    body: {
-      client_id: '1VR30862RmZIFR44UIM8aVHYEt3K2Rsh',
-      access_token: '<ACCESS_TOKEN>',
-      id_token: '<ID_TOKEN>',
-      refresh_token: '<REFRESH_TOKEN>',
-      scope: 'openid profile email offline_access',
-      expires_in: 86400,
-      token_type: 'Bearer',
-      decodedToken: { user: {sub, email, name, ...}, claims: {sub, email, name, ...} },
-      audience: 'https://api.jarble.ai'
-    },
-    expiresAt: <UNIX_TIMESTAMP>
-  })
-);
-localStorage.setItem(
-  '@@auth0spajs@@::1VR30862RmZIFR44UIM8aVHYEt3K2Rsh::@@user@@',
-  JSON.stringify({
-    decodedToken: { user: {sub, email, name, ...}, claims: {sub, email, name, ...} }
-  })
-);
-document.cookie = 'auth0.1VR30862RmZIFR44UIM8aVHYEt3K2Rsh.is.authenticated=true; path=/; max-age=86400';
-```
-
-**CRITICAL**: Replace all `<PLACEHOLDER>` values with real token data. The `refresh_token` field is mandatory — without it, the Auth0 SDK redirects to login.
-
-Include this complete injection script (with real values substituted) in every explorer agent prompt that requires auth. Also include the raw `access_token` for API calls the explorer might make via fetch.
-
-**Also store the access_token** for the API tester agent — it only needs the Bearer token, not the browser injection.
+The overnight runner provides the email, password, and/or pre-fetched token in the prompt context.
 
 ### Phase 4: Dispatch Specialist Agents
 
@@ -123,8 +89,10 @@ For each test goal, spawn the appropriate agent using the **Agent tool**:
 **Important rules for spawning**:
 - Spawn agents **one at a time** (they use shared browser/server resources)
 - Include the full test goal in the agent prompt
-- Include auth injection data if needed
-- Include the base URL (`http://localhost:3000`) and API URL (`http://localhost:3001`)
+- For UI agents: include `QA_EMAIL` and `QA_PASSWORD` so they can log in via the Auth0 UI
+- For API agents: include the `AUTH_TOKEN` (Bearer token from password grant)
+- Include the base URL and API URL
+- **Group authenticated UI goals together** — the explorer stays logged in within a session, so run all auth-required UI goals in one explorer spawn to avoid logging in repeatedly
 - Wait for each agent to return before spawning the next
 
 **Example spawn prompt for qa-explorer-ui**:

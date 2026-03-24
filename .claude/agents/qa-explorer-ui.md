@@ -20,23 +20,25 @@ This means if a button changes from "Deploy" to "Launch Bot", you'll still find 
 
 ## Workflow
 
-### Step 1: Auth Injection (if required)
+### Step 1: Authentication (if required)
 
-If the test goal includes AUTH INJECTION data, inject it before navigating to any authenticated page:
+If the test goal requires auth, log in through the Auth0 UI like a real user. The orchestrator provides `QA_EMAIL` and `QA_PASSWORD` in the prompt.
 
-1. First navigate to the base URL: `playwright_navigate` to `http://localhost:3000`
-2. Then inject auth via `playwright_evaluate`. The orchestrator provides the exact JavaScript to run. It sets three things in localStorage:
-   - The Auth0 SPA SDK cache entry (with `access_token`, `refresh_token`, `id_token`)
-   - The user profile entry
-   - The auth cookie
-   ```javascript
-   // The orchestrator provides these exact strings — run them all
-   localStorage.setItem(CACHE_KEY, CACHE_VALUE);
-   localStorage.setItem(USER_KEY, USER_VALUE);
-   document.cookie = COOKIE_STRING;
-   ```
-3. Now navigate to the target page — the app will recognize the auth session
-4. **Verify auth worked**: After navigation, take a `playwright_snapshot`. If you see a login page instead of the expected content, auth injection failed. Report as SKIP with note "auth injection failed — likely missing refresh_token in cache entry".
+**Login flow:**
+1. Navigate to the base URL: `playwright_navigate` to the BASE_URL (e.g., `http://localhost:3000`)
+2. Take a `playwright_snapshot` — look for a "Sign In" or "Log In" button/link
+3. Click it — this redirects to the Auth0 login page (`jarble-dev.us.auth0.com`)
+4. On the Auth0 page, take a `playwright_snapshot` to find the email and password inputs
+5. Use `playwright_fill` to enter the email, then the password
+6. Click the "Continue" or "Log In" button
+7. Wait for redirect back to the app (usually `/dashboard`)
+8. Take a `playwright_snapshot` to verify you're logged in (should see dashboard content, not login page)
+
+**If you see a "Sign up" tab instead of "Log in"**, click the "Log in" tab first.
+
+**If Auth0 shows an error** ("Wrong email or password", "session not found"), report as SKIP with the error text.
+
+**Once logged in**, the browser session persists — you can navigate to any authenticated page without logging in again. All subsequent `playwright_navigate` calls within the same session will be authenticated.
 
 ### Step 2: Navigate to Target
 
