@@ -47,6 +47,9 @@
       ],
       "zod": [
         "./node_modules/zod"
+      ],
+      "jarble-api": [
+        "../jarble-api-main/src/trpc/index.ts"
       ]
     },
     "plugins": [

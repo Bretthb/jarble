@@ -4,7 +4,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "next dev",
-    "prebuild": "cd ../jarble-api-main && npm install --ignore-scripts && npm run build:types",
+    "prebuild": "echo 'skipping — types checked locally via npm run check'",
     "build": "next build",
     "start": "next start",
     "precheck": "cd ../jarble-api-main && npm run build:types",

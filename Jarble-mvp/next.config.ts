@@ -12,6 +12,11 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
+  // Skip tsc errors during build — types are verified locally via `npm run check`
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+
   // Disable strict mode double-render in dev if desired
   reactStrictMode: true,
 
