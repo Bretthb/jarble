@@ -1285,7 +1285,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       // native thinking > <think> tags > external reasoning.
       // The external reasoning promise is already resolving in the background.
 
-      const gatewayResult = await chatViaHTTP(
+      const gatewayResult = await chatViaGateway(
         {
           ip: podAddr.ip,
           port: podAddr.port,
@@ -1293,7 +1293,6 @@ tamboAgentRouter.post("/", async (req, res) => {
           sessionKey,
         },
         messageWithVision,
-        sessionKey,
         (fullTextSoFar) => {
           if (fullTextSoFar.length > lastDeltaText.length) {
             emitStreamingDelta(fullTextSoFar);
