@@ -11,11 +11,11 @@ metadata:
   namespace: jarble
 rules:
 - apiGroups: [""]
-  resources: ["pods", "secrets", "persistentvolumeclaims"]
-  verbs: ["get", "list", "create", "delete", "update", "watch"]
+  resources: ["pods", "secrets", "persistentvolumeclaims", "configmaps", "services"]
+  verbs: ["get", "list", "create", "delete", "update", "watch", "patch"]
 - apiGroups: [""]
   resources: ["pods/exec"]
-  verbs: ["create"]
+  verbs: ["create", "get"]
 - apiGroups: [""]
   resources: ["pods/log"]
   verbs: ["get"]

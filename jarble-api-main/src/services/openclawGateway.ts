@@ -125,7 +125,6 @@ export async function chatViaGateway(
     let emittedBlockCount = 0;
 
     const ws = new WebSocket(wsUrl, {
-      origin: "http://localhost",
       handshakeTimeout: 10_000, // 10s connect timeout — fail fast on unreachable pods
     });
 

@@ -1344,7 +1344,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       lastError = e;
 
       // On connection-level errors, fall back to exec through K8s API
-      const isConnectionError = /ETIMEDOUT|ECONNREFUSED|ECONNRESET|handshake|closed before auth/i.test(e.message);
+      const isConnectionError = /ETIMEDOUT|ECONNREFUSED|ECONNRESET|handshake|closed before auth|auth failed|origin not allowed/i.test(e.message);
       if (isConnectionError && attempt < MAX_ATTEMPTS - 1) {
         log.warn({ deploymentId, attempt, error: e.message }, "Gateway WS failed, falling back to exec (npx openclaw agent)");
         lastDeltaText = "";
