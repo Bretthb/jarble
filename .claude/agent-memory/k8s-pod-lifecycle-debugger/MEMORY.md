@@ -4,20 +4,29 @@
 
 - Namespace: `jarble` (NOT `default` as docs claim)
 - Naming: PVC=`pvc-{id}`, Secret=`secret-{id}`, Deployment=`dep-{id}`, Label=`app=dep-{id}`
-- Single-replica deployments, RWO Longhorn PVCs, no Recreate strategy set
+- Single-replica deployments, RWO Longhorn PVCs, Recreate strategy (fixed from earlier audit)
+- Pods now have liveness+readiness probes, resource limits, ephemeral-storage limits
+- Init container (`config-init`, busybox) copies ConfigMap to PVC before main container starts
 - Container name is always `"runtime"`, mount path is `/data`, configs at `/data/config/`
 - MOCK_K8S mode uses in-memory `mockStore` Map
 - DB status values: pending, creating, running, stopped, failed, stopping, restarting
 - Schema default is "creating" but create mutation sets "pending" explicitly
 
-## Key Files
+## Key Files (Updated Mar 2026)
 
-- `jarble-api-main/src/k8s/deployment.ts` -- All K8s operations (1252 lines)
-- `jarble-api-main/src/services/storageEnforcement.ts` -- 5min poll, exec `df`, stop if >=100%
-- `jarble-api-main/src/services/configSync.ts` -- Two-way DB<->PVC sync, fire-and-forget
-- `jarble-api-main/src/services/subscriptionEnforcement.ts` -- Free trial + Stripe checks
-- `jarble-api-main/src/trpc/routers/deployment.ts` -- tRPC router, fire-and-forget patterns
-- `jarble-api-main/src/index.ts` -- SSE status endpoint, config webhook, WhatsApp QR
+K8s code was refactored from monolithic `deployment.ts` into `src/k8s/` modules:
+- `jarble-api-main/src/k8s/index.ts` -- Barrel re-export
+- `jarble-api-main/src/k8s/client.ts` -- KubeConfig, coreApi, appsApi, execClient
+- `jarble-api-main/src/k8s/lifecycle.ts` -- create/start/stop/restart/delete deployment
+- `jarble-api-main/src/k8s/status.ts` -- getPodAddress, getDeploymentPodStatus, storage usage
+- `jarble-api-main/src/k8s/exec.ts` -- execInPod, execInPodWithStdin, findPodForDeployment
+- `jarble-api-main/src/k8s/config.ts` -- writeConfigsToPvc, readConfigsFromPvc
+- `jarble-api-main/src/k8s/configmap.ts` -- ConfigMap-based config (replaces exec-based writes)
+- `jarble-api-main/src/k8s/secrets.ts` -- updateDeploymentSecret
+- `jarble-api-main/src/services/openclawGateway.ts` -- WS client for pod chat (Ed25519 auth)
+- `jarble-api-main/src/routes/tamboAgent.ts` -- Chat endpoint (WS gateway + exec fallback)
+- `jarble-api-main/src/routes/diagnose.ts` -- Health check endpoint
+- `jarble-api-main/k8s/deployment.yaml` -- K8s manifests (SA, Role, Deployment, Service, Ingress)
 
 ## Known Bugs (Full Audit Feb 2026)
 
@@ -33,6 +42,15 @@ See `audit-findings.md` for full details with line numbers. Summary:
 - **MEDIUM**: updateDeploymentSecret hardcodes TEMPLATE="personal"
 - **MEDIUM**: No liveness/readiness probes on pods
 - **MEDIUM**: Concurrent configSync calls can corrupt state (no mutex)
+
+## Production Bugs Found (Mar 2026 Debugging Session)
+
+See `prod-chat-broken-mar2026.md` for full details.
+
+1. **OpenClaw origin rejection** -- `openclawGateway.ts:128` sends `origin: "http://localhost"`, OpenClaw rejects non-matching origins even with `dangerouslyAllowHostHeaderOriginFallback: true` (flag only applies when NO origin is sent)
+2. **K3s exec 403** -- RBAC role has `pods/exec: [create]` but `@kubernetes/client-node` Exec sends GET+Upgrade, K3s v1.29 checks `get` verb. Fix: add `get` to pods/exec verbs
+3. **No exec fallback for origin errors** -- `tamboAgent.ts:1347` regex only matches connection errors (ETIMEDOUT etc), not auth errors like "origin not allowed"
+4. **K8s manifest drift** -- `k8s/deployment.yaml` is outdated vs live cluster (missing configmaps, services resources)
 
 ## Patterns & Conventions
 
