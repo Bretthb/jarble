@@ -185,25 +185,51 @@ export async function chatViaGateway(
 
       // ── Event messages ──
       if (msg.type === "event") {
-        // Connect challenge — auth with token only (no device identity)
-        // OpenClaw's roleCanSkipDeviceIdentity allows operators with valid
-        // gateway tokens to connect without device pairing.
+        // Connect challenge — authenticate as Control UI with device identity.
+        // Using "openclaw-control-ui" client ID + dangerouslyDisableDeviceAuth=true
+        // in the gateway config allows full operator scopes without pairing approval.
         if (msg.event === "connect.challenge") {
+          const nonce = msg.payload?.nonce;
           try {
+            const device = createDeviceIdentity();
+            const signedAtMs = Date.now();
+            const role = "operator";
+            const scopes = ["operator.read", "operator.write"];
+
+            const payload = [
+              "v2",
+              device.deviceId,
+              "openclaw-control-ui",
+              "webchat",
+              role,
+              scopes.join(","),
+              String(signedAtMs),
+              gatewayToken || "",
+              nonce || "",
+            ].join("|");
+            const signature = signPayload(device.privateKeyPem, payload);
+
             await sendRequest("connect", {
               minProtocol: 3,
               maxProtocol: 3,
               client: {
-                id: "webchat",
+                id: "openclaw-control-ui",
                 version: "1.0",
                 platform: "server",
                 mode: "webchat",
                 instanceId: "jarble-api",
               },
-              role: "operator",
-              scopes: ["operator.read", "operator.write"],
+              role,
+              scopes,
               caps: [],
               auth: { token: gatewayToken },
+              device: {
+                id: device.deviceId,
+                publicKey: device.publicKeyB64,
+                signature,
+                signedAt: signedAtMs,
+                nonce,
+              },
             });
 
             connected = true;
