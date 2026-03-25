@@ -111,3 +111,4 @@ e2e/.env.test
 *.db
 *.sqlite
 *.sqlite3
+.vercel

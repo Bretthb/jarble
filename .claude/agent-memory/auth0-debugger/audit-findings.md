@@ -1,8 +1,22 @@
-# Auth0 Integration Audit Findings - 2026-02-18 (updated)
+# Auth0 Integration Audit Findings - 2026-02-18 (updated 2026-03-25)
 
 ## Summary
 Audited 20+ files across backend, frontend, and infrastructure.
 Found 2 high, 5 medium, 4 low severity issues. No critical auth bypass.
+
+## CRITICAL Severity (added 2026-03-25)
+
+### C1: Delayed Auth0Provider mount breaks callback flow
+- File: `Jarble-mvp/components/auth/Auth0Provider.tsx`, lines 6,23-25,31-40
+- `useState('')` + `useEffect` delays Auth0 `<Provider>` mount by one render cycle
+- On callback URL (`/dashboard?code=&state=`), the Provider misses the auth params in dev (Strict Mode double-mount destroys session transaction)
+- Fix: Use `useState(() => typeof window !== 'undefined' ? window.location.origin + '/dashboard' : '')` for synchronous initialization
+
+### C2: Refresh tokens immediately invalid after login
+- Auth0 resource server `token_dialect: "access_token"` (opaque tokens)
+- `fertft` log events: "Token could not be decoded or is missing in DB"
+- Every page reload requires full re-login (15+ consecutive `seacft` events, zero `sertft`)
+- Fix: Check refresh token rotation settings; consider `token_dialect: "access_token_authz"`
 
 ## HIGH Severity
 

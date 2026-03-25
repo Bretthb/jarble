@@ -48,7 +48,11 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 export default function Dashboard() {
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
+  const { user, isAuthenticated, isLoading: authLoading, error: authError } = useAuth0();
+
+  if (authError) {
+    console.error('[Auth0] Authentication error:', authError);
+  }
   const router = useRouter();
 
   const deploymentsQuery = trpc.deployment.list.useQuery(undefined, {

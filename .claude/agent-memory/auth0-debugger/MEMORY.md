@@ -18,8 +18,14 @@
 - Frontend providers: `Jarble-mvp/app/providers.tsx`
 - Auth0 Action: `infrastructure/auth0/post-email-verification-action.js`
 
-## Known Issues (from 2026-02-18 audit)
+## Known Issues (from 2026-02-18 audit, updated 2026-03-25)
 See `audit-findings.md` for full report.
+- **C1**: Auth0Provider delayed mount (useEffect) breaks callback — use useState initializer instead
+- **C2**: Refresh tokens failing — `fertft` "Token could not be decoded or is missing in DB"
+- Resource server `token_dialect: "access_token"` (opaque) — should be `access_token_authz`
+- SPA App Client ID: `1VR30862RmZIFR44UIM8aVHYEt3K2Rsh`
+- Resource Server ID: `698bd51b0b50585493cbcce2`
+- Google OAuth uses Auth0 dev keys (production should use custom credentials)
 
 ## Patterns
 - M2M auth uses shared secret (AUTH0_M2M_SECRET), not client credentials flow

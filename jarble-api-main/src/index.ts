@@ -61,6 +61,8 @@ app.set("trust proxy", 1);
 // CORS - allow frontend origin
 const allowedOrigins = [
   env.FRONTEND_URL,
+  "https://dev.jarble.ai",
+  "https://jarble.ai",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
 ];

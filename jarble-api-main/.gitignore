@@ -9,3 +9,4 @@ k8s/secrets.yaml
 *.db
 *.sqlite
 *.sqlite3
+.vercel
