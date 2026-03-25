@@ -46,7 +46,7 @@ import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { getPodAddress, findPodForDeployment } from "../k8s/index.js";
 import type { ManagedBy } from "../k8s/constants.js";
 import { getContainerName } from "../k8s/constants.js";
-import { chatViaGateway, chatViaExec, type GatewayResponse } from "../services/openclawGateway.js";
+import { chatViaGateway, chatViaHTTP, chatViaExec, type GatewayResponse } from "../services/openclawGateway.js";
 import { extractUIBlocks, type JarbleUIBlock, type JarbleComponentDef } from "../utils/uiBlockParser.js";
 import { readComponentFromPvc, writeComponentToPvc } from "../k8s/index.js";
 import {
@@ -1282,7 +1282,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       // native thinking > <think> tags > external reasoning.
       // The external reasoning promise is already resolving in the background.
 
-      const gatewayResult = await chatViaGateway(
+      const gatewayResult = await chatViaHTTP(
         {
           ip: podAddr.ip,
           port: podAddr.port,
@@ -1290,6 +1290,7 @@ tamboAgentRouter.post("/", async (req, res) => {
           sessionKey,
         },
         messageWithVision,
+        sessionKey,
         (fullTextSoFar) => {
           if (fullTextSoFar.length > lastDeltaText.length) {
             emitStreamingDelta(fullTextSoFar);

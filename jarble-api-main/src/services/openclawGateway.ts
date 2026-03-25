@@ -416,7 +416,106 @@ function extractThinking(payload: any): string {
   return "";
 }
 
-// ── Exec-based HTTP fallback ─────────────────────────────────────────────────
+// ── HTTP Chat Completions (token-level streaming) ────────────────────────────
+
+/**
+ * Chat via OpenClaw's OpenAI-compatible /v1/chat/completions endpoint.
+ *
+ * Uses standard SSE streaming for true token-by-token delivery.
+ * This is the fastest path — direct HTTP to the pod with Bearer token auth.
+ */
+export async function chatViaHTTP(
+  opts: GatewayOptions,
+  message: string,
+  sessionKey: string,
+  onDelta?: (fullText: string) => void,
+  signal?: AbortSignal,
+  onBlockDetected?: (block: JarbleUIBlock) => void,
+): Promise<GatewayResponse> {
+  const { ip, port, gatewayToken } = opts;
+  const url = `http://${ip}:${port}/v1/chat/completions`;
+
+  log.info({ url }, "chatViaHTTP: starting streaming request");
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${gatewayToken}`,
+      "X-Session-Key": sessionKey,
+    },
+    body: JSON.stringify({
+      model: "default",
+      messages: [{ role: "user", content: message }],
+      stream: true,
+    }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`HTTP chat completions failed: ${res.status} ${body.slice(0, 200)}`);
+  }
+
+  let fullText = "";
+  let nativeThinking = "";
+  let emittedBlockCount = 0;
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No response body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // Process SSE lines
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6).trim();
+      if (data === "[DONE]") continue;
+
+      try {
+        const chunk = JSON.parse(data);
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.content) {
+          fullText += delta.content;
+          onDelta?.(fullText);
+
+          // Incrementally detect UI blocks during streaming
+          if (onBlockDetected) {
+            const { uiBlocks } = extractUIBlocks(fullText);
+            for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
+              onBlockDetected(uiBlocks[idx]);
+            }
+            emittedBlockCount = uiBlocks.length;
+          }
+        }
+      } catch {
+        // Skip unparseable chunks
+      }
+    }
+  }
+
+  if (!fullText) {
+    throw new Error("HTTP chat completions returned empty response");
+  }
+
+  const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
+
+  log.info({ url, textLength: fullText.length, blockCount: uiBlocks.length }, "chatViaHTTP: complete");
+
+  return { rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking };
+}
+
+// ── Exec-based fallback ─────────────────────────────────────────────────
 
 /**
  * Chat via `npx openclaw agent` exec'd inside the pod.
