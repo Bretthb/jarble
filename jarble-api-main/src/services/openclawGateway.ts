@@ -207,7 +207,7 @@ export async function chatViaGateway(
             });
 
             connected = true;
-            log.debug({ wsUrl, deviceId: device.deviceId.slice(0, 16) }, "Gateway authenticated with device identity, sending chat");
+            log.debug({ wsUrl }, "Gateway authenticated, sending chat");
 
             // Send the chat message
             const idempotencyKey = nanoid(12);
