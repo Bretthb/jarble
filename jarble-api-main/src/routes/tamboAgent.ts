@@ -120,6 +120,9 @@ function sendEvent(res: any, event: Record<string, unknown>) {
   try {
     const json = JSON.stringify(event);
     res.write(`data: ${json}\n\n`);
+    // Flush immediately so SSE events reach the client per-token
+    // (without this, Node.js/compression middleware buffers writes)
+    if (typeof res.flush === "function") res.flush();
   } catch (err) {
     log.error(
       { eventType: event.type, error: err instanceof Error ? err.message : String(err) },
