@@ -9,25 +9,25 @@
 #
 # These manifests are safe to apply before runtimes are installed —
 # pods referencing an absent RuntimeClass simply won't schedule.
+#
+# Note: overhead and scheduling are applied post-deploy via kubectl, as the
+# Terraform kubernetes provider doesn't support these RuntimeClass fields.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─── Kubernetes Provider ────────────────────────────────────────────────────
 #
-# Uses the kubeconfig from the master node. Only active when sandbox
-# isolation is enabled (either gVisor or Kata).
+# Uses the K3s API on the master node. Only connects when sandbox
+# isolation is enabled (either gVisor or Kata). When both are false,
+# the provider is configured with a dummy host to avoid errors —
+# no resources will be created since all counts are 0.
 
 provider "kubernetes" {
-  host                   = var.enable_gvisor || var.enable_kata ? "https://${hcloud_server.master.ipv4_address}:6443" : null
-  token                  = var.enable_gvisor || var.enable_kata ? local.k3s_token : null
-  insecure               = true # K3s uses self-signed certs; in production use client_certificate
+  host     = var.enable_gvisor || var.enable_kata ? "https://${hcloud_server.master.ipv4_address}:6443" : "https://localhost"
+  token    = var.enable_gvisor || var.enable_kata ? local.k3s_token : "unused"
+  insecure = true
 }
 
 # ─── gVisor RuntimeClass ────────────────────────────────────────────────────
-#
-# gVisor (runsc) provides user-space kernel isolation. Works on standard
-# VPS nodes — no /dev/kvm or nested virt required.
-#
-# Install gVisor on workers first: bash infrastructure/scripts/install-gvisor.sh
 
 resource "kubernetes_runtime_class_v1" "gvisor" {
   count = var.enable_gvisor ? 1 : 0
@@ -41,22 +41,9 @@ resource "kubernetes_runtime_class_v1" "gvisor" {
   }
 
   handler = "runsc"
-
-  overhead {
-    pod_fixed = {
-      cpu    = "100m"
-      memory = "40Mi"
-    }
-  }
 }
 
 # ─── Kata + Cloud Hypervisor RuntimeClass ───────────────────────────────────
-#
-# Kata Containers with Cloud Hypervisor provides full MicroVM isolation.
-# Requires a dedicated bare-metal server with /dev/kvm access.
-#
-# Node selector ensures pods only land on labeled dedicated nodes.
-# Install Kata on the dedicated server: bash infrastructure/scripts/install-kata.sh
 
 resource "kubernetes_runtime_class_v1" "kata_clh" {
   count = var.enable_kata ? 1 : 0
@@ -70,17 +57,4 @@ resource "kubernetes_runtime_class_v1" "kata_clh" {
   }
 
   handler = "kata-clh"
-
-  overhead {
-    pod_fixed = {
-      cpu    = "250m"
-      memory = "160Mi"
-    }
-  }
-
-  scheduling {
-    node_selector = {
-      "jarble.ai/runtime-capable" = "kata"
-    }
-  }
 }

@@ -49,7 +49,7 @@ const BASE_URL = getArg("base-url", "http://localhost:3000");
 const API_URL = getArg("api-url", "http://localhost:3001");
 const MAX_CYCLES = parseInt(getArg("cycles", "0"), 10); // 0 = unlimited
 const VERBOSE = process.argv.includes("--verbose");
-const CYCLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes per cycle
+const CYCLE_TIMEOUT = parseInt(getArg("timeout", "90"), 10) * 60 * 1000; // default 90 minutes per cycle
 
 // ── State Management ─────────────────────────────────────────────────────
 
@@ -422,7 +422,7 @@ async function runCycle(state, env) {
       "-p", prompt,
       "--agent", "qa-orchestrator",
       "--dangerously-skip-permissions",
-      "--model", "opus",
+      "--model", getArg("model", "sonnet"),
     ];
 
     if (MAX_BUDGET > 0) {
@@ -441,7 +441,7 @@ async function runCycle(state, env) {
       log.agentEnd("qa-orchestrator", "COMPLETE");
     } catch (err) {
       if (err.killed) {
-        log.error("dispatch", "Cycle timed out (30 min limit)", err);
+        log.error("dispatch", `Cycle timed out (${CYCLE_TIMEOUT / 60000} min limit)`, err);
       } else if (err.stdout) {
         output = err.stdout;
         log.log("WARN", "dispatch", "Claude exited with non-zero status");
