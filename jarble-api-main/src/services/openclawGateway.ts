@@ -185,58 +185,25 @@ export async function chatViaGateway(
 
       // ── Event messages ──
       if (msg.type === "event") {
-        // Connect challenge — send auth with device identity
+        // Connect challenge — auth with token only (no device identity)
+        // OpenClaw's roleCanSkipDeviceIdentity allows operators with valid
+        // gateway tokens to connect without device pairing.
         if (msg.event === "connect.challenge") {
-          const nonce = msg.payload?.nonce;
           try {
-            const device = createDeviceIdentity();
-            const signedAtMs = Date.now();
-            const clientId = "webchat";
-            const mode = "webchat";
-            const role = "operator";
-            const scopes = [
-              "operator.admin",
-              "operator.write",
-              "operator.read",
-              "operator.approvals",
-              "operator.pairing",
-            ];
-
-            // Build signed payload: v2|deviceId|clientId|mode|role|scopes|signedAt|token|nonce
-            const payload = [
-              "v2",
-              device.deviceId,
-              clientId,
-              mode,
-              role,
-              scopes.join(","),
-              String(signedAtMs),
-              gatewayToken || "",
-              nonce || "",
-            ].join("|");
-            const signature = signPayload(device.privateKeyPem, payload);
-
             await sendRequest("connect", {
               minProtocol: 3,
               maxProtocol: 3,
               client: {
-                id: clientId,
+                id: "webchat",
                 version: "1.0",
                 platform: "server",
-                mode,
+                mode: "webchat",
                 instanceId: "jarble-api",
               },
-              role,
-              scopes,
+              role: "operator",
+              scopes: [],
               caps: [],
               auth: { token: gatewayToken },
-              device: {
-                id: device.deviceId,
-                publicKey: device.publicKeyB64,
-                signature,
-                signedAt: signedAtMs,
-                nonce,
-              },
             });
 
             connected = true;
