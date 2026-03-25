@@ -439,7 +439,7 @@ export const deploymentRouter = router({
             or(eq(users.freeDeploymentUsed, false), isNull(users.freeDeploymentUsed))
           ));
 
-      const claimRows = (claimResult as any)?.rowsAffected ?? (claimResult as any)?.changes ?? (claimResult as any)?.[0]?.affectedRows ?? 0;
+      const claimRows = (claimResult as any)?.rowCount ?? (claimResult as any)?.rowsAffected ?? (claimResult as any)?.changes ?? (claimResult as any)?.[0]?.affectedRows ?? 0;
       const isFree = claimRows > 0;
       const freeExpiresAt = isFree ? dbDate(freeTrialExpiryDate) : null;
 
@@ -673,7 +673,7 @@ export const deploymentRouter = router({
         ));
 
       // Check if update affected any rows (Drizzle returns different shapes per DB)
-      const rowsAffected = (result as any)?.rowsAffected ?? (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 0;
+      const rowsAffected = (result as any)?.rowCount ?? (result as any)?.rowsAffected ?? (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 0;
 
       if (rowsAffected === 0) {
         // Either deployment doesn't exist, user doesn't own it, or it's already deploying
