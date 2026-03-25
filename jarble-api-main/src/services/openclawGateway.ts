@@ -201,7 +201,7 @@ export async function chatViaGateway(
                 instanceId: "jarble-api",
               },
               role: "operator",
-              scopes: [],
+              scopes: ["operator.read", "operator.write"],
               caps: [],
               auth: { token: gatewayToken },
             });
