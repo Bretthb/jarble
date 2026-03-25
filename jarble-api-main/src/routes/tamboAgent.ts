@@ -1279,64 +1279,96 @@ tamboAgentRouter.post("/", async (req, res) => {
         return;
       }
 
-      // Don't emit external reasoning upfront on the gateway path — the bot's
-      // native thinking or <think> tags may arrive during streaming, and those
-      // are higher quality. emitGatewayResult() handles the fallback chain:
+      // Don't emit external reasoning upfront — the bot's native thinking or
+      // <think> tags may arrive during streaming, and those are higher quality.
+      // emitGatewayResult() handles the fallback chain:
       // native thinking > <think> tags > external reasoning.
       // The external reasoning promise is already resolving in the background.
 
-      const gatewayResult = await chatViaGateway(
-        {
-          ip: podAddr.ip,
-          port: podAddr.port,
-          gatewayToken: podAddr.gatewayToken,
+      // Shared onBlockDetected callback for both HTTP and WS paths
+      const onBlockDetected = async (block: JarbleUIBlock) => {
+        try {
+          const resolved = await resolveUIBlocks([block], deploymentId, managedBy);
+          for (const b of resolved) {
+            // Emit tool status for frontend indicator
+            const toolStatus = getToolStatus(b.component);
+            sendEvent(res, {
+              type: CUSTOM,
+              name: CUSTOM_TOOL_STATUS,
+              value: { status: toolStatus, component: b.component, toolCallId: b.id },
+            });
+            // AG-UI TOOL_CALL events
+            const toolCallId = b.id;
+            sendEvent(res, {
+              type: TOOL_CALL_START,
+              toolCallId,
+              toolCallName: `show_${b.component}`,
+              parentMessageId: messageId,
+              ...(b.editable ? { editable: true } : {}),
+              ...(b.fileId ? { fileId: b.fileId } : {}),
+              ...(b.saveMethod ? { saveMethod: b.saveMethod } : {}),
+              ...(b.layoutHint ? { layoutHint: b.layoutHint } : {}),
+              ...(b.dashboardId ? { dashboardId: b.dashboardId } : {}),
+              ...(b.dashboardTitle ? { dashboardTitle: b.dashboardTitle } : {}),
+            });
+            sendEvent(res, {
+              type: TOOL_CALL_ARGS,
+              toolCallId,
+              delta: JSON.stringify(b.props),
+            });
+            sendEvent(res, { type: TOOL_CALL_END, toolCallId });
+          }
+        } catch (err: unknown) {
+          log.warn({ deploymentId, blockId: block.id, error: err instanceof Error ? err.message : String(err) }, "Chat: failed to emit streamed UI block");
+        }
+      };
+
+      const onDelta = (fullTextSoFar: string) => {
+        if (fullTextSoFar.length > lastDeltaText.length) {
+          emitStreamingDelta(fullTextSoFar);
+        }
+      };
+
+      // Primary path: HTTP chat completions — true per-token streaming via
+      // OpenClaw's OpenAI-compatible /v1/chat/completions endpoint.
+      // Falls back to WS gateway if HTTP fails (e.g. endpoint not available
+      // on older OpenClaw versions).
+      let gatewayResult: GatewayResponse;
+      try {
+        gatewayResult = await chatViaHTTP(
+          {
+            ip: podAddr.ip,
+            port: podAddr.port,
+            gatewayToken: podAddr.gatewayToken,
+            sessionKey,
+          },
+          messageWithVision,
           sessionKey,
-        },
-        messageWithVision,
-        (fullTextSoFar) => {
-          if (fullTextSoFar.length > lastDeltaText.length) {
-            emitStreamingDelta(fullTextSoFar);
-          }
-        },
-        abortController.signal,
-        // Emit UI blocks as soon as they're detected during streaming (before response finishes)
-        async (block) => {
-          try {
-            const resolved = await resolveUIBlocks([block], deploymentId, managedBy);
-            for (const b of resolved) {
-              // Emit tool status for frontend indicator
-              const toolStatus = getToolStatus(b.component);
-              sendEvent(res, {
-                type: CUSTOM,
-                name: CUSTOM_TOOL_STATUS,
-                value: { status: toolStatus, component: b.component, toolCallId: b.id },
-              });
-              // AG-UI TOOL_CALL events
-              const toolCallId = b.id;
-              sendEvent(res, {
-                type: TOOL_CALL_START,
-                toolCallId,
-                toolCallName: `show_${b.component}`,
-                parentMessageId: messageId,
-                ...(b.editable ? { editable: true } : {}),
-                ...(b.fileId ? { fileId: b.fileId } : {}),
-                ...(b.saveMethod ? { saveMethod: b.saveMethod } : {}),
-                ...(b.layoutHint ? { layoutHint: b.layoutHint } : {}),
-                ...(b.dashboardId ? { dashboardId: b.dashboardId } : {}),
-                ...(b.dashboardTitle ? { dashboardTitle: b.dashboardTitle } : {}),
-              });
-              sendEvent(res, {
-                type: TOOL_CALL_ARGS,
-                toolCallId,
-                delta: JSON.stringify(b.props),
-              });
-              sendEvent(res, { type: TOOL_CALL_END, toolCallId });
-            }
-          } catch (err: unknown) {
-            log.warn({ deploymentId, blockId: block.id, error: err instanceof Error ? err.message : String(err) }, "Chat: failed to emit streamed UI block");
-          }
-        },
-      );
+          onDelta,
+          abortController.signal,
+          onBlockDetected,
+        );
+      } catch (httpErr: unknown) {
+        const httpE = httpErr instanceof Error ? httpErr : new Error(String(httpErr));
+        if (httpE.name === "AbortError" || abortController.signal.aborted) throw httpE;
+        log.warn({ deploymentId, error: httpE.message }, "chatViaHTTP failed, falling back to WS gateway");
+        // Reset delta tracking for fallback path
+        lastDeltaText = "";
+        inFencedBlock = false;
+        fenceBuffer = "";
+        gatewayResult = await chatViaGateway(
+          {
+            ip: podAddr.ip,
+            port: podAddr.port,
+            gatewayToken: podAddr.gatewayToken,
+            sessionKey,
+          },
+          messageWithVision,
+          onDelta,
+          abortController.signal,
+          onBlockDetected,
+        );
+      }
 
       await emitGatewayResult(gatewayResult);
       return;
@@ -1349,7 +1381,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       // On connection-level errors, fall back to exec through K8s API
       const isConnectionError = /ETIMEDOUT|ECONNREFUSED|ECONNRESET|handshake|closed before auth|auth failed|origin not allowed/i.test(e.message);
       if (isConnectionError && attempt < MAX_ATTEMPTS - 1) {
-        log.warn({ deploymentId, attempt, error: e.message }, "Gateway WS failed, falling back to exec (npx openclaw agent)");
+        log.warn({ deploymentId, attempt, error: e.message }, "HTTP+WS gateway failed, falling back to exec (npx openclaw agent)");
         lastDeltaText = "";
         inFencedBlock = false;
         fenceBuffer = "";

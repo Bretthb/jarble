@@ -2114,7 +2114,7 @@ export const deploymentRouter = router({
           role: m.role,
           content: m.content,
           thinkingText: m.thinkingText || null,
-          createdAt: new Date(m.createdAt).toISOString(),
+          createdAt: dbDate(new Date(m.createdAt)),
         }));
         await ctx.db.insert(chatMessages).values(rows as any);
       }

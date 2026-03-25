@@ -22,6 +22,11 @@
 - storageMb field is actually GB (historical naming, documented in code)
 - Rate limiting: 3 tiers (global 300/min, auth 120/min, stripe 10/min)
 
+## Critical Patterns Found (2026-03-25)
+- `process.cwd()` file paths break in Docker: source uses `src/` but container has `dist/`. Always use `__dirname` + relative path (e.g. `resolve(__dirname, "../../mcp/jarble-ui-server.js")`)
+- PostgreSQL timestamp columns require `Date` objects via `dbDate()`, not ISO strings. Drizzle calls `.toISOString()` internally on timestamp values, so passing a string causes "value.toISOString is not a function"
+- MCP server (`jarble-ui-server.js`) must be deployed to `/data/config/mcp/` on pods. Without it, Library button 500s. The file is included by `renderConfigs()` in openclaw handler.
+
 ## Known Bug Areas (updated 2026-02-26)
 See `audit-findings.md` for full details (5 critical, 6 high, 7 medium, 6 low).
 Critical:

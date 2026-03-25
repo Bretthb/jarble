@@ -126,6 +126,11 @@ export function useCanvasChat(
   const targetReasoningRef = useRef<string>("");
   const displayedReasoningLenRef = useRef<number>(0);
   // reasoningRafIdRef removed — merged into single rafIdRef loop
+  // Resolve function: called by the typewriter tick when it catches up to the
+  // final target text after the stream has ended. This lets the typewriter finish
+  // its reveal animation instead of jumping to the end. The corresponding Promise
+  // is awaited in finally{} so streaming state isn't cleared prematurely.
+  const typewriterDoneRef = useRef<(() => void) | null>(null);
   // Design intent tracking — persists style choices across the session
   const designContextRef = useRef<Record<string, unknown> | null>(null);
   const CHARS_PER_FRAME = 8; // ~480 chars/sec at 60fps — fast but visible
@@ -528,6 +533,12 @@ export function useCanvasChat(
               rafIdRef.current = requestAnimationFrame(tick);
             } else {
               rafIdRef.current = null;
+              // If the stream has ended and the typewriter has caught up, fire the done callback
+              if (typewriterDoneRef.current) {
+                const cb = typewriterDoneRef.current;
+                typewriterDoneRef.current = null;
+                cb();
+              }
             }
           }
           rafIdRef.current = requestAnimationFrame(tick);
@@ -888,28 +899,38 @@ export function useCanvasChat(
           blockStartTimes.clear();
         }
 
-        // Cancel pending rAF and flush the final text immediately
-        if (rafIdRef.current !== null) {
-          cancelAnimationFrame(rafIdRef.current);
-          rafIdRef.current = null;
-        }
-        setStreamingText(stripUIMarkers(accumulatedText));
-        setStreamingReasoning(reasoningText);
-
-        // After streaming ends: add bot text to chat messages (NOT canvas)
+        // Let the typewriter finish its reveal animation before finalizing.
+        // If text arrived in a few large chunks, the rAF loop may still be
+        // animating. We create a promise that resolves once the typewriter
+        // catches up, then await it in finally{} so streaming state isn't
+        // cleared before the user sees the full progressive text reveal.
         const cleanText = stripUIMarkers(accumulatedText);
-        if (cleanText) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `${messageId}-assistant`,
-              role: "assistant",
-              content: cleanText,
-              createdAt: Date.now(),
-              ...(reasoningText ? { reasoning: reasoningText } : {}),
-            },
-          ]);
+        const addAssistantMessage = () => {
+          if (cleanText) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `${messageId}-assistant`,
+                role: "assistant",
+                content: cleanText,
+                createdAt: Date.now(),
+                ...(reasoningText ? { reasoning: reasoningText } : {}),
+              },
+            ]);
+          }
+        };
+
+        if (rafIdRef.current !== null) {
+          // Typewriter is still animating — wait for it to catch up.
+          // The tick() function calls typewriterDoneRef.current when needsMore becomes false.
+          await new Promise<void>((resolve) => {
+            typewriterDoneRef.current = resolve;
+          });
         }
+        // Typewriter caught up — flush final text and add the message
+        setStreamingText(cleanText);
+        setStreamingReasoning(reasoningText);
+        addAssistantMessage();
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
           isDev && console.log(`[Jarble:Chat] SSE aborted after ${Date.now() - streamStart}ms`);
@@ -943,7 +964,10 @@ export function useCanvasChat(
         // The generation check prevents the abort race: when request A is aborted
         // and request B starts, A's finally must not clear B's streaming state.
         if (generationRef.current === generation) {
-          // Cancel pending rAF to prevent stale updates
+          // In the happy path the typewriter has already finished (we awaited
+          // its promise in the try block). In error/abort paths it may still
+          // be running — cancel it to prevent stale updates.
+          typewriterDoneRef.current = null;
           if (rafIdRef.current !== null) {
             cancelAnimationFrame(rafIdRef.current);
             rafIdRef.current = null;

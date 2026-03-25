@@ -27,8 +27,9 @@ export function getPlatformSkills(): {
 } {
   try {
     // Read the MCP server file and extract BOT_SKILLS
-    // Resolve relative to project root (works with tsx in both CJS and ESM mode)
-    const mcpPath = resolve(process.cwd(), "src/mcp/jarble-ui-server.js");
+    // Resolve relative to this file (__dirname) so the path works both in local
+    // dev (src/skills/) and in the Docker container (dist/.../skills/).
+    const mcpPath = resolve(__dirname, "../mcp/jarble-ui-server.js");
     const mcpSource = readFileSync(mcpPath, "utf-8");
 
     // Find BOT_SKILLS object boundaries

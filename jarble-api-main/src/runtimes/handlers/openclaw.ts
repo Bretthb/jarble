@@ -27,7 +27,7 @@
 
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type {
   RuntimeHandler,
   RuntimeCapabilities,
@@ -49,8 +49,12 @@ const log = createModuleLogger("runtime:openclaw");
 let MCP_SERVER_SCRIPT = "";
 let MCP_SERVER_HASH = "";
 try {
+  // Resolve relative to this file (__dirname) so the path works both in local
+  // dev (src/runtimes/handlers/) and in the Docker container (dist/.../runtimes/handlers/).
+  // The old `process.cwd()` approach broke in Docker where cwd=/app but the compiled
+  // output lives under /app/dist/jarble-api-main/src/.
   MCP_SERVER_SCRIPT = readFileSync(
-    join(process.cwd(), "src", "mcp", "jarble-ui-server.js"),
+    resolve(__dirname, "../../mcp/jarble-ui-server.js"),
     "utf-8"
   );
   MCP_SERVER_HASH = createHash("sha256").update(MCP_SERVER_SCRIPT).digest("hex").slice(0, 12);
