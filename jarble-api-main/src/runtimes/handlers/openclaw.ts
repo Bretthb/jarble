@@ -488,7 +488,7 @@ export const openclawHandler: RuntimeHandler = {
       http: { endpoints: { chatCompletions: { enabled: true } } },
       controlUi: {
         dangerouslyAllowHostHeaderOriginFallback: true,
-        allowedOrigins: ["*"],
+        dangerouslyDisableDeviceAuth: true,
       },
     };
     if (deployment.gatewayToken) {
