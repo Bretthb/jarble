@@ -15,31 +15,16 @@
       }
     },
     "playwright": {
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest"]
-    },
-    "node-debugger": {
-      "command": "npx",
-      "args": ["-y", "@hyperdrive-eng/mcp-nodejs-debugger"]
+      "command": "C:\\nvm4w\\nodejs\\node.exe",
+      "args": ["C:\\nvm4w\\nodejs\\node_modules\\npm\\bin\\npx-cli.js", "-y", "@playwright/mcp@latest"]
     },
     "chrome-devtools": {
-      "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest", "--autoConnect"]
-    },
-    "task-master-ai": {
-      "command": "npx",
-      "args": ["-y", "task-master-ai"],
-      "env": {
-        "TASK_MASTER_TOOLS": "all"
-      }
-    },
-    "kubernetes": {
-      "command": "npx",
-      "args": ["-y", "mcp-server-kubernetes"]
+      "command": "C:\\nvm4w\\nodejs\\node.exe",
+      "args": ["C:\\nvm4w\\nodejs\\node_modules\\npm\\bin\\npx-cli.js", "-y", "chrome-devtools-mcp@latest", "--autoConnect"]
     },
     "sentry": {
-      "command": "npx",
-      "args": ["-y", "@sentry/mcp-server-stdio"]
+      "command": "C:\\nvm4w\\nodejs\\node.exe",
+      "args": ["C:\\nvm4w\\nodejs\\node_modules\\npm\\bin\\npx-cli.js", "-y", "@sentry/mcp-server@latest", "--access-token", "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"]
     }
   },
   "hooks": {
