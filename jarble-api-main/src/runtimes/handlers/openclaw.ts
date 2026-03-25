@@ -486,7 +486,10 @@ export const openclawHandler: RuntimeHandler = {
       mode: "local",
       port: 18789,
       http: { endpoints: { chatCompletions: { enabled: true } } },
-      controlUi: { dangerouslyAllowHostHeaderOriginFallback: true },
+      controlUi: {
+        dangerouslyAllowHostHeaderOriginFallback: true,
+        allowedOrigins: ["*"],
+      },
     };
     if (deployment.gatewayToken) {
       gatewayConfig.auth = { token: deployment.gatewayToken };
