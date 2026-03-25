@@ -36,6 +36,14 @@
       "env": {
         "DEBUG": "auth0-mcp"
       }
+    },
+    "neon": {
+      "type": "http",
+      "url": "https://mcp.neon.tech/mcp"
+    },
+    "terraform": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "TFE_TOKEN", "hashicorp/terraform-mcp-server:latest"]
     }
   },
   "hooks": {

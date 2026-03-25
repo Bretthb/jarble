@@ -248,6 +248,45 @@ Auth0 Management API access via MCP. Manage applications, users, actions, logs, 
 
 The Auth0 MCP requires you to run `mcp__auth0__auth0_save_credentials_to_file` once to authenticate. Credentials are cached locally.
 
+### neon
+
+Neon PostgreSQL management — list projects, branches, databases, run SQL, manage roles. Uses Neon's hosted MCP server with OAuth authentication (browser-based, no API key needed).
+
+```json
+{
+  "type": "http",
+  "url": "https://mcp.neon.tech/mcp"
+}
+```
+
+On first use, it opens a browser for OAuth consent. To use API key auth instead, add headers:
+```json
+{
+  "type": "http",
+  "url": "https://mcp.neon.tech/mcp",
+  "headers": { "Authorization": "Bearer <NEON_API_KEY>" }
+}
+```
+
+### terraform
+
+HashiCorp Terraform MCP server — access Terraform registry, provider docs, module schemas. Useful for planning infrastructure changes. Requires Docker.
+
+```json
+{
+  "command": "docker",
+  "args": ["run", "-i", "--rm", "-e", "TFE_TOKEN", "hashicorp/terraform-mcp-server:latest"]
+}
+```
+
+Set `TFE_TOKEN` environment variable if using HCP Terraform / Terraform Cloud.
+
+### Not available (no official MCP)
+
+- **Hetzner Cloud** — no official MCP server. Use `hcloud` CLI or Terraform instead.
+- **Cloudflare** — DNS is managed via Cloudflare dashboard or Terraform.
+- **Longhorn** — managed via kubectl or Longhorn UI at `http://<master-ip>:30080`.
+
 ---
 
 ## 4. Environment Variables Reference
