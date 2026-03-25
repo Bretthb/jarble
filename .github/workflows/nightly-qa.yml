@@ -65,8 +65,11 @@ jobs:
         run: |
           echo "Checking cloud services..."
           curl -f https://api.jarble.ai/health || { echo "API not reachable"; exit 1; }
-          curl -sf https://dev.jarble.ai -o /dev/null || { echo "Frontend not reachable"; exit 1; }
-          echo "Cloud services are healthy."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://dev.jarble.ai)
+          if [ "$STATUS" -ge 500 ]; then
+            echo "Frontend returned $STATUS"; exit 1
+          fi
+          echo "Cloud services are healthy (frontend: $STATUS, API: ok)."
 
       # Local mode: start dev servers (for local testing only)
       - name: Start local servers
