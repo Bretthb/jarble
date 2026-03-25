@@ -183,6 +183,11 @@ export async function chatViaGateway(
         return;
       }
 
+      // Debug: log all WS message types/events to understand streaming behavior
+      if (connected) {
+        log.debug({ type: msg.type, event: msg.event, state: msg.payload?.state, hasText: !!extractText(msg.payload?.message) }, "Gateway: WS message received");
+      }
+
       // ── Event messages ──
       if (msg.type === "event") {
         // Connect challenge — authenticate as Control UI with device identity.
