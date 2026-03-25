@@ -349,6 +349,33 @@ IMPORTANT: Do NOT inject localStorage. Log in through the real Auth0 UI using Pl
     prompt += `\nCUMULATIVE: ${lastRun.cumulativePass} pass, ${lastRun.cumulativeFail} fail across ${lastRun.runCount} runs\n`;
   }
 
+  prompt += `
+CRITICAL OUTPUT REQUIREMENT:
+Your FINAL message MUST end with the structured summary block. This is parsed by the runner.
+Do NOT use natural language for the summary — use EXACTLY this format:
+
+=== QA CYCLE COMPLETE ===
+TIMESTAMP: [ISO timestamp]
+GIT SHA: ${currentSha}
+DURATION: [total time]
+
+RESULTS:
+  Goals tested: [N]
+  Passed: [N]
+  Failed: [N]
+  Warned: [N]
+  Skipped: [N]
+
+FAILURES:
+  - [goal]: [brief description]
+
+KEY FINDINGS:
+  - [important discoveries]
+=== END CYCLE ===
+
+If you tested 0 goals, still emit the block with zeros. The runner CANNOT parse your results without this block.
+`;
+
   return prompt;
 }
 
@@ -423,6 +450,7 @@ async function runCycle(state, env) {
       "--agent", "qa-orchestrator",
       "--dangerously-skip-permissions",
       "--model", getArg("model", "sonnet"),
+      "--output-format", "text",
     ];
 
     if (MAX_BUDGET > 0) {
@@ -498,6 +526,20 @@ async function runCycle(state, env) {
       log.log("INFO", "summary", `Goals: ${summary.total} | Pass: ${summary.passed} | Fail: ${summary.failed} | Warn: ${summary.warned} | Skip: ${summary.skipped}`);
     } else {
       log.log("WARN", "summary", "Could not parse structured cycle summary from output");
+
+      // Fallback: count HTTP status checks and pass/fail keywords
+      if (output) {
+        const httpPasses = (output.match(/\b(200|HTTP\s*200|✓)\b/g) || []).length;
+        const httpFails = (output.match(/\b(500|404|403|FAIL|error|Error)\b/gi) || []).length;
+        if (httpPasses > 0 || httpFails > 0) {
+          summary.passed = httpPasses;
+          summary.failed = httpFails;
+          summary.total = httpPasses + httpFails;
+          state.cumulativePass += summary.passed;
+          state.cumulativeFail += summary.failed;
+          log.log("INFO", "summary", `Fallback parse — Pass: ${summary.passed} | Fail: ${summary.failed} (from HTTP status codes)`);
+        }
+      }
     }
 
     // Update state
