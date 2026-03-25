@@ -13,8 +13,10 @@
  *   --focus <area>         Focus on specific area (e.g., "wizard", "chat", "api")
  *   --max-budget <usd>     Max cost per cycle in USD (default: 50)
  *   --nightly-budget <usd> Max total cost for the entire night (default: 200)
- *   --base-url <url>       Frontend URL (default: http://localhost:3000)
- *   --api-url <url>        API URL (default: http://localhost:3001)
+ *   --base-url <url>       Frontend URL (default: https://dev.jarble.ai)
+ *   --api-url <url>        API URL (default: https://api.jarble.ai)
+ *   --auth0-domain <dom>   Auth0 domain (default: jarble-dev.us.auth0.com)
+ *   --auth0-client-id <id> Auth0 SPA client ID
  *   --cycles <n>           Max number of cycles (default: unlimited)
  *   --verbose              Show full Claude output
  */
@@ -45,8 +47,8 @@ const INTERVAL_MIN = parseInt(getArg("interval", "45"), 10);
 const FOCUS = getArg("focus", "");
 const MAX_BUDGET = parseFloat(getArg("max-budget", "50"));
 const NIGHTLY_BUDGET = parseFloat(getArg("nightly-budget", "200"));
-const BASE_URL = getArg("base-url", "http://localhost:3000");
-const API_URL = getArg("api-url", "http://localhost:3001");
+const BASE_URL = getArg("base-url", "https://dev.jarble.ai");
+const API_URL = getArg("api-url", "https://api.jarble.ai");
 const MAX_CYCLES = parseInt(getArg("cycles", "0"), 10); // 0 = unlimited
 const VERBOSE = process.argv.includes("--verbose");
 const CYCLE_TIMEOUT = parseInt(getArg("timeout", "90"), 10) * 60 * 1000; // default 90 minutes per cycle
@@ -99,9 +101,9 @@ function loadEnv() {
 
 // ── Auth Token ───────────────────────────────────────────────────────────
 
-const AUTH0_DOMAIN = "jarble-dev.us.auth0.com";
-const AUTH0_CLIENT_ID = "1VR30862RmZIFR44UIM8aVHYEt3K2Rsh";
-const AUTH0_AUDIENCE = "https://api.jarble.ai";
+const AUTH0_DOMAIN = getArg("auth0-domain", process.env.AUTH0_DOMAIN || "jarble-dev.us.auth0.com");
+const AUTH0_CLIENT_ID = getArg("auth0-client-id", process.env.AUTH0_CLIENT_ID || "1VR30862RmZIFR44UIM8aVHYEt3K2Rsh");
+const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE || "https://api.jarble.ai";
 
 /**
  * Get a fresh Auth0 token via M2M Client Credentials Grant.
