@@ -75,7 +75,7 @@ export const apiKeysRouter = router({
       const keyPrefix = rawKey.slice(0, 12); // "jrbl_" + first 7 chars of random
 
       const expiresAt = input.expiresInDays
-        ? new Date(Date.now() + input.expiresInDays * 86_400_000).toISOString()
+        ? new Date(Date.now() + input.expiresInDays * 86_400_000)
         : null;
 
       // Generate a stable ID since MySQL doesn't have RETURNING
@@ -128,7 +128,7 @@ export const apiKeysRouter = router({
       }
 
       await db.update(tables.apiKeys)
-        .set({ revokedAt: new Date().toISOString() } as any)
+        .set({ revokedAt: new Date() } as any)
         .where(eq(tables.apiKeys.id, input.keyId));
 
       log.info({ userId: ctx.user.id, keyId: input.keyId }, "API key revoked");
