@@ -16,7 +16,7 @@ import { Router } from "express";
 import { timingSafeEqual } from "crypto";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
-import { db, tables } from "../db/index.js";
+import { db, tables, dbDate } from "../db/index.js";
 import { markDeploymentActive, markDeploymentIdle } from "../services/configSync.js";
 import { env } from "../utils/env.js";
 import { createModuleLogger } from "../utils/logger.js";
@@ -794,10 +794,22 @@ tamboAgentRouter.post("/", async (req, res) => {
     return originalEnd(...args);
   }) as typeof res.end;
 
+  // Track client disconnect — when client navigates away, we stop sending SSE
+  // events but let the bot finish so we can persist the response to DB.
+  let clientDisconnected = false;
+
   req.on("close", () => {
     log.debug({ deploymentId, threadId }, "Chat client disconnected");
+    clientDisconnected = true;
     cleanupChat();
-    abortController.abort();
+    // DON'T abort — let the bot finish so we can save the response.
+    // Only abort if the request has been running for more than 5 minutes (orphan safety).
+    setTimeout(() => {
+      if (!abortController.signal.aborted) {
+        log.info({ deploymentId }, "Orphaned chat request timed out after 5 min");
+        abortController.abort();
+      }
+    }, 5 * 60 * 1000);
   });
 
   req.on("error", (err: Error) => {
@@ -811,6 +823,14 @@ tamboAgentRouter.post("/", async (req, res) => {
     cleanupTimers();
     abortController.abort();
   });
+
+  // ── Safe SSE write — skip writes when client has disconnected ──────────────
+  /** Wrapper around sendEvent that silently drops writes when the client is gone. */
+  const safeSendEvent = (r: any, data: Record<string, unknown>) => {
+    if (!clientDisconnected && !r.writableEnded) {
+      sendEvent(r, data);
+    }
+  };
 
   // ── Pod Proxy — WebSocket to OpenClaw gateway (streaming) ───────────────────
 
@@ -839,20 +859,20 @@ tamboAgentRouter.post("/", async (req, res) => {
   }
 
   const messageId = nanoid();
-  sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
+  safeSendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
 
   // Arm the master timeout now that messageId is defined
   masterTimeout = setTimeout(() => {
-    if (res.writableEnded) return;
+    if (clientDisconnected || res.writableEnded) return;
     log.warn({ deploymentId, threadId }, "Chat SSE master timeout (5 min) — closing connection");
-    sendEvent(res, {
+    safeSendEvent(res, {
       type: "TEXT_MESSAGE_CONTENT",
       messageId,
       delta: "\n\nSorry, the request timed out. The bot may be processing a complex task — please try again.",
     });
-    sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-    sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-    res.end();
+    safeSendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+    safeSendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+    if (!clientDisconnected) res.end();
     abortController.abort();
   }, MASTER_TIMEOUT_MS);
 
@@ -862,7 +882,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   // can show an inline "Delegating to X Agent..." indicator.
   const onAgentCallStart = (evt: AgentCallStartEvent) => {
     if (evt.deploymentId !== deploymentId) return;
-    sendEvent(res, {
+    safeSendEvent(res, {
       type: CUSTOM,
       name: CUSTOM_AGENT_CALL_START,
       value: { serviceId: evt.serviceId, skillName: evt.skillName, agentName: evt.agentName },
@@ -870,7 +890,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   };
   const onAgentCallEnd = (evt: AgentCallEndEvent) => {
     if (evt.deploymentId !== deploymentId) return;
-    sendEvent(res, {
+    safeSendEvent(res, {
       type: CUSTOM,
       name: CUSTOM_AGENT_CALL_END,
       value: { serviceId: evt.serviceId, skillName: evt.skillName, agentName: evt.agentName, creditsCharged: evt.creditsCharged, success: evt.success },
@@ -891,6 +911,44 @@ tamboAgentRouter.post("/", async (req, res) => {
   const convId = body.conversationId || "";
   const sessionKey = `jarble-web-${authenticatedUserId || "anon"}${convId ? `-${convId}` : ""}`;
 
+  // ── Persist user message to DB immediately ──────────────────────────────────
+  // Fire-and-forget: save the user message before starting the bot request so
+  // it survives client disconnects. DB operations must not block the SSE stream.
+  {
+    const now = dbDate();
+    // Upsert chat session — create if it doesn't exist
+    db.query.chatSessions.findFirst({
+      where: eq(tables.chatSessions.id, sessionKey),
+    }).then(async (existing) => {
+      if (existing) {
+        await db.update(tables.chatSessions)
+          .set({ updatedAt: now } as any)
+          .where(eq(tables.chatSessions.id, sessionKey));
+      } else {
+        await db.insert(tables.chatSessions).values({
+          id: sessionKey,
+          deploymentId,
+          title: lastUserText.slice(0, 50),
+          createdAt: now,
+          updatedAt: now,
+        } as any);
+      }
+    }).catch((err: unknown) => {
+      log.warn({ err: err instanceof Error ? err.message : String(err), sessionKey }, "Failed to upsert chat session");
+    });
+
+    // Save user message
+    db.insert(tables.chatMessages).values({
+      id: nanoid(),
+      sessionId: sessionKey,
+      role: "user",
+      content: lastUserText,
+      createdAt: now,
+    } as any).catch((err: unknown) => {
+      log.warn({ err: err instanceof Error ? err.message : String(err), sessionKey }, "Failed to persist user message");
+    });
+  }
+
   // ── Reasoning / Thinking ──────────────────────────────────────────────────
   // 3-tier strategy ensures every response gets a visible "thinking" block:
   //   1. Native thinking — extracted from OpenClaw's LLM response (highest quality)
@@ -909,9 +967,9 @@ tamboAgentRouter.post("/", async (req, res) => {
     if (reasoningEmitted || !content) return;
     reasoningEmitted = true;
     log.debug({ deploymentId, source, length: content.length }, "Chat: emitting reasoning");
-    sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
-    sendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta: content });
-    sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
+    safeSendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
+    safeSendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta: content });
+    safeSendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
   };
 
   /** Emit external reasoning as fallback (once). */
@@ -940,17 +998,17 @@ tamboAgentRouter.post("/", async (req, res) => {
       onReasoningStart: () => {
         if (!reasoningEmitted) {
           reasoningEmitted = true;
-          sendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
+          safeSendEvent(res, { type: REASONING_START, messageId: reasoningMsgId });
         }
       },
       onReasoningContent: (delta) => {
         if (reasoningEmitted && reasoningTracker.state.started) {
-          sendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta });
+          safeSendEvent(res, { type: REASONING_CONTENT, messageId: reasoningMsgId, delta });
         }
       },
       onReasoningEnd: () => {
         if (reasoningTracker.state.started) {
-          sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
+          safeSendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
         }
       },
     });
@@ -1000,7 +1058,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
       const cleaned = textToSend.replace(/\n{3,}/g, "\n\n");
       if (cleaned.trim()) {
-        sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: cleaned });
+        safeSendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: cleaned });
       }
     }
     lastDeltaText = fullTextSoFar;
@@ -1019,7 +1077,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
     // If reasoning was still open when the response ended, close it
     if (reasoningTracker.state.inReasoning && reasoningTracker.state.started) {
-      sendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
+      safeSendEvent(res, { type: REASONING_END, messageId: reasoningMsgId });
     }
 
     // ── Reasoning fallback chain ──
@@ -1043,11 +1101,11 @@ tamboAgentRouter.post("/", async (req, res) => {
 
     // Notify the user if the response was truncated by a timeout
     if (gatewayResult.timedOut) {
-      sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "\n\n---\n*Response was cut short due to a timeout. The bot may have been processing a complex request — try breaking it into smaller parts.*" });
+      safeSendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "\n\n---\n*Response was cut short due to a timeout. The bot may have been processing a complex request — try breaking it into smaller parts.*" });
       log.warn({ deploymentId, textLength: gatewayResult.rawText.length }, "Chat: response truncated by gateway timeout");
     }
 
-    sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+    safeSendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
 
     log.info(
       {
@@ -1063,7 +1121,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     if (resolvedBlocks.length > 0) {
       log.debug({ deploymentId, blockCount: resolvedBlocks.length, customCount }, "Chat: resolved UI blocks");
       // Emit orchestration steps so the frontend shows what's being rendered
-      sendEvent(res, {
+      safeSendEvent(res, {
         type: CUSTOM,
         name: "jarble.orchestration.steps",
         value: {
@@ -1083,12 +1141,12 @@ tamboAgentRouter.post("/", async (req, res) => {
       const toolCallId = block.id;
       // Emit tool status for frontend indicator
       const toolStatus = getToolStatus(block.component);
-      sendEvent(res, {
+      safeSendEvent(res, {
         type: CUSTOM,
         name: CUSTOM_TOOL_STATUS,
         value: { status: toolStatus, component: block.component, toolCallId },
       });
-      sendEvent(res, {
+      safeSendEvent(res, {
         type: TOOL_CALL_START,
         toolCallId,
         toolCallName: `show_${block.component}`,
@@ -1100,12 +1158,12 @@ tamboAgentRouter.post("/", async (req, res) => {
         ...(block.dashboardId ? { dashboardId: block.dashboardId } : {}),
         ...(block.dashboardTitle ? { dashboardTitle: block.dashboardTitle } : {}),
       });
-      sendEvent(res, {
+      safeSendEvent(res, {
         type: TOOL_CALL_ARGS,
         toolCallId,
         delta: JSON.stringify(block.props),
       });
-      sendEvent(res, { type: TOOL_CALL_END, toolCallId });
+      safeSendEvent(res, { type: TOOL_CALL_END, toolCallId });
     }
 
     // Emit dashboard grouping events
@@ -1118,7 +1176,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       }
     }
     for (const [dashboardId, group] of dashboardGroups) {
-      sendEvent(res, {
+      safeSendEvent(res, {
         type: CUSTOM,
         name: CUSTOM_DASHBOARD_CREATED,
         value: { dashboardId, title: group.title, cardIds: group.cardIds },
@@ -1128,7 +1186,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     // Emit card updates as AG-UI CUSTOM events
     if (gatewayResult.uiUpdates) {
       for (const update of gatewayResult.uiUpdates) {
-        sendEvent(res, {
+        safeSendEvent(res, {
           type: CUSTOM,
           name: CUSTOM_CARD_UPDATE,
           value: {
@@ -1139,7 +1197,7 @@ tamboAgentRouter.post("/", async (req, res) => {
           },
         });
         // Also emit artifact updated for live data subscriptions
-        sendEvent(res, {
+        safeSendEvent(res, {
           type: CUSTOM,
           name: CUSTOM_ARTIFACT_UPDATED,
           value: {
@@ -1159,7 +1217,7 @@ tamboAgentRouter.post("/", async (req, res) => {
           log.warn({ deploymentId, name: def.name, error: err instanceof Error ? err.message : String(err) }, "Failed to save component definition to PVC");
         });
 
-        sendEvent(res, {
+        safeSendEvent(res, {
           type: CUSTOM,
           name: CUSTOM_COMPONENT_DEFINED,
           value: {
@@ -1174,7 +1232,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
     // Emit design context if the bot updated it this turn
     if (gatewayResult.designContext) {
-      sendEvent(res, {
+      safeSendEvent(res, {
         type: CUSTOM,
         name: CUSTOM_DESIGN_CONTEXT,
         value: gatewayResult.designContext,
@@ -1184,7 +1242,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
     // Emit suggestions — use bot's own suggestions if present, otherwise generate via secondary model
     if (gatewayResult.suggestions && gatewayResult.suggestions.length > 0) {
-      sendEvent(res, {
+      safeSendEvent(res, {
         type: CUSTOM,
         name: CUSTOM_SUGGESTIONS,
         value: { suggestions: gatewayResult.suggestions.map(s => ({ prompt: s })) },
@@ -1195,7 +1253,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       try {
         const generated = await generateSuggestions(lastUserText, gatewayResult.text);
         if (generated.length > 0) {
-          sendEvent(res, {
+          safeSendEvent(res, {
             type: CUSTOM,
             name: CUSTOM_SUGGESTIONS,
             value: { suggestions: generated.map(s => ({ prompt: s })) },
@@ -1214,8 +1272,42 @@ tamboAgentRouter.post("/", async (req, res) => {
       "Chat: request completed"
     );
 
-    sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-    res.end();
+    // ── Persist assistant message to DB ──────────────────────────────────────
+    // Fire-and-forget: save the complete bot response so it survives client disconnects.
+    const cleanResponse = stripReasoningTags(gatewayResult.text);
+    if (cleanResponse) {
+      const now = dbDate();
+      // Upsert chat session (may already exist from user message save)
+      db.query.chatSessions.findFirst({
+        where: eq(tables.chatSessions.id, sessionKey),
+      }).then(async (existing) => {
+        if (!existing) {
+          await db.insert(tables.chatSessions).values({
+            id: sessionKey,
+            deploymentId,
+            title: lastUserText.slice(0, 50),
+            createdAt: now,
+            updatedAt: now,
+          } as any);
+        }
+      }).catch((err: unknown) => {
+        log.warn({ err: err instanceof Error ? err.message : String(err) }, "Failed to upsert chat session for assistant message");
+      });
+
+      db.insert(tables.chatMessages).values({
+        id: nanoid(),
+        sessionId: sessionKey,
+        role: "assistant",
+        content: cleanResponse,
+        thinkingText: gatewayResult.nativeThinking || null,
+        createdAt: now,
+      } as any).catch((err: unknown) => {
+        log.warn({ err: err instanceof Error ? err.message : String(err), sessionKey }, "Failed to persist assistant message");
+      });
+    }
+
+    safeSendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+    if (!clientDisconnected) res.end();
   };
 
   // Helper: run chat via exec (kubectl exec into pod)
@@ -1251,11 +1343,11 @@ tamboAgentRouter.post("/", async (req, res) => {
         if (e.name === "AbortError" || abortController.signal.aborted) return;
         log.error({ deploymentId, error: e.message }, "Exec-only chat failed");
         const classified = classifyError(e.message, { deploymentStatus: deployment.status });
-        sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot. ${classified.suggestion}` });
-        sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-        sendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
-        sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-        res.end();
+        safeSendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot. ${classified.suggestion}` });
+        safeSendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+        safeSendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
+        safeSendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+        if (!clientDisconnected) res.end();
       }
     });
     return;
@@ -1271,11 +1363,11 @@ tamboAgentRouter.post("/", async (req, res) => {
 
       if (!podAddr) {
         const classified = classifyError("No pod found", { deploymentStatus: deployment.status });
-        sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "No running pod found for this deployment. Try restarting the bot." });
-        sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-        sendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
-        sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-        res.end();
+        safeSendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "No running pod found for this deployment. Try restarting the bot." });
+        safeSendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+        safeSendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
+        safeSendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+        if (!clientDisconnected) res.end();
         return;
       }
 
@@ -1292,14 +1384,14 @@ tamboAgentRouter.post("/", async (req, res) => {
           for (const b of resolved) {
             // Emit tool status for frontend indicator
             const toolStatus = getToolStatus(b.component);
-            sendEvent(res, {
+            safeSendEvent(res, {
               type: CUSTOM,
               name: CUSTOM_TOOL_STATUS,
               value: { status: toolStatus, component: b.component, toolCallId: b.id },
             });
             // AG-UI TOOL_CALL events
             const toolCallId = b.id;
-            sendEvent(res, {
+            safeSendEvent(res, {
               type: TOOL_CALL_START,
               toolCallId,
               toolCallName: `show_${b.component}`,
@@ -1311,12 +1403,12 @@ tamboAgentRouter.post("/", async (req, res) => {
               ...(b.dashboardId ? { dashboardId: b.dashboardId } : {}),
               ...(b.dashboardTitle ? { dashboardTitle: b.dashboardTitle } : {}),
             });
-            sendEvent(res, {
+            safeSendEvent(res, {
               type: TOOL_CALL_ARGS,
               toolCallId,
               delta: JSON.stringify(b.props),
             });
-            sendEvent(res, { type: TOOL_CALL_END, toolCallId });
+            safeSendEvent(res, { type: TOOL_CALL_END, toolCallId });
           }
         } catch (err: unknown) {
           log.warn({ deploymentId, blockId: block.id, error: err instanceof Error ? err.message : String(err) }, "Chat: failed to emit streamed UI block");
@@ -1404,9 +1496,9 @@ tamboAgentRouter.post("/", async (req, res) => {
   // All attempts failed
   log.error({ deploymentId, error: lastError?.message }, "Gateway proxy error (all attempts failed)");
   const classified = classifyError(lastError?.message ?? "", { deploymentStatus: deployment.status });
-  sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot. ${classified.suggestion}` });
-  sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
-  sendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
-  sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
-  res.end();
+  safeSendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: `Sorry, I couldn't reach the bot. ${classified.suggestion}` });
+  safeSendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+  safeSendEvent(res, { type: CUSTOM, name: CUSTOM_CHAT_ERROR, value: { error: classified } });
+  safeSendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+  if (!clientDisconnected) res.end();
 });
