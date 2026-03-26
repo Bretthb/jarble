@@ -792,6 +792,7 @@ export const deploymentRouter = router({
           deployment.cpuLimit || "2.0",
           deployment.memoryMb || 3072,
           deploymentType,
+          deploymentId,
         );
         if (targetNode) logger.info({ deploymentId, targetNode }, "Node capacity confirmed");
       } catch (capacityErr) {
@@ -1172,6 +1173,7 @@ export const deploymentRouter = router({
           deployment.cpuLimit || "2.0",
           deployment.memoryMb || 3072,
           startDeploymentType,
+          input.id,
         );
         if (targetNode) logger.info({ deploymentId: input.id, targetNode }, "Node capacity confirmed for start");
       } catch (capacityErr) {

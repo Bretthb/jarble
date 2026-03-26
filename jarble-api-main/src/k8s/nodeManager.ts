@@ -164,12 +164,14 @@ let provisioning = false;
 let lastFailureTime = 0;
 const FAILURE_COOLDOWN_MS = 5 * 60 * 1000; // 5 min cooldown after a failure
 
-async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb: number): Promise<string> {
+async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb: number, deploymentId?: string): Promise<string> {
   if (provisioning) throw new Error("Another provision operation is already in progress");
   provisioning = true;
 
   const serverType = pickServerType(podCpuCores, podMemGb);
-  const nodeName = `${NODE_NAME_PREFIX}-${nanoid()}`;
+  const nodeName = deploymentId
+    ? `${NODE_NAME_PREFIX}-${deploymentId.slice(0, 12)}`
+    : `${NODE_NAME_PREFIX}-${nanoid()}`;
   const nodeId = `node_${nanoid()}`;
 
   let nodeIp: string;
@@ -477,7 +479,9 @@ async function poll(): Promise<void> {
           mem: resources.memGb,
           storage: resources.storageGb,
         }, "Pending bot pod detected — provisioning right-sized server");
-        provisionNode(resources.cpuCores, resources.memGb, resources.storageGb).catch(() => {
+        // Extract deployment ID from pod name (dep-{deploymentId}-{replicaset}-{random})
+        const podDeploymentId = pod.metadata?.labels?.app?.replace("dep-", "") || undefined;
+        provisionNode(resources.cpuCores, resources.memGb, resources.storageGb, podDeploymentId).catch(() => {
           // Error already logged inside provisionNode; swallow to prevent unhandled rejection
         });
       }
@@ -612,7 +616,7 @@ let capacityLock: Promise<void> = Promise.resolve();
  * Throws CapacityError if at the managed server limit.
  */
 async function checkCapacityAndProvision(
-  requiredCpuMillis: number, requiredMemMi: number
+  requiredCpuMillis: number, requiredMemMi: number, deploymentId?: string
 ): Promise<string | undefined> {
   // 1. Get all nodes and their allocatable resources
   const { body: nodeList } = await coreApi.listNode();
@@ -706,7 +710,7 @@ async function checkCapacityAndProvision(
 
   const cpuCores = requiredCpuMillis / 1000;
   const memGb = requiredMemMi / 1024;
-  const nodeName = await provisionNode(cpuCores, memGb, 30);
+  const nodeName = await provisionNode(cpuCores, memGb, 30, deploymentId);
   return nodeName;
 }
 
@@ -730,7 +734,7 @@ async function checkCapacityAndProvision(
  * rejection and other errors for transient failures.
  */
 export async function ensureCapacityForDeployment(
-  _db: any, cpuLimit?: string, memoryMb?: number, deploymentType?: string
+  _db: any, cpuLimit?: string, memoryMb?: number, deploymentType?: string, deploymentId?: string
 ): Promise<string | undefined> {
   // Container/website types share existing pool nodes — no VPS provisioning needed.
   if (deploymentType === "container" || deploymentType === "website") {
@@ -759,7 +763,7 @@ export async function ensureCapacityForDeployment(
   capacityLock = new Promise<void>((resolve) => { releaseLock = resolve; });
 
   try {
-    return await checkCapacityAndProvision(requiredCpuMillis, requiredMemMi);
+    return await checkCapacityAndProvision(requiredCpuMillis, requiredMemMi, deploymentId);
   } finally {
     releaseLock();
   }
