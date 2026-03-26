@@ -340,7 +340,7 @@ IMPORTANT: Do NOT inject localStorage. Log in through the real Auth0 UI using Pl
   }
 
   // Vercel Deployment Protection bypass
-  const bypassSecret = env.VERCEL_PROTECTION_BYPASS || process.env.VERCEL_PROTECTION_BYPASS;
+  const bypassSecret = process.env.VERCEL_PROTECTION_BYPASS;
   if (bypassSecret) {
     prompt += `
 VERCEL_PROTECTION_BYPASS: ${bypassSecret}
