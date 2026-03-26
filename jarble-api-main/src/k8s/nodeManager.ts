@@ -278,8 +278,8 @@ export async function provisionNode(db: any): Promise<{ nodeName: string; nodeIp
   // Insert DB record
   await db.insert(managedNodes).values({
     id: nodeId,
-    hetznerServerId: 0, // placeholder until created
-    hetznerVolumeId: 0,
+    hetznerServerId: -Date.now(), // temp unique value until real ID is set
+    hetznerVolumeId: -Date.now(),
     nodeName,
     nodeIp,
     serverType: SERVER_TYPE,
