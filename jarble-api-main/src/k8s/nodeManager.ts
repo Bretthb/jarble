@@ -234,7 +234,7 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
       networks: [networkId],
       user_data: buildCloudInit(nodeIp, hasVolume),
       labels: { cluster: "jarble", role: "agent", managed: "true" },
-      public_net: { enable_ipv4: false, enable_ipv6: true },
+      public_net: { enable_ipv4: true, enable_ipv6: true },
       ...(volumeId ? { volumes: [volumeId] } : {}),
     });
     const serverId = serverRes.server.id;
