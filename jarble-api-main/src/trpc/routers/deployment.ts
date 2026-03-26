@@ -4,6 +4,7 @@ import { router, protectedProcedure, publicProcedure } from "../middleware.js";
 import { tables, dbDate, type DbClient } from "../../db/index.js";
 import { eq, and, or, isNull, sql, inArray } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod } from "../../k8s/index.js";
+import { ensureCapacityForDeployment, checkScaleDown } from "../../k8s/nodeManager.js";
 import type { ManagedBy, IsolationLevel } from "../../k8s/constants.js";
 import { getPvcMountPath, getContainerName, getContainerHome } from "../../k8s/constants.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
@@ -764,6 +765,15 @@ export const deploymentRouter = router({
             .set({ managedBy })
             .where(eq(deployments.id, deploymentId));
 
+          // Ensure a worker node has capacity before creating the pod
+          let targetNode: string | undefined;
+          try {
+            targetNode = await ensureCapacityForDeployment(ctx.db);
+            if (targetNode) logger.info({ deploymentId, targetNode }, "Node capacity confirmed");
+          } catch (scaleErr) {
+            logger.error({ deploymentId, scaleErr }, "Auto-scale failed, letting K8s scheduler try");
+          }
+
           await createDeployment(deploymentId, ctx.user.id, {
             name: deployment.name,
             runtime: deployment.runtime,
@@ -775,6 +785,7 @@ export const deploymentRouter = router({
             extraSecretEntries,
             gatewayToken,
             isolationLevel: ((deployment as any).isolationLevel || "standard") as IsolationLevel,
+            nodeName: targetNode,
           }, managedBy);
           logger.info({ deploymentId }, "K8s createDeployment returned, polling for readiness...");
 
@@ -1694,6 +1705,11 @@ export const deploymentRouter = router({
       logger.info({ deploymentId: input.id, managedBy }, "delete: starting K8s resource cleanup");
       await deleteDeployment(input.id, managedBy);
       logger.info({ deploymentId: input.id }, "delete: K8s cleanup complete, removing DB records");
+
+      // Check if any auto-scaled nodes are now empty and can be removed
+      void checkScaleDown(ctx.db).catch((err) => {
+        logger.warn({ err }, "Scale-down check failed (non-blocking)");
+      });
 
       // Explicitly clean up child rows — SQLite doesn't enforce FK cascades by default
       const credResult = await ctx.db.delete(platformCredentials)

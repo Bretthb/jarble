@@ -785,6 +785,26 @@ export const agentCalls = sqliteTable("agent_calls", {
   calleeIdx: index("idx_agent_calls_callee").on(table.calleeDeploymentId),
 }));
 
+// ── Managed Nodes (Auto-scaling) ─────────────────────────────────────────
+
+export const managedNodes = sqliteTable("managed_nodes", {
+  id: text("id").primaryKey(),
+  hetznerServerId: integer("hetzner_server_id").notNull(),
+  hetznerVolumeId: integer("hetzner_volume_id").notNull(),
+  nodeName: text("node_name").notNull(),
+  nodeIp: text("node_ip").notNull(),
+  serverType: text("server_type").notNull().default("cpx21"),
+  status: text("status").notNull().default("provisioning"),
+  monthlyCostCents: integer("monthly_cost_cents").notNull().default(1220),
+  error: text("error"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  readyAt: text("ready_at"),
+  deletedAt: text("deleted_at"),
+}, (table) => ({
+  statusIdx: index("idx_managed_nodes_status").on(table.status),
+  hetznerServerIdx: uniqueIndex("uq_managed_nodes_hetzner_server").on(table.hetznerServerId),
+}));
+
 // ── Agent Credits & Calls Relations ───────────────────────────────────
 
 export const agentCreditsRelations = relations(agentCredits, ({ one }) => ({

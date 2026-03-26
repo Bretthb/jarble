@@ -775,6 +775,26 @@ export const flowExecutions = pgTable("flow_executions", {
   statusIdx: index("idx_flow_exec_status").on(table.status),
 }));
 
+// ── Managed Nodes (Auto-scaling) ─────────────────────────────────────────
+
+export const managedNodes = pgTable("managed_nodes", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  hetznerServerId: integer("hetzner_server_id").notNull(),
+  hetznerVolumeId: integer("hetzner_volume_id").notNull(),
+  nodeName: varchar("node_name", { length: 255 }).notNull(),
+  nodeIp: varchar("node_ip", { length: 45 }).notNull(),
+  serverType: varchar("server_type", { length: 50 }).notNull().default("cpx21"),
+  status: varchar("status", { length: 30 }).notNull().default("provisioning"),
+  monthlyCostCents: integer("monthly_cost_cents").notNull().default(1220),
+  error: text("error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  readyAt: timestamp("ready_at"),
+  deletedAt: timestamp("deleted_at"),
+}, (table) => ({
+  statusIdx: index("idx_managed_nodes_status").on(table.status),
+  hetznerServerIdx: uniqueIndex("uq_managed_nodes_hetzner_server").on(table.hetznerServerId),
+}));
+
 // ── Orchestration Flow Relations ─────────────────────────────────────────
 
 export const orchestrationFlowsRelations = relations(orchestrationFlows, ({ one, many }) => ({

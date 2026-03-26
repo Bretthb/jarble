@@ -290,7 +290,9 @@ async function createDeploymentLegacy(
           automountServiceAccountToken: false,
           terminationGracePeriodSeconds: 10,
           ...(runtimeClassName ? { runtimeClassName } : {}),
-          ...(nodeSelector ? { nodeSelector } : {}),
+          ...(nodeSelector || config.nodeName
+            ? { nodeSelector: { ...nodeSelector, ...(config.nodeName ? { "kubernetes.io/hostname": config.nodeName } : {}) } }
+            : {}),
           securityContext: secCtx.pod,
           initContainers: [
             {

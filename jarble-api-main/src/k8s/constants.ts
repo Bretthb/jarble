@@ -44,6 +44,7 @@ export interface DeploymentConfig {
   extraSecretEntries?: Record<string, string>; // Additional K8s Secret env vars from runtime handler
   gatewayToken?: string;                       // Pre-generated gateway token (generated if omitted)
   isolationLevel?: IsolationLevel;             // Runtime sandbox isolation (default: "standard")
+  nodeName?: string;                            // Pin pod to a specific node via nodeSelector
 }
 
 // Default gateway ports per runtime
