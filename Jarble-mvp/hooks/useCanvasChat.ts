@@ -232,6 +232,14 @@ export function useCanvasChat(
       if (saved.length > 0) {
         setMessages(saved);
         messagesRef.current = saved;
+        // If the last message is from the user and recent (< 5 min), the bot may still
+        // be generating a response server-side. Show the pulsating cursor until the
+        // server merge brings in the assistant response.
+        const lastMsg = saved[saved.length - 1];
+        if (lastMsg?.role === "user" && Date.now() - lastMsg.createdAt < 5 * 60 * 1000) {
+          setIsStreaming(true);
+          isStreamingRef.current = true;
+        }
       }
     }
   }, [deploymentId, serverSessionsLoaded, serverSessionsQuery.data]);
@@ -276,6 +284,22 @@ export function useCanvasChat(
       messagesRef.current = converted;
       // Update localStorage so it's in sync with server
       saveConversationMessages(deploymentId, convId, converted);
+      // If we were showing the pulsating cursor (waiting for server response),
+      // clear it now that the bot response has arrived
+      if (isStreamingRef.current && !abortRef.current) {
+        setIsStreaming(false);
+        isStreamingRef.current = false;
+      }
+    }
+
+    // If still showing the "waiting" cursor but the last server message is from the user
+    // and it's been > 5 min, stop waiting (bot timed out or failed)
+    if (isStreamingRef.current && !abortRef.current) {
+      const lastServerMsg = converted[converted.length - 1];
+      if (lastServerMsg?.role === "user" && Date.now() - lastServerMsg.createdAt > 5 * 60 * 1000) {
+        setIsStreaming(false);
+        isStreamingRef.current = false;
+      }
     }
   }, [deploymentId, activeConversationId, serverMessagesQuery.data, serverMessagesQuery.dataUpdatedAt]);
 
