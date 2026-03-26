@@ -280,6 +280,37 @@ export function useCanvasChat(
       isDev && console.log(
         `[Jarble:Chat] Server has ${converted.length} messages vs ${currentMsgs.length} local — using server`
       );
+
+      // Extract component blocks from new assistant messages and render on canvas.
+      // During live streaming, SSE TOOL_CALL events handle this. For persisted messages
+      // loaded from the server, we parse the raw text for component JSON blocks.
+      const newMsgs = converted.slice(currentMsgs.length);
+      for (const msg of newMsgs) {
+        if (msg.role !== "assistant") continue;
+        const componentMatches = msg.content.matchAll(/\{"component"\s*:\s*"([a-z_]+)"\s*,\s*"props"\s*:\s*(\{[\s\S]*?\})\s*(?:,\s*"layout_hint"\s*:\s*"([^"]*)")?\s*\}/g);
+        for (const match of componentMatches) {
+          try {
+            const parsed = JSON.parse(match[0]);
+            const block = {
+              id: `server-${msg.id}-${parsed.component}`,
+              component: parsed.component,
+              props: parsed.props || {},
+              layoutHint: parsed.layout_hint,
+            };
+            addComponentCard(
+              block as any,
+              msg.id,
+              stateRef.current,
+              dispatch,
+              [],
+              currentLlmRef.current,
+            );
+          } catch { /* skip unparseable blocks */ }
+        }
+        // Strip component JSON from displayed text
+        msg.content = stripUIMarkers(msg.content);
+      }
+
       setMessages(converted);
       messagesRef.current = converted;
       // Update localStorage so it's in sync with server
