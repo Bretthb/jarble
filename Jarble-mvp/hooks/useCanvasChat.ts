@@ -243,6 +243,15 @@ export function useCanvasChat(
           setIsStreaming(true);
           isStreamingRef.current = true;
           waitingForServerRef.current = true;
+          // Show a generic orchestration step so the UI indicates the bot is working
+          setToolStatus("Your agent is working on your request...");
+          setOrchestrationSteps([{
+            id: "server-pending",
+            label: "Processing your request",
+            status: "running",
+            agent: "planner",
+            detail: "Response will appear when ready",
+          }]);
         }
       }
     }
@@ -327,6 +336,8 @@ export function useCanvasChat(
         setIsStreaming(false);
         isStreamingRef.current = false;
         waitingForServerRef.current = false;
+        setToolStatus(null);
+        setOrchestrationSteps([]);
       }
     }
 
@@ -338,6 +349,8 @@ export function useCanvasChat(
         setIsStreaming(false);
         isStreamingRef.current = false;
         waitingForServerRef.current = false;
+        setToolStatus(null);
+        setOrchestrationSteps([]);
       }
     }
   }, [deploymentId, activeConversationId, serverMessagesQuery.data, serverMessagesQuery.dataUpdatedAt]);
