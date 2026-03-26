@@ -133,6 +133,8 @@ echo "K3s agent joined" > /var/log/k3s-setup.log
 // ── Provision ───────────────────────────────────────────────────────────
 
 let provisioning = false;
+let lastFailureTime = 0;
+const FAILURE_COOLDOWN_MS = 5 * 60 * 1000; // 5 min cooldown after a failure
 
 async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb: number): Promise<void> {
   if (provisioning) return;
@@ -280,6 +282,7 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
     await db.update(managedNodes)
       .set({ status: "failed", error: msg })
       .where(eq(managedNodes.id, nodeId));
+    lastFailureTime = Date.now();
   } finally {
     provisioning = false;
   }
@@ -375,7 +378,8 @@ async function poll(): Promise<void> {
       );
     });
 
-    if (pendingPods.length > 0 && !provisioning) {
+    const inCooldown = Date.now() - lastFailureTime < FAILURE_COOLDOWN_MS;
+    if (pendingPods.length > 0 && !provisioning && !inCooldown) {
       // Use the first pending pod's resources to size the server
       const pod = pendingPods[0];
       const resources = getPodResources(pod);
