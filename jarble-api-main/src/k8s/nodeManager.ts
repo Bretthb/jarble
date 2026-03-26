@@ -1,19 +1,20 @@
 /**
  * Auto-scaling Node Manager for Hetzner K3s Workers
  *
- * Runs a background loop every 15 seconds that:
- * 1. Checks for Pending bot pods → provisions new Hetzner workers
- * 2. Checks for empty auto-scaled workers → deprovisions them
+ * Background watcher that polls every 15s:
+ * 1. Detects Pending (Unschedulable) bot pods → provisions a right-sized Hetzner server
+ * 2. Detects empty auto-scaled workers past grace period → deprovisions them
  *
- * This approach avoids pre-deploy capacity checks and timing issues.
- * Pods go Pending naturally when nodes are full, and the watcher reacts.
+ * Each deployment gets its own server matched to its resource requirements.
+ * Server type is chosen to be the smallest that fits the deployment's vCPU + RAM.
+ * Block storage is attached for Longhorn persistent volumes.
  */
 
 import { coreApi } from "./client.js";
 import { NAMESPACE } from "./constants.js";
 import { createModuleLogger } from "../utils/logger.js";
-import { eq, and, inArray, lt } from "drizzle-orm";
 import { db } from "../db/index.js";
+import { eq, and, inArray, lt } from "drizzle-orm";
 import { managedNodes } from "../db/schema.js";
 import { customAlphabet } from "nanoid";
 
@@ -23,16 +24,36 @@ const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 6);
 // ── Configuration ────────────────────────────────────────────────────────
 
 const HETZNER_API = "https://api.hetzner.cloud/v1";
-const SERVER_TYPE = "cpx21";
 const OS_IMAGE = "ubuntu-22.04";
 const LOCATION = "ash";
 const K3S_VERSION = "v1.29.2+k3s1";
 const MASTER_PRIVATE_IP = "10.0.1.10";
 const NODE_NAME_PREFIX = "jarble-auto";
-const MONTHLY_COST_CENTS = 1220;
-const NODE_JOIN_TIMEOUT_MS = 180_000; // 3 min for server + K3s join
-const POLL_INTERVAL_MS = 15_000; // check every 15 seconds
-const SCALE_DOWN_GRACE_MS = 5 * 60 * 1000; // 5 min before removing empty node
+const NODE_JOIN_TIMEOUT_MS = 240_000; // 4 min
+const POLL_INTERVAL_MS = 15_000;
+const SCALE_DOWN_GRACE_MS = 5 * 60 * 1000; // 5 min
+
+// Hetzner server types mapped to deployment resources.
+// Pick the smallest server that fits the pod's CPU + RAM requirements.
+// Each entry: { vCPU, memoryGb, diskGb, monthlyCents }
+const SERVER_TYPES = [
+  { name: "cpx11", cores: 2, memGb: 2,  diskGb: 40,  monthlyCents: 499 },
+  { name: "cpx21", cores: 3, memGb: 4,  diskGb: 80,  monthlyCents: 999 },
+  { name: "cpx31", cores: 4, memGb: 8,  diskGb: 160, monthlyCents: 1799 },
+  { name: "cpx41", cores: 8, memGb: 16, diskGb: 240, monthlyCents: 3349 },
+  { name: "cpx51", cores: 16, memGb: 32, diskGb: 360, monthlyCents: 6699 },
+] as const;
+
+function pickServerType(cpuCores: number, memGb: number): typeof SERVER_TYPES[number] {
+  for (const st of SERVER_TYPES) {
+    // Server needs headroom for K3s agent + system (~0.5 vCPU, ~0.5GB RAM)
+    if (st.cores >= cpuCores + 0.5 && st.memGb >= memGb + 0.5) {
+      return st;
+    }
+  }
+  // Fall back to largest
+  return SERVER_TYPES[SERVER_TYPES.length - 1];
+}
 
 function getHetznerToken(): string {
   const token = process.env.HETZNER_API_TOKEN;
@@ -44,7 +65,7 @@ function isEnabled(): boolean {
   return process.env.AUTOSCALE_ENABLED === "true";
 }
 
-// ── Hetzner API Client ──────────────────────────────────────────────────
+// ── Hetzner API ─────────────────────────────────────────────────────────
 
 async function hetznerRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${HETZNER_API}${path}`, {
@@ -55,58 +76,96 @@ async function hetznerRequest<T>(method: string, path: string, body?: unknown): 
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Hetzner ${method} ${path} (${res.status}): ${text}`);
   }
-
   if (res.status === 204) return {} as T;
   return res.json() as Promise<T>;
 }
 
+// ── Next Available IP ───────────────────────────────────────────────────
+
+async function getNextNodeIp(): Promise<string> {
+  const usedIps = new Set(["10.0.1.1", "10.0.1.10", "10.0.1.20", "10.0.1.21"]);
+
+  const existing = await db.select({ nodeIp: managedNodes.nodeIp })
+    .from(managedNodes)
+    .where(inArray(managedNodes.status, ["provisioning", "joining", "ready", "draining", "deleting"]));
+
+  for (const row of existing) {
+    usedIps.add(row.nodeIp);
+  }
+
+  for (let i = 30; i < 254; i++) {
+    const ip = `10.0.1.${i}`;
+    if (!usedIps.has(ip)) return ip;
+  }
+  throw new Error("No available IPs in subnet");
+}
+
 // ── Cloud-init ──────────────────────────────────────────────────────────
 
-function buildCloudInit(): string {
+function buildCloudInit(nodeIp: string): string {
   const k3sToken = process.env.K3S_JOIN_TOKEN;
   if (!k3sToken) throw new Error("K3S_JOIN_TOKEN not set");
 
   return `#!/bin/bash
 set -euo pipefail
-sleep 10
+sleep 5
+
+# Install Longhorn prerequisites
 apt-get update -qq
 apt-get install -y -qq open-iscsi nfs-common curl
 systemctl enable iscsid && systemctl start iscsid
+
+# Join K3s cluster
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - agent \\
   --server "https://${MASTER_PRIVATE_IP}:6443" \\
   --token "${k3sToken}" \\
+  --node-ip "${nodeIp}" \\
   --flannel-iface "enp7s0"
+
+echo "K3s agent joined" > /var/log/k3s-setup.log
 `;
 }
 
 // ── Provision ───────────────────────────────────────────────────────────
 
-let provisioning = false; // simple lock
+let provisioning = false;
 
-async function provisionNode(): Promise<void> {
+async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb: number): Promise<void> {
   if (provisioning) return;
   provisioning = true;
 
+  const serverType = pickServerType(podCpuCores, podMemGb);
   const nodeName = `${NODE_NAME_PREFIX}-${nanoid()}`;
   const nodeId = `node_${nanoid()}`;
 
-  logger.info({ nodeName }, "Scale UP: provisioning new worker");
+  let nodeIp: string;
+  try {
+    nodeIp = await getNextNodeIp();
+  } catch (err) {
+    provisioning = false;
+    throw err;
+  }
 
-  // Insert tracking row with unique temp IDs
+  logger.info({
+    nodeName, nodeIp, serverType: serverType.name,
+    podCpu: podCpuCores, podMem: podMemGb, podStorage: podStorageGb,
+    cost: `$${(serverType.monthlyCents / 100).toFixed(2)}/mo`,
+  }, "Scale UP: provisioning server for pending pod");
+
+  // Insert tracking row
   await db.insert(managedNodes).values({
     id: nodeId,
     hetznerServerId: -(Math.floor(Math.random() * 2000000000) + 1),
-    hetznerVolumeId: -(Math.floor(Math.random() * 2000000000) + 1),
+    hetznerVolumeId: 0,
     nodeName,
-    nodeIp: "pending",
-    serverType: SERVER_TYPE,
+    nodeIp,
+    serverType: serverType.name,
     status: "provisioning",
-    monthlyCostCents: MONTHLY_COST_CENTS,
+    monthlyCostCents: serverType.monthlyCents,
   });
 
   try {
@@ -114,29 +173,64 @@ async function provisionNode(): Promise<void> {
     const firewallId = parseInt(process.env.HETZNER_FIREWALL_ID || "0");
     const sshKeyId = parseInt(process.env.HETZNER_SSH_KEY_ID || "0");
 
-    // Create server (no public IP — private network only)
+    // 1. Create server WITHOUT network (we'll attach with explicit IP after)
     const serverRes = await hetznerRequest<any>("POST", "/servers", {
       name: nodeName,
-      server_type: SERVER_TYPE,
+      server_type: serverType.name,
       image: OS_IMAGE,
       location: LOCATION,
       ssh_keys: [sshKeyId],
       firewalls: [{ firewall: firewallId }],
-      networks: [networkId],
-      user_data: buildCloudInit(),
+      user_data: buildCloudInit(nodeIp),
       labels: { cluster: "jarble", role: "agent", managed: "true" },
       public_net: { enable_ipv4: false, enable_ipv6: false },
     });
-
     const serverId = serverRes.server.id;
-    const serverIp = serverRes.server.private_net?.[0]?.ip || "unknown";
-    logger.info({ nodeName, serverId, serverIp }, "Hetzner server created");
+    logger.info({ nodeName, serverId }, "Hetzner server created");
 
     await db.update(managedNodes)
-      .set({ hetznerServerId: serverId, nodeIp: serverIp, status: "joining" })
+      .set({ hetznerServerId: serverId })
       .where(eq(managedNodes.id, nodeId));
 
-    // Wait for K3s node to appear and become Ready
+    // 2. Wait for server to be running
+    for (let i = 0; i < 30; i++) {
+      const s = await hetznerRequest<any>("GET", `/servers/${serverId}`);
+      if (s.server.status === "running") break;
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+
+    // 3. Attach to private network with explicit IP
+    await hetznerRequest("POST", `/servers/${serverId}/actions/attach_to_network`, {
+      network: networkId,
+      ip: nodeIp,
+    });
+    logger.info({ nodeName, nodeIp }, "Attached to private network");
+
+    // 4. Create and attach block storage if deployment needs persistent storage
+    if (podStorageGb > 0) {
+      const volumeRes = await hetznerRequest<any>("POST", "/volumes", {
+        name: `${nodeName}-data`,
+        size: podStorageGb,
+        location: LOCATION,
+        format: "ext4",
+        server: serverId,
+        automount: false,
+        labels: { cluster: "jarble", role: "longhorn-data", node: nodeName },
+      });
+      const volumeId = volumeRes.volume.id;
+      logger.info({ nodeName, volumeId, sizeGb: podStorageGb }, "Block storage attached");
+
+      await db.update(managedNodes)
+        .set({ hetznerVolumeId: volumeId })
+        .where(eq(managedNodes.id, nodeId));
+    }
+
+    await db.update(managedNodes)
+      .set({ status: "joining" })
+      .where(eq(managedNodes.id, nodeId));
+
+    // 5. Wait for K3s node to join
+    logger.info({ nodeName }, "Waiting for K3s agent to join...");
     const deadline = Date.now() + NODE_JOIN_TIMEOUT_MS;
     let joined = false;
     while (Date.now() < deadline) {
@@ -162,18 +256,22 @@ async function provisionNode(): Promise<void> {
       .set({ status: "ready", readyAt: new Date() })
       .where(eq(managedNodes.id, nodeId));
 
-    logger.info({ nodeName, cost: `$${(MONTHLY_COST_CENTS / 100).toFixed(2)}/mo` },
-      "Scale UP complete: new worker ready");
+    logger.info({ nodeName, serverType: serverType.name, cost: `$${(serverType.monthlyCents / 100).toFixed(2)}/mo` },
+      "Scale UP complete: worker ready");
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ nodeName, err: msg }, "Scale UP failed");
 
-    // Cleanup partial resources
+    // Cleanup
     const rows = await db.select().from(managedNodes).where(eq(managedNodes.id, nodeId));
     const row = rows[0];
     if (row?.hetznerServerId > 0) {
       await hetznerRequest("DELETE", `/servers/${row.hetznerServerId}`).catch(() => {});
+    }
+    if (row?.hetznerVolumeId > 0) {
+      await new Promise((r) => setTimeout(r, 5000));
+      await hetznerRequest("DELETE", `/volumes/${row.hetznerVolumeId}`).catch(() => {});
     }
 
     await db.update(managedNodes)
@@ -194,24 +292,23 @@ async function deprovisionNode(node: any): Promise<void> {
     .where(eq(managedNodes.id, node.id));
 
   try {
-    // Cordon and delete K3s node
     try {
       await coreApi.patchNode(node.nodeName, { spec: { unschedulable: true } },
         undefined, undefined, undefined, undefined, undefined,
         { headers: { "Content-Type": "application/strategic-merge-patch+json" } });
     } catch {}
-    try {
-      await coreApi.deleteNode(node.nodeName);
-    } catch {}
+    try { await coreApi.deleteNode(node.nodeName); } catch {}
 
     await db.update(managedNodes)
       .set({ status: "deleting" })
       .where(eq(managedNodes.id, node.id));
 
-    // Delete Hetzner server
     if (node.hetznerServerId > 0) {
       await hetznerRequest("DELETE", `/servers/${node.hetznerServerId}`);
-      logger.info({ nodeName: node.nodeName, serverId: node.hetznerServerId }, "Hetzner server deleted");
+    }
+    if (node.hetznerVolumeId > 0) {
+      await new Promise((r) => setTimeout(r, 5000));
+      await hetznerRequest("DELETE", `/volumes/${node.hetznerVolumeId}`).catch(() => {});
     }
 
     await db.update(managedNodes)
@@ -219,8 +316,7 @@ async function deprovisionNode(node: any): Promise<void> {
       .where(eq(managedNodes.id, node.id));
 
     logger.info({ nodeName: node.nodeName, saving: `$${(node.monthlyCostCents / 100).toFixed(2)}/mo` },
-      "Scale DOWN complete: worker removed");
-
+      "Scale DOWN complete");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ nodeName: node.nodeName, err: msg }, "Scale DOWN failed");
@@ -232,115 +328,124 @@ async function deprovisionNode(node: any): Promise<void> {
 
 // ── Background Watcher ──────────────────────────────────────────────────
 
+/** Extract CPU cores and memory GB from a pod's container resource requests */
+function getPodResources(pod: any): { cpuCores: number; memGb: number; storageGb: number } {
+  let cpuMillis = 0;
+  let memMi = 0;
+  for (const container of pod.spec?.containers || []) {
+    const cpu = container.resources?.requests?.cpu || container.resources?.limits?.cpu || "0";
+    const mem = container.resources?.requests?.memory || container.resources?.limits?.memory || "0";
+    cpuMillis += cpu.endsWith("m") ? parseInt(cpu) : Math.round(parseFloat(cpu) * 1000);
+    if (mem.endsWith("Mi")) memMi += parseInt(mem);
+    else if (mem.endsWith("Gi")) memMi += parseInt(mem) * 1024;
+  }
+
+  // Get storage from PVC claim if available
+  let storageGb = 30; // default
+  for (const vol of pod.spec?.volumes || []) {
+    if (vol.persistentVolumeClaim) {
+      // We'll use 30GB as default — the actual PVC size is in the PVC spec
+      storageGb = 30;
+    }
+  }
+
+  return {
+    cpuCores: cpuMillis / 1000,
+    memGb: memMi / 1024,
+    storageGb,
+  };
+}
+
 async function poll(): Promise<void> {
   try {
-    // 1. Check for Pending bot pods → scale up
     const { body: podList } = await coreApi.listNamespacedPod(
       NAMESPACE, undefined, undefined, undefined, undefined,
       "jarble.ai/type=bot"
     );
 
+    // 1. Scale UP: check for Pending (Unschedulable) pods
     const pendingPods = (podList.items || []).filter((p: any) => {
       if (p.status?.phase !== "Pending") return false;
-      // Only count pods that are Pending due to scheduling (not init)
       const conditions = p.status?.conditions || [];
-      const unschedulable = conditions.find((c: any) =>
+      return conditions.some((c: any) =>
         c.type === "PodScheduled" && c.status === "False" && c.reason === "Unschedulable"
       );
-      return !!unschedulable;
     });
 
     if (pendingPods.length > 0 && !provisioning) {
-      logger.info({ pendingCount: pendingPods.length },
-        "Detected Pending bot pods — triggering scale up");
-      void provisionNode();
+      // Use the first pending pod's resources to size the server
+      const pod = pendingPods[0];
+      const resources = getPodResources(pod);
+      logger.info({
+        pendingCount: pendingPods.length,
+        podName: pod.metadata?.name,
+        cpu: resources.cpuCores,
+        mem: resources.memGb,
+        storage: resources.storageGb,
+      }, "Pending bot pod detected — provisioning right-sized server");
+      void provisionNode(resources.cpuCores, resources.memGb, resources.storageGb);
     }
 
-    // 2. Check for empty auto-scaled nodes → scale down
+    // 2. Scale DOWN: check for empty auto-scaled nodes
     const readyNodes = await db.select().from(managedNodes)
       .where(eq(managedNodes.status, "ready"));
 
     for (const managedNode of readyNodes) {
-      // Check if this node has any bot pods
       const podsOnNode = (podList.items || []).filter(
         (p: any) => p.spec?.nodeName === managedNode.nodeName
       );
-
       if (podsOnNode.length === 0) {
-        // Check grace period — don't remove immediately
         const readyTime = managedNode.readyAt ? new Date(managedNode.readyAt).getTime() : 0;
-        const age = Date.now() - readyTime;
-        if (age > SCALE_DOWN_GRACE_MS) {
-          logger.info({ nodeName: managedNode.nodeName, emptyFor: `${Math.round(age / 1000)}s` },
-            "Auto-scaled node is empty past grace period");
+        if (Date.now() - readyTime > SCALE_DOWN_GRACE_MS) {
           void deprovisionNode(managedNode);
         }
       }
     }
   } catch (err) {
-    // Don't crash the loop on transient errors
     logger.warn({ err: err instanceof Error ? err.message : err }, "Poll cycle error");
   }
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-/**
- * Start the auto-scaling background watcher.
- * Call once on API startup.
- */
 export function startNodeWatcher(): void {
   if (!isEnabled()) {
-    logger.info("Auto-scaling is disabled (AUTOSCALE_ENABLED != true)");
+    logger.info("Auto-scaling disabled (AUTOSCALE_ENABLED != true)");
     return;
   }
-
-  logger.info({ intervalMs: POLL_INTERVAL_MS, scaleDownGraceMs: SCALE_DOWN_GRACE_MS },
-    "Starting node auto-scaler watcher");
-
-  // Initial poll after 10s (let the API finish starting)
+  logger.info({ intervalMs: POLL_INTERVAL_MS }, "Starting node auto-scaler watcher");
   setTimeout(() => poll(), 10_000);
-
-  // Then poll every 15s
   pollTimer = setInterval(() => poll(), POLL_INTERVAL_MS);
 }
 
 export function stopNodeWatcher(): void {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-    logger.info("Node auto-scaler watcher stopped");
-  }
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
-// ── Exports for deployment router (no-ops now, watcher handles everything) ──
+// ── Exports for deployment router (no-ops — watcher handles everything) ──
 
 export async function ensureCapacityForDeployment(
   _db: any, _cpuLimit?: string, _memoryMb?: number
 ): Promise<string | undefined> {
-  // The background watcher handles scaling. Pods go Pending naturally
-  // and the watcher provisions nodes when it detects them.
   return undefined;
 }
 
-export async function checkScaleDown(_db: any): Promise<void> {
-  // Handled by background watcher
-}
+export async function checkScaleDown(_db: any): Promise<void> {}
 
 export async function cleanupFailedNodes(): Promise<void> {
   if (!isEnabled()) return;
-
   const cutoff = new Date(Date.now() - 10 * 60 * 1000);
   const failed = await db.select().from(managedNodes)
     .where(and(
       inArray(managedNodes.status, ["failed", "provisioning"]),
       lt(managedNodes.createdAt, cutoff)
     ));
-
   for (const node of failed) {
-    logger.info({ nodeName: node.nodeName }, "Cleaning up stale node record");
     if (node.hetznerServerId > 0) {
       await hetznerRequest("DELETE", `/servers/${node.hetznerServerId}`).catch(() => {});
+    }
+    if (node.hetznerVolumeId > 0) {
+      await hetznerRequest("DELETE", `/volumes/${node.hetznerVolumeId}`).catch(() => {});
     }
     await db.update(managedNodes)
       .set({ status: "deleted", deletedAt: new Date() })
