@@ -100,8 +100,8 @@ async function provisionNode(): Promise<void> {
   // Insert tracking row with unique temp IDs
   await db.insert(managedNodes).values({
     id: nodeId,
-    hetznerServerId: -Date.now(),
-    hetznerVolumeId: 0,
+    hetznerServerId: -(Math.floor(Math.random() * 2000000000) + 1),
+    hetznerVolumeId: -(Math.floor(Math.random() * 2000000000) + 1),
     nodeName,
     nodeIp: "pending",
     serverType: SERVER_TYPE,
@@ -279,7 +279,7 @@ async function poll(): Promise<void> {
     }
   } catch (err) {
     // Don't crash the loop on transient errors
-    logger.debug({ err: err instanceof Error ? err.message : err }, "Poll cycle error");
+    logger.warn({ err: err instanceof Error ? err.message : err }, "Poll cycle error");
   }
 }
 
