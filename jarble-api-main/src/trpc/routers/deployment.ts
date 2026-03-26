@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { router, protectedProcedure, publicProcedure } from "../middleware.js";
 import { tables, dbDate, type DbClient } from "../../db/index.js";
 import { eq, and, or, isNull, sql, inArray } from "drizzle-orm";
-import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod } from "../../k8s/index.js";
+import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod, appsApi, NAMESPACE } from "../../k8s/index.js";
 import { ensureCapacityForDeployment, checkScaleDown } from "../../k8s/nodeManager.js";
 import type { ManagedBy, IsolationLevel } from "../../k8s/constants.js";
 import { getPvcMountPath, getContainerName, getContainerHome } from "../../k8s/constants.js";
@@ -1123,6 +1123,48 @@ export const deploymentRouter = router({
         await ctx.db.update(deployments)
           .set({ status: "creating", error: null })
           .where(eq(deployments.id, input.id));
+
+        // Ensure a worker node has capacity before starting the pod
+        let targetNode: string | undefined;
+        try {
+          targetNode = await ensureCapacityForDeployment(
+            ctx.db,
+            deployment.cpuLimit || "2.0",
+            deployment.memoryMb || 3072,
+          );
+          if (targetNode) logger.info({ deploymentId: input.id, targetNode }, "Node capacity confirmed for start");
+        } catch (scaleErr) {
+          logger.error({ deploymentId: input.id, scaleErr }, "Auto-scale failed during start, letting K8s scheduler try");
+        }
+
+        // If we got a target node and this is legacy mode, pin the pod to that node
+        // before scaling up. Operator mode handles node selection via the CR spec.
+        if (targetNode && managedBy !== "operator") {
+          try {
+            await appsApi.patchNamespacedDeployment(
+              `dep-${input.id}`,
+              NAMESPACE,
+              {
+                spec: {
+                  template: {
+                    spec: {
+                      nodeSelector: { "kubernetes.io/hostname": targetNode },
+                    },
+                  },
+                },
+              },
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              { headers: { "Content-Type": "application/strategic-merge-patch+json" } }
+            );
+            logger.info({ deploymentId: input.id, targetNode }, "Patched nodeSelector before start");
+          } catch (patchErr) {
+            logger.warn({ deploymentId: input.id, patchErr }, "Failed to patch nodeSelector, proceeding without node pinning");
+          }
+        }
 
         // For operator mode, start/restart needs config to recreate the CR
         const deployConfig = {

@@ -158,8 +158,8 @@ let provisioning = false;
 let lastFailureTime = 0;
 const FAILURE_COOLDOWN_MS = 5 * 60 * 1000; // 5 min cooldown after a failure
 
-async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb: number): Promise<void> {
-  if (provisioning) return;
+async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb: number): Promise<string> {
+  if (provisioning) throw new Error("Another provision operation is already in progress");
   provisioning = true;
 
   const serverType = pickServerType(podCpuCores, podMemGb);
@@ -273,12 +273,33 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
       throw new Error(`Node ${nodeName} did not join K3s within ${NODE_JOIN_TIMEOUT_MS / 1000}s`);
     }
 
+    // Label the node so we can identify auto-scaled nodes and correlate with DB rows
+    try {
+      await coreApi.patchNode(nodeName, {
+        metadata: {
+          labels: {
+            "jarble.ai/auto-scaled": "true",
+            "jarble.ai/managed-node-id": String(nodeId),
+          },
+        },
+      }, undefined, undefined, undefined, undefined, undefined, {
+        headers: { "Content-Type": "application/strategic-merge-patch+json" },
+      });
+      logger.info({ nodeName, nodeId }, "Node labeled with auto-scale metadata");
+    } catch (labelErr) {
+      // Non-fatal: node is functional even without labels
+      logger.warn({ nodeName, err: labelErr instanceof Error ? labelErr.message : labelErr },
+        "Failed to label auto-scaled node (non-fatal)");
+    }
+
     await db.update(managedNodes)
       .set({ status: "ready", readyAt: new Date() })
       .where(eq(managedNodes.id, nodeId));
 
     logger.info({ nodeName, serverType: serverType.name, cost: `$${(serverType.monthlyCents / 100).toFixed(2)}/mo` },
       "Scale UP complete: worker ready");
+
+    return nodeName;
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -299,6 +320,7 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
       .set({ status: "failed", error: msg })
       .where(eq(managedNodes.id, nodeId));
     lastFailureTime = Date.now();
+    throw err;
   } finally {
     provisioning = false;
   }
@@ -415,7 +437,9 @@ async function poll(): Promise<void> {
         mem: resources.memGb,
         storage: resources.storageGb,
       }, "Pending bot pod detected — provisioning right-sized server");
-      void provisionNode(resources.cpuCores, resources.memGb, resources.storageGb);
+      provisionNode(resources.cpuCores, resources.memGb, resources.storageGb).catch(() => {
+        // Error already logged inside provisionNode; swallow to prevent unhandled rejection
+      });
     }
 
     // 2. Scale DOWN: check for empty auto-scaled nodes
@@ -454,12 +478,125 @@ export function stopNodeWatcher(): void {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
-// ── Exports for deployment router (no-ops — watcher handles everything) ──
+// ── Capacity Check & Pre-provisioning ────────────────────────────────────
 
+/** Parse a CPU string like "2000m", "2", or "1.5" into millicores */
+function parseCpuMillis(cpu: string): number {
+  if (cpu.endsWith("m")) return parseInt(cpu, 10) || 0;
+  return Math.round(parseFloat(cpu) * 1000) || 0;
+}
+
+/** Parse a memory string like "4Gi", "3072Mi", "2048Ki" into MiB */
+function parseMemoryMi(mem: string): number {
+  if (mem.endsWith("Ki")) return Math.round((parseInt(mem, 10) || 0) / 1024);
+  if (mem.endsWith("Mi")) return parseInt(mem, 10) || 0;
+  if (mem.endsWith("Gi")) return (parseInt(mem, 10) || 0) * 1024;
+  // Plain number: assume bytes
+  return Math.round((parseInt(mem, 10) || 0) / (1024 * 1024));
+}
+
+/** Check if any node can fit the deployment; if not, provision a new one */
 export async function ensureCapacityForDeployment(
-  _db: any, _cpuLimit?: string, _memoryMb?: number
+  _db: any, cpuLimit?: string, memoryMb?: number
 ): Promise<string | undefined> {
-  return undefined;
+  if (!isEnabled()) {
+    logger.debug("Auto-scaling disabled — skipping capacity check");
+    return undefined;
+  }
+
+  const requiredCpuMillis = cpuLimit ? parseCpuMillis(cpuLimit) : 2000;   // default 2 cores
+  const requiredMemMi = memoryMb ?? 3072;                                  // default 3Gi
+
+  logger.info({
+    requiredCpu: `${requiredCpuMillis}m`,
+    requiredMem: `${requiredMemMi}Mi`,
+  }, "Checking cluster capacity for new deployment");
+
+  try {
+    // 1. Get all nodes and their allocatable resources
+    const { body: nodeList } = await coreApi.listNode();
+    const nodes = (nodeList.items || []).filter((n: any) => {
+      const labels = n.metadata?.labels || {};
+      // Exclude master/control-plane nodes
+      if (labels["node-role.kubernetes.io/master"] !== undefined) return false;
+      if (labels["node-role.kubernetes.io/control-plane"] !== undefined) return false;
+      // Node must be Ready
+      const ready = (n.status?.conditions || []).find((c: any) => c.type === "Ready");
+      return ready?.status === "True";
+    });
+
+    if (nodes.length === 0) {
+      logger.warn("No ready worker nodes found — provisioning new node");
+      const cpuCores = requiredCpuMillis / 1000;
+      const memGb = requiredMemMi / 1024;
+      const nodeName = await provisionNode(cpuCores, memGb, 30);
+      return nodeName;
+    }
+
+    // 2. Get all running/pending pods in the jarble namespace to calculate used capacity
+    const { body: podList } = await coreApi.listNamespacedPod(NAMESPACE);
+    const activePods = (podList.items || []).filter((p: any) => {
+      const phase = p.status?.phase;
+      return phase === "Running" || phase === "Pending";
+    });
+
+    // 3. Calculate used resources per node
+    const usedByNode = new Map<string, { cpuMillis: number; memMi: number }>();
+    for (const pod of activePods) {
+      const nodeName = pod.spec?.nodeName;
+      if (!nodeName) continue;  // Pending pods without a node assignment
+      const used = usedByNode.get(nodeName) || { cpuMillis: 0, memMi: 0 };
+      for (const container of pod.spec?.containers || []) {
+        const requests = container.resources?.requests || {};
+        used.cpuMillis += parseCpuMillis(requests.cpu || "0");
+        used.memMi += parseMemoryMi(requests.memory || "0");
+      }
+      usedByNode.set(nodeName, used);
+    }
+
+    // 4. Check if any existing node has enough free capacity
+    for (const node of nodes) {
+      const name = node.metadata?.name || "";
+      const allocatable = node.status?.allocatable || {};
+      const totalCpuMillis = parseCpuMillis(allocatable.cpu || "0");
+      const totalMemMi = parseMemoryMi(allocatable.memory || "0");
+
+      const used = usedByNode.get(name) || { cpuMillis: 0, memMi: 0 };
+      const freeCpuMillis = totalCpuMillis - used.cpuMillis;
+      const freeMemMi = totalMemMi - used.memMi;
+
+      logger.debug({
+        node: name,
+        totalCpu: `${totalCpuMillis}m`, usedCpu: `${used.cpuMillis}m`, freeCpu: `${freeCpuMillis}m`,
+        totalMem: `${totalMemMi}Mi`, usedMem: `${used.memMi}Mi`, freeMem: `${freeMemMi}Mi`,
+        requiredCpu: `${requiredCpuMillis}m`, requiredMem: `${requiredMemMi}Mi`,
+      }, "Node capacity check");
+
+      if (freeCpuMillis >= requiredCpuMillis && freeMemMi >= requiredMemMi) {
+        logger.info({ node: name, freeCpu: `${freeCpuMillis}m`, freeMem: `${freeMemMi}Mi` },
+          "Existing node has sufficient capacity — letting scheduler place pod");
+        return undefined;  // Let the K8s scheduler pick the node
+      }
+    }
+
+    // 5. No node has enough room — provision a new one
+    logger.info({
+      checkedNodes: nodes.length,
+      requiredCpu: `${requiredCpuMillis}m`,
+      requiredMem: `${requiredMemMi}Mi`,
+    }, "No existing node has sufficient capacity — provisioning new worker");
+
+    const cpuCores = requiredCpuMillis / 1000;
+    const memGb = requiredMemMi / 1024;
+    const nodeName = await provisionNode(cpuCores, memGb, 30);
+    return nodeName;
+
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ err: msg }, "ensureCapacityForDeployment failed");
+    // Don't block deployment — let the K8s scheduler try
+    return undefined;
+  }
 }
 
 export async function checkScaleDown(_db: any): Promise<void> {}

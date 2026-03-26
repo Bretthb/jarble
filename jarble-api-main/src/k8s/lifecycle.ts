@@ -293,6 +293,37 @@ async function createDeploymentLegacy(
           ...(nodeSelector || config.nodeName
             ? { nodeSelector: { ...nodeSelector, ...(config.nodeName ? { "kubernetes.io/hostname": config.nodeName } : {}) } }
             : {}),
+          affinity: {
+            nodeAffinity: {
+              preferredDuringSchedulingIgnoredDuringExecution: [
+                {
+                  weight: 80,
+                  preference: {
+                    matchExpressions: [
+                      {
+                        key: "jarble.ai/auto-scaled",
+                        operator: "In",
+                        values: ["true"],
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+            podAntiAffinity: {
+              preferredDuringSchedulingIgnoredDuringExecution: [
+                {
+                  weight: 50,
+                  podAffinityTerm: {
+                    labelSelector: {
+                      matchLabels: { "jarble.ai/type": "bot" },
+                    },
+                    topologyKey: "kubernetes.io/hostname",
+                  },
+                },
+              ],
+            },
+          },
           securityContext: secCtx.pod,
           initContainers: [
             {
