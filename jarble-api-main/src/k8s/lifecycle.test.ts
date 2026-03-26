@@ -136,20 +136,20 @@ describe("createDeployment (legacy)", () => {
     expect(container?.resources?.limits?.memory).toBe("3072Mi");
   });
 
-  it("sets CPU request to 50% of limit (min 250m)", async () => {
+  it("sets CPU request equal to limit (guaranteed QoS)", async () => {
     await createDeployment("dep-1", "user-1", { ...baseConfig, cpuLimit: "2.0" });
 
     const container = mockAppsApi.createNamespacedDeployment.mock.calls[0][1]
       .spec?.template?.spec?.containers?.[0];
-    expect(container?.resources?.requests?.cpu).toBe("1000m");
+    expect(container?.resources?.requests?.cpu).toBe("2000m");
   });
 
-  it("enforces minimum 250m CPU request", async () => {
+  it("sets CPU request equal to limit for small values", async () => {
     await createDeployment("dep-1", "user-1", { ...baseConfig, cpuLimit: "0.2" });
 
     const container = mockAppsApi.createNamespacedDeployment.mock.calls[0][1]
       .spec?.template?.spec?.containers?.[0];
-    expect(container?.resources?.requests?.cpu).toBe("250m");
+    expect(container?.resources?.requests?.cpu).toBe("200m");
   });
 
   it("configures storage with minimum 1Gi (Math.max enforced)", async () => {
