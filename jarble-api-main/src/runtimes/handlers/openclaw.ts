@@ -371,6 +371,7 @@ const configFiles: ConfigFileSpec[] = [
   { path: "soul.md", description: "System prompt / personality", isGlob: false },
   { path: "openclaw.json", description: "Agent + channel configuration (OpenClaw native)", isGlob: false },
   { path: "skills/*", description: "Skill definitions", isGlob: true },
+  { path: "subagent-tools.json", description: "MCP tool definitions for user-configured subagents", isGlob: false },
 ];
 
 export const openclawHandler: RuntimeHandler = {
@@ -421,6 +422,16 @@ export const openclawHandler: RuntimeHandler = {
       );
       soulParts.push(
         `## Installed Marketplace Components\nYou have the following custom components installed. To use them, output a \`\`\`jarble_ui\`\`\` block with \`"component"\` set to the name below — they work exactly like built-in components. Call \`component_reference\` with the component name for full prop details.\n\n**IMPORTANT:** Do NOT use \`load_artifact\` or \`save_artifact\` for marketplace components. Just use \`render_ui\` / jarble_ui blocks directly. Artifacts are a separate persistence system for user-saved dashboards.\n${lines.join("\n")}`
+      );
+    }
+
+    // Append custom subagents so the bot knows its specialist agents
+    if (deployment.subagents && deployment.subagents.length > 0) {
+      const agentLines = deployment.subagents.map((a) =>
+        `- **agent_${a.slug}** — ${a.description || a.name}`
+      );
+      soulParts.push(
+        `## Custom Agents\nYou have the following specialist agents. Delegate using their MCP tool name:\n${agentLines.join("\n")}`
       );
     }
 
@@ -607,6 +618,30 @@ export const openclawHandler: RuntimeHandler = {
         });
         log.info({ toolCount: serviceTools.length }, "renderConfigs: wrote service-tools.json");
       }
+    }
+
+    // Write subagent-tools.json — MCP tool definitions for user-configured subagents.
+    // The MCP server reads this file to dynamically register subagent tools (agent_{slug}).
+    if (deployment.subagents && deployment.subagents.length > 0) {
+      const subagentTools = deployment.subagents.map((a) => ({
+        name: `agent_${a.slug}`,
+        slug: a.slug,
+        description: a.description || `Custom agent: ${a.name}`,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            task: { type: "string", description: `Task or question to delegate to ${a.name}` },
+            context: { type: "string", description: "Additional context or data for the agent" },
+          },
+          required: ["task"],
+        },
+      }));
+
+      files.push({
+        path: "subagent-tools.json",
+        content: JSON.stringify(subagentTools, null, 2),
+      });
+      log.info({ toolCount: subagentTools.length }, "renderConfigs: wrote subagent-tools.json");
     }
 
     log.info({ fileCount: files.length }, "renderConfigs complete");

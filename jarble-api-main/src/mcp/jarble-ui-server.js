@@ -30,6 +30,7 @@ const PROTECTED_PATHS = [
   `${PVC_MOUNT}/config/soul.md`,
   `${PVC_MOUNT}/config/openclaw.json`,
   `${PVC_MOUNT}/config/service-tools.json`,
+  `${PVC_MOUNT}/config/subagent-tools.json`,
   `${PVC_MOUNT}/config/platform-skills.json`,
   `${PVC_MOUNT}/config/skills`,
   `${PVC_MOUNT}/config/.env`,
@@ -253,6 +254,121 @@ try {
 } catch (e) {
   // fs.watch may fail on some platforms — non-fatal, tools reload on MCP restart
   console.error("[MCP] Could not watch for service-tools.json changes:", e.message);
+}
+
+// ── Subagent tools — user-configured specialist agents ─────────────────
+// These are dynamically registered MCP tools for user-created subagents.
+// Each entry has { name, slug, description, inputSchema }.
+// Written by configSync's openclaw handler during Tier 1 updates.
+
+let SUBAGENT_TOOLS = []; // Array of MCP tool definitions
+const SUBAGENT_TOOLS_PATH = process.env.JARBLE_SUBAGENT_TOOLS_PATH || "/data/config/subagent-tools.json";
+
+function loadSubagentTools() {
+  try {
+    if (fs.existsSync(SUBAGENT_TOOLS_PATH)) {
+      const raw = JSON.parse(fs.readFileSync(SUBAGENT_TOOLS_PATH, "utf-8"));
+      if (Array.isArray(raw)) {
+        SUBAGENT_TOOLS = raw.map(function(t) {
+          return {
+            name: t.name,
+            slug: t.slug,
+            description: t.description || "Custom agent: " + t.name,
+            inputSchema: t.inputSchema || {
+              type: "object",
+              properties: {
+                task: { type: "string", description: "Task or question to delegate" },
+              },
+              required: ["task"],
+            },
+          };
+        });
+        console.error("[MCP] Loaded " + SUBAGENT_TOOLS.length + " subagent tools from " + SUBAGENT_TOOLS_PATH);
+      }
+    }
+  } catch (e) {
+    console.error("[MCP] Failed to load subagent tools:", e.message);
+  }
+}
+loadSubagentTools();
+
+// Watch for changes to subagent-tools.json (configSync writes this on subagent create/update/delete)
+try {
+  const subagentToolsDir = path.dirname(SUBAGENT_TOOLS_PATH);
+  if (fs.existsSync(subagentToolsDir)) {
+    fs.watch(subagentToolsDir, function(eventType, filename) {
+      if (filename === path.basename(SUBAGENT_TOOLS_PATH)) {
+        console.error("[MCP] subagent-tools.json changed, reloading...");
+        loadSubagentTools();
+      }
+    });
+  }
+} catch (e) {
+  // fs.watch may fail on some platforms — non-fatal, tools reload on MCP restart
+  console.error("[MCP] Could not watch for subagent-tools.json changes:", e.message);
+}
+
+/**
+ * Execute a subagent delegation by POSTing to the API server's agent endpoint.
+ * Mirrors executeAgentTool() but routes to /api/pod/agent/{slug} for dynamic subagents.
+ */
+async function executeSubagentTool(subagentTool, args) {
+  try {
+    const http = require("http");
+    const https = require("https");
+
+    const apiBase = process.env.JARBLE_API_URL || process.env.API_BASE_URL || "http://localhost:3001";
+    const agentUrl = apiBase + "/api/pod/agent/" + subagentTool.slug;
+    const url = new URL(agentUrl);
+    const isHttps = url.protocol === "https:";
+    const lib = isHttps ? https : http;
+
+    const bodyJson = JSON.stringify(args);
+
+    return new Promise(function(resolve) {
+      const req = lib.request({
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(bodyJson),
+          "X-Gateway-Token": process.env.OPENCLAW_GATEWAY_TOKEN || "",
+          "X-Deployment-Id": process.env.DEPLOYMENT_ID || "",
+        },
+        timeout: 60000,
+      }, function(res) {
+        let data = "";
+        res.on("data", function(chunk) { data += chunk; });
+        res.on("end", function() {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              const parsed = JSON.parse(data);
+              resolve({ isError: false, text: JSON.stringify(parsed.result || parsed) });
+            } catch {
+              resolve({ isError: false, text: data });
+            }
+          } else {
+            resolve({ isError: true, text: "Subagent call failed (" + res.statusCode + "): " + data.slice(0, 500) });
+          }
+        });
+      });
+
+      req.on("error", function(err) {
+        resolve({ isError: true, text: "Subagent call error: " + err.message });
+      });
+      req.on("timeout", function() {
+        req.destroy();
+        resolve({ isError: true, text: "Subagent call timed out (60s)" });
+      });
+
+      req.write(bodyJson);
+      req.end();
+    });
+  } catch (err) {
+    return { isError: true, text: "Subagent tool error: " + err.message };
+  }
 }
 
 // ── Agent tools — per-agent MCP tools for delegation ─────────────────
@@ -6977,6 +7093,15 @@ async function executeTool(name, args) {
         }
       }
 
+      // Dynamic subagent tools: agent_lead_scorer, agent_email_drafter, etc.
+      // Loaded from /data/config/subagent-tools.json, dispatch to /api/pod/agent/{slug}
+      if (name.startsWith("agent_")) {
+        const subagentTool = SUBAGENT_TOOLS.find(function(t) { return t.name === name; });
+        if (subagentTool) {
+          return executeSubagentTool(subagentTool, args || {});
+        }
+      }
+
       return null;
   }
 }
@@ -7004,7 +7129,7 @@ async function handleMessage(msg) {
     return null;
   }
 
-  // List tools — includes core TOOLS + per-component show_* + service tools + agent tools
+  // List tools — includes core TOOLS + per-component show_* + service tools + agent tools + subagent tools
   if (method === "tools/list") {
     // Build MCP tool definitions from loaded service tools
     const serviceToolDefs = SERVICE_TOOLS.map(function(t) {
@@ -7022,10 +7147,18 @@ async function handleMessage(msg) {
         inputSchema: t.inputSchema,
       };
     });
+    // Build subagent tool definitions (dynamic, user-configured)
+    const subagentToolDefs = SUBAGENT_TOOLS.map(function(t) {
+      return {
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      };
+    });
     return {
       jsonrpc: "2.0",
       id,
-      result: { tools: [...TOOLS, ...PER_COMPONENT_TOOLS, ...serviceToolDefs, ...agentToolDefs] },
+      result: { tools: [...TOOLS, ...PER_COMPONENT_TOOLS, ...serviceToolDefs, ...agentToolDefs, ...subagentToolDefs] },
     };
   }
 

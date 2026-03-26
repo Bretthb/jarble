@@ -1925,12 +1925,38 @@ export const deploymentRouter = router({
         } as any);
       }
 
-      // 9. Increment source deployment's forkCount
+      // 9. Copy subagents
+      const existingSubagents = await ctx.db.query.deploymentSubagents?.findMany?.({
+        where: eq(tables.deploymentSubagents.deploymentId, input.sourceId),
+      }) || [];
+      for (const sa of existingSubagents) {
+        await ctx.db.insert(tables.deploymentSubagents).values({
+          id: `sa_${nanoid()}`,
+          deploymentId: newId,
+          name: sa.name,
+          slug: sa.slug,
+          description: sa.description,
+          systemPrompt: sa.systemPrompt,
+          model: sa.model,
+          triggerType: sa.triggerType,
+          triggerConfig: sa.triggerConfig,
+          tools: sa.tools,
+          enabled: sa.enabled,
+          sortOrder: sa.sortOrder,
+          isPublic: false,
+          forkedFromId: sa.id,
+          forkCount: 0,
+          createdAt: now,
+          updatedAt: now,
+        } as any);
+      }
+
+      // 10. Increment source deployment's forkCount
       await ctx.db.update(deployments)
         .set({ forkCount: sql`${deployments.forkCount} + 1` } as any)
         .where(eq(deployments.id, input.sourceId));
 
-      // 10. Return the new deployment
+      // 11. Return the new deployment
       const newDeployment = await ctx.db.query.deployments.findFirst({
         where: eq(deployments.id, newId),
         with: { runtimeCatalogEntry: true },
@@ -2044,12 +2070,38 @@ export const deploymentRouter = router({
         } as any);
       }
 
-      // 9. Increment source deployment's forkCount
+      // 9. Copy subagents
+      const existingSubagents2 = await ctx.db.query.deploymentSubagents?.findMany?.({
+        where: eq(tables.deploymentSubagents.deploymentId, input.sourceId),
+      }) || [];
+      for (const sa of existingSubagents2) {
+        await ctx.db.insert(tables.deploymentSubagents).values({
+          id: `sa_${nanoid()}`,
+          deploymentId: newId,
+          name: sa.name,
+          slug: sa.slug,
+          description: sa.description,
+          systemPrompt: sa.systemPrompt,
+          model: sa.model,
+          triggerType: sa.triggerType,
+          triggerConfig: sa.triggerConfig,
+          tools: sa.tools,
+          enabled: sa.enabled,
+          sortOrder: sa.sortOrder,
+          isPublic: false,
+          forkedFromId: sa.id,
+          forkCount: 0,
+          createdAt: now,
+          updatedAt: now,
+        } as any);
+      }
+
+      // 10. Increment source deployment's forkCount
       await ctx.db.update(deployments)
         .set({ forkCount: sql`${deployments.forkCount} + 1` } as any)
         .where(eq(deployments.id, input.sourceId));
 
-      // 10. Return the new deployment
+      // 11. Return the new deployment
       const newDeployment = await ctx.db.query.deployments.findFirst({
         where: eq(deployments.id, newId),
         with: { runtimeCatalogEntry: true },

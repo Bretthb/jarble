@@ -49,6 +49,8 @@ const log = createModuleLogger("configSync");
 import { nanoid } from "nanoid";
 
 const { deployments, platformCredentials, deploymentSkills, skillsCatalog, serviceInstalls, marketplaceServices, componentInstalls, marketplaceComponents } = tables;
+// deploymentSubagents may not exist yet (schema created by separate agent)
+const deploymentSubagents = (tables as any).deploymentSubagents;
 
 /**
  * Re-register the MCP server on the pod to point at the PVC-deployed version.
@@ -231,6 +233,41 @@ async function buildDeploymentFields(
     }
   }
 
+  // Load enabled subagents for this deployment
+  const subagents: Array<{
+    slug: string; name: string; description: string | null;
+    systemPrompt: string; model: string | null;
+    triggerType: string; triggerConfig: string | null; tools: string | null;
+  }> = [];
+
+  if (deploymentSubagents) {
+    try {
+      const subagentRows = await db.query.deploymentSubagents.findMany({
+        where: and(
+          eq(deploymentSubagents.deploymentId, deployment.id),
+          eq(deploymentSubagents.enabled, true),
+        ),
+        orderBy: (s: any, { asc }: any) => [asc(s.sortOrder)],
+      });
+
+      for (const row of subagentRows) {
+        subagents.push({
+          slug: row.slug,
+          name: row.name,
+          description: row.description ?? null,
+          systemPrompt: row.systemPrompt,
+          model: row.model ?? null,
+          triggerType: row.triggerType ?? "manual",
+          triggerConfig: row.triggerConfig ?? null,
+          tools: row.tools ?? null,
+        });
+      }
+    } catch (err) {
+      // Table may not exist yet — non-fatal
+      log.debug({ deploymentId: deployment.id, err }, "configSync: failed to load subagents (table may not exist yet)");
+    }
+  }
+
   return {
     id: deployment.id,
     runtime: deployment.runtime,
@@ -249,6 +286,7 @@ async function buildDeploymentFields(
     packageSnippets: serviceSnippets.length > 0 ? serviceSnippets : undefined,
     remoteSkillConfigs: remoteSkillConfigs.length > 0 ? remoteSkillConfigs : undefined,
     installedComponents: installedComponents.length > 0 ? installedComponents : undefined,
+    subagents: subagents.length > 0 ? subagents : undefined,
   };
 }
 

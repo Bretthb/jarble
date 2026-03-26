@@ -5,6 +5,9 @@
  * POST /api/pod/agent/:agentName — Generalized agent dispatch
  *
  * Auth: authenticatePod middleware (X-Deployment-Id + X-Gateway-Token)
+ *
+ * Dynamic subagents: If :agentName is not a static platform agent,
+ * we fall back to a DB lookup for user-configured subagents by slug.
  */
 import { Router, Request, Response } from "express";
 import { collectLlmCompletion, LlmMessage } from "../services/llmProxy.js";
@@ -12,6 +15,8 @@ import { COMPONENT_AGENT_SYSTEM_PROMPT } from "../prompts/componentAgent.js";
 import { DATA_AGENT_SYSTEM_PROMPT } from "../prompts/dataAgent.js";
 import { WORKFLOW_AGENT_SYSTEM_PROMPT } from "../prompts/workflowAgent.js";
 import { getAgent } from "../services/agentRegistry.js";
+import { db, tables } from "../db/index.js";
+import { eq, and } from "drizzle-orm";
 import { env } from "../utils/env.js";
 import { createModuleLogger } from "../utils/logger.js";
 
@@ -98,70 +103,157 @@ agentRouter.post("/:agentName", async (req: Request, res: Response) => {
   // Skip if this is the legacy /component endpoint (already handled above)
   if (agentName === "component") return;
 
+  const deploymentId = (req as any).podDeploymentId as string;
+
+  // ── Static platform agent lookup ────────────────────────────────────
   const agentConfig = getAgent(agentName);
-  if (!agentConfig) {
+  const systemPrompt = agentConfig ? AGENT_PROMPTS[agentName] : undefined;
+
+  if (agentConfig && systemPrompt) {
+    // Resolve LLM config
+    const provider = env.AGENT_LLM_PROVIDER ?? "openrouter";
+    const apiKey = env.AGENT_LLM_API_KEY ?? env.OPENROUTER_API_KEY;
+    const model = req.body.model || agentConfig.defaultModel;
+
+    if (!apiKey) {
+      res.status(500).json({ error: `No LLM API key configured for ${agentName} agent` });
+      return;
+    }
+
+    // Build user message from request body
+    // Each agent expects different fields; construct a generic user message
+    const body = req.body;
+    let userMessage = "";
+
+    switch (agentName) {
+      case "data": {
+        userMessage = `Task: ${body.task || "Analyze the data"}`;
+        if (body.data !== undefined) {
+          const dataStr = typeof body.data === "string" ? body.data : JSON.stringify(body.data, null, 2);
+          userMessage += `\n\nData:\n${dataStr}`;
+        }
+        if (body.outputFormat) {
+          userMessage += `\n\nOutput format: ${body.outputFormat}`;
+        }
+        break;
+      }
+      case "workflow": {
+        userMessage = `Goal: ${body.goal || "Plan a workflow"}`;
+        if (body.availableServices) {
+          userMessage += `\n\nAvailable services: ${JSON.stringify(body.availableServices)}`;
+        }
+        if (body.constraints) {
+          userMessage += `\n\nConstraints: ${body.constraints}`;
+        }
+        break;
+      }
+      default: {
+        // Generic: serialize the entire body as the message
+        userMessage = JSON.stringify(body, null, 2);
+      }
+    }
+
+    const messages: LlmMessage[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ];
+
+    logger.info({ deploymentId, agentName, model }, `${agentName} Agent: processing request`);
+
+    try {
+      const result = await collectLlmCompletion({
+        provider: provider as any,
+        apiKey,
+        model,
+        messages,
+      });
+
+      let text = result.text.trim();
+
+      // Strip markdown fences
+      if (text.startsWith("```")) {
+        text = text.replace(/^```(?:json|html|markdown)?\n?/, "").replace(/\n?```$/, "");
+      }
+
+      logger.info(
+        { deploymentId, agentName, responseLength: text.length },
+        `${agentName} Agent: completed`,
+      );
+
+      // Try to parse as JSON for structured agents
+      if (agentName === "data" || agentName === "workflow") {
+        try {
+          const parsed = JSON.parse(text);
+          res.json({ result: parsed, model, agent: agentName });
+          return;
+        } catch {
+          // If it's not valid JSON, return as text
+        }
+      }
+
+      res.json({ result: text, model, agent: agentName });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ deploymentId, agentName, err: message }, `${agentName} Agent: failed`);
+      res.status(500).json({ error: `Agent ${agentName} failed: ${message}` });
+    }
+    return;
+  }
+
+  // ── Dynamic subagent DB lookup (user-configured agents) ──────────────
+  // If not a static platform agent, check deployment_subagents table by slug.
+  const deploymentSubagents = (tables as any).deploymentSubagents;
+  if (!deploymentSubagents || !deploymentId) {
     res.status(404).json({ error: `Unknown agent: ${agentName}` });
     return;
   }
 
-  const systemPrompt = AGENT_PROMPTS[agentName];
-  if (!systemPrompt) {
-    res.status(500).json({ error: `No system prompt configured for agent: ${agentName}` });
-    return;
-  }
+  try {
+    const subagent = await (db.query as any).deploymentSubagents?.findFirst?.({
+      where: and(
+        eq(deploymentSubagents.slug, agentName),
+        eq(deploymentSubagents.deploymentId, deploymentId),
+        eq(deploymentSubagents.enabled, true),
+      ),
+    });
 
-  // Resolve LLM config
-  const provider = env.AGENT_LLM_PROVIDER ?? "openrouter";
-  const apiKey = env.AGENT_LLM_API_KEY ?? env.OPENROUTER_API_KEY;
-  const model = req.body.model || agentConfig.defaultModel;
-
-  if (!apiKey) {
-    res.status(500).json({ error: `No LLM API key configured for ${agentName} agent` });
-    return;
-  }
-
-  // Build user message from request body
-  // Each agent expects different fields; construct a generic user message
-  const body = req.body;
-  let userMessage = "";
-
-  switch (agentName) {
-    case "data": {
-      userMessage = `Task: ${body.task || "Analyze the data"}`;
-      if (body.data !== undefined) {
-        const dataStr = typeof body.data === "string" ? body.data : JSON.stringify(body.data, null, 2);
-        userMessage += `\n\nData:\n${dataStr}`;
-      }
-      if (body.outputFormat) {
-        userMessage += `\n\nOutput format: ${body.outputFormat}`;
-      }
-      break;
+    if (!subagent) {
+      res.status(404).json({ error: `Unknown agent: ${agentName}` });
+      return;
     }
-    case "workflow": {
-      userMessage = `Goal: ${body.goal || "Plan a workflow"}`;
-      if (body.availableServices) {
-        userMessage += `\n\nAvailable services: ${JSON.stringify(body.availableServices)}`;
-      }
-      if (body.constraints) {
-        userMessage += `\n\nConstraints: ${body.constraints}`;
-      }
-      break;
+
+    // Resolve LLM config — subagent model overrides default
+    const provider = env.AGENT_LLM_PROVIDER ?? "openrouter";
+    const apiKey = env.AGENT_LLM_API_KEY ?? env.OPENROUTER_API_KEY;
+    const model = subagent.model || env.AGENT_LLM_MODEL || "anthropic/claude-sonnet-4-20250514";
+
+    if (!apiKey) {
+      res.status(500).json({ error: `No LLM API key configured for subagent: ${agentName}` });
+      return;
     }
-    default: {
-      // Generic: serialize the entire body as the message
+
+    // Build user message from request body
+    const body = req.body;
+    let userMessage = body.task || body.intent || "";
+    if (body.context) {
+      userMessage += `\n\nContext:\n${typeof body.context === "string" ? body.context : JSON.stringify(body.context, null, 2)}`;
+    }
+    if (body.data !== undefined) {
+      const dataStr = typeof body.data === "string" ? body.data : JSON.stringify(body.data, null, 2);
+      userMessage += `\n\nData:\n${dataStr}`;
+    }
+    // Fallback: if no recognized field, serialize entire body
+    if (!userMessage) {
       userMessage = JSON.stringify(body, null, 2);
     }
-  }
 
-  const messages: LlmMessage[] = [
-    { role: "system", content: systemPrompt },
-    { role: "user", content: userMessage },
-  ];
+    const messages: LlmMessage[] = [
+      { role: "system", content: subagent.systemPrompt },
+      { role: "user", content: userMessage },
+    ];
 
-  const deploymentId = (req as any).podDeploymentId as string;
-  logger.info({ deploymentId, agentName, model }, `${agentName} Agent: processing request`);
+    logger.info({ deploymentId, agentName, model, subagentId: subagent.id }, `Subagent ${agentName}: processing request`);
 
-  try {
     const result = await collectLlmCompletion({
       provider: provider as any,
       apiKey,
@@ -178,24 +270,22 @@ agentRouter.post("/:agentName", async (req: Request, res: Response) => {
 
     logger.info(
       { deploymentId, agentName, responseLength: text.length },
-      `${agentName} Agent: completed`,
+      `Subagent ${agentName}: completed`,
     );
 
-    // Try to parse as JSON for structured agents
-    if (agentName === "data" || agentName === "workflow") {
-      try {
-        const parsed = JSON.parse(text);
-        res.json({ result: parsed, model, agent: agentName });
-        return;
-      } catch {
-        // If it's not valid JSON, return as text
-      }
+    // Try to parse as JSON
+    try {
+      const parsed = JSON.parse(text);
+      res.json({ result: parsed, model, agent: agentName });
+      return;
+    } catch {
+      // Not JSON — return as text
     }
 
     res.json({ result: text, model, agent: agentName });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.error({ deploymentId, agentName, err: message }, `${agentName} Agent: failed`);
+    logger.error({ deploymentId, agentName, err: message }, `Subagent ${agentName}: failed`);
     res.status(500).json({ error: `Agent ${agentName} failed: ${message}` });
   }
 });

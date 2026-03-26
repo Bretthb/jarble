@@ -332,6 +332,7 @@ export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   runtimeCatalogEntry: one(runtimeCatalog, { fields: [deployments.runtimeCatalogId], references: [runtimeCatalog.id] }),
   platformCredentials: many(platformCredentials),
   componentInstalls: many(componentInstalls),
+  subagents: many(deploymentSubagents),
 }));
 
 // ── Chat History Tables ───────────────────────────────────────────────────
@@ -807,4 +808,35 @@ export const orchestrationFlowsRelations = relations(orchestrationFlows, ({ one,
 export const flowExecutionsRelations = relations(flowExecutions, ({ one }) => ({
   flow: one(orchestrationFlows, { fields: [flowExecutions.flowId], references: [orchestrationFlows.id] }),
   user: one(users, { fields: [flowExecutions.userId], references: [users.id] }),
+}));
+
+// ── Deployment Subagents ──────────────────────────────────────────────────
+
+export const deploymentSubagents = pgTable("deployment_subagents", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 100 }).notNull(),
+  slug: varchar("slug", { length: 100 }).notNull(),  // auto-generated from name, unique per deployment
+  description: text("description"),
+  systemPrompt: text("system_prompt").notNull(),
+  model: varchar("model", { length: 100 }),  // null = default AGENT_LLM_MODEL
+  triggerType: varchar("trigger_type", { length: 20 }).notNull().default("manual"),  // manual | auto | conditional
+  triggerConfig: text("trigger_config"),  // JSON
+  tools: text("tools"),  // JSON array of allowed tool names, null = all
+  enabled: boolean("enabled").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isPublic: boolean("is_public").notNull().default(false),
+  forkedFromId: varchar("forked_from_id", { length: 255 }),
+  forkCount: integer("fork_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  deploymentIdIdx: index("idx_deployment_subagents_deployment_id").on(table.deploymentId),
+  deploymentSlugIdx: uniqueIndex("uq_deployment_subagents_deployment_slug").on(table.deploymentId, table.slug),
+  isPublicIdx: index("idx_deployment_subagents_is_public").on(table.isPublic),
+}));
+
+export const deploymentSubagentsRelations = relations(deploymentSubagents, ({ one }) => ({
+  deployment: one(deployments, { fields: [deploymentSubagents.deploymentId], references: [deployments.id] }),
+  forkedFrom: one(deploymentSubagents, { fields: [deploymentSubagents.forkedFromId], references: [deploymentSubagents.id] }),
 }));

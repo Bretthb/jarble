@@ -83,6 +83,17 @@ export interface DeploymentFields {
     tier: string;
     category: string;
   }>;
+  /** User-configured subagents for this deployment — rendered as MCP tools + soul.md section */
+  subagents?: Array<{
+    slug: string;
+    name: string;
+    description: string | null;
+    systemPrompt: string;
+    model: string | null;
+    triggerType: string;
+    triggerConfig: string | null;
+    tools: string | null;
+  }>;
 }
 
 /**
