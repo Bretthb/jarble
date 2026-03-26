@@ -836,11 +836,11 @@ export const deploymentRouter = router({
           }, managedBy);
           logger.info({ deploymentId }, "K8s createDeployment returned, polling for readiness...");
 
-          // Poll for pod readiness — 90 attempts × 2s = 180s timeout
-          // Pods can take 2-3 minutes for npm install + OpenClaw startup
+          // Poll for pod readiness — 150 attempts × 2s = 300s (5 min) timeout
+          // Fresh VPS: ~60s K3s join + ~23s image pull + ~120-180s OpenClaw boot = ~4-5 min
           await new Promise((r) => setTimeout(r, 1500));
           let ready = false;
-          for (let i = 0; i < 90; i++) {
+          for (let i = 0; i < 150; i++) {
             const podStatus = await getDeploymentPodStatus(deploymentId, managedBy);
             if (podStatus.status === "running") { ready = true; break; }
             if (podStatus.status === "failed") break;
@@ -1247,7 +1247,7 @@ export const deploymentRouter = router({
             await new Promise((r) => setTimeout(r, 1500));
 
             let ready = false;
-            for (let i = 0; i < 30; i++) {
+            for (let i = 0; i < 90; i++) {
               const podStatus = await getDeploymentPodStatus(input.id, managedBy);
               if (podStatus.status === "running") { ready = true; break; }
               if (podStatus.status === "failed") break;
@@ -1327,7 +1327,7 @@ export const deploymentRouter = router({
             await new Promise((r) => setTimeout(r, 1500));
 
             let ready = false;
-            for (let i = 0; i < 30; i++) {
+            for (let i = 0; i < 90; i++) {
               const podStatus = await getDeploymentPodStatus(input.id, managedBy);
               if (podStatus.status === "running") { ready = true; break; }
               if (podStatus.status === "failed") break;
