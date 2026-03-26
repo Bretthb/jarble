@@ -4,7 +4,7 @@ import { createModuleLogger } from "../utils/logger.js";
 const log = createModuleLogger("k8s:lifecycle");
 import { coreApi, appsApi } from "./client.js";
 import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS, RUNTIME_CLASS_MAP, RUNTIME_OVERHEAD, RUNTIME_NODE_SELECTOR } from "./constants.js";
-import type { DeploymentConfig, ManagedBy, IsolationLevel } from "./constants.js";
+import type { DeploymentConfig, ManagedBy, IsolationLevel, DeploymentType } from "./constants.js";
 import { getDeploymentPodStatus } from "./status.js";
 import { createDeploymentConfigMap, deleteDeploymentConfigMap } from "./configmap.js";
 import {
@@ -61,6 +61,100 @@ export function buildSecurityContext(isolationLevel: IsolationLevel = "standard"
       capabilities: { drop: ["ALL"] },
     },
   };
+}
+
+// ── Scheduling Helpers (deployment type routing) ────────────────────────
+
+/**
+ * Build K8s affinity rules based on deployment type.
+ *
+ * - "agent": Prefers auto-scaled VPS nodes (`jarble.ai/auto-scaled=true`),
+ *   with pod anti-affinity to spread agents across nodes (1 per VPS).
+ * - "container"/"website": Prefers shared container-pool nodes
+ *   (`jarble.ai/role=container-pool`). Uses `preferredDuringScheduling` so
+ *   pods can still schedule on any node while the pool is being built out.
+ *   No pod anti-affinity — multiple containers can share a node.
+ */
+function buildAffinityForType(deploymentType: DeploymentType) {
+  if (deploymentType === "container" || deploymentType === "website") {
+    return {
+      nodeAffinity: {
+        preferredDuringSchedulingIgnoredDuringExecution: [
+          {
+            weight: 80,
+            preference: {
+              matchExpressions: [
+                {
+                  key: "jarble.ai/role",
+                  operator: "In" as const,
+                  values: ["container-pool"],
+                },
+              ],
+            },
+          },
+        ],
+      },
+      // No podAntiAffinity — containers/websites share nodes
+    };
+  }
+
+  // Agent type: dedicated VPS nodes with anti-affinity
+  return {
+    nodeAffinity: {
+      preferredDuringSchedulingIgnoredDuringExecution: [
+        {
+          weight: 80,
+          preference: {
+            matchExpressions: [
+              {
+                key: "jarble.ai/auto-scaled",
+                operator: "In" as const,
+                values: ["true"],
+              },
+            ],
+          },
+        },
+      ],
+    },
+    podAntiAffinity: {
+      preferredDuringSchedulingIgnoredDuringExecution: [
+        {
+          weight: 50,
+          podAffinityTerm: {
+            labelSelector: {
+              matchLabels: { "jarble.ai/type": "bot" },
+            },
+            topologyKey: "kubernetes.io/hostname",
+          },
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * Build K8s tolerations based on deployment type.
+ *
+ * - "agent": Tolerates the `jarble.ai/workload=agent:NoSchedule` taint so
+ *   agents CAN schedule on dedicated VPS nodes that are tainted to exclude
+ *   container/website workloads.
+ * - "container"/"website": No toleration for the agent taint — they will
+ *   never be placed on agent VPS nodes.
+ */
+function buildTolerationsForType(deploymentType: DeploymentType) {
+  if (deploymentType === "agent") {
+    return [
+      {
+        key: "jarble.ai/workload",
+        operator: "Equal" as const,
+        value: "agent",
+        effect: "NoSchedule" as const,
+      },
+    ];
+  }
+
+  // Container/website: no tolerations for agent taint
+  return [];
 }
 
 // ── Create ──────────────────────────────────────────────────────────────
@@ -156,11 +250,14 @@ async function createDeploymentLegacy(
   log.info({ deploymentId, userId }, "K8s: creating deployment");
 
   const containerImage = config.image || DEFAULT_IMAGE;
+  const deploymentType: DeploymentType = config.deploymentType || "agent";
 
-  // Derive resource values from config (with sensible defaults)
-  const cpuLimit = config.cpuLimit || "2.0";
-  const memoryMb = config.memoryMb || 3072;
-  const storageGbVal = config.storageMb || 30; // "storageMb" is actually GB (historical naming)
+  // Derive resource values from config (with sensible defaults).
+  // container/website types get smaller defaults since they share pool nodes.
+  const isSharedPool = deploymentType === "container" || deploymentType === "website";
+  const cpuLimit = config.cpuLimit || (isSharedPool ? "0.5" : "2.0");
+  const memoryMb = config.memoryMb || (isSharedPool ? 512 : 3072);
+  const storageGbVal = config.storageMb || (isSharedPool ? 10 : 30); // "storageMb" is actually GB (historical naming)
 
   // Convert to K8s resource units
   const cpuMillicores = `${Math.round(parseFloat(cpuLimit) * 1000)}m`;
@@ -260,10 +357,14 @@ async function createDeploymentLegacy(
   const hasConfigMap = configMapCreated;
   const gatewayPort = config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789;
 
-  // Guaranteed QoS: requests = limits so each pod reserves its full allocation.
-  // This prevents node overpacking and ensures auto-scaling triggers correctly.
+  // ── Resource requests based on deployment type ──────────────────────────
+  // Agent type: Guaranteed QoS (requests = limits) for dedicated VPS nodes.
+  // Container/website type: Burstable QoS — lower requests, higher limits for
+  // efficient bin-packing on shared pool nodes.
   const cpuLimitVal = parseFloat(cpuLimit);
-  const cpuRequestMillicores = `${Math.round(cpuLimitVal * 1000)}m`; // 100% of limit
+  const cpuRequestMillicores = isSharedPool
+    ? `${Math.round(cpuLimitVal * 250)}m`  // 25% of limit for burstable QoS
+    : `${Math.round(cpuLimitVal * 1000)}m`; // 100% of limit for guaranteed QoS
 
   // ── Isolation level: runtimeClass, security hardening, node selectors ──
   const isolationLevel: IsolationLevel = config.isolationLevel || "standard";
@@ -275,17 +376,34 @@ async function createDeploymentLegacy(
   // Adjust memory request to account for runtime overhead (gVisor/Kata use extra RAM)
   const adjustedMemoryMi = `${memoryMb + overhead.memoryMi}Mi`;
 
+  // ── Affinity & tolerations based on deployment type ────────────────────
+  // Agent: prefers auto-scaled VPS nodes, tolerates agent taint, anti-affinity with other bots.
+  // Container/website: prefers container-pool nodes, NO toleration for agent taint
+  //   (prevents scheduling on dedicated agent VPS nodes).
+  const affinity = buildAffinityForType(deploymentType);
+  const tolerations = buildTolerationsForType(deploymentType);
+
   await appsApi.createNamespacedDeployment(NAMESPACE, {
     metadata: {
       name: `dep-${deploymentId}`,
-      labels: { app: `dep-${deploymentId}`, "jarble.ai/deployment-id": deploymentId },
+      labels: {
+        app: `dep-${deploymentId}`,
+        "jarble.ai/deployment-id": deploymentId,
+        "jarble.ai/deployment-type": deploymentType,
+      },
     },
     spec: {
       replicas: 1,
       strategy: { type: "Recreate" },
       selector: { matchLabels: { app: `dep-${deploymentId}` } },
       template: {
-        metadata: { labels: { app: `dep-${deploymentId}`, "jarble.ai/type": "bot" } },
+        metadata: {
+          labels: {
+            app: `dep-${deploymentId}`,
+            "jarble.ai/type": "bot",
+            "jarble.ai/deployment-type": deploymentType,
+          },
+        },
         spec: {
           automountServiceAccountToken: false,
           terminationGracePeriodSeconds: 10,
@@ -293,37 +411,8 @@ async function createDeploymentLegacy(
           ...(nodeSelector || config.nodeName
             ? { nodeSelector: { ...nodeSelector, ...(config.nodeName ? { "kubernetes.io/hostname": config.nodeName } : {}) } }
             : {}),
-          affinity: {
-            nodeAffinity: {
-              preferredDuringSchedulingIgnoredDuringExecution: [
-                {
-                  weight: 80,
-                  preference: {
-                    matchExpressions: [
-                      {
-                        key: "jarble.ai/auto-scaled",
-                        operator: "In",
-                        values: ["true"],
-                      },
-                    ],
-                  },
-                },
-              ],
-            },
-            podAntiAffinity: {
-              preferredDuringSchedulingIgnoredDuringExecution: [
-                {
-                  weight: 50,
-                  podAffinityTerm: {
-                    labelSelector: {
-                      matchLabels: { "jarble.ai/type": "bot" },
-                    },
-                    topologyKey: "kubernetes.io/hostname",
-                  },
-                },
-              ],
-            },
-          },
+          ...(tolerations.length > 0 ? { tolerations } : {}),
+          affinity,
           securityContext: secCtx.pod,
           initContainers: [
             {

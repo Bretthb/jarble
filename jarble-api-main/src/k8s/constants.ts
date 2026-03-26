@@ -30,6 +30,9 @@ export const RUNTIME_NODE_SELECTOR: Record<IsolationLevel, Record<string, string
   kata: { "jarble.ai/runtime-capable": "kata" }, // Kata needs bare metal with /dev/kvm
 };
 
+/** Deployment scheduling type: determines node affinity, tolerations, and VPS provisioning */
+export type DeploymentType = "agent" | "container" | "website";
+
 export interface DeploymentConfig {
   name: string;
   template?: string;
@@ -45,6 +48,7 @@ export interface DeploymentConfig {
   gatewayToken?: string;                       // Pre-generated gateway token (generated if omitted)
   isolationLevel?: IsolationLevel;             // Runtime sandbox isolation (default: "standard")
   nodeName?: string;                            // Pin pod to a specific node via nodeSelector
+  deploymentType?: DeploymentType;             // Scheduling type: agent (dedicated VPS), container/website (shared pool)
 }
 
 // Default gateway ports per runtime

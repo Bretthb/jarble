@@ -7,7 +7,7 @@ export { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS } from "./constants.js";
 export { CRD_GROUP, CRD_VERSION, CRD_PLURAL } from "./constants.js";
 export { RUNTIME_CLASS_MAP, RUNTIME_OVERHEAD, RUNTIME_NODE_SELECTOR } from "./constants.js";
 export { getContainerName, getPvcMountPath, getContainerHome, podLabelSelector } from "./constants.js";
-export type { DeploymentConfig, ManagedBy, IsolationLevel } from "./constants.js";
+export type { DeploymentConfig, ManagedBy, IsolationLevel, DeploymentType } from "./constants.js";
 
 export { buildSecurityContext } from "./lifecycle.js";
 

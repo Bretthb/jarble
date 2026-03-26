@@ -298,6 +298,30 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
         "Failed to label auto-scaled node (non-fatal)");
     }
 
+    // Taint the node so only agent pods (which have a matching toleration) can schedule here.
+    // Container/website pods lack this toleration and will be repelled to shared pool nodes.
+    try {
+      await coreApi.patchNode(nodeName, {
+        spec: {
+          taints: [
+            {
+              key: "jarble.ai/workload",
+              value: "agent",
+              effect: "NoSchedule",
+            },
+          ],
+        },
+      }, undefined, undefined, undefined, undefined, undefined, {
+        headers: { "Content-Type": "application/strategic-merge-patch+json" },
+      });
+      logger.info({ nodeName }, "Node tainted with jarble.ai/workload=agent:NoSchedule");
+    } catch (taintErr) {
+      // Non-fatal: without the taint, container/website pods could land here
+      // but the scheduler's affinity rules still prefer pool nodes.
+      logger.warn({ nodeName, err: taintErr instanceof Error ? taintErr.message : taintErr },
+        "Failed to taint auto-scaled node (non-fatal — containers may schedule here)");
+    }
+
     await db.update(managedNodes)
       .set({ status: "ready", readyAt: new Date() })
       .where(eq(managedNodes.id, nodeId));
@@ -689,11 +713,13 @@ async function checkCapacityAndProvision(
 /**
  * Synchronous capacity check + provisioning with concurrency control.
  *
- * Behavior:
- * 1. If an existing node fits, returns undefined instantly (let K8s scheduler place the pod).
- * 2. If no node fits and we're under the managed server limit, provisions a new one
- *    and BLOCKS until it joins K3s (~2-4 min). Returns the node name for pinning.
- * 3. If no node fits and we're AT the limit, throws CapacityError immediately.
+ * Behavior varies by deployment type:
+ * - "agent" (default): Full capacity check + VPS provisioning.
+ *   1. If an existing node fits, returns undefined (let K8s scheduler place the pod).
+ *   2. If no node fits and under limit, provisions a new VPS and BLOCKS until ready.
+ *   3. If no node fits and AT limit, throws CapacityError immediately.
+ * - "container"/"website": Skips VPS provisioning entirely. These types schedule on
+ *   shared pool nodes and do not get dedicated VPS instances. Returns undefined.
  *
  * Concurrency: Uses a Promise-based mutex so that if 5 deploys arrive simultaneously,
  * the first one acquires the lock, checks capacity, and provisions a VPS. The other 4
@@ -704,8 +730,14 @@ async function checkCapacityAndProvision(
  * rejection and other errors for transient failures.
  */
 export async function ensureCapacityForDeployment(
-  _db: any, cpuLimit?: string, memoryMb?: number
+  _db: any, cpuLimit?: string, memoryMb?: number, deploymentType?: string
 ): Promise<string | undefined> {
+  // Container/website types share existing pool nodes — no VPS provisioning needed.
+  if (deploymentType === "container" || deploymentType === "website") {
+    logger.info({ deploymentType }, "Skipping VPS provisioning — container/website types use shared pool nodes");
+    return undefined;
+  }
+
   if (!isEnabled()) {
     logger.debug("Auto-scaling disabled — skipping capacity check");
     return undefined;

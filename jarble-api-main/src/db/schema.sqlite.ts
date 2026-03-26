@@ -29,6 +29,7 @@ export const deployments = sqliteTable("deployments", {
   name: text("name").notNull(),
   description: text("description"),
   runtime: text("runtime").notNull().default("openclaw"),
+  deploymentType: text("deployment_type").notNull().default("agent"), // "agent" | "container" | "website" — determines K8s scheduling
   image: text("image"),
   runtimeCatalogId: integer("runtime_catalog_id").references(() => runtimeCatalog.id),
   isFree: integer("is_free", { mode: "boolean" }).notNull().default(false),

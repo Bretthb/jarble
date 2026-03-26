@@ -27,6 +27,7 @@ export const deployments = pgTable("deployments", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   runtime: varchar("runtime", { length: 100 }).notNull().default("openclaw"),
+  deploymentType: varchar("deployment_type", { length: 20 }).notNull().default("agent"), // "agent" | "container" | "website" — determines K8s scheduling
   image: varchar("image", { length: 255 }),
   runtimeCatalogId: integer("runtime_catalog_id").references(() => runtimeCatalog.id),
   isFree: boolean("is_free").notNull().default(false),

@@ -346,6 +346,7 @@ export const deploymentRouter = router({
       messagingOnly: z.boolean().optional(), // If true, omit web-chat UI prompt (~1,250 tokens saved)
       personaTemplateId: z.string().optional(), // Pre-selected persona template — overrides systemPrompt, llmModel, themeConfig
       isolationLevel: z.enum(["standard", "gvisor", "kata"]).optional(), // Runtime sandbox isolation (default: "standard")
+      deploymentType: z.enum(["agent", "container", "website"]).default("agent"), // Scheduling type: agent (dedicated VPS), container/website (shared pool)
     }))
     .mutation(async ({ ctx, input }) => {
       // Platform mode is admin-only
@@ -619,6 +620,7 @@ export const deploymentRouter = router({
         stripeSubscriptionId,
         messagingOnly: input.messagingOnly ?? false,
         isolationLevel: input.isolationLevel || "standard",
+        deploymentType: input.deploymentType,
         isPlatform: input.llmMode === "platform",
         status: "pending",
       });
@@ -780,12 +782,16 @@ export const deploymentRouter = router({
       // the user gets an immediate error instead of a stuck "creating" deployment.
       // If provisioning is needed (under the limit), this blocks 2-4 min while
       // the new VPS boots and joins K3s.
+      // Resolve deployment type for scheduling decisions
+      const deploymentType = (deployment as any).deploymentType || "agent";
+
       let targetNode: string | undefined;
       try {
         targetNode = await ensureCapacityForDeployment(
           ctx.db,
           deployment.cpuLimit || "2.0",
           deployment.memoryMb || 3072,
+          deploymentType,
         );
         if (targetNode) logger.info({ deploymentId, targetNode }, "Node capacity confirmed");
       } catch (capacityErr) {
@@ -825,6 +831,7 @@ export const deploymentRouter = router({
             gatewayToken,
             isolationLevel: ((deployment as any).isolationLevel || "standard") as IsolationLevel,
             nodeName: targetNode,
+            deploymentType,
           }, managedBy);
           logger.info({ deploymentId }, "K8s createDeployment returned, polling for readiness...");
 
@@ -1153,15 +1160,18 @@ export const deploymentRouter = router({
       // no-op if the pod is already at replicas=1 but crashing.
       const wasFailedState = deployment.status === "failed";
       const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
+      const startDeploymentType = (deployment as any).deploymentType || "agent";
 
       // ── SYNCHRONOUS capacity check before starting ──────────────────────
       // Same as deploy: blocks until capacity is confirmed or rejected.
+      // Container/website types skip VPS provisioning (they use shared pool nodes).
       let targetNode: string | undefined;
       try {
         targetNode = await ensureCapacityForDeployment(
           ctx.db,
           deployment.cpuLimit || "2.0",
           deployment.memoryMb || 3072,
+          startDeploymentType,
         );
         if (targetNode) logger.info({ deploymentId: input.id, targetNode }, "Node capacity confirmed for start");
       } catch (capacityErr) {
