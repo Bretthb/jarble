@@ -165,7 +165,6 @@ let lastFailureTime = 0;
 const FAILURE_COOLDOWN_MS = 5 * 60 * 1000; // 5 min cooldown after a failure
 
 async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb: number, deploymentId?: string): Promise<string> {
-  if (provisioning) throw new Error("Another provision operation is already in progress");
   provisioning = true;
 
   const serverType = pickServerType(podCpuCores, podMemGb);
@@ -603,12 +602,28 @@ async function countActiveManagedNodes(): Promise<number> {
   return rows.length;
 }
 
-// Provisioning mutex — prevents thundering herd when multiple deploys arrive simultaneously.
-// The entire capacity-check + provision cycle is serialized: if 5 deploys arrive at once,
-// the first acquires the lock and provisions a VPS. The other 4 wait, then each re-checks
-// capacity in order. The newly provisioned node may fit multiple pods, so only one VPS
-// gets created instead of five.
-let capacityLock: Promise<void> = Promise.resolve();
+// Provisioning semaphore — allows up to MAX_CONCURRENT_PROVISIONS VPS creations in parallel.
+// When the limit is reached, additional deploys wait for a slot to free up, then re-check
+// capacity (a newly provisioned node may already fit their pod).
+const MAX_CONCURRENT_PROVISIONS = 3;
+let activeProvisions = 0;
+const provisionQueue: Array<() => void> = [];
+
+function acquireProvisionSlot(): Promise<void> {
+  if (activeProvisions < MAX_CONCURRENT_PROVISIONS) {
+    activeProvisions++;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    provisionQueue.push(() => { activeProvisions++; resolve(); });
+  });
+}
+
+function releaseProvisionSlot(): void {
+  activeProvisions--;
+  const next = provisionQueue.shift();
+  if (next) next();
+}
 
 /**
  * Core capacity check logic. Must only be called while holding the capacityLock.
@@ -753,19 +768,17 @@ export async function ensureCapacityForDeployment(
   logger.info({
     requiredCpu: `${requiredCpuMillis}m`,
     requiredMem: `${requiredMemMi}Mi`,
-  }, "Waiting for capacity lock before checking cluster capacity");
+    activeProvisions,
+    maxConcurrent: MAX_CONCURRENT_PROVISIONS,
+  }, "Acquiring provision slot before checking cluster capacity");
 
-  // Wait for any in-flight capacity check + provision to finish
-  await capacityLock;
-
-  // Now acquire the lock for our check+provision cycle
-  let releaseLock!: () => void;
-  capacityLock = new Promise<void>((resolve) => { releaseLock = resolve; });
+  // Wait for a provision slot (up to 3 concurrent)
+  await acquireProvisionSlot();
 
   try {
     return await checkCapacityAndProvision(requiredCpuMillis, requiredMemMi, deploymentId);
   } finally {
-    releaseLock();
+    releaseProvisionSlot();
   }
 }
 
