@@ -255,15 +255,15 @@ async function createDeploymentLegacy(
   //     (down from 10s) for faster detection. successThreshold 1 (default).
   //   - Tuned liveness probe: initialDelaySeconds 90s (up from 60s) to give cold
   //     boots (npm install) more breathing room before being killed.
-  //   - Added resource request/limit split: requests are lower than limits to allow
-  //     burst during npm install while keeping baseline scheduling efficient.
+  //   - Guaranteed QoS: requests = limits to prevent node overpacking and ensure
+  //     auto-scaling triggers correctly (1 large bot per cpx21 node).
   const hasConfigMap = configMapCreated;
   const gatewayPort = config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789;
 
-  // Resource request/limit split: requests < limits allows CPU burst during npm install
-  // while keeping scheduling efficient for steady-state operation.
+  // Guaranteed QoS: requests = limits so each pod reserves its full allocation.
+  // This prevents node overpacking and ensures auto-scaling triggers correctly.
   const cpuLimitVal = parseFloat(cpuLimit);
-  const cpuRequestMillicores = `${Math.max(250, Math.round(cpuLimitVal * 500))}m`; // 50% of limit, min 250m
+  const cpuRequestMillicores = `${Math.round(cpuLimitVal * 1000)}m`; // 100% of limit
 
   // ── Isolation level: runtimeClass, security hardening, node selectors ──
   const isolationLevel: IsolationLevel = config.isolationLevel || "standard";
@@ -319,7 +319,7 @@ async function createDeploymentLegacy(
               name: "gateway",
             }],
             resources: {
-              requests: { cpu: cpuRequestMillicores, memory: "512Mi", "ephemeral-storage": "100Mi" },
+              requests: { cpu: cpuRequestMillicores, memory: adjustedMemoryMi, "ephemeral-storage": "100Mi" },
               limits: { cpu: cpuMillicores, memory: adjustedMemoryMi, "ephemeral-storage": "1Gi" },
             },
             securityContext: secCtx.container,
