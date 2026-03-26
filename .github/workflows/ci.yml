@@ -1,0 +1,71 @@
+name: CI
+on:
+  push:
+    branches: [main, develop, merge-branch]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  api-tests:
+    name: API Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: jarble-api-main/package-lock.json
+      - run: cd jarble-api-main && npm ci
+      - run: cd jarble-api-main && npm run typecheck
+      - run: cd jarble-api-main && npm run test
+
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Jarble-mvp/package-lock.json
+      - run: cd jarble-api-main && npm ci
+      - run: cd jarble-api-main && npm run build:types
+      - run: cd Jarble-mvp && npm ci
+      - run: cd Jarble-mvp && npm run test
+      - run: cd Jarble-mvp && npm run check
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    needs: [frontend-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Jarble-mvp/package-lock.json
+      - run: cd jarble-api-main && npm ci
+      - run: cd jarble-api-main && npm run build:types
+      - run: cd Jarble-mvp && npm ci
+      - run: cd Jarble-mvp && npm run build
+    env:
+      NEXT_PUBLIC_API_URL: https://api.jarble.ai
+      NEXT_PUBLIC_AUTH0_DOMAIN: jarble-dev.us.auth0.com
+      NEXT_PUBLIC_AUTH0_CLIENT_ID: placeholder
+      NEXT_PUBLIC_AUTH0_AUDIENCE: https://api.jarble.ai
+
+  manifest-check:
+    name: Component Manifest Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Jarble-mvp/package-lock.json
+      - run: cd Jarble-mvp && npm ci
+      - run: cd Jarble-mvp && npm run check:manifest
