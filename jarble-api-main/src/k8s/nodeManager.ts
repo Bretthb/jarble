@@ -173,7 +173,7 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
     const firewallId = parseInt(process.env.HETZNER_FIREWALL_ID || "0");
     const sshKeyId = parseInt(process.env.HETZNER_SSH_KEY_ID || "0");
 
-    // 1. Create server WITHOUT network (we'll attach with explicit IP after)
+    // 1. Create server WITH private network (explicit IP so cloud-init can reach master)
     const serverRes = await hetznerRequest<any>("POST", "/servers", {
       name: nodeName,
       server_type: serverType.name,
@@ -181,30 +181,33 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
       location: LOCATION,
       ssh_keys: [sshKeyId],
       firewalls: [{ firewall: firewallId }],
+      networks: [networkId],
       user_data: buildCloudInit(nodeIp),
       labels: { cluster: "jarble", role: "agent", managed: "true" },
-      public_net: { enable_ipv4: false, enable_ipv6: false },
+      public_net: { enable_ipv4: false, enable_ipv6: true },  // IPv6 is free; need at least one public interface
     });
     const serverId = serverRes.server.id;
-    logger.info({ nodeName, serverId }, "Hetzner server created");
+    logger.info({ nodeName, serverId }, "Hetzner server created with network");
 
     await db.update(managedNodes)
       .set({ hetznerServerId: serverId })
       .where(eq(managedNodes.id, nodeId));
 
-    // 2. Wait for server to be running
+    // 2. Assign explicit IP on the network (override auto-assigned)
+    try {
+      await hetznerRequest("POST", `/servers/${serverId}/actions/change_alias_ips`, {
+        network: networkId,
+        alias_ips: [],
+      });
+    } catch {}
+
+    // 3. Wait for server to be running
     for (let i = 0; i < 30; i++) {
       const s = await hetznerRequest<any>("GET", `/servers/${serverId}`);
       if (s.server.status === "running") break;
       await new Promise((r) => setTimeout(r, 5000));
     }
-
-    // 3. Attach to private network with explicit IP
-    await hetznerRequest("POST", `/servers/${serverId}/actions/attach_to_network`, {
-      network: networkId,
-      ip: nodeIp,
-    });
-    logger.info({ nodeName, nodeIp }, "Attached to private network");
+    logger.info({ nodeName, nodeIp }, "Server running with private network");
 
     // 4. Create and attach block storage if deployment needs persistent storage
     if (podStorageGb > 0) {
