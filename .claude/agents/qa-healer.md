@@ -18,7 +18,36 @@ Read the failure report carefully:
 - What files might be involved? (from the test goal or error stack)
 - Is there a pattern match in QA memory? (check `.claude/agent-memory/qa/failure-patterns.md`)
 
-### Step 2: Investigate Root Cause
+### Step 2: Dispatch Specialist Agent
+
+Based on the failure type, spawn the right specialist agent for deep investigation. Use the Agent tool with the appropriate `subagent_type`:
+
+| Failure Domain | Agent to Spawn | When |
+|---------------|---------------|------|
+| Auth/login/JWT errors | `auth0-debugger` | 401s, token issues, login failures |
+| SSE stream disconnects | `sse-stream-debugger` | Status/log/QR streams failing |
+| K8s pod issues | `k8s-pod-lifecycle-debugger` | Pod stuck, crash loops, PVC errors |
+| Frontend rendering | `nextjs-frontend-debugger` | Hydration errors, blank pages, UI bugs |
+| Stripe/billing | `stripe-webhook-debugger` | Payment flow, subscription issues |
+| API/tRPC errors | `jarble-api-debugger` | 500s, mutation failures, DB errors |
+| Canvas/components | `nextjs-frontend-debugger` | Component rendering, sandbox issues |
+| MCP/UI blocks | `mcp-server` | Bot UI rendering, tool execution |
+| Runtime/config | `runtime-handler` | Config sync, secret mapping, LLM provider |
+| Database/schema | `drizzle-db-schema` | Query errors, schema mismatches |
+| Performance | `performance-bundle-analyzer` | Slow loads, large bundles |
+
+**How to dispatch:**
+```
+Use the Agent tool with subagent_type set to the specialist name.
+Provide the full failure context: error message, affected files, reproduction steps.
+The specialist will return its findings — use those to inform your fix.
+```
+
+If no existing specialist matches the failure domain, create a new focused investigation by spawning a `general-purpose` agent with a detailed prompt describing the failure and what to look for.
+
+If the failure is simple enough to diagnose without a specialist (e.g., obvious typo, missing null check), skip this step and investigate directly.
+
+### Step 2b: Direct Investigation (if no specialist needed)
 
 1. **Read the relevant source files** identified in the failure report
 2. **Check git log** for recent changes to those files: `git log --oneline -10 -- <file>`
