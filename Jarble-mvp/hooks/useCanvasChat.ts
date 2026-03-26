@@ -907,16 +907,17 @@ export function useCanvasChat(
         const cleanText = stripUIMarkers(accumulatedText);
         const addAssistantMessage = () => {
           if (cleanText) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `${messageId}-assistant`,
-                role: "assistant",
-                content: cleanText,
-                createdAt: Date.now(),
-                ...(reasoningText ? { reasoning: reasoningText } : {}),
-              },
-            ]);
+            const assistantMsg: ChatMessage = {
+              id: `${messageId}-assistant`,
+              role: "assistant",
+              content: cleanText,
+              createdAt: Date.now(),
+              ...(reasoningText ? { reasoning: reasoningText } : {}),
+            };
+            // Write to ref synchronously so unmount cleanup always has the latest messages
+            // (React's setMessages is batched — may not flush before cleanup runs on navigate)
+            messagesRef.current = [...messagesRef.current, assistantMsg];
+            setMessages((prev) => [...prev, assistantMsg]);
           }
         };
 
@@ -936,29 +937,27 @@ export function useCanvasChat(
           isDev && console.log(`[Jarble:Chat] SSE aborted after ${Date.now() - streamStart}ms`);
           const cleanText = stripUIMarkers(accumulatedText);
           if (cleanText) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `${messageId}-assistant`,
-                role: "assistant",
-                content: cleanText,
-                createdAt: Date.now(),
-                ...(reasoningText ? { reasoning: reasoningText } : {}),
-              },
-            ]);
+            const assistantMsg: ChatMessage = {
+              id: `${messageId}-assistant`,
+              role: "assistant",
+              content: cleanText,
+              createdAt: Date.now(),
+              ...(reasoningText ? { reasoning: reasoningText } : {}),
+            };
+            messagesRef.current = [...messagesRef.current, assistantMsg];
+            setMessages((prev) => [...prev, assistantMsg]);
           }
           return;
         }
         console.error(`[Jarble:Chat] SSE error: ${err instanceof Error ? err.message : String(err)}`);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `${messageId}-error`,
-            role: "assistant",
-            content: "Something went wrong. Please try again.",
-            createdAt: Date.now(),
-          },
-        ]);
+        const errorMsg: ChatMessage = {
+          id: `${messageId}-error`,
+          role: "assistant",
+          content: "Something went wrong. Please try again.",
+          createdAt: Date.now(),
+        };
+        messagesRef.current = [...messagesRef.current, errorMsg];
+        setMessages((prev) => [...prev, errorMsg]);
       } finally {
         // Only clear streaming state if this is still the active request.
         // The generation check prevents the abort race: when request A is aborted
