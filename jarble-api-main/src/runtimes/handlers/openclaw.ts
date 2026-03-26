@@ -463,6 +463,22 @@ export const openclawHandler: RuntimeHandler = {
       };
     }
 
+    // Add user-defined subagents to the agents config so OpenClaw natively supports them
+    if (deployment.subagents && deployment.subagents.length > 0) {
+      if (!openclawConfig.agents) openclawConfig.agents = {};
+      for (const sa of deployment.subagents) {
+        const provider = deployment.llmProvider || "anthropic";
+        const saModel = sa.model
+          ? (sa.model.includes("/") ? sa.model : `${provider}/${sa.model}`)
+          : openclawConfig.agents.defaults?.model?.primary || `${provider}/claude-haiku-4-5-20251001`;
+        openclawConfig.agents[sa.slug] = {
+          model: { primary: saModel },
+          systemPrompt: sa.systemPrompt,
+          description: sa.description || sa.name,
+        };
+      }
+    }
+
     // Channels section — build from platformCredentials
     // Only include channels the user has explicitly configured
     const channels: Record<string, any> = {};
