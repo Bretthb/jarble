@@ -913,40 +913,41 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   // ── Persist user message to DB immediately ──────────────────────────────────
   // Fire-and-forget: save the user message before starting the bot request so
-  // it survives client disconnects. DB operations must not block the SSE stream.
+  // it survives client disconnects. Session must exist before message insert (FK).
   {
     const now = dbDate();
-    // Upsert chat session — create if it doesn't exist
-    db.query.chatSessions.findFirst({
-      where: eq(tables.chatSessions.id, sessionKey),
-    }).then(async (existing) => {
-      if (existing) {
-        await db.update(tables.chatSessions)
-          .set({ updatedAt: now } as any)
-          .where(eq(tables.chatSessions.id, sessionKey));
-      } else {
-        await db.insert(tables.chatSessions).values({
-          id: sessionKey,
-          deploymentId,
-          title: lastUserText.slice(0, 50),
-          createdAt: now,
-          updatedAt: now,
-        } as any);
-      }
-    }).catch((err: unknown) => {
-      log.warn({ err: err instanceof Error ? err.message : String(err), sessionKey }, "Failed to upsert chat session");
-    });
+    (async () => {
+      try {
+        // Upsert chat session — must complete before message insert (FK constraint)
+        const existing = await db.query.chatSessions.findFirst({
+          where: eq(tables.chatSessions.id, sessionKey),
+        });
+        if (existing) {
+          await db.update(tables.chatSessions)
+            .set({ updatedAt: now } as any)
+            .where(eq(tables.chatSessions.id, sessionKey));
+        } else {
+          await db.insert(tables.chatSessions).values({
+            id: sessionKey,
+            deploymentId,
+            title: lastUserText.slice(0, 50),
+            createdAt: now,
+            updatedAt: now,
+          } as any);
+        }
 
-    // Save user message
-    db.insert(tables.chatMessages).values({
-      id: nanoid(),
-      sessionId: sessionKey,
-      role: "user",
-      content: lastUserText,
-      createdAt: now,
-    } as any).catch((err: unknown) => {
-      log.warn({ err: err instanceof Error ? err.message : String(err), sessionKey }, "Failed to persist user message");
-    });
+        // Now safe to insert message (session exists)
+        await db.insert(tables.chatMessages).values({
+          id: nanoid(),
+          sessionId: sessionKey,
+          role: "user",
+          content: lastUserText,
+          createdAt: now,
+        } as any);
+      } catch (err: unknown) {
+        log.warn({ err: err instanceof Error ? err.message : String(err), sessionKey }, "Failed to persist user message");
+      }
+    })();
   }
 
   // ── Reasoning / Thinking ──────────────────────────────────────────────────
