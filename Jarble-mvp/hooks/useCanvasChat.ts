@@ -186,24 +186,92 @@ export function useCanvasChat(
     { staleTime: Infinity, refetchOnWindowFocus: false }
   );
 
-  // Load conversation index + migrate legacy on mount
+  // Server messages query — refetches when activeConversationId changes
+  const serverMessagesQuery = trpc.deployment.getChatMessages.useQuery(
+    { sessionId: activeConversationId!, deploymentId },
+    {
+      enabled: !!activeConversationId && !!deploymentId,
+      staleTime: 30_000, // Don't refetch within 30s (localStorage is the fast cache)
+      refetchOnWindowFocus: false,
+    }
+  );
+
+  // Load conversation index + migrate legacy on mount.
+  // If localStorage is empty, wait for server sessions before creating a new conversation.
+  // This prevents generating a new session key when conversations exist server-side
+  // (which would cause OpenClaw to lose its memory/workspace).
+  const serverSessionsLoaded = serverSessionsQuery.isSuccess;
   useEffect(() => {
     if (hasLoadedHistory.current) return;
-    hasLoadedHistory.current = true;
     migrateFromLegacy(deploymentId);
     let index = loadConversationIndex(deploymentId);
+
     if (index.conversations.length === 0) {
-      createConversation(deploymentId);
-      index = loadConversationIndex(deploymentId);
+      // No local conversations — check if server has any before creating new
+      if (!serverSessionsLoaded) return; // Wait for server query to resolve
+
+      const serverSessions = serverSessionsQuery.data || [];
+      if (serverSessions.length > 0) {
+        // Server has conversations — merge them into localStorage first
+        const merged = mergeServerSessions(deploymentId, serverSessions as unknown as Array<{ id: string; title: string; createdAt: string; updatedAt: string }>);
+        index = merged;
+      } else {
+        // Neither local nor server has conversations — create a fresh one
+        createConversation(deploymentId);
+        index = loadConversationIndex(deploymentId);
+      }
     }
+
+    hasLoadedHistory.current = true;
     setConversations(index.conversations);
     const activeId = index.activeId ?? index.conversations[0]?.id ?? null;
     setActiveConversationId(activeId);
     if (activeId) {
       const saved = loadConversationMessages(deploymentId, activeId);
-      if (saved.length > 0) setMessages(saved);
+      if (saved.length > 0) {
+        setMessages(saved);
+        messagesRef.current = saved;
+      }
     }
-  }, [deploymentId]);
+  }, [deploymentId, serverSessionsLoaded, serverSessionsQuery.data]);
+
+  // Merge server messages when they arrive — server is source of truth for messages
+  // that completed after client disconnect. Show localStorage immediately (above),
+  // then merge server data if it has more messages.
+  const lastMergedConvRef = useRef<string | null>(null);
+  useEffect(() => {
+    const convId = activeConversationId;
+    if (!convId || !serverMessagesQuery.data || isStreamingRef.current) return;
+    // Only merge once per conversation per fetch (avoid re-merging on every render)
+    const mergeKey = `${convId}:${serverMessagesQuery.dataUpdatedAt}`;
+    if (lastMergedConvRef.current === mergeKey) return;
+    lastMergedConvRef.current = mergeKey;
+
+    const serverMsgs = serverMessagesQuery.data;
+    if (serverMsgs.length === 0) return;
+
+    // Convert server messages to ChatMessage format
+    const converted: ChatMessage[] = serverMsgs.map((m) => ({
+      id: m.id,
+      role: m.role as "user" | "assistant",
+      content: m.content,
+      createdAt: new Date(m.createdAt).getTime(),
+      ...(m.thinkingText ? { reasoning: m.thinkingText } : {}),
+    }));
+
+    // Use the LONGER of server vs current messages — server may have a bot response
+    // that completed after the client disconnected
+    const currentMsgs = messagesRef.current;
+    if (converted.length > currentMsgs.length) {
+      isDev && console.log(
+        `[Jarble:Chat] Server has ${converted.length} messages vs ${currentMsgs.length} local — using server`
+      );
+      setMessages(converted);
+      messagesRef.current = converted;
+      // Update localStorage so it's in sync with server
+      saveConversationMessages(deploymentId, convId, converted);
+    }
+  }, [deploymentId, activeConversationId, serverMessagesQuery.data, serverMessagesQuery.dataUpdatedAt]);
 
   // Merge server sessions after they load (runs once)
   const hasMergedServer = useRef(false);
