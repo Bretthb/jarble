@@ -1,65 +1,87 @@
 # Last QA Run
 
 ## Run Details
-- **Timestamp**: 2026-03-24T15:23:29Z
-- **Git SHA**: 01eab8e
-- **Duration**: ~15 minutes
-- **Pass rate**: 43% (3 pass, 1 warn, 3 env-skip out of 7 goals)
+- **Timestamp**: 2026-03-26T13:12:11Z
+- **Git SHA**: 15a3e26
+- **Duration**: ~25 minutes
+- **Pass rate**: 83% (15 pass, 3 warn, 0 fail, 0 skip out of 18 goals)
 - **Real bugs found**: 0
-- **Environment issues**: 1 (Auth0 refresh token rotation invalidates injected refresh_token)
+- **Security findings**: 1 LOW (missing message length cap in flowChat.ts)
+- **Environment issues**: 0 (Auth0 real login now works!)
 
 ## Goals Tested
 
 | # | Goal | Type | Status | Notes |
 |---|------|------|--------|-------|
-| 1 | Dashboard page with auth | UI | WARN | Renders correctly on FIRST load. Auth0 SDK background refresh rejects token (403). Session cleared on 2nd navigation. |
-| 2 | Deployments page with auth | UI | ENV_SKIP | Same refresh_token rotation issue as Goal 1 |
-| 3 | Billing page with auth | UI | ENV_SKIP | Same refresh_token rotation issue as Goal 1 |
-| 4 | Settings page with auth | UI | ENV_SKIP | Same refresh_token rotation issue as Goal 1 |
-| 5 | Authenticated API endpoints (11) | API | PASS | 11/11 passed (8 authed + 1 unauthed + 3 public) |
-| 6 | Privacy + Terms pages | UI | PASS | Both render with 14 sections each, comprehensive content |
-| 7 | Homepage regression | UI | PASS | All sections intact, no regressions |
+| 1 | API Health | API | PASS | 200 OK in <110ms |
+| 2 | Flows CRUD | API | WARN | Full CRUD works; soft-delete doesn't filter archived from default flows.list |
+| 3 | Flow Chat Endpoint Auth | API | PASS | 401 no auth, 404 bad flow ID — correctly secured |
+| 4 | Deployment Router Changes | API | WARN | API correct; test script used wrong field name (deploymentId vs id) |
+| 5 | Untested Public Endpoints | API | PASS | marketplace.getReviews, services.get, benchmarks.*, services.listByCreator all work |
+| 6 | Admin Router Auth | API | PASS | 403 FORBIDDEN for non-admin on getStats, listUsers |
+| 7 | flows.listExecutions | API | PASS | Returns empty array for new flow, correct format |
+| 8 | Auth0 Login Flow | UI | PASS | Real Auth0 login works end-to-end! Auth0Provider.tsx changes confirmed working |
+| 9 | Dashboard Authenticated | UI | PASS | Shows deployments empty state, user email, full nav |
+| 10 | Deployments/Flow Canvas | UI | PASS | 3 tabs (Linked, Bot Teams, Resource Map) load; no JS errors from 1418-line rewrite |
+| 11 | Settings Page | UI | PASS | Profile, appearance, account, danger zone all visible |
+| 12 | Billing Page | UI | PASS | All billing sections render correctly |
+| 13 | Onboarding Wizard | UI | PASS | 2/3 steps verified (name + persona selection with 13 cards) |
+| 14 | Docs Sub-pages | UI | PASS | getting-started, api, architecture all load with full content |
+| 15 | Auth Bypass Attempts | Chaos | PASS | All auth bypass attempts blocked |
+| 16 | Input Validation | Chaos | WARN | No explicit message length cap in flowChat.ts (LOW finding) |
+| 17 | tRPC Input Injection | Chaos | PASS | Prototype pollution stripped by Zod, SQL injection handled via parameterized queries |
+| 18 | Rate Limiting/DoS | Chaos | PASS | Global rate limiter active (300req/60s), dev debug endpoints not exposed in prod |
 
-## Failures
-None (real bugs). All issues are environment-level.
+## Key Findings
 
-## Environment Issues
+### Auth0 Real Login Now Works!
+- After Auth0Provider.tsx changes (SSR loading fix, window.location.origin redirectUri), real Auth0 UI login works end-to-end
+- Previous ROPG token injection method (FP-002) is now obsolete for UI testing
+- All authenticated pages (dashboard, deployments, settings, billing) now testable in full sessions
+- This is a major unlock for future QA cycles
 
-### Auth0 Refresh Token Rotation Invalidates Injected Token
-- **Affects**: Goals 1-4 (all authenticated UI pages after first navigation)
-- **Root cause**: Auth0 has refresh token rotation enabled. The ROPG-granted refresh_token is valid for exactly ONE use. When the Auth0 SPA SDK detects the `auth0.*.is.authenticated` cookie, it immediately calls `POST /oauth/token` to refresh, consuming the single-use token. The refreshed token is returned by Auth0 but the SDK stores it internally — so on subsequent navigations the original injected token is gone.
-- **Console error**: `[Auth] Token refresh failed: a: Unknown or invalid refresh token.`
-- **Key insight**: The dashboard DID render authenticated content on the first load (before SDK refresh kicked in), proving the page code is correct and the injection format is valid.
-- **Impact**: Auth-UI testing can verify first-load rendering but not navigation flows.
-- **Possible fixes**:
-  1. Disable refresh token rotation in Auth0 dev tenant settings
-  2. Intercept and block the SDK's refresh attempt in test mode
-  3. Accept first-load testing as sufficient (proves page rendering works)
+### Deployments.tsx Rewrite Clean
+- 1418-line rewrite of Deployments.tsx with new FlowExecutionTimeline and FlowNodeConfigPanel components
+- 3 tabs: Linked Deployments, Bot Teams (flow canvas), Resource Map
+- No JavaScript errors from the rewrite — only pre-existing React #418 hydration mismatch
+
+### New Flow Chat Endpoint Secure
+- POST /api/flows/:flowId/chat enforces Bearer JWT auth correctly
+- 401 without token, 404 for nonexistent flow IDs (not 500)
+- SQL injection in flow ID: path traversal blocked by Express routing, SQL injection handled by Drizzle ORM parameterized queries
+- WARN: No explicit message length cap before forwarding to LLM gateway (credit abuse risk)
+
+### Strong Security Posture
+- Response headers: CSP (default-src 'none'), HSTS, X-Frame-Options SAMEORIGIN, X-Content-Type-Options nosniff
+- Global rate limiter: 300 req/60s confirmed via Ratelimit header
+- Admin procedures return 403 (not 401) for non-admin users — correct role-based access
+
+### flows.list Behavior Note
+- After soft delete (default), archived flows still appear in flows.list
+- Callers must filter by status (draft/published) to exclude archived items
+- Not a bug, but worth documenting for frontend consumers
 
 ## Warnings
 
-### Dashboard First-Load PASS, Second-Load FAIL
-- Dashboard on first load showed: user avatar "SM", email "smallradcomp@gmail.com", "Deployments" heading, "No deployments yet" empty state, email verification banner
-- After SDK consumed refresh_token: session cleared, shows "Please log in to view your dashboard"
-- This is an environment issue, not a code bug
+### flows.list includes archived flows by default
+- After `flows.delete` (soft delete, `hard: false`), archived flows appear in unfiltered `flows.list`
+- Frontend must filter by `status: "draft"` or `"published"` to exclude archived
+- Risk: UI could show deleted flows unless frontend correctly filters
 
-## Key Observations
-- API auth works perfectly — all 8 authed endpoints return correct data via Bearer token
-- skills.listCatalog now returns 23 skills (was 22 in previous run — 1 new skill added)
-- Privacy page: 14 sections including GDPR, EU AI Act, data minimization — genuine platform-specific content
-- Terms page: 14 sections including AI-specific terms, BYOK model — not boilerplate
-- Both legal pages last updated March 10, 2026, with Table of Contents and anchor links
-- Homepage: Beta banner (March 29th), hero, chat preview, 20+ integrations, 6 features — consistent with previous runs
-- All API response times under 0.3s (user.me slowest at 0.209s, others <15ms)
+### No message length cap in flowChat.ts
+- Route handler checks for empty body but no `max()` guard on message length
+- Express body-parser 100KB is the only backstop
+- Authenticated users could send near-100KB messages and burn agent credits
+- Recommendation: Add `if (userMessage.length > 10000)` check before gateway call
 
 ## Healer Actions
-(none needed — no real bugs found)
+None needed — no real bugs found, only WARNs.
 
 ## Next Run Priorities
-1. Investigate disabling Auth0 refresh token rotation for dev tenant to enable full auth UI testing
-2. Test onboarding wizard flow (create deployment)
-3. Test chat page (/d/[id]) — requires a deployment to exist
-4. Run security tests (XSS, injection, auth bypass)
-5. Test docs sub-pages (/docs/api, /docs/architecture, etc.)
-6. Test marketplace detail page (/marketplace/[id])
-7. Test /beta and /analytics pages
+1. Test the Bot Teams/flow canvas UI with actual flow creation and execution
+2. Test chat page (/d/[id]) — requires a deployment to exist (onboarding wizard now verified)
+3. Test flow canvas edge/node interactions (drag, connect, configure) in Deployments.tsx
+4. Test mobile viewport for new Deployments.tsx components
+5. Complete onboarding wizard (Step 3: Choose Runtime, LLM provider, deploy)
+6. Test /analytics and /beta pages (never tested)
+7. Follow up on flowChat.ts message length cap (LOW security finding)

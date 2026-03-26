@@ -13,19 +13,13 @@ Recurring issues discovered by QA agents and their root causes.
 - **Frequency**: Deterministic
 - **Resolution**: Use `?input={"json":{"key":"value"}}` format always
 
-### FP-002: Auth0 SPA SDK session injection — refresh_token rotation
+### FP-002: Auth0 SPA SDK session injection — RESOLVED
 
-- **Pattern**: Authenticated pages show content on first load, then clear to "Please log in" on subsequent navigations
-- **Root cause**: Auth0 has refresh token rotation enabled. The ROPG-granted refresh_token is single-use. The Auth0 SPA SDK consumes it on the first background refresh, then subsequent refreshes fail because the original injected token is invalidated.
-- **Classification**: ENVIRONMENT (Auth0 tenant config issue)
-- **First seen**: 2026-03-24 (evolved from original FP-002 which was missing refresh_token entirely)
-- **Frequency**: Deterministic — first navigation works, all subsequent fail
-- **Console signature**: `[Auth] Token refresh failed: a: Unknown or invalid refresh token.` + HTTP 403 from `jarble-dev.us.auth0.com/oauth/token`
-- **Resolution options**:
-  1. Disable refresh token rotation in Auth0 dev tenant
-  2. Block the SDK's refresh attempt in test mode (intercept network)
-  3. Accept first-load testing as sufficient proof of page functionality
-- **Note**: The ORIGINAL FP-002 (missing refresh_token entirely) is now FIXED — injection format with refresh_token IS correct and works for initial page load
+- **Pattern** (original): Authenticated pages cleared session after first navigation
+- **Root cause** (original): ROPG-granted refresh_token was single-use, Auth0 SPA SDK consumed it on first background refresh
+- **Status**: RESOLVED as of 2026-03-26 by switching to real Auth0 UI login via Playwright
+- **New approach**: QA browser agents log in through the real Auth0 UI (email/password on Auth0 page) — this creates a proper SDK-managed session that handles token refresh correctly
+- **Note**: Do NOT inject localStorage tokens. Always use real Auth0 login flow.
 
 ### FP-003: Stale tRPC procedure names in test goals
 
@@ -35,3 +29,31 @@ Recurring issues discovered by QA agents and their root causes.
 - **First seen**: 2026-03-24
 - **Frequency**: Deterministic
 - **Resolution**: Correct names: `skills.listCatalog`, `platformCredentials.getByDeployment`. See `qa-api-tester/project_trpc_procedure_names.md`.
+
+### FP-004: flows.create requires label+position on nodes
+
+- **Pattern**: flows.create returns 400 when node objects lack `label` and `position` fields
+- **Root cause**: Zod schema requires `label: z.string().min(1)` and `position: {x: number, y: number}` on every node
+- **Classification**: EXPECTED_CHANGE (documentation gap)
+- **First seen**: 2026-03-26
+- **Frequency**: Deterministic
+- **Resolution**: Always include `label` and `position` on node objects in flows.create input
+
+### FP-005: deployment.getPublicProfile uses `id` field not `deploymentId`
+
+- **Pattern**: Passing `deploymentId` as the input key returns 400 BAD_REQUEST "Required"
+- **Root cause**: The Zod schema for this endpoint uses field name `id`, not `deploymentId`
+- **Classification**: EXPECTED_CHANGE (documentation mismatch)
+- **First seen**: 2026-03-26
+- **Frequency**: Deterministic
+- **Resolution**: Use `?input={"json":{"id":"..."}}` format
+
+### FP-006: React #418 hydration mismatch (pre-existing)
+
+- **Pattern**: Console shows `React #418` hydration mismatch on every page
+- **Root cause**: SSR HTML differs from client HTML (pre-existing issue, not from recent changes)
+- **Classification**: ENVIRONMENT (pre-existing, not a regression)
+- **First seen**: 2026-03-26
+- **Frequency**: Deterministic (every page)
+- **Impact**: No functional impact — pages render correctly. Not related to any specific PR.
+- **Resolution**: Known issue, skip in reports unless it causes actual rendering problems.

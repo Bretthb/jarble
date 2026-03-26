@@ -1,9 +1,10 @@
 name: Nightly QA (Agentic)
 
 on:
-  schedule:
-    - cron: '30 3 * * *'  # 3:30 AM UTC (11:30 PM EDT) every night
-  workflow_dispatch:       # Manual trigger
+  # schedule:
+  #   - cron: '30 3 * * *'  # 3:30 AM UTC (11:30 PM EDT) every night
+  # Disabled: running locally instead to use Max subscription (no API key cost)
+  workflow_dispatch:       # Manual trigger (keep for occasional CI runs)
     inputs:
       focus:
         description: 'Focus area (e.g., "dashboard", "chat", "api")'

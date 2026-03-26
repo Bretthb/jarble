@@ -8,29 +8,39 @@
 - [Last Run](last-run.md) — most recent run state and results
 
 ## Statistics
-- Total runs: 3
-- Last run: 2026-03-24T15:23:29Z (SHA 01eab8e)
-- Last run pass rate: 43% (3 pass, 1 warn, 3 env-skip out of 7 goals)
+- Total runs: 4
+- Last run: 2026-03-26T13:12:11Z (SHA 15a3e26)
+- Last run pass rate: 83% (15 pass, 3 warn, 0 fail out of 18 goals)
 - Cumulative real bugs found: 0
 - Auto-fixed: 0
-- Total endpoints tested (cumulative): 28 tRPC + 1 REST
-- Total pages tested (cumulative): 10 public + 1 auth-verified (first-load) + 3 auth-attempted
+- Total endpoints tested (cumulative): 34 tRPC + 2 REST
+- Total pages tested (cumulative): 14 public + 6 authenticated (dashboard, deployments, settings, billing, onboarding, docs sub-pages)
 
 ## Key Findings
-- All public pages render correctly (/, /pricing, /about, /login, /marketplace, /explore, /docs, /register, /privacy, /terms)
-- Dashboard page CONFIRMED working with auth (first-load renders user content correctly)
-- API health endpoint responds in <15ms on all endpoints
-- All 19 tested public tRPC endpoints return valid data
-- All 9 tested protected endpoints correctly enforce auth
-- Authenticated API calls work perfectly with Bearer token
-- Auth0 refresh token rotation (FP-002) limits UI auth testing to first-load only
-- tRPC input format requires `{"json":{...}}` wrapping (FP-001)
-- Dev DB has: 2 runtimes, 13 templates, 3 marketplace components, 1 service, 1 benchmark domain, 23 skills
-- Privacy + Terms pages have comprehensive, platform-specific legal content (14 sections each)
+- **Auth0 real login confirmed working** (2026-03-26): Auth0Provider.tsx changes (SSR fix, window.location.origin redirectUri) work. Real Auth0 UI login via Playwright now enables full authenticated session testing. Token injection approach is obsolete.
+- All public pages render correctly (/, /pricing, /about, /login, /marketplace, /explore, /docs, /privacy, /terms)
+- All authenticated pages confirmed working: /dashboard, /deployments, /settings, /billing
+- Deployments.tsx 1418-line rewrite loaded cleanly — 3 tabs (Linked, Bot Teams, Resource Map), no JS errors
+- New flow chat endpoint (POST /api/flows/:flowId/chat) is live and properly secured
+- Admin procedures return 403 FORBIDDEN (not 401) for non-admin — correct RBAC
+- Strong security headers: CSP (default-src 'none'), HSTS, X-Frame-Options, rate limiter (300req/60s)
+- Drizzle ORM parameterized queries confirmed protecting against SQL injection
+- Zod strips __proto__ fields in default strip mode (prototype pollution protection)
+- Pre-existing React #418 hydration mismatch on all pages — not related to any recent changes
 
 ## Known Environment Issues
 - Dev SQLite DB is recreated on API restart (seed data only)
 - Auth tokens expire after 24h — overnight runner refreshes before each cycle
-- Auth0 refresh token rotation invalidates injected tokens after first SDK use (FP-002)
 - marketplace.getFeatured returns empty array in dev (no featured items seeded)
-- Correct procedure names: skills.listCatalog (not skills.list), platformCredentials.getByDeployment (not .list)
+- services.list returns empty in prod (no services created yet)
+- **flows.list includes archived (soft-deleted) flows by default** — frontend must filter by status
+
+## Known Behavior Notes
+- flows.create nodes require `label` (string) and `position` ({x, y}) fields — not just type
+- deployment.getPublicProfile input uses field `id` not `deploymentId`
+- flows.delete defaults to soft delete (status=archived); pass `hard: true` for permanent deletion
+- skills.listCatalog (not skills.list), platformCredentials.getByDeployment (not .list)
+- admin.getStats / admin.listUsers return 403 for non-admin (clear "Admin access required" message)
+
+## Open Security Findings
+- **LOW**: flowChat.ts has no explicit message length cap before forwarding to LLM gateway. Authenticated users could send near-100KB messages to burn agent credits. Only Express body-parser's 100KB default prevents this.
