@@ -1275,8 +1275,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
     // ── Persist assistant message to DB ──────────────────────────────────────
     // Fire-and-forget: save the complete bot response so it survives client disconnects.
-    const cleanResponse = stripReasoningTags(gatewayResult.text);
-    log.info({ convId, hasCleanResponse: !!cleanResponse, cleanResponseLen: cleanResponse?.length, rawTextLen: gatewayResult.rawText?.length, textLen: gatewayResult.text?.length }, "Assistant message persistence check");
+    const cleanResponse = stripReasoningTags(gatewayResult.rawText || gatewayResult.text || "");
     if (cleanResponse && convId) {
       const now = dbDate();
       (async () => {
