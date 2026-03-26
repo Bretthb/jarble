@@ -86,86 +86,14 @@ cd Jarble-mvp && npm run dev
 - **Auth0 Bearer tokens**: Automatically attached via tRPC link headers
 
 ## Chat UX Features
+> Full details in `.claude/rules/chat-ux.md` (auto-loads when working in chat/canvas files)
 
-### Stop Generation
-Users can stop a running generation mid-stream. The send button transforms to a filled square stop button when streaming. Partial text is preserved as an assistant message. Users can also type and send a new message while the bot is responding — this auto-aborts the current generation and starts the new one.
-
-### Message Edit + Resend
-Users can hover over their messages to see a pencil icon. Clicking it opens an inline editor (powered by assistant-ui's `ActionBarPrimitive.Edit`). Editing truncates the conversation after that message and resends with the new text. Wired via `onEdit` callback in `useExternalStoreRuntime`.
-
-### Conversation History Sidebar
-Multi-conversation system backed by localStorage (`Jarble-mvp/lib/conversationStorage.ts`). Each conversation maps to a separate OpenClaw session via `conversationId` in the API request body → `sessionKey` in `tamboAgent.ts`. Toggle via `MessageSquareText` icon in header. Features:
-- **Storage**: Index at `jarble-conversations-{deploymentId}`, messages at `jarble-conv-{deploymentId}-{convId}`. 20 conv max, 100 msg each, 7-day expiry.
-- **Legacy migration**: `migrateFromLegacy()` transparently converts old `jarble-chat-{deploymentId}` keys on first load.
-- **Auto-title**: First user message (truncated to 50 chars) becomes the conversation title.
-- **Session isolation**: Each conversation gets its own OpenClaw session (`jarble-web-{userId}-{convId}`), so "New Chat" starts fresh.
-- **KeyedChatPanel**: The chat panel (`AssistantUIChat` + `useJarbleRuntime`) is wrapped in `KeyedChatPanel` keyed by `activeConversationId` to force full remount on switch, preventing assistant-ui index errors.
-
-### Streaming Reasoning (Think Tags)
-Bot reasoning streams live via `<think>` tags. The API (`tamboAgent.ts`) has a `createReasoningTracker()` that parses `<think>`/`<reasoning>` tags from the LLM response and emits `REASONING_START`/`REASONING_CONTENT`/`REASONING_END` SSE events. Frontend streams reasoning via rAF-based typewriter reveal. The system prompt in `openclaw.ts` instructs the bot to ALWAYS emit `<think>` tags before responding.
-
-### Typewriter Text Reveal
-Bot text streams character-by-character via a typewriter animation (`CHARS_PER_FRAME = 8` at 60fps ≈ 480 chars/sec). Target text accumulates instantly from SSE deltas; displayed text catches up progressively per animation frame. Prevents the "wall of text appearing at once" effect.
-
-### Component Edit Sync
-User edits to canvas components (code blocks, sandboxes, forms) are tracked and communicated to the bot:
-- **`content_edit` action**: Components emit `dispatch({ action: "content_edit", payload: { code: newCode } })` via `useCanvasAction()`. The `handleAction` callback in `page.tsx` catches this and dispatches `UPDATE_CARD_PROPS` silently (no chat message).
-- **Card content snapshot**: When the user selects a card and sends a message, `getCardContentSnapshot()` extracts the card's current content (code, HTML/CSS/JS, form values) and includes it in the `[EDITING cardId]` reference block sent to the bot.
-- **Editable code blocks**: `CanvasCodeBlock` has a pencil toggle for inline editing with Tab indent, Ctrl+S save, Escape cancel.
-
-### Canvas Card Controls
-Card actions (Ask, Select, Split, Save, Publish, Close) are accessed via:
-- **Right-click context menu** on any card — renders at cursor position
-- **Small `...` button** in top-right corner on hover — opens same menu
-- Context menu renders at the canvas root level (not inside cards) to avoid CSS transform positioning issues
+Key features: stop generation, message edit + resend, multi-conversation sidebar (localStorage), streaming reasoning (`<think>` tags), typewriter text reveal (480 chars/sec), component edit sync (`content_edit` action), canvas card context menus.
 
 ## Orchestration System (Flow Engine)
+> Full details in `.claude/rules/flows.md` (auto-loads when working in flow files)
 
-The platform includes a multi-agent flow orchestration system that lets users build and execute DAG-based pipelines of deployments, transforms, and decisions.
-
-### Flow Engine (`jarble-api-main/src/services/flowEngine.ts`)
-- **Execution model**: State-machine DAG — finds entry nodes (no incoming edges), executes in topological order with parallel batches where possible
-- **Cycle support**: Nodes in cycles run up to `maxIterations` times (default 10) — enables agent feedback loops
-- **Human-in-the-loop (HITL)**: `waitForInput` nodes pause execution until `resume()` is called with user input; this triggers `jarble.flow.paused` SSE and a `/api/flows/executions/:id/resume` REST endpoint
-- **Nested flows**: `subflow` nodes spin up a child `FlowEngine` and stream its events as `jarble.flow.substep.*` events
-- **Template variables**: Node configs support `{{stepN_result.field}}` syntax resolved at runtime from prior step results
-- **Node types**: `deployment` (call a Jarble bot), `transform` (JS expression), `condition` (branch on expression result), `output` (collect results), `waitForInput`, `subflow`
-- **Credit billing**: Deployment nodes consume agent credits via `executeAgentCall()`
-
-### Flow CRUD (`jarble-api-main/src/trpc/routers/flows.ts`)
-8 tRPC procedures (all `protectedProcedure`):
-- `list` — list all flows for the authed user
-- `getById` — fetch a single flow with its definition
-- `create` — create a new flow
-- `update` — update name, description, or node/edge definition
-- `delete` — delete a flow and its execution history
-- `duplicate` — copy a flow with a new name
-- `listExecutions` — paginated execution history for a flow
-- `generateFromPrompt` — LLM-generated flow definition from a natural-language prompt
-
-### Flow Execution Routes (`jarble-api-main/src/routes/flowExecution.ts`)
-- `POST /api/flows/:flowId/execute` — authenticated, starts execution, returns `{ executionId }` as JSON; execution runs in background
-- `GET /api/flows/executions/:executionId/stream` — SSE stream; client connects after receiving `executionId`; supports reconnect with buffered replay
-- `POST /api/flows/executions/:executionId/resume` — unpauses a `waitForInput` node with user-provided input
-- Rate-limited to 5 concurrent SSE connections per user (`MAX_FLOW_SSE_PER_USER`)
-
-### Flow SSE Events
-9 event types emitted on the `GET .../stream` endpoint:
-
-| Event | When |
-|-------|------|
-| `jarble.flow.snapshot` | On reconnect — full current state |
-| `jarble.flow.step.started` | A node begins executing |
-| `jarble.flow.step.finished` | A node completes (with result) |
-| `jarble.flow.step.iteration` | A cyclic node iterates again |
-| `jarble.flow.state` | Overall execution state changes |
-| `jarble.flow.paused` | Execution paused at `waitForInput` node |
-| `jarble.flow.error` | An execution error occurred |
-| `jarble.flow.substep.started` | A subflow child node started |
-| `jarble.flow.substep.finished` | A subflow child node finished |
-
-### Flow Canvas (`Jarble-mvp/views/Deployments.tsx`)
-Flow graphs are visualized and edited using `@xyflow/react` (`ReactFlow`, `useNodesState`, `useEdgesState`, `ReactFlowProvider`). Custom node and edge types are rendered inline on the canvas. The view also uses the `flows` tRPC router for CRUD operations.
+DAG-based pipeline executor with 6 node types, cycle support, HITL (`waitForInput`), subflows, template variables. 8 tRPC procedures for CRUD, SSE streaming for execution, flow chat endpoint. Canvas UI via `@xyflow/react`.
 
 ## Path Aliases & Zod Version Split
 
@@ -236,79 +164,36 @@ Wizard steps and config tabs driven by `Jarble-mvp/views/onboarding/wizardStepCo
 | `Jarble-mvp/views/Deployments.tsx` | Flow canvas UI — @xyflow/react with custom nodes/edges |
 
 ## Auto-Scaling (Hetzner K3s Workers)
+> Full details in `.claude/rules/autoscaling.md` (auto-loads when working in nodeManager/cluster-autoscaler files)
 
-The platform auto-scales K3s worker nodes on Hetzner Cloud based on bot deployment demand. Each deployment gets a right-sized server matched to its resource requirements.
-
-### How It Works
-- Background watcher (`nodeManager.ts`) polls every 15s for Pending (Unschedulable) bot pods
-- When detected, provisions a Hetzner server sized to the pod's CPU/RAM + block storage for Longhorn
-- Server joins K3s via cloud-init (installs K3s agent with cluster token)
-- When a bot is deleted and the worker is empty for 5 minutes, the server is deprovisioned
-- Controlled by `AUTOSCALE_ENABLED=true` feature flag
-
-### Server Type Mapping
-| Pod CPU | Pod RAM | Hetzner Type | Server Specs |
-|---------|---------|--------------|-------------|
-| ≤1.5 vCPU | ≤1.5 GB | cpx11 | 2 vCPU, 2 GB |
-| ≤2.5 vCPU | ≤3.5 GB | cpx21 | 3 vCPU, 4 GB |
-| ≤3.5 vCPU | ≤7.5 GB | cpx31 | 4 vCPU, 8 GB |
-| ≤7.5 vCPU | ≤15.5 GB | cpx41 | 8 vCPU, 16 GB |
-| >7.5 vCPU | >15.5 GB | cpx51 | 16 vCPU, 32 GB |
-
-### Key Files
-| File | Purpose |
-|------|---------|
-| `jarble-api-main/src/k8s/nodeManager.ts` | Background watcher, Hetzner provisioning/deprovisioning |
-| `jarble-api-main/src/db/schema*.ts` | `managed_nodes` table (tracks auto-provisioned servers) |
-| `jarble-api-main/k8s/cluster-autoscaler.yaml` | K8s Cluster Autoscaler manifest (not currently used — custom watcher preferred) |
+Background watcher polls for Pending pods, provisions right-sized Hetzner servers (cpx11-cpx51), joins K3s via cloud-init. Empty workers deprovisioned after 5 min. Controlled by `AUTOSCALE_ENABLED=true`.
 
 ## Environment Variables
+> Full details in `.claude/rules/env-config.md` (auto-loads when working in .env/infrastructure files)
 
-### API (jarble-api-main/.env)
-```
-DATABASE_URL=mysql://...        # Required for prod
-USE_SQLITE=true                 # Use file-based SQLite for local dev (local.db)
-AUTH0_DOMAIN=xxx.auth0.com
-AUTH0_AUDIENCE=https://api.jarble.ai
-STRIPE_SECRET_KEY=sk_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-OPENROUTER_API_KEY=sk-or-...
-ENCRYPTION_KEY=...              # AES-256-GCM key for platform credentials
-RESEND_API_KEY=re_...           # Optional — transactional email via Resend
-ADMIN_USER_IDS=auth0|...,auth0|... # Optional — comma-separated Auth0 IDs for admin router access
-AUTOSCALE_ENABLED=true          # Enable auto-scaling of Hetzner workers
-HETZNER_API_TOKEN=...           # Hetzner Cloud API token
-HETZNER_NETWORK_ID=...          # Private network ID for worker nodes
-HETZNER_FIREWALL_ID=...         # Firewall ID applied to new workers
-HETZNER_SSH_KEY_ID=...          # SSH key ID for server access
-K3S_JOIN_TOKEN=...              # K3s cluster join token for new agents
-```
-
-### Frontend (Jarble-mvp/.env.local)
-```
-NEXT_PUBLIC_API_URL=http://localhost:3001
-NEXT_PUBLIC_AUTH0_DOMAIN=xxx.auth0.com
-NEXT_PUBLIC_AUTH0_CLIENT_ID=...
-NEXT_PUBLIC_AUTH0_AUDIENCE=https://api.jarble.ai
-```
-
-## Debug Endpoints (dev only)
-- `GET /debug/db` — Dump all tables
-- `POST /debug/deployment/:id/status` — Force deployment status
-- `GET /debug/deployment/:id/pod-status` — K8s pod status
-- `GET /debug/platform-skills` — Platform skills for pods
+- **API**: `jarble-api-main/.env` — DATABASE_URL, AUTH0_*, STRIPE_*, ENCRYPTION_KEY, HETZNER_*, K3S_JOIN_TOKEN
+- **Frontend**: `Jarble-mvp/.env.local` — NEXT_PUBLIC_API_URL, NEXT_PUBLIC_AUTH0_*
+- **Local dev**: `USE_SQLITE=true` for file-based SQLite at `local.db`
+- **Debug endpoints**: `/debug/db`, `/debug/deployment/:id/status`, `/debug/deployment/:id/pod-status`
 
 ## Rules Index (`.claude/rules/`)
 
 | File | Loads When | Content |
 |------|-----------|---------|
-| `kubernetes.md` | Working in `k8s/`, `runtimes/`, `configSync`, `infrastructure/` | K8s architecture, pod lifecycle, ConfigSync, runtime handlers |
-| `canvas-chat.md` | Working in `canvas/`, `workspace/`, `chat/`, `hooks/`, `component-manifest/` | Chat flow, canvas grid, sandbox, components, accessibility |
-| `testing.md` | Working in `*.test.*`, `__tests__/`, `e2e/` | Test structure, harness, mocking patterns, E2E |
-| `marketplace.md` | Working in `marketplace/`, `services.*`, `HostedService*` | Component/service marketplace, hosted services dashboard |
-| `security.md` | Working in `sandbox*`, `security*`, `sanitize*`, `encryption*` | Sandbox CSP, SSE resilience, response headers |
-| `database.md` | Working in `db/`, `schema*`, `migration*` | Drizzle schema, tables, dev database |
-| `key-files.md` | Always loaded | Key file reference tables (backend, shared, frontend) |
+| `flows.md` | Working in `flowEngine*`, `flows.*`, `flowExecution*`, `flowChat*`, `Deployments*` | Flow engine, CRUD, execution, SSE events, canvas |
+| `chat-ux.md` | Working in `useCanvasChat*`, `assistantRuntime*`, `conversationStorage*`, `chat/`, `canvas/` | Chat streaming, typewriter, reasoning, edit sync, canvas controls |
+| `env-config.md` | Working in `.env*`, `docker*`, `db/init*`, `infrastructure/` | Environment variables, debug endpoints, SQLite dev DB |
+| `autoscaling.md` | Working in `nodeManager*`, `cluster-autoscaler*` | Hetzner auto-scaling, server type mapping |
+
+## Custom Skills
+
+| Skill | Command | Purpose |
+|-------|---------|---------|
+| `/qa` | Run QA locally | Agentic QA cycle using Max subscription (no API cost) |
+| `/deploy-check` | Pre-deploy verification | Both typechecks + both test suites |
+| `/new-component` | Scaffold canvas component | 5-step pattern: file, manifest, register, resolve, verify |
+| `/new-router` | Scaffold tRPC router | Zod v3 patterns, registration, typecheck |
+| `/new-platform` | Add messaging platform | All 5 touchpoints: credentials, config, wizard, UI, steps |
 
 ## Claude Agents
 
@@ -325,8 +210,8 @@ Pre-configured agents in `.claude/agents/`:
 - `qa-healer` — Investigates failures, applies fixes in git worktree, creates draft PRs
 - `qa-reporter` — HTML reports, GitHub issues for unfixed bugs
 
-**How to run**: `node scripts/nightly-qa/overnight-agent.mjs` (see `scripts/nightly-qa/README.md` for full docs)
+**How to run**: `/qa` skill, or directly: `node scripts/nightly-qa/overnight-agent.mjs --cycles 1` (uses Max subscription, no API cost)
 
-**Cloud deployment**: QA runs against production cloud by default (`dev.jarble.ai` + `api.jarble.ai`). The GitHub Actions workflow (`nightly-qa.yml`) triggers at 5 AM UTC daily. Uses Vercel Deployment Protection bypass cookie for browser tests. Supports `--target local` for localhost testing.
+**GitHub Actions**: Cron disabled (runs locally instead). Manual dispatch still available via `workflow_dispatch` but requires an `ANTHROPIC_API_KEY` secret.
 
 **Key design**: Tests are dynamic, not scripted. The orchestrator reads `git diff` and CLAUDE.md each cycle to discover what changed and decide what to test. When you add a new page, router, or component, it gets tested automatically — no script updates needed. Agent memory (`.claude/agent-memory/qa/`) tracks coverage, failure patterns, and regression watchlists across runs.

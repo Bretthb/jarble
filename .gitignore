@@ -84,6 +84,9 @@ scripts/nightly-qa/reports/
 !.claude/agents/
 !.claude/memory/
 !.claude/agent-memory/
+!.claude/rules/
+!.claude/skills/
+!.claude/hooks/
 !.claude/settings.json
 !.claude/settings.local.json
 scripts/nightly-qa/.env

@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../middleware.js";
 import { db, tables, dbDate } from "../../db/index.js";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, ne, desc, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createModuleLogger } from "../../utils/logger.js";
 import { customAlphabet } from "nanoid";
@@ -74,17 +74,20 @@ export const flowsRouter = router({
     .input(
       z.object({
         status: z.enum(["draft", "published", "archived"]).optional(),
+        includeArchived: z.boolean().default(false),
         limit: z.number().int().min(1).max(100).default(50),
         offset: z.number().int().min(0).default(0),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.user.id;
-      const { status, limit = 50, offset = 0 } = input ?? {};
+      const { status, includeArchived = false, limit = 50, offset = 0 } = input ?? {};
 
       const conditions = [eq(orchestrationFlows.userId, userId)];
       if (status) {
         conditions.push(eq(orchestrationFlows.status, status));
+      } else if (!includeArchived) {
+        conditions.push(ne(orchestrationFlows.status, "archived"));
       }
 
       const rows = await db

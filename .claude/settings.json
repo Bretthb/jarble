@@ -67,6 +67,12 @@
           "node .claude/hooks/block-lockfiles.js"
         ],
         "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          "node .claude/hooks/typecheck-pre-commit.js"
+        ],
+        "matcher": "Bash"
       }
     ],
     "PostToolUse": [

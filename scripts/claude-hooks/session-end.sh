@@ -40,3 +40,9 @@ cp "$LOCAL_MEMORY"/*.md "$COMMITTED_MEMORY/" 2>/dev/null || true
 cd "$REPO_ROOT"
 git add .claude/memory/ 2>/dev/null || true
 git add .claude/agent-memory/ 2>/dev/null || true
+
+# Check for new agent memory findings that should be promoted to rules
+AGENT_CHANGES=$(git diff --cached --name-only .claude/agent-memory/ 2>/dev/null | head -5)
+if [[ -n "$AGENT_CHANGES" ]]; then
+  echo "{\"additionalContext\":\"Agent memory was updated this session. Review these for findings worth promoting to .claude/rules/: $AGENT_CHANGES\"}"
+fi

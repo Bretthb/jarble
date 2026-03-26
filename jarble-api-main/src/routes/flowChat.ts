@@ -170,6 +170,14 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       return;
     }
 
+    const MAX_MESSAGE_LENGTH = 10_000;
+    if (userMessage.length > MAX_MESSAGE_LENGTH) {
+      res.status(400).json({
+        error: `Message too long (${userMessage.length} chars). Maximum is ${MAX_MESSAGE_LENGTH} characters.`,
+      });
+      return;
+    }
+
     // 2. Load flow from DB (must be owned by user)
     const dbFlow = await db
       .select({
