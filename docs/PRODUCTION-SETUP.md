@@ -13,6 +13,7 @@ Onboarding reference for a new Claude Code instance or developer machine. Covers
 1. [Infrastructure Overview](#1-infrastructure-overview)
 2. [Local Machine Setup](#2-local-machine-setup)
 3. [MCP Servers in Claude Code](#3-mcp-servers-in-claude-code)
+3b. [Claude Code Tooling](#3b-claude-code-tooling) — Skills, Rules, Hooks, Agents, QA System
 4. [Environment Variables Reference](#4-environment-variables-reference)
 5. [Common Operations](#5-common-operations)
 6. [Deploy and Release](#6-deploy-and-release)
@@ -286,6 +287,97 @@ Set `TFE_TOKEN` environment variable if using HCP Terraform / Terraform Cloud.
 - **Hetzner Cloud** — no official MCP server. Use `hcloud` CLI or Terraform instead.
 - **Cloudflare** — DNS is managed via Cloudflare dashboard or Terraform.
 - **Longhorn** — managed via kubectl or Longhorn UI at `http://<master-ip>:30080`.
+
+---
+
+## 3b. Claude Code Tooling
+
+The repo includes custom skills, rules, hooks, and agents that make Claude Code smarter about the Jarble codebase. These are all committed to git and transfer automatically via `bash scripts/setup.sh`.
+
+### Skills (Slash Commands)
+
+Located in `.claude/skills/`. These are invoked as `/skill-name` in Claude Code.
+
+| Skill | Purpose |
+|-------|---------|
+| `/qa` | Run the agentic QA system locally (uses your Max subscription, no API key cost) |
+| `/deploy-check` | Run both typechecks + both test suites before deploying |
+| `/new-component` | Scaffold a canvas component (file, manifest, register, verify) |
+| `/new-router` | Scaffold a tRPC router with Zod v3 patterns |
+| `/new-platform` | Add a new messaging platform (all 5 touchpoints) |
+| `/context` | Query CodeGraphContext MCP for impact analysis before changes |
+
+### Path-Triggered Rules
+
+Located in `.claude/rules/`. These load automatically when you work in matching files, keeping the base CLAUDE.md slim.
+
+| Rule | Auto-loads for | Content |
+|------|---------------|---------|
+| `flows.md` | `flowEngine*`, `flows.*`, `flowExecution*`, `Deployments*` | Flow engine, CRUD, SSE events, canvas |
+| `chat-ux.md` | `useCanvasChat*`, `assistantRuntime*`, `chat/`, `canvas/` | Streaming, typewriter, reasoning, edit sync |
+| `env-config.md` | `.env*`, `docker*`, `db/init*`, `infrastructure/` | Environment variables, debug endpoints |
+| `autoscaling.md` | `nodeManager*`, `cluster-autoscaler*` | Hetzner auto-scaling, server type mapping |
+
+### Hooks
+
+| Hook | Event | Purpose |
+|------|-------|---------|
+| `block-lockfiles.js` | PreToolUse (Edit/Write) | Prevents accidental lockfile modifications |
+| `typecheck-pre-commit.js` | PreToolUse (Bash) | Runs both typechecks before `git commit` — catches Zod v3/v4 cross-project breakage |
+| `format.js` | PostToolUse (Edit/Write) | Auto-formats edited files |
+| `session-start.sh` | SessionStart | Restores committed memory to local Claude storage |
+| `session-end.sh` | Stop | Syncs local memory back to committed, stages for git, flags new agent memory findings |
+
+### Specialized Agents
+
+18+ agents in `.claude/agents/` tailored to the Jarble codebase. Key ones:
+
+| Agent | When to use |
+|-------|-------------|
+| `jarble-api-debugger` | API 500s, tRPC mutation failures, DB state issues |
+| `nextjs-frontend-debugger` | Hydration errors, SSR issues, React Query cache problems |
+| `qa-orchestrator` | Run a full QA cycle (invoked by `/qa` skill) |
+| `qa-healer` | Auto-fix bugs found by QA — creates worktree, applies fix, opens draft PR |
+| `drizzle-db-schema` | Schema changes, migrations, query debugging |
+| `k8s-pod-lifecycle-debugger` | Pod stuck, crash loops, PVC mount failures |
+| `stripe-webhook-debugger` | Subscription lifecycle, webhook signature issues |
+| `auth0-debugger` | JWT verification, JWKS cache, redirect URI mismatches |
+| `runtime-handler` | Adding runtimes, config rendering, secret mapping |
+| `test-writer` | Writing Vitest tests for frontend or backend |
+
+### QA System
+
+The overnight QA system runs locally using your Claude Max subscription (no API key cost):
+
+```bash
+# Quick run (1 cycle)
+node scripts/nightly-qa/overnight-agent.mjs --cycles 1
+
+# Or use the skill
+# /qa
+```
+
+It dynamically generates test goals based on `git diff`, dispatches specialist agents (UI browser testing, API testing, security/chaos), and updates coverage memory in `.claude/agent-memory/qa/`. When it finds bugs, the healer agent creates fix branches and draft PRs.
+
+GitHub Actions cron is disabled (saves API costs). Manual dispatch is still available via `workflow_dispatch` but requires an `ANTHROPIC_API_KEY` secret.
+
+### Setting Up on a New Machine
+
+```bash
+# 1. Clone and run setup
+git clone https://github.com/jarble-ai/jarble.git
+cd jarble && git checkout develop
+bash scripts/setup.sh
+
+# 2. Copy .env files from team (not in git)
+# API: jarble-api-main/.env
+# Frontend: Jarble-mvp/.env.local
+# QA: scripts/nightly-qa/.env (QA_EMAIL, QA_PASSWORD)
+
+# 3. Start developing — skills, rules, hooks, agents all work immediately
+```
+
+The setup script restores Claude Code memory from git, installs npm deps, and sets up CodeGraphContext. Skills, rules, and hooks are in the repo and load automatically.
 
 ---
 
