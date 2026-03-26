@@ -640,6 +640,8 @@ async function checkCapacityAndProvision(
     // Exclude master/control-plane nodes
     if (labels["node-role.kubernetes.io/master"] !== undefined) return false;
     if (labels["node-role.kubernetes.io/control-plane"] !== undefined) return false;
+    // Exclude dedicated API nodes (tainted, bots can't schedule there)
+    if (labels["jarble.ai/role"] === "api") return false;
     // Node must be Ready
     const ready = (n.status?.conditions || []).find((c: any) => c.type === "Ready");
     return ready?.status === "True";
