@@ -119,6 +119,12 @@ echo "K3s agent setup complete" > /var/log/k3s-setup.log
 
 interface NodeCapacity {
   name: string;
+  allocatableCpuMillis: number;  // Total allocatable CPU on this node
+  allocatableMemoryMi: number;   // Total allocatable memory on this node
+  usedCpuMillis: number;         // Sum of pod CPU requests on this node
+  usedMemoryMi: number;          // Sum of pod memory requests on this node
+  freeCpuMillis: number;         // Available CPU
+  freeMemoryMi: number;          // Available memory
   botPodCount: number;
   isAutoScaled: boolean;
 }
@@ -126,23 +132,35 @@ interface NodeCapacity {
 export interface ClusterCapacity {
   nodes: NodeCapacity[];
   totalBotPods: number;
-  availableNodes: string[];
+}
+
+/** Parse K8s resource string to millicores (e.g. "2" -> 2000, "500m" -> 500) */
+function parseCpuMillis(cpu: string | undefined): number {
+  if (!cpu) return 0;
+  if (cpu.endsWith("m")) return parseInt(cpu.slice(0, -1), 10);
+  return Math.round(parseFloat(cpu) * 1000);
+}
+
+/** Parse K8s resource string to MiB (e.g. "4Gi" -> 4096, "512Mi" -> 512, "2048" -> 2) */
+function parseMemoryMi(mem: string | undefined): number {
+  if (!mem) return 0;
+  if (mem.endsWith("Ki")) return Math.round(parseInt(mem, 10) / 1024);
+  if (mem.endsWith("Mi")) return parseInt(mem, 10);
+  if (mem.endsWith("Gi")) return parseInt(mem, 10) * 1024;
+  // Raw bytes
+  return Math.round(parseInt(mem, 10) / (1024 * 1024));
 }
 
 export async function getClusterCapacity(db: any): Promise<ClusterCapacity> {
-  // Get all K8s nodes
   const { body: nodeList } = await coreApi.listNode();
   const workerNodes = (nodeList.items || []).filter(
     (n: any) => !n.metadata?.labels?.["node-role.kubernetes.io/master"] &&
                 !n.metadata?.labels?.["node-role.kubernetes.io/control-plane"]
   );
 
-  // Get all bot pods
-  const { body: podList } = await coreApi.listNamespacedPod(
-    NAMESPACE,
-    undefined, undefined, undefined, undefined,
-    "jarble.ai/type=bot"
-  );
+  // Get ALL pods across ALL namespaces to account for system workloads
+  // (kube-proxy, flannel, longhorn, node-exporter, etc.)
+  const { body: podList } = await coreApi.listPodForAllNamespaces();
 
   // Get auto-scaled node names from DB
   const autoScaled = await db.select({ nodeName: managedNodes.nodeName })
@@ -150,33 +168,78 @@ export async function getClusterCapacity(db: any): Promise<ClusterCapacity> {
     .where(inArray(managedNodes.status, ["ready", "joining", "provisioning"]));
   const autoScaledNames = new Set(autoScaled.map((r: any) => r.nodeName));
 
-  // Count bot pods per node
-  const podCountByNode: Record<string, number> = {};
+  // Sum resource requests per node across all pods
+  const usedByNode: Record<string, { cpu: number; mem: number; botCount: number }> = {};
   for (const pod of podList.items || []) {
     const nodeName = pod.spec?.nodeName;
-    if (nodeName) {
-      podCountByNode[nodeName] = (podCountByNode[nodeName] || 0) + 1;
+    if (!nodeName) continue;
+    if (!usedByNode[nodeName]) usedByNode[nodeName] = { cpu: 0, mem: 0, botCount: 0 };
+
+    // Count bot pods specifically
+    if (pod.metadata?.labels?.["jarble.ai/type"] === "bot") {
+      usedByNode[nodeName].botCount++;
+    }
+
+    // Sum all container resource requests
+    for (const container of pod.spec?.containers || []) {
+      usedByNode[nodeName].cpu += parseCpuMillis(container.resources?.requests?.cpu);
+      usedByNode[nodeName].mem += parseMemoryMi(container.resources?.requests?.memory);
+    }
+    for (const container of pod.spec?.initContainers || []) {
+      // Init containers run sequentially, take the max (not sum)
+      const initCpu = parseCpuMillis(container.resources?.requests?.cpu);
+      const initMem = parseMemoryMi(container.resources?.requests?.memory);
+      usedByNode[nodeName].cpu = Math.max(usedByNode[nodeName].cpu, initCpu);
+      usedByNode[nodeName].mem = Math.max(usedByNode[nodeName].mem, initMem);
     }
   }
 
   const nodes: NodeCapacity[] = workerNodes.map((n: any) => {
     const name = n.metadata?.name || "";
+    const allocCpu = parseCpuMillis(n.status?.allocatable?.cpu);
+    const allocMem = parseMemoryMi(n.status?.allocatable?.memory);
+    const used = usedByNode[name] || { cpu: 0, mem: 0, botCount: 0 };
+
     return {
       name,
-      botPodCount: podCountByNode[name] || 0,
+      allocatableCpuMillis: allocCpu,
+      allocatableMemoryMi: allocMem,
+      usedCpuMillis: used.cpu,
+      usedMemoryMi: used.mem,
+      freeCpuMillis: Math.max(0, allocCpu - used.cpu),
+      freeMemoryMi: Math.max(0, allocMem - used.mem),
+      botPodCount: used.botCount,
       isAutoScaled: autoScaledNames.has(name),
     };
   });
 
-  const totalBotPods = Object.values(podCountByNode).reduce((a, b) => a + b, 0);
-  const availableNodes = nodes.filter((n) => n.botPodCount === 0).map((n) => n.name);
-
-  return { nodes, totalBotPods, availableNodes };
+  const totalBotPods = nodes.reduce((sum, n) => sum + n.botPodCount, 0);
+  return { nodes, totalBotPods };
 }
 
-export async function findAvailableNode(db: any): Promise<string | null> {
+/** Find a node that can fit a pod with the given resource requirements */
+export async function findAvailableNode(
+  db: any,
+  cpuMillis: number = 2000,
+  memoryMi: number = 3072
+): Promise<string | null> {
   const capacity = await getClusterCapacity(db);
-  return capacity.availableNodes[0] || null;
+
+  // Find any node with enough free CPU and memory
+  for (const node of capacity.nodes) {
+    if (node.freeCpuMillis >= cpuMillis && node.freeMemoryMi >= memoryMi) {
+      logger.debug({
+        node: node.name,
+        freeCpu: node.freeCpuMillis,
+        freeMem: node.freeMemoryMi,
+        requestedCpu: cpuMillis,
+        requestedMem: memoryMi,
+      }, "Found node with enough capacity");
+      return node.name;
+    }
+  }
+
+  return null;
 }
 
 // ── Next Available IP ───────────────────────────────────────────────────
@@ -434,27 +497,39 @@ export async function deprovisionNode(db: any, nodeId: string): Promise<void> {
 
 let scaleLock: Promise<void> | null = null;
 
-export async function ensureCapacityForDeployment(db: any): Promise<string | undefined> {
+/**
+ * Ensure cluster has capacity for a deployment with the given resources.
+ * If no node can fit the pod, provisions a new Hetzner worker.
+ *
+ * @param cpuLimit - CPU limit string (e.g. "2.0")
+ * @param memoryMb - Memory in MB (e.g. 3072)
+ */
+export async function ensureCapacityForDeployment(
+  db: any,
+  cpuLimit: string = "2.0",
+  memoryMb: number = 3072,
+): Promise<string | undefined> {
   if (!isEnabled()) return undefined;
+
+  const cpuMillis = Math.round(parseFloat(cpuLimit) * 1000);
+  const memoryMi = memoryMb;
 
   // Wait for any in-progress scaling
   while (scaleLock) await scaleLock;
 
-  const available = await findAvailableNode(db);
-  if (available) {
-    logger.debug({ node: available }, "Found available node for deployment");
-    return available;
-  }
+  const available = await findAvailableNode(db, cpuMillis, memoryMi);
+  if (available) return available;
 
   // Need to provision — acquire lock
   let resolve!: () => void;
   scaleLock = new Promise((r) => { resolve = r; });
 
   try {
-    // Double-check after acquiring lock (another deployment may have freed a node)
-    const recheck = await findAvailableNode(db);
+    // Double-check after acquiring lock
+    const recheck = await findAvailableNode(db, cpuMillis, memoryMi);
     if (recheck) return recheck;
 
+    logger.info({ cpuMillis, memoryMi }, "No node has capacity, provisioning new worker");
     const { nodeName } = await provisionNode(db);
     return nodeName;
   } finally {

@@ -768,7 +768,11 @@ export const deploymentRouter = router({
           // Ensure a worker node has capacity before creating the pod
           let targetNode: string | undefined;
           try {
-            targetNode = await ensureCapacityForDeployment(ctx.db);
+            targetNode = await ensureCapacityForDeployment(
+              ctx.db,
+              deployment.cpuLimit || "2.0",
+              deployment.memoryMb || 3072,
+            );
             if (targetNode) logger.info({ deploymentId, targetNode }, "Node capacity confirmed");
           } catch (scaleErr) {
             logger.error({ deploymentId, scaleErr }, "Auto-scale failed, letting K8s scheduler try");
