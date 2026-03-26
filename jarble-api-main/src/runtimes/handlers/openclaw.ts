@@ -463,21 +463,8 @@ export const openclawHandler: RuntimeHandler = {
       };
     }
 
-    // Add user-defined subagents to the agents config so OpenClaw natively supports them
-    if (deployment.subagents && deployment.subagents.length > 0) {
-      if (!openclawConfig.agents) openclawConfig.agents = {};
-      for (const sa of deployment.subagents) {
-        const provider = deployment.llmProvider || "anthropic";
-        const saModel = sa.model
-          ? (sa.model.includes("/") ? sa.model : `${provider}/${sa.model}`)
-          : openclawConfig.agents.defaults?.model?.primary || `${provider}/claude-haiku-4-5-20251001`;
-        openclawConfig.agents[sa.slug] = {
-          model: { primary: saModel },
-          systemPrompt: sa.systemPrompt,
-          description: sa.description || sa.name,
-        };
-      }
-    }
+    // NOTE: OpenClaw validates agents config strictly — only "defaults" is allowed.
+    // Custom subagents are routed via MCP tools (agent_{slug}) → API → LLM instead.
 
     // Channels section — build from platformCredentials
     // Only include channels the user has explicitly configured
