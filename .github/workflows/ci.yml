@@ -1,9 +1,9 @@
 name: CI
 on:
   push:
-    branches: [main, merge-branch]
+    branches: [main, develop, merge-branch]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   api-tests:
