@@ -255,6 +255,7 @@ export async function provisionNode(db: any): Promise<{ nodeName: string; nodeIp
       networks: [networkId],
       user_data: buildCloudInit(volumeId, nodeIp),
       labels: { cluster: "jarble", role: "agent", managed: "true" },
+      public_net: { enable_ipv4: false, enable_ipv6: false }, // No public IP needed — uses private network only
     });
     const serverId = serverRes.server.id;
     logger.info({ nodeName, serverId }, "Hetzner server created");
