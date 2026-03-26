@@ -116,6 +116,9 @@ export function useCanvasChat(
   stateRef.current = state;
   // Ref-based streaming guard — avoids stale closure when isStreaming is in useCallback deps
   const isStreamingRef = useRef(false);
+  // Distinguishes "waiting for server response after page return" from "actively SSE streaming"
+  // The merge effect should run when waiting for server, but NOT when actively streaming
+  const waitingForServerRef = useRef(false);
   // Generation counter — detects when a new request supersedes an aborted one in finally
   const generationRef = useRef(0);
   // Typewriter reveal: target text accumulates instantly, displayed text catches up
@@ -239,6 +242,7 @@ export function useCanvasChat(
         if (lastMsg?.role === "user" && Date.now() - lastMsg.createdAt < 5 * 60 * 1000) {
           setIsStreaming(true);
           isStreamingRef.current = true;
+          waitingForServerRef.current = true;
         }
       }
     }
@@ -250,7 +254,9 @@ export function useCanvasChat(
   const lastMergedConvRef = useRef<string | null>(null);
   useEffect(() => {
     const convId = activeConversationId;
-    if (!convId || !serverMessagesQuery.data || isStreamingRef.current) return;
+    // Skip merge during active SSE streaming (would clobber in-flight data),
+    // but ALLOW merge when waiting for server response (pulsating cursor mode)
+    if (!convId || !serverMessagesQuery.data || (isStreamingRef.current && !waitingForServerRef.current)) return;
     // Only merge once per conversation per fetch (avoid re-merging on every render)
     const mergeKey = `${convId}:${serverMessagesQuery.dataUpdatedAt}`;
     if (lastMergedConvRef.current === mergeKey) return;
@@ -317,19 +323,21 @@ export function useCanvasChat(
       saveConversationMessages(deploymentId, convId, converted);
       // If we were showing the pulsating cursor (waiting for server response),
       // clear it now that the bot response has arrived
-      if (isStreamingRef.current && !abortRef.current) {
+      if (waitingForServerRef.current) {
         setIsStreaming(false);
         isStreamingRef.current = false;
+        waitingForServerRef.current = false;
       }
     }
 
     // If still showing the "waiting" cursor but the last server message is from the user
     // and it's been > 5 min, stop waiting (bot timed out or failed)
-    if (isStreamingRef.current && !abortRef.current) {
+    if (waitingForServerRef.current) {
       const lastServerMsg = converted[converted.length - 1];
       if (lastServerMsg?.role === "user" && Date.now() - lastServerMsg.createdAt > 5 * 60 * 1000) {
         setIsStreaming(false);
         isStreamingRef.current = false;
+        waitingForServerRef.current = false;
       }
     }
   }, [deploymentId, activeConversationId, serverMessagesQuery.data, serverMessagesQuery.dataUpdatedAt]);
