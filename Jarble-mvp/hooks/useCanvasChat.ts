@@ -1235,27 +1235,28 @@ export function useCanvasChat(
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
-        const healthEmoji = data.overallHealth === "healthy" ? "✅" : data.overallHealth === "degraded" ? "⚠️" : "❌";
-        const lines = [`🔄 Bot ${action}. ${healthEmoji} **Health: ${data.overallHealth}**`, ""];
-
-        // Only show non-ok checks to keep it concise
-        const issues = data.checks.filter((c: any) => c.status !== "ok");
-        if (issues.length === 0) {
-          lines.push("All systems operational — your bot is ready to go.");
+        if (data.overallHealth === "healthy") {
+          // Clean one-liner — don't dump diagnostics into chat
+          setMessages((msgs) =>
+            msgs.map((m) => m.id === diagMsgId ? { ...m, content: `✅ Bot ${action} and healthy — ready to go.` } : m)
+          );
         } else {
-          for (const check of issues) {
-            const icon = check.status === "warning" ? "⚠️" : "❌";
-            lines.push(`${icon} **${check.name}**: ${check.detail}`);
-            if (check.suggestion) lines.push(`   → ${check.suggestion}`);
+          // Only show errors (not warnings) to keep chat clean
+          const errors = data.checks.filter((c: any) => c.status === "error");
+          if (errors.length === 0) {
+            setMessages((msgs) =>
+              msgs.map((m) => m.id === diagMsgId ? { ...m, content: `✅ Bot ${action} — ready to go.` } : m)
+            );
+          } else {
+            const errorSummary = errors.map((c: any) => c.name).join(", ");
+            setMessages((msgs) =>
+              msgs.map((m) => m.id === diagMsgId ? { ...m, content: `⚠️ Bot ${action} with issues: ${errorSummary}. Check Configuration for details.` } : m)
+            );
           }
         }
-
-        setMessages((msgs) =>
-          msgs.map((m) => m.id === diagMsgId ? { ...m, content: lines.join("\n") } : m)
-        );
       } catch {
         setMessages((msgs) =>
-          msgs.map((m) => m.id === diagMsgId ? { ...m, content: `🔄 Bot ${action}. Health check unavailable.` } : m)
+          msgs.map((m) => m.id === diagMsgId ? { ...m, content: `🔄 Bot ${action}.` } : m)
         );
       }
     }, 3000); // 3s delay to let pod settle
