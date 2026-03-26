@@ -28,6 +28,10 @@ jobs:
     name: Agentic QA
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     env:
       AUTH0_DOMAIN: jarble-dev.us.auth0.com
       AUTH0_AUDIENCE: https://api.jarble.ai
@@ -51,6 +55,12 @@ jobs:
           cache-dependency-path: |
             jarble-api-main/package-lock.json
             Jarble-mvp/package-lock.json
+
+      # Configure git for healer PRs
+      - name: Configure git
+        run: |
+          git config user.name "jarble-qa-bot[bot]"
+          git config user.email "jarble-qa-bot[bot]@users.noreply.github.com"
 
       # Install Claude Code CLI
       - name: Install Claude Code
