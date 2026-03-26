@@ -235,6 +235,33 @@ Wizard steps and config tabs driven by `Jarble-mvp/views/onboarding/wizardStepCo
 | `jarble-api-main/src/routes/flowExecution.ts` | SSE streaming + resume REST endpoints for flow execution |
 | `Jarble-mvp/views/Deployments.tsx` | Flow canvas UI — @xyflow/react with custom nodes/edges |
 
+## Auto-Scaling (Hetzner K3s Workers)
+
+The platform auto-scales K3s worker nodes on Hetzner Cloud based on bot deployment demand. Each deployment gets a right-sized server matched to its resource requirements.
+
+### How It Works
+- Background watcher (`nodeManager.ts`) polls every 15s for Pending (Unschedulable) bot pods
+- When detected, provisions a Hetzner server sized to the pod's CPU/RAM + block storage for Longhorn
+- Server joins K3s via cloud-init (installs K3s agent with cluster token)
+- When a bot is deleted and the worker is empty for 5 minutes, the server is deprovisioned
+- Controlled by `AUTOSCALE_ENABLED=true` feature flag
+
+### Server Type Mapping
+| Pod CPU | Pod RAM | Hetzner Type | Server Specs |
+|---------|---------|--------------|-------------|
+| ≤1.5 vCPU | ≤1.5 GB | cpx11 | 2 vCPU, 2 GB |
+| ≤2.5 vCPU | ≤3.5 GB | cpx21 | 3 vCPU, 4 GB |
+| ≤3.5 vCPU | ≤7.5 GB | cpx31 | 4 vCPU, 8 GB |
+| ≤7.5 vCPU | ≤15.5 GB | cpx41 | 8 vCPU, 16 GB |
+| >7.5 vCPU | >15.5 GB | cpx51 | 16 vCPU, 32 GB |
+
+### Key Files
+| File | Purpose |
+|------|---------|
+| `jarble-api-main/src/k8s/nodeManager.ts` | Background watcher, Hetzner provisioning/deprovisioning |
+| `jarble-api-main/src/db/schema*.ts` | `managed_nodes` table (tracks auto-provisioned servers) |
+| `jarble-api-main/k8s/cluster-autoscaler.yaml` | K8s Cluster Autoscaler manifest (not currently used — custom watcher preferred) |
+
 ## Environment Variables
 
 ### API (jarble-api-main/.env)
@@ -249,6 +276,12 @@ OPENROUTER_API_KEY=sk-or-...
 ENCRYPTION_KEY=...              # AES-256-GCM key for platform credentials
 RESEND_API_KEY=re_...           # Optional — transactional email via Resend
 ADMIN_USER_IDS=auth0|...,auth0|... # Optional — comma-separated Auth0 IDs for admin router access
+AUTOSCALE_ENABLED=true          # Enable auto-scaling of Hetzner workers
+HETZNER_API_TOKEN=...           # Hetzner Cloud API token
+HETZNER_NETWORK_ID=...          # Private network ID for worker nodes
+HETZNER_FIREWALL_ID=...         # Firewall ID applied to new workers
+HETZNER_SSH_KEY_ID=...          # SSH key ID for server access
+K3S_JOIN_TOKEN=...              # K3s cluster join token for new agents
 ```
 
 ### Frontend (Jarble-mvp/.env.local)
@@ -293,5 +326,7 @@ Pre-configured agents in `.claude/agents/`:
 - `qa-reporter` — HTML reports, GitHub issues for unfixed bugs
 
 **How to run**: `node scripts/nightly-qa/overnight-agent.mjs` (see `scripts/nightly-qa/README.md` for full docs)
+
+**Cloud deployment**: QA runs against production cloud by default (`dev.jarble.ai` + `api.jarble.ai`). The GitHub Actions workflow (`nightly-qa.yml`) triggers at 5 AM UTC daily. Uses Vercel Deployment Protection bypass cookie for browser tests. Supports `--target local` for localhost testing.
 
 **Key design**: Tests are dynamic, not scripted. The orchestrator reads `git diff` and CLAUDE.md each cycle to discover what changed and decide what to test. When you add a new page, router, or component, it gets tested automatically — no script updates needed. Agent memory (`.claude/agent-memory/qa/`) tracks coverage, failure patterns, and regression watchlists across runs.
