@@ -937,11 +937,13 @@ tamboAgentRouter.post("/", async (req, res) => {
         }
 
         // Now safe to insert message (session exists)
+        // Strip [CANVAS_STATE] prefix — it's bot context metadata, not user text
+        const cleanUserText = lastUserText.replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]\s*/g, "").trim();
         await db.insert(tables.chatMessages).values({
           id: nanoid(),
           sessionId: convId,
           role: "user",
-          content: lastUserText,
+          content: cleanUserText,
           createdAt: now,
         } as any);
       } catch (err: unknown) {

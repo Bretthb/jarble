@@ -252,10 +252,15 @@ export function useCanvasChat(
     if (serverMsgs.length === 0) return;
 
     // Convert server messages to ChatMessage format
+    // Strip [CANVAS_STATE]...[/CANVAS_STATE] prefix from user messages — it's metadata
+    // for the bot, not meant for display.
+    const stripCanvasState = (text: string) =>
+      text.replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]\s*/g, "").trim();
+
     const converted: ChatMessage[] = serverMsgs.map((m) => ({
       id: m.id,
       role: m.role as "user" | "assistant",
-      content: m.content,
+      content: m.role === "user" ? stripCanvasState(m.content) : m.content,
       createdAt: new Date(m.createdAt).getTime(),
       ...(m.thinkingText ? { reasoning: m.thinkingText } : {}),
     }));
