@@ -198,7 +198,7 @@ async function start() {
 
   // Start periodic enforcement services (K8s only, skips in mock/SQLite dev mode)
   startStorageEnforcement();
-  startSubscriptionEnforcement();
+  // startSubscriptionEnforcement(); // Disabled until Stripe is fully configured
   startStatusReconciler();  // Syncs DB status with K8s reality (fixes "stuck at creating")
   startServiceHealthCheck();  // Pings remote/hybrid service health endpoints every 5 min
   startWebhookCleanup();      // Purges processedWebhookEvents older than 30 days (every 24h)
