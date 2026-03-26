@@ -31,4 +31,5 @@ export type { DeploymentLogsResult } from "./logs.js";
 
 export { buildCRSpec, createOpenClawInstance, deleteOpenClawInstance, getOpenClawInstance, isOperatorInstalled } from "./operator.js";
 
-export { ensureCapacityForDeployment, checkScaleDown, cleanupFailedNodes, startNodeWatcher, stopNodeWatcher } from "./nodeManager.js";
+export { ensureCapacityForDeployment, checkScaleDown, cleanupFailedNodes, startNodeWatcher, stopNodeWatcher, getCapacityStatus, CapacityError } from "./nodeManager.js";
+export type { CapacityStatus } from "./nodeManager.js";

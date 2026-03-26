@@ -4,7 +4,7 @@ import { router, protectedProcedure, publicProcedure } from "../middleware.js";
 import { tables, dbDate, type DbClient } from "../../db/index.js";
 import { eq, and, or, isNull, sql, inArray } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod, appsApi, NAMESPACE } from "../../k8s/index.js";
-import { ensureCapacityForDeployment, checkScaleDown } from "../../k8s/nodeManager.js";
+import { ensureCapacityForDeployment, checkScaleDown, getCapacityStatus, CapacityError } from "../../k8s/nodeManager.js";
 import type { ManagedBy, IsolationLevel } from "../../k8s/constants.js";
 import { getPvcMountPath, getContainerName, getContainerHome } from "../../k8s/constants.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
@@ -72,6 +72,23 @@ export const deploymentRouter = router({
   // Check free deployment status (for frontend UI)
   canDeploy: protectedProcedure.query(async ({ ctx }) => {
     return checkFreeDeployment(ctx.db, ctx.user.id);
+  }),
+
+  // Get cluster capacity status (for frontend "X of Y slots available" display)
+  getCapacity: publicProcedure.query(async () => {
+    try {
+      return await getCapacityStatus();
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : err }, "Failed to get capacity status");
+      // Return a safe default so the frontend doesn't break
+      return {
+        totalNodes: 0,
+        managedNodes: 0,
+        maxManagedNodes: 0,
+        availableSlots: 0,
+        nodes: [],
+      };
+    }
   }),
 
   // List user's deployments
@@ -757,6 +774,37 @@ export const deploymentRouter = router({
         });
       }
 
+      // ── SYNCHRONOUS capacity check ──────────────────────────────────────
+      // Blocks the response until capacity is confirmed or rejected.
+      // If no existing node fits and we're at the Hetzner server limit,
+      // the user gets an immediate error instead of a stuck "creating" deployment.
+      // If provisioning is needed (under the limit), this blocks 2-4 min while
+      // the new VPS boots and joins K3s.
+      let targetNode: string | undefined;
+      try {
+        targetNode = await ensureCapacityForDeployment(
+          ctx.db,
+          deployment.cpuLimit || "2.0",
+          deployment.memoryMb || 3072,
+        );
+        if (targetNode) logger.info({ deploymentId, targetNode }, "Node capacity confirmed");
+      } catch (capacityErr) {
+        if (capacityErr instanceof CapacityError) {
+          // At the server limit — revert status and return a clear error to the user
+          await ctx.db.update(deployments)
+            .set({ status: "failed", error: (capacityErr as Error).message })
+            .where(eq(deployments.id, deploymentId));
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: (capacityErr as Error).message,
+          });
+        }
+        // Transient failure (K8s API error, network issue, etc.) — log but proceed.
+        // The K8s scheduler may still be able to place the pod on an existing node.
+        logger.error({ deploymentId, err: capacityErr instanceof Error ? capacityErr.message : capacityErr },
+          "Auto-scale capacity check failed, proceeding without node pinning");
+      }
+
       // Start K8s deployment (fire-and-forget — don't block the response)
       void (async () => {
         try {
@@ -764,19 +812,6 @@ export const deploymentRouter = router({
           await ctx.db.update(deployments)
             .set({ managedBy })
             .where(eq(deployments.id, deploymentId));
-
-          // Ensure a worker node has capacity before creating the pod
-          let targetNode: string | undefined;
-          try {
-            targetNode = await ensureCapacityForDeployment(
-              ctx.db,
-              deployment.cpuLimit || "2.0",
-              deployment.memoryMb || 3072,
-            );
-            if (targetNode) logger.info({ deploymentId, targetNode }, "Node capacity confirmed");
-          } catch (scaleErr) {
-            logger.error({ deploymentId, scaleErr }, "Auto-scale failed, letting K8s scheduler try");
-          }
 
           await createDeployment(deploymentId, ctx.user.id, {
             name: deployment.name,
@@ -1119,23 +1154,34 @@ export const deploymentRouter = router({
       const wasFailedState = deployment.status === "failed";
       const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
 
+      // ── SYNCHRONOUS capacity check before starting ──────────────────────
+      // Same as deploy: blocks until capacity is confirmed or rejected.
+      let targetNode: string | undefined;
+      try {
+        targetNode = await ensureCapacityForDeployment(
+          ctx.db,
+          deployment.cpuLimit || "2.0",
+          deployment.memoryMb || 3072,
+        );
+        if (targetNode) logger.info({ deploymentId: input.id, targetNode }, "Node capacity confirmed for start");
+      } catch (capacityErr) {
+        if (capacityErr instanceof CapacityError) {
+          // At the server limit — don't change deployment status (it's still stopped/failed),
+          // just return the error to the user
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: (capacityErr as Error).message,
+          });
+        }
+        // Transient failure — log but proceed without node pinning
+        logger.error({ deploymentId: input.id, err: capacityErr instanceof Error ? capacityErr.message : capacityErr },
+          "Auto-scale capacity check failed during start, proceeding without node pinning");
+      }
+
       try {
         await ctx.db.update(deployments)
           .set({ status: "creating", error: null })
           .where(eq(deployments.id, input.id));
-
-        // Ensure a worker node has capacity before starting the pod
-        let targetNode: string | undefined;
-        try {
-          targetNode = await ensureCapacityForDeployment(
-            ctx.db,
-            deployment.cpuLimit || "2.0",
-            deployment.memoryMb || 3072,
-          );
-          if (targetNode) logger.info({ deploymentId: input.id, targetNode }, "Node capacity confirmed for start");
-        } catch (scaleErr) {
-          logger.error({ deploymentId: input.id, scaleErr }, "Auto-scale failed during start, letting K8s scheduler try");
-        }
 
         // If we got a target node and this is legacy mode, pin the pod to that node
         // before scaling up. Operator mode handles node selection via the CR spec.

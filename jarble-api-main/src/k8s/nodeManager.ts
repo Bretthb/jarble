@@ -1,16 +1,22 @@
 /**
  * Auto-scaling Node Manager for Hetzner K3s Workers
  *
- * Background watcher that polls every 15s:
+ * Synchronous capacity API (used by deploy/start mutations):
+ * - ensureCapacityForDeployment: Blocks until a node is available or at limit.
+ *   Serialized via mutex to prevent thundering-herd VPS creation.
+ * - getCapacityStatus: Returns cluster capacity snapshot for frontend display.
+ *
+ * Background watcher (polls every 15s):
  * 1. Detects Pending (Unschedulable) bot pods → provisions a right-sized Hetzner server
- * 2. Detects empty auto-scaled workers past grace period → deprovisions them
+ * 2. Detects auto-scaled nodes with NO K8s Deployments referencing them → deprovisions
+ *    (stopped bots keep their VPS so restarts are instant; only deletes trigger scale-down)
  *
  * Each deployment gets its own server matched to its resource requirements.
  * Server type is chosen to be the smallest that fits the deployment's vCPU + RAM.
  * Block storage is attached for Longhorn persistent volumes.
  */
 
-import { coreApi } from "./client.js";
+import { coreApi, appsApi } from "./client.js";
 import { NAMESPACE } from "./constants.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { db } from "../db/index.js";
@@ -427,33 +433,74 @@ async function poll(): Promise<void> {
 
     const inCooldown = Date.now() - lastFailureTime < FAILURE_COOLDOWN_MS;
     if (pendingPods.length > 0 && !provisioning && !inCooldown) {
-      // Use the first pending pod's resources to size the server
-      const pod = pendingPods[0];
-      const resources = await getPodResources(pod);
-      logger.info({
-        pendingCount: pendingPods.length,
-        podName: pod.metadata?.name,
-        cpu: resources.cpuCores,
-        mem: resources.memGb,
-        storage: resources.storageGb,
-      }, "Pending bot pod detected — provisioning right-sized server");
-      provisionNode(resources.cpuCores, resources.memGb, resources.storageGb).catch(() => {
-        // Error already logged inside provisionNode; swallow to prevent unhandled rejection
-      });
+      // Check server limit before the watcher provisions
+      const maxServers = getMaxManagedServers();
+      const activeCount = await countActiveManagedNodes();
+      if (activeCount >= maxServers) {
+        logger.warn({
+          pendingCount: pendingPods.length,
+          activeManagedNodes: activeCount,
+          maxManagedNodes: maxServers,
+        }, "Pending pods detected but at server limit — cannot auto-scale");
+      } else {
+        // Use the first pending pod's resources to size the server
+        const pod = pendingPods[0];
+        const resources = await getPodResources(pod);
+        logger.info({
+          pendingCount: pendingPods.length,
+          podName: pod.metadata?.name,
+          cpu: resources.cpuCores,
+          mem: resources.memGb,
+          storage: resources.storageGb,
+        }, "Pending bot pod detected — provisioning right-sized server");
+        provisionNode(resources.cpuCores, resources.memGb, resources.storageGb).catch(() => {
+          // Error already logged inside provisionNode; swallow to prevent unhandled rejection
+        });
+      }
+    } else if (pendingPods.length > 0 && provisioning) {
+      logger.debug({ pendingCount: pendingPods.length },
+        "Pending pods detected but provisioning already in progress — skipping scale-up");
     }
 
-    // 2. Scale DOWN: check for empty auto-scaled nodes
+    // 2. Scale DOWN: check for auto-scaled nodes with no deployments referencing them.
+    // IMPORTANT: A stopped bot (replicas=0) still has a K8s Deployment with a nodeSelector
+    // pointing at the managed node. We must NOT deprovision nodes that have any K8s Deployment
+    // (even replicas=0) referencing them. Only deprovision if NO deployments reference the node.
+    // This preserves the VPS so restarting a stopped bot is instant (no re-provisioning).
     const readyNodes = await db.select().from(managedNodes)
       .where(eq(managedNodes.status, "ready"));
 
-    for (const managedNode of readyNodes) {
-      const podsOnNode = (podList.items || []).filter(
-        (p: any) => p.spec?.nodeName === managedNode.nodeName
+    if (readyNodes.length > 0) {
+      // Get all bot K8s Deployments (including stopped ones with replicas=0)
+      const { body: depList } = await appsApi.listNamespacedDeployment(
+        NAMESPACE, undefined, undefined, undefined, undefined,
+        "jarble.ai/type=bot"
       );
-      if (podsOnNode.length === 0) {
-        const readyTime = managedNode.readyAt ? new Date(managedNode.readyAt).getTime() : 0;
-        if (Date.now() - readyTime > SCALE_DOWN_GRACE_MS) {
-          void deprovisionNode(managedNode);
+      const k8sDeployments = depList.items || [];
+
+      for (const managedNode of readyNodes) {
+        // Check if any K8s Deployment has a nodeSelector pointing at this managed node
+        const nodeInUse = k8sDeployments.some((dep: any) => {
+          const selector = dep.spec?.template?.spec?.nodeSelector || {};
+          return selector["kubernetes.io/hostname"] === managedNode.nodeName;
+        });
+
+        if (!nodeInUse) {
+          // Also check for pods on the node (catch deployments without nodeSelector)
+          const podsOnNode = (podList.items || []).filter(
+            (p: any) => p.spec?.nodeName === managedNode.nodeName
+          );
+          if (podsOnNode.length === 0) {
+            const readyTime = managedNode.readyAt ? new Date(managedNode.readyAt).getTime() : 0;
+            if (Date.now() - readyTime > SCALE_DOWN_GRACE_MS) {
+              logger.info({ nodeName: managedNode.nodeName },
+                "No deployments or pods reference this node — eligible for scale-down");
+              void deprovisionNode(managedNode);
+            }
+          }
+        } else {
+          logger.debug({ nodeName: managedNode.nodeName },
+            "Node has K8s Deployments referencing it (may be stopped) — keeping VPS alive");
         }
       }
     }
@@ -495,7 +542,167 @@ function parseMemoryMi(mem: string): number {
   return Math.round((parseInt(mem, 10) || 0) / (1024 * 1024));
 }
 
-/** Check if any node can fit the deployment; if not, provision a new one */
+/**
+ * Custom error for capacity-limit rejections.
+ * Callers can check `err instanceof CapacityError` to distinguish
+ * "no room and can't provision" from transient failures.
+ */
+export class CapacityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CapacityError";
+  }
+}
+
+// Default to 3: Hetzner 5-server limit minus master + dedicated API worker = 3 bot slots
+const HETZNER_MAX_MANAGED_SERVERS_DEFAULT = 3;
+
+function getMaxManagedServers(): number {
+  const envVal = process.env.HETZNER_MAX_MANAGED_SERVERS;
+  if (envVal) {
+    const parsed = parseInt(envVal, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return HETZNER_MAX_MANAGED_SERVERS_DEFAULT;
+}
+
+/** Count active (non-deleted, non-failed) managed nodes in the DB */
+async function countActiveManagedNodes(): Promise<number> {
+  const activeStatuses = ["provisioning", "joining", "ready", "draining", "deleting"];
+  const rows = await db.select({ id: managedNodes.id })
+    .from(managedNodes)
+    .where(inArray(managedNodes.status, activeStatuses));
+  return rows.length;
+}
+
+// Provisioning mutex — prevents thundering herd when multiple deploys arrive simultaneously.
+// The entire capacity-check + provision cycle is serialized: if 5 deploys arrive at once,
+// the first acquires the lock and provisions a VPS. The other 4 wait, then each re-checks
+// capacity in order. The newly provisioned node may fit multiple pods, so only one VPS
+// gets created instead of five.
+let capacityLock: Promise<void> = Promise.resolve();
+
+/**
+ * Core capacity check logic. Must only be called while holding the capacityLock.
+ * Returns a node name if provisioning was needed, or undefined if an existing node fits.
+ * Throws CapacityError if at the managed server limit.
+ */
+async function checkCapacityAndProvision(
+  requiredCpuMillis: number, requiredMemMi: number
+): Promise<string | undefined> {
+  // 1. Get all nodes and their allocatable resources
+  const { body: nodeList } = await coreApi.listNode();
+  const nodes = (nodeList.items || []).filter((n: any) => {
+    const labels = n.metadata?.labels || {};
+    // Exclude master/control-plane nodes
+    if (labels["node-role.kubernetes.io/master"] !== undefined) return false;
+    if (labels["node-role.kubernetes.io/control-plane"] !== undefined) return false;
+    // Node must be Ready
+    const ready = (n.status?.conditions || []).find((c: any) => c.type === "Ready");
+    return ready?.status === "True";
+  });
+
+  // 2. Get all running/pending pods in the jarble namespace to calculate used capacity
+  const { body: podList } = await coreApi.listNamespacedPod(NAMESPACE);
+  const activePods = (podList.items || []).filter((p: any) => {
+    const phase = p.status?.phase;
+    return phase === "Running" || phase === "Pending";
+  });
+
+  // 3. Calculate used resources per node
+  const usedByNode = new Map<string, { cpuMillis: number; memMi: number; botCount: number }>();
+  for (const pod of activePods) {
+    const nodeName = pod.spec?.nodeName;
+    if (!nodeName) continue;  // Pending pods without a node assignment
+    const used = usedByNode.get(nodeName) || { cpuMillis: 0, memMi: 0, botCount: 0 };
+    for (const container of pod.spec?.containers || []) {
+      const requests = container.resources?.requests || {};
+      used.cpuMillis += parseCpuMillis(requests.cpu || "0");
+      used.memMi += parseMemoryMi(requests.memory || "0");
+    }
+    // Count bot pods specifically (those with the jarble.ai/type=bot label)
+    const labels = pod.metadata?.labels || {};
+    if (labels["jarble.ai/type"] === "bot") {
+      used.botCount += 1;
+    }
+    usedByNode.set(nodeName, used);
+  }
+
+  // 4. Check if any existing node has enough free capacity
+  for (const node of nodes) {
+    const name = node.metadata?.name || "";
+    const allocatable = node.status?.allocatable || {};
+    const totalCpuMillis = parseCpuMillis(allocatable.cpu || "0");
+    const totalMemMi = parseMemoryMi(allocatable.memory || "0");
+
+    const used = usedByNode.get(name) || { cpuMillis: 0, memMi: 0, botCount: 0 };
+    const freeCpuMillis = totalCpuMillis - used.cpuMillis;
+    const freeMemMi = totalMemMi - used.memMi;
+
+    logger.debug({
+      node: name,
+      totalCpu: `${totalCpuMillis}m`, usedCpu: `${used.cpuMillis}m`, freeCpu: `${freeCpuMillis}m`,
+      totalMem: `${totalMemMi}Mi`, usedMem: `${used.memMi}Mi`, freeMem: `${freeMemMi}Mi`,
+      requiredCpu: `${requiredCpuMillis}m`, requiredMem: `${requiredMemMi}Mi`,
+    }, "Node capacity check");
+
+    if (freeCpuMillis >= requiredCpuMillis && freeMemMi >= requiredMemMi) {
+      logger.info({ node: name, freeCpu: `${freeCpuMillis}m`, freeMem: `${freeMemMi}Mi` },
+        "Existing node has sufficient capacity — letting scheduler place pod");
+      return undefined;  // Let the K8s scheduler pick the node
+    }
+  }
+
+  // 5. No node has enough room — check if we can provision a new one
+  const maxServers = getMaxManagedServers();
+  const activeCount = await countActiveManagedNodes();
+
+  logger.info({
+    checkedNodes: nodes.length,
+    activeManagedNodes: activeCount,
+    maxManagedNodes: maxServers,
+    requiredCpu: `${requiredCpuMillis}m`,
+    requiredMem: `${requiredMemMi}Mi`,
+  }, "No existing node has sufficient capacity — checking server limit");
+
+  if (activeCount >= maxServers) {
+    throw new CapacityError(
+      `No server capacity available. All ${maxServers} auto-scaled servers are in use. ` +
+      `Try again later or stop an existing deployment.`
+    );
+  }
+
+  // 6. Under the limit — provision a new server and WAIT for it to join
+  logger.info({
+    activeManagedNodes: activeCount,
+    maxManagedNodes: maxServers,
+    requiredCpu: `${requiredCpuMillis}m`,
+    requiredMem: `${requiredMemMi}Mi`,
+  }, "Under server limit — provisioning new worker (blocking)");
+
+  const cpuCores = requiredCpuMillis / 1000;
+  const memGb = requiredMemMi / 1024;
+  const nodeName = await provisionNode(cpuCores, memGb, 30);
+  return nodeName;
+}
+
+/**
+ * Synchronous capacity check + provisioning with concurrency control.
+ *
+ * Behavior:
+ * 1. If an existing node fits, returns undefined instantly (let K8s scheduler place the pod).
+ * 2. If no node fits and we're under the managed server limit, provisions a new one
+ *    and BLOCKS until it joins K3s (~2-4 min). Returns the node name for pinning.
+ * 3. If no node fits and we're AT the limit, throws CapacityError immediately.
+ *
+ * Concurrency: Uses a Promise-based mutex so that if 5 deploys arrive simultaneously,
+ * the first one acquires the lock, checks capacity, and provisions a VPS. The other 4
+ * wait for the lock, then each re-checks capacity in turn. The newly provisioned node
+ * may fit multiple pods, preventing a thundering herd of unnecessary VPS creations.
+ *
+ * Errors are NOT swallowed — callers must handle CapacityError for user-facing
+ * rejection and other errors for transient failures.
+ */
 export async function ensureCapacityForDeployment(
   _db: any, cpuLimit?: string, memoryMb?: number
 ): Promise<string | undefined> {
@@ -510,93 +717,132 @@ export async function ensureCapacityForDeployment(
   logger.info({
     requiredCpu: `${requiredCpuMillis}m`,
     requiredMem: `${requiredMemMi}Mi`,
-  }, "Checking cluster capacity for new deployment");
+  }, "Waiting for capacity lock before checking cluster capacity");
+
+  // Wait for any in-flight capacity check + provision to finish
+  await capacityLock;
+
+  // Now acquire the lock for our check+provision cycle
+  let releaseLock!: () => void;
+  capacityLock = new Promise<void>((resolve) => { releaseLock = resolve; });
 
   try {
-    // 1. Get all nodes and their allocatable resources
-    const { body: nodeList } = await coreApi.listNode();
-    const nodes = (nodeList.items || []).filter((n: any) => {
-      const labels = n.metadata?.labels || {};
-      // Exclude master/control-plane nodes
-      if (labels["node-role.kubernetes.io/master"] !== undefined) return false;
-      if (labels["node-role.kubernetes.io/control-plane"] !== undefined) return false;
-      // Node must be Ready
-      const ready = (n.status?.conditions || []).find((c: any) => c.type === "Ready");
-      return ready?.status === "True";
-    });
-
-    if (nodes.length === 0) {
-      logger.warn("No ready worker nodes found — provisioning new node");
-      const cpuCores = requiredCpuMillis / 1000;
-      const memGb = requiredMemMi / 1024;
-      const nodeName = await provisionNode(cpuCores, memGb, 30);
-      return nodeName;
-    }
-
-    // 2. Get all running/pending pods in the jarble namespace to calculate used capacity
-    const { body: podList } = await coreApi.listNamespacedPod(NAMESPACE);
-    const activePods = (podList.items || []).filter((p: any) => {
-      const phase = p.status?.phase;
-      return phase === "Running" || phase === "Pending";
-    });
-
-    // 3. Calculate used resources per node
-    const usedByNode = new Map<string, { cpuMillis: number; memMi: number }>();
-    for (const pod of activePods) {
-      const nodeName = pod.spec?.nodeName;
-      if (!nodeName) continue;  // Pending pods without a node assignment
-      const used = usedByNode.get(nodeName) || { cpuMillis: 0, memMi: 0 };
-      for (const container of pod.spec?.containers || []) {
-        const requests = container.resources?.requests || {};
-        used.cpuMillis += parseCpuMillis(requests.cpu || "0");
-        used.memMi += parseMemoryMi(requests.memory || "0");
-      }
-      usedByNode.set(nodeName, used);
-    }
-
-    // 4. Check if any existing node has enough free capacity
-    for (const node of nodes) {
-      const name = node.metadata?.name || "";
-      const allocatable = node.status?.allocatable || {};
-      const totalCpuMillis = parseCpuMillis(allocatable.cpu || "0");
-      const totalMemMi = parseMemoryMi(allocatable.memory || "0");
-
-      const used = usedByNode.get(name) || { cpuMillis: 0, memMi: 0 };
-      const freeCpuMillis = totalCpuMillis - used.cpuMillis;
-      const freeMemMi = totalMemMi - used.memMi;
-
-      logger.debug({
-        node: name,
-        totalCpu: `${totalCpuMillis}m`, usedCpu: `${used.cpuMillis}m`, freeCpu: `${freeCpuMillis}m`,
-        totalMem: `${totalMemMi}Mi`, usedMem: `${used.memMi}Mi`, freeMem: `${freeMemMi}Mi`,
-        requiredCpu: `${requiredCpuMillis}m`, requiredMem: `${requiredMemMi}Mi`,
-      }, "Node capacity check");
-
-      if (freeCpuMillis >= requiredCpuMillis && freeMemMi >= requiredMemMi) {
-        logger.info({ node: name, freeCpu: `${freeCpuMillis}m`, freeMem: `${freeMemMi}Mi` },
-          "Existing node has sufficient capacity — letting scheduler place pod");
-        return undefined;  // Let the K8s scheduler pick the node
-      }
-    }
-
-    // 5. No node has enough room — provision a new one
-    logger.info({
-      checkedNodes: nodes.length,
-      requiredCpu: `${requiredCpuMillis}m`,
-      requiredMem: `${requiredMemMi}Mi`,
-    }, "No existing node has sufficient capacity — provisioning new worker");
-
-    const cpuCores = requiredCpuMillis / 1000;
-    const memGb = requiredMemMi / 1024;
-    const nodeName = await provisionNode(cpuCores, memGb, 30);
-    return nodeName;
-
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error({ err: msg }, "ensureCapacityForDeployment failed");
-    // Don't block deployment — let the K8s scheduler try
-    return undefined;
+    return await checkCapacityAndProvision(requiredCpuMillis, requiredMemMi);
+  } finally {
+    releaseLock();
   }
+}
+
+export interface CapacityStatus {
+  totalNodes: number;
+  managedNodes: number;
+  maxManagedNodes: number;
+  availableSlots: number;
+  nodes: Array<{ name: string; freeCpu: string; freeMem: string; botCount: number }>;
+}
+
+/**
+ * Returns a snapshot of cluster capacity for display in the frontend.
+ * Shows per-node free resources and how many more servers can be provisioned.
+ */
+export async function getCapacityStatus(): Promise<CapacityStatus> {
+  const maxServers = getMaxManagedServers();
+
+  if (!isEnabled()) {
+    return {
+      totalNodes: 0,
+      managedNodes: 0,
+      maxManagedNodes: maxServers,
+      availableSlots: 0,
+      nodes: [],
+    };
+  }
+
+  // Count active managed nodes from DB
+  const activeManaged = await countActiveManagedNodes();
+
+  // Get all worker nodes from K8s
+  const { body: nodeList } = await coreApi.listNode();
+  const workerNodes = (nodeList.items || []).filter((n: any) => {
+    const labels = n.metadata?.labels || {};
+    if (labels["node-role.kubernetes.io/master"] !== undefined) return false;
+    if (labels["node-role.kubernetes.io/control-plane"] !== undefined) return false;
+    const ready = (n.status?.conditions || []).find((c: any) => c.type === "Ready");
+    return ready?.status === "True";
+  });
+
+  // Get pods to calculate usage
+  const { body: podList } = await coreApi.listNamespacedPod(NAMESPACE);
+  const activePods = (podList.items || []).filter((p: any) => {
+    const phase = p.status?.phase;
+    return phase === "Running" || phase === "Pending";
+  });
+
+  // Calculate used resources and bot counts per node
+  const usedByNode = new Map<string, { cpuMillis: number; memMi: number; botCount: number }>();
+  for (const pod of activePods) {
+    const nodeName = pod.spec?.nodeName;
+    if (!nodeName) continue;
+    const used = usedByNode.get(nodeName) || { cpuMillis: 0, memMi: 0, botCount: 0 };
+    for (const container of pod.spec?.containers || []) {
+      const requests = container.resources?.requests || {};
+      used.cpuMillis += parseCpuMillis(requests.cpu || "0");
+      used.memMi += parseMemoryMi(requests.memory || "0");
+    }
+    const labels = pod.metadata?.labels || {};
+    if (labels["jarble.ai/type"] === "bot") {
+      used.botCount += 1;
+    }
+    usedByNode.set(nodeName, used);
+  }
+
+  // Build per-node info
+  const nodeInfos = workerNodes.map((node: any) => {
+    const name = node.metadata?.name || "";
+    const allocatable = node.status?.allocatable || {};
+    const totalCpuMillis = parseCpuMillis(allocatable.cpu || "0");
+    const totalMemMi = parseMemoryMi(allocatable.memory || "0");
+
+    const used = usedByNode.get(name) || { cpuMillis: 0, memMi: 0, botCount: 0 };
+    const freeCpuMillis = totalCpuMillis - used.cpuMillis;
+    const freeMemMi = totalMemMi - used.memMi;
+
+    return {
+      name,
+      freeCpu: `${freeCpuMillis}m`,
+      freeMem: `${Math.round(freeMemMi)}Mi`,
+      botCount: used.botCount,
+    };
+  });
+
+  // Available slots: count nodes with enough room for a default-sized bot (2000m CPU, 3072Mi RAM)
+  // plus the number of additional servers we can still provision
+  const DEFAULT_CPU = 2000;
+  const DEFAULT_MEM = 3072;
+  let existingSlots = 0;
+  for (const node of workerNodes) {
+    const name = node.metadata?.name || "";
+    const allocatable = node.status?.allocatable || {};
+    const totalCpuMillis = parseCpuMillis(allocatable.cpu || "0");
+    const totalMemMi = parseMemoryMi(allocatable.memory || "0");
+    const used = usedByNode.get(name) || { cpuMillis: 0, memMi: 0, botCount: 0 };
+    const freeCpu = totalCpuMillis - used.cpuMillis;
+    const freeMem = totalMemMi - used.memMi;
+    // How many default-sized bots can still fit on this node?
+    const cpuSlots = Math.floor(freeCpu / DEFAULT_CPU);
+    const memSlots = Math.floor(freeMem / DEFAULT_MEM);
+    existingSlots += Math.min(cpuSlots, memSlots);
+  }
+
+  const provisionableServers = Math.max(0, maxServers - activeManaged);
+
+  return {
+    totalNodes: workerNodes.length,
+    managedNodes: activeManaged,
+    maxManagedNodes: maxServers,
+    availableSlots: existingSlots + provisionableServers,
+    nodes: nodeInfos,
+  };
 }
 
 export async function checkScaleDown(_db: any): Promise<void> {}
