@@ -191,8 +191,9 @@ export function useCanvasChat(
     { sessionId: activeConversationId!, deploymentId },
     {
       enabled: !!activeConversationId && !!deploymentId,
-      staleTime: 30_000, // Don't refetch within 30s (localStorage is the fast cache)
-      refetchOnWindowFocus: false,
+      staleTime: 5_000, // Short stale time so server responses appear quickly after disconnect
+      refetchOnWindowFocus: true, // Refetch when user returns to the tab
+      refetchInterval: 10_000, // Poll every 10s to catch bot responses that completed while away
     }
   );
 
