@@ -36,6 +36,7 @@ import { serviceExecutionRouter } from "./routes/serviceExecution.js";
 import { serviceStreamRouter } from "./routes/serviceStream.js";
 import { serviceHeartbeatRouter } from "./routes/serviceHeartbeat.js";
 import { serviceJobsRouter, startJobCleanup } from "./routes/serviceJobs.js";
+import { startNodeWatcher } from "./k8s/nodeManager.js";
 import { podApiRouter, authenticatePod } from "./routes/podApi.js";
 import { agentRouter } from "./routes/agentLlm.js";
 import { composeRouter } from "./routes/compose.js";
@@ -202,6 +203,7 @@ async function start() {
   startServiceHealthCheck();  // Pings remote/hybrid service health endpoints every 5 min
   startWebhookCleanup();      // Purges processedWebhookEvents older than 30 days (every 24h)
   startJobCleanup();          // Cleans up expired async service jobs (hourly)
+  startNodeWatcher();         // Auto-scales Hetzner workers when bot pods go Pending
 
   const PORT = env.PORT;
   const server = app.listen(PORT, () => {
