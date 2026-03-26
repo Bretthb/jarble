@@ -106,9 +106,31 @@ async function getNextNodeIp(): Promise<string> {
 
 // ── Cloud-init ──────────────────────────────────────────────────────────
 
-function buildCloudInit(nodeIp: string): string {
+function buildCloudInit(nodeIp: string, hasVolume: boolean): string {
   const k3sToken = process.env.K3S_JOIN_TOKEN;
   if (!k3sToken) throw new Error("K3S_JOIN_TOKEN not set");
+
+  // Volume mount section — waits for Hetzner block storage device to appear
+  // The volume ID isn't known at cloud-init time, so we find it by scanning /dev/disk/by-id/
+  const volumeMount = hasVolume ? `
+# Mount Hetzner block storage for Longhorn
+MOUNT_PATH="/var/lib/longhorn"
+mkdir -p "$MOUNT_PATH"
+echo "Waiting for block storage device..."
+for i in $(seq 1 60); do
+  VOLUME_DEVICE=$(ls /dev/disk/by-id/scsi-0HC_Volume_* 2>/dev/null | head -1)
+  if [ -n "$VOLUME_DEVICE" ]; then
+    echo "Volume device found: $VOLUME_DEVICE"
+    mount -o discard,defaults "$VOLUME_DEVICE" "$MOUNT_PATH"
+    if ! grep -q "$VOLUME_DEVICE" /etc/fstab; then
+      echo "$VOLUME_DEVICE $MOUNT_PATH ext4 discard,nofail,defaults 0 0" >> /etc/fstab
+    fi
+    echo "Block storage mounted at $MOUNT_PATH"
+    break
+  fi
+  sleep 5
+done
+` : "";
 
   return `#!/bin/bash
 set -euo pipefail
@@ -118,7 +140,7 @@ sleep 5
 apt-get update -qq
 apt-get install -y -qq open-iscsi nfs-common curl
 systemctl enable iscsid && systemctl start iscsid
-
+${volumeMount}
 # Join K3s cluster
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - agent \\
   --server "https://${MASTER_PRIVATE_IP}:6443" \\
@@ -174,8 +196,28 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
     const networkId = parseInt(process.env.HETZNER_NETWORK_ID || "0");
     const firewallId = parseInt(process.env.HETZNER_FIREWALL_ID || "0");
     const sshKeyId = parseInt(process.env.HETZNER_SSH_KEY_ID || "0");
+    const hasVolume = podStorageGb > 0;
 
-    // 1. Create server WITH private network (explicit IP so cloud-init can reach master)
+    // 1. Create block storage FIRST so it's available at boot for cloud-init to mount
+    let volumeId = 0;
+    if (hasVolume) {
+      const volumeRes = await hetznerRequest<any>("POST", "/volumes", {
+        name: `${nodeName}-data`,
+        size: podStorageGb,
+        location: LOCATION,
+        format: "ext4",
+        automount: false,
+        labels: { cluster: "jarble", role: "longhorn-data", node: nodeName },
+      });
+      volumeId = volumeRes.volume.id;
+      logger.info({ nodeName, volumeId, sizeGb: podStorageGb }, "Block storage created");
+
+      await db.update(managedNodes)
+        .set({ hetznerVolumeId: volumeId })
+        .where(eq(managedNodes.id, nodeId));
+    }
+
+    // 2. Create server with network + volume attached (so cloud-init can mount it at boot)
     const serverRes = await hetznerRequest<any>("POST", "/servers", {
       name: nodeName,
       server_type: serverType.name,
@@ -184,24 +226,17 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
       ssh_keys: [sshKeyId],
       firewalls: [{ firewall: firewallId }],
       networks: [networkId],
-      user_data: buildCloudInit(nodeIp),
+      user_data: buildCloudInit(nodeIp, hasVolume),
       labels: { cluster: "jarble", role: "agent", managed: "true" },
-      public_net: { enable_ipv4: false, enable_ipv6: true },  // IPv6 is free; need at least one public interface
+      public_net: { enable_ipv4: false, enable_ipv6: true },
+      ...(volumeId ? { volumes: [volumeId] } : {}),
     });
     const serverId = serverRes.server.id;
-    logger.info({ nodeName, serverId }, "Hetzner server created with network");
+    logger.info({ nodeName, serverId, volumeId: volumeId || "none" }, "Hetzner server created");
 
     await db.update(managedNodes)
       .set({ hetznerServerId: serverId })
       .where(eq(managedNodes.id, nodeId));
-
-    // 2. Assign explicit IP on the network (override auto-assigned)
-    try {
-      await hetznerRequest("POST", `/servers/${serverId}/actions/change_alias_ips`, {
-        network: networkId,
-        alias_ips: [],
-      });
-    } catch {}
 
     // 3. Wait for server to be running
     for (let i = 0; i < 30; i++) {
@@ -209,26 +244,7 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
       if (s.server.status === "running") break;
       await new Promise((r) => setTimeout(r, 5000));
     }
-    logger.info({ nodeName, nodeIp }, "Server running with private network");
-
-    // 4. Create and attach block storage if deployment needs persistent storage
-    if (podStorageGb > 0) {
-      const volumeRes = await hetznerRequest<any>("POST", "/volumes", {
-        name: `${nodeName}-data`,
-        size: podStorageGb,
-        location: LOCATION,
-        format: "ext4",
-        server: serverId,
-        automount: false,
-        labels: { cluster: "jarble", role: "longhorn-data", node: nodeName },
-      });
-      const volumeId = volumeRes.volume.id;
-      logger.info({ nodeName, volumeId, sizeGb: podStorageGb }, "Block storage attached");
-
-      await db.update(managedNodes)
-        .set({ hetznerVolumeId: volumeId })
-        .where(eq(managedNodes.id, nodeId));
-    }
+    logger.info({ nodeName, nodeIp }, "Server running");
 
     await db.update(managedNodes)
       .set({ status: "joining" })
@@ -334,8 +350,8 @@ async function deprovisionNode(node: any): Promise<void> {
 
 // ── Background Watcher ──────────────────────────────────────────────────
 
-/** Extract CPU cores and memory GB from a pod's container resource requests */
-function getPodResources(pod: any): { cpuCores: number; memGb: number; storageGb: number } {
+/** Extract CPU cores, memory GB, and storage GB from a pod's resource spec + PVC */
+async function getPodResources(pod: any): Promise<{ cpuCores: number; memGb: number; storageGb: number }> {
   let cpuMillis = 0;
   let memMi = 0;
   for (const container of pod.spec?.containers || []) {
@@ -346,12 +362,21 @@ function getPodResources(pod: any): { cpuCores: number; memGb: number; storageGb
     else if (mem.endsWith("Gi")) memMi += parseInt(mem) * 1024;
   }
 
-  // Get storage from PVC claim if available
+  // Read actual PVC size from the claim
   let storageGb = 30; // default
   for (const vol of pod.spec?.volumes || []) {
-    if (vol.persistentVolumeClaim) {
-      // We'll use 30GB as default — the actual PVC size is in the PVC spec
-      storageGb = 30;
+    if (vol.persistentVolumeClaim?.claimName) {
+      try {
+        const { body: pvc } = await coreApi.readNamespacedPersistentVolumeClaim(
+          vol.persistentVolumeClaim.claimName, NAMESPACE
+        );
+        const storageStr = pvc.spec?.resources?.requests?.storage || "30Gi";
+        if (storageStr.endsWith("Gi")) storageGb = parseInt(storageStr);
+        else if (storageStr.endsWith("Mi")) storageGb = Math.ceil(parseInt(storageStr) / 1024);
+      } catch {
+        // PVC not found — use default
+      }
+      break;
     }
   }
 
@@ -382,7 +407,7 @@ async function poll(): Promise<void> {
     if (pendingPods.length > 0 && !provisioning && !inCooldown) {
       // Use the first pending pod's resources to size the server
       const pod = pendingPods[0];
-      const resources = getPodResources(pod);
+      const resources = await getPodResources(pod);
       logger.info({
         pendingCount: pendingPods.length,
         podName: pod.metadata?.name,
