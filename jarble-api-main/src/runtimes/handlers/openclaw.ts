@@ -431,7 +431,9 @@ export const openclawHandler: RuntimeHandler = {
         `- **agent_${a.slug}** — ${a.description || a.name}`
       );
       soulParts.push(
-        `## Custom Agents\nYou have the following specialist agents. Delegate using their MCP tool name:\n${agentLines.join("\n")}`
+        `## Custom Agents\nYou have the following specialist agents available as MCP tools. ` +
+        `To use them, call the MCP tool directly (e.g. agent_slug with a "task" argument). ` +
+        `Do NOT try to spawn or delegate natively — these are MCP tools, not OpenClaw agents.\n${agentLines.join("\n")}`
       );
     }
 
