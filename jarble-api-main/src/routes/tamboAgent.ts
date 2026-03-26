@@ -920,15 +920,15 @@ tamboAgentRouter.post("/", async (req, res) => {
       try {
         // Upsert chat session — must complete before message insert (FK constraint)
         const existing = await db.query.chatSessions.findFirst({
-          where: eq(tables.chatSessions.id, sessionKey),
+          where: eq(tables.chatSessions.id, convId),
         });
         if (existing) {
           await db.update(tables.chatSessions)
             .set({ updatedAt: now } as any)
-            .where(eq(tables.chatSessions.id, sessionKey));
+            .where(eq(tables.chatSessions.id, convId));
         } else {
           await db.insert(tables.chatSessions).values({
-            id: sessionKey,
+            id: convId,
             deploymentId,
             title: lastUserText.slice(0, 50),
             createdAt: now,
@@ -939,7 +939,7 @@ tamboAgentRouter.post("/", async (req, res) => {
         // Now safe to insert message (session exists)
         await db.insert(tables.chatMessages).values({
           id: nanoid(),
-          sessionId: sessionKey,
+          sessionId: convId,
           role: "user",
           content: lastUserText,
           createdAt: now,
@@ -1276,35 +1276,40 @@ tamboAgentRouter.post("/", async (req, res) => {
     // ── Persist assistant message to DB ──────────────────────────────────────
     // Fire-and-forget: save the complete bot response so it survives client disconnects.
     const cleanResponse = stripReasoningTags(gatewayResult.text);
-    if (cleanResponse) {
+    if (cleanResponse && convId) {
       const now = dbDate();
-      // Upsert chat session (may already exist from user message save)
-      db.query.chatSessions.findFirst({
-        where: eq(tables.chatSessions.id, sessionKey),
-      }).then(async (existing) => {
-        if (!existing) {
-          await db.insert(tables.chatSessions).values({
-            id: sessionKey,
-            deploymentId,
-            title: lastUserText.slice(0, 50),
-            createdAt: now,
-            updatedAt: now,
-          } as any);
-        }
-      }).catch((err: unknown) => {
-        log.warn({ err: err instanceof Error ? err.message : String(err) }, "Failed to upsert chat session for assistant message");
-      });
+      (async () => {
+        try {
+          // Ensure session exists (may already from user message save)
+          const existing = await db.query.chatSessions.findFirst({
+            where: eq(tables.chatSessions.id, convId),
+          });
+          if (!existing) {
+            await db.insert(tables.chatSessions).values({
+              id: convId,
+              deploymentId,
+              title: lastUserText.slice(0, 50),
+              createdAt: now,
+              updatedAt: now,
+            } as any);
+          } else {
+            await db.update(tables.chatSessions)
+              .set({ updatedAt: now } as any)
+              .where(eq(tables.chatSessions.id, convId));
+          }
 
-      db.insert(tables.chatMessages).values({
-        id: nanoid(),
-        sessionId: sessionKey,
-        role: "assistant",
-        content: cleanResponse,
-        thinkingText: gatewayResult.nativeThinking || null,
-        createdAt: now,
-      } as any).catch((err: unknown) => {
-        log.warn({ err: err instanceof Error ? err.message : String(err), sessionKey }, "Failed to persist assistant message");
-      });
+          await db.insert(tables.chatMessages).values({
+            id: nanoid(),
+            sessionId: convId,
+            role: "assistant",
+            content: cleanResponse,
+            thinkingText: gatewayResult.nativeThinking || null,
+            createdAt: now,
+          } as any);
+        } catch (err: unknown) {
+          log.warn({ err: err instanceof Error ? err.message : String(err), convId }, "Failed to persist assistant message");
+        }
+      })();
     }
 
     safeSendEvent(res, { type: "RUN_FINISHED", runId, threadId });
