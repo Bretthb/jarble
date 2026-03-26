@@ -339,6 +339,19 @@ IMPORTANT: Do NOT inject localStorage. Log in through the real Auth0 UI using Pl
     prompt += `\nQA_ANTHROPIC_KEY (for deployment wizard — use as LLM provider API key): ${anthropicKey}\n`;
   }
 
+  // Vercel Deployment Protection bypass
+  const bypassSecret = env.VERCEL_PROTECTION_BYPASS || process.env.VERCEL_PROTECTION_BYPASS;
+  if (bypassSecret) {
+    prompt += `
+VERCEL_PROTECTION_BYPASS: ${bypassSecret}
+IMPORTANT: dev.jarble.ai has Vercel Deployment Protection enabled.
+For ALL browser-based Playwright requests, you MUST set this cookie before navigating:
+  x-vercel-protection-bypass=${bypassSecret}
+Use Playwright MCP to set the cookie on the .jarble.ai domain before any page navigation.
+Without this cookie, all pages will return 401 and UI tests will fail.
+`;
+  }
+
   prompt += `\nGIT CHANGES SINCE LAST RUN:\n${diffStat}\n`;
 
   if (focus) {

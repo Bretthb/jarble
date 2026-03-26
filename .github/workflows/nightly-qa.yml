@@ -37,6 +37,7 @@ jobs:
       QA_M2M_CLIENT_SECRET: ${{ secrets.QA_M2M_CLIENT_SECRET }}
       QA_ANTHROPIC_KEY: ${{ secrets.QA_ANTHROPIC_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
 
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +66,7 @@ jobs:
         run: |
           echo "Checking cloud services..."
           curl -f https://api.jarble.ai/health || { echo "API not reachable"; exit 1; }
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://dev.jarble.ai)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "x-vercel-protection-bypass: $VERCEL_PROTECTION_BYPASS" https://dev.jarble.ai)
           if [ "$STATUS" -ge 500 ]; then
             echo "Frontend returned $STATUS"; exit 1
           fi
