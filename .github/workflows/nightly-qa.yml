@@ -27,7 +27,7 @@ jobs:
   nightly-qa:
     name: Agentic QA
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     permissions:
       contents: write
       pull-requests: write
@@ -112,7 +112,7 @@ jobs:
             API="https://api.jarble.ai"
           fi
 
-          ARGS="--base-url $BASE --api-url $API --cycles $CYCLES --max-budget 30 --nightly-budget 100"
+          ARGS="--base-url $BASE --api-url $API --cycles $CYCLES --max-budget 30 --nightly-budget 100 --interval 5"
           if [ -n "$FOCUS" ]; then
             ARGS="$ARGS --focus \"$FOCUS\""
           fi
