@@ -1,5 +1,8 @@
 "use client";
 
+import { useAuth0 } from "@auth0/auth0-react";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import CanvasAlert from "@/components/canvas/components/CanvasAlert";
 import CanvasProgress from "@/components/canvas/components/CanvasProgress";
 import CanvasTimeline from "@/components/canvas/components/CanvasTimeline";
@@ -26,6 +29,19 @@ const CanvasTagCloud = dynamic(() => import("@/components/canvas/components/Canv
 const CanvasMap = dynamic(() => import("@/components/canvas/components/CanvasMap"), { ssr: false });
 
 export default function TestComponentsPage() {
+  const { isAuthenticated, isLoading } = useAuth0();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [isLoading, isAuthenticated, router]);
+
+  if (isLoading || !isAuthenticated) {
+    return <div className="min-h-screen bg-background" />;
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground p-8 space-y-8 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-2">Canvas Component Visual Test</h1>
