@@ -612,22 +612,22 @@ describe("Phase 1 — sandbox-first prompt language", () => {
     expect(soulMd.content).not.toContain("LAST RESORT");
   });
 
-  it("Component Chooser table has sandbox as the first recommendation", () => {
+  it("Component Chooser section has sandbox as the first/default recommendation", () => {
     const deployment = makeDeployment();
     const files = openclawHandler.renderConfigs(deployment);
     const soulMd = files.find((f) => f.path === "soul.md")!;
 
-    // Extract the Component Chooser table
+    // Extract the Component Chooser section
     const chooserStart = soulMd.content.indexOf("### Component Chooser");
     expect(chooserStart).toBeGreaterThan(-1);
 
-    const tableSection = soulMd.content.slice(chooserStart, chooserStart + 2000);
-    const lines = tableSection.split("\n").filter((l) => l.startsWith("|"));
-    // lines[0] = header, lines[1] = separator, lines[2..] = data rows
-    const dataRows = lines.filter((l) => !l.includes("---") && !l.includes("Want"));
+    const chooserSection = soulMd.content.slice(chooserStart, chooserStart + 500);
 
-    // First data row should recommend sandbox
-    expect(dataRows[0]).toContain("sandbox");
+    // Should recommend sandbox as the default
+    expect(chooserSection).toContain("sandbox");
+    // First line after the heading should mention sandbox as default
+    const lines = chooserSection.split("\n").filter((l) => l.trim().length > 0);
+    expect(lines[1]).toContain("sandbox");
   });
 
   it("messaging-only prompt has no sandbox-first language", () => {

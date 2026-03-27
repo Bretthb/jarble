@@ -113,7 +113,7 @@ export async function chatViaGateway(
   const connectStartMs = Date.now();
 
   return new Promise<GatewayResponse>((resolve, reject) => {
-    const timeoutMs = 120_000;
+    const timeoutMs = 180_000; // 3 min — generous for Opus thinking + large system prompts
     let fullText = "";
     let nativeThinking = "";
     let connected = false;
@@ -138,7 +138,7 @@ export async function chatViaGateway(
           const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
           resolve({ rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, timedOut: true });
         } else {
-          reject(new Error("Gateway chat timed out after 120s"));
+          reject(new Error("Gateway chat timed out after 180s"));
         }
       }
     }, timeoutMs);
@@ -437,6 +437,14 @@ export async function chatViaHTTP(
 
   log.info({ url }, "chatViaHTTP: starting streaming request");
 
+  // 3 min timeout — matches gateway WS timeout; prevents hanging forever if
+  // the pod accepts the connection but the LLM never responds.
+  const httpTimeoutMs = 180_000;
+  const timeoutSignal = AbortSignal.timeout(httpTimeoutMs);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -449,7 +457,7 @@ export async function chatViaHTTP(
       messages: [{ role: "user", content: message }],
       stream: true,
     }),
-    signal,
+    signal: combinedSignal,
   });
 
   if (!res.ok) {
@@ -467,41 +475,57 @@ export async function chatViaHTTP(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true });
 
-    // Process SSE lines
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || ""; // Keep incomplete line in buffer
+      // Process SSE lines
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const data = line.slice(6).trim();
-      if (data === "[DONE]") continue;
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") continue;
 
-      try {
-        const chunk = JSON.parse(data);
-        const delta = chunk.choices?.[0]?.delta;
-        if (delta?.content) {
-          fullText += delta.content;
-          onDelta?.(fullText);
+        try {
+          const chunk = JSON.parse(data);
+          const delta = chunk.choices?.[0]?.delta;
+          if (delta?.content) {
+            fullText += delta.content;
+            onDelta?.(fullText);
 
-          // Incrementally detect UI blocks during streaming
-          if (onBlockDetected) {
-            const { uiBlocks } = extractUIBlocks(fullText);
-            for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
-              onBlockDetected(uiBlocks[idx]);
+            // Incrementally detect UI blocks during streaming
+            if (onBlockDetected) {
+              const { uiBlocks } = extractUIBlocks(fullText);
+              for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
+                onBlockDetected(uiBlocks[idx]);
+              }
+              emittedBlockCount = uiBlocks.length;
             }
-            emittedBlockCount = uiBlocks.length;
           }
+        } catch {
+          // Skip unparseable chunks
         }
-      } catch {
-        // Skip unparseable chunks
       }
     }
+  } catch (err: unknown) {
+    // Distinguish timeout from caller abort — TimeoutError comes from AbortSignal.timeout()
+    const isTimeout = err instanceof DOMException && err.name === "TimeoutError";
+    if (isTimeout) {
+      log.warn({ url, httpTimeoutMs, textLength: fullText.length }, "chatViaHTTP: response timed out");
+      // If we have partial text, return it gracefully (same as gateway behavior)
+      if (fullText) {
+        const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
+        return { rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, timedOut: true };
+      }
+      throw new Error(`HTTP chat timed out after ${httpTimeoutMs / 1000}s`);
+    }
+    // Re-throw caller aborts and other errors as-is
+    throw err;
   }
 
   if (!fullText) {
