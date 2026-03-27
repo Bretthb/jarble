@@ -555,6 +555,43 @@ const CREATE_TABLES_SQL = `
   CREATE INDEX IF NOT EXISTS idx_flow_exec_flow_id ON flow_executions(flow_id);
   CREATE INDEX IF NOT EXISTS idx_flow_exec_user_id ON flow_executions(user_id);
   CREATE INDEX IF NOT EXISTS idx_flow_exec_status ON flow_executions(status);
+
+  CREATE TABLE IF NOT EXISTS deployment_subagents (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    description TEXT,
+    system_prompt TEXT NOT NULL,
+    model TEXT,
+    trigger_type TEXT DEFAULT 'manual' NOT NULL,
+    trigger_config TEXT,
+    tools TEXT,
+    enabled INTEGER DEFAULT 1 NOT NULL,
+    sort_order INTEGER DEFAULT 0 NOT NULL,
+    source TEXT DEFAULT 'custom' NOT NULL,
+    is_public INTEGER DEFAULT 0 NOT NULL,
+    forked_from_id TEXT,
+    fork_count INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_deployment_subagents_deployment_id ON deployment_subagents(deployment_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_subagents_deployment_slug ON deployment_subagents(deployment_id, slug);
+  CREATE INDEX IF NOT EXISTS idx_deployment_subagents_is_public ON deployment_subagents(is_public);
+
+  CREATE TABLE IF NOT EXISTS flow_deployment_memberships (
+    id TEXT PRIMARY KEY,
+    flow_id TEXT NOT NULL REFERENCES orchestration_flows(id) ON DELETE CASCADE,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    node_id TEXT NOT NULL,
+    role TEXT,
+    is_entry_point INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_flow_deployment_node ON flow_deployment_memberships(flow_id, deployment_id, node_id);
+  CREATE INDEX IF NOT EXISTS idx_flow_dep_membership_deployment_id ON flow_deployment_memberships(deployment_id);
+  CREATE INDEX IF NOT EXISTS idx_flow_dep_membership_flow_id ON flow_deployment_memberships(flow_id);
 `;
 
 export async function initDatabase() {
@@ -603,6 +640,20 @@ export async function initDatabase() {
     }
   } catch (err) {
     logger.warn({ err }, "Deployment fork/public columns migration skipped (may already exist)");
+  }
+
+  // Migration: add source column to deployment_subagents (for existing DBs)
+  try {
+    const saCols = sqliteRaw.pragma("table_info(deployment_subagents)") as Array<{ name: string }>;
+    if (saCols.length > 0) {
+      const saColNames = new Set(saCols.map((c: any) => c.name));
+      if (!saColNames.has("source")) {
+        sqliteRaw.exec("ALTER TABLE deployment_subagents ADD COLUMN source TEXT DEFAULT 'custom' NOT NULL");
+        logger.info("Added source column to deployment_subagents");
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "deployment_subagents source column migration skipped");
   }
 
   // Migration: add is_platform column to creator_profiles and marketplace_packages

@@ -355,6 +355,7 @@ export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   platformCredentials: many(platformCredentials),
   componentInstalls: many(componentInstalls),
   subagents: many(deploymentSubagents),
+  flowMemberships: many(flowDeploymentMemberships),
 }));
 
 // ── Chat History Tables ───────────────────────────────────────────────────
@@ -445,6 +446,7 @@ export const orchestrationFlowsRelations = relations(orchestrationFlows, ({ one,
   user: one(users, { fields: [orchestrationFlows.userId], references: [users.id] }),
   forkedFrom: one(orchestrationFlows, { fields: [orchestrationFlows.forkedFromId], references: [orchestrationFlows.id] }),
   executions: many(flowExecutions),
+  memberships: many(flowDeploymentMemberships),
 }));
 
 export const flowExecutionsRelations = relations(flowExecutions, ({ one }) => ({
@@ -833,6 +835,7 @@ export const deploymentSubagents = sqliteTable("deployment_subagents", {
   tools: text("tools"),  // JSON array of allowed tool names, null = all
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
+  source: text("source").notNull().default("custom"),  // "custom" | "platform" | "delegation"
   isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
   forkedFromId: text("forked_from_id"),
   forkCount: integer("fork_count").notNull().default(0),
@@ -847,4 +850,26 @@ export const deploymentSubagents = sqliteTable("deployment_subagents", {
 export const deploymentSubagentsRelations = relations(deploymentSubagents, ({ one }) => ({
   deployment: one(deployments, { fields: [deploymentSubagents.deploymentId], references: [deployments.id] }),
   forkedFrom: one(deploymentSubagents, { fields: [deploymentSubagents.forkedFromId], references: [deploymentSubagents.id] }),
+}));
+
+// ── Flow ↔ Deployment Memberships ────────────────────────────────────────
+// Denormalized join table: efficiently query "which flows contain this deployment?"
+
+export const flowDeploymentMemberships = sqliteTable("flow_deployment_memberships", {
+  id: text("id").primaryKey(),
+  flowId: text("flow_id").notNull().references(() => orchestrationFlows.id, { onDelete: "cascade" }),
+  deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  nodeId: text("node_id").notNull(),  // The node ID within the flow definition
+  role: text("role"),  // The node's role in the flow
+  isEntryPoint: integer("is_entry_point", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+}, (table) => ({
+  flowDeploymentNodeIdx: uniqueIndex("uq_flow_deployment_node").on(table.flowId, table.deploymentId, table.nodeId),
+  deploymentIdIdx: index("idx_flow_dep_membership_deployment_id").on(table.deploymentId),
+  flowIdIdx: index("idx_flow_dep_membership_flow_id").on(table.flowId),
+}));
+
+export const flowDeploymentMembershipsRelations = relations(flowDeploymentMemberships, ({ one }) => ({
+  flow: one(orchestrationFlows, { fields: [flowDeploymentMemberships.flowId], references: [orchestrationFlows.id] }),
+  deployment: one(deployments, { fields: [flowDeploymentMemberships.deploymentId], references: [deployments.id] }),
 }));

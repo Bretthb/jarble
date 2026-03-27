@@ -8,6 +8,7 @@ import { useStatusStream } from "@/hooks/useStatusStream";
 import { ComponentCatalogProvider } from "@/components/ComponentCatalogProvider";
 import DeploymentTamboProvider from "@/components/DeploymentTamboProvider";
 import { useCanvasChat } from "@/hooks/useCanvasChat";
+import { useOrchestration } from "@/hooks/useOrchestration";
 import { useJarbleRuntime } from "@/lib/assistantRuntime";
 import AssistantUIChat from "@/components/chat/AssistantUIChat";
 import { SlashCommandMenu, getFilteredCommandCount } from "@/components/chat/SlashCommandMenu";
@@ -639,6 +640,29 @@ function CanvasWorkspace({
     stopGeneration, editMessage,
     conversations, activeConversationId, switchConversation, newConversation, deleteConversation,
   } = useCanvasChat(deploymentId, state, dispatch, liveStatus, onRefetchDeployment);
+
+  // Real-time orchestration events via WebSocket — supersedes legacy predictive steps
+  const { steps: wsOrchestrationSteps, isConnected: orchWsConnected, clearSteps: clearOrchSteps } = useOrchestration(deploymentId);
+
+  // Merge WS steps with legacy SSE-based predictive steps. Real WS events take priority.
+  const mergedOrchestrationSteps = useMemo(() => {
+    if (wsOrchestrationSteps.length > 0) {
+      // Map WS steps to the OrchestrationStep component format (agent field = agentType)
+      return wsOrchestrationSteps.map((s) => ({
+        id: s.id,
+        label: s.label,
+        status: s.status,
+        agent: s.agentType as import("@/components/chat/OrchestrationSteps").OrchestrationStep["agent"],
+        detail: s.detail,
+        duration: s.duration,
+        agentType: s.agentType,
+        toolName: s.toolName,
+        targetDeploymentId: s.targetDeploymentId,
+      }));
+    }
+    return orchestrationSteps; // Fall back to legacy SSE-based steps
+  }, [wsOrchestrationSteps, orchestrationSteps]);
+
   // runtime created inside KeyedChatPanel — keyed by activeConversationId
   useCanvasPersistence(deploymentId, state, dispatch, activeConversationId);
   useArtifactSync(deploymentId, state, dispatch);
@@ -858,7 +882,7 @@ function CanvasWorkspace({
           suggestions={suggestions}
           toolStatus={toolStatus}
           activeAgentCall={activeAgentCall}
-          orchestrationSteps={orchestrationSteps}
+          orchestrationSteps={mergedOrchestrationSteps}
           stopGeneration={stopGeneration}
           editMessage={editMessage}
           onExamplePrompt={handleExamplePrompt}

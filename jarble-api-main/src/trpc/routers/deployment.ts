@@ -23,6 +23,7 @@ import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrou
 import { syncConfigsToPvc } from "../../services/configSync.js";
 import { safeFireAndForget } from "../../utils/safeAsync.js";
 import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
+import { seedPlatformAgents } from "../../services/platformAgents.js";
 import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
 import { isAdmin } from "../../utils/admin.js";
 import { RESOURCE_TIERS } from "../../k8s/constants.js";
@@ -641,6 +642,9 @@ export const deploymentRouter = router({
         });
         logger.info({ deploymentId }, "Telegram credentials saved during create (pre-deploy)");
       }
+
+      // Seed default platform agents (component, data, workflow) — non-fatal
+      await seedPlatformAgents(ctx.db, deploymentId);
 
       const deployment = await ctx.db.query.deployments.findFirst({
         where: eq(deployments.id, deploymentId),

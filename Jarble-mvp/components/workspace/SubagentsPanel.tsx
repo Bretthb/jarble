@@ -40,6 +40,8 @@ import {
   GitFork,
   ChevronLeft,
   Save,
+  Cpu,
+  ArrowRightLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +63,7 @@ interface Subagent {
   isPublic: boolean;
   forkedFromId: string | null;
   forkCount: number;
+  source: "custom" | "platform" | "delegation";
   createdAt: string | Date;
   updatedAt: string | Date;
 }
@@ -115,6 +118,7 @@ function slugify(name: string): string {
 function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
   const [view, setView] = useState<"list" | "form">("list");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingSource, setEditingSource] = useState<Subagent["source"] | null>(null);
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Subagent | null>(null);
 
@@ -141,6 +145,9 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
   });
 
   const subagents: Subagent[] = (listQuery.data as Subagent[] | undefined) ?? [];
+  const platformAgents = subagents.filter((sa) => sa.source === "platform");
+  const customAgents = subagents.filter((sa) => sa.source === "custom" || !sa.source);
+  const delegationAgents = subagents.filter((sa) => sa.source === "delegation");
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const saveError = createMutation.error || updateMutation.error;
 
@@ -149,12 +156,14 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
   const resetForm = useCallback(() => {
     setForm(INITIAL_FORM);
     setEditingId(null);
+    setEditingSource(null);
     setView("list");
   }, []);
 
   const openNewForm = useCallback(() => {
     setForm(INITIAL_FORM);
     setEditingId(null);
+    setEditingSource(null);
     setView("form");
   }, []);
 
@@ -168,6 +177,7 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
       enabled: subagent.enabled,
     });
     setEditingId(subagent.id);
+    setEditingSource(subagent.source);
     setView("form");
   }, []);
 
@@ -236,7 +246,9 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
           <span className="text-sm font-medium">
             {view === "form"
               ? editingId
-                ? "Edit Subagent"
+                ? editingSource === "platform"
+                  ? "Edit Platform Agent"
+                  : "Edit Subagent"
                 : "New Subagent"
               : "Subagents"}
           </span>
@@ -258,19 +270,6 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
 
       {view === "list" ? (
         <>
-          {/* New subagent button */}
-          <div className="px-3 py-2 border-b border-border/60">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={openNewForm}
-            >
-              <Plus className="w-3.5 h-3.5 mr-1.5" />
-              New Subagent
-            </Button>
-          </div>
-
           {/* List */}
           <div className="flex-1 overflow-y-auto">
             {listQuery.isLoading ? (
@@ -290,16 +289,88 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-border/40">
-                {subagents.map((sa) => (
-                  <SubagentListItem
-                    key={sa.id}
-                    subagent={sa}
-                    onEdit={() => openEditForm(sa)}
-                    onDelete={() => setDeleteTarget(sa)}
-                    onToggleEnabled={() => handleToggleEnabled(sa)}
-                  />
-                ))}
+              <div>
+                {/* Platform Agents */}
+                {platformAgents.length > 0 && (
+                  <div>
+                    <div className="px-3 pt-3 pb-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                        Platform Agents
+                      </span>
+                    </div>
+                    <div className="divide-y divide-border/40">
+                      {platformAgents.map((sa) => (
+                        <SubagentListItem
+                          key={sa.id}
+                          subagent={sa}
+                          source="platform"
+                          onEdit={() => openEditForm(sa)}
+                          onDelete={() => {}}
+                          onToggleEnabled={() => handleToggleEnabled(sa)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom Agents */}
+                {customAgents.length > 0 && (
+                  <div>
+                    <div className="px-3 pt-3 pb-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                        Custom Agents
+                      </span>
+                    </div>
+                    <div className="divide-y divide-border/40">
+                      {customAgents.map((sa) => (
+                        <SubagentListItem
+                          key={sa.id}
+                          subagent={sa}
+                          source="custom"
+                          onEdit={() => openEditForm(sa)}
+                          onDelete={() => setDeleteTarget(sa)}
+                          onToggleEnabled={() => handleToggleEnabled(sa)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* New subagent button */}
+                <div className="px-3 py-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={openNewForm}
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1.5" />
+                    New Subagent
+                  </Button>
+                </div>
+
+                {/* Delegation / Team Members */}
+                {delegationAgents.length > 0 && (
+                  <div>
+                    <div className="px-3 pt-3 pb-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                        Team Members
+                      </span>
+                    </div>
+                    <div className="divide-y divide-border/40">
+                      {delegationAgents.map((sa) => (
+                        <SubagentListItem
+                          key={sa.id}
+                          subagent={sa}
+                          source="delegation"
+                          onEdit={() => {}}
+                          onDelete={() => {}}
+                          onToggleEnabled={() => handleToggleEnabled(sa)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -308,6 +379,13 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
         /* ── Form View ── */
         <div className="flex-1 overflow-y-auto">
           <div className="px-3 py-3 space-y-4">
+            {/* Platform agent notice */}
+            {editingSource === "platform" && (
+              <div className="text-xs text-muted-foreground bg-orange-500/10 border border-orange-500/20 rounded-md px-2.5 py-2">
+                This is a built-in platform agent. You can customize its prompt and model.
+              </div>
+            )}
+
             {/* Name */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
@@ -317,9 +395,10 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
                 value={form.name}
                 onChange={(e) => updateField("name", e.target.value)}
                 placeholder="e.g. Research Assistant"
-                className="h-8 text-sm"
+                className={cn("h-8 text-sm", editingSource === "platform" && "opacity-60")}
                 maxLength={100}
-                autoFocus
+                autoFocus={editingSource !== "platform"}
+                disabled={editingSource === "platform"}
               />
               {slugPreview && (
                 <p className="text-[10px] text-muted-foreground/70 font-mono">
@@ -351,6 +430,7 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
                 onChange={(e) => updateField("systemPrompt", e.target.value)}
                 placeholder="You are a specialized assistant that..."
                 className="min-h-[160px] text-sm resize-y"
+                autoFocus={editingSource === "platform"}
               />
             </div>
 
@@ -372,32 +452,34 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
               </p>
             </div>
 
-            {/* Trigger Type */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                Trigger
-              </label>
-              <Select
-                value={form.triggerType}
-                onValueChange={(v) =>
-                  updateField("triggerType", v as FormData["triggerType"])
-                }
-              >
-                <SelectTrigger className="h-8 text-sm w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(["manual", "auto", "conditional"] as const).map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {TRIGGER_LABELS[t]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-[10px] text-muted-foreground/70">
-                {TRIGGER_DESCRIPTIONS[form.triggerType]}
-              </p>
-            </div>
+            {/* Trigger Type — hidden for platform agents */}
+            {editingSource !== "platform" && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Trigger
+                </label>
+                <Select
+                  value={form.triggerType}
+                  onValueChange={(v) =>
+                    updateField("triggerType", v as FormData["triggerType"])
+                  }
+                >
+                  <SelectTrigger className="h-8 text-sm w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(["manual", "auto", "conditional"] as const).map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {TRIGGER_LABELS[t]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground/70">
+                  {TRIGGER_DESCRIPTIONS[form.triggerType]}
+                </p>
+              </div>
+            )}
 
             {/* Enabled */}
             <div className="flex items-center justify-between">
@@ -488,15 +570,22 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
 
 function SubagentListItem({
   subagent,
+  source,
   onEdit,
   onDelete,
   onToggleEnabled,
 }: {
   subagent: Subagent;
+  source: "custom" | "platform" | "delegation";
   onEdit: () => void;
   onDelete: () => void;
   onToggleEnabled: () => void;
 }) {
+  const isPlatform = source === "platform";
+  const isDelegation = source === "delegation";
+
+  const SourceIcon = isPlatform ? Cpu : isDelegation ? ArrowRightLeft : Bot;
+
   return (
     <div
       className={cn(
@@ -507,6 +596,16 @@ function SubagentListItem({
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
+            <SourceIcon
+              className={cn(
+                "w-3.5 h-3.5 shrink-0",
+                isPlatform
+                  ? "text-orange-500"
+                  : isDelegation
+                    ? "text-teal-500"
+                    : "text-violet-500"
+              )}
+            />
             <span className="text-sm font-medium truncate">
               {subagent.name}
             </span>
@@ -517,21 +616,37 @@ function SubagentListItem({
               </span>
             )}
           </div>
-          <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5">
+          <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5 ml-5">
             agent_{subagent.slug}
           </p>
           {subagent.description && (
-            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+            <p className="text-xs text-muted-foreground mt-1 ml-5 line-clamp-2">
               {subagent.description}
             </p>
           )}
-          <div className="flex items-center gap-1.5 mt-1.5">
-            <Badge
-              variant="secondary"
-              className="text-[10px] px-1.5 py-0"
-            >
-              {TRIGGER_LABELS[subagent.triggerType] ?? subagent.triggerType}
-            </Badge>
+          <div className="flex items-center gap-1.5 mt-1.5 ml-5">
+            {isPlatform ? (
+              <Badge
+                variant="secondary"
+                className="text-[10px] px-1.5 py-0 bg-orange-500/15 text-orange-600 dark:text-orange-400 border-0"
+              >
+                Platform
+              </Badge>
+            ) : isDelegation ? (
+              <Badge
+                variant="secondary"
+                className="text-[10px] px-1.5 py-0 bg-teal-500/15 text-teal-600 dark:text-teal-400 border-0"
+              >
+                Team
+              </Badge>
+            ) : (
+              <Badge
+                variant="secondary"
+                className="text-[10px] px-1.5 py-0"
+              >
+                {TRIGGER_LABELS[subagent.triggerType] ?? subagent.triggerType}
+              </Badge>
+            )}
             {subagent.model && (
               <Badge
                 variant="outline"
@@ -550,24 +665,30 @@ function SubagentListItem({
             onCheckedChange={onToggleEnabled}
             className="scale-75"
           />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            onClick={onEdit}
-            title="Edit subagent"
-          >
-            <Pencil className="w-3 h-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-destructive/70 hover:text-destructive"
-            onClick={onDelete}
-            title="Delete subagent"
-          >
-            <Trash2 className="w-3 h-3" />
-          </Button>
+          {/* Edit — available for custom and platform, not delegation */}
+          {!isDelegation && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={onEdit}
+              title={isPlatform ? "Customize platform agent" : "Edit subagent"}
+            >
+              <Pencil className="w-3 h-3" />
+            </Button>
+          )}
+          {/* Delete — only for custom agents */}
+          {!isPlatform && !isDelegation && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 text-destructive/70 hover:text-destructive"
+              onClick={onDelete}
+              title="Delete subagent"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          )}
         </div>
       </div>
     </div>

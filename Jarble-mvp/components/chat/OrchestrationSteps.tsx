@@ -24,18 +24,25 @@ import {
   Bug,
   Layout,
   Clock,
+  Bot,
+  ArrowRightLeft,
+  Cpu,
 } from "lucide-react";
 
 export interface OrchestrationStep {
   id: string;
   label: string;
   status: "pending" | "running" | "complete" | "error";
-  /** Agent type: planner, component, qa, debug, external */
-  agent: "planner" | "component" | "qa" | "debug" | "external" | "tool";
-  /** Optional sub-label (e.g. component intent) */
+  /** Agent type — legacy: planner/component/qa/debug/external/tool; WS: subagent/delegation/platform */
+  agent: "planner" | "component" | "qa" | "debug" | "external" | "tool" | "subagent" | "delegation" | "platform";
+  /** Optional sub-label (e.g. component intent or task description) */
   detail?: string;
   /** Duration in ms (set on complete) */
   duration?: number;
+  /** WS orchestration fields — present when step comes from useOrchestration */
+  agentType?: "subagent" | "delegation" | "platform";
+  toolName?: string;
+  targetDeploymentId?: string;
 }
 
 interface OrchestrationStepsProps {
@@ -50,6 +57,9 @@ const AGENT_ICONS: Record<OrchestrationStep["agent"], typeof Brain> = {
   debug: Bug,
   external: Zap,
   tool: Layout,
+  subagent: Bot,
+  delegation: ArrowRightLeft,
+  platform: Cpu,
 };
 
 const AGENT_COLORS: Record<OrchestrationStep["agent"], string> = {
@@ -59,6 +69,9 @@ const AGENT_COLORS: Record<OrchestrationStep["agent"], string> = {
   debug: "text-amber-500",
   external: "text-cyan-500",
   tool: "text-indigo-500",
+  subagent: "text-purple-500",
+  delegation: "text-teal-500",
+  platform: "text-orange-500",
 };
 
 function OrchestrationStepsInner({ steps, title }: OrchestrationStepsProps) {

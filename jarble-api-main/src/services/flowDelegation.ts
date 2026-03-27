@@ -13,6 +13,8 @@
 import { db, tables } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
+import { emitOrchestrationStart, emitOrchestrationEnd } from "../utils/agentCallEvents.js";
+import { nanoid } from "nanoid";
 import type { FlowNode, FlowEdge } from "./flowEngine.js";
 
 const log = createModuleLogger("flow-delegation");
@@ -194,6 +196,10 @@ export async function executeDelegation(params: {
   conversationHistory?: Array<{ role: string; content: string }>;
   sessionId?: string;
   depth?: number;
+  /** Source deployment ID — used to scope orchestration events to the right SSE stream */
+  sourceDeploymentId?: string;
+  /** Tool name for orchestration event (e.g. "delegate_to_cto") */
+  toolName?: string;
 }): Promise<DelegationResult> {
   const depth = params.depth ?? 0;
   if (depth >= MAX_DELEGATION_DEPTH) {
@@ -256,6 +262,25 @@ export async function executeDelegation(params: {
     "Executing delegation",
   );
 
+  // ── Emit orchestration:step:start event ──────────────────────────────────
+  const stepId = `delegation-${nanoid(8)}`;
+  const orchestrationDeploymentId = params.sourceDeploymentId || params.targetDeploymentId;
+  const orchestrationToolName = params.toolName || `delegate_to_${params.targetNodeId}`;
+
+  try {
+    emitOrchestrationStart({
+      deploymentId: orchestrationDeploymentId,
+      stepId,
+      agentType: "delegation",
+      agentName: deployment.name || params.targetNodeId,
+      toolName: orchestrationToolName,
+      task: params.task.slice(0, 200),
+      targetDeploymentId: params.targetDeploymentId,
+    });
+  } catch {
+    // Non-fatal — orchestration events are nice-to-have
+  }
+
   // Create an AbortController with timeout
   const abortController = new AbortController();
   const timeout = setTimeout(
@@ -285,6 +310,23 @@ export async function executeDelegation(params: {
       "Delegation completed",
     );
 
+    // ── Emit orchestration:step:end event ──────────────────────────────────
+    try {
+      emitOrchestrationEnd({
+        deploymentId: orchestrationDeploymentId,
+        stepId,
+        agentType: "delegation",
+        agentName: deployment.name || params.targetNodeId,
+        toolName: orchestrationToolName,
+        targetDeploymentId: params.targetDeploymentId,
+        success: true,
+        durationMs,
+        resultPreview: (result.text || "").slice(0, 200),
+      });
+    } catch {
+      // Non-fatal
+    }
+
     return {
       response: result.text || "",
       creditsUsed: 1, // 1 credit per delegation call
@@ -292,6 +334,25 @@ export async function executeDelegation(params: {
       targetNodeId: params.targetNodeId,
       targetDeploymentId: params.targetDeploymentId,
     };
+  } catch (err) {
+    const durationMs = Date.now() - startTime;
+    // ── Emit orchestration:step:end with failure ───────────────────────────
+    try {
+      emitOrchestrationEnd({
+        deploymentId: orchestrationDeploymentId,
+        stepId,
+        agentType: "delegation",
+        agentName: deployment.name || params.targetNodeId,
+        toolName: orchestrationToolName,
+        targetDeploymentId: params.targetDeploymentId,
+        success: false,
+        durationMs,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } catch {
+      // Non-fatal
+    }
+    throw err;
   } finally {
     clearTimeout(timeout);
   }

@@ -238,6 +238,7 @@ async function buildDeploymentFields(
     slug: string; name: string; description: string | null;
     systemPrompt: string; model: string | null;
     triggerType: string; triggerConfig: string | null; tools: string | null;
+    source?: string;
   }> = [];
 
   if (deploymentSubagents) {
@@ -260,12 +261,70 @@ async function buildDeploymentFields(
           triggerType: row.triggerType ?? "manual",
           triggerConfig: row.triggerConfig ?? null,
           tools: row.tools ?? null,
+          source: row.source ?? "custom",
         });
       }
     } catch (err) {
       // Table may not exist yet — non-fatal
       log.debug({ deploymentId: deployment.id, err }, "configSync: failed to load subagents (table may not exist yet)");
     }
+  }
+
+  // Load team members from flow_deployment_memberships
+  // Finds other deployments that share Bot Teams flows with this deployment
+  const teamMembers: Array<{ deploymentId: string; name: string; role: string | null; slug: string }> = [];
+  try {
+    const memberships = tables.flowDeploymentMemberships;
+    if (memberships) {
+      // Find flows this deployment participates in
+      const myMemberships = await db.query.flowDeploymentMemberships?.findMany?.({
+        where: eq(memberships.deploymentId, deployment.id),
+      });
+
+      if (myMemberships?.length) {
+        // Collect unique flow IDs
+        const flowIds = [...new Set(myMemberships.map((m: any) => m.flowId))];
+
+        // For each flow, find other members (team mates)
+        const seenDeploymentIds = new Set<string>();
+        for (const flowId of flowIds) {
+          const teamMates = await db.query.flowDeploymentMemberships?.findMany?.({
+            where: eq(memberships.flowId, flowId),
+          });
+          if (!teamMates) continue;
+
+          for (const mate of teamMates) {
+            // Exclude self and duplicates
+            if (mate.deploymentId === deployment.id) continue;
+            if (seenDeploymentIds.has(mate.deploymentId)) continue;
+            seenDeploymentIds.add(mate.deploymentId);
+
+            // Look up deployment name
+            const mateDeployment = await db.query.deployments.findFirst({
+              where: eq(tables.deployments.id, mate.deploymentId),
+              columns: { id: true, name: true },
+            });
+            if (!mateDeployment) continue;
+
+            // Derive slug from role or name: lowercase, alphanumeric + hyphens
+            const slugSource = mate.role || mateDeployment.name;
+            const slug = slugSource
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "_")
+              .replace(/^_|_$/g, "");
+
+            teamMembers.push({
+              deploymentId: mate.deploymentId,
+              name: mateDeployment.name,
+              role: mate.role ?? null,
+              slug,
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    log.debug({ deploymentId: deployment.id, err }, "configSync: failed to load team members");
   }
 
   return {
@@ -287,6 +346,7 @@ async function buildDeploymentFields(
     remoteSkillConfigs: remoteSkillConfigs.length > 0 ? remoteSkillConfigs : undefined,
     installedComponents: installedComponents.length > 0 ? installedComponents : undefined,
     subagents: subagents.length > 0 ? subagents : undefined,
+    teamMembers: teamMembers.length > 0 ? teamMembers : undefined,
   };
 }
 

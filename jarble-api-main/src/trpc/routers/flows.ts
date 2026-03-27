@@ -22,6 +22,37 @@ const logger = createModuleLogger("flows");
 const { orchestrationFlows, flowExecutions } = tables;
 
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
+
+// ── Sync flow_deployment_memberships join table ─────────────────────────────
+// Parses the flow definition to find nodes with deploymentId fields and
+// writes them to the join table so individual bots can discover their teams.
+
+async function syncFlowMemberships(
+  flowId: string,
+  definition: { nodes: any[]; edges?: any[] },
+) {
+  const fdm = (tables as any).flowDeploymentMemberships;
+  if (!fdm) return; // Table may not exist on older schemas
+
+  // Delete existing memberships for this flow
+  await db.delete(fdm).where(eq(fdm.flowId, flowId));
+
+  // Insert new memberships from definition nodes
+  const nodes = definition.nodes || [];
+  for (const node of nodes) {
+    if (!node.deploymentId) continue;
+    await db.insert(fdm).values({
+      id: nanoid(),
+      flowId,
+      deploymentId: node.deploymentId,
+      nodeId: node.id,
+      role: node.role || node.label || null,
+      isEntryPoint: node.isEntryPoint ?? false,
+      createdAt: dbDate(),
+    });
+  }
+}
+
 const generateFlowId = () => `flw_${nanoid()}`;
 const generateExecutionId = () => `fex_${nanoid()}`;
 
@@ -175,6 +206,13 @@ export const flowsRouter = router({
 
       logger.info({ flowId: id, userId }, "Flow created");
 
+      // Sync join table so individual bots can discover their team memberships
+      try {
+        await syncFlowMemberships(id, input.definition);
+      } catch (err) {
+        logger.warn({ flowId: id, err: err instanceof Error ? err.message : String(err) }, "Failed to sync flow memberships (non-fatal)");
+      }
+
       return { id };
     }),
 
@@ -231,6 +269,15 @@ export const flowsRouter = router({
         .where(eq(orchestrationFlows.id, input.id));
 
       logger.info({ flowId: input.id, userId }, "Flow updated");
+
+      // Re-sync join table if the definition was updated
+      if (input.definition) {
+        try {
+          await syncFlowMemberships(input.id, input.definition);
+        } catch (err) {
+          logger.warn({ flowId: input.id, err: err instanceof Error ? err.message : String(err) }, "Failed to sync flow memberships (non-fatal)");
+        }
+      }
 
       return { success: true };
     }),
@@ -349,6 +396,18 @@ export const flowsRouter = router({
         .where(eq(orchestrationFlows.id, input.sourceFlowId));
 
       logger.info({ newFlowId: newId, sourceFlowId: input.sourceFlowId, userId }, "Flow forked");
+
+      // Sync join table for the duplicated flow
+      try {
+        const defParsed = typeof sourceFlow.definition === "string"
+          ? JSON.parse(sourceFlow.definition)
+          : sourceFlow.definition;
+        if (defParsed && defParsed.nodes) {
+          await syncFlowMemberships(newId, defParsed);
+        }
+      } catch (err) {
+        logger.warn({ flowId: newId, err: err instanceof Error ? err.message : String(err) }, "Failed to sync flow memberships for fork (non-fatal)");
+      }
 
       return { id: newId };
     }),

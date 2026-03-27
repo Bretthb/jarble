@@ -333,6 +333,7 @@ export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   platformCredentials: many(platformCredentials),
   componentInstalls: many(componentInstalls),
   subagents: many(deploymentSubagents),
+  flowMemberships: many(flowDeploymentMemberships),
 }));
 
 // ── Chat History Tables ───────────────────────────────────────────────────
@@ -803,6 +804,7 @@ export const orchestrationFlowsRelations = relations(orchestrationFlows, ({ one,
   user: one(users, { fields: [orchestrationFlows.userId], references: [users.id] }),
   forkedFrom: one(orchestrationFlows, { fields: [orchestrationFlows.forkedFromId], references: [orchestrationFlows.id] }),
   executions: many(flowExecutions),
+  memberships: many(flowDeploymentMemberships),
 }));
 
 export const flowExecutionsRelations = relations(flowExecutions, ({ one }) => ({
@@ -825,6 +827,7 @@ export const deploymentSubagents = mysqlTable("deployment_subagents", {
   tools: text("tools"),  // JSON array of allowed tool names, null = all
   enabled: boolean("enabled").notNull().default(true),
   sortOrder: int("sort_order").notNull().default(0),
+  source: varchar("source", { length: 20 }).notNull().default("custom"),  // "custom" | "platform" | "delegation"
   isPublic: boolean("is_public").notNull().default(false),
   forkedFromId: varchar("forked_from_id", { length: 255 }),
   forkCount: int("fork_count").notNull().default(0),
@@ -839,4 +842,26 @@ export const deploymentSubagents = mysqlTable("deployment_subagents", {
 export const deploymentSubagentsRelations = relations(deploymentSubagents, ({ one }) => ({
   deployment: one(deployments, { fields: [deploymentSubagents.deploymentId], references: [deployments.id] }),
   forkedFrom: one(deploymentSubagents, { fields: [deploymentSubagents.forkedFromId], references: [deploymentSubagents.id] }),
+}));
+
+// ── Flow ↔ Deployment Memberships ────────────────────────────────────────
+// Denormalized join table: efficiently query "which flows contain this deployment?"
+
+export const flowDeploymentMemberships = mysqlTable("flow_deployment_memberships", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  flowId: varchar("flow_id", { length: 255 }).notNull().references(() => orchestrationFlows.id, { onDelete: "cascade" }),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  nodeId: varchar("node_id", { length: 255 }).notNull(),  // The node ID within the flow definition
+  role: varchar("role", { length: 100 }),  // The node's role in the flow
+  isEntryPoint: boolean("is_entry_point").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  flowDeploymentNodeIdx: uniqueIndex("uq_flow_deployment_node").on(table.flowId, table.deploymentId, table.nodeId),
+  deploymentIdIdx: index("idx_flow_dep_membership_deployment_id").on(table.deploymentId),
+  flowIdIdx: index("idx_flow_dep_membership_flow_id").on(table.flowId),
+}));
+
+export const flowDeploymentMembershipsRelations = relations(flowDeploymentMemberships, ({ one }) => ({
+  flow: one(orchestrationFlows, { fields: [flowDeploymentMemberships.flowId], references: [orchestrationFlows.id] }),
+  deployment: one(deployments, { fields: [flowDeploymentMemberships.deploymentId], references: [deployments.id] }),
 }));

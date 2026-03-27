@@ -19,6 +19,7 @@ import { db, tables } from "../db/index.js";
 import { eq, and } from "drizzle-orm";
 import { env } from "../utils/env.js";
 import { createModuleLogger } from "../utils/logger.js";
+import { emitOrchestrationStart, emitOrchestrationEnd, type OrchestrationStepEvent } from "../utils/agentCallEvents.js";
 
 const logger = createModuleLogger("agentLlm");
 
@@ -96,6 +97,8 @@ agentRouter.post("/component", async (req: Request, res: Response) => {
 });
 
 // ── Generalized agent endpoint ────────────────────────────────────────────
+// Unified lookup: DB first (supports customized platform agents + custom subagents),
+// then fall back to static AGENT_PROMPTS registry for un-seeded deployments.
 
 agentRouter.post("/:agentName", async (req: Request, res: Response) => {
   const { agentName } = req.params;
@@ -105,159 +108,141 @@ agentRouter.post("/:agentName", async (req: Request, res: Response) => {
 
   const deploymentId = (req as any).podDeploymentId as string;
 
-  // ── Static platform agent lookup ────────────────────────────────────
-  const agentConfig = getAgent(agentName);
-  const systemPrompt = agentConfig ? AGENT_PROMPTS[agentName] : undefined;
+  // ── Step 1: DB lookup (handles both platform and custom agents) ────────
+  const deploymentSubagents = (tables as any).deploymentSubagents;
+  let dbAgent: any = null;
 
-  if (agentConfig && systemPrompt) {
-    // Resolve LLM config
-    const provider = env.AGENT_LLM_PROVIDER ?? "openrouter";
-    const apiKey = env.AGENT_LLM_API_KEY ?? env.OPENROUTER_API_KEY;
-    const model = req.body.model || agentConfig.defaultModel;
-
-    if (!apiKey) {
-      res.status(500).json({ error: `No LLM API key configured for ${agentName} agent` });
-      return;
-    }
-
-    // Build user message from request body
-    // Each agent expects different fields; construct a generic user message
-    const body = req.body;
-    let userMessage = "";
-
-    switch (agentName) {
-      case "data": {
-        userMessage = `Task: ${body.task || "Analyze the data"}`;
-        if (body.data !== undefined) {
-          const dataStr = typeof body.data === "string" ? body.data : JSON.stringify(body.data, null, 2);
-          userMessage += `\n\nData:\n${dataStr}`;
-        }
-        if (body.outputFormat) {
-          userMessage += `\n\nOutput format: ${body.outputFormat}`;
-        }
-        break;
-      }
-      case "workflow": {
-        userMessage = `Goal: ${body.goal || "Plan a workflow"}`;
-        if (body.availableServices) {
-          userMessage += `\n\nAvailable services: ${JSON.stringify(body.availableServices)}`;
-        }
-        if (body.constraints) {
-          userMessage += `\n\nConstraints: ${body.constraints}`;
-        }
-        break;
-      }
-      default: {
-        // Generic: serialize the entire body as the message
-        userMessage = JSON.stringify(body, null, 2);
-      }
-    }
-
-    const messages: LlmMessage[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userMessage },
-    ];
-
-    logger.info({ deploymentId, agentName, model }, `${agentName} Agent: processing request`);
-
+  if (deploymentSubagents && deploymentId) {
     try {
-      const result = await collectLlmCompletion({
-        provider: provider as any,
-        apiKey,
-        model,
-        messages,
+      dbAgent = await (db.query as any).deploymentSubagents?.findFirst?.({
+        where: and(
+          eq(deploymentSubagents.slug, agentName),
+          eq(deploymentSubagents.deploymentId, deploymentId),
+        ),
       });
-
-      let text = result.text.trim();
-
-      // Strip markdown fences
-      if (text.startsWith("```")) {
-        text = text.replace(/^```(?:json|html|markdown)?\n?/, "").replace(/\n?```$/, "");
-      }
-
-      logger.info(
-        { deploymentId, agentName, responseLength: text.length },
-        `${agentName} Agent: completed`,
-      );
-
-      // Try to parse as JSON for structured agents
-      if (agentName === "data" || agentName === "workflow") {
-        try {
-          const parsed = JSON.parse(text);
-          res.json({ result: parsed, model, agent: agentName });
-          return;
-        } catch {
-          // If it's not valid JSON, return as text
-        }
-      }
-
-      res.json({ result: text, model, agent: agentName });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error({ deploymentId, agentName, err: message }, `${agentName} Agent: failed`);
-      res.status(500).json({ error: `Agent ${agentName} failed: ${message}` });
+      // DB lookup failed — fall through to static registry
+      logger.warn({ deploymentId, agentName, err }, "DB agent lookup failed, falling back to static registry");
     }
+  }
+
+  // If found in DB but disabled, return 404 (user toggled it off)
+  if (dbAgent && !dbAgent.enabled) {
+    res.status(404).json({ error: `Agent ${agentName} is disabled for this deployment` });
     return;
   }
 
-  // ── Dynamic subagent DB lookup (user-configured agents) ──────────────
-  // If not a static platform agent, check deployment_subagents table by slug.
-  const deploymentSubagents = (tables as any).deploymentSubagents;
-  if (!deploymentSubagents || !deploymentId) {
+  // ── Step 2: Resolve agent config ───────────────────────────────────────
+  // DB agent takes priority; fall back to static registry for backward compat
+  const agentConfig = getAgent(agentName);
+  let resolvedSystemPrompt: string | undefined;
+  let resolvedModel: string;
+  let agentType: "platform" | "subagent";
+  let resolvedAgentName: string;
+  let resolvedToolName: string;
+
+  if (dbAgent) {
+    // Use DB row (may have been customized by user)
+    resolvedSystemPrompt = dbAgent.systemPrompt;
+    resolvedModel = req.body.model || dbAgent.model || (agentConfig?.defaultModel) || env.AGENT_LLM_MODEL || "anthropic/claude-sonnet-4-20250514";
+    agentType = dbAgent.source === "platform" ? "platform" : "subagent";
+    resolvedAgentName = dbAgent.name;
+    resolvedToolName = agentConfig?.toolName || `agent_${agentName}`;
+  } else if (agentConfig) {
+    // Fall back to static registry (un-seeded deployments)
+    resolvedSystemPrompt = AGENT_PROMPTS[agentName];
+    resolvedModel = req.body.model || agentConfig.defaultModel;
+    agentType = "platform";
+    resolvedAgentName = agentConfig.name || agentName;
+    resolvedToolName = agentConfig.toolName || agentName;
+  } else {
+    // Not found anywhere
     res.status(404).json({ error: `Unknown agent: ${agentName}` });
     return;
   }
 
+  if (!resolvedSystemPrompt) {
+    res.status(404).json({ error: `Unknown agent: ${agentName}` });
+    return;
+  }
+
+  // ── Step 3: Resolve LLM credentials ────────────────────────────────────
+  const provider = env.AGENT_LLM_PROVIDER ?? "openrouter";
+  const apiKey = env.AGENT_LLM_API_KEY ?? env.OPENROUTER_API_KEY;
+
+  if (!apiKey) {
+    res.status(500).json({ error: `No LLM API key configured for ${agentName} agent` });
+    return;
+  }
+
+  // ── Step 4: Build user message from request body ───────────────────────
+  const body = req.body;
+  let userMessage = "";
+
+  switch (agentName) {
+    case "data":
+    case "data_agent": {
+      userMessage = `Task: ${body.task || "Analyze the data"}`;
+      if (body.data !== undefined) {
+        const dataStr = typeof body.data === "string" ? body.data : JSON.stringify(body.data, null, 2);
+        userMessage += `\n\nData:\n${dataStr}`;
+      }
+      if (body.outputFormat) {
+        userMessage += `\n\nOutput format: ${body.outputFormat}`;
+      }
+      break;
+    }
+    case "workflow":
+    case "workflow_agent": {
+      userMessage = `Goal: ${body.goal || "Plan a workflow"}`;
+      if (body.availableServices) {
+        userMessage += `\n\nAvailable services: ${JSON.stringify(body.availableServices)}`;
+      }
+      if (body.constraints) {
+        userMessage += `\n\nConstraints: ${body.constraints}`;
+      }
+      break;
+    }
+    default: {
+      // Generic: try structured fields first, then serialize entire body
+      userMessage = body.task || body.intent || "";
+      if (body.context) {
+        userMessage += `\n\nContext:\n${typeof body.context === "string" ? body.context : JSON.stringify(body.context, null, 2)}`;
+      }
+      if (body.data !== undefined) {
+        const dataStr = typeof body.data === "string" ? body.data : JSON.stringify(body.data, null, 2);
+        userMessage += `\n\nData:\n${dataStr}`;
+      }
+      if (!userMessage) {
+        userMessage = JSON.stringify(body, null, 2);
+      }
+    }
+  }
+
+  const messages: LlmMessage[] = [
+    { role: "system", content: resolvedSystemPrompt },
+    { role: "user", content: userMessage },
+  ];
+
+  // ── Step 5: Execute LLM call ───────────────────────────────────────────
+  logger.info({ deploymentId, agentName, model: resolvedModel, agentType, fromDb: !!dbAgent }, `${agentName} Agent: processing request`);
+
+  const stepEvent: OrchestrationStepEvent = {
+    deploymentId,
+    stepId: `${agentType}-${agentName}-${Date.now()}`,
+    agentType,
+    agentName: resolvedAgentName,
+    toolName: resolvedToolName,
+    task: userMessage.slice(0, 200),
+  };
+  emitOrchestrationStart(stepEvent);
+  const startTime = Date.now();
+
   try {
-    const subagent = await (db.query as any).deploymentSubagents?.findFirst?.({
-      where: and(
-        eq(deploymentSubagents.slug, agentName),
-        eq(deploymentSubagents.deploymentId, deploymentId),
-        eq(deploymentSubagents.enabled, true),
-      ),
-    });
-
-    if (!subagent) {
-      res.status(404).json({ error: `Unknown agent: ${agentName}` });
-      return;
-    }
-
-    // Resolve LLM config — subagent model overrides default
-    const provider = env.AGENT_LLM_PROVIDER ?? "openrouter";
-    const apiKey = env.AGENT_LLM_API_KEY ?? env.OPENROUTER_API_KEY;
-    const model = subagent.model || env.AGENT_LLM_MODEL || "anthropic/claude-sonnet-4-20250514";
-
-    if (!apiKey) {
-      res.status(500).json({ error: `No LLM API key configured for subagent: ${agentName}` });
-      return;
-    }
-
-    // Build user message from request body
-    const body = req.body;
-    let userMessage = body.task || body.intent || "";
-    if (body.context) {
-      userMessage += `\n\nContext:\n${typeof body.context === "string" ? body.context : JSON.stringify(body.context, null, 2)}`;
-    }
-    if (body.data !== undefined) {
-      const dataStr = typeof body.data === "string" ? body.data : JSON.stringify(body.data, null, 2);
-      userMessage += `\n\nData:\n${dataStr}`;
-    }
-    // Fallback: if no recognized field, serialize entire body
-    if (!userMessage) {
-      userMessage = JSON.stringify(body, null, 2);
-    }
-
-    const messages: LlmMessage[] = [
-      { role: "system", content: subagent.systemPrompt },
-      { role: "user", content: userMessage },
-    ];
-
-    logger.info({ deploymentId, agentName, model, subagentId: subagent.id }, `Subagent ${agentName}: processing request`);
-
     const result = await collectLlmCompletion({
       provider: provider as any,
       apiKey,
-      model,
+      model: resolvedModel,
       messages,
     });
 
@@ -270,22 +255,35 @@ agentRouter.post("/:agentName", async (req: Request, res: Response) => {
 
     logger.info(
       { deploymentId, agentName, responseLength: text.length },
-      `Subagent ${agentName}: completed`,
+      `${agentName} Agent: completed`,
     );
 
-    // Try to parse as JSON
+    emitOrchestrationEnd({
+      ...stepEvent,
+      success: true,
+      durationMs: Date.now() - startTime,
+      resultPreview: text.slice(0, 200),
+    });
+
+    // Try to parse as JSON for structured agents
     try {
       const parsed = JSON.parse(text);
-      res.json({ result: parsed, model, agent: agentName });
+      res.json({ result: parsed, model: resolvedModel, agent: agentName });
       return;
     } catch {
       // Not JSON — return as text
     }
 
-    res.json({ result: text, model, agent: agentName });
+    res.json({ result: text, model: resolvedModel, agent: agentName });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.error({ deploymentId, agentName, err: message }, `Subagent ${agentName}: failed`);
+    logger.error({ deploymentId, agentName, err: message }, `${agentName} Agent: failed`);
+    emitOrchestrationEnd({
+      ...stepEvent,
+      success: false,
+      durationMs: Date.now() - startTime,
+      error: message,
+    });
     res.status(500).json({ error: `Agent ${agentName} failed: ${message}` });
   }
 });

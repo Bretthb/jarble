@@ -51,6 +51,7 @@ import { knowledgeRouter } from "./routes/knowledge.js";
 import { attachTerminalWs } from "./routes/terminal.js";
 import { betaRouter } from "./routes/beta.js";
 import { attachChatControlWs } from "./routes/chatControl.js";
+import { attachOrchestrationWs } from "./routes/orchestration.js";
 import { flowExecutionRouter } from "./routes/flowExecution.js";
 import { flowChatRouter } from "./routes/flowChat.js";
 
@@ -223,6 +224,10 @@ async function start() {
     attachChatControlWs(server);
     logger.info(`   Chat WS:  ws://localhost:${PORT}/ws/chat`);
   }
+
+  // Attach orchestration WebSocket (always active)
+  attachOrchestrationWs(server);
+  logger.info(`   Orch WS:  ws://localhost:${PORT}/ws/orchestration`);
 }
 
 start().catch((err) => {

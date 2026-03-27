@@ -40,8 +40,18 @@ import { createModuleLogger } from "../../utils/logger.js";
 import { env } from "../../utils/env.js";
 import { PLATFORM_CREDENTIAL_KEYS, PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
 import { generatePromptReference, COMPONENT_MANIFEST } from "@jarble/component-manifest";
+import { AGENT_REGISTRY } from "../../services/agentRegistry.js";
 
 const log = createModuleLogger("runtime:openclaw");
+
+// ── Platform agent slug → MCP tool name mapping ─────────────────────────
+// Built from agentRegistry at module load so soul.md uses canonical tool names.
+const PLATFORM_AGENT_TOOL_MAP: Record<string, string> = {};
+for (const agent of AGENT_REGISTRY) {
+  // Registry uses short names like "component", "data", "workflow";
+  // DB stores slugs like "component_agent", "data_agent", "workflow_agent"
+  PLATFORM_AGENT_TOOL_MAP[`${agent.name}_agent`] = agent.toolName;
+}
 
 // ── Load MCP server script at module init ────────────────────────────────
 // This script runs on bot pods (invoked via kubectl exec by the API's MCP proxy).
@@ -372,6 +382,7 @@ const configFiles: ConfigFileSpec[] = [
   { path: "openclaw.json", description: "Agent + channel configuration (OpenClaw native)", isGlob: false },
   { path: "skills/*", description: "Skill definitions", isGlob: true },
   { path: "subagent-tools.json", description: "MCP tool definitions for user-configured subagents", isGlob: false },
+  { path: "delegation-tools.json", description: "MCP tool definitions for Bot Teams delegation", isGlob: false },
 ];
 
 export const openclawHandler: RuntimeHandler = {
@@ -425,18 +436,55 @@ export const openclawHandler: RuntimeHandler = {
       );
     }
 
-    // Append custom subagents so the bot knows its specialist agents
-    if (deployment.subagents && deployment.subagents.length > 0) {
-      const agentLines = deployment.subagents.map((a) =>
-        `- **agent_${a.slug}** — ${a.description || a.name}`
+    // ── Unified Agent Pool section ─────────────────────────────────────
+    // Groups all three agent types: platform agents, custom subagents, team members.
+    // Only appears in soul.md if there are any agents at all.
+    {
+      const poolSections: string[] = [];
+
+      // 1. Platform agents — from subagents with source === "platform"
+      const platformAgents = (deployment.subagents ?? []).filter(
+        (a) => a.source === "platform"
       );
-      soulParts.push(
-        `## Custom Specialist Tools\n` +
-        `You have these specialist tools registered in your MCP server. They are regular MCP tools — ` +
-        `call them the same way you call render_ui or web_search. Pass a "task" string argument.\n` +
-        `IMPORTANT: These are NOT marketplace agents. Do NOT use call_agent or discover_agents for these. ` +
-        `Just call the tool name directly.\n\n${agentLines.join("\n")}`
+      if (platformAgents.length > 0) {
+        const lines = platformAgents.map((a) => {
+          const toolName = PLATFORM_AGENT_TOOL_MAP[a.slug] ?? `agent_${a.slug}`;
+          return `- **${toolName}** — ${a.description || a.name}`;
+        });
+        poolSections.push(`### Platform Agents\n${lines.join("\n")}`);
+      }
+
+      // 2. Custom subagents — source === "custom" or undefined (backward compat)
+      const customAgents = (deployment.subagents ?? []).filter(
+        (a) => !a.source || a.source === "custom"
       );
+      if (customAgents.length > 0) {
+        const lines = customAgents.map((a) =>
+          `- **agent_${a.slug}** — ${a.description || a.name}`
+        );
+        poolSections.push(`### Custom Subagents\n${lines.join("\n")}`);
+      }
+
+      // 3. Team members — other deployments linked via Bot Teams flows
+      if (deployment.teamMembers && deployment.teamMembers.length > 0) {
+        const lines = deployment.teamMembers.map((m) =>
+          `- **delegate_to_${m.slug}** — ${m.name}${m.role ? `: ${m.role}` : ""}`
+        );
+        poolSections.push(
+          `### Team Members\n` +
+          `When you need to delegate a task to a team member, call the tool directly with a "task" argument.\n` +
+          lines.join("\n")
+        );
+      }
+
+      if (poolSections.length > 0) {
+        soulParts.push(
+          `## Your Agent Pool\n` +
+          `You are an orchestrator with access to specialist agents. Call them as MCP tools — same as render_ui or web_search.\n` +
+          `IMPORTANT: Do NOT use call_agent or discover_agents for these. Call the tool name directly with a "task" argument.\n\n` +
+          poolSections.join("\n\n")
+        );
+      }
     }
 
     soulParts.push(uiPromptSection);
@@ -649,6 +697,30 @@ export const openclawHandler: RuntimeHandler = {
         content: JSON.stringify(subagentTools, null, 2),
       });
       log.info({ toolCount: subagentTools.length }, "renderConfigs: wrote subagent-tools.json");
+    }
+
+    // Write delegation-tools.json — MCP tool definitions for Bot Teams delegation.
+    // The MCP server reads this file to dynamically register delegate_to_{slug} tools.
+    if (deployment.teamMembers && deployment.teamMembers.length > 0) {
+      const delegationTools = deployment.teamMembers.map((m) => ({
+        name: `delegate_to_${m.slug}`,
+        slug: m.slug,
+        description: `Delegate to ${m.name}${m.role ? ` (${m.role})` : ""}`,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            task: { type: "string" as const, description: "The task to delegate" },
+            context: { type: "string" as const, description: "Relevant context for the delegate" },
+          },
+          required: ["task"],
+        },
+      }));
+
+      files.push({
+        path: "delegation-tools.json",
+        content: JSON.stringify(delegationTools, null, 2),
+      });
+      log.info({ toolCount: delegationTools.length }, "renderConfigs: wrote delegation-tools.json");
     }
 
     log.info({ fileCount: files.length }, "renderConfigs complete");

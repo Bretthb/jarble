@@ -535,7 +535,11 @@ export function useCanvasChat(
       };
       setMessages((prev) => [...prev, userMessage]);
 
-      // Predictive orchestration: detect component-like requests and show agent steps
+      // LEGACY: Predictive orchestration steps based on message intent detection.
+      // These will be superseded by real WebSocket orchestration events from useOrchestration.
+      // TODO: Remove once WS orchestration is fully deployed.
+      //
+      // Detect component-like requests and show agent steps
       // immediately so the user sees activity during the 10-60s bot generation time
       const COMPONENT_INTENT_RE = /\b(create|make|build|generate|render|show|drop|design|compose)\b.*\b(landing\s*page|dashboard|chart|table|form|card|component|widget|page|visualization|3d|graph|site|website|app|layout|sandbox)\b/i;
       const DASHBOARD_INTENT_RE = /\b(dashboard|analytics|overview|report|metrics|kpi)\b/i;

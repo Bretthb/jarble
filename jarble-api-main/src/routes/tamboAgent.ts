@@ -78,6 +78,14 @@ import {
   REASONING_END,
 } from "../utils/eventTypes.js";
 import { agentCallEvents, type AgentCallStartEvent, type AgentCallEndEvent } from "../utils/agentCallEvents.js";
+import {
+  buildDelegationTools,
+  buildFlowSystemPrompt,
+  parseDelegationCalls,
+  executeDelegation,
+  type DelegationTool,
+} from "../services/flowDelegation.js";
+import type { FlowDefinition, FlowNode, FlowEdge } from "../services/flowEngine.js";
 
 export const tamboAgentRouter = Router();
 
@@ -952,6 +960,77 @@ tamboAgentRouter.post("/", async (req, res) => {
     })();
   }
 
+  // ── Team delegation context ──────────────────────────────────────────────
+  // Check if this deployment is part of any bot team (flow) and build
+  // delegation tools so the bot can delegate to team members.
+  let teamDelegationTools: DelegationTool[] = [];
+  let teamFlowNode: FlowNode | null = null;
+  let teamFlowDefinition: FlowDefinition | null = null;
+
+  try {
+    const fdm = (tables as any).flowDeploymentMemberships;
+    if (fdm) {
+      // Find all flows this deployment belongs to
+      const memberships = await db
+        .select({ flowId: fdm.flowId, nodeId: fdm.nodeId })
+        .from(fdm)
+        .where(eq(fdm.deploymentId, deploymentId))
+        .limit(10);
+
+      if (memberships.length > 0) {
+        // Use the first flow (a deployment might be in multiple teams, pick the primary one)
+        const membership = memberships[0];
+
+        const flowRows = await db
+          .select({
+            id: tables.orchestrationFlows.id,
+            definition: tables.orchestrationFlows.definition,
+            name: tables.orchestrationFlows.name,
+          })
+          .from(tables.orchestrationFlows)
+          .where(eq(tables.orchestrationFlows.id, membership.flowId))
+          .limit(1);
+
+        if (flowRows.length > 0) {
+          const def: FlowDefinition =
+            typeof flowRows[0].definition === "string"
+              ? JSON.parse(flowRows[0].definition)
+              : (flowRows[0].definition as FlowDefinition);
+
+          if (def.nodes && def.edges) {
+            const thisNode = def.nodes.find((n) => n.id === membership.nodeId);
+            if (thisNode) {
+              teamFlowNode = thisNode;
+              teamFlowDefinition = def;
+              teamDelegationTools = buildDelegationTools(thisNode, def.nodes, def.edges);
+
+              if (teamDelegationTools.length > 0) {
+                // Augment the message with team context (same pattern as flowChat.ts)
+                const basePrompt = (deployment as any).systemPrompt || "";
+                const augmentedPrompt = buildFlowSystemPrompt(thisNode, teamDelegationTools, basePrompt);
+                messageWithVision = `[TEAM CONTEXT]\n${augmentedPrompt}\n[/TEAM CONTEXT]\n\n${messageWithVision}`;
+
+                log.info(
+                  {
+                    deploymentId,
+                    flowId: flowRows[0].id,
+                    flowName: flowRows[0].name,
+                    nodeId: thisNode.id,
+                    delegationToolCount: teamDelegationTools.length,
+                  },
+                  "Chat: injected team delegation context",
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    // Non-fatal — bot works without team context
+    log.debug({ deploymentId, err: err instanceof Error ? err.message : String(err) }, "Failed to load team context");
+  }
+
   // ── Reasoning / Thinking ──────────────────────────────────────────────────
   // 3-tier strategy ensures every response gets a visible "thinking" block:
   //   1. Native thinking — extracted from OpenClaw's LLM response (highest quality)
@@ -1106,6 +1185,118 @@ tamboAgentRouter.post("/", async (req, res) => {
     if (gatewayResult.timedOut) {
       safeSendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "\n\n---\n*Response was cut short due to a timeout. The bot may have been processing a complex request — try breaking it into smaller parts.*" });
       log.warn({ deploymentId, textLength: gatewayResult.rawText.length }, "Chat: response truncated by gateway timeout");
+    }
+
+    // ── Team delegation round-trips ──────────────────────────────────────────
+    // If this bot has delegation tools (is part of a team), check if the
+    // response contains delegation calls and execute them.
+    if (teamDelegationTools.length > 0 && teamFlowDefinition) {
+      try {
+        const delegationCalls = parseDelegationCalls(gatewayResult.rawText);
+
+        if (delegationCalls.length > 0) {
+          log.info(
+            { deploymentId, delegationCount: delegationCalls.length },
+            "Chat: processing delegation calls from bot response",
+          );
+
+          for (const call of delegationCalls) {
+            const tool = teamDelegationTools.find((t) => t.name === call.toolName);
+            if (!tool) {
+              log.warn({ deploymentId, toolName: call.toolName }, "Chat: delegation tool not found");
+              continue;
+            }
+
+            const targetNode = teamFlowDefinition!.nodes.find(
+              (n) => n.id === tool.targetNodeId,
+            );
+            const roleName = targetNode?.role || targetNode?.label || "Team member";
+
+            // Emit delegation start event via SSE
+            safeSendEvent(res, {
+              type: CUSTOM,
+              name: "jarble.flow.delegation.start",
+              value: {
+                toolName: call.toolName,
+                targetNodeId: tool.targetNodeId,
+                targetDeploymentId: tool.targetDeploymentId,
+                targetRole: roleName,
+                task: call.task.slice(0, 200),
+              },
+            });
+
+            // Execute the delegation
+            try {
+              const delegationResult = await executeDelegation({
+                targetDeploymentId: tool.targetDeploymentId,
+                targetNodeId: tool.targetNodeId,
+                task: call.task,
+                context: call.context,
+                contextScope: tool.contextScope,
+                conversationHistory: [{ role: "user", content: lastUserText }],
+                sessionId: `team-delegation-${deploymentId}-${tool.targetNodeId}-${Date.now()}`,
+                depth: 1,
+                sourceDeploymentId: deploymentId,
+                toolName: call.toolName,
+              });
+
+              // Emit delegation end event
+              safeSendEvent(res, {
+                type: CUSTOM,
+                name: "jarble.flow.delegation.end",
+                value: {
+                  toolName: call.toolName,
+                  targetNodeId: tool.targetNodeId,
+                  targetDeploymentId: tool.targetDeploymentId,
+                  success: true,
+                  durationMs: delegationResult.durationMs,
+                  creditsUsed: delegationResult.creditsUsed,
+                },
+              });
+
+              // Stream the delegation result as additional text
+              if (delegationResult.response) {
+                safeSendEvent(res, {
+                  type: "TEXT_MESSAGE_CONTENT",
+                  messageId,
+                  delta: `\n\n**${roleName}:** ${delegationResult.response}`,
+                });
+              }
+            } catch (delegErr) {
+              const errMsg = delegErr instanceof Error ? delegErr.message : String(delegErr);
+              log.error(
+                { deploymentId, targetNodeId: tool.targetNodeId, error: errMsg },
+                "Chat: delegation failed",
+              );
+
+              // Emit delegation end with error
+              safeSendEvent(res, {
+                type: CUSTOM,
+                name: "jarble.flow.delegation.end",
+                value: {
+                  toolName: call.toolName,
+                  targetNodeId: tool.targetNodeId,
+                  targetDeploymentId: tool.targetDeploymentId,
+                  success: false,
+                  error: errMsg,
+                },
+              });
+
+              safeSendEvent(res, {
+                type: "TEXT_MESSAGE_CONTENT",
+                messageId,
+                delta: `\n\n*Delegation to ${roleName} failed: ${errMsg}*`,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        // Non-fatal — don't break the chat if delegation parsing/execution fails
+        log.warn(
+          { deploymentId, err: err instanceof Error ? err.message : String(err) },
+          "Chat: delegation round-trip failed (non-fatal)",
+        );
+      }
     }
 
     safeSendEvent(res, { type: "TEXT_MESSAGE_END", messageId });

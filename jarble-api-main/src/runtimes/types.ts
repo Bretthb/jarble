@@ -93,6 +93,14 @@ export interface DeploymentFields {
     triggerType: string;
     triggerConfig: string | null;
     tools: string | null;
+    source?: string;  // "custom" | "platform" | "delegation" — undefined treated as "custom" for backward compat
+  }>;
+  /** Team members from Bot Teams flows — other deployments linked via flow_deployment_memberships */
+  teamMembers?: Array<{
+    deploymentId: string;
+    name: string;
+    role: string | null;
+    slug: string;
   }>;
 }
 
