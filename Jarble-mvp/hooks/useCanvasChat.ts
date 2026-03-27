@@ -535,26 +535,28 @@ export function useCanvasChat(
       };
       setMessages((prev) => [...prev, userMessage]);
 
-      // LEGACY: Predictive orchestration steps based on message intent detection.
-      // These will be superseded by real WebSocket orchestration events from useOrchestration.
-      // TODO: Remove once WS orchestration is fully deployed.
-      //
-      // Detect component-like requests and show agent steps
-      // immediately so the user sees activity during the 10-60s bot generation time
+      // Predictive orchestration steps — show which agents are working while the bot generates.
+      // Uses real agent names (Component Agent, Data Agent, etc.) with proper type icons.
+      // Superseded by real WS events when they arrive (merge logic in page.tsx).
       const COMPONENT_INTENT_RE = /\b(create|make|build|generate|render|show|drop|design|compose)\b.*\b(landing\s*page|dashboard|chart|table|form|card|component|widget|page|visualization|3d|graph|site|website|app|layout|sandbox)\b/i;
       const DASHBOARD_INTENT_RE = /\b(dashboard|analytics|overview|report|metrics|kpi)\b/i;
+      const DATA_INTENT_RE = /\b(data|stats|statistics|analytics|chart|graph|metrics|sales|revenue|numbers)\b/i;
       if (!isActionMessage && COMPONENT_INTENT_RE.test(text)) {
         const isDashboard = DASHBOARD_INTENT_RE.test(text);
+        const hasDataIntent = DATA_INTENT_RE.test(text);
         const steps: typeof orchestrationSteps = [
-          { id: "think", label: "Analyzing request", status: "running", agent: "planner" },
+          { id: "think", label: "Planner", status: "running", agent: "planner", detail: "Analyzing request" },
         ];
         if (isDashboard) {
-          steps.push({ id: "plan", label: "Planning dashboard layout", status: "pending", agent: "planner" });
-          steps.push({ id: "gen", label: "Generating components", status: "pending", agent: "component" });
-          steps.push({ id: "qa", label: "Running QA validation", status: "pending", agent: "qa" });
+          steps.push({ id: "plan", label: "Planner", status: "pending", agent: "planner", detail: "Planning dashboard layout" });
+          if (hasDataIntent) {
+            steps.push({ id: "data", label: "Data Agent", status: "pending", agent: "platform", detail: "Processing data" });
+          }
+          steps.push({ id: "gen", label: "Component Agent", status: "pending", agent: "platform", detail: "Generating components" });
+          steps.push({ id: "qa", label: "QA Agent", status: "pending", agent: "qa", detail: "Validating output" });
         } else {
-          steps.push({ id: "gen", label: "Generating component", status: "pending", agent: "component" });
-          steps.push({ id: "render", label: "Rendering on canvas", status: "pending", agent: "tool" });
+          steps.push({ id: "gen", label: "Component Agent", status: "pending", agent: "platform", detail: "Generating component" });
+          steps.push({ id: "render", label: "Renderer", status: "pending", agent: "tool", detail: "Rendering on canvas" });
         }
         setOrchestrationSteps(steps);
 
@@ -562,12 +564,13 @@ export function useCanvasChat(
         const t1 = setTimeout(() => {
           setOrchestrationSteps((prev) => prev.map((s) =>
             s.id === "think" ? { ...s, status: "complete" as const, duration: 2000 } :
-            s.id === "plan" || s.id === "gen" ? { ...s, status: "running" as const } : s
+            s.id === "plan" || s.id === "data" ? { ...s, status: "running" as const } : s
           ));
         }, 2000);
         const t2 = setTimeout(() => {
           setOrchestrationSteps((prev) => prev.map((s) =>
             s.id === "plan" ? { ...s, status: "complete" as const, duration: 3000 } :
+            s.id === "data" ? { ...s, status: "complete" as const, duration: 3500 } :
             s.id === "gen" ? { ...s, status: "running" as const } : s
           ));
         }, 5000);
@@ -763,7 +766,7 @@ export function useCanvasChat(
                 if (toolName === "compose_dashboard") {
                   // Derive steps from tool args (components array)
                   const steps: typeof orchestrationSteps = [
-                    { id: `${toolId}-plan`, label: "Planning dashboard layout", status: "running", agent: "planner" },
+                    { id: `${toolId}-plan`, label: "Planner", status: "running", agent: "planner", detail: "Planning dashboard layout" },
                   ];
                   // Parse component intents from args if available
                   try {
@@ -773,14 +776,15 @@ export function useCanvasChat(
                         const intent = args.components[ci].intent || `Component ${ci + 1}`;
                         steps.push({
                           id: `${toolId}-comp-${ci}`,
-                          label: intent.length > 50 ? intent.slice(0, 47) + "..." : intent,
+                          label: "Component Agent",
                           status: "pending",
-                          agent: "component",
+                          agent: "platform",
+                          detail: intent.length > 50 ? intent.slice(0, 47) + "..." : intent,
                         });
                       }
                     }
                   } catch { /* args not available yet */ }
-                  steps.push({ id: `${toolId}-qa`, label: "Running QA validation", status: "pending", agent: "qa" });
+                  steps.push({ id: `${toolId}-qa`, label: "QA Agent", status: "pending", agent: "qa", detail: "Validating output" });
                   setOrchestrationSteps(steps);
 
                   // Simulate step progression (planner ~2s, then components parallel ~5s, then QA)
@@ -788,12 +792,12 @@ export function useCanvasChat(
                     setOrchestrationSteps((prev) => prev.map((s) =>
                       s.id === `${toolId}-plan`
                         ? { ...s, status: "complete", duration: 2500 }
-                        : s.agent === "component" ? { ...s, status: "running" } : s
+                        : s.agent === "platform" ? { ...s, status: "running" } : s
                     ));
                   }, 2500);
                   const compTimer = setTimeout(() => {
                     setOrchestrationSteps((prev) => prev.map((s) =>
-                      s.agent === "component" ? { ...s, status: "complete", duration: 4000 } :
+                      s.agent === "platform" ? { ...s, status: "complete", duration: 4000 } :
                       s.agent === "qa" ? { ...s, status: "running" } : s
                     ));
                   }, 6500);
@@ -805,19 +809,20 @@ export function useCanvasChat(
                   cardTimersRef.current.push(planTimer, compTimer, qaTimer);
 
                 } else if (toolName === "create_component") {
+                  let detail: string | undefined;
+                  try { detail = event.argsPreview ? (JSON.parse(event.argsPreview).intent || "").slice(0, 60) : undefined; } catch {}
                   setOrchestrationSteps([
-                    { id: `${toolId}-create`, label: "Component Agent generating...", status: "running", agent: "component",
-                      detail: event.argsPreview ? (JSON.parse(event.argsPreview).intent || "").slice(0, 60) : undefined },
+                    { id: `${toolId}-create`, label: "Component Agent", status: "running", agent: "platform", detail },
                   ]);
 
                 } else if (toolName === "debug_component") {
                   setOrchestrationSteps([
-                    { id: `${toolId}-debug`, label: "Diagnosing component", status: "running", agent: "debug" },
+                    { id: `${toolId}-debug`, label: "QA Agent", status: "running", agent: "qa", detail: "Diagnosing component" },
                   ]);
 
                 } else if (toolName === "test_dashboard") {
                   setOrchestrationSteps([
-                    { id: `${toolId}-test`, label: "Testing all dashboard components", status: "running", agent: "qa" },
+                    { id: `${toolId}-test`, label: "QA Agent", status: "running", agent: "qa", detail: "Testing all components" },
                   ]);
                 }
               }

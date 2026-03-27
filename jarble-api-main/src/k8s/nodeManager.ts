@@ -581,7 +581,8 @@ export class CapacityError extends Error {
   }
 }
 
-// Default to 2: Hetzner 5-server limit minus master + API + external project = 2 bot slots
+// Default to 2 bot slots. Override with HETZNER_MAX_MANAGED_SERVERS env var.
+// Production is set to 17 (Hetzner 20-server limit minus master + API + reserve).
 const HETZNER_MAX_MANAGED_SERVERS_DEFAULT = 2;
 
 function getMaxManagedServers(): number {
