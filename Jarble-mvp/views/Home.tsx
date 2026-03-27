@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowRight, Clock, DollarSign, Lock, MessageSquare, Cpu, Globe, Zap } from "lucide-react";
+import { ArrowRight, DollarSign, Globe, Zap } from "lucide-react";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import InteractiveHero from "@/components/InteractiveHero";
 
@@ -97,44 +97,20 @@ export default function Home() {
             {/* Text content */}
             <div className="relative z-10">
               <div className="max-w-xl space-y-8 animate-fade-in-up">
-                <div className="space-y-4">
+                <div className="space-y-6">
                   <span className="inline-flex items-center px-3 py-1 rounded-full bg-secondary/80 backdrop-blur-sm text-xs font-medium text-muted-foreground border border-border/50">
-                    AI Agent Ecosystem
+                    Now in beta
                   </span>
                   <h2 className="text-5xl lg:text-7xl font-serif font-medium leading-[1.1] tracking-tight">
-                    Launch an AI agent
-                    <span className="block text-primary">in minutes.</span>
+                    Your AI agent,
+                    <span className="block text-primary">live today.</span>
                   </h2>
-                  <p className="text-xl text-muted-foreground">
-                    Pick a model. Tell it what to do. Your agent is live and ready to work, from our web chat or any messaging platform you already use.
+                  <p className="text-xl text-muted-foreground leading-relaxed">
+                    Stop waiting on developers, vendors, and implementation timelines. Jarble gets your AI agent running in one sitting - and keeps it working after.
                   </p>
                 </div>
 
-                <div className="space-y-4">
-                  <div className="flex gap-3 items-start animate-fade-in-up-fast">
-                    <Zap className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
-                    <div>
-                      <h3 className="font-semibold">Go from idea to running agent in one sitting</h3>
-                      <p className="text-sm text-muted-foreground">No servers to provision, no code to write. A guided wizard handles the setup so you can focus on what your agent actually does.</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3 items-start animate-fade-in-up-fast">
-                    <Globe className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
-                    <div>
-                      <h3 className="font-semibold">Talk to your agent anywhere</h3>
-                      <p className="text-sm text-muted-foreground">Use our web chat for a full-featured experience, or connect WhatsApp, Discord, Slack, and Telegram to reach your agent wherever you already are.</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3 items-start animate-fade-in-up-fast">
-                    <DollarSign className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
-                    <div>
-                      <h3 className="font-semibold">Use any model. Pay the provider, not us.</h3>
-                      <p className="text-sm text-muted-foreground">Bring your own API key from OpenAI, Anthropic, Google, or 200+ models through OpenRouter. We never mark up your AI costs.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-2">
+                <div className="pt-2 flex flex-col sm:flex-row gap-3">
                   <Button
                     data-tour="hero-cta"
                     size="lg"
@@ -143,6 +119,14 @@ export default function Home() {
                   >
                     Launch Your First Agent
                     <ArrowRight className="w-5 h-5 ml-2" />
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="ghost"
+                    asChild
+                    className="rounded-full px-6 font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    <Link href="/pricing">See pricing</Link>
                   </Button>
                 </div>
               </div>
@@ -161,30 +145,16 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="lg:grid lg:grid-cols-2 lg:gap-16 items-center">
             <div className="space-y-6 mb-12 lg:mb-0">
-              <span className="inline-flex items-center px-3 py-1 rounded-full bg-primary/10 text-xs font-medium text-primary border border-primary/20">
-                Web Chat
-              </span>
               <h2 className="text-4xl font-serif font-medium leading-tight">
-                Your agent, always<br />
-                <span className="text-primary">one tab away.</span>
+                Your agent is a link.<br />
+                <span className="text-primary">Share it and go.</span>
               </h2>
               <p className="text-lg text-muted-foreground">
-                Every agent gets its own web chat at jarble.ai. No app to install, no platform to join. Open the link and start working with your agent immediately.
+                Every Jarble agent gets its own URL. Send it to a colleague, bookmark it, drop it in Slack. No app to install, no account required. Just open it and start working.
               </p>
-              <div className="space-y-3">
-                <div className="flex gap-3 items-start">
-                  <MessageSquare className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground">Full conversation history that persists across sessions. Pick up where you left off.</p>
-                </div>
-                <div className="flex gap-3 items-start">
-                  <Globe className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground">Works on any device with a browser. Access your agent from your phone, tablet, or desktop.</p>
-                </div>
-                <div className="flex gap-3 items-start">
-                  <Zap className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground">Connect WhatsApp, Discord, or Slack later. Your web chat is always there as the home base.</p>
-                </div>
-              </div>
+              <p className="text-muted-foreground">
+                When you&apos;re ready to go further, connect WhatsApp, Discord, Telegram, or Slack - your agent moves with you.
+              </p>
               <Button
                 size="lg"
                 variant="outline"
@@ -230,60 +200,69 @@ export default function Home() {
       </section>
 
       {/* Why Jarble */}
-      <section className="py-24 relative z-10">
+      <section className="pt-12 pb-24 sm:py-24 relative z-10 border-t border-border bg-muted/20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-serif font-medium mb-4">
               Built for people who <span className="text-primary">ship, not tinker</span>
             </h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              You have a task that needs an AI agent. You shouldn&apos;t need to become a DevOps engineer to make it happen.
+              Most AI platforms hand you a blank canvas and wish you luck. Jarble gets you to a running agent and keeps it working.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            <div className="p-6 rounded-xl bg-card/80 backdrop-blur-md border border-border shadow-sm animate-fade-in-up-fast">
-              <Cpu className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Any model, swappable anytime</h3>
-              <p className="text-muted-foreground text-sm">
-                Start with GPT-4o Mini to keep costs low. Switch to Claude for deeper reasoning. Change your model in the dashboard without redeploying.
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            <div className="p-8 rounded-xl bg-card border border-border">
+              <Zap className="w-7 h-7 text-primary mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Live in an afternoon</h3>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                A guided setup takes you from nothing to a running agent without touching code or infrastructure. Most teams are live the same day.
               </p>
             </div>
-            <div className="p-6 rounded-xl bg-card/80 backdrop-blur-md border border-border shadow-sm animate-fade-in-up-fast">
-              <MessageSquare className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-semibold mb-2">One agent, every platform</h3>
-              <p className="text-muted-foreground text-sm">
-                Deploy once. Connect WhatsApp, Discord, Slack, or Telegram whenever you need to. Same agent, same context, wherever you want to reach it.
+            <div className="p-8 rounded-xl bg-card border border-border">
+              <Globe className="w-7 h-7 text-primary mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Everywhere your team works</h3>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                Web chat, WhatsApp, Discord, Slack, Telegram. One agent, deployed once, available on every platform your team already uses.
               </p>
             </div>
-            <div className="p-6 rounded-xl bg-card/80 backdrop-blur-md border border-border shadow-sm animate-fade-in-up-fast">
-              <Lock className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Your rules, your data</h3>
-              <p className="text-muted-foreground text-sm">
-                Define what your agent can and can&apos;t do. Set guardrails, personality, and boundaries. Every deployment runs in its own isolated environment.
+            <div className="p-8 rounded-xl bg-card border border-border">
+              <DollarSign className="w-7 h-7 text-primary mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Your AI costs stay yours</h3>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                Bring your own API key. We host the agent - you pay OpenAI, Anthropic, or Google directly. No markup, no surprises on your bill.
               </p>
             </div>
-            <div className="p-6 rounded-xl bg-card/80 backdrop-blur-md border border-border shadow-sm animate-fade-in-up-fast">
-              <DollarSign className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Transparent pricing</h3>
-              <p className="text-muted-foreground text-sm">
-                Hosting starts at $32/mo. AI model costs go straight to your provider with zero margin from us. No hidden fees, no usage surprises.
-              </p>
-            </div>
-            <div className="p-6 rounded-xl bg-card/80 backdrop-blur-md border border-border shadow-sm animate-fade-in-up-fast">
-              <Clock className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Minutes to deploy, seconds to update</h3>
-              <p className="text-muted-foreground text-sm">
-                Change your agent&apos;s instructions, swap its model, or connect a new platform from the dashboard. No redeploy needed.
-              </p>
-            </div>
-            <div className="p-6 rounded-xl bg-card/80 backdrop-blur-md border border-border shadow-sm animate-fade-in-up-fast">
-              <Zap className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No code, no infrastructure</h3>
-              <p className="text-muted-foreground text-sm">
-                We handle servers, storage, networking, and uptime. You tell your agent what to do. That&apos;s the whole setup.
-              </p>
-            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Final CTA */}
+      <section className="py-24 relative z-10">
+        <div className="max-w-2xl mx-auto px-4 text-center">
+          <h2 className="text-4xl lg:text-5xl font-serif font-medium mb-4">
+            Ready to stop planning<br />and start running?
+          </h2>
+          <p className="text-lg text-muted-foreground mb-8">
+            Join the beta. Your first agent could be live before end of day.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Button
+              size="lg"
+              onClick={handleStartOnboarding}
+              className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-8 font-medium"
+            >
+              Launch Your First Agent
+              <ArrowRight className="w-5 h-5 ml-2" />
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              asChild
+              className="rounded-full px-8 font-medium"
+            >
+              <Link href="/beta">Apply for Beta</Link>
+            </Button>
           </div>
         </div>
       </section>
