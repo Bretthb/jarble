@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DeploymentTamboProvider — wraps TamboProvider with deployment-scoped tools,
+ * DeploymentTamboProvider - wraps TamboProvider with deployment-scoped tools,
  * registered components, Auth0 token, MCP server config, and agent context.
  *
  * Place this around the chat interface for a specific deployment.
@@ -39,7 +39,7 @@ IMPORTANT: You are in the CONFIG SIDEBAR. The user talks to their bot directly t
 
 When editing soul.md:
 - The FIRST section is the user's custom prompt (personality, instructions, knowledge)
-- The LAST section (## Platform Awareness onward) is auto-injected by Jarble — do NOT remove or edit it
+- The LAST section (## Platform Awareness onward) is auto-injected by Jarble - do NOT remove or edit it
 - Place user content BEFORE the ## Platform Awareness section
 - After writing, remind the user to restart the bot (or offer to do it) for changes to take effect
 
@@ -48,7 +48,7 @@ When editing soul.md:
 - Define what the bot should/shouldn't do
 - Include domain knowledge or example responses
 - For dashboard bots: mention that the bot can create charts, tables, interactive widgets, and 3D visualizations
-- For multi-platform bots: the bot auto-detects platform — no special instructions needed
+- For multi-platform bots: the bot auto-detects platform - no special instructions needed
 
 ### Configuration
 - Platform management → connect/disconnect platforms (WhatsApp, Telegram, etc.)
@@ -130,7 +130,7 @@ export default function DeploymentTamboProvider({
         content: [
           {
             type: "text" as const,
-            text: `Config panel for **${deploymentName}**. I can help you craft your bot's personality & system prompt, manage platforms, LLM settings, and pod lifecycle. Chat with your bot directly on the canvas — use me for configuration and prompt engineering.`,
+            text: `Config panel for **${deploymentName}**. I can help you craft your bot's personality & system prompt, manage platforms, LLM settings, and pod lifecycle. Chat with your bot directly on the canvas - use me for configuration and prompt engineering.`,
           },
         ],
       },

@@ -80,13 +80,13 @@ export default function BetaPage() {
           {/* Header */}
           <div className="text-center mb-10 space-y-4">
             <span className="inline-flex items-center px-3 py-1 rounded-full bg-primary/10 text-xs font-semibold text-primary border border-primary/20">
-              Beta Testing — March 29, 2026
+              Beta Testing - March 29, 2026
             </span>
             <h1 className="text-4xl sm:text-5xl font-serif font-medium tracking-tight">
               Join the <span className="text-primary">Beta</span>
             </h1>
             <p className="text-lg text-muted-foreground max-w-md mx-auto">
-              Be among the first to test Jarble. Our 2-week beta starts March 29th — apply now for early access.
+              Be among the first to test Jarble. Our 2-week beta starts March 29th - apply now for early access.
             </p>
           </div>
 
@@ -163,9 +163,9 @@ export default function BetaPage() {
                   onChange={(e) => setForm({ ...form, experience: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-lg bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all text-sm"
                 >
-                  <option value="beginner">Beginner — No coding experience</option>
-                  <option value="intermediate">Intermediate — Some technical background</option>
-                  <option value="advanced">Advanced — Developer / engineer</option>
+                  <option value="beginner">Beginner - No coding experience</option>
+                  <option value="intermediate">Intermediate - Some technical background</option>
+                  <option value="advanced">Advanced - Developer / engineer</option>
                 </select>
               </div>
 

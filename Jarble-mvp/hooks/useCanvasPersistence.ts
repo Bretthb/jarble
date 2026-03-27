@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * useCanvasPersistence — debounced localStorage save/restore for canvas state.
+ * useCanvasPersistence - debounced localStorage save/restore for canvas state.
  *
  * Persists: card positions, sizes, minimized state, component type, title, small props.
  * Does NOT persist: sandbox props, large data arrays.
@@ -165,7 +165,7 @@ function saveCanvasState(deploymentId: string, state: CanvasState): void {
 
     localStorage.setItem(getStorageKey(deploymentId), JSON.stringify(persisted));
   } catch {
-    // localStorage full or unavailable — silently fail
+    // localStorage full or unavailable - silently fail
   }
 }
 

@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * BotCanvas — Tambo-registered wrapper for bot-rendered UI blocks.
+ * BotCanvas - Tambo-registered wrapper for bot-rendered UI blocks.
  *
  * Receives the full block metadata from chatWithBot and delegates
  * to EditableCanvas (if editable) or CanvasRenderer (if read-only).
- * The bot controls what renders and whether it's editable — Tambo
+ * The bot controls what renders and whether it's editable - Tambo
  * just displays it.
  */
 
@@ -52,7 +52,7 @@ export default function BotCanvas({
     saveMethod,
   };
 
-  // Bot-rendered blocks are always editable — the bot doesn't reliably include
+  // Bot-rendered blocks are always editable - the bot doesn't reliably include
   // the editable flag when the request goes through callPodProxy (no history context).
   const isEditable = editable !== false;
 

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * AssistantUIChat — Thread-based chat component powered by assistant-ui.
+ * AssistantUIChat - Thread-based chat component powered by assistant-ui.
  *
  * Replaces the inline chat rendering in the workspace page with assistant-ui
  * primitives. Gains: message editing, regeneration, copy-to-clipboard,
@@ -56,7 +56,7 @@ function AssistantUIChatInner({
           />
         </ThreadPrimitive.Viewport>
 
-        {/* Composer — rendered separately by parent to include selected card chip */}
+        {/* Composer - rendered separately by parent to include selected card chip */}
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );
@@ -194,12 +194,12 @@ function AssistantBubble() {
 
         {/* Content + actions */}
         <div className="flex flex-col gap-0.5 items-start flex-1 max-w-[80%]">
-          {/* Thinking section — collapsible */}
+          {/* Thinking section - collapsible */}
           {thinkingText && (
             <ThinkingSection text={thinkingText} isStreaming={isInProgress} />
           )}
 
-          {/* Thinking indicator — shown before first token arrives */}
+          {/* Thinking indicator - shown before first token arrives */}
           {isInProgress && !content && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/20">
               <div className="flex gap-1">

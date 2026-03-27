@@ -1,12 +1,12 @@
 /**
- * Tambo tool definitions — infrastructure-only wrappers around tRPC mutations.
+ * Tambo tool definitions - infrastructure-only wrappers around tRPC mutations.
  *
  * Each tool is scoped to a deployment via createTamboTools(deploymentId).
  * Tools use the vanilla tRPC client (no hooks) so they can run
  * from Tambo's agent execution context.
  *
  * Bot interaction (chat, config, skills, platforms, files) is now handled
- * via MCP — see DeploymentTamboProvider for mcpServers config.
+ * via MCP - see DeploymentTamboProvider for mcpServers config.
  */
 import { defineTool } from "@tambo-ai/react";
 import { z } from "zod";
@@ -16,7 +16,7 @@ import { vanillaClient } from "./trpc-vanilla";
 
 export function createTamboTools(deploymentId: string) {
   return [
-    // ── Infrastructure Tools — things the bot can't do for itself ────────
+    // ── Infrastructure Tools - things the bot can't do for itself ────────
 
     defineTool({
       name: "startDeployment",

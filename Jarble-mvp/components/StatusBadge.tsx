@@ -1,5 +1,5 @@
 /**
- * Shared StatusBadge component — displays deployment status with colored dot + text.
+ * Shared StatusBadge component - displays deployment status with colored dot + text.
  * Uses warm charcoal-friendly tones. Compact design with subtle animations.
  * Used by Dashboard.tsx, Deployments.tsx, and workspace header.
  */

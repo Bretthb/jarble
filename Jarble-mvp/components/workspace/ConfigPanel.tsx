@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * ConfigPanel — slide-out left sidebar for deployment configuration via Tambo.
+ * ConfigPanel - slide-out left sidebar for deployment configuration via Tambo.
  *
  * Tambo is repurposed here for config-only: system prompt, platforms, LLM
  * settings, lifecycle ops. Main bot chat goes through the canvas directly.
@@ -208,7 +208,7 @@ function ConfigChat({ deploymentId }: { deploymentId: string }) {
                 </div>
                 <div>
                   <p className="text-xs text-foreground/80 leading-relaxed max-w-[260px]">
-                    Ask me to configure your bot — I can change models, connect
+                    Ask me to configure your bot - I can change models, connect
                     platforms, update the system prompt, manage skills, and more.
                   </p>
                 </div>
@@ -405,7 +405,7 @@ function ConfigContentBlock({
     );
   }
 
-  // Tool use blocks — extracted to own component to keep hooks unconditional
+  // Tool use blocks - extracted to own component to keep hooks unconditional
   if (block.type === "tool_use") {
     return <ToolUseIndicator block={block} />;
   }

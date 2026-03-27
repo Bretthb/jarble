@@ -2,7 +2,7 @@ import DOMPurify from "dompurify";
 
 /**
  * Sanitize HTML string to prevent XSS.
- * Only runs on client — returns input unchanged on server.
+ * Only runs on client - returns input unchanged on server.
  */
 export function sanitizeHtml(dirty: string): string {
   if (typeof window === "undefined") return dirty;

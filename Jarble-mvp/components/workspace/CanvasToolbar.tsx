@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * CanvasToolbar — shared toolbar for both Dashboard and Freeform canvas modes.
+ * CanvasToolbar - shared toolbar for both Dashboard and Freeform canvas modes.
  *
  * Renders: Hide button, mode toggle, grid-snap (freeform only), organize,
  * library, multi-select group action, and component count.
@@ -60,7 +60,7 @@ function CanvasToolbarInner({
               ? "bg-primary/15 text-primary font-medium"
               : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
           }`}
-          title="Dashboard mode — auto-arranged grid"
+          title="Dashboard mode - auto-arranged grid"
         >
           <LayoutDashboard className="w-3.5 h-3.5" />
           Dashboard
@@ -73,7 +73,7 @@ function CanvasToolbarInner({
               ? "bg-primary/15 text-primary font-medium"
               : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
           }`}
-          title="Freeform mode — drag & resize freely"
+          title="Freeform mode - drag & resize freely"
         >
           <Move className="w-3.5 h-3.5" />
           Freeform

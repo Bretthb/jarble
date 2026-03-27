@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * CustomComponentRenderer — Resolves a custom component template and
+ * CustomComponentRenderer - Resolves a custom component template and
  * renders the resulting built-in primitives via CanvasRenderer.
  */
 

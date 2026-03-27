@@ -26,7 +26,7 @@ function escapeAttr(s: string): string {
 /**
  * Sanitize the html prop: extract inline <script> content into JS,
  * extract <script src> URLs into libraries, strip structural tags.
- * LLMs often dump full HTML documents into the html prop — this normalizes them.
+ * LLMs often dump full HTML documents into the html prop - this normalizes them.
  */
 function sanitizeHtmlProp(
   html: string,
@@ -70,7 +70,7 @@ function sanitizeHtmlProp(
   const allJs = [existingJs, ...extractedJs].filter(Boolean).join("\n");
 
   if (extractedJs.length > 0 || extractedLibs.length > (existingLibs?.length || 0)) {
-    isDev && console.log("[Jarble:Sandbox] Sanitized html prop — extracted", extractedJs.length, "script blocks,", extractedLibs.length - (existingLibs?.length || 0), "library URLs");
+    isDev && console.log("[Jarble:Sandbox] Sanitized html prop - extracted", extractedJs.length, "script blocks,", extractedLibs.length - (existingLibs?.length || 0), "library URLs");
   }
 
   // Additional XSS sanitization via DOMPurify
@@ -82,7 +82,7 @@ function sanitizeHtmlProp(
 /**
  * Build the full HTML document for the sandbox iframe.
  *
- * Rendered via srcdoc — without allow-same-origin the iframe gets a unique
+ * Rendered via srcdoc - without allow-same-origin the iframe gets a unique
  * opaque origin and CANNOT access the parent page's DOM, cookies, or storage.
  */
 function buildDocument(
@@ -142,14 +142,14 @@ function buildDocument(
 <body>
 ${html}
 <script>
-// Error overlay — show errors visually AND report to parent
+// Error overlay - show errors visually AND report to parent
 window.onerror = function(msg, src, line, col, err) {
   console.error("[Jarble:Sandbox] Error:", msg, src, line, col);
   var d = document.createElement("div");
   d.style.cssText = "position:fixed;top:0;left:0;right:0;padding:8px 12px;background:#fee;color:#c00;font:12px monospace;z-index:99999;white-space:pre-wrap;border-bottom:2px solid #c00";
   d.textContent = "Error: " + msg + "\\n" + (src||"") + ":" + line + ":" + col;
   document.body.prepend(d);
-  // Report error to parent — use only plain strings (structured clone can't handle Error objects)
+  // Report error to parent - use only plain strings (structured clone can't handle Error objects)
   parent.postMessage({
     type: "jarble:error",
     error: {
@@ -184,7 +184,7 @@ window.onunhandledrejection = function(e) {
     }
   }, "*");
 };
-// CSP violation monitoring — report blocked resources to parent
+// CSP violation monitoring - report blocked resources to parent
 document.addEventListener("securitypolicyviolation", function(e) {
   parent.postMessage({
     type: "jarble:csp-violation",
@@ -256,7 +256,7 @@ setTimeout(function() {
     error: { message: "Sandbox execution timeout (30s)", source: "", line: 0, column: 0, stack: "" }
   }, "*");
 }, 30000);
-// Dynamic library loader — guarantees scripts are fully loaded before user JS runs
+// Dynamic library loader - guarantees scripts are fully loaded before user JS runs
 (function() {
   var libs = ${libsJson};
   var loaded = 0;
@@ -297,10 +297,10 @@ function CanvasSandboxInner({
   // Sanitize: extract any <script>/<style>/structural tags from html prop
   const sanitized = sanitizeHtmlProp(html, js, libraries);
 
-  // Build srcdoc string — changes when content changes
+  // Build srcdoc string - changes when content changes
   const srcdoc = buildDocument(sanitized.html, css, sanitized.js, sanitized.libraries);
 
-  isDev && console.log("[Jarble:Sandbox] Render — html:", html?.length, "chars, css:", css?.length || 0, "chars, js:", js?.length || 0, "chars, libraries:", libraries);
+  isDev && console.log("[Jarble:Sandbox] Render - html:", html?.length, "chars, css:", css?.length || 0, "chars, js:", js?.length || 0, "chars, libraries:", libraries);
 
   // Reset ready state when content changes (iframe will reload)
   useEffect(() => {
@@ -331,7 +331,7 @@ function CanvasSandboxInner({
       }
       if (e.data?.type === "jarble:error") {
         const rawError = e.data.error;
-        // Normalize error — sometimes structured clone produces empty objects
+        // Normalize error - sometimes structured clone produces empty objects
         const errorInfo = (rawError && typeof rawError === "object" && rawError.message)
           ? rawError
           : { message: rawError ? String(rawError) : "Unknown sandbox error", source: "", line: 0, column: 0, stack: "" };
@@ -380,14 +380,14 @@ function CanvasSandboxInner({
 
   const handleStop = useCallback(() => {
     if (stopped) {
-      // Restart — un-stop so the iframe re-renders with srcdoc
+      // Restart - un-stop so the iframe re-renders with srcdoc
       setStopped(false);
       isDev && console.log("[Jarble:Sandbox] Restarted");
     } else {
-      // Stop — remove the iframe srcdoc to kill all JS execution
+      // Stop - remove the iframe srcdoc to kill all JS execution
       setStopped(true);
       readyRef.current = false;
-      isDev && console.log("[Jarble:Sandbox] Stopped — iframe destroyed");
+      isDev && console.log("[Jarble:Sandbox] Stopped - iframe destroyed");
     }
   }, [stopped]);
 
@@ -419,7 +419,7 @@ function CanvasSandboxInner({
       </div>
       {stopped ? (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0 }} className="rounded-lg bg-muted/30 text-muted-foreground text-sm">
-          Sandbox stopped — click Restart to resume
+          Sandbox stopped - click Restart to resume
         </div>
       ) : (
         <iframe

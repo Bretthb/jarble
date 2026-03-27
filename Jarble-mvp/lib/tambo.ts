@@ -2,8 +2,8 @@
  * Tambo component + tool registration.
  *
  * Exports:
- *   tamboComponents — array of TamboComponent for the TamboProvider
- *   createTamboTools — factory returning deployment-scoped infrastructure tools
+ *   tamboComponents - array of TamboComponent for the TamboProvider
+ *   createTamboTools - factory returning deployment-scoped infrastructure tools
  */
 import { z } from "zod";
 import type { TamboComponent } from "@tambo-ai/react";
@@ -20,7 +20,7 @@ import BotCanvas from "@/components/tambo/BotCanvas";
 export { createTamboTools } from "./tambo-tools";
 
 export const tamboComponents: TamboComponent[] = [
-  // ── Infrastructure Components (2) — for when the bot can't help itself ─
+  // ── Infrastructure Components (2) - for when the bot can't help itself ─
 
   {
     name: "LogViewer",
@@ -49,7 +49,7 @@ export const tamboComponents: TamboComponent[] = [
     }),
   },
 
-  // ── Bot Canvas Wrapper — editable bot-rendered blocks ──────────────────
+  // ── Bot Canvas Wrapper - editable bot-rendered blocks ──────────────────
 
   {
     name: "BotCanvas",
@@ -59,10 +59,10 @@ export const tamboComponents: TamboComponent[] = [
     propsSchema: z.object({
       blockId: z.string().describe("The block ID from uiBlocks[].blockId"),
       component: z.string().describe("The component name from uiBlocks[].component (e.g. 'card', 'stat_grid', 'chart')"),
-      propsJson: z.string().describe("JSON.stringify(uiBlocks[].props) — the component props as a JSON string"),
-      editable: z.boolean().optional().describe("uiBlocks[].editable — defaults to true"),
-      fileId: z.string().optional().describe("uiBlocks[].fileId — for file-backed editable components"),
-      saveMethod: z.enum(["mcp", "chat"]).optional().describe("uiBlocks[].saveMethod — how edits are saved"),
+      propsJson: z.string().describe("JSON.stringify(uiBlocks[].props) - the component props as a JSON string"),
+      editable: z.boolean().optional().describe("uiBlocks[].editable - defaults to true"),
+      fileId: z.string().optional().describe("uiBlocks[].fileId - for file-backed editable components"),
+      saveMethod: z.enum(["mcp", "chat"]).optional().describe("uiBlocks[].saveMethod - how edits are saved"),
       deploymentId: z.string().describe("The deployment ID from context"),
     }),
   },

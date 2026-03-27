@@ -1,5 +1,5 @@
 /**
- * AutoFix Prop Repair — Phase 2.2
+ * AutoFix Prop Repair - Phase 2.2
  *
  * Catches common LLM errors BEFORE Zod validation to reduce error cards.
  * Applies 20 high-confidence repair rules across 6 categories:
@@ -11,10 +11,10 @@
  *   6. Data normalization (progress percent strip, sparkline cleanup)
  *
  * Guardrails:
- *   - Never invents data — only transforms existing values
- *   - Never removes fields — only adds defaults or transforms types
+ *   - Never invents data - only transforms existing values
+ *   - Never removes fields - only adds defaults or transforms types
  *   - Deep-clones props before mutating
- *   - High-confidence only — ambiguous transforms are skipped
+ *   - High-confidence only - ambiguous transforms are skipped
  */
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ export interface AutoFixResult {
 // ── Component Name Normalization Map ─────────────────────────────────────────
 
 export const COMPONENT_NAME_MAP: Record<string, string> = {
-  // Casing variants — PascalCase
+  // Casing variants - PascalCase
   DataTable: "data_table",
   MetricCard: "metric_card",
   StatGrid: "stat_grid",
@@ -46,7 +46,7 @@ export const COMPONENT_NAME_MAP: Record<string, string> = {
   TagCloud: "tag_cloud",
   KeyValue: "key_value",
   TextMessage: "text_message",
-  // Casing variants — camelCase
+  // Casing variants - camelCase
   dataTable: "data_table",
   metricCard: "metric_card",
   statGrid: "stat_grid",
@@ -256,7 +256,7 @@ function applyEnumNormalization(
   props: Record<string, unknown>,
   repairs: AutoFixRepair[],
 ): void {
-  // Rule 4: enum-variant-alias — applies to "variant" and "status" fields
+  // Rule 4: enum-variant-alias - applies to "variant" and "status" fields
   for (const field of ["variant", "status"]) {
     const val = props[field];
     if (typeof val === "string" && val in VARIANT_ALIAS_MAP) {
@@ -276,7 +276,7 @@ function applyEnumNormalization(
     }
   }
 
-  // Rule 6: size-enum-alias — applies to "size" and "spacing" fields
+  // Rule 6: size-enum-alias - applies to "size" and "spacing" fields
   for (const field of ["size", "spacing"]) {
     const val = props[field];
     if (typeof val === "string") {
@@ -309,7 +309,7 @@ function applyMissingDefaults(
     recordRepair(repairs, "steps-default-current", "props.current", undefined, 0);
   }
 
-  // Rule 9: chart-default-xAxisKey — infer from first data object
+  // Rule 9: chart-default-xAxisKey - infer from first data object
   if (
     component === "chart" &&
     props.xAxisKey === undefined &&
@@ -385,7 +385,7 @@ function applyStructuralFixes(
   props: Record<string, unknown>,
   repairs: AutoFixRepair[],
 ): void {
-  // Rule 12: unwrap-nested-props — {props: {title: "..."}} → {title: "..."}
+  // Rule 12: unwrap-nested-props - {props: {title: "..."}} → {title: "..."}
   if (
     isPlainObject(props.props) &&
     Object.keys(props).length === 1
@@ -412,7 +412,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 13: wrap-single-to-array — single object → array where array expected
+  // Rule 13: wrap-single-to-array - single object → array where array expected
   const arrayFieldsForComponent = ARRAY_FIELDS[component];
   if (arrayFieldsForComponent) {
     for (const field of arrayFieldsForComponent) {
@@ -431,7 +431,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 14: rows-object-to-array — data_table rows as array of objects → array of arrays
+  // Rule 14: rows-object-to-array - data_table rows as array of objects → array of arrays
   if (component === "data_table" && Array.isArray(props.rows) && Array.isArray(props.columns)) {
     const rows = props.rows;
     const columns = props.columns as string[];
@@ -470,28 +470,28 @@ interface FieldAliasRule {
 }
 
 const FIELD_ALIAS_RULES: FieldAliasRule[] = [
-  // Rule 15: field-content-to-body — content → body (card)
+  // Rule 15: field-content-to-body - content → body (card)
   {
     components: ["card"],
     from: "content",
     to: "body",
     rule: "field-content-to-body",
   },
-  // Rule 16: field-description-to-message — description → message (alert)
+  // Rule 16: field-description-to-message - description → message (alert)
   {
     components: ["alert"],
     from: "description",
     to: "message",
     rule: "field-description-to-message",
   },
-  // Rule 17: field-name-to-label — name → label (metric_card, stat items)
+  // Rule 17: field-name-to-label - name → label (metric_card, stat items)
   {
     components: ["metric_card"],
     from: "name",
     to: "label",
     rule: "field-name-to-label",
   },
-  // Rule 18: field-data-to-items — data → items (list, timeline, steps, accordion, tabs)
+  // Rule 18: field-data-to-items - data → items (list, timeline, steps, accordion, tabs)
   {
     components: ["list", "steps", "accordion"],
     from: "data",
@@ -568,7 +568,7 @@ function applyDataNormalization(
   props: Record<string, unknown>,
   repairs: AutoFixRepair[],
 ): void {
-  // Rule 19: progress-percent-strip — "75%" → 75 for progress.value
+  // Rule 19: progress-percent-strip - "75%" → 75 for progress.value
   if (component === "progress" && typeof props.value === "string") {
     const stripped = props.value.replace(/%$/, "").trim();
     if (isNumericString(stripped)) {
@@ -584,7 +584,7 @@ function applyDataNormalization(
     }
   }
 
-  // Rule 20: sparkline-normalize — mixed string/number sparkline arrays → all numbers
+  // Rule 20: sparkline-normalize - mixed string/number sparkline arrays → all numbers
   if (
     (component === "metric_card" || component === "statistic") &&
     Array.isArray(props.sparkline)
@@ -597,7 +597,7 @@ function applyDataNormalization(
         anyFixed = true;
         return Number(v);
       }
-      // Non-numeric entries — keep as-is (Zod will catch truly invalid data)
+      // Non-numeric entries - keep as-is (Zod will catch truly invalid data)
       return v;
     });
     if (anyFixed) {
@@ -619,7 +619,7 @@ function applyDataNormalization(
  * Applies high-confidence automatic fixes to component props before Zod validation.
  *
  * Returns the (possibly modified) component name, fixed props, and a list of all
- * repairs applied. Safe to call on any input — null/undefined/empty objects are
+ * repairs applied. Safe to call on any input - null/undefined/empty objects are
  * handled gracefully.
  */
 export function autoFixProps(

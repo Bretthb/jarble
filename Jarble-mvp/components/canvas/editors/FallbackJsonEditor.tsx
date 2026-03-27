@@ -33,7 +33,7 @@ export default function FallbackJsonEditor({ props, onChange, disabled }: Editor
         onChange(parsed);
       }
     } catch {
-      // Can't format invalid JSON — no-op
+      // Can't format invalid JSON - no-op
     }
   };
 

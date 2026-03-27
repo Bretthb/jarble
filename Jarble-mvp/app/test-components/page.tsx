@@ -29,7 +29,7 @@ export default function TestComponentsPage() {
   return (
     <div className="min-h-screen bg-background text-foreground p-8 space-y-8 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-2">Canvas Component Visual Test</h1>
-      <p className="text-sm text-muted-foreground mb-8">36 registered components — existing + 12 newly registered</p>
+      <p className="text-sm text-muted-foreground mb-8">36 registered components - existing + 12 newly registered</p>
 
       {/* ══════════════════════════════════════════════════════════════════ */}
       <h2 className="text-xl font-bold mt-12 mb-4 pt-8 border-t-2 border-primary/30">NEW: 12 Newly Registered Components</h2>
@@ -170,7 +170,7 @@ export default function TestComponentsPage() {
           <CanvasCarousel
             items={[
               { title: "Getting Started", description: "Set up your first AI bot in minutes with our guided wizard.", image: "https://placehold.co/400x200/1a1a2e/e0e0e0?text=Getting+Started" },
-              { title: "Configure Your LLM", description: "Choose from Claude, GPT-4, Gemini, and more — or bring your own key.", image: "https://placehold.co/400x200/16213e/e0e0e0?text=Configure+LLM" },
+              { title: "Configure Your LLM", description: "Choose from Claude, GPT-4, Gemini, and more - or bring your own key.", image: "https://placehold.co/400x200/16213e/e0e0e0?text=Configure+LLM" },
               { title: "Deploy & Connect", description: "One-click deploy to WhatsApp, Discord, Slack, and Telegram.", image: "https://placehold.co/400x200/0f3460/e0e0e0?text=Deploy" },
             ]}
             autoplay

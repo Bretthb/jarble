@@ -1,4 +1,4 @@
-/** Canvas workspace types — cards, state, and actions. */
+/** Canvas workspace types - cards, state, and actions. */
 
 export type LayoutHint = "full-width" | "half" | "third" | "compact" | "auto";
 export type CanvasMode = "dashboard" | "freeform";
@@ -123,7 +123,7 @@ export const SPLITTABLE_COMPONENTS: Record<string, {
     itemsKey: "rows",
     splitComponent: "data_table",
     transformItem: (item: unknown, _index: number) => {
-      // Each split gets a single-row table (preserving columns from parent — set at dispatch time)
+      // Each split gets a single-row table (preserving columns from parent - set at dispatch time)
       return { rows: [item] };
     },
     minItems: 2,

@@ -55,11 +55,11 @@ function formatDate(iso: string): string {
 }
 
 function formatPeriod(start: string | null, end: string | null): string {
-  if (!start || !end) return "—";
+  if (!start || !end) return " - ";
   const s = new Date(start);
   const e = new Date(end);
   const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
-  return `${s.toLocaleDateString("en-US", opts)} – ${e.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
+  return `${s.toLocaleDateString("en-US", opts)} - ${e.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
 }
 
 function statusBadge(status: string, cancelledAt?: string | null) {
@@ -99,7 +99,7 @@ function ManagedKeyUsageCell({ deploymentId, limitDollars }: { deploymentId: str
   );
 
   if (usageQuery.isLoading) return <Skeleton className="h-4 w-16" />;
-  if (!usageQuery.data) return <span className="text-muted-foreground">—</span>;
+  if (!usageQuery.data) return <span className="text-muted-foreground"> - </span>;
 
   const { usage, limit } = usageQuery.data;
   return (
@@ -255,7 +255,7 @@ export default function Billing() {
               ) : overview?.nextBillingDate ? (
                 formatDate(overview.nextBillingDate)
               ) : (
-                <span className="text-muted-foreground">—</span>
+                <span className="text-muted-foreground"> - </span>
               )}
             </div>
           </Card>
@@ -273,7 +273,7 @@ export default function Billing() {
               ) : overview?.paymentMethodLast4 ? (
                 <span className="text-lg">···· {overview.paymentMethodLast4}</span>
               ) : (
-                <span className="text-muted-foreground">—</span>
+                <span className="text-muted-foreground"> - </span>
               )}
             </div>
           </Card>
@@ -382,7 +382,7 @@ export default function Billing() {
                             {sub.llmMode === "included" && !sub.isLinked ? (
                               <ManagedKeyUsageCell deploymentId={sub.deploymentId} limitDollars={sub.managedKeyPlanDollars} />
                             ) : (
-                              <span className="text-muted-foreground">—</span>
+                              <span className="text-muted-foreground"> - </span>
                             )}
                           </TableCell>
                           <TableCell>{statusBadge(sub.stripeStatus, sub.cancelledAt)}</TableCell>

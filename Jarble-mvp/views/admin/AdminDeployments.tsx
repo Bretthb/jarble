@@ -155,7 +155,7 @@ export default function AdminDeployments() {
                   <TableCell className="font-medium">{dep.name}</TableCell>
                   <TableCell>
                     <div className="text-sm">
-                      <p>{dep.userName || "—"}</p>
+                      <p>{dep.userName || " - "}</p>
                       <p className="text-muted-foreground text-xs">
                         {dep.userEmail}
                       </p>

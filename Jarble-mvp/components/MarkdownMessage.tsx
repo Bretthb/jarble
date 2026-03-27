@@ -4,7 +4,7 @@ import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-// Static constants — kept outside the component so React.memo is not
+// Static constants - kept outside the component so React.memo is not
 // invalidated by new object references on every render.
 const REMARK_PLUGINS = [remarkGfm] as const;
 

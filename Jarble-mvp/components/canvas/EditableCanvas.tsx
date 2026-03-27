@@ -253,7 +253,7 @@ export default function EditableCanvas({
     );
   }
 
-  // Edit mode — pick the right editor
+  // Edit mode - pick the right editor
   const Editor = EDITOR_COMPONENTS[block.component] || FallbackJsonEditor;
 
   return (

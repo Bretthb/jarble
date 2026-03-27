@@ -120,7 +120,7 @@ export default function OnboardingWizard() {
       if (active) {
         active = false;
         clearInterval(interval);
-        toast.error("Pairing timed out — you can pair from the dashboard later.");
+        toast.error("Pairing timed out - you can pair from the dashboard later.");
         setTimeout(() => router.replace("/dashboard"), 2000);
       }
     }, 8 * 60 * 1000);
@@ -132,7 +132,7 @@ export default function OnboardingWizard() {
     };
   }, [deployPhase, createdDeploymentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Hardware config (optional overrides — null means "use runtime catalog defaults")
+  // Hardware config (optional overrides - null means "use runtime catalog defaults")
   const [cpuLimit, setCpuLimit] = useState<string | null>(null);
   const [memoryMb, setMemoryMb] = useState<number | null>(null);
   const [storageMb, setStorageMb] = useState<number | null>(null);
@@ -445,7 +445,7 @@ export default function OnboardingWizard() {
           <div className="mb-6 px-3 py-2.5 rounded-lg border border-border bg-secondary/50 flex items-center gap-2.5">
             <Gift className="w-4 h-4 text-primary shrink-0" />
             <p className="text-xs font-medium text-foreground">
-              First deployment free for 7 days — no credit card required
+              First deployment free for 7 days - no credit card required
             </p>
           </div>
         )}
@@ -549,7 +549,7 @@ export default function OnboardingWizard() {
                   onCheckoutComplete={() => setCheckoutComplete(true)}
                 />
               )}
-              {/* Telegram step removed — platform connections happen via Tambo chat after deploy */}
+              {/* Telegram step removed - platform connections happen via Tambo chat after deploy */}
             </motion.div>
           </AnimatePresence>
         </div>

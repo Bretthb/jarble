@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * FreeformCanvas — absolute-positioned, draggable, resizable card canvas.
+ * FreeformCanvas - absolute-positioned, draggable, resizable card canvas.
  *
  * Cards are positioned freely (not in a grid). Users drag to move, drag
  * bottom-right handle to resize. Optional grid-snap toggle.
@@ -358,7 +358,7 @@ function SimpleCanvasGridInner({
                         : "hover:ring-1 hover:ring-border/50 cursor-grab"
               }`}
             >
-              {/* Card header — hidden until hover */}
+              {/* Card header - hidden until hover */}
               <div className="shrink-0 flex items-center justify-between px-2 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity absolute top-0 left-0 right-0 z-20 bg-background/80 backdrop-blur-sm">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <GripVertical className="w-3 h-3 text-muted-foreground/40 shrink-0 cursor-grab" />
@@ -416,7 +416,7 @@ function SimpleCanvasGridInner({
                 </div>
               </div>
 
-              {/* Save name input — overlay below header */}
+              {/* Save name input - overlay below header */}
               {savingCardId === card.id && (
                 <div className="absolute top-6 left-0 right-0 z-20 flex items-center gap-1 px-2 py-1 bg-background/90 backdrop-blur-sm border-b border-border/20"
                   onPointerDown={(e) => e.stopPropagation()}>
@@ -437,12 +437,12 @@ function SimpleCanvasGridInner({
                 </div>
               )}
 
-              {/* Card content — fills entire card */}
+              {/* Card content - fills entire card */}
               <div className="flex-1 min-h-0 overflow-hidden rounded-lg">
                 {renderCard(card)}
               </div>
 
-              {/* Resize handle — bottom right, very subtle */}
+              {/* Resize handle - bottom right, very subtle */}
               <div
                 onPointerDown={(e) => handleResizeStart(e, card)}
                 className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize opacity-0 group-hover:opacity-40 hover:!opacity-80 transition-opacity z-10"

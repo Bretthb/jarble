@@ -706,7 +706,7 @@ export default function About() {
             {[
               { step: 1, title: "Choose Your Model", desc: "Select from top AI providers or use our managed service" },
               { step: 2, title: "Configure Behavior", desc: "Set personality, knowledge base, and guardrails" },
-              { step: 3, title: "Connect Platforms", desc: "Pick where your bot lives—Discord, Slack, web, etc." },
+              { step: 3, title: "Connect Platforms", desc: "Pick where your bot lives - Discord, Slack, web, etc." },
               { step: 4, title: "Deploy & Scale", desc: "Go live instantly, scale automatically as you grow" },
             ].map((item) => (
               <div key={item.step} className="relative animate-fade-in-up-fast">

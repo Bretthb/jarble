@@ -138,7 +138,7 @@ export default function LLMConfigCard({
         >
           {models.map((m) => (
             <option key={m.id} value={m.id}>
-              {m.name} — {m.description}
+              {m.name} - {m.description}
             </option>
           ))}
         </select>

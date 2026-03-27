@@ -104,7 +104,7 @@ export default function DeploymentConfiguration() {
   const cancelMutation = trpc.deployment.cancel.useMutation({
     onSuccess: (data: { cancelAt: string }) => {
       const date = new Date(data.cancelAt).toLocaleDateString();
-      toast.success(`Subscription cancelled — access until ${date}`);
+      toast.success(`Subscription cancelled - access until ${date}`);
       deploymentQuery.refetch();
     },
     onError: (err: { message?: string }) => {
@@ -385,7 +385,7 @@ export default function DeploymentConfiguration() {
                 </button>
               ))}
 
-              {/* Subscription section — paid deployments only */}
+              {/* Subscription section - paid deployments only */}
               {isPaid && (
                 <div className="pt-4 mt-4 border-t border-border/40 space-y-0.5">
                   <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">Subscription</p>
@@ -469,7 +469,7 @@ export default function DeploymentConfiguration() {
                 </button>
               </div>
 
-              {/* Dev testing — QR code */}
+              {/* Dev testing - QR code */}
               {process.env.NODE_ENV === "development" && (
                 <div className="pt-4 mt-4 border-t border-dashed border-border/40 space-y-0.5">
                   <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">Dev Testing</p>

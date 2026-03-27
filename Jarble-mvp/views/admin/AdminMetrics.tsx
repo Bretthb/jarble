@@ -228,7 +228,7 @@ export default function AdminMetrics() {
                       <td className="py-2 text-muted-foreground">
                         {alert.startsAt
                           ? new Date(alert.startsAt).toLocaleString()
-                          : "—"}
+                          : " - "}
                       </td>
                     </tr>
                   ))}

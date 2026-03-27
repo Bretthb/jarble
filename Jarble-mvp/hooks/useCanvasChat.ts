@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * useCanvasChat — Streaming hook for chat + canvas.
+ * useCanvasChat - Streaming hook for chat + canvas.
  *
  * Separation of concerns:
  * - Chat messages (user + bot text) → returned in `messages` array for chat panel
@@ -28,7 +28,7 @@ export interface ChatMessage {
   createdAt: number;
   /** Optional friendly text shown in chat instead of raw content (e.g. action relay messages) */
   displayText?: string;
-  /** If true, this message is an action relay — styled more compactly in chat */
+  /** If true, this message is an action relay - styled more compactly in chat */
   isActionRelay?: boolean;
   /** Accumulated thinking/reasoning text from the LLM */
   thinkingText?: string;
@@ -110,11 +110,11 @@ export function useCanvasChat(
   // Keep a live ref to state so the SSE handler always reads the latest cards (avoids stale closure)
   const stateRef = useRef(state);
   stateRef.current = state;
-  // Ref-based streaming guard — avoids stale closure when isStreaming is in useCallback deps
+  // Ref-based streaming guard - avoids stale closure when isStreaming is in useCallback deps
   const isStreamingRef = useRef(false);
-  // Generation counter — detects when a new request supersedes an aborted one in finally
+  // Generation counter - detects when a new request supersedes an aborted one in finally
   const generationRef = useRef(0);
-  // rAF-based throttle for streaming text updates — coalesces rapid deltas into
+  // rAF-based throttle for streaming text updates - coalesces rapid deltas into
   // a single React re-render per animation frame (~16ms / 60fps)
   const pendingTextRef = useRef<string>("");
   const pendingThinkingRef = useRef<string>("");
@@ -163,13 +163,13 @@ export function useCanvasChat(
 
   const sendMessage = useCallback(
     async (text: string, displayText?: string) => {
-      // Use ref guard — keeps sendMessage stable without isStreaming in deps
+      // Use ref guard - keeps sendMessage stable without isStreaming in deps
       if (!text.trim() || isStreamingRef.current) return;
 
-      // Skip card reference prepend for action/error messages — these already contain card context
+      // Skip card reference prepend for action/error messages - these already contain card context
       const isActionMessage = text.startsWith("[UI_ACTION]") || text.startsWith("[SANDBOX_ERROR]") || text.startsWith("[COMPONENT_ERROR]");
 
-      // Use stateRef.current for selectedCard and canvas state — keeps deps stable
+      // Use stateRef.current for selectedCard and canvas state - keeps deps stable
       const currentState = stateRef.current;
 
       // If a card is selected, prepend a clear reference so the bot knows which card to update
@@ -182,7 +182,7 @@ export function useCanvasChat(
         dispatch({ type: "DESELECT_CARD" });
       }
 
-      // Build canvas state summary — skip for action/error messages since they already carry
+      // Build canvas state summary - skip for action/error messages since they already carry
       // cardId context and the extra tokens are wasteful for every interaction relay.
       // Always send [CANVAS_STATE] (even when empty) so the bot knows it's on the web dashboard.
       if (!isActionMessage) {
@@ -200,7 +200,7 @@ export function useCanvasChat(
         isDev && console.log(`[Jarble:Chat] Prepended canvas state with ${currentState.cards.length} card(s)`);
       }
 
-      // Track this request's generation — used in finally to avoid the abort race where
+      // Track this request's generation - used in finally to avoid the abort race where
       // the old request's finally fires after the new request has already set isStreaming=true
       const generation = ++generationRef.current;
       isStreamingRef.current = true;
@@ -249,7 +249,7 @@ export function useCanvasChat(
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "Request failed");
-          console.error(`[Jarble:Chat] SSE error: HTTP ${res.status} — ${errText.slice(0, 200)}`);
+          console.error(`[Jarble:Chat] SSE error: HTTP ${res.status} - ${errText.slice(0, 200)}`);
           // Add error as assistant message
           setMessages((prev) => [
             ...prev,
@@ -382,7 +382,7 @@ export function useCanvasChat(
               }
 
               if (event.type === "CHAT_ERROR" && event.error) {
-                isDev && console.log(`[Jarble:Chat] CHAT_ERROR: ${event.error.code} — ${event.error.message}`);
+                isDev && console.log(`[Jarble:Chat] CHAT_ERROR: ${event.error.code} - ${event.error.message}`);
                 setLastChatError(event.error as ClassifiedChatError);
               }
 
@@ -451,7 +451,7 @@ export function useCanvasChat(
         }
       }
     },
-    // Stable deps — isStreaming replaced by isStreamingRef, state replaced by stateRef.current
+    // Stable deps - isStreaming replaced by isStreamingRef, state replaced by stateRef.current
     [deploymentId, getAccessTokenSilently, dispatch]
   );
 

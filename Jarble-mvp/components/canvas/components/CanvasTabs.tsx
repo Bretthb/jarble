@@ -29,7 +29,7 @@ function CanvasTabsInner({ tabs, defaultTab = 0 }: CanvasTabsProps) {
     const ctx = useCanvasAction();
     dispatch = ctx.dispatch;
   } catch {
-    // Not inside CanvasActionProvider — interactivity disabled
+    // Not inside CanvasActionProvider - interactivity disabled
   }
 
   if (!Array.isArray(tabs) || tabs.length === 0) return null;

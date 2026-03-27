@@ -11,7 +11,7 @@ import * as Sentry from "@sentry/nextjs";
 
 const isDev = process.env.NODE_ENV === "development";
 
-// Components that may be expensive to render — measure their render time
+// Components that may be expensive to render - measure their render time
 const EXPENSIVE_COMPONENTS = new Set(["sandbox", "code_editor", "map", "spreadsheet", "chart"]);
 
 // ── Component Error Card ──────────────────────────────────────────────────────
@@ -165,7 +165,7 @@ function CanvasRendererInner({
       );
     }
 
-    // Sentry breadcrumbs — track repair frequency for prompt tuning
+    // Sentry breadcrumbs - track repair frequency for prompt tuning
     for (const repair of fixed.repairs) {
       Sentry.addBreadcrumb({
         category: "autofix",
@@ -223,7 +223,7 @@ function CanvasRendererInner({
     const validatedProps = result.data as Record<string, unknown>;
     const isExpensive = EXPENSIVE_COMPONENTS.has(fixed.component);
 
-    isDev && console.log("[Jarble:Render] Rendering", fixed.component, "— props keys:", Object.keys(validatedProps), "block:", block.id);
+    isDev && console.log("[Jarble:Render] Rendering", fixed.component, " - props keys:", Object.keys(validatedProps), "block:", block.id);
 
     // For expensive components, measure render time
     const renderStart = isExpensive ? Date.now() : 0;

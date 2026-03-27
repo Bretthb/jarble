@@ -34,7 +34,7 @@ export default function DeploymentChatPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useAuth0();
 
-  // Auth redirect — must be before any early returns (hooks can't be after conditionals)
+  // Auth redirect - must be before any early returns (hooks can't be after conditionals)
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       router.replace("/login");

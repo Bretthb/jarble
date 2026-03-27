@@ -1,6 +1,6 @@
 "use client";
 
-// TODO: Re-enable for post-MVP — Linked Deployments graph view
+// TODO: Re-enable for post-MVP - Linked Deployments graph view
 // import dynamic from "next/dynamic";
 // const Deployments = dynamic(() => import("@/views/Deployments"), {
 //   ssr: false,

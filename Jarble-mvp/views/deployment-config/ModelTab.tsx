@@ -51,7 +51,7 @@ const BYOK_MODELS: Record<string, { id: string; name: string }[]> = {
   ],
 };
 
-// Jarble Managed uses OpenRouter — all models are available
+// Jarble Managed uses OpenRouter - all models are available
 const MANAGED_MODELS = [
   { id: "openrouter/auto", name: "Auto (Recommended)", group: "OpenRouter" },
   { id: "anthropic/claude-opus-4.5", name: "Claude Opus 4.5", group: "Anthropic" },
@@ -220,7 +220,7 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
 
   const cancelMutation = trpc.openrouter.cancelManagedKey.useMutation({
     onSuccess: () => {
-      toast.success("Managed key cancelled — switched to BYOK mode");
+      toast.success("Managed key cancelled - switched to BYOK mode");
       window.location.reload();
     },
     onError: (err: { message?: string }) => {
@@ -249,7 +249,7 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
 
   const usage = usageQuery.data;
   const keyHash = deployment.llmApiKeyId;
-  const maskedKey = keyHash ? `...${keyHash.slice(-8)}` : "—";
+  const maskedKey = keyHash ? `...${keyHash.slice(-8)}` : " - ";
   const isDisabled = usage?.disabled ?? false;
 
   const handleUpdateLimit = () => {

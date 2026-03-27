@@ -54,7 +54,7 @@ export default function Dashboard() {
     enabled: isAuthenticated && !authLoading,
   });
 
-  // Real-time status stream — pushes status changes via SSE
+  // Real-time status stream - pushes status changes via SSE
   const { getStatus: getLiveStatus } = useStatusStream({
     enabled: isAuthenticated && !authLoading,
   });
@@ -134,7 +134,7 @@ export default function Dashboard() {
     [exportMutation]
   );
 
-  // Batch storage query — one request for all running deployments instead of N
+  // Batch storage query - one request for all running deployments instead of N
   const runningIds = (deploymentsQuery.data ?? [])
     .filter((d) => {
       const live = getLiveStatus(d.id)?.status;
@@ -420,7 +420,7 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData
           {isPending && (
             <div className="mb-3 px-3 py-2 rounded-md bg-secondary border border-border flex items-center gap-2">
               <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-              <span className="text-xs font-medium text-muted-foreground">Setup incomplete — click to finish</span>
+              <span className="text-xs font-medium text-muted-foreground">Setup incomplete - click to finish</span>
             </div>
           )}
 

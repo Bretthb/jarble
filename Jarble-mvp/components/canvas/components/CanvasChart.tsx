@@ -58,7 +58,7 @@ function CanvasChartInner({
     const ctx = useCanvasAction();
     dispatch = ctx.dispatch;
   } catch {
-    // Not inside CanvasActionProvider — interactivity disabled
+    // Not inside CanvasActionProvider - interactivity disabled
   }
 
   if (!data || data.length === 0 || !dataKeys || dataKeys.length === 0) {

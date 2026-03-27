@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * Wizard Step Config — Single source of truth for onboarding wizard steps
+ * Wizard Step Config - Single source of truth for onboarding wizard steps
  * AND deployment config dashboard tabs
  * ═══════════════════════════════════════════════════════════════════════
  *
@@ -12,7 +12,7 @@
  *
  * HOW TO ADD A NEW RUNTIME'S STEPS:
  *   1. Add an entry to RUNTIME_EXTRA_STEPS with the runtime's slug as key
- *   2. List the step objects in order — each needs { id, title, icon }
+ *   2. List the step objects in order - each needs { id, title, icon }
  *   3. If any step ID is new (not "llm", "deploy", or "telegram"),
  *      go to OnboardingWizard.tsx and add a render block:
  *        {currentStepId === "yourid" && <YourStepComponent />}
@@ -28,11 +28,11 @@
  *
  * HOW TO CHANGE HARDWARE OPTIONS:
  *   Edit CPU_OPTIONS, MEMORY_OPTIONS, or STORAGE_OPTIONS below.
- *   Each has { value, label } — the wizard buttons update automatically.
+ *   Each has { value, label } - the wizard buttons update automatically.
  *   The "recommended" badge comes from the runtime_catalog DB table,
  *   not from these arrays.
  *
- * EXAMPLE — Adding a "discordbot" runtime with Discord + Deploy steps:
+ * EXAMPLE - Adding a "discordbot" runtime with Discord + Deploy steps:
  *
  *   // 1. In this file, add to RUNTIME_EXTRA_STEPS:
  *   discordbot: [
@@ -45,7 +45,7 @@
  *
  *   // 3. Create the StepConnectDiscord component (inline or separate file)
  *
- *   That's it — progress bar, navigation, and button text adapt automatically.
+ *   That's it - progress bar, navigation, and button text adapt automatically.
  *
  * HOW TO CHANGE CONFIG DASHBOARD TABS FOR A RUNTIME:
  *   1. Edit RUNTIME_CONFIG_TABS below (same pattern as RUNTIME_EXTRA_STEPS)
@@ -54,7 +54,7 @@
  *        {activeTab === "yourid" && <YourTabComponent />}
  *   3. Universal tabs (General, Advanced) are always shown for every runtime.
  *
- *   Example — Adding a "discordbot" runtime with Model + Platforms tabs:
+ *   Example - Adding a "discordbot" runtime with Model + Platforms tabs:
  *     discordbot: [
  *       { id: "model", label: "Model", icon: Bot },
  *       { id: "platforms", label: "Platforms", icon: Link2 },
@@ -75,7 +75,7 @@ import type { LucideIcon } from "lucide-react";
 // ─── Types ───────────────────────────────────────────────────────────
 
 export interface WizardStepDef {
-  id: string;       // Unique step ID — used to match render blocks in OnboardingWizard.tsx
+  id: string;       // Unique step ID - used to match render blocks in OnboardingWizard.tsx
   title: string;    // Shown in the progress bar
   icon: LucideIcon; // Lucide icon component shown in the progress circle
 }
@@ -84,7 +84,7 @@ export interface LLMProviderDef {
   id: "openrouter" | "openai" | "anthropic" | "google";
   name: string;         // Display name in the provider grid
   description: string;  // Short description shown under the name
-  keyPrefix: string;    // Used for auto-detection — matched longest-first (e.g. "sk-ant-" before "sk-")
+  keyPrefix: string;    // Used for auto-detection - matched longest-first (e.g. "sk-ant-" before "sk-")
   keyPlaceholder: string; // Placeholder text for the API key input
   keyUrl: string;       // Link to where users can get their API key
   recommended?: boolean; // Shows a "Recommended" badge on the provider card
@@ -114,7 +114,7 @@ export const UNIVERSAL_STEPS: WizardStepDef[] = [
 // in OnboardingWizard.tsx (see HOW TO at top of file).
 
 const RUNTIME_EXTRA_STEPS: Record<string, WizardStepDef[]> = {
-  // OpenClaw — AI multi-platform bot, needs LLM config then deploy
+  // OpenClaw - AI multi-platform bot, needs LLM config then deploy
   // Platform connections happen conversationally after deploy via Tambo chat
   openclaw: [
     { id: "llm", title: "LLM Setup", icon: Sparkles },
@@ -130,7 +130,7 @@ const RUNTIME_EXTRA_STEPS: Record<string, WizardStepDef[]> = {
   // ],
 };
 
-// Fallback for unknown/new runtimes that aren't listed above — just deploy
+// Fallback for unknown/new runtimes that aren't listed above - just deploy
 const DEFAULT_EXTRA_STEPS: WizardStepDef[] = [
   { id: "deploy", title: "Deploy", icon: Rocket },
 ];
@@ -149,7 +149,7 @@ const DEFAULT_EXTRA_STEPS: WizardStepDef[] = [
 // Runtime-specific tabs: Model, Platforms, Skills, etc.
 
 export interface ConfigTabDef {
-  id: string;         // Unique tab ID — used to match render blocks in DeploymentConfiguration.tsx
+  id: string;         // Unique tab ID - used to match render blocks in DeploymentConfiguration.tsx
   label: string;      // Shown in the sidebar navigation
   icon: LucideIcon;   // Lucide icon component
 }
@@ -161,7 +161,7 @@ export const UNIVERSAL_CONFIG_TABS: ConfigTabDef[] = [
 
 // Runtime-specific tabs (inserted between General and Advanced)
 const RUNTIME_CONFIG_TABS: Record<string, ConfigTabDef[]> = {
-  // OpenClaw — AI WhatsApp bot, needs Model + Platforms
+  // OpenClaw - AI WhatsApp bot, needs Model + Platforms
   openclaw: [
     { id: "model", label: "Model", icon: Bot },
     { id: "platforms", label: "Platforms", icon: Link2 },
@@ -175,7 +175,7 @@ const RUNTIME_CONFIG_TABS: Record<string, ConfigTabDef[]> = {
   // ],
 };
 
-// Fallback for unknown runtimes — show Model + Platforms
+// Fallback for unknown runtimes - show Model + Platforms
 const DEFAULT_CONFIG_TABS: ConfigTabDef[] = [
   { id: "model", label: "Model", icon: Bot },
   { id: "platforms", label: "Platforms", icon: Link2 },
@@ -251,7 +251,7 @@ export const LLM_PROVIDERS: LLMProviderDef[] = [
 //
 // Each model belongs to a provider. The UI filters this list by the
 // currently selected provider (or shows all for OpenRouter/included).
-// To add a new model, just add it here — the dropdown updates automatically.
+// To add a new model, just add it here - the dropdown updates automatically.
 //
 // The model with isDefault: true is pre-selected when switching providers.
 // For "Included Credits" mode, the default is always "openrouter/auto".
@@ -301,11 +301,11 @@ export interface ManagedKeyPlanDef {
 }
 
 export const MANAGED_KEY_PLANS: ManagedKeyPlanDef[] = [
-  { value: 5,   label: "$5/mo",   description: "Light usage — great for testing & small bots",   isDefault: true },
-  { value: 10,  label: "$10/mo",  description: "Moderate usage — handles a few hundred messages" },
-  { value: 25,  label: "$25/mo",  description: "Active usage — supports busy bots with frequent conversations" },
-  { value: 50,  label: "$50/mo",  description: "Heavy usage — high-volume bots and power users" },
-  { value: 100, label: "$100/mo", description: "Enterprise — maximum capacity for production workloads" },
+  { value: 5,   label: "$5/mo",   description: "Light usage - great for testing & small bots",   isDefault: true },
+  { value: 10,  label: "$10/mo",  description: "Moderate usage - handles a few hundred messages" },
+  { value: 25,  label: "$25/mo",  description: "Active usage - supports busy bots with frequent conversations" },
+  { value: 50,  label: "$50/mo",  description: "Heavy usage - high-volume bots and power users" },
+  { value: 100, label: "$100/mo", description: "Enterprise - maximum capacity for production workloads" },
 ];
 
 export const DEFAULT_MANAGED_KEY_PLAN = MANAGED_KEY_PLANS.find((p) => p.isDefault)?.value ?? 5;

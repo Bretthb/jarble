@@ -15,7 +15,7 @@ export interface MarketplaceSandboxProps {
   title?: string;
   /** CDN libraries to load (e.g. ["https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"]) */
   libraries?: string[];
-  /** Marketplace component ID — triggers double-iframe mode */
+  /** Marketplace component ID - triggers double-iframe mode */
   marketplaceId?: string;
 }
 
@@ -31,7 +31,7 @@ function escapeAttr(s: string): string {
 /**
  * Sanitize the html prop: extract inline <script> content into JS,
  * extract <script src> URLs into libraries, strip structural tags.
- * LLMs often dump full HTML documents into the html prop — this normalizes them.
+ * LLMs often dump full HTML documents into the html prop - this normalizes them.
  */
 function sanitizeHtmlProp(
   html: string,
@@ -95,7 +95,7 @@ function sanitizeHtmlProp(
   ) {
     isDev &&
       console.log(
-        "[Jarble:MarketplaceSandbox] Sanitized html prop — extracted",
+        "[Jarble:MarketplaceSandbox] Sanitized html prop - extracted",
         extractedJs.length,
         "script blocks,",
         extractedLibs.length - (existingLibs?.length || 0),
@@ -112,7 +112,7 @@ function sanitizeHtmlProp(
 /**
  * Build the inner iframe's HTML document.
  *
- * This is the same format as CanvasSandbox's buildDocument() — it has
+ * This is the same format as CanvasSandbox's buildDocument() - it has
  * the error handler, props bridge, library loader, user JS execution.
  * The inner iframe runs inside the outer iframe's sandbox, giving it
  * an opaque origin with NO access to the parent page.
@@ -172,7 +172,7 @@ function buildInnerDocument(
 <body>
 ${html}
 <script>
-// Error overlay — show errors visually AND report to parent (outer iframe bridge)
+// Error overlay - show errors visually AND report to parent (outer iframe bridge)
 window.onerror = function(msg, src, line, col, err) {
   console.error("[Jarble:MarketplaceSandbox:Inner] Error:", msg, src, line, col);
   var d = document.createElement("div");
@@ -268,7 +268,7 @@ setTimeout(function() {
     error: { message: "Sandbox execution timeout (30s)", source: "", line: 0, column: 0, stack: "" }
   }, "*");
 }, 30000);
-// Dynamic library loader — guarantees scripts are fully loaded before user JS runs
+// Dynamic library loader - guarantees scripts are fully loaded before user JS runs
 (function() {
   var libs = ${libsJson};
   var loaded = 0;
@@ -296,12 +296,11 @@ setTimeout(function() {
  * Build the outer iframe's HTML document.
  *
  * The outer iframe contains:
- * 1. A strict CSP (no connect-src, no img-src — only the inner iframe needs those)
+ * 1. A strict CSP (no connect-src, no img-src - only the inner iframe needs those)
  * 2. The inner iframe element with sandbox="allow-scripts"
  * 3. A postMessage bridge that relays messages between inner iframe and main app
  *
- * The outer iframe itself runs at about:blank with sandbox="allow-scripts" —
- * it has NO same-origin access to the main app.
+ * The outer iframe itself runs at about:blank with sandbox="allow-scripts" - * it has NO same-origin access to the main app.
  */
 function buildOuterDocument(): string {
   const outerCsp = [
@@ -418,7 +417,7 @@ function MarketplaceSandboxInner({
 
   isDev &&
     console.log(
-      "[Jarble:MarketplaceSandbox] Render — html:",
+      "[Jarble:MarketplaceSandbox] Render - html:",
       html?.length,
       "chars, css:",
       css?.length || 0,
@@ -481,7 +480,7 @@ function MarketplaceSandboxInner({
 
       if (e.data?.type === "jarble:error") {
         const rawError = e.data.error;
-        // Normalize error — sometimes structured clone produces empty objects
+        // Normalize error - sometimes structured clone produces empty objects
         const errorInfo =
           rawError && typeof rawError === "object" && rawError.message
             ? rawError
@@ -537,8 +536,8 @@ function MarketplaceSandboxInner({
     // Create outer iframe programmatically
     const outerIframe = document.createElement("iframe");
     outerIframe.sandbox.add("allow-scripts");
-    // NO allow-same-origin — outer iframe gets opaque origin
-    // NO allow-popups — marketplace components should not open popups
+    // NO allow-same-origin - outer iframe gets opaque origin
+    // NO allow-popups - marketplace components should not open popups
     outerIframe.style.cssText =
       "flex:1;width:100%;min-height:0;border:none;border-radius:8px;background:transparent";
     outerIframe.allow = "autoplay; fullscreen";
@@ -591,17 +590,17 @@ function MarketplaceSandboxInner({
 
   const handleStop = useCallback(() => {
     if (stopped) {
-      // Restart — un-stop so the outer iframe re-creates
+      // Restart - un-stop so the outer iframe re-creates
       setStopped(false);
       isDev && console.log("[Jarble:MarketplaceSandbox] Restarted");
     } else {
-      // Stop — destroy the outer iframe to kill all JS execution
+      // Stop - destroy the outer iframe to kill all JS execution
       setStopped(true);
       readyRef.current = false;
       bridgeReadyRef.current = false;
       isDev &&
         console.log(
-          "[Jarble:MarketplaceSandbox] Stopped — outer iframe destroyed",
+          "[Jarble:MarketplaceSandbox] Stopped - outer iframe destroyed",
         );
     }
   }, [stopped]);
@@ -681,7 +680,7 @@ function MarketplaceSandboxInner({
           }}
           className="rounded-lg bg-muted/30 text-muted-foreground text-sm"
         >
-          Sandbox stopped — click Restart to resume
+          Sandbox stopped - click Restart to resume
         </div>
       ) : (
         <div

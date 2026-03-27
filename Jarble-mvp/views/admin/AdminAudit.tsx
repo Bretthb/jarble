@@ -54,7 +54,7 @@ export default function AdminAudit() {
                   </TableCell>
                   <TableCell>
                     <div className="text-sm">
-                      <p>{log.userName || "—"}</p>
+                      <p>{log.userName || " - "}</p>
                       <p className="text-muted-foreground text-xs">
                         {log.userEmail}
                       </p>
@@ -74,7 +74,7 @@ export default function AdminAudit() {
                   <TableCell className="text-xs max-w-xs truncate">
                     {log.metadata
                       ? JSON.stringify(log.metadata)
-                      : "—"}
+                      : " - "}
                   </TableCell>
                 </TableRow>
               ))}

@@ -171,9 +171,9 @@ export default function Privacy() {
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <p>We process your personal data under the following legal bases:</p>
                 <ul className="list-disc pl-6 space-y-1.5">
-                  <li><strong>Contract performance</strong> (Art. 6(1)(b)): Processing necessary to provide the Service you signed up for — account management, deployment operations, payment processing</li>
-                  <li><strong>Legitimate interest</strong> (Art. 6(1)(f)): Error monitoring, security, fraud prevention, and product improvement — where our interest does not override your rights</li>
-                  <li><strong>Consent</strong> (Art. 6(1)(a)): Analytics tracking, marketing communications — which you may withdraw at any time</li>
+                  <li><strong>Contract performance</strong> (Art. 6(1)(b)): Processing necessary to provide the Service you signed up for - account management, deployment operations, payment processing</li>
+                  <li><strong>Legitimate interest</strong> (Art. 6(1)(f)): Error monitoring, security, fraud prevention, and product improvement - where our interest does not override your rights</li>
+                  <li><strong>Consent</strong> (Art. 6(1)(a)): Analytics tracking, marketing communications - which you may withdraw at any time</li>
                 </ul>
               </div>
             </section>
@@ -233,7 +233,7 @@ export default function Privacy() {
                   Jarble is a <strong>deployment platform</strong>, not an AI model provider. With respect to the EU AI Act:
                 </p>
                 <ul className="list-disc pl-6 space-y-1.5">
-                  <li>We do not develop or train AI models — users choose their own LLM provider</li>
+                  <li>We do not develop or train AI models - users choose their own LLM provider</li>
                   <li>Users configure their own system prompts and guardrails for bot behavior</li>
                   <li>We apply platform-level safety defaults, but users retain responsibility for their deployment configurations</li>
                   <li>No automated decisions with legal or similarly significant effects are made by the platform itself</li>
@@ -247,10 +247,10 @@ export default function Privacy() {
               <div className="text-muted-foreground leading-relaxed space-y-3">
                 <p>We actively minimize the data we collect and retain:</p>
                 <ul className="list-disc pl-6 space-y-1.5">
-                  <li>UI component blocks are stripped from chat messages before storage — only the text content is retained</li>
+                  <li>UI component blocks are stripped from chat messages before storage - only the text content is retained</li>
                   <li>Chat session titles are auto-generated from the first user message and truncated</li>
                   <li>Sentry error monitoring uses a 10% sampling rate, capturing only a fraction of events</li>
-                  <li>PostHog analytics operates in identified-only mode — no anonymous visitor tracking</li>
+                  <li>PostHog analytics operates in identified-only mode - no anonymous visitor tracking</li>
                   <li>We collect only the data fields necessary to operate each feature</li>
                 </ul>
               </div>

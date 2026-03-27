@@ -27,8 +27,7 @@ function CanvasBlockquoteInner({ text, attribution, variant = "default" }: Canva
     >
       <p className="text-sm text-foreground italic">{text}</p>
       {attribution && (
-        <footer className="mt-1.5 text-xs text-muted-foreground">
-          — {attribution}
+        <footer className="mt-1.5 text-xs text-muted-foreground"> - {attribution}
         </footer>
       )}
     </motion.blockquote>

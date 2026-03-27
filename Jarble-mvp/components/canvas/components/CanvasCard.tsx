@@ -97,7 +97,7 @@ function CanvasCardInner({
           </div>
         )}
 
-        {/* Title separator — only when there is a title AND content below it */}
+        {/* Title separator - only when there is a title AND content below it */}
         {title && (subtitle || body || content) && (
           <div className="h-px w-full bg-border/60" />
         )}

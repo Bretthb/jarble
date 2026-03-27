@@ -65,7 +65,7 @@ export function StripePaymentForm({ onSuccess, priceLabel }: StripePaymentFormPr
             Processing…
           </>
         ) : (
-          `Subscribe — ${priceLabel}`
+          `Subscribe - ${priceLabel}`
         )}
       </Button>
     </form>

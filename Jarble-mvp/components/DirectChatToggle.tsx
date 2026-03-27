@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Tambo toggle — switches between orchestrated mode (Tambo in the middle)
+ * Tambo toggle - switches between orchestrated mode (Tambo in the middle)
  * and direct mode (raw streaming to bot).
  *
  * ON (default):  User ←→ Tambo ←→ Bot  (management + chat, rich components)
@@ -31,7 +31,7 @@ export default function TamboToggle({
           ? "border-primary/40 bg-primary/10 text-primary"
           : "border-border/60 bg-secondary/30 text-muted-foreground hover:text-foreground"
       } disabled:opacity-40 disabled:cursor-not-allowed`}
-      title={enabled ? "Tambo ON — orchestrated mode" : "Tambo OFF — direct to bot"}
+      title={enabled ? "Tambo ON - orchestrated mode" : "Tambo OFF - direct to bot"}
     >
       <Sparkles className="w-3.5 h-3.5" />
       Tambo {enabled ? "ON" : "OFF"}

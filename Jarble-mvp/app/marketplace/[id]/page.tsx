@@ -50,7 +50,7 @@ export default function MarketplaceDetailPage() {
   const [selectedDeployment, setSelectedDeployment] = useState<string | null>(null);
   const [installState, setInstallState] = useState<"idle" | "installing" | "installed">("idle");
 
-  // tRPC queries — fully typed
+  // tRPC queries - fully typed
   const componentQuery = trpc.marketplace.getById.useQuery(
     { id },
     { enabled: !!id }

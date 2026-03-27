@@ -54,7 +54,7 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
     const ctx = useCanvasAction();
     dispatch = ctx.dispatch;
   } catch {
-    // Not inside CanvasActionProvider — interactivity disabled
+    // Not inside CanvasActionProvider - interactivity disabled
   }
 
   // Infer columns from first object row if not provided

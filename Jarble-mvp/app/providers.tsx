@@ -41,7 +41,7 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
     const client = new QueryClient({
       defaultOptions: {
         queries: {
-          // Don't refetch on window focus while auth is settling — this prevents
+          // Don't refetch on window focus while auth is settling - this prevents
           // the race condition where React Query refetches after Auth0 redirect
           // but the token isn't ready yet.
           refetchOnWindowFocus: () => !authRef.current.isLoading,
@@ -71,7 +71,7 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
       if (event.type === "updated" && event.action.type === "error") {
         const error = event.query.state.error;
         redirectToLoginIfUnauthorized(error);
-        // Only log if auth is settled — suppress noise during auth callback
+        // Only log if auth is settled - suppress noise during auth callback
         if (!authRef.current.isLoading) {
           console.error("[API Query Error]", error);
         }
@@ -97,7 +97,7 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
           url: `${API_URL}/trpc`,
           transformer: superjson,
           async headers() {
-            // Always attempt to get the token — getAccessTokenSilently() can
+            // Always attempt to get the token - getAccessTokenSilently() can
             // resolve from the cache or refresh token even before isAuthenticated
             // flips to true (e.g. during Auth0 callback processing).
             try {
@@ -106,7 +106,7 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
                 return { Authorization: `Bearer ${token}` };
               }
             } catch {
-              // No token available — send request without auth header
+              // No token available - send request without auth header
             }
             return {};
           },

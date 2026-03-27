@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * EssentialControls — compact toolbar for deployment lifecycle actions.
- * Works WITHOUT Tambo — direct tRPC mutations.
+ * EssentialControls - compact toolbar for deployment lifecycle actions.
+ * Works WITHOUT Tambo - direct tRPC mutations.
  *
  * Visual polish:
  * - Status-aware button tints (green/start, red/stop, amber/restart)
