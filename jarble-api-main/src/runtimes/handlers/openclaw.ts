@@ -142,7 +142,7 @@ Each block: \`{"component": "<name>", "props": {...}, "layout_hint": "<hint>"}\`
 ### Design Principles
 - **Visually appealing & professional** — Every component should look polished. Use real data, add descriptive titles/subtitles, include units and context. For charts: add gradient fills, meaningful colors, formatted axis labels. For tables: align columns properly, use status badges. For cards: use markdown formatting (bold, lists). Think "investor pitch deck" quality, not "code demo".
 - **Rich color & visual variety** — Use chart colors intentionally (green for growth, red for decline). Include images when relevant (Unsplash). Use \`stat_grid\` with trend indicators, \`metric_card\` with sparklines, \`timeline\` with status colors. Make dashboards that tell a visual story.
-- **SANDBOX-FIRST RULE (CRITICAL)**: For dashboards, analytics, charts, data visualizations, and any request with 2+ visual elements — ALWAYS use a SINGLE \`sandbox\` component. Build the entire UI in one sandbox using HTML + Tailwind CSS + Chart.js/D3. Do NOT split into multiple typed components (metric_card, chart, data_table). One sandbox = one cohesive dashboard with consistent styling, proper layout, and professional polish. This produces dramatically better results than combining separate typed components.
+- **SANDBOX-FIRST RULE**: For simple dashboards and multi-component requests you can handle yourself, prefer a single \`sandbox\` component. For complex requests involving data processing + multiple visualizations, use \`compose_dashboard\` or delegate to your Agent Pool (Data Agent for data, Component Agent for components).
 - **When to use typed components instead**: ONLY for simple, standalone content — a single alert, a single metric display, a quick list, a simple image. If the user asks for something that would need 2+ typed components, use sandbox instead.
 - **Group related items into ONE card** — "Top 5 wonders" = 1 \`carousel\` or \`tabs\` card, NOT 5 separate cards. Lists of similar items belong in a single multi-item component.
 - **If using multiple components**: Emit SEPARATE \`\`\`jarble_ui blocks for each — one block per card. Do NOT wrap inside a \`layout\` container.
@@ -480,8 +480,25 @@ export const openclawHandler: RuntimeHandler = {
       if (poolSections.length > 0) {
         soulParts.push(
           `## Your Agent Pool\n` +
-          `You are an orchestrator with access to specialist agents. Call them as MCP tools — same as render_ui or web_search.\n` +
-          `IMPORTANT: Do NOT use call_agent or discover_agents for these. Call the tool name directly with a "task" argument.\n\n` +
+          `You are an orchestrator. For complex, multi-part tasks, delegate to your specialist agents instead of doing everything yourself.\n\n` +
+          `### When to Delegate\n` +
+          `- **Simple request** (single chart, quick answer, one component): Handle it yourself with render_ui or sandbox. Fast and direct.\n` +
+          `- **Dashboard or multi-component request** (3+ visual elements): Use \`compose_dashboard\` — it runs agents in parallel for faster results.\n` +
+          `- **Data + visualization** (user provides data or asks for analytics): Call \`delegate_to_data_agent\` first to process/structure the data, then use the result in your visualization.\n` +
+          `- **Multi-step pipeline** (analyze → transform → visualize): Call agents sequentially — each one's output feeds the next.\n\n` +
+          `### How to Call Agents\n` +
+          `All agents are MCP tools. Call them the same way you call render_ui or web_search. Pass a "task" string argument.\n` +
+          `IMPORTANT: Do NOT use call_agent or discover_agents for these. Call the tool name directly.\n\n` +
+          `### Orchestration Patterns\n` +
+          `**Pattern 1 — Data-First Pipeline:**\n` +
+          `1. Call \`delegate_to_data_agent\` with task: "Analyze this data and return chart_data format"\n` +
+          `2. Use the structured result in your \`render_ui\` or sandbox call\n\n` +
+          `**Pattern 2 — Parallel Dashboard:**\n` +
+          `Call \`compose_dashboard\` with multiple component intents — agents generate each component in parallel\n\n` +
+          `**Pattern 3 — Sequential Multi-Agent:**\n` +
+          `1. Call \`delegate_to_data_agent\` for data processing\n` +
+          `2. Call \`create_component\` for custom component generation\n` +
+          `3. Combine results in your response\n\n` +
           poolSections.join("\n\n")
         );
       }

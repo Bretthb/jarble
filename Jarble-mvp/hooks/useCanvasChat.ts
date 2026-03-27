@@ -1181,13 +1181,42 @@ export function useCanvasChat(
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
-        // Format diagnosis as a readable chat message
+        // Format diagnosis as a brief, actionable summary
         const healthEmoji = data.overallHealth === "healthy" ? "✅" : data.overallHealth === "degraded" ? "⚠️" : "❌";
-        const lines = [`${healthEmoji} **Diagnosis: ${data.overallHealth}**`, ""];
-        for (const check of data.checks) {
-          const icon = check.status === "ok" ? "✅" : check.status === "warning" ? "⚠️" : check.status === "error" ? "❌" : "⏭️";
-          lines.push(`${icon} **${check.name}**: ${check.detail}`);
-          if (check.suggestion) lines.push(`   → ${check.suggestion}`);
+        let lines: string[];
+
+        if (data.overallHealth === "healthy") {
+          // Clean restart — brief message
+          lines = [`${healthEmoji} Bot restarted successfully. Try sending your message again.`];
+        } else if (data.overallHealth === "degraded") {
+          // Filter to only actual issues (skip cosmetic permission warnings)
+          const cosmeticPatterns = [
+            "permissions are too open",
+            "group/world readable",
+            "ps not available",
+          ];
+          const issues = (data.checks || []).filter((c: any) =>
+            c.status !== "ok" &&
+            !cosmeticPatterns.some((p) => c.detail?.includes(p))
+          );
+          if (issues.length === 0) {
+            // All warnings are cosmetic — treat as healthy
+            lines = [`✅ Bot restarted successfully. Try sending your message again.`];
+          } else {
+            lines = [`${healthEmoji} Bot restarted with warnings:`];
+            for (const check of issues) {
+              lines.push(`  ${check.status === "error" ? "❌" : "⚠️"} **${check.name}**: ${check.detail}`);
+            }
+            lines.push("", "Try sending your message again.");
+          }
+        } else {
+          // Unhealthy — show full diagnostics so user can report/debug
+          lines = [`${healthEmoji} **Diagnosis: ${data.overallHealth}**`, ""];
+          for (const check of data.checks || []) {
+            const icon = check.status === "ok" ? "✅" : check.status === "warning" ? "⚠️" : check.status === "error" ? "❌" : "⏭️";
+            lines.push(`${icon} **${check.name}**: ${check.detail}`);
+            if (check.suggestion) lines.push(`   → ${check.suggestion}`);
+          }
         }
 
         // Replace the "diagnosing..." message with results

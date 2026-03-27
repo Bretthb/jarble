@@ -70,6 +70,17 @@ agentRouter.post("/component", async (req: Request, res: Response) => {
   const deploymentId = (req as any).podDeploymentId as string;
   logger.info({ deploymentId, intent, model }, "Component Agent: generating component");
 
+  const stepEvent: OrchestrationStepEvent = {
+    deploymentId,
+    stepId: `platform-component-${Date.now()}`,
+    agentType: "platform",
+    agentName: "Component Agent",
+    toolName: "create_component",
+    task: userMessage.slice(0, 200),
+  };
+  emitOrchestrationStart(stepEvent);
+  const startTime = Date.now();
+
   try {
     const result = await collectLlmCompletion({
       provider: provider as any,
@@ -88,10 +99,23 @@ agentRouter.post("/component", async (req: Request, res: Response) => {
       "Component Agent: component generated",
     );
 
+    emitOrchestrationEnd({
+      ...stepEvent,
+      success: true,
+      durationMs: Date.now() - startTime,
+      resultPreview: html.slice(0, 200),
+    });
+
     res.json({ html, model });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ deploymentId, intent, err: message }, "Component Agent: generation failed");
+    emitOrchestrationEnd({
+      ...stepEvent,
+      success: false,
+      durationMs: Date.now() - startTime,
+      error: message,
+    });
     res.status(500).json({ error: `Component generation failed: ${message}` });
   }
 });

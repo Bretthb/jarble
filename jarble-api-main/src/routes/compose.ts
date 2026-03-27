@@ -22,6 +22,7 @@ import { validateJsonSchema, autofixNativeProps } from "../utils/jsonSchemaValid
 import { runPipelineQA, type QAReport } from "../utils/qaValidators.js";
 import { env } from "../utils/env.js";
 import { createModuleLogger } from "../utils/logger.js";
+import { emitOrchestrationStart, emitOrchestrationEnd, type OrchestrationStepEvent } from "../utils/agentCallEvents.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -369,6 +370,17 @@ composeRouter.post("/", async (req: Request, res: Response) => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), GENERATE_TIMEOUT_MS);
 
+      const stepEvent: OrchestrationStepEvent = {
+        deploymentId,
+        stepId: `compose-${dashboardId}-slot-${index}`,
+        agentType: "platform",
+        agentName: "Component Agent",
+        toolName: "create_component",
+        task: slot.intent.slice(0, 200),
+      };
+      emitOrchestrationStart(stepEvent);
+      const slotStartTime = Date.now();
+
       if (slot.type === "native" && slot.component) {
         return callNativeAgent(
           slot.component, slot.intent, slot.data, themeTokens.chartPalette,
@@ -376,20 +388,34 @@ composeRouter.post("/", async (req: Request, res: Response) => {
         )
           .then(({ component, props }) => {
             clearTimeout(timeout);
+            const block = JSON.stringify({
+              component,
+              props,
+              dashboardId,
+              dashboardTitle: title,
+            });
+            emitOrchestrationEnd({
+              ...stepEvent,
+              success: true,
+              durationMs: Date.now() - slotStartTime,
+              resultPreview: block.slice(0, 200),
+            });
             return {
               type: "native" as const,
               slotIndex: index,
-              block: JSON.stringify({
-                component,
-                props,
-                dashboardId,
-                dashboardTitle: title,
-              }),
+              block,
             };
           })
           .catch((err) => {
             clearTimeout(timeout);
-            throw { index, intent: slot.intent, type: "native", message: err instanceof Error ? err.message : String(err) };
+            const message = err instanceof Error ? err.message : String(err);
+            emitOrchestrationEnd({
+              ...stepEvent,
+              success: false,
+              durationMs: Date.now() - slotStartTime,
+              error: message,
+            });
+            throw { index, intent: slot.intent, type: "native", message };
           });
       } else {
         return callSandboxAgent(
@@ -398,20 +424,34 @@ composeRouter.post("/", async (req: Request, res: Response) => {
         )
           .then((html) => {
             clearTimeout(timeout);
+            const block = JSON.stringify({
+              component: "sandbox",
+              props: { html, title: slot.intent },
+              dashboardId,
+              dashboardTitle: title,
+            });
+            emitOrchestrationEnd({
+              ...stepEvent,
+              success: true,
+              durationMs: Date.now() - slotStartTime,
+              resultPreview: block.slice(0, 200),
+            });
             return {
               type: "sandbox" as const,
               slotIndex: index,
-              block: JSON.stringify({
-                component: "sandbox",
-                props: { html, title: slot.intent },
-                dashboardId,
-                dashboardTitle: title,
-              }),
+              block,
             };
           })
           .catch((err) => {
             clearTimeout(timeout);
-            throw { index, intent: slot.intent, type: "sandbox", message: err instanceof Error ? err.message : String(err) };
+            const message = err instanceof Error ? err.message : String(err);
+            emitOrchestrationEnd({
+              ...stepEvent,
+              success: false,
+              durationMs: Date.now() - slotStartTime,
+              error: message,
+            });
+            throw { index, intent: slot.intent, type: "sandbox", message };
           });
       }
     }),
