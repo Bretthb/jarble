@@ -2,37 +2,73 @@
   "mcpServers": {
     "codegraphcontext": {
       "command": "bash",
-      "args": ["scripts/cgc-mcp.sh"],
+      "args": [
+        "scripts/cgc-mcp.sh"
+      ],
       "env": {
         "PYTHONIOENCODING": "utf-8"
       }
     },
     "jarble-debug": {
       "command": "bash",
-      "args": ["scripts/jarble-debug-mcp.sh"],
+      "args": [
+        "scripts/jarble-debug-mcp.sh"
+      ],
       "env": {
         "JARBLE_API_URL": "http://localhost:3001"
       }
     },
     "playwright": {
       "command": "C:\\nvm4w\\nodejs\\node.exe",
-      "args": ["C:\\nvm4w\\nodejs\\node_modules\\npm\\bin\\npx-cli.js", "-y", "@playwright/mcp@latest"]
+      "args": [
+        "C:\\nvm4w\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+        "-y",
+        "@playwright/mcp@latest"
+      ]
     },
     "chrome-devtools": {
       "command": "C:\\nvm4w\\nodejs\\node.exe",
-      "args": ["C:\\nvm4w\\nodejs\\node_modules\\npm\\bin\\npx-cli.js", "-y", "chrome-devtools-mcp@latest", "--autoConnect"]
+      "args": [
+        "C:\\nvm4w\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--autoConnect"
+      ]
     },
     "sentry": {
       "command": "C:\\nvm4w\\nodejs\\node.exe",
-      "args": ["C:\\nvm4w\\nodejs\\node_modules\\npm\\bin\\npx-cli.js", "-y", "@sentry/mcp-server@latest", "--access-token", "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"]
+      "args": [
+        "C:\\nvm4w\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+        "-y",
+        "@sentry/mcp-server@latest",
+        "--access-token",
+        "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"
+      ]
     },
     "vercel": {
       "command": "node",
-      "args": ["C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js", "-y", "--package", "@vercel/sdk", "--", "mcp", "start", "--bearer-token", "vcp_8OUpTHWcuMA9Tu7YBwZIWl1wySjSOpf6fk63PwbMjXCHG9zkxN1BF1E7"]
+      "args": [
+        "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+        "-y",
+        "--package",
+        "@vercel/sdk",
+        "--",
+        "mcp",
+        "start",
+        "--bearer-token",
+        "vcp_8OUpTHWcuMA9Tu7YBwZIWl1wySjSOpf6fk63PwbMjXCHG9zkxN1BF1E7"
+      ]
     },
     "auth0": {
       "command": "node",
-      "args": ["C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js", "-y", "@auth0/auth0-mcp-server", "run", "--tools", "*"],
+      "args": [
+        "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+        "-y",
+        "@auth0/auth0-mcp-server",
+        "run",
+        "--tools",
+        "*"
+      ],
       "env": {
         "DEBUG": "auth0-mcp"
       }
@@ -43,7 +79,18 @@
     },
     "terraform": {
       "command": "docker",
-      "args": ["run", "-i", "--rm", "-e", "TFE_TOKEN", "hashicorp/terraform-mcp-server:latest"]
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "TFE_TOKEN",
+        "hashicorp/terraform-mcp-server:latest"
+      ]
+    },
+    "linear": {
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp"
     }
   },
   "hooks": {
