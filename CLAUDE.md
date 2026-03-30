@@ -28,12 +28,13 @@ Each deployment gets a **web chat interface** (`/d/[id]`) where users interact w
 │   └── component-manifest/  # Single source of truth for component metadata
 ├── scripts/             # CI/build scripts + agent dev tooling
 │   └── agent-dev/       # Agent development scripts (formerly jarble-dev/)
-├── docs/                # Project documentation
-│   ├── work-sessions/   # Work session logs (formerly Work-Sessions/)
-│   ├── research/        # Research notes (formerly research/)
-│   ├── OVERVIEW.md      # Platform overview and architecture
+├── docs/                # Operational documentation
 │   ├── API-ENDPOINTS.md # Full API reference
-│   └── DEVELOPER-GUIDE.md # Developer walkthrough
+│   ├── DEVELOPER-GUIDE.md # Developer walkthrough
+│   ├── PRODUCTION-SETUP.md # Infrastructure setup & onboarding
+│   ├── RUNBOOK.md       # Operational runbook
+│   ├── ORCHESTRATION-SPEC.md # Flow engine spec
+│   └── audits/          # Security/code audit reports
 ├── infrastructure/      # Terraform IaC + Auth0 config
 └── runtimes/            # Bot runtime implementations (openclaw, zeroclaw)
 ```
