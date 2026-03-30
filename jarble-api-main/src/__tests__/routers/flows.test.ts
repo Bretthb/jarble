@@ -126,7 +126,6 @@ const TEST_USER = {
   name: "Test User",
   auth0Id: "auth0|test-integration-001",
   emailVerified: true,
-  freeDeploymentUsed: false,
 };
 
 const VALID_DEFINITION = {
@@ -263,8 +262,8 @@ describe("flows router", () => {
 
       // Create another user and their flow directly in DB
       ctx.raw.exec(`
-        INSERT INTO users (id, email, name, auth0_id, email_verified, free_deployment_used)
-        VALUES ('other-user', 'other@test.com', 'Other', 'auth0|other', 1, 0);
+        INSERT INTO users (id, email, name, auth0_id, email_verified)
+        VALUES ('other-user', 'other@test.com', 'Other', 'auth0|other', 1);
       `);
       ctx.raw.exec(`
         INSERT INTO orchestration_flows (id, user_id, name, definition, status, is_public, fork_count, created_at, updated_at)
@@ -344,8 +343,8 @@ describe("flows router", () => {
 
     it("throws NOT_FOUND for another user's flow", async () => {
       ctx.raw.exec(`
-        INSERT INTO users (id, email, name, auth0_id, email_verified, free_deployment_used)
-        VALUES ('other-user-2', 'other2@test.com', 'Other', 'auth0|other2', 1, 0);
+        INSERT INTO users (id, email, name, auth0_id, email_verified)
+        VALUES ('other-user-2', 'other2@test.com', 'Other', 'auth0|other2', 1);
       `);
       ctx.raw.exec(`
         INSERT INTO orchestration_flows (id, user_id, name, definition, status, is_public, fork_count, created_at, updated_at)
@@ -393,8 +392,8 @@ describe("flows router", () => {
 
     it("throws NOT_FOUND for another user's flow (ownership check)", async () => {
       ctx.raw.exec(`
-        INSERT INTO users (id, email, name, auth0_id, email_verified, free_deployment_used)
-        VALUES ('other-user-3', 'other3@test.com', 'Other', 'auth0|other3', 1, 0);
+        INSERT INTO users (id, email, name, auth0_id, email_verified)
+        VALUES ('other-user-3', 'other3@test.com', 'Other', 'auth0|other3', 1);
       `);
       ctx.raw.exec(`
         INSERT INTO orchestration_flows (id, user_id, name, definition, status, is_public, fork_count, created_at, updated_at)
@@ -500,8 +499,8 @@ describe("flows router", () => {
 
     it("throws FORBIDDEN for private flow of another user", async () => {
       ctx.raw.exec(`
-        INSERT INTO users (id, email, name, auth0_id, email_verified, free_deployment_used)
-        VALUES ('other-user-4', 'other4@test.com', 'Other', 'auth0|other4', 1, 0);
+        INSERT INTO users (id, email, name, auth0_id, email_verified)
+        VALUES ('other-user-4', 'other4@test.com', 'Other', 'auth0|other4', 1);
       `);
       ctx.raw.exec(`
         INSERT INTO orchestration_flows (id, user_id, name, definition, status, is_public, fork_count, created_at, updated_at)
@@ -515,8 +514,8 @@ describe("flows router", () => {
 
     it("allows forking a public flow from another user", async () => {
       ctx.raw.exec(`
-        INSERT INTO users (id, email, name, auth0_id, email_verified, free_deployment_used)
-        VALUES ('other-user-5', 'other5@test.com', 'Other', 'auth0|other5', 1, 0);
+        INSERT INTO users (id, email, name, auth0_id, email_verified)
+        VALUES ('other-user-5', 'other5@test.com', 'Other', 'auth0|other5', 1);
       `);
       ctx.raw.exec(`
         INSERT INTO orchestration_flows (id, user_id, name, definition, status, is_public, fork_count, created_at, updated_at)
@@ -553,8 +552,8 @@ describe("flows router", () => {
 
     it("throws NOT_FOUND for another user's flow", async () => {
       ctx.raw.exec(`
-        INSERT INTO users (id, email, name, auth0_id, email_verified, free_deployment_used)
-        VALUES ('other-user-6', 'other6@test.com', 'Other', 'auth0|other6', 1, 0);
+        INSERT INTO users (id, email, name, auth0_id, email_verified)
+        VALUES ('other-user-6', 'other6@test.com', 'Other', 'auth0|other6', 1);
       `);
       ctx.raw.exec(`
         INSERT INTO orchestration_flows (id, user_id, name, definition, status, is_public, fork_count, created_at, updated_at)

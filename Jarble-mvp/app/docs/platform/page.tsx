@@ -609,13 +609,6 @@ export default function PlatformPage() {
           Credit System
         </SectionHeading>
 
-        <SubHeading>Free Trial</SubHeading>
-        <p className="text-muted-foreground leading-relaxed">
-          New accounts receive a free trial with enough credits to create a
-          deployment and test basic functionality. No credit card is required to
-          start.
-        </p>
-
         <SubHeading>Billing</SubHeading>
         <p className="text-muted-foreground leading-relaxed">
           Jarble uses Stripe for billing. When using Included Credits, you

@@ -27,16 +27,6 @@ export const MOCK_RUNTIMES = [
   },
 ];
 
-export const MOCK_CAN_DEPLOY = {
-  freeUsed: false,
-  canDeploy: true,
-};
-
-export const MOCK_CAN_DEPLOY_NO_FREE = {
-  freeUsed: true,
-  canDeploy: true,
-};
-
 export const MOCK_LINKABLE_DEPLOYMENTS: Array<{
   id: string;
   name: string;
@@ -59,24 +49,6 @@ export async function mockRuntimeList(
       contentType: "application/json",
       body: JSON.stringify({
         result: { data: runtimes },
-      }),
-    });
-  });
-}
-
-/**
- * Intercept deployment.canDeploy tRPC query.
- */
-export async function mockCanDeploy(
-  page: Page,
-  data = MOCK_CAN_DEPLOY,
-) {
-  await page.route("**/trpc/deployment.canDeploy*", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        result: { data },
       }),
     });
   });
@@ -136,6 +108,5 @@ export async function mockKeyValidationFailure(page: Page) {
  */
 export async function setupWizardMocks(page: Page) {
   await mockRuntimeList(page);
-  await mockCanDeploy(page);
   await mockLinkableDeployments(page);
 }

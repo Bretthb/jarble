@@ -188,7 +188,6 @@ debugRouter.post("/seed-deployment", async (req, res) => {
         name: "Dev User",
         auth0Id,
         emailVerified: true,
-        freeDeploymentUsed: false,
       });
       user = await db.query.users.findFirst({ where: eq(usersTable.auth0Id, auth0Id) });
     }
@@ -212,9 +211,7 @@ debugRouter.post("/seed-deployment", async (req, res) => {
       description: "Auto-seeded for local testing",
       runtime: "openclaw",
       runtimeCatalogId: 1,
-      isFree: true,
       monthlyPriceCents: 0,
-      freeExpiresAt: expiresAt,
       llmMode: "byok",
       llmProvider: "openrouter",
       llmModel: "openrouter/auto",

@@ -17,8 +17,6 @@ export const users = sqliteTable("users", {
   role: text("role").notNull().default("user"),
   stripeCustomerId: text("stripe_customer_id"),
   pendingStripeSubscriptionId: text("pending_stripe_subscription_id"),
-  freeDeploymentUsed: integer("free_deployment_used", { mode: "boolean" }).notNull().default(false),
-  freeTrialExpiresAt: text("free_trial_expires_at"),
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 });
@@ -32,9 +30,7 @@ export const deployments = sqliteTable("deployments", {
   deploymentType: text("deployment_type").notNull().default("agent"), // "agent" | "container" | "website" — determines K8s scheduling
   image: text("image"),
   runtimeCatalogId: integer("runtime_catalog_id").references(() => runtimeCatalog.id),
-  isFree: integer("is_free", { mode: "boolean" }).notNull().default(false),
   monthlyPriceCents: integer("monthly_price_cents").notNull().default(0),
-  freeExpiresAt: text("free_expires_at"),
   cpuLimit: text("cpu_limit"),        // e.g. "2.0" — overrides runtime_catalog default if set
   memoryMb: integer("memory_mb"),     // e.g. 2048 — RAM in MB, overrides runtime_catalog default
   storageMb: integer("storage_mb"),   // e.g. 30 — storage in GB (historical naming), overrides runtime_catalog default

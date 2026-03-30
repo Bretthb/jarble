@@ -29,7 +29,7 @@ vi.mock("../db/index.js", () => ({
     update: (...args: unknown[]) => mockUpdate(...args),
   },
   tables: {
-    deployments: { id: "id", status: "status", isFree: "isFree", isPlatform: "isPlatform" },
+    deployments: { id: "id", status: "status", isPlatform: "isPlatform" },
     users: {},
   },
 }));
@@ -83,9 +83,7 @@ function makeDep(overrides: Record<string, unknown> = {}) {
   return {
     id: "dep-test-001",
     userId: "user-001",
-    isFree: true,
     isPlatform: false,
-    freeExpiresAt: new Date(Date.now() + 86400000), // tomorrow
     stripeSubscriptionId: null,
     cancelAtPeriodEnd: null,
     error: null,
@@ -104,7 +102,6 @@ describe("enforceSubscriptionStatus", () => {
   it("skips platform deployments (isPlatform: true) without stopping them", async () => {
     const platformDep = makeDep({
       isPlatform: true,
-      isFree: false,
       stripeSubscriptionId: null,
     });
     mockFindMany.mockResolvedValue([platformDep]);
@@ -116,43 +113,28 @@ describe("enforceSubscriptionStatus", () => {
     // (mockUpdate may be called by the sweep's query but not for stopping)
   });
 
-  it("stops non-platform paid deployment without subscription", async () => {
-    const paidNoSub = makeDep({
+  it("stops non-platform deployment without subscription", async () => {
+    const noSub = makeDep({
       isPlatform: false,
-      isFree: false,
       stripeSubscriptionId: null,
     });
-    mockFindMany.mockResolvedValue([paidNoSub]);
+    mockFindMany.mockResolvedValue([noSub]);
 
     await enforceSubscriptionStatus();
 
     expect(mockStopDeployment).toHaveBeenCalledWith("dep-test-001");
   });
 
-  it("does not stop free deployment within trial period", async () => {
-    const freeDep = makeDep({
+  it("does not stop deployment with active subscription", async () => {
+    const subscribedDep = makeDep({
       isPlatform: false,
-      isFree: true,
-      freeExpiresAt: new Date(Date.now() + 86400000), // tomorrow
+      stripeSubscriptionId: "sub_active_123",
     });
-    mockFindMany.mockResolvedValue([freeDep]);
+    mockFindMany.mockResolvedValue([subscribedDep]);
 
     await enforceSubscriptionStatus();
 
     expect(mockStopDeployment).not.toHaveBeenCalled();
-  });
-
-  it("stops free deployment with expired trial", async () => {
-    const expiredDep = makeDep({
-      isPlatform: false,
-      isFree: true,
-      freeExpiresAt: new Date(Date.now() - 86400000), // yesterday
-    });
-    mockFindMany.mockResolvedValue([expiredDep]);
-
-    await enforceSubscriptionStatus();
-
-    expect(mockStopDeployment).toHaveBeenCalledWith("dep-test-001");
   });
 
   it("does nothing when no running deployments exist", async () => {
@@ -164,8 +146,8 @@ describe("enforceSubscriptionStatus", () => {
   });
 
   it("processes multiple deployments independently", async () => {
-    const platformDep = makeDep({ id: "dep-platform", isPlatform: true, isFree: false, stripeSubscriptionId: null });
-    const paidDep = makeDep({ id: "dep-paid", isPlatform: false, isFree: false, stripeSubscriptionId: null });
+    const platformDep = makeDep({ id: "dep-platform", isPlatform: true, stripeSubscriptionId: null });
+    const paidDep = makeDep({ id: "dep-paid", isPlatform: false, stripeSubscriptionId: null });
     mockFindMany.mockResolvedValue([platformDep, paidDep]);
 
     await enforceSubscriptionStatus();

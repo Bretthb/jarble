@@ -41,10 +41,7 @@ interface Deployment {
   status: string;
   runtime: string;
   description: string | null;
-  isFree: boolean;
   monthlyPriceCents: number;
-  freeExpiresAt: string | null;
-  freeTrialExpired?: boolean;
   llmMode: string;
   cancelledAt?: string | null;
   cancelAtPeriodEnd?: string | null;
@@ -678,11 +675,7 @@ function DeploymentTableRow({
       </TableCell>
       <TableCell className="text-right">
         <span className="text-sm font-mono">
-          {deployment.isFree ? (
-            <span className="text-primary">Free</span>
-          ) : (
-            `$${(deployment.monthlyPriceCents / 100).toFixed(2)}`
-          )}
+          {`$${(deployment.monthlyPriceCents / 100).toFixed(2)}`}
         </span>
       </TableCell>
       <TableCell>

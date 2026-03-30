@@ -35,8 +35,6 @@ const CREATE_TABLES_SQL = `
     stripe_customer_id TEXT,
     pending_stripe_subscription_id TEXT,
     pending_stripe_tier TEXT,
-    free_deployment_used INTEGER DEFAULT 0 NOT NULL,
-    free_trial_expires_at TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
@@ -49,9 +47,7 @@ const CREATE_TABLES_SQL = `
     runtime TEXT DEFAULT 'openclaw' NOT NULL,
     image TEXT,
     runtime_catalog_id INTEGER REFERENCES runtime_catalog(id),
-    is_free INTEGER DEFAULT 0 NOT NULL,
     monthly_price_cents INTEGER DEFAULT 0 NOT NULL,
-    free_expires_at TEXT,
     cpu_limit TEXT,
     memory_mb INTEGER,
     storage_mb INTEGER,
@@ -757,12 +753,10 @@ async function seedDatabase() {
     auth0Id: "auth0|test123",
     emailVerified: true,
     stripeCustomerId: "cus_test123",
-    freeDeploymentUsed: true,
   });
 
-  // Create test deployment (free trial, OpenClaw, expires in 7 days)
+  // Create test deployment (OpenClaw)
   const deploymentId = nanoid();
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   await sqliteDb.insert(sqliteSchema.deployments).values({
     id: deploymentId,
     userId,
@@ -770,9 +764,7 @@ async function seedDatabase() {
     description: "A test deployment for development",
     runtime: "openclaw",
     runtimeCatalogId: 1,
-    isFree: true,
     monthlyPriceCents: 0,
-    freeExpiresAt: expiresAt,
     llmMode: "byok",
     llmProvider: "openrouter",
     llmModel: "openrouter/auto",

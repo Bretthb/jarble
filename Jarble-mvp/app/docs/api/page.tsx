@@ -132,12 +132,6 @@ const trpc = createTRPCClient({
           </TableHeader>
           <TableBody>
             <TableRow>
-              <TableCell className="font-mono text-sm">canDeploy</TableCell>
-              <TableCell>query</TableCell>
-              <TableCell>Protected</TableCell>
-              <TableCell>Checks whether the user can create a new deployment (free trial eligibility, subscription limits).</TableCell>
-            </TableRow>
-            <TableRow>
               <TableCell className="font-mono text-sm">list</TableCell>
               <TableCell>query</TableCell>
               <TableCell>Protected</TableCell>

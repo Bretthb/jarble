@@ -15,8 +15,6 @@ export const users = mysqlTable("users", {
   role: varchar("role", { length: 20 }).notNull().default("user"),
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
   pendingStripeSubscriptionId: varchar("pending_stripe_subscription_id", { length: 255 }),
-  freeDeploymentUsed: boolean("free_deployment_used").notNull().default(false),
-  freeTrialExpiresAt: timestamp("free_trial_expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });
@@ -30,9 +28,7 @@ export const deployments = mysqlTable("deployments", {
   deploymentType: varchar("deployment_type", { length: 20 }).notNull().default("agent"), // "agent" | "container" | "website" — determines K8s scheduling
   image: varchar("image", { length: 255 }),
   runtimeCatalogId: int("runtime_catalog_id").references(() => runtimeCatalog.id),
-  isFree: boolean("is_free").notNull().default(false),
   monthlyPriceCents: int("monthly_price_cents").notNull().default(0),
-  freeExpiresAt: timestamp("free_expires_at"),
   cpuLimit: varchar("cpu_limit", { length: 10 }),
   memoryMb: int("memory_mb"),
   storageMb: int("storage_mb"),

@@ -14,7 +14,6 @@ import {
   Cpu,
   HardDrive,
   MemoryStick,
-  Gift,
   ChevronRight,
   RotateCcw,
   SlidersHorizontal,
@@ -51,7 +50,6 @@ interface StepDeployProps {
   llmModel: string;
   creditLimitDollars: number;
   linkToDeploymentId: string | null;
-  isFree: boolean;
   cpuLimit: string | null;
   setCpuLimit: (v: string | null) => void;
   memoryMb: number | null;
@@ -79,7 +77,6 @@ export default function StepDeploy({
   llmModel,
   creditLimitDollars,
   linkToDeploymentId,
-  isFree,
   cpuLimit,
   setCpuLimit,
   memoryMb,
@@ -161,7 +158,7 @@ export default function StepDeploy({
   const hardwarePriceCents = calculateMonthlyPriceCents(effectiveCpu, effectiveMemory, effectiveStorage);
   const managedKeyCents = llmMode === "included" && !linkToDeploymentId ? creditLimitDollars * 100 : 0;
   const dynamicPriceCents = hardwarePriceCents + managedKeyCents;
-  const needsPayment = !isFree && runtime && dynamicPriceCents > 0;
+  const needsPayment = runtime && dynamicPriceCents > 0;
 
   const handleResetToRecommended = () => {
     setCpuLimit(null);
@@ -374,11 +371,6 @@ export default function StepDeploy({
                 <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-secondary/50 text-foreground border border-border">
                   <HardDrive className="w-3 h-3" /> {effectiveStorage} GB Storage
                 </span>
-                {isFree && (
-                  <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-secondary/50 text-foreground border border-border">
-                    <Gift className="w-3 h-3" /> Free for 7 days
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -392,11 +384,7 @@ export default function StepDeploy({
             >
               <SlidersHorizontal className="w-4 h-4" />
               <span className="font-medium">Hardware Configuration</span>
-              {isFree ? (
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
-                  Free Tier
-                </span>
-              ) : isCustomized ? (
+              {isCustomized ? (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
                   Custom
                 </span>
@@ -414,19 +402,7 @@ export default function StepDeploy({
 
             {showHardware && (
               <div className="mt-4 space-y-5 p-5 rounded-lg border border-border bg-secondary/30">
-                {/* Free tier notice */}
-                {isFree && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/50 border border-border">
-                    <Gift className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                    <p className="text-xs text-muted-foreground">
-                      Free tier deployments use starter hardware specs ({CPU_OPTIONS[0]?.label} vCPU, 2 GB RAM, {STORAGE_OPTIONS[0]?.label} storage).
-                      Upgrade to a paid plan for customizable resources.
-                    </p>
-                  </div>
-                )}
-
                 {/* Recommended button */}
-                {!isFree && (
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-muted-foreground">
                     Defaults from <strong>{runtime?.name ?? "runtime"}</strong> catalog.
@@ -444,17 +420,16 @@ export default function StepDeploy({
                     Recommended
                   </Button>
                 </div>
-                )}
 
                 {/* CPU selector */}
-                <div className={`space-y-2 ${isFree ? "opacity-50 pointer-events-none" : ""}`}>
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label className="flex items-center gap-1.5 text-sm">
                       <Cpu className="w-4 h-4 text-muted-foreground" /> vCPU
                     </Label>
                     <span className="text-sm font-mono font-medium text-foreground">
                       {effectiveCpu}
-                      {!isFree && cpuLimit === null && (
+                      {cpuLimit === null && (
                         <span className="text-[10px] text-primary ml-1.5">(recommended)</span>
                       )}
                     </span>
@@ -484,14 +459,14 @@ export default function StepDeploy({
                 </div>
 
                 {/* Memory selector */}
-                <div className={`space-y-2 ${isFree ? "opacity-50 pointer-events-none" : ""}`}>
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label className="flex items-center gap-1.5 text-sm">
                       <MemoryStick className="w-4 h-4 text-muted-foreground" /> RAM
                     </Label>
                     <span className="text-sm font-mono font-medium text-foreground">
                       {effectiveMemory >= 1024 ? `${effectiveMemory / 1024} GB` : `${effectiveMemory} MB`}
-                      {!isFree && memoryMb === null && (
+                      {memoryMb === null && (
                         <span className="text-[10px] text-primary ml-1.5">(recommended)</span>
                       )}
                     </span>
@@ -521,14 +496,14 @@ export default function StepDeploy({
                 </div>
 
                 {/* Storage selector */}
-                <div className={`space-y-2 ${isFree ? "opacity-50 pointer-events-none" : ""}`}>
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label className="flex items-center gap-1.5 text-sm">
                       <HardDrive className="w-4 h-4 text-muted-foreground" /> Storage
                     </Label>
                     <span className="text-sm font-mono font-medium text-foreground">
                       {effectiveStorage} GB
-                      {!isFree && storageMb === null && (
+                      {storageMb === null && (
                         <span className="text-[10px] text-primary ml-1.5">(recommended)</span>
                       )}
                     </span>
@@ -558,7 +533,6 @@ export default function StepDeploy({
                 </div>
 
                 {/* Info hint */}
-                {!isFree && (
                 <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/50 border border-border">
                   <HelpCircle className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
                   <p className="text-xs text-muted-foreground">
@@ -567,7 +541,6 @@ export default function StepDeploy({
                     You can always adjust these later from the dashboard.
                   </p>
                 </div>
-                )}
               </div>
             )}
           </div>

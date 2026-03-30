@@ -34,8 +34,6 @@ const CREATE_TABLES_SQL = `
     role TEXT DEFAULT 'user' NOT NULL,
     stripe_customer_id TEXT,
     pending_stripe_subscription_id TEXT,
-    free_deployment_used INTEGER DEFAULT 0 NOT NULL,
-    free_trial_expires_at TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
@@ -48,9 +46,7 @@ const CREATE_TABLES_SQL = `
     runtime TEXT DEFAULT 'openclaw' NOT NULL,
     image TEXT,
     runtime_catalog_id INTEGER REFERENCES runtime_catalog(id),
-    is_free INTEGER DEFAULT 0 NOT NULL,
     monthly_price_cents INTEGER DEFAULT 0 NOT NULL,
-    free_expires_at TEXT,
     cpu_limit TEXT,
     memory_mb INTEGER,
     storage_mb INTEGER,
@@ -641,12 +637,12 @@ export function createTestDb(): TestDbContext {
       ('persona-sales', 'Sales Coach', 'sales-coach', 'business', 'B2B/B2C sales strategy', 'You are an experienced sales coach.', '["Help me close a deal", "Write a pitch"]', 1, 2);
   `);
 
-  // Seed test user (free deployment NOT used — fresh user)
+  // Seed test user
   const testUserId = "test-user-001";
   const testAuth0Id = "auth0|test-integration-001";
   raw.exec(`
-    INSERT INTO users (id, email, name, auth0_id, email_verified, free_deployment_used)
-    VALUES ('${testUserId}', 'test@jarble.ai', 'Test User', '${testAuth0Id}', 1, 0);
+    INSERT INTO users (id, email, name, auth0_id, email_verified)
+    VALUES ('${testUserId}', 'test@jarble.ai', 'Test User', '${testAuth0Id}', 1);
   `);
 
   return {

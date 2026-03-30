@@ -310,7 +310,7 @@ Update DB status ("running" or "failed")`}
           <TableBody>
             <TableRow>
               <TableCell className="font-mono text-sm">users</TableCell>
-              <TableCell>Auth0 user ID, Stripe customer ID, email verification status, free trial tracking.</TableCell>
+              <TableCell>Auth0 user ID, Stripe customer ID, email verification status.</TableCell>
             </TableRow>
             <TableRow>
               <TableCell className="font-mono text-sm">deployments</TableCell>

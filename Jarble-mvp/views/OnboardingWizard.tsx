@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   Loader2,
   Rocket,
-  Gift,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
@@ -180,11 +179,6 @@ export default function OnboardingWizard() {
 
   // Fetch runtimes from API
   const runtimesQuery = trpc.runtimeCatalog.list.useQuery();
-
-  // Check free deployment status
-  const canDeployQuery = trpc.deployment.canDeploy.useQuery(undefined, {
-    enabled: isAuthenticated && !authLoading,
-  });
 
   // Fetch linkable deployments (existing credit pool owners)
   const linkableQuery = trpc.deployment.listLinkableDeployments.useQuery(undefined, {
@@ -374,8 +368,6 @@ export default function OnboardingWizard() {
     );
   }
 
-  const isFreeAvailable = canDeployQuery.data && !canDeployQuery.data.freeUsed;
-
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Sticky top bar */}
@@ -406,16 +398,6 @@ export default function OnboardingWizard() {
       </header>
 
       <div className="max-w-3xl mx-auto px-4 py-8">
-        {/* Free Trial Banner */}
-        {isFreeAvailable && (
-          <div className="mb-6 px-3 py-2.5 rounded-lg border border-border bg-secondary/50 flex items-center gap-2.5">
-            <Gift className="w-4 h-4 text-primary shrink-0" />
-            <p className="text-xs font-medium text-foreground">
-              First deployment free for 7 days — no credit card required
-            </p>
-          </div>
-        )}
-
         {/* Step navigation */}
         <nav className="flex items-center gap-1 mb-8">
           {steps.map((step, idx) => {
@@ -502,7 +484,6 @@ export default function OnboardingWizard() {
                   onRetry={() => runtimesQuery.refetch()}
                   selectedId={selectedRuntimeId}
                   onSelect={handleRuntimeSelect}
-                  isFreeAvailable={!!isFreeAvailable}
                 />
               )}
               {currentStepId === "llm" && (
@@ -538,7 +519,6 @@ export default function OnboardingWizard() {
                   llmMode={llmMode}
                   llmProvider={llmProvider}
                   llmModel={llmModel}
-                  isFree={!!isFreeAvailable}
                   cpuLimit={cpuLimit}
                   setCpuLimit={setCpuLimit}
                   memoryMb={memoryMb}

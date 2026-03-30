@@ -22,7 +22,6 @@ export function createTestCaller(db: any, user: {
   name: string;
   auth0Id: string;
   emailVerified: boolean;
-  freeDeploymentUsed?: boolean;
   stripeCustomerId?: string | null;
 }) {
   const ctx: Context = {

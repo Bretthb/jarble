@@ -13,7 +13,6 @@ import {
   HardDrive,
   MemoryStick,
   Key,
-  Gift,
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useState } from "react";
@@ -24,10 +23,6 @@ import { trpc } from "@/lib/trpc";
 
 
 const FAQ = [
-  {
-    question: "How does the free trial work?",
-    answer: "Every new user gets one free deployment for 7 days — no credit card required. Pick any runtime and try it out. After 7 days, you can upgrade to a paid deployment to keep it running."
-  },
   {
     question: "What is a deployment?",
     answer: "A deployment is a running AI instance on our infrastructure. Each deployment gets its own persistent storage, configuration, and platform connections. Think of it as your own dedicated AI agent."
@@ -80,10 +75,6 @@ export default function Pricing() {
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-6">
             Pick a runtime, deploy instantly. Pay only for what you use.
           </p>
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary/50 border border-border text-foreground">
-            <Gift className="w-5 h-5 text-primary" />
-            <span className="text-sm font-medium">First deployment free for 7 days — no credit card required</span>
-          </div>
         </div>
       </section>
 
@@ -375,7 +366,6 @@ export default function Pricing() {
           </h2>
           <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
             Deploy your first AI agent in minutes.
-            First deployment free for 7 days, no credit card required.
           </p>
           <Button
             size="lg"
@@ -383,7 +373,7 @@ export default function Pricing() {
             className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
           >
             <Zap className="w-5 h-5 mr-2" />
-            Start Building for Free
+            Start Building
           </Button>
         </div>
       </section>

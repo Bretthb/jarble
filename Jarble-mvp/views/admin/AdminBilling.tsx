@@ -5,7 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   CreditCard,
   DollarSign,
-  Users,
   Loader2,
 } from "lucide-react";
 
@@ -19,7 +18,6 @@ function formatDollars(cents: number): string {
 const BILLING_CARDS = [
   { key: "activeSubscriptions", label: "Active Subscriptions", icon: CreditCard },
   { key: "mrrCents", label: "Monthly Recurring Revenue", icon: DollarSign },
-  { key: "freeDeployments", label: "Free Deployments", icon: Users },
   { key: "paidDeployments", label: "Paid Deployments", icon: CreditCard },
 ] as const;
 

@@ -1,5 +1,5 @@
 import { db, tables, USE_SQLITE } from "../db/index.js";
-import { eq, and, isNotNull, isNull, lt, or } from "drizzle-orm";
+import { eq, and, isNull, or } from "drizzle-orm";
 import { stopDeployment } from "../k8s/index.js";
 import { isStripeConfigured, getSubscriptionDetails } from "./stripe.js";
 import { logger } from "../utils/logger.js";
@@ -7,7 +7,6 @@ import { safeFireAndForget } from "../utils/safeAsync.js";
 
 const { deployments, users } = tables;
 
-const FREE_TRIAL_ERROR_PREFIX = "Free trial expired";
 const SUBSCRIPTION_ERROR_PREFIX = "Subscription";
 
 /**
@@ -49,9 +48,7 @@ export async function enforceSubscriptionStatus(): Promise<void> {
 async function checkDeploymentSubscription(dep: {
   id: string;
   userId: string;
-  isFree: boolean;
   isPlatform: boolean;
-  freeExpiresAt: Date | null;
   stripeSubscriptionId: string | null;
   cancelAtPeriodEnd: Date | null;
   error: string | null;
@@ -59,34 +56,32 @@ async function checkDeploymentSubscription(dep: {
   // Platform agents are always allowed to run — no subscription needed
   if (dep.isPlatform) return;
 
-  // Check 1: Free trial expiration
-  if (dep.isFree && dep.freeExpiresAt) {
-    const now = new Date();
-    if (dep.freeExpiresAt <= now) {
-      logger.warn(
-        { deploymentId: dep.id, freeExpiresAt: dep.freeExpiresAt.toISOString() },
-        "subscriptionEnforcement: free trial expired, stopping deployment"
-      );
+  // Deployments need a valid subscription
+  if (!dep.stripeSubscriptionId) {
+    logger.warn(
+      { deploymentId: dep.id },
+      "subscriptionEnforcement: deployment without subscription, stopping"
+    );
 
-      await stopDeployment(dep.id);
+    await stopDeployment(dep.id);
 
-      const errorMsg = `${FREE_TRIAL_ERROR_PREFIX}: your free trial ended on ${dep.freeExpiresAt.toLocaleDateString()}. Subscribe to keep your bot running.`;
+    await db.update(deployments)
+      .set({
+        status: "stopped",
+        error: `${SUBSCRIPTION_ERROR_PREFIX} required: no active subscription found`
+      })
+      .where(eq(deployments.id, dep.id));
 
-      await db.update(deployments)
-        .set({ status: "stopped", error: errorMsg })
-        .where(eq(deployments.id, dep.id));
-
-      return;
-    }
+    return;
   }
 
-  // Check 2: Non-free deployments need valid subscription
-  if (!dep.isFree) {
-    if (!dep.stripeSubscriptionId) {
-      // Deployment is not free and has no subscription — should not be running
-      logger.warn(
-        { deploymentId: dep.id },
-        "subscriptionEnforcement: paid deployment without subscription, stopping"
+  // Cancel-at-period-end enforcement
+  if (dep.cancelAtPeriodEnd) {
+    const now = new Date();
+    if (dep.cancelAtPeriodEnd <= now) {
+      logger.info(
+        { deploymentId: dep.id, cancelAtPeriodEnd: dep.cancelAtPeriodEnd.toISOString() },
+        "subscriptionEnforcement: subscription period ended, stopping deployment"
       );
 
       await stopDeployment(dep.id);
@@ -94,40 +89,18 @@ async function checkDeploymentSubscription(dep: {
       await db.update(deployments)
         .set({
           status: "stopped",
-          error: `${SUBSCRIPTION_ERROR_PREFIX} required: no active subscription found`
+          error: null,
+          stripeSubscriptionId: null
         })
         .where(eq(deployments.id, dep.id));
 
       return;
     }
+  }
 
-    // Check 3: Cancel-at-period-end enforcement
-    if (dep.cancelAtPeriodEnd) {
-      const now = new Date();
-      if (dep.cancelAtPeriodEnd <= now) {
-        logger.info(
-          { deploymentId: dep.id, cancelAtPeriodEnd: dep.cancelAtPeriodEnd.toISOString() },
-          "subscriptionEnforcement: subscription period ended, stopping deployment"
-        );
-
-        await stopDeployment(dep.id);
-
-        await db.update(deployments)
-          .set({
-            status: "stopped",
-            error: null, // Not an error, just normal cancellation
-            stripeSubscriptionId: null // Clear subscription link
-          })
-          .where(eq(deployments.id, dep.id));
-
-        return;
-      }
-    }
-
-    // Check 4: Validate subscription status with Stripe API
-    if (isStripeConfigured()) {
-      await validateSubscriptionWithStripe(dep);
-    }
+  // Validate subscription status with Stripe API
+  if (isStripeConfigured()) {
+    await validateSubscriptionWithStripe(dep);
   }
 }
 
@@ -255,11 +228,10 @@ export async function cleanupOrphanedDeployments(): Promise<void> {
   if (USE_SQLITE) return;
 
   try {
-    // Find running deployments that are not free, not platform-owned, and have no subscription
+    // Find running deployments that are not platform-owned and have no subscription
     const orphaned = await db.query.deployments.findMany({
       where: and(
         eq(deployments.status, "running"),
-        eq(deployments.isFree, false),
         eq(deployments.isPlatform, false),
         // No subscription ID
         or(

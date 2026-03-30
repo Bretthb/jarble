@@ -157,7 +157,7 @@ export default function DeploymentConfiguration() {
   const deployment = deploymentQuery.data;
   const dep = deployment as any;
   const isCancelled = !!dep?.cancelledAt;
-  const isPaid = deployment && !dep?.isFree;
+  const isPaid = !!deployment;
 
   // Real-time status via SSE
   const { getStatus: getLiveStatus } = useStatusStream({

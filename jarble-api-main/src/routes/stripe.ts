@@ -184,7 +184,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
                 where: eq(tables.deployments.userId, user.id),
               });
               for (const dep of userDeployments) {
-                if (!dep.isFree && dep.stripeSubscriptionId) {
+                if (dep.stripeSubscriptionId) {
                   await db.update(tables.deployments)
                     .set({ error: "Payment failed — please update your payment method" })
                     .where(eq(tables.deployments.id, dep.id));

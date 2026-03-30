@@ -23,7 +23,6 @@ interface StepChooseRuntimeProps {
   onRetry?: () => void;
   selectedId: number | null;
   onSelect: (id: number, slug: string) => void;
-  isFreeAvailable: boolean;
 }
 
 export default function StepChooseRuntime({
@@ -33,7 +32,6 @@ export default function StepChooseRuntime({
   onRetry,
   selectedId,
   onSelect,
-  isFreeAvailable,
 }: StepChooseRuntimeProps) {
   if (isLoading) {
     return (
@@ -90,17 +88,12 @@ export default function StepChooseRuntime({
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-semibold text-lg">{runtime.name}</h3>
-                    {isFreeAvailable && (
-                      <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
-                        Free for 7 days
-                      </span>
-                    )}
-                    {!isFreeAvailable && runtime.monthlyPriceCents > 0 && (
+                    {runtime.monthlyPriceCents > 0 && (
                       <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-xs font-medium">
                         ${(runtime.monthlyPriceCents / 100).toFixed(0)}/mo
                       </span>
                     )}
-                    {!isFreeAvailable && runtime.monthlyPriceCents === 0 && (
+                    {runtime.monthlyPriceCents === 0 && (
                       <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
                         Pricing TBD
                       </span>

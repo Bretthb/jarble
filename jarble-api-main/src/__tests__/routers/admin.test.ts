@@ -191,8 +191,6 @@ const CREATE_TABLES_SQL = `
     role TEXT DEFAULT 'user' NOT NULL,
     stripe_customer_id TEXT,
     pending_stripe_subscription_id TEXT,
-    free_deployment_used INTEGER DEFAULT 0 NOT NULL,
-    free_trial_expires_at TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
@@ -204,9 +202,7 @@ const CREATE_TABLES_SQL = `
     runtime TEXT DEFAULT 'openclaw' NOT NULL,
     image TEXT,
     runtime_catalog_id INTEGER REFERENCES runtime_catalog(id),
-    is_free INTEGER DEFAULT 0 NOT NULL,
     monthly_price_cents INTEGER DEFAULT 0 NOT NULL,
-    free_expires_at TEXT,
     cpu_limit TEXT,
     memory_mb INTEGER,
     storage_mb INTEGER,

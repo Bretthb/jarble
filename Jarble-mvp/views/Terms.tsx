@@ -151,7 +151,6 @@ export default function Terms() {
                 </p>
                 <ul className="list-disc pl-6 space-y-1.5">
                   <li><strong>Recurring billing</strong>: Subscriptions are billed on a recurring basis (monthly) unless cancelled</li>
-                  <li><strong>Free trial</strong>: Free trial terms, if offered, are specified during signup. At the end of a trial, your subscription will begin unless cancelled</li>
                   <li><strong>No refunds</strong>: All sales are final. We do not offer refunds for partial billing periods. You may cancel your subscription at any time, and it will remain active until the end of your current billing period</li>
                   <li><strong>Price changes</strong>: We may update pricing with reasonable notice. Existing subscriptions will be honored until their next renewal date</li>
                 </ul>

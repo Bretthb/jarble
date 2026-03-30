@@ -1,7 +1,7 @@
 /**
  * Integration tests for the deployment tRPC router.
  *
- * Tests CRUD, free trial logic, lifecycle ops, ownership checks.
+ * Tests CRUD, lifecycle ops, ownership checks.
  * Uses real in-memory SQLite with mocked K8s, Stripe, and OpenRouter.
  */
 import { describe, it, expect, afterAll, vi, beforeEach, afterEach } from "vitest";
@@ -152,24 +152,6 @@ describe("deployment.list", () => {
   });
 });
 
-describe("deployment.canDeploy", () => {
-  it("returns freeUsed=false for a fresh user", async () => {
-    const caller = authedCaller();
-    const result = await caller.deployment.canDeploy();
-    expect(result.freeUsed).toBe(false);
-    expect(result.freeExpired).toBe(false);
-  });
-
-  it("returns freeUsed=true after free deployment is claimed", async () => {
-    // Mark user's free deployment as used
-    ctx.raw.exec(`UPDATE users SET free_deployment_used = 1 WHERE id = '${ctx.testUserId}'`);
-
-    const caller = authedCaller();
-    const result = await caller.deployment.canDeploy();
-    expect(result.freeUsed).toBe(true);
-  });
-});
-
 describe("deployment.create", () => {
   it("creates a BYOK deployment with encrypted API key", async () => {
     const caller = authedCaller();
@@ -188,50 +170,6 @@ describe("deployment.create", () => {
     expect(result!.llmMode).toBe("byok");
     // API key should be encrypted (plain: prefix since no ENCRYPTION_KEY)
     expect(result!.llmApiKey).toBe("plain:sk-or-my-real-key");
-  });
-
-  it("claims free deployment for first-time user", async () => {
-    const caller = authedCaller();
-    const result = await caller.deployment.create({
-      name: "Free Bot",
-      runtimeCatalogId: ctx.openclawCatalogId,
-      llmMode: "byok",
-      llmProvider: "openrouter",
-      llmApiKey: "sk-or-key",
-    });
-
-    expect(result!.isFree).toBe(true);
-    expect(result!.freeExpiresAt).toBeTruthy();
-    expect(result!.monthlyPriceCents).toBe(0);
-
-    // User should now have freeDeploymentUsed = true
-    const user = ctx.raw.prepare("SELECT free_deployment_used FROM users WHERE id = ?").get(ctx.testUserId) as any;
-    expect(user.free_deployment_used).toBe(1);
-  });
-
-  it("second deployment is not free", async () => {
-    const caller = authedCaller();
-
-    // First deployment claims free slot
-    await caller.deployment.create({
-      name: "First Bot",
-      runtimeCatalogId: ctx.openclawCatalogId,
-      llmMode: "byok",
-      llmProvider: "openrouter",
-      llmApiKey: "sk-or-key1",
-    });
-
-    // Second deployment should NOT be free
-    const second = await caller.deployment.create({
-      name: "Second Bot",
-      runtimeCatalogId: ctx.openclawCatalogId,
-      llmMode: "byok",
-      llmProvider: "openrouter",
-      llmApiKey: "sk-or-key2",
-    });
-
-    expect(second!.isFree).toBe(false);
-    expect(second!.monthlyPriceCents).toBeGreaterThan(0);
   });
 
   it("rejects invalid runtimeCatalogId", async () => {

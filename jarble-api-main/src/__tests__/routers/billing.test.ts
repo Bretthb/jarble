@@ -97,8 +97,8 @@ function authedCaller() {
 function seedDeployment(overrides: Record<string, any> = {}) {
   const id = overrides.id || "dep-test-001";
   ctx.raw.prepare(`
-    INSERT INTO deployments (id, user_id, name, runtime, runtime_catalog_id, status, is_free, monthly_price_cents, stripe_subscription_id, llm_mode, llm_provider, managed_by, cancelled_at, cancel_at_period_end)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO deployments (id, user_id, name, runtime, runtime_catalog_id, status, monthly_price_cents, stripe_subscription_id, llm_mode, llm_provider, managed_by, cancelled_at, cancel_at_period_end)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     overrides.userId || ctx.testUserId,
@@ -106,7 +106,6 @@ function seedDeployment(overrides: Record<string, any> = {}) {
     overrides.runtime || "openclaw",
     overrides.runtimeCatalogId || ctx.openclawCatalogId,
     overrides.status || "running",
-    overrides.isFree ?? 0,
     overrides.monthlyPriceCents ?? 0,
     overrides.stripeSubscriptionId || null,
     overrides.llmMode || "byok",
@@ -131,10 +130,10 @@ describe("billing.getOverview", () => {
     expect(result.paymentMethodLast4).toBeNull();
   });
 
-  it("returns totalMonthlyCents summing all non-free deployments", async () => {
-    seedDeployment({ id: "dep-1", monthlyPriceCents: 500, isFree: 0 });
-    seedDeployment({ id: "dep-2", monthlyPriceCents: 1000, isFree: 0 });
-    seedDeployment({ id: "dep-free", monthlyPriceCents: 0, isFree: 1 });
+  it("returns totalMonthlyCents summing all deployments", async () => {
+    seedDeployment({ id: "dep-1", monthlyPriceCents: 500 });
+    seedDeployment({ id: "dep-2", monthlyPriceCents: 1000 });
+    seedDeployment({ id: "dep-3", monthlyPriceCents: 0 });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -142,20 +141,10 @@ describe("billing.getOverview", () => {
     expect(result.totalMonthlyCents).toBe(1500);
   });
 
-  it("excludes free deployments from totalMonthlyCents even if monthlyPriceCents is set", async () => {
-    seedDeployment({ id: "dep-free", monthlyPriceCents: 999, isFree: 1 });
-
-    const caller = authedCaller();
-    const result = await caller.billing.getOverview();
-
-    expect(result.totalMonthlyCents).toBe(0);
-  });
-
-  it("counts active subscriptions (non-free with stripeSubscriptionId)", async () => {
-    seedDeployment({ id: "dep-1", isFree: 0, stripeSubscriptionId: "sub_123" });
-    seedDeployment({ id: "dep-2", isFree: 0, stripeSubscriptionId: "sub_456" });
-    seedDeployment({ id: "dep-3", isFree: 0, stripeSubscriptionId: null }); // no subscription
-    seedDeployment({ id: "dep-4", isFree: 1, stripeSubscriptionId: null }); // free
+  it("counts active subscriptions (with stripeSubscriptionId)", async () => {
+    seedDeployment({ id: "dep-1", stripeSubscriptionId: "sub_123" });
+    seedDeployment({ id: "dep-2", stripeSubscriptionId: "sub_456" });
+    seedDeployment({ id: "dep-3", stripeSubscriptionId: null }); // no subscription
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -165,7 +154,7 @@ describe("billing.getOverview", () => {
 
   it("does not fetch Stripe details when Stripe is not configured", async () => {
     mockIsStripeConfigured.mockReturnValue(false);
-    seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
+    seedDeployment({ stripeSubscriptionId: "sub_123" });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -184,7 +173,7 @@ describe("billing.getOverview", () => {
       default_payment_method: null,
       items: { data: [] },
     });
-    seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
+    seedDeployment({ stripeSubscriptionId: "sub_123" });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -204,7 +193,7 @@ describe("billing.getOverview", () => {
       },
       items: { data: [] },
     });
-    seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
+    seedDeployment({ stripeSubscriptionId: "sub_123" });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -220,7 +209,7 @@ describe("billing.getOverview", () => {
       default_payment_method: { type: "sepa_debit" }, // no card
       items: { data: [] },
     });
-    seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
+    seedDeployment({ stripeSubscriptionId: "sub_123" });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -231,7 +220,7 @@ describe("billing.getOverview", () => {
   it("handles Stripe API error gracefully", async () => {
     mockIsStripeConfigured.mockReturnValue(true);
     mockGetSubscriptionDetails.mockRejectedValue(new Error("Stripe API error"));
-    seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
+    seedDeployment({ stripeSubscriptionId: "sub_123" });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -248,7 +237,7 @@ describe("billing.getOverview", () => {
       default_payment_method: null,
       items: { data: [] },
     });
-    seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
+    seedDeployment({ stripeSubscriptionId: "sub_123" });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -264,7 +253,7 @@ describe("billing.getOverview", () => {
       default_payment_method: "pm_123abc", // string, not expanded
       items: { data: [] },
     });
-    seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
+    seedDeployment({ stripeSubscriptionId: "sub_123" });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -279,7 +268,7 @@ describe("billing.getOverview", () => {
       default_payment_method: null,
       items: { data: [] },
     });
-    seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_123" });
+    seedDeployment({ stripeSubscriptionId: "sub_123" });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -295,8 +284,8 @@ describe("billing.getOverview", () => {
       default_payment_method: null,
       items: { data: [] },
     });
-    seedDeployment({ id: "dep-1", isFree: 0, stripeSubscriptionId: "sub_first" });
-    seedDeployment({ id: "dep-2", isFree: 0, stripeSubscriptionId: "sub_second" });
+    seedDeployment({ id: "dep-1", stripeSubscriptionId: "sub_first" });
+    seedDeployment({ id: "dep-2", stripeSubscriptionId: "sub_second" });
 
     const caller = authedCaller();
     await caller.billing.getOverview();
@@ -522,17 +511,8 @@ describe("billing.getSubscriptions", () => {
     expect(result).toEqual([]);
   });
 
-  it("returns empty array when user has only free deployments", async () => {
-    seedDeployment({ isFree: 1, stripeSubscriptionId: null });
-
-    const caller = authedCaller();
-    const result = await caller.billing.getSubscriptions();
-
-    expect(result).toEqual([]);
-  });
-
   it("returns empty array when user has deployments without stripeSubscriptionId", async () => {
-    seedDeployment({ isFree: 0, stripeSubscriptionId: null });
+    seedDeployment({ stripeSubscriptionId: null });
 
     const caller = authedCaller();
     const result = await caller.billing.getSubscriptions();
@@ -545,7 +525,6 @@ describe("billing.getSubscriptions", () => {
     seedDeployment({
       id: "dep-paid",
       name: "Paid Bot",
-      isFree: 0,
       monthlyPriceCents: 999,
       stripeSubscriptionId: "sub_123",
     });
@@ -574,7 +553,6 @@ describe("billing.getSubscriptions", () => {
     seedDeployment({
       id: "dep-stripe",
       name: "Stripe Bot",
-      isFree: 0,
       stripeSubscriptionId: "sub_abc",
       monthlyPriceCents: 1500,
     });
@@ -593,7 +571,6 @@ describe("billing.getSubscriptions", () => {
     mockGetSubscriptionDetails.mockRejectedValue(new Error("Stripe error"));
 
     seedDeployment({
-      isFree: 0,
       stripeSubscriptionId: "sub_error",
       monthlyPriceCents: 500,
     });
@@ -609,7 +586,6 @@ describe("billing.getSubscriptions", () => {
 
   it("returns runtime name from runtimeCatalogEntry", async () => {
     seedDeployment({
-      isFree: 0,
       stripeSubscriptionId: "sub_rt",
       runtimeCatalogId: ctx.openclawCatalogId,
     });
@@ -623,7 +599,6 @@ describe("billing.getSubscriptions", () => {
   it("returns cancelledAt and cancelAtPeriodEnd when set", async () => {
     const cancelDate = new Date().toISOString();
     seedDeployment({
-      isFree: 0,
       stripeSubscriptionId: "sub_cancel",
       cancelledAt: cancelDate,
       cancelAtPeriodEnd: cancelDate,
@@ -638,7 +613,6 @@ describe("billing.getSubscriptions", () => {
 
   it("returns null cancelledAt when not cancelled", async () => {
     seedDeployment({
-      isFree: 0,
       stripeSubscriptionId: "sub_active",
     });
 
@@ -651,8 +625,8 @@ describe("billing.getSubscriptions", () => {
 
   it("handles multiple paid deployments", async () => {
     mockIsStripeConfigured.mockReturnValue(false);
-    seedDeployment({ id: "dep-1", name: "Bot One", isFree: 0, stripeSubscriptionId: "sub_1" });
-    seedDeployment({ id: "dep-2", name: "Bot Two", isFree: 0, stripeSubscriptionId: "sub_2" });
+    seedDeployment({ id: "dep-1", name: "Bot One", stripeSubscriptionId: "sub_1" });
+    seedDeployment({ id: "dep-2", name: "Bot Two", stripeSubscriptionId: "sub_2" });
 
     const caller = authedCaller();
     const result = await caller.billing.getSubscriptions();
@@ -664,7 +638,7 @@ describe("billing.getSubscriptions", () => {
 
   it("filters out failed Promise.allSettled results", async () => {
     mockIsStripeConfigured.mockReturnValue(false);
-    seedDeployment({ id: "dep-ok", name: "OK Bot", isFree: 0, stripeSubscriptionId: "sub_ok" });
+    seedDeployment({ id: "dep-ok", name: "OK Bot", stripeSubscriptionId: "sub_ok" });
 
     const caller = authedCaller();
     const result = await caller.billing.getSubscriptions();
@@ -675,8 +649,8 @@ describe("billing.getSubscriptions", () => {
 
   it("does not include other users' deployments", async () => {
     ctx.raw.exec(`INSERT INTO users (id, email, name, auth0_id, email_verified) VALUES ('user2', 'other@test.com', 'Other', 'auth0|other', 1)`);
-    seedDeployment({ id: "dep-mine", isFree: 0, stripeSubscriptionId: "sub_mine" });
-    seedDeployment({ id: "dep-theirs", isFree: 0, stripeSubscriptionId: "sub_theirs", userId: "user2" });
+    seedDeployment({ id: "dep-mine", stripeSubscriptionId: "sub_mine" });
+    seedDeployment({ id: "dep-theirs", stripeSubscriptionId: "sub_theirs", userId: "user2" });
 
     const caller = authedCaller();
     const result = await caller.billing.getSubscriptions();
@@ -690,19 +664,10 @@ describe("billing.getSubscriptions", () => {
     await expect(caller.billing.getSubscriptions()).rejects.toThrow("You must be logged in");
   });
 
-  it("excludes free deployments even with stripeSubscriptionId", async () => {
-    seedDeployment({ isFree: 1, stripeSubscriptionId: "sub_free" });
-
-    const caller = authedCaller();
-    const result = await caller.billing.getSubscriptions();
-
-    expect(result).toEqual([]);
-  });
-
   it("falls back to runtime field when runtimeCatalogEntry is null", async () => {
     ctx.raw.prepare(`
-      INSERT INTO deployments (id, user_id, name, runtime, runtime_catalog_id, status, is_free, monthly_price_cents, stripe_subscription_id, llm_mode, llm_provider, managed_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO deployments (id, user_id, name, runtime, runtime_catalog_id, status, monthly_price_cents, stripe_subscription_id, llm_mode, llm_provider, managed_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       "dep-no-catalog",
       ctx.testUserId,
@@ -710,7 +675,6 @@ describe("billing.getSubscriptions", () => {
       "custom-runtime",
       null,
       "running",
-      0,
       500,
       "sub_no_catalog",
       "byok",
@@ -727,12 +691,12 @@ describe("billing.getSubscriptions", () => {
 });
 
 describe("billing — mixed scenarios", () => {
-  it("overview handles a mix of free and paid deployments correctly", async () => {
-    seedDeployment({ id: "dep-free-1", isFree: 1, monthlyPriceCents: 0 });
-    seedDeployment({ id: "dep-free-2", isFree: 1, monthlyPriceCents: 0 });
-    seedDeployment({ id: "dep-paid-1", isFree: 0, monthlyPriceCents: 500, stripeSubscriptionId: "sub_1" });
-    seedDeployment({ id: "dep-paid-2", isFree: 0, monthlyPriceCents: 1500, stripeSubscriptionId: "sub_2" });
-    seedDeployment({ id: "dep-pending", isFree: 0, monthlyPriceCents: 999, stripeSubscriptionId: null });
+  it("overview handles a mix of paid deployments correctly", async () => {
+    seedDeployment({ id: "dep-zero-1", monthlyPriceCents: 0 });
+    seedDeployment({ id: "dep-zero-2", monthlyPriceCents: 0 });
+    seedDeployment({ id: "dep-paid-1", monthlyPriceCents: 500, stripeSubscriptionId: "sub_1" });
+    seedDeployment({ id: "dep-paid-2", monthlyPriceCents: 1500, stripeSubscriptionId: "sub_2" });
+    seedDeployment({ id: "dep-pending", monthlyPriceCents: 999, stripeSubscriptionId: null });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -753,8 +717,8 @@ describe("billing — mixed scenarios", () => {
       // Second sub fails
       .mockRejectedValueOnce(new Error("Not found"));
 
-    seedDeployment({ id: "dep-ok", isFree: 0, stripeSubscriptionId: "sub_ok", monthlyPriceCents: 500 });
-    seedDeployment({ id: "dep-fail", isFree: 0, stripeSubscriptionId: "sub_fail", monthlyPriceCents: 1000 });
+    seedDeployment({ id: "dep-ok", stripeSubscriptionId: "sub_ok", monthlyPriceCents: 500 });
+    seedDeployment({ id: "dep-fail", stripeSubscriptionId: "sub_fail", monthlyPriceCents: 1000 });
 
     const caller = authedCaller();
     const result = await caller.billing.getSubscriptions();
@@ -790,9 +754,9 @@ describe("billing — mixed scenarios", () => {
     expect(voided!.amountCents).toBe(0);
   });
 
-  it("overview returns 0 totalMonthlyCents when all deployments are free", async () => {
-    seedDeployment({ id: "dep-all-free-1", isFree: 1, monthlyPriceCents: 0 });
-    seedDeployment({ id: "dep-all-free-2", isFree: 1, monthlyPriceCents: 0 });
+  it("overview returns 0 totalMonthlyCents when all deployments have zero price", async () => {
+    seedDeployment({ id: "dep-zero-1", monthlyPriceCents: 0 });
+    seedDeployment({ id: "dep-zero-2", monthlyPriceCents: 0 });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
@@ -807,7 +771,7 @@ describe("billing — mixed scenarios", () => {
       current_period_end: Math.floor(Date.now() / 1000) + 86400,
       default_payment_method: { card: { last4: null } },
     });
-    seedDeployment({ isFree: 0, stripeSubscriptionId: "sub_no_last4" });
+    seedDeployment({ stripeSubscriptionId: "sub_no_last4" });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();

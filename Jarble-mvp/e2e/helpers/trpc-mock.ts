@@ -26,7 +26,7 @@ type MockHandler = (input: unknown) => unknown;
  * await setupTrpcMocks(page, {
  *   "deployment.list": [{ id: "1", name: "test" }],
  *   "runtimeCatalog.list": [{ id: "rt1", slug: "openclaw" }],
- *   "deployment.canDeploy": { freeUsed: false, canDeploy: true },
+ *   "billing.getOverview": { totalMonthlyCents: 0 },
  * });
  * ```
  */

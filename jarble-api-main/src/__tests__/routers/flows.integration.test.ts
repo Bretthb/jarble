@@ -106,7 +106,6 @@ const TEST_USER = {
   name: "Test User",
   auth0Id: "auth0|test-integration-001",
   emailVerified: true,
-  freeDeploymentUsed: false,
 };
 
 const SECOND_USER = {
@@ -115,7 +114,6 @@ const SECOND_USER = {
   name: "Test User 2",
   auth0Id: "auth0|test-integration-002",
   emailVerified: true,
-  freeDeploymentUsed: false,
 };
 
 const VALID_DEFINITION = {
@@ -144,8 +142,8 @@ beforeEach(() => {
   ctx = createTestDb();
   // Seed second user
   ctx.raw.exec(`
-    INSERT INTO users (id, email, name, auth0_id, email_verified, free_deployment_used)
-    VALUES ('${SECOND_USER.id}', '${SECOND_USER.email}', '${SECOND_USER.name}', '${SECOND_USER.auth0Id}', 1, 0);
+    INSERT INTO users (id, email, name, auth0_id, email_verified)
+    VALUES ('${SECOND_USER.id}', '${SECOND_USER.email}', '${SECOND_USER.name}', '${SECOND_USER.auth0Id}', 1);
   `);
   vi.clearAllMocks();
 });

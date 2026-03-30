@@ -155,8 +155,7 @@ export default function GettingStartedPage() {
         </p>
         <p className="text-muted-foreground leading-relaxed">
           After signing in you land on the <strong>Dashboard</strong>, which
-          shows all of your deployments. New accounts start with a free trial
-          that includes enough credits to test a bot end-to-end.
+          shows all of your deployments.
         </p>
       </section>
 
