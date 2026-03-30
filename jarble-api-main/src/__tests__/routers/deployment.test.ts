@@ -152,24 +152,6 @@ describe("deployment.list", () => {
   });
 });
 
-describe("deployment.canDeploy", () => {
-  it("returns freeUsed=false for a fresh user", async () => {
-    const caller = authedCaller();
-    const result = await caller.deployment.canDeploy();
-    expect(result.freeUsed).toBe(false);
-    expect(result.freeExpired).toBe(false);
-  });
-
-  it("returns freeUsed=true after free deployment is claimed", async () => {
-    // Mark user's free deployment as used
-    ctx.raw.exec(`UPDATE users SET free_deployment_used = 1 WHERE id = '${ctx.testUserId}'`);
-
-    const caller = authedCaller();
-    const result = await caller.deployment.canDeploy();
-    expect(result.freeUsed).toBe(true);
-  });
-});
-
 describe("deployment.create", () => {
   it("creates a BYOK deployment with encrypted API key", async () => {
     const caller = authedCaller();

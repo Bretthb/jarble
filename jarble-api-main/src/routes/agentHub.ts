@@ -144,11 +144,7 @@ agentHubRouter.post("/call", async (req, res) => {
     }
 
     logger.error({ err: err.message }, "Agent hub call failed");
-    const status = err.message.includes("Insufficient credits")
-      ? 402
-      : err.message.includes("not found")
-      ? 404
-      : 500;
+    const status = err.message.includes("not found") ? 404 : 500;
     res.status(status).json({ error: err.message });
   }
 });

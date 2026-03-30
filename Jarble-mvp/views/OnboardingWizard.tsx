@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   Loader2,
   Rocket,
-  Gift,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
@@ -28,8 +27,6 @@ import {
 } from "./onboarding/wizardStepConfig";
 import type { KeyValidationStatus } from "./onboarding/types";
 import StepName from "./onboarding/steps/StepName";
-import StepChoosePersona from "./onboarding/steps/StepChoosePersona";
-import type { PersonaTemplate } from "./onboarding/steps/StepChoosePersona";
 import StepChooseRuntime from "./onboarding/steps/StepChooseRuntime";
 import StepLlmSetup from "./onboarding/steps/StepLlmSetup";
 import StepDeploy from "./onboarding/steps/StepDeploy";
@@ -87,12 +84,6 @@ export default function OnboardingWizard() {
   const [checkoutConfirmed, setCheckoutConfirmed] = useState(false);
   const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
   const [isLoadingCheckout, setIsLoadingCheckout] = useState(false);
-
-  // Persona template state
-  const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
-  const [selectedPersona, setSelectedPersona] = useState<PersonaTemplate | null>(null);
-  const [systemPrompt, setSystemPrompt] = useState<string | undefined>(undefined);
-  const [themeConfig, setThemeConfig] = useState<string | undefined>(undefined);
 
   // Telegram pairing poll mutation (used in deploy step after deploy succeeds)
   const pollTelegramMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
@@ -181,11 +172,6 @@ export default function OnboardingWizard() {
   // Fetch runtimes from API
   const runtimesQuery = trpc.runtimeCatalog.list.useQuery();
 
-  // Check free deployment status
-  const canDeployQuery = trpc.deployment.canDeploy.useQuery(undefined, {
-    enabled: isAuthenticated && !authLoading,
-  });
-
   // Fetch linkable deployments (existing credit pool owners)
   const linkableQuery = trpc.deployment.listLinkableDeployments.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading && llmMode === "included",
@@ -261,8 +247,6 @@ export default function OnboardingWizard() {
     switch (currentStepId) {
       case "name":
         return deploymentName.trim().length >= 2;
-      case "persona":
-        return true; // Persona is optional — user can always proceed
       case "runtime":
         return selectedRuntimeId !== null;
       case "llm":
@@ -305,8 +289,7 @@ export default function OnboardingWizard() {
           cpuLimit: cpuLimit || undefined,
           memoryMb: memoryMb || undefined,
           storageMb: storageMb || undefined,
-          systemPrompt: systemPrompt || undefined,
-          personaTemplateId: selectedPersonaId || undefined,
+          systemPrompt: undefined,
         });
       }
     } else if (currentStepIndex < steps.length - 1) {
@@ -374,8 +357,6 @@ export default function OnboardingWizard() {
     );
   }
 
-  const isFreeAvailable = canDeployQuery.data && !canDeployQuery.data.freeUsed;
-
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Sticky top bar */}
@@ -406,16 +387,6 @@ export default function OnboardingWizard() {
       </header>
 
       <div className="max-w-3xl mx-auto px-4 py-8">
-        {/* Free Trial Banner */}
-        {isFreeAvailable && (
-          <div className="mb-6 px-3 py-2.5 rounded-lg border border-border bg-secondary/50 flex items-center gap-2.5">
-            <Gift className="w-4 h-4 text-primary shrink-0" />
-            <p className="text-xs font-medium text-foreground">
-              First deployment free for 7 days — no credit card required
-            </p>
-          </div>
-        )}
-
         {/* Step navigation */}
         <nav className="flex items-center gap-1 mb-8">
           {steps.map((step, idx) => {
@@ -463,37 +434,6 @@ export default function OnboardingWizard() {
               {currentStepId === "name" && (
                 <StepName name={deploymentName} setName={setDeploymentName} />
               )}
-              {currentStepId === "persona" && (
-                <StepChoosePersona
-                  selectedPersonaId={selectedPersonaId}
-                  onSelect={(persona) => {
-                    if (persona) {
-                      setSelectedPersonaId(persona.id);
-                      setSelectedPersona(persona);
-                      setSystemPrompt(persona.systemPrompt);
-                      if (persona.defaultTheme) {
-                        setThemeConfig(JSON.stringify(persona.defaultTheme));
-                      }
-                      if (persona.suggestedLlm) {
-                        setLlmModel(persona.suggestedLlm);
-                      }
-                    } else {
-                      setSelectedPersonaId(null);
-                      setSelectedPersona(null);
-                      setSystemPrompt(undefined);
-                      setThemeConfig(undefined);
-                    }
-                  }}
-                  onSkip={() => {
-                    setSelectedPersonaId(null);
-                    setSelectedPersona(null);
-                    setSystemPrompt(undefined);
-                    setThemeConfig(undefined);
-                    // Advance to next step
-                    setCurrentStepIndex(currentStepIndex + 1);
-                  }}
-                />
-              )}
               {currentStepId === "runtime" && (
                 <StepChooseRuntime
                   runtimes={runtimesQuery.data ?? []}
@@ -502,7 +442,6 @@ export default function OnboardingWizard() {
                   onRetry={() => runtimesQuery.refetch()}
                   selectedId={selectedRuntimeId}
                   onSelect={handleRuntimeSelect}
-                  isFreeAvailable={!!isFreeAvailable}
                 />
               )}
               {currentStepId === "llm" && (
@@ -538,7 +477,6 @@ export default function OnboardingWizard() {
                   llmMode={llmMode}
                   llmProvider={llmProvider}
                   llmModel={llmModel}
-                  isFree={!!isFreeAvailable}
                   cpuLimit={cpuLimit}
                   setCpuLimit={setCpuLimit}
                   memoryMb={memoryMb}

@@ -34,8 +34,8 @@ import {
 // ── Universal Steps ─────────────────────────────────────────────────────────
 
 describe("UNIVERSAL_STEPS", () => {
-  it("has exactly 3 universal steps", () => {
-    expect(UNIVERSAL_STEPS.length).toBe(3);
+  it("has exactly 2 universal steps", () => {
+    expect(UNIVERSAL_STEPS.length).toBe(2);
   });
 
   it("first step is Name", () => {
@@ -43,14 +43,9 @@ describe("UNIVERSAL_STEPS", () => {
     expect(UNIVERSAL_STEPS[0].title).toBe("Name");
   });
 
-  it("second step is Persona", () => {
-    expect(UNIVERSAL_STEPS[1].id).toBe("persona");
-    expect(UNIVERSAL_STEPS[1].title).toBe("Persona");
-  });
-
-  it("third step is Choose Runtime", () => {
-    expect(UNIVERSAL_STEPS[2].id).toBe("runtime");
-    expect(UNIVERSAL_STEPS[2].title).toBe("Choose Runtime");
+  it("second step is Choose Runtime", () => {
+    expect(UNIVERSAL_STEPS[1].id).toBe("runtime");
+    expect(UNIVERSAL_STEPS[1].title).toBe("Choose Runtime");
   });
 
   it("each step has required fields", () => {
@@ -67,18 +62,16 @@ describe("UNIVERSAL_STEPS", () => {
 describe("getWizardSteps", () => {
   it("returns only universal steps when runtime is null", () => {
     const steps = getWizardSteps(null);
-    expect(steps.length).toBe(3);
+    expect(steps.length).toBe(2);
     expect(steps[0].id).toBe("name");
-    expect(steps[1].id).toBe("persona");
-    expect(steps[2].id).toBe("runtime");
+    expect(steps[1].id).toBe("runtime");
   });
 
   it("returns universal + openclaw steps for openclaw runtime", () => {
     const steps = getWizardSteps("openclaw");
-    expect(steps.length).toBeGreaterThan(3);
+    expect(steps.length).toBeGreaterThan(2);
     expect(steps[0].id).toBe("name");
-    expect(steps[1].id).toBe("persona");
-    expect(steps[2].id).toBe("runtime");
+    expect(steps[1].id).toBe("runtime");
     expect(steps.some(s => s.id === "llm")).toBe(true);
     expect(steps.some(s => s.id === "deploy")).toBe(true);
   });
@@ -91,7 +84,7 @@ describe("getWizardSteps", () => {
 
   it("returns fallback steps for unknown runtime", () => {
     const steps = getWizardSteps("unknown_runtime_xyz");
-    expect(steps.length).toBeGreaterThanOrEqual(3);
+    expect(steps.length).toBeGreaterThanOrEqual(2);
     expect(steps[steps.length - 1].id).toBe("deploy");
   });
 

@@ -437,17 +437,6 @@ const CREATE_TABLES_SQL = `
   CREATE INDEX IF NOT EXISTS idx_service_async_jobs_deployment_id ON service_async_jobs(deployment_id);
   CREATE INDEX IF NOT EXISTS idx_service_async_jobs_expires_at ON service_async_jobs(expires_at);
 
-  CREATE TABLE IF NOT EXISTS agent_credits (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id),
-    amount INTEGER NOT NULL,
-    balance INTEGER NOT NULL,
-    reason TEXT NOT NULL,
-    reference TEXT,
-    created_at TEXT DEFAULT (datetime('now')) NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_agent_credits_user_id ON agent_credits(user_id);
-
   CREATE TABLE IF NOT EXISTS agent_calls (
     id TEXT PRIMARY KEY,
     caller_deployment_id TEXT NOT NULL REFERENCES deployments(id),

@@ -756,20 +756,7 @@ export const serviceReviewsRelations = relations(serviceReviews, ({ one }) => ({
   user: one(users, { fields: [serviceReviews.userId], references: [users.id] }),
 }));
 
-// ── Agent Credits & Calls Tables ──────────────────────────────────────
-
-// Append-only credits ledger
-export const agentCredits = sqliteTable("agent_credits", {
-  id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("acr")),
-  userId: text("user_id").notNull().references(() => users.id),
-  amount: integer("amount").notNull(),        // positive = credit, negative = debit
-  balance: integer("balance").notNull(),       // running balance after this transaction
-  reason: text("reason").notNull(),            // "purchase", "agent_call", "earnings", "refund"
-  reference: text("reference"),                // stripe payment ID, call ID, etc.
-  createdAt: text("created_at").notNull().$defaultFn(now),
-}, (table) => ({
-  userIdIdx: index("idx_agent_credits_user_id").on(table.userId),
-}));
+// ── Agent Calls Table ─────────────────────────────────────────────────
 
 // Agent-to-agent call tracking
 export const agentCalls = sqliteTable("agent_calls", {
@@ -809,11 +796,7 @@ export const managedNodes = sqliteTable("managed_nodes", {
   hetznerServerIdx: uniqueIndex("uq_managed_nodes_hetzner_server").on(table.hetznerServerId),
 }));
 
-// ── Agent Credits & Calls Relations ───────────────────────────────────
-
-export const agentCreditsRelations = relations(agentCredits, ({ one }) => ({
-  user: one(users, { fields: [agentCredits.userId], references: [users.id] }),
-}));
+// ── Agent Calls Relations ─────────────────────────────────────────────
 
 export const agentCallsRelations = relations(agentCalls, ({ one }) => ({
   callerDeployment: one(deployments, { fields: [agentCalls.callerDeploymentId], references: [deployments.id] }),

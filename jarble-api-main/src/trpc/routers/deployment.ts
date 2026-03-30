@@ -29,51 +29,9 @@ import { isAdmin } from "../../utils/admin.js";
 import { RESOURCE_TIERS } from "../../k8s/constants.js";
 import { validateThemeConfig, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 
-const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, personaTemplates, chatSessions, chatMessages, agentCalls, orchestrationFlows } = tables;
-
-/**
- * Helper: Check free deployment status for a user.
- * Returns whether the user has used their free deployment and if it's expired.
- */
-async function checkFreeDeployment(db: DbClient, userId: string) {
-  const user = await db.query.users.findFirst({
-    where: eq(users.id, userId),
-  });
-
-  if (!user) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
-  }
-
-  const freeUsed = user.freeDeploymentUsed ?? false;
-
-  // Check if free trial has expired
-  let freeExpired = false;
-  let freeExpiresAt: string | Date | null = null;
-
-  if (freeUsed) {
-    // Find the free deployment to check its expiry
-    const freeDeployment = await db.query.deployments.findFirst({
-      where: and(eq(deployments.userId, userId), eq(deployments.isFree, true)),
-    });
-
-    if (freeDeployment?.freeExpiresAt) {
-      freeExpiresAt = freeDeployment.freeExpiresAt;
-      freeExpired = new Date(freeDeployment.freeExpiresAt) < new Date();
-    }
-  }
-
-  return {
-    freeUsed,
-    freeExpired,
-    freeExpiresAt,
-  };
-}
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, chatSessions, chatMessages, agentCalls, orchestrationFlows } = tables;
 
 export const deploymentRouter = router({
-  // Check free deployment status (for frontend UI)
-  canDeploy: protectedProcedure.query(async ({ ctx }) => {
-    return checkFreeDeployment(ctx.db, ctx.user.id);
-  }),
 
   // Get cluster capacity status (for frontend "X of Y slots available" display)
   getCapacity: publicProcedure.query(async () => {
@@ -100,11 +58,7 @@ export const deploymentRouter = router({
       orderBy: (d, { desc }) => [desc(d.createdAt)],
     });
 
-    // Enrich with free trial status
-    return result.map((d: any) => ({
-      ...d,
-      freeTrialExpired: d.isFree && d.freeExpiresAt ? new Date(d.freeExpiresAt) < new Date() : false,
-    }));
+    return result;
   }),
 
   // List deployments that can be linked to (owner deployments with included credits)
@@ -345,7 +299,6 @@ export const deploymentRouter = router({
       storageMb: z.number().int().positive().optional(),  // e.g. 30 — storage in GB (historical naming)
       telegramBotToken: z.string().optional(), // Pre-validated Telegram bot token (included in initial K8s Secret)
       messagingOnly: z.boolean().optional(), // If true, omit web-chat UI prompt (~1,250 tokens saved)
-      personaTemplateId: z.string().optional(), // Pre-selected persona template — overrides systemPrompt, llmModel, themeConfig
       isolationLevel: z.enum(["standard", "gvisor", "kata"]).optional(), // Runtime sandbox isolation (default: "standard")
       deploymentType: z.enum(["agent", "container", "website"]).default("agent"), // Scheduling type: agent (dedicated VPS), container/website (shared pool)
     }))
@@ -382,91 +335,17 @@ export const deploymentRouter = router({
         }
       }
 
-      // ── Resolve persona template overrides ──────────────────────
       let resolvedSystemPrompt = input.systemPrompt || null;
       let resolvedThemeConfig: string | null = null;
       let resolvedLlmModel = input.llmModel;
 
-      if (input.personaTemplateId) {
-        const persona = await ctx.db.query.personaTemplates.findFirst({
-          where: eq(personaTemplates.id, input.personaTemplateId),
-        });
-
-        if (persona) {
-          // Apply persona defaults — input values take precedence
-          if (!resolvedSystemPrompt) {
-            resolvedSystemPrompt = persona.systemPrompt;
-          }
-          if (persona.defaultTheme) {
-            resolvedThemeConfig = typeof persona.defaultTheme === "string"
-              ? persona.defaultTheme
-              : JSON.stringify(persona.defaultTheme);
-          }
-          if (!resolvedLlmModel && persona.suggestedLlm) {
-            resolvedLlmModel = persona.suggestedLlm;
-          }
-          logger.info({ personaId: input.personaTemplateId, personaSlug: persona.slug }, "Applied persona template to deployment");
-        }
-      }
-
       // K8s requires lowercase RFC 1123 names for resources
       const deploymentId = nanoid();
-      const now = new Date();
-      const freeTrialExpiryDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-      // ── Cross-account free trial abuse prevention ──────────────────
-      // Check if ANY user with the same normalized email has already used a free trial.
-      // This prevents creating multiple Auth0 accounts to get unlimited free trials.
-      let crossAccountTrialUsed = false;
-      const currentUserRecord = await ctx.db.query.users.findFirst({
-        where: eq(users.id, ctx.user.id),
-      });
-
-      if (currentUserRecord?.email) {
-        const normalizedEmail = currentUserRecord.email.trim().toLowerCase();
-        const existingTrialUsers = await ctx.db.query.users.findMany({
-          where: and(
-            sql`LOWER(TRIM(${users.email})) = ${normalizedEmail}`,
-            eq(users.freeDeploymentUsed, true),
-          ),
-        });
-
-        crossAccountTrialUsed = existingTrialUsers.some(
-          (u: any) => u.id !== ctx.user.id
-        );
-
-        if (crossAccountTrialUsed) {
-          logger.warn(
-            { userId: ctx.user.id, email: normalizedEmail },
-            "Free trial denied: another account with the same email already used a free trial"
-          );
-        }
-      }
-
-      // Atomic guard: attempt to claim the free deployment slot.
-      // This UPDATE only succeeds if freeDeploymentUsed is false/null,
-      // preventing two concurrent requests from both getting a free deployment.
-      // Also blocked if another account with the same email already used a trial.
-      const claimResult = crossAccountTrialUsed
-        ? { changes: 0, rowsAffected: 0 }  // Skip claim — trial already used by another account
-        : await ctx.db.update(users)
-          .set({
-            freeDeploymentUsed: true,
-            freeTrialExpiresAt: dbDate(freeTrialExpiryDate),
-          })
-          .where(and(
-            eq(users.id, ctx.user.id),
-            or(eq(users.freeDeploymentUsed, false), isNull(users.freeDeploymentUsed))
-          ));
-
-      const claimRows = (claimResult as any)?.rowCount ?? (claimResult as any)?.rowsAffected ?? (claimResult as any)?.changes ?? (claimResult as any)?.[0]?.affectedRows ?? 0;
-      const isFree = claimRows > 0;
-      const freeExpiresAt = isFree ? dbDate(freeTrialExpiryDate) : null;
 
       // ── Link Stripe subscription if available ──────────────────────
       let stripeSubscriptionId: string | null = null;
 
-      if (!isFree && isStripeConfigured()) {
+      if (isStripeConfigured()) {
         const currentUser = await ctx.db.query.users.findFirst({
           where: eq(users.id, ctx.user.id),
         });
@@ -586,14 +465,11 @@ export const deploymentRouter = router({
         encryptedKey = resolvedApiKey ? encryptApiKey(resolvedApiKey) : null;
       }
 
-      // Free tier deployments get minimum specs (except 2GB RAM minimum)
-      const FREE_TIER_SPECS = { cpuLimit: "1", memoryMb: 2048, storageMb: 20 };
-
       // Resolve final hardware specs
-      const finalCpu = isFree ? FREE_TIER_SPECS.cpuLimit : (input.cpuLimit || catalogEntry.cpuLimit);
-      const finalMemory = isFree ? FREE_TIER_SPECS.memoryMb : (input.memoryMb || catalogEntry.memoryMb);
-      const finalStorage = isFree ? FREE_TIER_SPECS.storageMb : (input.storageMb || catalogEntry.storageMb);
-      const monthlyPriceCents = isFree ? 0 : calculateMonthlyPriceCents(finalCpu, finalMemory, finalStorage);
+      const finalCpu = input.cpuLimit || catalogEntry.cpuLimit;
+      const finalMemory = input.memoryMb || catalogEntry.memoryMb;
+      const finalStorage = input.storageMb || catalogEntry.storageMb;
+      const monthlyPriceCents = calculateMonthlyPriceCents(finalCpu, finalMemory, finalStorage);
 
       // Insert deployment — price calculated from hardware specs
       await ctx.db.insert(deployments).values({
@@ -603,9 +479,7 @@ export const deploymentRouter = router({
         runtime: catalogEntry.slug,
         image: input.image || catalogEntry.dockerImage,
         runtimeCatalogId: input.runtimeCatalogId,
-        isFree,
         monthlyPriceCents,
-        freeExpiresAt,
         cpuLimit: finalCpu,
         memoryMb: finalMemory,
         storageMb: finalStorage,
@@ -625,9 +499,6 @@ export const deploymentRouter = router({
         isPlatform: input.llmMode === "platform",
         status: "pending",
       });
-
-      // Free deployment claim was already handled atomically at the top of create
-      // via the conditional UPDATE on users.freeDeploymentUsed (no separate update needed here).
 
       // Save Telegram bot token to platformCredentials (if provided during wizard)
       // This ensures the token is in the DB before deploy, so it gets included in
@@ -655,7 +526,6 @@ export const deploymentRouter = router({
         deploymentId,
         userId: ctx.user.id,
         runtime: catalogEntry.slug,
-        isFree,
         llmMode: input.llmMode,
         llmProvider: resolvedProvider,
         hasApiKeyId: !!resolvedApiKeyId,
@@ -1058,9 +928,7 @@ export const deploymentRouter = router({
         const newCpu = updates.cpuLimit || existing.cpuLimit;
         const newMemory = updates.memoryMb || existing.memoryMb;
         const newStorage = updates.storageMb || existing.storageMb;
-        if (!existing.isFree) {
-          updates.monthlyPriceCents = calculateMonthlyPriceCents(newCpu, newMemory, newStorage);
-        }
+        updates.monthlyPriceCents = calculateMonthlyPriceCents(newCpu, newMemory, newStorage);
       }
 
       await ctx.db.update(deployments)
@@ -1418,13 +1286,6 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      if (deployment.isFree) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "Free deployments cannot be cancelled — they expire automatically",
-        });
-      }
-
       if (!deployment.stripeSubscriptionId) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -1513,13 +1374,6 @@ export const deploymentRouter = router({
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "Deployment already has a subscription linked",
-        });
-      }
-
-      if (deployment.isFree) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "Cannot link subscription to a free deployment",
         });
       }
 
@@ -1761,7 +1615,7 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      logger.debug({ deploymentId: input.id, status: deployment.status, llmMode: deployment.llmMode, isFree: deployment.isFree }, "delete: deployment found");
+      logger.debug({ deploymentId: input.id, status: deployment.status, llmMode: deployment.llmMode }, "delete: deployment found");
 
       // Check if this is a credit pool owner with linked deployments
       if (deployment.llmMode === "included" && !deployment.llmApiKeySourceDeploymentId) {
@@ -1831,8 +1685,6 @@ export const deploymentRouter = router({
       await ctx.db.delete(deployments)
         .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
       logger.debug({ deploymentId: input.id }, "delete: deployments row removed");
-
-      // Note: We do NOT reset freeDeploymentUsed — the free trial is one-time only
 
       logger.info({ deploymentId: input.id, userId: ctx.user.id }, "delete: deployment fully deleted");
 
@@ -2015,7 +1867,6 @@ export const deploymentRouter = router({
         llmModel: input.llmModel || source.llmModel,
         llmMode: "platform",
         isPlatform: true,
-        isFree: true,
         llmApiKey: null,
         cpuLimit: tier.cpuLimit,
         memoryMb: tier.memoryMb,

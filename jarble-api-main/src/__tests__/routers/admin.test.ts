@@ -68,7 +68,6 @@ vi.mock("../../db/index.js", () => ({
       serviceBenchmarkAggregates: sqliteSchema.serviceBenchmarkAggregates,
       serviceReviews: sqliteSchema.serviceReviews,
       personaTemplates: sqliteSchema.personaTemplates,
-      agentCredits: sqliteSchema.agentCredits,
       agentCalls: sqliteSchema.agentCalls,
       chatSessions: sqliteSchema.chatSessions,
       chatMessages: sqliteSchema.chatMessages,

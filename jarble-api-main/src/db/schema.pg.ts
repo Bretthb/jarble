@@ -675,20 +675,7 @@ export const serviceReviewsRelations = relations(serviceReviews, ({ one }) => ({
   user: one(users, { fields: [serviceReviews.userId], references: [users.id] }),
 }));
 
-// ── Agent Credits & Calls Tables ──────────────────────────────────────
-
-// Append-only credits ledger
-export const agentCredits = pgTable("agent_credits", {
-  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("acr")),
-  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
-  amount: integer("amount").notNull(),        // positive = credit, negative = debit
-  balance: integer("balance").notNull(),       // running balance after this transaction
-  reason: varchar("reason", { length: 50 }).notNull(),  // "purchase", "agent_call", "earnings", "refund"
-  reference: varchar("reference", { length: 255 }),      // stripe payment ID, call ID, etc.
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (table) => ({
-  userIdIdx: index("idx_agent_credits_user_id").on(table.userId),
-}));
+// ── Agent Calls Table ─────────────────────────────────────────────────
 
 // Agent-to-agent call tracking
 export const agentCalls = pgTable("agent_calls", {
@@ -708,11 +695,7 @@ export const agentCalls = pgTable("agent_calls", {
   calleeIdx: index("idx_agent_calls_callee").on(table.calleeDeploymentId),
 }));
 
-// ── Agent Credits & Calls Relations ───────────────────────────────────
-
-export const agentCreditsRelations = relations(agentCredits, ({ one }) => ({
-  user: one(users, { fields: [agentCredits.userId], references: [users.id] }),
-}));
+// ── Agent Calls Relations ─────────────────────────────────────────────
 
 export const agentCallsRelations = relations(agentCalls, ({ one }) => ({
   callerDeployment: one(deployments, { fields: [agentCalls.callerDeploymentId], references: [deployments.id] }),

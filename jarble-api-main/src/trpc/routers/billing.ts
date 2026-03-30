@@ -21,7 +21,7 @@ export const billingRouter = router({
       where: eq(deployments.userId, ctx.user.id),
     });
 
-    const paidDeps = deps.filter((d) => !d.isFree && d.stripeSubscriptionId);
+    const paidDeps = deps.filter((d) => d.stripeSubscriptionId);
 
     let totalMonthlyCents = 0;
     let nextBillingDate: string | null = null;
@@ -69,7 +69,7 @@ export const billingRouter = router({
     } else {
       // Stripe not configured — fall back to DB values
       totalMonthlyCents = deps.reduce(
-        (sum, d) => sum + (d.isFree ? 0 : (d.monthlyPriceCents || 0)),
+        (sum, d) => sum + (d.monthlyPriceCents || 0),
         0
       );
       activeCount = paidDeps.length;
@@ -116,7 +116,7 @@ export const billingRouter = router({
       with: { runtimeCatalogEntry: true },
     });
 
-    const paidDeps = deps.filter((d) => !d.isFree && d.stripeSubscriptionId);
+    const paidDeps = deps.filter((d) => d.stripeSubscriptionId);
     if (paidDeps.length === 0) return [];
 
     const results = await Promise.allSettled(

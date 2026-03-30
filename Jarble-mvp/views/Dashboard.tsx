@@ -11,7 +11,6 @@ import {
   Loader2,
   Bot,
   Trash2,
-  Gift,
   Clock,
   DollarSign,
   MailWarning,
@@ -323,20 +322,7 @@ export default function Dashboard() {
           </div>
         ) : deploymentsQuery.data && deploymentsQuery.data.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {deploymentsQuery.data.map((deployment: {
-              id: string;
-              name: string;
-              status: string;
-              runtime: string;
-              description: string | null;
-              isFree: boolean;
-              monthlyPriceCents: number;
-              freeExpiresAt: string | null;
-              freeTrialExpired?: boolean;
-              llmMode: string;
-              cancelledAt?: string | null;
-              cancelAtPeriodEnd?: string | null;
-            }) => (
+            {deploymentsQuery.data.map((deployment: any) => (
               <DeploymentCard
                 key={deployment.id}
                 deployment={deployment}
@@ -389,13 +375,10 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData
     status: string;
     runtime: string;
     description: string | null;
-    isFree: boolean;
     monthlyPriceCents: number;
-    freeExpiresAt: string | null;
-    freeTrialExpired?: boolean;
     llmMode: string;
-    cancelledAt?: string | null;
-    cancelAtPeriodEnd?: string | null;
+    cancelledAt?: Date | string | null;
+    cancelAtPeriodEnd?: Date | string | null;
   };
   liveStatusData?: DeploymentStatus;
   onDelete: (id: string) => void;
@@ -418,11 +401,6 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData
   const isRunning = status === "running";
   const isStopped = status === "stopped";
   const isTransitioning = status === "creating";
-  // Calculate days remaining for free trial
-  const daysRemaining = deployment.freeExpiresAt
-    ? Math.max(0, Math.ceil((new Date(deployment.freeExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-    : null;
-
   const isPending = status === "pending";
   const handleCardClick = () => {
     if (isPending) {
@@ -519,17 +497,7 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData
                 );
               })()}
               {deployment.cancelledAt && deployment.cancelAtPeriodEnd && <span className="text-border">·</span>}
-              {deployment.isFree && !deployment.freeTrialExpired && daysRemaining !== null && daysRemaining > 0 ? (
-                <span className="inline-flex items-center gap-1">
-                  <Gift className="w-3 h-3 text-primary" />
-                  {daysRemaining}d free
-                </span>
-              ) : deployment.isFree && (deployment.freeTrialExpired || (daysRemaining !== null && daysRemaining <= 0)) ? (
-                <span className="inline-flex items-center gap-1 text-muted-foreground">
-                  <Clock className="w-3 h-3" />
-                  Trial expired
-                </span>
-              ) : deployment.monthlyPriceCents > 0 ? (
+              {deployment.monthlyPriceCents > 0 ? (
                 <span className="inline-flex items-center gap-1">
                   <DollarSign className="w-3 h-3" />
                   ${(deployment.monthlyPriceCents / 100).toFixed(0)}/mo

@@ -136,7 +136,6 @@ const getUserById = adminProcedure
         name: users.name,
         role: users.role,
         emailVerified: users.emailVerified,
-        freeDeploymentUsed: users.freeDeploymentUsed,
         createdAt: users.createdAt,
         updatedAt: users.updatedAt,
       })
@@ -158,7 +157,6 @@ const getUserById = adminProcedure
         llmModel: deployments.llmModel,
         llmMode: deployments.llmMode,
         monthlyPriceCents: deployments.monthlyPriceCents,
-        isFree: deployments.isFree,
         createdAt: deployments.createdAt,
       })
       .from(deployments)
@@ -280,7 +278,6 @@ const getDeploymentById = adminProcedure
         llmMode: deployments.llmMode,
         llmCreditLimitDollars: deployments.llmCreditLimitDollars,
         monthlyPriceCents: deployments.monthlyPriceCents,
-        isFree: deployments.isFree,
         messagingOnly: deployments.messagingOnly,
         userId: deployments.userId,
         createdAt: deployments.createdAt,
@@ -408,11 +405,6 @@ const getRevenueStats = adminProcedure.query(async () => {
       )
     );
 
-  const [freeCount] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(deployments)
-    .where(eq(deployments.isFree, true));
-
   const [paidCount] = await db
     .select({ count: sql<number>`count(*)` })
     .from(deployments)
@@ -421,7 +413,6 @@ const getRevenueStats = adminProcedure.query(async () => {
   return {
     activeSubscriptions: Number(activeSubsResult.count),
     mrrCents: Number(mrrResult.total),
-    freeDeployments: Number(freeCount.count),
     paidDeployments: Number(paidCount.count),
   };
 });

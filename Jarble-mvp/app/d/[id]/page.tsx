@@ -29,9 +29,8 @@ import EditableCanvas from "@/components/canvas/EditableCanvas";
 import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
 import ConversationHistoryPanel from "@/components/workspace/ConversationHistoryPanel";
-import AgentCreditsPanel from "@/components/workspace/AgentCreditsPanel";
 import SubagentsPanel from "@/components/workspace/SubagentsPanel";
-import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Coins, Bot } from "lucide-react";
+import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -102,32 +101,6 @@ function formatActionDisplay(action: CanvasAction): string {
     default:
       return `Interacted with ${component.replace(/_/g, " ")}`;
   }
-}
-
-// ── Credits Badge Button ─────────────────────────────────────────────────────
-
-function CreditsBadgeButton({ isOpen, onClick }: { isOpen: boolean; onClick: () => void }) {
-  const balanceQuery = trpc.agentCredits.getBalance.useQuery(undefined, {
-    staleTime: 30_000, // Cache for 30s to avoid excessive polling
-  });
-  const balance = balanceQuery.data?.balance;
-
-  return (
-    <Button
-      variant={isOpen ? "secondary" : "ghost"}
-      size="sm"
-      onClick={onClick}
-      className={cn("h-8 p-0 gap-1", balance != null ? "px-2" : "w-8")}
-      title="Agent Credits"
-    >
-      <Coins className="w-4 h-4" />
-      {balance != null && (
-        <span className="text-xs font-medium tabular-nums">
-          {balance >= 1000 ? `${(balance / 1000).toFixed(1)}k` : balance}
-        </span>
-      )}
-    </Button>
-  );
 }
 
 // ── Subagents Badge Button ───────────────────────────────────────────────────
@@ -317,7 +290,6 @@ function WorkspacePage({
   const [filesOpen, setFilesOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [creditsOpen, setCreditsOpen] = useState(false);
   const [subagentsOpen, setSubagentsOpen] = useState(false);
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
   // Track whether theme was set by SSE (takes priority over prop sync for 5s)
@@ -392,7 +364,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setHistoryOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setKnowledgeOpen(false); setCreditsOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -406,7 +378,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setFilesOpen((v) => {
-                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setKnowledgeOpen(false); setCreditsOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -420,7 +392,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setKnowledgeOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setCreditsOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -434,16 +406,7 @@ function WorkspacePage({
               isOpen={subagentsOpen}
               onClick={() => {
                 setSubagentsOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setCreditsOpen(false); }
-                  return !v;
-                });
-              }}
-            />
-            <CreditsBadgeButton
-              isOpen={creditsOpen}
-              onClick={() => {
-                setCreditsOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); }
                   return !v;
                 });
               }}
@@ -453,7 +416,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setHostedServicesOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setCreditsOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -476,7 +439,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setConfigOpen((v) => {
-                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setCreditsOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -515,11 +478,6 @@ function WorkspacePage({
           <HostedServicesPanel
             deploymentId={deploymentId}
             onClose={() => setHostedServicesOpen(false)}
-          />
-        )}
-        {creditsOpen && (
-          <AgentCreditsPanel
-            onClose={() => setCreditsOpen(false)}
           />
         )}
         {subagentsOpen && (
