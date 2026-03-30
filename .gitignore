@@ -89,6 +89,7 @@ scripts/nightly-qa/reports/
 !.claude/hooks/
 !.claude/settings.json
 !.claude/settings.local.json
+!.claude/commands/
 scripts/nightly-qa/.env
 scripts/nightly-qa/.qa-state.json
 scripts/nightly-qa/.qa-lock

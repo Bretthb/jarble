@@ -223,3 +223,154 @@ Pre-configured agents in `.claude/agents/`:
 **GitHub Actions**: Cron disabled (runs locally instead). Manual dispatch still available via `workflow_dispatch` but requires an `ANTHROPIC_API_KEY` secret.
 
 **Key design**: Tests are dynamic, not scripted. The orchestrator reads `git diff` and CLAUDE.md each cycle to discover what changed and decide what to test. When you add a new page, router, or component, it gets tested automatically — no script updates needed. Agent memory (`.claude/agent-memory/qa/`) tracks coverage, failure patterns, and regression watchlists across runs.
+## Linear Integration & Development Workflow
+
+### Connection
+
+Linear API key is available as `LINEAR_API_KEY` env var. Team key: `JAR`. GraphQL endpoint: `https://api.linear.app/graphql`.
+
+For Claude Code sessions with MCP: `claude mcp add --transport http linear-server https://mcp.linear.app/mcp`
+
+### When to Create Tickets
+
+Create a Linear ticket when:
+- A bug is discovered during development (label: `bug`)
+- A new feature requirement emerges from code review or testing (label: `feature`)
+- Technical debt is identified that needs tracking (label: `improvement`)
+- A TODO in code needs more than 30 minutes of work
+- A dependency upgrade or security fix is needed (label: `infrastructure`)
+
+Do NOT create tickets for:
+- Quick fixes under 15 minutes (just do them)
+- Style/formatting changes
+- Typo fixes
+- Anything already covered by an existing ticket
+
+### Ticket Quality Standards
+
+Every ticket must include:
+
+```
+Title: [Clear, actionable summary]
+
+## Scope
+What needs to change and where. Be specific about files/modules.
+
+## Context
+Why this work matters. Link to parent issue if applicable.
+
+## Acceptance Criteria
+- [ ] Criterion 1 (testable)
+- [ ] Criterion 2 (testable)
+- [ ] Criterion 3 (testable)
+
+## References
+- Relevant files: `path/to/file.ts`
+- Docs: link to spec or doc
+- Related issues: JAR-XX
+
+## Dependencies
+- Blocked by: JAR-XX (if any)
+- Blocks: JAR-XX (if any)
+```
+
+Bad ticket: "Fix auth" - Good ticket: "Login form returns 500 when email contains '+' character - validate and encode email in auth.ts before Auth0 handoff"
+
+### Branch Naming
+
+Format: `<type>/<issue-id-lowercase>-<slug>`
+
+| Type | Use |
+|------|-----|
+| `feature/` | New functionality |
+| `fix/` | Bug fixes |
+| `cleanup/` | Tech debt, refactoring |
+| `infra/` | Infrastructure, CI/CD, config |
+
+Examples:
+- `feature/jar-12-add-supabase-sync`
+- `fix/jar-15-login-plus-encoding`
+- `cleanup/jar-18-remove-dead-imports`
+
+Always branch from `develop`.
+
+### Commit Format
+
+```
+<summary> (JAR-XX)
+```
+
+- Keep the summary under 72 characters
+- Use imperative mood: "Add", "Fix", "Remove", not "Added", "Fixed", "Removed"
+- Never commit code that does not build. Run the appropriate check first:
+  - Frontend: `cd Jarble-mvp && npm run check`
+  - API: `cd jarble-api-main && npm run typecheck`
+
+Examples:
+- `Add email validation to auth flow (JAR-12)`
+- `Fix plus-sign encoding in login (JAR-15)`
+
+### Development Workflow
+
+When working on a Linear ticket, follow this sequence:
+
+#### 1. Fetch and Understand
+- Read the ticket fully, including parent issue if one exists
+- If the description references spec files or docs, read them before writing code
+- Update ticket status to **In Progress**
+
+#### 2. Plan Before Coding
+- For any task with 3+ steps, write a plan first
+- For complex tasks, use a subagent to review the plan "as a staff engineer"
+- Get human approval on the plan before proceeding (unless the task is straightforward)
+
+#### 3. Implement
+- Create branch from `develop` using the naming convention above
+- Follow project coding standards (see `.claude/rules/`)
+- Write code that builds and passes tests
+- Commit incrementally with descriptive messages
+
+#### 4. Self-Review (Required)
+Before pushing, launch a subagent to review your diff:
+- Check for bugs, dead code, security issues, over-engineering
+- Verify all acceptance criteria are met
+- Run builds and tests:
+  ```bash
+  cd Jarble-mvp && npm run check && npm run test
+  cd jarble-api-main && npm run typecheck && npm run test
+  ```
+
+#### 5. Open PR
+Create PR with `gh pr create`. PR body must include:
+- Summary of changes
+- Link to the Linear issue: `Resolves JAR-XX`
+- Build verification: paste typecheck/test results
+- Files changed and why
+
+#### 6. Update Linear
+- Set ticket status to **In Review**
+- Add a comment with the PR link
+
+### Task Sizing
+
+Keep tasks sized to fit within a single context window. If a ticket feels too large:
+- Break it into subtasks in Linear
+- Each subtask should be independently shippable
+- Link subtasks to the parent issue
+
+### Lessons Tracking
+
+When a mistake happens:
+1. Fix it
+2. Add a rule to prevent recurrence - either in this CLAUDE.md or in the relevant `.claude/rules/` file
+3. If the mistake reveals a gap in a ticket template, update the template
+
+### Priority Mapping
+
+| Linear Priority | Meaning |
+|----------------|---------|
+| Urgent | Drop everything. Production is broken. |
+| High | Do this sprint. Blocks other work. |
+| Medium | Planned work. Normal priority. |
+| Low | Nice to have. Do when bandwidth allows. |
+| No priority | Backlog. Will be triaged later. |
