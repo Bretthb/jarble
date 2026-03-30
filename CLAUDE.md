@@ -15,9 +15,16 @@ This repo includes a **portable memory system** so Claude Code context travels w
 
 ## Project Overview
 
-Jarble is a **no-code AI bot deployment platform** that lets users deploy LLM-powered bots to messaging platforms (WhatsApp, Discord, Slack, Telegram) without coding. Users pick a runtime (OpenClaw, ZeroClaw), configure an LLM provider, and deploy — all through a guided wizard.
+> **Source of truth**: `PRODUCT.md` in the repo root. If anything here contradicts PRODUCT.md, PRODUCT.md wins.
 
-Each deployment gets a **web chat interface** (`/d/[id]`) where users interact with their bot through a chat UI. The bot can render **rich UI components** (charts, tables, 3D visualizations, live widgets) via an MCP UI server, displayed as interactive canvas blocks inline in the conversation.
+Jarble is an **infrastructure platform for AI agents**. The platform has two sides:
+
+- **Builders** create, host, and monetize agents — pick a runtime (OpenClaw), write a system prompt, add MCP connections, install skills/components, publish to the marketplace, and earn on every deployment.
+- **Businesses** discover, deploy, and run agents in the tools their teams already use — browse the marketplace, deploy in one click, agents run inside existing workflows.
+
+The **marketplace** connects both sides. The **infrastructure** (K8s pods, config sync, LLM routing) makes everything run. The moat is the infrastructure layer, not any single agent.
+
+Each deployment gets a **web chat interface** (`/d/[id]`) with rich UI components (charts, tables, 3D visualizations, live widgets) rendered via an MCP UI server as interactive canvas blocks inline in conversation. Agents can also be connected to messaging platforms (WhatsApp, Discord, Slack, Telegram).
 
 ## Monorepo Structure
 
