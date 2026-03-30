@@ -10,7 +10,6 @@ import { skillsRouter } from "./routers/skills.js";
 import { marketplaceRouter } from "./routers/marketplace.js";
 import { servicesRouter } from "./routers/services.js";
 import { apiKeysRouter } from "./routers/apiKeys.js";
-import { benchmarksRouter } from "./routers/benchmarks.js";
 import { adminRouter } from "./routers/admin.js";
 import { flowsRouter } from "./routers/flows.js";
 import { subagentsRouter } from "./routers/subagents.js";
@@ -27,7 +26,6 @@ export const appRouter = router({
   marketplace: marketplaceRouter,
   services: servicesRouter,
   apiKeys: apiKeysRouter,
-  benchmarks: benchmarksRouter,
   admin: adminRouter,
   flows: flowsRouter,
   subagents: subagentsRouter,
