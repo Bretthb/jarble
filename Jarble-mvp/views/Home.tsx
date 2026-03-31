@@ -3,32 +3,16 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
-import dynamic from "next/dynamic";
 import Image from "next/image";
 import { ArrowRight, Clock, DollarSign, Lock, MessageSquare, Cpu, Globe, Zap, Store } from "lucide-react";
-import { useState } from "react";
 import MarketingNav from "@/components/marketing/MarketingNav";
 import MarketingFooter from "@/components/marketing/MarketingFooter";
 import InteractiveHero from "@/components/InteractiveHero";
-
-const IntegrationsMarquee = dynamic(() => import("@/components/IntegrationsMarquee"), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-64 flex items-center justify-center">
-      <div className="flex gap-4 px-4 overflow-hidden opacity-30">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="w-20 h-20 rounded-xl bg-muted animate-pulse shrink-0" />
-        ))}
-      </div>
-    </div>
-  ),
-});
 
 
 export default function Home() {
   const { isAuthenticated, isLoading } = useAuth0();
   const router = useRouter();
-  const [searchQuery, setSearchQuery] = useState("");
 
   const handleStartOnboarding = () => {
     if (!isAuthenticated) {
@@ -209,40 +193,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Integrations Section */}
-      <section data-tour="integrations" className="relative py-16 overflow-hidden scroll-mt-20 border-t border-border">
-        <div className="relative z-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-12">
-            <h2 className="text-4xl font-serif font-medium text-center mb-4">
-              Integrate with <span className="text-primary">Everything</span>
-            </h2>
-            <p className="text-center text-muted-foreground text-lg">
-              Connect to 50+ platforms and services. Use any chat app, AI model, or tool you already love.
-            </p>
-
-            <div className="mt-8 max-w-md mx-auto">
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search integrations..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-background/50 border border-input text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-          <IntegrationsMarquee searchQuery={searchQuery} />
-        </div>
-      </section>
 
       {/* Marketplace Section */}
       <section className="py-24 relative z-10 border-t border-border">
