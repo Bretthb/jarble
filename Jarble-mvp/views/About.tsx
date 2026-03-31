@@ -287,50 +287,15 @@ export default function About() {
         </div>
       </section>
 
-      {/* Team Section (Placeholder) */}
-      <section className="py-20 relative z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <div className="flex items-center justify-center gap-2 text-primary font-medium mb-4">
-              <Users className="w-5 h-5" />
-              The Team
-            </div>
-            <h2 className="text-4xl font-serif font-medium mb-6">
-              Built by Builders
-            </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Our team combines deep AI expertise with years of experience building developer tools
-              and platforms used by millions.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
-            {[
-              { role: "Founder & CEO", placeholder: "Add team member" },
-              { role: "CTO", placeholder: "Add team member" },
-              { role: "Head of Product", placeholder: "Add team member" },
-            ].map((member) => (
-              <div key={member.role} className="bg-card/80 backdrop-blur-md border border-border rounded-2xl p-6 text-center shadow-sm animate-fade-in-up-fast">
-                <div className="w-24 h-24 rounded-full bg-secondary/80 mx-auto mb-4 flex items-center justify-center">
-                  <Users className="w-10 h-10 text-muted-foreground" />
-                </div>
-                <p className="text-muted-foreground mb-1">{member.placeholder}</p>
-                <p className="text-primary font-medium">{member.role}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
       {/* CTA Section */}
       <section className="py-20 relative z-10">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-4xl font-serif font-medium mb-6">
-            Ready to Deploy Your AI?
+            Ready to build?
           </h2>
           <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
-            Join thousands of businesses using Jarble to power their AI experiences.
-            Start for free, scale when you're ready.
+            Deploy your first agent, publish to the marketplace, or reach out if you want a guided onboarding walkthrough.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button
