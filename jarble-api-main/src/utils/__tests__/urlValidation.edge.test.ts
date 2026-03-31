@@ -1,5 +1,5 @@
 /**
- * URL Validation — Edge case tests expanding on the existing 35-test suite.
+ * URL Validation - Edge case tests expanding on the existing 35-test suite.
  *
  * Covers: IPv6 variants, credentials in URLs, non-standard ports, unicode/punycode,
  * very long URLs, fragments, query params, double-encoded chars, additional reserved ranges.
@@ -7,7 +7,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { validateExternalUrl } from "../urlValidation.js";
 
-describe("validateExternalUrl — edge cases", () => {
+describe("validateExternalUrl - edge cases", () => {
   const originalEnv = process.env.NODE_ENV;
 
   afterEach(() => {
@@ -27,7 +27,7 @@ describe("validateExternalUrl — edge cases", () => {
     });
 
     it("blocks fe80:: link-local with zone ID", () => {
-      // fe80::1%25eth0 — zone IDs in URLs use %25 encoding
+      // fe80::1%25eth0 - zone IDs in URLs use %25 encoding
       expect(validateExternalUrl("https://[fe80::1%25eth0]/api")).toBe(false);
     });
 
@@ -45,7 +45,7 @@ describe("validateExternalUrl — edge cases", () => {
 
     it("blocks IPv4-mapped loopback ::ffff:127.0.0.1 (prefix match)", () => {
       // URL constructor converts to hex: ::ffff:7f00:1
-      // Prefix "::ffff:127" doesn't match hex form — this is a known limitation
+      // Prefix "::ffff:127" doesn't match hex form - this is a known limitation
       // The prefix list includes "::ffff:127" which matches the dotted form
       const url = new URL("https://[::ffff:127.0.0.1]/api");
       // Node.js converts to hex form: [::ffff:7f00:1]
@@ -71,7 +71,7 @@ describe("validateExternalUrl — edge cases", () => {
     it("documents IPv4-mapped link-local behavior (hex conversion)", () => {
       // URL constructor converts ::ffff:169.254.169.254 to ::ffff:a9fe:a9fe
       // The prefix "::ffff:169.254." doesn't match the hex form
-      // This is a known limitation — egress NetworkPolicy handles it at the network layer
+      // This is a known limitation - egress NetworkPolicy handles it at the network layer
       const result = validateExternalUrl("https://[::ffff:169.254.169.254]/api");
       expect(typeof result).toBe("boolean");
     });
@@ -89,7 +89,7 @@ describe("validateExternalUrl — edge cases", () => {
 
   describe("URLs with credentials (user:pass@host)", () => {
     it("allows public URLs with credentials", () => {
-      // URL spec allows credentials — validateExternalUrl checks the host, not credentials
+      // URL spec allows credentials - validateExternalUrl checks the host, not credentials
       expect(validateExternalUrl("https://user:pass@api.example.com/api")).toBe(true);
     });
 
@@ -269,7 +269,7 @@ describe("validateExternalUrl — edge cases", () => {
 
   describe("SSRF URL parsing edge cases", () => {
     it("blocks decimal IP representation of 127.0.0.1 if parsed correctly", () => {
-      // 2130706433 = 0x7f000001 = 127.0.0.1 — URL constructor may not parse this
+      // 2130706433 = 0x7f000001 = 127.0.0.1 - URL constructor may not parse this
       // but it should not pass validation
       const result = validateExternalUrl("https://2130706433/api");
       // URL constructor typically treats this as a hostname string, not an IP
@@ -278,7 +278,7 @@ describe("validateExternalUrl — edge cases", () => {
     });
 
     it("blocks hex IP representation", () => {
-      // 0x7f.0x00.0x00.0x01 = 127.0.0.1 — URL constructor normalizes this
+      // 0x7f.0x00.0x00.0x01 = 127.0.0.1 - URL constructor normalizes this
       const result = validateExternalUrl("https://0x7f.0x00.0x00.0x01/api");
       // Some URL parsers normalize hex octets to decimal
       expect(typeof result).toBe("boolean");
@@ -289,18 +289,18 @@ describe("validateExternalUrl — edge cases", () => {
     });
 
     it("rejects URL with backslash (protocol confusion)", () => {
-      // Some parsers treat \ as / — should reject or treat as invalid
+      // Some parsers treat \ as / - should reject or treat as invalid
       const result = validateExternalUrl("https://api.example.com\\@evil.com");
       expect(typeof result).toBe("boolean");
     });
 
     it("handles URL with @ sign (authority confusion)", () => {
-      // https://evil.com@api.example.com — the host is api.example.com
+      // https://evil.com@api.example.com - the host is api.example.com
       expect(validateExternalUrl("https://evil.com@api.example.com/api")).toBe(true);
     });
 
     it("blocks private IP hidden behind @ sign", () => {
-      // https://example.com@10.0.0.1 — the real host is 10.0.0.1
+      // https://example.com@10.0.0.1 - the real host is 10.0.0.1
       expect(validateExternalUrl("https://example.com@10.0.0.1/api")).toBe(false);
     });
 

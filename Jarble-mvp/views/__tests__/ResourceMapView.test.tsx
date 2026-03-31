@@ -7,7 +7,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
-// Mock ReactFlow — it requires browser APIs not available in jsdom
+// Mock ReactFlow - it requires browser APIs not available in jsdom
 vi.mock("@xyflow/react", () => ({
   ReactFlow: ({ children }: { children?: React.ReactNode }) => (
     <div data-testid="react-flow">{children}</div>
@@ -23,7 +23,7 @@ vi.mock("@xyflow/react", () => ({
   useReactFlow: () => ({ fitView: vi.fn() }),
 }));
 
-// Mock dagre — return deterministic positions
+// Mock dagre - return deterministic positions
 vi.mock("dagre", () => {
   const nodes = new Map<string, { x: number; y: number }>();
   let idx = 0;
@@ -112,7 +112,7 @@ describe("ResourceMapView", () => {
         ]}
       />,
     );
-    // No shared API keys, so no edges — should show empty state
+    // No shared API keys, so no edges - should show empty state
     expect(screen.getByText(/No resource connections yet/)).toBeInTheDocument();
   });
 

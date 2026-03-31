@@ -13,7 +13,7 @@ import * as Sentry from "@sentry/nextjs";
 
 const isDev = process.env.NODE_ENV === "development";
 
-// Components that may be expensive to render — measure their render time
+// Components that may be expensive to render - measure their render time
 const EXPENSIVE_COMPONENTS = new Set(["sandbox", "code_editor", "map", "spreadsheet", "chart"]);
 
 /** Check if fix attempts for a card have exceeded the rate limit. */
@@ -61,7 +61,7 @@ function ComponentErrorCard({
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-500/20 text-zinc-400 hover:bg-zinc-500/30 transition-colors text-xs font-medium"
             >
               <RotateCcw className="w-3 h-3" />
-              Sandbox timed out — click to retry
+              Sandbox timed out - click to retry
             </button>
           ) : (
             <button
@@ -221,7 +221,7 @@ function CanvasRendererInner({
       );
     }
 
-    // Sentry breadcrumbs — track repair frequency for prompt tuning
+    // Sentry breadcrumbs - track repair frequency for prompt tuning
     for (const repair of fixed.repairs) {
       Sentry.addBreadcrumb({
         category: "autofix",
@@ -264,7 +264,7 @@ function CanvasRendererInner({
   if (entry) {
     const result = entry.propsSchema.safeParse(fixed.props);
 
-    // Log validation issues but render anyway — LLMs often send slightly
+    // Log validation issues but render anyway - LLMs often send slightly
     // mismatched types (number instead of string) that components handle fine.
     if (!result.success) {
       isDev && console.warn("[Jarble:Render] Zod validation warning for", fixed.component, ":", result.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; "));
@@ -274,7 +274,7 @@ function CanvasRendererInner({
     const validatedProps = (result.success ? result.data : fixed.props) as Record<string, unknown>;
     const isExpensive = EXPENSIVE_COMPONENTS.has(fixed.component);
 
-    isDev && console.log("[Jarble:Render] Rendering", fixed.component, "— props keys:", Object.keys(validatedProps), "block:", block.id);
+    isDev && console.log("[Jarble:Render] Rendering", fixed.component, "- props keys:", Object.keys(validatedProps), "block:", block.id);
 
     // For expensive components, measure render time
     const renderStart = isExpensive ? Date.now() : 0;

@@ -128,7 +128,7 @@ vi.mock("../../utils/env.js", () => ({
 }));
 
 // ── SQL for tables ──────────────────────────────────────────────────────────
-// Reuse the CREATE_TABLES from testDb — we import createTestDb logic inline
+// Reuse the CREATE_TABLES from testDb - we import createTestDb logic inline
 import { createTestDb, type TestDbContext } from "../helpers/testDb.js";
 
 // ── Setup ────────────────────────────────────────────────────────────────────

@@ -36,7 +36,7 @@ export const updateSystemPromptTool: McpTool = {
 
     logger.info({ deploymentId: ctx.deploymentId }, "MCP: System prompt updated");
 
-    // File-only change — configSync writes soul.md without restart
+    // File-only change - configSync writes soul.md without restart
     if (ctx.deployment.status === "running") {
       safeFireAndForget(syncConfigsToPvc(ctx.deploymentId), { operation: "syncConfigsToPvc", deploymentId: ctx.deploymentId });
     }

@@ -67,7 +67,7 @@ export const billingRouter = router({
         nextBillingDate = new Date(earliestBilling * 1000).toISOString();
       }
     } else {
-      // Stripe not configured — fall back to DB values
+      // Stripe not configured - fall back to DB values
       totalMonthlyCents = deps.reduce(
         (sum, d) => sum + (d.monthlyPriceCents || 0),
         0

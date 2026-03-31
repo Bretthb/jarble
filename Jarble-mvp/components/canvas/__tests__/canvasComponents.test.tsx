@@ -215,7 +215,7 @@ describe("CanvasRenderer", () => {
     const block: UIBlock = {
       id: "test-3",
       component: "alert",
-      props: {}, // missing required message and variant — still renders (graceful degradation)
+      props: {}, // missing required message and variant - still renders (graceful degradation)
     };
     // Renderer now passes invalid props through (logs Zod warning but renders anyway)
     render(<CanvasRenderer block={block} />);

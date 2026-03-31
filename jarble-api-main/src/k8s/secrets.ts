@@ -34,7 +34,7 @@ export async function updateDeploymentSecret(
     baseData.CONFIG_WEBHOOK_SECRET = process.env.CONFIG_WEBHOOK_SECRET;
   }
 
-  // Preserve OPENCLAW_GATEWAY_TOKEN — it's generated once at creation time
+  // Preserve OPENCLAW_GATEWAY_TOKEN - it's generated once at creation time
   // and not included in runtime handler's getSecretEntries(). Without this,
   // every configSync replaceNamespacedSecret call would delete the token.
   if (!secretEntries.OPENCLAW_GATEWAY_TOKEN) {

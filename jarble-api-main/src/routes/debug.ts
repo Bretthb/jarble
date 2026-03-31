@@ -9,7 +9,7 @@ import { safeFireAndForget } from "../utils/safeAsync.js";
 import { validateThemeConfig, THEME_PRESET_NAMES } from "@jarble/component-manifest";
 
 /**
- * Debug endpoints — only mounted in development mode.
+ * Debug endpoints - only mounted in development mode.
  */
 export const debugRouter = Router();
 
@@ -90,7 +90,7 @@ debugRouter.post("/deployment/:id/update-openclaw", async (req, res) => {
     const containerName = getContainerName(managedBy);
     const currentVersion = await execInPod(podName, ["npx", "openclaw", "--version"], containerName, 10_000).catch(() => "unknown");
 
-    // Run npm install — needs sufficient memory (pods <1GB may OOM)
+    // Run npm install - needs sufficient memory (pods <1GB may OOM)
     // Use --ignore-scripts --no-audit --no-fund to reduce overhead
     const updateCmd = `cd /opt/openclaw && npm install openclaw@${target} --ignore-scripts --no-audit --no-fund 2>&1 | tail -10`;
     let output: string;
@@ -125,7 +125,7 @@ debugRouter.post("/deployment/:id/update-openclaw", async (req, res) => {
   }
 });
 
-// Force restart a deployment (dev only — no auth)
+// Force restart a deployment (dev only - no auth)
 debugRouter.post("/deployment/:id/restart", async (req, res) => {
   try {
     const { id } = req.params;
@@ -274,9 +274,9 @@ debugRouter.post("/marketplace/publish-service", async (req, res) => {
   }
 });
 
-// ── DEPRECATED: Marketplace API — use /api/pod/marketplace/* instead (routes/podApi.ts) ──
+// ── DEPRECATED: Marketplace API - use /api/pod/marketplace/* instead (routes/podApi.ts) ──
 
-// Browse marketplace — components and services
+// Browse marketplace - components and services
 debugRouter.get("/marketplace/browse", async (req, res) => {
   try {
     const type = (req.query.type as string) || "all";
@@ -755,7 +755,7 @@ debugRouter.post("/deployment/:id/sync-config", async (req, res) => {
   }
 });
 
-// Trigger configSync for a deployment (synchronous — awaits completion and returns result)
+// Trigger configSync for a deployment (synchronous - awaits completion and returns result)
 debugRouter.post("/deployment/:id/sync-config-await", async (req, res) => {
   try {
     const { id } = req.params;
@@ -823,13 +823,13 @@ debugRouter.post("/update-all-runtimes", async (_req, res) => {
 
 // ── Platform skills endpoint ──────────────────────────────────────────────────
 // Serves the latest platform skills so pods can fetch them on boot.
-// This is the single source of truth — update skills here, redeploy API,
+// This is the single source of truth - update skills here, redeploy API,
 // and pods pick them up on next restart without needing a new container image.
 
 import { getPlatformSkills } from "../skills/platformSkills.js";
 import { chatViaGateway, chatViaExec } from "../services/openclawGateway.js";
 
-// ── K8s imports (optional — not available in SQLite dev mode) ────────────────
+// ── K8s imports (optional - not available in SQLite dev mode) ────────────────
 let k8s: {
   findPodForDeployment: typeof import("../k8s/exec.js").findPodForDeployment;
   execInPod: typeof import("../k8s/exec.js").execInPod;

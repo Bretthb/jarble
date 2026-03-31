@@ -1,5 +1,5 @@
 /**
- * K8s Operator Module — CRD management for OpenClawInstance custom resources.
+ * K8s Operator Module - CRD management for OpenClawInstance custom resources.
  *
  * The OpenClaw K8s operator (v0.10.16+) manages StatefulSets, Services, PDBs,
  * and NetworkPolicies from a single OpenClawInstance CR. This module provides

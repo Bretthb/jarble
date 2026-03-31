@@ -162,7 +162,7 @@ describe("user router", () => {
     });
 
     it("should handle empty update gracefully", async () => {
-      // Drizzle throws on empty .set() — the router should either
+      // Drizzle throws on empty .set() - the router should either
       // short-circuit or pass through. Currently it throws.
       await expect(caller().user.updateProfile({})).rejects.toThrow();
     });

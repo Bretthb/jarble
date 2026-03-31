@@ -46,7 +46,7 @@ function humanize(key: string): string {
   return key.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Smart number formatter — abbreviates large numbers, adds commas, handles decimals */
+/** Smart number formatter - abbreviates large numbers, adds commas, handles decimals */
 function formatValue(v: number): string {
   const abs = Math.abs(v);
   if (abs >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`;
@@ -86,7 +86,7 @@ function shortenDate(v: string): string {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     return `${months[d.getMonth()]} ${d.getDate()}`;
   }
-  // Already short or not a date — return truncated
+  // Already short or not a date - return truncated
   return v.length > 8 ? v.slice(0, 8) : v;
 }
 

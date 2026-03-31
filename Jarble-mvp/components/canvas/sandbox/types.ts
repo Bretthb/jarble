@@ -69,9 +69,9 @@ export interface BaseSandboxProps {
   html: string;
   css?: string;
   js?: string;
-  /** ES module JavaScript — rendered as `<script type="module">`. Use for `import` from esm.sh/esm.run. */
+  /** ES module JavaScript - rendered as `<script type="module">`. Use for `import` from esm.sh/esm.run. */
   moduleJs?: string;
-  /** Import map entries — enables clean imports (e.g. `"react"` → `"https://esm.sh/react@18"`). */
+  /** Import map entries - enables clean imports (e.g. `"react"` → `"https://esm.sh/react@18"`). */
   importMap?: Record<string, string>;
   props?: Record<string, unknown>;
   height?: number;
@@ -87,7 +87,7 @@ export const HEARTBEAT_INTERVAL_MS = 5_000;
 /** Number of missed heartbeats before the sandbox is killed. */
 export const HEARTBEAT_MISS_LIMIT = 12;
 
-/** Total time of silence before the sandbox is killed (ms). 60s — heavy 3D components
+/** Total time of silence before the sandbox is killed (ms). 60s - heavy 3D components
  *  (Three.js, D3, chart libs) can block the main thread for 15-30s during init. */
 export const HEARTBEAT_TIMEOUT_MS = HEARTBEAT_INTERVAL_MS * HEARTBEAT_MISS_LIMIT; // 60s
 

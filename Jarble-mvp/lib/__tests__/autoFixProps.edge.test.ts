@@ -1,5 +1,5 @@
 /**
- * AutoFix Prop Repair — Edge Case Tests
+ * AutoFix Prop Repair - Edge Case Tests
  *
  * Supplements the 59 existing tests with edge cases covering:
  * - All 30+ component name aliases
@@ -15,7 +15,7 @@ import { autoFixProps, COMPONENT_NAME_MAP } from "../autoFixProps";
 
 // ── Component Name Alias Coverage ──────────────────────────────────────────
 
-describe("autoFixProps — component name aliases (exhaustive)", () => {
+describe("autoFixProps - component name aliases (exhaustive)", () => {
   // PascalCase variants
   it.each([
     ["DataTable", "data_table"],
@@ -99,7 +99,7 @@ describe("autoFixProps — component name aliases (exhaustive)", () => {
 
 // ── Unknown Component Pass-Through ────────────────────────────────────────
 
-describe("autoFixProps — unknown components", () => {
+describe("autoFixProps - unknown components", () => {
   it("passes through unknown component names unchanged", () => {
     const result = autoFixProps("my_custom_component", { title: "Test" });
     expect(result.component).toBe("my_custom_component");
@@ -118,8 +118,8 @@ describe("autoFixProps — unknown components", () => {
 
 // ── Type Coercion Edge Cases ─────────────────────────────────────────────
 
-describe("autoFixProps — type coercion edge cases", () => {
-  it("coerces empty string for numeric field — does NOT coerce", () => {
+describe("autoFixProps - type coercion edge cases", () => {
+  it("coerces empty string for numeric field - does NOT coerce", () => {
     const result = autoFixProps("progress", { value: "" });
     // Empty string is not numeric, should stay as-is
     expect(result.props.value).toBe("");
@@ -187,7 +187,7 @@ describe("autoFixProps — type coercion edge cases", () => {
 
 // ── Enum Normalization Edge Cases ─────────────────────────────────────────
 
-describe("autoFixProps — enum normalization edge cases", () => {
+describe("autoFixProps - enum normalization edge cases", () => {
   it.each([
     ["danger", "destructive"],
     ["error", "destructive"],
@@ -246,7 +246,7 @@ describe("autoFixProps — enum normalization edge cases", () => {
 
 // ── Structural Fix Edge Cases ──────────────────────────────────────────────
 
-describe("autoFixProps — structural fix edge cases", () => {
+describe("autoFixProps - structural fix edge cases", () => {
   it("unwraps nested props object", () => {
     const result = autoFixProps("card", {
       props: { title: "Hello", body: "World" },
@@ -364,7 +364,7 @@ describe("autoFixProps — structural fix edge cases", () => {
 
 // ── Field Alias Edge Cases ────────────────────────────────────────────────
 
-describe("autoFixProps — field alias edge cases", () => {
+describe("autoFixProps - field alias edge cases", () => {
   it("card: content -> body", () => {
     const result = autoFixProps("card", { content: "hello" });
     expect(result.props.body).toBe("hello");
@@ -439,7 +439,7 @@ describe("autoFixProps — field alias edge cases", () => {
 
 // ── Data Normalization Edge Cases ──────────────────────────────────────────
 
-describe("autoFixProps — data normalization edge cases", () => {
+describe("autoFixProps - data normalization edge cases", () => {
   it("strips percent sign from progress value", () => {
     const result = autoFixProps("progress", { value: "75%" });
     expect(result.props.value).toBe(75);
@@ -475,7 +475,7 @@ describe("autoFixProps — data normalization edge cases", () => {
 
 // ── Multiple Rules Applied ────────────────────────────────────────────────
 
-describe("autoFixProps — multiple rules chained", () => {
+describe("autoFixProps - multiple rules chained", () => {
   it("normalizes name + variant + missing default simultaneously", () => {
     const result = autoFixProps("notification", {
       description: "Something happened",
@@ -510,7 +510,7 @@ describe("autoFixProps — multiple rules chained", () => {
 
 // ── Null/Undefined/Empty Input ────────────────────────────────────────────
 
-describe("autoFixProps — graceful handling of invalid inputs", () => {
+describe("autoFixProps - graceful handling of invalid inputs", () => {
   it("handles null props", () => {
     const result = autoFixProps("card", null as unknown as Record<string, unknown>);
     expect(result.component).toBe("card");
@@ -538,7 +538,7 @@ describe("autoFixProps — graceful handling of invalid inputs", () => {
 
 // ── Deep Clone Safety ──────────────────────────────────────────────────────
 
-describe("autoFixProps — deep clone safety", () => {
+describe("autoFixProps - deep clone safety", () => {
   it("does not mutate original props", () => {
     const original = { value: "42", title: 100 };
     const originalCopy = { ...original };
@@ -559,7 +559,7 @@ describe("autoFixProps — deep clone safety", () => {
 
 // ── Map Component Fixes ──────────────────────────────────────────────────
 
-describe("autoFixProps — map normalization", () => {
+describe("autoFixProps - map normalization", () => {
   it("converts center {lat, lng} to [lat, lng] tuple", () => {
     const result = autoFixProps("map", {
       center: { lat: 40.7, lng: -74.0 },
@@ -587,7 +587,7 @@ describe("autoFixProps — map normalization", () => {
 
 // ── Tree Node Normalization ───────────────────────────────────────────────
 
-describe("autoFixProps — tree normalization", () => {
+describe("autoFixProps - tree normalization", () => {
   it("converts name -> title in tree nodes", () => {
     const result = autoFixProps("tree", {
       data: [{ name: "Root", key: "root" }],
@@ -616,7 +616,7 @@ describe("autoFixProps — tree normalization", () => {
 
 // ── Image Gallery Src Alias ──────────────────────────────────────────────
 
-describe("autoFixProps — image gallery src alias", () => {
+describe("autoFixProps - image gallery src alias", () => {
   it("converts url -> src in gallery images", () => {
     const result = autoFixProps("image_gallery", {
       images: [{ url: "https://example.com/img.jpg" }],
@@ -637,7 +637,7 @@ describe("autoFixProps — image gallery src alias", () => {
 
 // ── Form Options Flattening ──────────────────────────────────────────────
 
-describe("autoFixProps — form options flatten", () => {
+describe("autoFixProps - form options flatten", () => {
   it("flattens [{label, value}] options to [value]", () => {
     const result = autoFixProps("form", {
       fields: [{
@@ -654,7 +654,7 @@ describe("autoFixProps — form options flatten", () => {
 
 // ── Chart Data Inference ────────────────────────────────────────────────
 
-describe("autoFixProps — chart dataKeys inference", () => {
+describe("autoFixProps - chart dataKeys inference", () => {
   it("infers dataKeys from first data row numeric fields", () => {
     const result = autoFixProps("chart", {
       type: "bar",
@@ -687,7 +687,7 @@ describe("autoFixProps — chart dataKeys inference", () => {
 
 // ── Tabs Content-to-Children ──────────────────────────────────────────────
 
-describe("autoFixProps — tabs content-to-children", () => {
+describe("autoFixProps - tabs content-to-children", () => {
   it("converts object content to children array", () => {
     const result = autoFixProps("tabs", {
       tabs: [{ label: "Tab 1", content: { component: "card", props: { title: "Hi" } } }],

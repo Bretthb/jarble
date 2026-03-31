@@ -2,7 +2,7 @@ import Stripe from "stripe";
 import { env } from "../utils/env.js";
 import { logger } from "../utils/logger.js";
 
-// Stripe client — only initialized if STRIPE_SECRET_KEY is set
+// Stripe client - only initialized if STRIPE_SECRET_KEY is set
 let stripe: Stripe | null = null;
 
 export function getStripe(): Stripe {
@@ -244,7 +244,7 @@ export async function cancelSubscriptionAtPeriodEnd(
 }
 
 /**
- * Cancel a subscription immediately. Used when a deployment is deleted —
+ * Cancel a subscription immediately. Used when a deployment is deleted -
  * the user should not be billed for a resource that no longer exists.
  */
 export async function cancelSubscriptionImmediately(

@@ -55,7 +55,7 @@ export const COMPONENT_PROMPTS: Array<{
 ];
 
 // ==========================================================================
-// FILE 1: canvas-render-display.spec.ts — Display Components Part 1
+// FILE 1: canvas-render-display.spec.ts - Display Components Part 1
 // ==========================================================================
 
 export const DISPLAY_PROMPTS_1: TestPrompt[] = [
@@ -146,7 +146,7 @@ export const DISPLAY_PROMPTS_1: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 2: canvas-render-display-2.spec.ts — Display Components Part 2
+// FILE 2: canvas-render-display-2.spec.ts - Display Components Part 2
 // ==========================================================================
 
 export const DISPLAY_PROMPTS_2: TestPrompt[] = [
@@ -223,7 +223,7 @@ export const DISPLAY_PROMPTS_2: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 3: canvas-render-data.spec.ts — Charts, Tables, Metrics
+// FILE 3: canvas-render-data.spec.ts - Charts, Tables, Metrics
 // ==========================================================================
 
 export const DATA_PROMPTS: TestPrompt[] = [
@@ -300,7 +300,7 @@ export const DATA_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 4: canvas-render-interactive.spec.ts — Interactive Component Rendering
+// FILE 4: canvas-render-interactive.spec.ts - Interactive Component Rendering
 // ==========================================================================
 
 export const INTERACTIVE_RENDER_PROMPTS: TestPrompt[] = [
@@ -377,7 +377,7 @@ export const INTERACTIVE_RENDER_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 5: canvas-interaction-buttons.spec.ts — Button & Click Interactions
+// FILE 5: canvas-interaction-buttons.spec.ts - Button & Click Interactions
 // ==========================================================================
 
 export const BUTTON_INTERACTION_PROMPTS: TestPrompt[] = [
@@ -470,7 +470,7 @@ export const BUTTON_INTERACTION_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 6: canvas-interaction-forms.spec.ts — Form Interactions
+// FILE 6: canvas-interaction-forms.spec.ts - Form Interactions
 // ==========================================================================
 
 export const FORM_INTERACTION_PROMPTS: TestPrompt[] = [
@@ -549,7 +549,7 @@ export const FORM_INTERACTION_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 7: canvas-interaction-sandbox.spec.ts — Sandbox Interactions
+// FILE 7: canvas-interaction-sandbox.spec.ts - Sandbox Interactions
 // ==========================================================================
 
 export const SANDBOX_PROMPTS: TestPrompt[] = [
@@ -612,7 +612,7 @@ export const SANDBOX_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 8: canvas-update-ui.spec.ts — In-Place Card Updates
+// FILE 8: canvas-update-ui.spec.ts - In-Place Card Updates
 // ==========================================================================
 
 export const UPDATE_UI_PROMPTS: TestPrompt[] = [
@@ -692,7 +692,7 @@ export const UPDATE_UI_FOLLOWUPS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 9: canvas-save-load.spec.ts — Save/Load Cycle
+// FILE 9: canvas-save-load.spec.ts - Save/Load Cycle
 // ==========================================================================
 
 export const SAVE_LOAD_PROMPTS: TestPrompt[] = [
@@ -778,7 +778,7 @@ export const SAVE_LOAD_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 10: canvas-custom-components.spec.ts — define_component & render
+// FILE 10: canvas-custom-components.spec.ts - define_component & render
 // ==========================================================================
 
 export const CUSTOM_COMPONENT_PROMPTS: TestPrompt[] = [
@@ -846,7 +846,7 @@ export const CUSTOM_COMPONENT_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 11: canvas-dashboard-ops.spec.ts — Canvas Operations
+// FILE 11: canvas-dashboard-ops.spec.ts - Canvas Operations
 // ==========================================================================
 
 export const DASHBOARD_OPS_PROMPTS: TestPrompt[] = [
@@ -888,7 +888,7 @@ export const DASHBOARD_OPS_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 12: canvas-error-recovery.spec.ts — Error Cards & Recovery
+// FILE 12: canvas-error-recovery.spec.ts - Error Cards & Recovery
 // ==========================================================================
 
 export const ERROR_RECOVERY_PROMPTS: TestPrompt[] = [
@@ -922,7 +922,7 @@ export const ERROR_RECOVERY_PROMPTS: TestPrompt[] = [
   },
   {
     id: "error-05",
-    prompt: "Show me a stat grid where some stats have missing values — some without labels, some without values.",
+    prompt: "Show me a stat grid where some stats have missing values - some without labels, some without values.",
     expectedComponents: ["stat_grid"],
     group: "error-recovery",
     description: "stat grid with missing fields",
@@ -936,7 +936,7 @@ export const ERROR_RECOVERY_PROMPTS: TestPrompt[] = [
   },
   {
     id: "error-07",
-    prompt: "Show me a chart with mismatched data — the xAxisKey references a field that doesn't exist in the data objects.",
+    prompt: "Show me a chart with mismatched data - the xAxisKey references a field that doesn't exist in the data objects.",
     expectedComponents: ["chart"],
     group: "error-recovery",
     description: "chart with wrong xAxisKey",
@@ -950,7 +950,7 @@ export const ERROR_RECOVERY_PROMPTS: TestPrompt[] = [
   },
   {
     id: "error-09",
-    prompt: "Show me a form with zero fields — just a submit button.",
+    prompt: "Show me a form with zero fields - just a submit button.",
     expectedComponents: ["form"],
     group: "error-recovery",
     description: "form with no fields",
@@ -965,7 +965,7 @@ export const ERROR_RECOVERY_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 13: canvas-memory-system.spec.ts — Store/Recall/Forget Facts
+// FILE 13: canvas-memory-system.spec.ts - Store/Recall/Forget Facts
 // ==========================================================================
 
 export const MEMORY_PROMPTS: TestPrompt[] = [
@@ -1036,7 +1036,7 @@ export const MEMORY_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 14: canvas-multi-dashboard.spec.ts — Complex Multi-Component Layouts
+// FILE 14: canvas-multi-dashboard.spec.ts - Complex Multi-Component Layouts
 // ==========================================================================
 
 export const MULTI_DASHBOARD_PROMPTS: TestPrompt[] = [
@@ -1113,7 +1113,7 @@ export const MULTI_DASHBOARD_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 15: canvas-edit-persist.spec.ts — Editable Components & Persistence
+// FILE 15: canvas-edit-persist.spec.ts - Editable Components & Persistence
 // ==========================================================================
 
 export const EDIT_PERSIST_PROMPTS: TestPrompt[] = [
@@ -1148,7 +1148,7 @@ export const EDIT_PERSIST_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 16: canvas-edge-cases.spec.ts — Edge Cases & Security
+// FILE 16: canvas-edge-cases.spec.ts - Edge Cases & Security
 // ==========================================================================
 
 export const EDGE_CASE_PROMPTS: TestPrompt[] = [
@@ -1225,7 +1225,7 @@ export const EDGE_CASE_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 17: canvas-media.spec.ts — Media Components
+// FILE 17: canvas-media.spec.ts - Media Components
 // ==========================================================================
 
 export const MEDIA_PROMPTS: TestPrompt[] = [
@@ -1274,7 +1274,7 @@ export const MEDIA_PROMPTS: TestPrompt[] = [
 ];
 
 // ==========================================================================
-// FILE 18: canvas-schema-validation.spec.ts — AutoFix & Alias Resolution
+// FILE 18: canvas-schema-validation.spec.ts - AutoFix & Alias Resolution
 // ==========================================================================
 
 export const SCHEMA_VALIDATION_PROMPTS: TestPrompt[] = [

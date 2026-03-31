@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * useOrchestration — WebSocket hook for real-time orchestration events.
+ * useOrchestration - WebSocket hook for real-time orchestration events.
  *
  * Connects to the backend's /ws/orchestration endpoint and receives events
  * when the bot delegates work to subagents, platform agents, or team members.

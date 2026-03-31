@@ -1,5 +1,5 @@
 /**
- * Integration tests — validate real component props against generated JSON schemas.
+ * Integration tests - validate real component props against generated JSON schemas.
  *
  * Uses the same JSON Schema validator from jarble-ui-server.js and the
  * generated component-data.json schemas.
@@ -39,7 +39,7 @@ beforeAll(() => {
 // ── Valid props ─────────────────────────────────────────────────────────
 
 describe("valid component props pass validation", () => {
-  it("chart — bar chart with valid props", () => {
+  it("chart - bar chart with valid props", () => {
     const props = {
       type: "bar",
       data: [{ name: "Jan", sales: 100 }, { name: "Feb", sales: 200 }],
@@ -51,18 +51,18 @@ describe("valid component props pass validation", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("card — simple card", () => {
+  it("card - simple card", () => {
     const props = { title: "Hello", body: "World" };
     const result = validateJsonSchema(props, schemas.card, "props");
     expect(result.valid).toBe(true);
   });
 
-  it("card — empty card (all fields optional)", () => {
+  it("card - empty card (all fields optional)", () => {
     const result = validateJsonSchema({}, schemas.card, "props");
     expect(result.valid).toBe(true);
   });
 
-  it("data_table — table with rows", () => {
+  it("data_table - table with rows", () => {
     const props = {
       columns: ["Name", "Age"],
       rows: [["Alice", 30], ["Bob", 25]],
@@ -71,19 +71,19 @@ describe("valid component props pass validation", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("progress — value in range", () => {
+  it("progress - value in range", () => {
     const props = { value: 75, label: "Loading..." };
     const result = validateJsonSchema(props, schemas.progress, "props");
     expect(result.valid).toBe(true);
   });
 
-  it("alert — valid variant", () => {
+  it("alert - valid variant", () => {
     const props = { message: "Success!", variant: "success" };
     const result = validateJsonSchema(props, schemas.alert, "props");
     expect(result.valid).toBe(true);
   });
 
-  it("map — with tuple center", () => {
+  it("map - with tuple center", () => {
     const props = {
       center: [40.7128, -74.006],
       zoom: 12,
@@ -93,7 +93,7 @@ describe("valid component props pass validation", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("sandbox — with html", () => {
+  it("sandbox - with html", () => {
     const props = {
       html: "<div>Hello</div>",
       css: "div { color: red; }",
@@ -103,7 +103,7 @@ describe("valid component props pass validation", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("stat_grid — with stats array", () => {
+  it("stat_grid - with stats array", () => {
     const props = {
       stats: [
         { label: "Users", value: "1,234" },
@@ -114,7 +114,7 @@ describe("valid component props pass validation", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("form — with fields", () => {
+  it("form - with fields", () => {
     const props = {
       title: "Contact",
       fields: [
@@ -130,7 +130,7 @@ describe("valid component props pass validation", () => {
 // ── Invalid props ──────────────────────────────────────────────────────
 
 describe("invalid component props fail validation", () => {
-  it("chart — missing required fields", () => {
+  it("chart - missing required fields", () => {
     const result = validateJsonSchema({}, schemas.chart, "props");
     expect(result.valid).toBe(false);
     // Should report missing type, data, dataKeys
@@ -140,7 +140,7 @@ describe("invalid component props fail validation", () => {
     expect(result.errors.some(e => e.includes("props.dataKeys"))).toBe(true);
   });
 
-  it("chart — invalid type enum", () => {
+  it("chart - invalid type enum", () => {
     const props = {
       type: "donut",
       data: [{ x: 1 }],
@@ -151,28 +151,28 @@ describe("invalid component props fail validation", () => {
     expect(result.errors[0]).toContain("must be one of");
   });
 
-  it("data_table — missing columns", () => {
+  it("data_table - missing columns", () => {
     const props = { rows: [["a", "b"]] };
     const result = validateJsonSchema(props, schemas.data_table, "props");
     expect(result.valid).toBe(false);
     expect(result.errors.some(e => e.includes("props.columns"))).toBe(true);
   });
 
-  it("progress — value out of range", () => {
+  it("progress - value out of range", () => {
     const props = { value: 150 };
     const result = validateJsonSchema(props, schemas.progress, "props");
     expect(result.valid).toBe(false);
     expect(result.errors[0]).toContain("<= 100");
   });
 
-  it("alert — invalid variant", () => {
+  it("alert - invalid variant", () => {
     const props = { message: "Oops", variant: "critical" };
     const result = validateJsonSchema(props, schemas.alert, "props");
     expect(result.valid).toBe(false);
     expect(result.errors[0]).toContain("must be one of");
   });
 
-  it("sandbox — missing html", () => {
+  it("sandbox - missing html", () => {
     const props = { css: "body {}" };
     const result = validateJsonSchema(props, schemas.sandbox, "props");
     expect(result.valid).toBe(false);

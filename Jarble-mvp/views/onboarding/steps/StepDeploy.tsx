@@ -178,7 +178,7 @@ export default function StepDeploy({
           )}
         </div>
       ) : deployPhase === "paired" && telegramBotUsername ? (
-        /* Pairing complete — brief success before auto-redirect */
+        /* Pairing complete - brief success before auto-redirect */
         <div className="py-8">
           <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
             <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
@@ -205,7 +205,7 @@ export default function StepDeploy({
           </div>
         </div>
       ) : deployPhase === "pairing" && telegramBotUsername ? (
-        /* Waiting for Telegram pairing — pod is booting with token */
+        /* Waiting for Telegram pairing - pod is booting with token */
         <div className="py-8">
           <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
             <div className="flex flex-col items-center gap-3">
@@ -271,11 +271,11 @@ export default function StepDeploy({
           {checkoutConfirmed && (
             <div className="flex items-center gap-3 rounded-lg border border-green-500/40 bg-green-500/10 px-4 py-3 text-left">
               <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
-              <p className="text-sm font-medium text-green-500">Payment confirmed — ready to deploy!</p>
+              <p className="text-sm font-medium text-green-500">Payment confirmed - ready to deploy!</p>
             </div>
           )}
 
-          {/* Stripe payment — shown for paid runtimes before payment */}
+          {/* Stripe payment - shown for paid runtimes before payment */}
           {!checkoutConfirmed && needsPayment && !stripeClientSecret && (
             <div className="rounded-xl border border-border bg-card p-6 text-center space-y-4">
               <p className="text-sm font-semibold">{formatPriceCents(dynamicPriceCents)}/mo</p>
@@ -300,7 +300,7 @@ export default function StepDeploy({
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4 mr-2" />
-                    Subscribe — {formatPriceCents(dynamicPriceCents)}/mo
+                    Subscribe - {formatPriceCents(dynamicPriceCents)}/mo
                   </>
                 )}
               </Button>
@@ -330,7 +330,7 @@ export default function StepDeploy({
             </div>
           )}
 
-          {/* Ready-to-deploy summary — shown when free OR after payment confirmed */}
+          {/* Ready-to-deploy summary - shown when free OR after payment confirmed */}
           {(checkoutConfirmed || !needsPayment) && (
           <div className="bg-secondary/50 rounded-xl border border-border/50 p-12">
             <div className="flex flex-col items-center gap-4">

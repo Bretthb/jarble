@@ -61,7 +61,7 @@ vi.mock("../../db/index.js", () => ({
   dbDate: (d?: Date) => (d ?? new Date()).toISOString(),
 }));
 
-// K8s — not available in test mode
+// K8s - not available in test mode
 vi.mock("../../k8s/client.js", () => {
   throw new Error("K8s not available");
 });
@@ -69,28 +69,28 @@ vi.mock("../../k8s/constants.js", () => {
   throw new Error("K8s not available");
 });
 
-// ConfigSync — no-op
+// ConfigSync - no-op
 vi.mock("../../services/configSync.js", () => ({
   syncConfigsToPvc: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Encryption — no-op
+// Encryption - no-op
 vi.mock("../../utils/encryption.js", () => ({
   encryptApiKey: vi.fn((v: string) => `enc:${v}`),
   decryptApiKey: vi.fn((v: string) => v.replace(/^enc:/, "")),
 }));
 
-// HMAC — no-op
+// HMAC - no-op
 vi.mock("../../utils/hmac.js", () => ({
   generateSigningSecret: vi.fn(() => "mock-signing-secret"),
 }));
 
-// Service handshake — no-op
+// Service handshake - no-op
 vi.mock("../../services/serviceHandshake.js", () => ({
   performInstallHandshake: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Logger — suppress output
+// Logger - suppress output
 vi.mock("../../utils/logger.js", () => ({
   createModuleLogger: () => ({
     debug: vi.fn(),
@@ -421,7 +421,7 @@ describe("POST /api/pod/marketplace/register-service", () => {
         validSkill({ name: "agent-skill", mode: "agent" }),
       ];
 
-      // Agent mode skill does not need handlerCode — remove it to verify
+      // Agent mode skill does not need handlerCode - remove it to verify
       delete (skills[1] as any).handlerCode;
 
       const res = await registerService(validBody({ skills }));

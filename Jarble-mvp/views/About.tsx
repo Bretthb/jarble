@@ -138,7 +138,7 @@ export default function About() {
               Jarble: AI Deployment Made Simple
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              We handle the complexity so you can focus on what matters—using AI to grow your business.
+              We handle the complexity so you can focus on what matters-using AI to grow your business.
             </p>
           </div>
 
@@ -169,7 +169,7 @@ export default function About() {
               </div>
               <h3 className="text-xl font-serif font-medium mb-3">Model Agnostic</h3>
               <p className="text-muted-foreground">
-                Use any AI provider—OpenAI, Anthropic, Google, Mistral—or let us handle it. 
+                Use any AI provider-OpenAI, Anthropic, Google, Mistral-or let us handle it. 
                 Switch models anytime without code changes.
               </p>
             </div>
@@ -190,7 +190,7 @@ export default function About() {
             {[
               { step: 1, title: "Choose Your Model", desc: "Select from top AI providers or use our managed service" },
               { step: 2, title: "Configure Behavior", desc: "Set personality, knowledge base, and guardrails" },
-              { step: 3, title: "Connect Platforms", desc: "Pick where your bot lives—Discord, Slack, web, etc." },
+              { step: 3, title: "Connect Platforms", desc: "Pick where your bot lives-Discord, Slack, web, etc." },
               { step: 4, title: "Deploy & Scale", desc: "Go live instantly, scale automatically as you grow" },
             ].map((item) => (
               <div key={item.step} className="relative animate-fade-in-up-fast">

@@ -1,16 +1,16 @@
 /**
- * Parallel Dashboard Composition — 3-phase mixed-type pipeline.
+ * Parallel Dashboard Composition - 3-phase mixed-type pipeline.
  *
  * POST /api/pod/compose
  * Auth: authenticatePod (X-Deployment-Id + X-Gateway-Token)
  * Body: { title, components: [{ intent, style?, data? }], theme?, mode? }
  *
- * Phase 1 — PLAN:   Single LLM call decomposes the request into typed slots
- * Phase 2 — GENERATE: Parallel fan-out — native slots get JSON props, sandbox slots get HTML
- * Phase 3 — SYNTHESIZE: Validate native props, autofix, order, assign dashboardId
+ * Phase 1 - PLAN:   Single LLM call decomposes the request into typed slots
+ * Phase 2 - GENERATE: Parallel fan-out - native slots get JSON props, sandbox slots get HTML
+ * Phase 3 - SYNTHESIZE: Validate native props, autofix, order, assign dashboardId
  *
- * mode: "auto" (default) — uses planner for mixed native+sandbox
- *       "sandbox-only" — legacy behavior, all sandbox HTML
+ * mode: "auto" (default) - uses planner for mixed native+sandbox
+ *       "sandbox-only" - legacy behavior, all sandbox HTML
  */
 import { Router, Request, Response } from "express";
 import { collectLlmCompletion, LlmMessage } from "../services/llmProxy.js";
@@ -39,7 +39,7 @@ export const composeRouter = Router();
 let componentSchemas: Record<string, Record<string, unknown>> = {};
 
 try {
-  // Resolve via @jarble/component-manifest package — its index.ts is in shared/component-manifest/
+  // Resolve via @jarble/component-manifest package - its index.ts is in shared/component-manifest/
   // The generated JSON sits alongside it in generated/component-data.json
   const manifestDir = path.resolve(__dirname, "../../..", "shared", "component-manifest");
   const schemaPath = path.join(manifestDir, "generated", "component-data.json");
@@ -48,7 +48,7 @@ try {
   componentSchemas = data.schemas || {};
   logger.info({ schemaCount: Object.keys(componentSchemas).length }, "Loaded component JSON schemas for native validation");
 } catch (err) {
-  logger.warn({ err: (err as Error).message }, "Could not load component-data.json schemas — native validation will be skipped");
+  logger.warn({ err: (err as Error).message }, "Could not load component-data.json schemas - native validation will be skipped");
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ async function callPlannerAgent(
 
     clearTimeout(timeout);
 
-    // Parse JSON — strip markdown fences if the LLM wrapped it
+    // Parse JSON - strip markdown fences if the LLM wrapped it
     let jsonText = result.text.trim();
     if (jsonText.startsWith("```")) {
       jsonText = jsonText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
@@ -153,7 +153,7 @@ async function callPlannerAgent(
     return plan;
   } catch (err) {
     clearTimeout(timeout);
-    logger.warn({ err }, "Planner agent failed — falling back to sandbox-only");
+    logger.warn({ err }, "Planner agent failed - falling back to sandbox-only");
     return null;
   }
 }
@@ -216,7 +216,7 @@ async function callNativeAgent(
 ): Promise<{ component: string; props: Record<string, unknown> }> {
   // Get the JSON Schema for this component
   const schema = componentSchemas[componentName];
-  const schemaStr = schema ? JSON.stringify(schema, null, 2) : "No schema available — use your best judgment.";
+  const schemaStr = schema ? JSON.stringify(schema, null, 2) : "No schema available - use your best judgment.";
 
   let userMessage = `Component: ${componentName}\nIntent: ${intent}`;
   if (data !== undefined) {
@@ -261,7 +261,7 @@ async function callNativeAgent(
     const errors = validateJsonSchema(props, schema);
     if (errors.length > 0) {
       logger.warn({ component, errors }, "Native props validation errors (post-autofix)");
-      // Still return — frontend autoFixProps will catch remaining issues
+      // Still return - frontend autoFixProps will catch remaining issues
     }
   }
 

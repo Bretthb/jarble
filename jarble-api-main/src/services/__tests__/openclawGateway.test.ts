@@ -1,5 +1,5 @@
 /**
- * OpenClaw Gateway — unit tests.
+ * OpenClaw Gateway - unit tests.
  *
  * Tests extractText, chatViaExec (exec-based fallback), and chatViaGateway
  * (WebSocket-based) by mocking ws, exec, and uiBlockParser.

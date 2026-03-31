@@ -1,7 +1,7 @@
 /**
  * Flow Chat Route
  *
- * POST /api/flows/:flowId/chat — Send a message to the flow's entry bot.
+ * POST /api/flows/:flowId/chat - Send a message to the flow's entry bot.
  *
  * The entry bot can delegate to connected bots via auto-generated delegation
  * tools. Delegation happens transparently: the user talks to one bot, and the
@@ -9,9 +9,9 @@
  *
  * Response streams via SSE using the same AG-UI event protocol as tamboAgent.ts.
  * Additional flow-specific events:
- *   - jarble.flow.delegation.start  — delegation to a team member began
- *   - jarble.flow.delegation.end    — delegation finished (includes result summary)
- *   - jarble.flow.chat.trace        — full delegation trace at end of response
+ *   - jarble.flow.delegation.start  - delegation to a team member began
+ *   - jarble.flow.delegation.end    - delegation finished (includes result summary)
+ *   - jarble.flow.chat.trace        - full delegation trace at end of response
  *
  * Auth: Bearer JWT (same as tamboAgent.ts and flowExecution.ts)
  */
@@ -537,7 +537,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       //     A follow-up iteration can add a second entry-bot call for synthesis.
 
     } else {
-      // No delegation — stream the entry bot's response directly
+      // No delegation - stream the entry bot's response directly
       // Strip reasoning tags for clean display
       const cleanText = entryResult.text
         .replace(/<(think|reasoning)>[\s\S]*?<\/\1>/gi, "")
@@ -596,7 +596,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error" });
     } else if (!res.writableEnded) {
-      // Stream was already open — try to send an error event
+      // Stream was already open - try to send an error event
       try {
         sendEvent(res, {
           type: CUSTOM,

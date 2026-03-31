@@ -1,5 +1,5 @@
 /**
- * Diagnostic endpoint — runs health checks for a deployment.
+ * Diagnostic endpoint - runs health checks for a deployment.
  *
  * GET /api/deployments/:id/diagnose
  * Requires Bearer JWT auth + deployment ownership.
@@ -147,10 +147,10 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
       name: "DB Status Match",
       status: "warning",
       detail: `DB says "running" but pod is ${podStatusResult.status === "fulfilled" ? podStatusResult.value.status : "unknown"}`,
-      suggestion: "Status may be stale — try restarting",
+      suggestion: "Status may be stale - try restarting",
     });
   } else if (!dbSaysRunning && podRunning) {
-    // Auto-fix: DB says failed/creating but pod is running — update DB to match reality
+    // Auto-fix: DB says failed/creating but pod is running - update DB to match reality
     try {
       await db.update(tables.deployments)
         .set({ status: "running", error: null })
@@ -160,7 +160,7 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
         name: "DB Status Match",
         status: "ok",
         detail: `Fixed: was "${deployment.status}", now "running" (pod confirmed alive)`,
-        suggestion: "Status was desynced — automatically corrected",
+        suggestion: "Status was desynced - automatically corrected",
       });
     } catch (fixErr) {
       log.error({ deploymentId: deployment.id, err: fixErr }, "Failed to auto-fix status desync");
@@ -168,7 +168,7 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
         name: "DB Status Match",
         status: "warning",
         detail: `DB says "${deployment.status}" but pod is running`,
-        suggestion: "Status desync — could not auto-fix",
+        suggestion: "Status desync - could not auto-fix",
       });
     }
   } else {
@@ -214,7 +214,7 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
         name: "Storage",
         status: isHigh ? "warning" : "ok",
         detail: `${storage.usedGb}/${storage.totalGb} GB (${storage.percentUsed}%)`,
-        ...(isHigh ? { suggestion: "Storage is nearly full — clear unused files" } : {}),
+        ...(isHigh ? { suggestion: "Storage is nearly full - clear unused files" } : {}),
       });
     } else {
       checks.push({ name: "Storage", status: "warning", detail: "Could not read storage" });
@@ -246,7 +246,7 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
         const pvcMount = managedBy === "operator" ? `${home}/.openclaw` : "/data";
 
         // Run OpenClaw CLI diagnostics + system checks in a single exec.
-        // The HTTP health check is authoritative — process/port checks are informational only.
+        // The HTTP health check is authoritative - process/port checks are informational only.
         const script = [
           `echo "===HTTP_HEALTH==="`,
           `curl -s -o /dev/null -w "%{http_code}" http://localhost:18789/ 2>/dev/null || echo "CURL_FAILED"`,
@@ -278,7 +278,7 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
           return raw.slice(start + tag.length + 6, end === -1 ? undefined : end).trim();
         };
 
-        // HTTP health check — authoritative gateway liveness signal
+        // HTTP health check - authoritative gateway liveness signal
         const httpHealth = section("HTTP_HEALTH");
         const httpOk = httpHealth === "200";
         const curlMissing = httpHealth === "CURL_FAILED" || !httpHealth;
@@ -292,7 +292,7 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
           checks.push({
             name: "Gateway HTTP",
             status: "warning",
-            detail: "curl not available in container — falling back to process detection",
+            detail: "curl not available in container - falling back to process detection",
           });
         } else {
           checks.push({
@@ -302,7 +302,7 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
           });
         }
 
-        // Process list — informational only (not used for restart decisions)
+        // Process list - informational only (not used for restart decisions)
         const proc = section("PROCESS");
         if (proc && proc !== "NO_PS") {
           checks.push({ name: "Process List", status: "ok", detail: proc.split("\n").slice(0, 3).join("; ") });
@@ -339,7 +339,7 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
           const hasProcess = proc && proc !== "NO_PS" && /node|openclaw|gateway/i.test(proc);
           gatewayDown = !hasProcess;
         } else {
-          // HTTP returned a non-200 code — gateway is down
+          // HTTP returned a non-200 code - gateway is down
           gatewayDown = true;
         }
 
@@ -350,7 +350,7 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
             name: "OpenClaw Config",
             status: "error",
             detail: "openclaw.json not found on pod",
-            suggestion: "Config sync may have failed — restart will re-init",
+            suggestion: "Config sync may have failed - restart will re-init",
           });
         } else {
           try {
@@ -364,7 +364,7 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
               name: "OpenClaw Config",
               status: modelMatch ? "ok" : "warning",
               detail: `Pod model: ${podModel}${!modelMatch ? ` (DB: ${dbModel})` : ""}`,
-              ...(!modelMatch ? { suggestion: "Model mismatch — restart to apply DB config" } : {}),
+              ...(!modelMatch ? { suggestion: "Model mismatch - restart to apply DB config" } : {}),
             });
           } catch {
             checks.push({ name: "OpenClaw Config", status: "warning", detail: "Config exists but malformed" });
@@ -389,7 +389,7 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
           checks.push({ name: "OpenClaw CLI", status: "ok", detail: cleanHelp.slice(0, 500) });
         }
 
-        // OpenClaw doctor (full output — strip ASCII art banner)
+        // OpenClaw doctor (full output - strip ASCII art banner)
         const doctor = section("DOCTOR");
         if (doctor && doctor !== "NO_DOCTOR") {
           // Strip ANSI codes and the ASCII art banner (block chars)
@@ -459,19 +459,19 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
                     }
                   } catch { /* keep polling */ }
                 }
-                // Timeout — mark as failed
+                // Timeout - mark as failed
                 await db.update(tables.deployments)
                   .set({ status: "failed", error: "Pod did not become ready after restart" })
                   .where(eq(tables.deployments.id, deploymentId));
                 log.warn({ deploymentId }, "diagnose: pod did not recover after restart (60s)");
               };
-              // Fire-and-forget — don't block the response
+              // Fire-and-forget - don't block the response
               pollReady().catch(err => log.warn({ deploymentId, err }, "diagnose: readiness poll failed"));
 
               checks.push({
                 name: "Auto-Fix",
                 status: "ok",
-                detail: "Gateway was down — triggered pod restart. Should be back in 30-60s.",
+                detail: "Gateway was down - triggered pod restart. Should be back in 30-60s.",
               });
             } catch (restartErr) {
               checks.push({

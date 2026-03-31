@@ -1,8 +1,8 @@
 /**
- * Agent LLM endpoints — delegates tasks to specialist LLM agents.
+ * Agent LLM endpoints - delegates tasks to specialist LLM agents.
  *
- * POST /api/pod/agent/component  — Component Agent (legacy, preserved)
- * POST /api/pod/agent/:agentName — Generalized agent dispatch
+ * POST /api/pod/agent/component  - Component Agent (legacy, preserved)
+ * POST /api/pod/agent/:agentName - Generalized agent dispatch
  *
  * Auth: authenticatePod middleware (X-Deployment-Id + X-Gateway-Token)
  *
@@ -145,7 +145,7 @@ agentRouter.post("/:agentName", async (req: Request, res: Response) => {
         ),
       });
     } catch (err) {
-      // DB lookup failed — fall through to static registry
+      // DB lookup failed - fall through to static registry
       logger.warn({ deploymentId, agentName, err }, "DB agent lookup failed, falling back to static registry");
     }
   }
@@ -295,7 +295,7 @@ agentRouter.post("/:agentName", async (req: Request, res: Response) => {
       res.json({ result: parsed, model: resolvedModel, agent: agentName });
       return;
     } catch {
-      // Not JSON — return as text
+      // Not JSON - return as text
     }
 
     res.json({ result: text, model: resolvedModel, agent: agentName });

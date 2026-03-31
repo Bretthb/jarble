@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DrawingLayer — SVG overlay for rendering strokes on the freeform canvas.
+ * DrawingLayer - SVG overlay for rendering strokes on the freeform canvas.
  *
  * - Completed strokes rendered as <path> elements with pre-computed d attribute
  * - Active stroke rendered as <path> (live preview during draw)

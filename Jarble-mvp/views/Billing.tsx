@@ -47,7 +47,7 @@ function formatDate(iso: string): string {
 }
 
 function formatPeriod(start: string | null, end: string | null): string {
-  if (!start || !end) return "—";
+  if (!start || !end) return "-";
   const s = new Date(start);
   const e = new Date(end);
   const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
@@ -247,7 +247,7 @@ export default function Billing() {
               <Skeleton className="h-7 w-28 mt-1" />
             ) : (
               <p className="text-2xl font-bold">
-                {overview?.nextBillingDate ? formatDate(overview.nextBillingDate) : <span className="text-muted-foreground">—</span>}
+                {overview?.nextBillingDate ? formatDate(overview.nextBillingDate) : <span className="text-muted-foreground">-</span>}
               </p>
             )}
           </Card>
@@ -266,7 +266,7 @@ export default function Billing() {
                 {overview?.paymentMethodLast4 ? (
                   <span className="text-lg">···· {overview.paymentMethodLast4}</span>
                 ) : (
-                  <span className="text-muted-foreground">—</span>
+                  <span className="text-muted-foreground">-</span>
                 )}
               </p>
             )}
@@ -384,7 +384,7 @@ export default function Billing() {
             ) : invoices.length === 0 ? (
               <div className="p-8 text-center">
                 <Receipt className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
-                <p className="text-sm text-muted-foreground">No invoices yet — invoices appear after your first billing cycle</p>
+                <p className="text-sm text-muted-foreground">No invoices yet - invoices appear after your first billing cycle</p>
               </div>
             ) : (
               <Table>

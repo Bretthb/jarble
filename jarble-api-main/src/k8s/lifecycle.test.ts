@@ -74,7 +74,7 @@ beforeEach(() => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// createDeployment — Legacy Mode
+// createDeployment - Legacy Mode
 // ═══════════════════════════════════════════════════════════════════════
 describe("createDeployment (legacy)", () => {
   it("creates PVC, Secret, and Deployment in order", async () => {
@@ -356,7 +356,7 @@ describe("createDeployment (legacy)", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// createDeployment — Operator Mode
+// createDeployment - Operator Mode
 // ═══════════════════════════════════════════════════════════════════════
 describe("createDeployment (operator)", () => {
   it("creates Secret and CR (no PVC)", async () => {
@@ -474,7 +474,7 @@ describe("restartDeployment", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// deleteDeployment — Legacy
+// deleteDeployment - Legacy
 // ═══════════════════════════════════════════════════════════════════════
 describe("deleteDeployment (legacy)", () => {
   it("deletes all 4 resources", async () => {
@@ -540,7 +540,7 @@ describe("deleteDeployment (legacy)", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// deleteDeployment — Operator
+// deleteDeployment - Operator
 // ═══════════════════════════════════════════════════════════════════════
 describe("deleteDeployment (operator)", () => {
   it("deletes CR, Secret, ConfigMap, and PVC", async () => {

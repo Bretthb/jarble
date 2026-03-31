@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useCanvasAction } from "../CanvasActionContext";
 import { useSandboxTheme } from "../SandboxThemeContext";
 
-// Lazy-load Sandpack (no SSR — needs browser APIs)
+// Lazy-load Sandpack (no SSR - needs browser APIs)
 const SandpackProvider = dynamic(
   () => import("@codesandbox/sandpack-react").then((m) => m.SandpackProvider),
   { ssr: false }

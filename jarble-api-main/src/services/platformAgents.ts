@@ -1,5 +1,5 @@
 /**
- * Platform Agent Seeding — seeds default platform agents (component, data, workflow)
+ * Platform Agent Seeding - seeds default platform agents (component, data, workflow)
  * into the deployment_subagents table when a new deployment is created.
  *
  * These agents are stored as `source: "platform"` rows so the UI can display
@@ -57,7 +57,7 @@ export async function seedPlatformAgents(db: DbClient, deploymentId: string): Pr
   try {
     const deploymentSubagents = (tables as any).deploymentSubagents;
     if (!deploymentSubagents) {
-      logger.warn({ deploymentId }, "deploymentSubagents table not available — skipping platform agent seeding");
+      logger.warn({ deploymentId }, "deploymentSubagents table not available - skipping platform agent seeding");
       return;
     }
 

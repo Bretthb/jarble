@@ -114,7 +114,7 @@ export function useFileBrowser(
           continue;
         }
         if (file.size > 20 * 1024 * 1024) {
-          toast("Large file — this may take a while", { description: file.name });
+          toast("Large file - this may take a while", { description: file.name });
         }
 
         const formData = new FormData();

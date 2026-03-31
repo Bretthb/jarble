@@ -1,5 +1,5 @@
 /**
- * Service install handshake — performs the HTTP handshake with a remote
+ * Service install handshake - performs the HTTP handshake with a remote
  * service creator's API endpoint during installation.
  *
  * The handshake POSTs an install request with the buyer's deployment ID
@@ -70,7 +70,7 @@ export async function performInstallHandshake(
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw new Error(
-      `Handshake failed: ${response.status} ${response.statusText}${text ? ` — ${text.slice(0, 200)}` : ""}`,
+      `Handshake failed: ${response.status} ${response.statusText}${text ? ` - ${text.slice(0, 200)}` : ""}`,
     );
   }
 

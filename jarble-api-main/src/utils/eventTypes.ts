@@ -13,7 +13,7 @@ export const TEXT_MESSAGE_CONTENT = "TEXT_MESSAGE_CONTENT";
 export const TEXT_MESSAGE_END = "TEXT_MESSAGE_END";
 export const RUN_FINISHED = "RUN_FINISHED";
 
-// ── AG-UI Standard Events (new — replaces UI_BLOCK_*) ───────────────────────
+// ── AG-UI Standard Events (new - replaces UI_BLOCK_*) ───────────────────────
 
 export const TOOL_CALL_START = "TOOL_CALL_START";
 export const TOOL_CALL_ARGS = "TOOL_CALL_ARGS";

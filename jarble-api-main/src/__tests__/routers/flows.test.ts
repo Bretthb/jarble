@@ -9,7 +9,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as sqliteSchema from "../../db/schema.sqlite.js";
 
-// ── Test DB (inline pattern — mirrors stripe.test.ts) ────────────────────────
+// ── Test DB (inline pattern - mirrors stripe.test.ts) ────────────────────────
 
 // Reuse the full CREATE_TABLES_SQL from testDb helper
 import { createTestDb, type TestDbContext } from "../helpers/testDb.js";

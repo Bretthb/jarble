@@ -30,7 +30,7 @@ test.describe("Canvas dashboard operations", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -52,9 +52,9 @@ test.describe("Canvas dashboard operations", () => {
     const found = await waitForComponentType(page, "stat_grid", 15_000);
     if (!found) {
       // Bot may have already rendered individual metric_card/statistic components
-      // instead of a single stat_grid — verify we have multiple cards
+      // instead of a single stat_grid - verify we have multiple cards
       const count = await getCanvasCardCount(page);
-      expect.soft(count, "Bot rendered individual cards instead of stat_grid — count should be >= 2").toBeGreaterThanOrEqual(2);
+      expect.soft(count, "Bot rendered individual cards instead of stat_grid - count should be >= 2").toBeGreaterThanOrEqual(2);
       await screenshotMilestone(page, testInfo, "already-split");
       return;
     }
@@ -229,7 +229,7 @@ test.describe("Canvas dashboard operations", () => {
   // 7. Canvas empty state
   // -----------------------------------------------------------------------
   test("canvas shows empty state before any prompt", async ({ page }, testInfo) => {
-    // Do not send any prompt — just check the initial state
+    // Do not send any prompt - just check the initial state
     await page.waitForTimeout(2_000);
 
     const cardCount = await getCanvasCardCount(page);
@@ -239,7 +239,7 @@ test.describe("Canvas dashboard operations", () => {
     const canvasPanel = page.locator(".min-w-\\[300px\\]");
     const panelVisible = await canvasPanel.isVisible().catch(() => false);
 
-    // Either no panel shown or panel has no cards — both are valid empty states
+    // Either no panel shown or panel has no cards - both are valid empty states
     if (panelVisible) {
       await screenshotMilestone(page, testInfo, "empty-canvas-panel");
     } else {
@@ -288,7 +288,7 @@ test.describe("Canvas dashboard operations", () => {
     const idsBefore = await getCanvasCardIds(page);
     expect.soft(idsBefore.length, "Should have at least 2 cards").toBeGreaterThanOrEqual(2);
 
-    // Wait a moment and re-read IDs — order should be identical
+    // Wait a moment and re-read IDs - order should be identical
     await page.waitForTimeout(2_000);
     const idsAfter = await getCanvasCardIds(page);
 
@@ -326,7 +326,7 @@ test.describe("Canvas dashboard operations", () => {
 
     const found = await waitForComponentType(page, "stat_grid", 15_000);
     if (!found) {
-      test.skip(true, "stat_grid did not render — cannot test split");
+      test.skip(true, "stat_grid did not render - cannot test split");
       return;
     }
 

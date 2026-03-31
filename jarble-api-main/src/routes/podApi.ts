@@ -13,7 +13,7 @@ import { validateThemeConfig } from "@jarble/component-manifest";
 
 const logger = createModuleLogger("podApi");
 
-// ── K8s imports (optional — not available in SQLite dev mode) ────────────────
+// ── K8s imports (optional - not available in SQLite dev mode) ────────────────
 let coreApi: any = null;
 let NAMESPACE = "jarble";
 
@@ -228,7 +228,7 @@ podApiRouter.get("/marketplace/item/:id", async (req: Request, res: Response) =>
 
 // ── List installed items for the authenticated deployment ────────────────────
 // GET /api/pod/marketplace/installed
-// No deploymentId param needed — uses the authenticated deployment from middleware
+// No deploymentId param needed - uses the authenticated deployment from middleware
 podApiRouter.get("/marketplace/installed", async (req: Request, res: Response) => {
   try {
     const deploymentId = (req as any).podDeploymentId as string;
@@ -632,7 +632,7 @@ podApiRouter.post("/marketplace/uninstall", async (req: Request, res: Response) 
 
 // ── Publish a component ──────────────────────────────────────────────────────
 // POST /api/pod/marketplace/publish-component
-// creatorId is IGNORED — always resolved from the deployment's userId in DB
+// creatorId is IGNORED - always resolved from the deployment's userId in DB
 podApiRouter.post("/marketplace/publish-component", async (req: Request, res: Response) => {
   try {
     const deployment = (req as any).podDeployment;
@@ -724,7 +724,7 @@ podApiRouter.post("/marketplace/publish-component", async (req: Request, res: Re
 
 // ── Publish a service ────────────────────────────────────────────────────────
 // POST /api/pod/marketplace/publish-service
-// creatorId is IGNORED — always resolved from the deployment's userId in DB
+// creatorId is IGNORED - always resolved from the deployment's userId in DB
 podApiRouter.post("/marketplace/publish-service", async (req: Request, res: Response) => {
   try {
     const deployment = (req as any).podDeployment;
@@ -899,7 +899,7 @@ podApiRouter.post("/marketplace/register-service", async (req: Request, res: Res
 
 // ── Draft Service (from Publish button flow) ────────────────────────────────
 
-// POST /api/pod/services/create-draft — Create a draft service from the canvas
+// POST /api/pod/services/create-draft - Create a draft service from the canvas
 // Called by the MCP create_draft_service tool when user clicks Publish on a card
 podApiRouter.post("/services/create-draft", async (req: Request, res: Response) => {
   try {
@@ -920,7 +920,7 @@ podApiRouter.post("/services/create-draft", async (req: Request, res: Response) 
     }
 
     if (!/^[a-z][a-z0-9-]{0,63}$/.test(name)) {
-      res.status(400).json({ error: "Invalid service name — must be lowercase alphanumeric with hyphens" });
+      res.status(400).json({ error: "Invalid service name - must be lowercase alphanumeric with hyphens" });
       return;
     }
 
@@ -1033,7 +1033,7 @@ podApiRouter.post("/services/create-draft", async (req: Request, res: Response) 
 
 // ── Theme ───────────────────────────────────────────────────────────────────
 
-// POST /api/pod/theme — Set deployment theme (called by set_theme MCP tool)
+// POST /api/pod/theme - Set deployment theme (called by set_theme MCP tool)
 podApiRouter.post("/theme", async (req: Request, res: Response) => {
   try {
     const deploymentId = (req as any).podDeploymentId as string;

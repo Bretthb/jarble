@@ -179,7 +179,7 @@ describe("execInPodWithStdin", () => {
   it("times out after specified duration", async () => {
     mockExecClient.exec.mockImplementation(
       () => {
-        // Never call callback — simulates hang
+        // Never call callback - simulates hang
         return Promise.resolve({} as any);
       }
     );

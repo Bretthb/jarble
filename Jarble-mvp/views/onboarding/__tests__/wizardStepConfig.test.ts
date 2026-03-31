@@ -1,5 +1,5 @@
 /**
- * Wizard Step Config — Tests
+ * Wizard Step Config - Tests
  *
  * Tests the config-driven wizard step system, LLM provider definitions,
  * model definitions, credit plans, hardware options, and helper functions.

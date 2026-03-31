@@ -278,7 +278,7 @@ export const servicesRouter = router({
           deploymentId: input.deploymentId,
           runtime: deployment.runtime,
           componentCount: pkgComps.length,
-        }, "Service contains UI components but deployment runtime is not openclaw — components may not render");
+        }, "Service contains UI components but deployment runtime is not openclaw - components may not render");
       }
 
       // Verify all service components are still published
@@ -455,7 +455,7 @@ export const servicesRouter = router({
       }
 
       // Fire-and-forget: sync components + configs to pod
-      // Always sync configs when a package is installed — packageSnippets need to
+      // Always sync configs when a package is installed - packageSnippets need to
       // be appended to soul.md, and skills need config files on the PVC.
       if (deployment.status === "running") {
         for (const compId of installedComponents) {
@@ -489,7 +489,7 @@ export const servicesRouter = router({
           );
         }
 
-        // Sync configs to PVC — writes skill files + rebuilds soul.md with packageSnippets
+        // Sync configs to PVC - writes skill files + rebuilds soul.md with packageSnippets
         void syncConfigsToPvc(input.deploymentId).catch((err) =>
           logger.error({ err, deploymentId: input.deploymentId },
             "packages.install: failed to sync configs (non-fatal)")
@@ -658,7 +658,7 @@ export const servicesRouter = router({
         removedSkills,
       }, "Service uninstalled");
 
-      // Always sync configs on uninstall — removes package snippet from soul.md
+      // Always sync configs on uninstall - removes package snippet from soul.md
       // and cleans up skill config files from PVC
       if (deployment.status === "running") {
         void syncConfigsToPvc(input.deploymentId).catch((err) =>
@@ -1194,7 +1194,7 @@ export const servicesRouter = router({
           );
         }
 
-        // Sync configs to PVC — writes skill files + rebuilds soul.md with packageSnippets
+        // Sync configs to PVC - writes skill files + rebuilds soul.md with packageSnippets
         if (newlyInstalledComponents.length > 0 || newlyInstalledSkills.length > 0) {
           void syncConfigsToPvc(input.deploymentId).catch((err) =>
             logger.error(

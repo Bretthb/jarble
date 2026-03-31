@@ -250,7 +250,7 @@ describe("useStatusStream", () => {
 
     const firstEs = MockEventSource.instances[0];
 
-    // Trigger error — should schedule reconnect after 1s (1000 * 2^0)
+    // Trigger error - should schedule reconnect after 1s (1000 * 2^0)
     act(() => {
       firstEs._triggerError();
     });

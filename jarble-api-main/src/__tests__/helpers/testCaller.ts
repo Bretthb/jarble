@@ -1,5 +1,5 @@
 /**
- * Test caller helper — creates a tRPC caller backed by a test database.
+ * Test caller helper - creates a tRPC caller backed by a test database.
  *
  * The caller uses the real appRouter and real middleware (protectedProcedure
  * auth checks etc.), but with an injected test DB and mock user context.

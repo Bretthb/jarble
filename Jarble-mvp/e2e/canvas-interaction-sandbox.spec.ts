@@ -27,7 +27,7 @@ test.describe("Canvas sandbox interactions", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -77,7 +77,7 @@ test.describe("Canvas sandbox interactions", () => {
     // Wait 3 seconds for counter to initialize inside iframe
     await page.waitForTimeout(3_000);
 
-    // Check if the counter is visible — we can see if the iframe loaded by checking its size
+    // Check if the counter is visible - we can see if the iframe loaded by checking its size
     const iframeBox = await iframe.first().boundingBox();
     expect.soft(iframeBox, "Iframe should have non-zero dimensions").toBeTruthy();
     if (iframeBox) {
@@ -97,7 +97,7 @@ test.describe("Canvas sandbox interactions", () => {
     const iframe = page.locator("[data-card-id] iframe");
     await expect(iframe.first()).toBeVisible({ timeout: 15_000 });
 
-    // Just verify iframe loaded — don't try to check canvas content inside sandboxed iframe
+    // Just verify iframe loaded - don't try to check canvas content inside sandboxed iframe
     const sandboxAttr = await iframe.first().getAttribute("sandbox");
     expect.soft(sandboxAttr, "Sandbox iframe should have sandbox attribute").toBeTruthy();
     expect.soft(

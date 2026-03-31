@@ -1,5 +1,5 @@
 /**
- * MCP Server Adapter — Bridges the existing ToolRegistry to a real MCP server.
+ * MCP Server Adapter - Bridges the existing ToolRegistry to a real MCP server.
  *
  * Creates an @modelcontextprotocol/sdk McpServer instance and registers all
  * tools from the in-process ToolRegistry so they can be called over the
@@ -40,7 +40,7 @@ function jsonSchemaPropertyToZod(prop: Record<string, any>): ZodTypeAny {
       return prop.description ? z.boolean().describe(prop.description) : z.boolean();
     case "object": {
       // If the object has explicit properties, build a nested z.object()
-      // (Tambo rejects z.record — dynamic-key objects aren't supported)
+      // (Tambo rejects z.record - dynamic-key objects aren't supported)
       if (prop.properties) {
         const nested: Record<string, ZodTypeAny> = {};
         const nestedReq = new Set<string>(prop.required || []);
@@ -52,7 +52,7 @@ function jsonSchemaPropertyToZod(prop: Record<string, any>): ZodTypeAny {
         const obj = z.object(nested);
         return prop.description ? obj.describe(prop.description) : obj;
       }
-      // No explicit properties — use passthrough object (Tambo rejects z.record)
+      // No explicit properties - use passthrough object (Tambo rejects z.record)
       const obj = z.object({}).passthrough();
       return prop.description ? obj.describe(prop.description) : obj;
     }
@@ -110,7 +110,7 @@ export function createMcpServer(ctx: ToolContext): McpServer {
   for (const tool of tools) {
     const inputSchema = buildInputSchema(tool);
 
-    // @ts-expect-error — deep type instantiation from MCP SDK generics
+    // @ts-expect-error - deep type instantiation from MCP SDK generics
     server.registerTool(
       tool.name,
       {

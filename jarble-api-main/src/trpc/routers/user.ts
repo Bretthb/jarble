@@ -20,7 +20,7 @@ export const userRouter = router({
     });
   }),
 
-  // Update profile (name only — email changes require verification via Auth0)
+  // Update profile (name only - email changes require verification via Auth0)
   updateProfile: protectedProcedure
     .input(z.object({
       name: z.string().min(1).optional(),
@@ -35,7 +35,7 @@ export const userRouter = router({
       });
     }),
 
-  // Complete profile — for email/password signups that need to add their name
+  // Complete profile - for email/password signups that need to add their name
   // Called after email verification is confirmed
   completeProfile: protectedProcedure
     .input(z.object({

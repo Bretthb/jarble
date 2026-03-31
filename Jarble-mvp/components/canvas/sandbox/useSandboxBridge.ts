@@ -453,7 +453,7 @@ export function useSandboxBridge(config: SandboxBridgeConfig): SandboxBridgeStat
         try { es.close(); } catch { /* ignore */ }
       }
       activeStreamSources.current = {};
-      isDev && console.log(`${logPrefix} Stopped — iframe destroyed`);
+      isDev && console.log(`${logPrefix} Stopped - iframe destroyed`);
     }
   }, [stopped, logPrefix]);
 

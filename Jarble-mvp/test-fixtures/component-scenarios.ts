@@ -1,5 +1,5 @@
 /**
- * Visual QA Test Fixtures — 7 scenario groups covering all 38 canvas components.
+ * Visual QA Test Fixtures - 7 scenario groups covering all 38 canvas components.
  *
  * Each scenario is an array of CanvasCard objects with realistic, professional data.
  * Props are designed to pass Zod validation from @jarble/component-manifest schemas.
@@ -307,7 +307,7 @@ console.log(\`Deployment \${id} is \${status}\`);`,
     items: [
       { text: "Canvas component marketplace", description: "Browse, install, and publish custom UI components", icon: "🎨" },
       { text: "Multi-provider LLM support", description: "Switch between Anthropic, OpenAI, Google, and OpenRouter", icon: "🤖" },
-      { text: "WhatsApp QR pairing", description: "Scan to connect — no phone number needed", icon: "📱" },
+      { text: "WhatsApp QR pairing", description: "Scan to connect - no phone number needed", icon: "📱" },
       { text: "Real-time SSE dashboard", description: "Live deployment status without polling", icon: "⚡" },
     ],
   }, { width: 320, height: 260 }, "Changelog"),
@@ -394,19 +394,19 @@ export const mediaAndGeo: PersistedCard[] = [
   makeCard("image", {
     src: "https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&h=400&fit=crop",
     alt: "Modern office space with collaborative work areas",
-    caption: "Our San Francisco headquarters — designed for collaboration",
+    caption: "Our San Francisco headquarters - designed for collaboration",
   }, { width: 360, height: 280 }, "Office Photo"),
 
   makeCard("video", {
     url: "https://www.w3schools.com/html/mov_bbb.mp4",
-    title: "Product Demo — Q1 2026",
+    title: "Product Demo - Q1 2026",
     controls: true,
     loop: false,
     muted: true,
   }, { width: 560, height: 420 }, "Demo Video"),
 
   makeCard("image_gallery", {
-    title: "Team Offsite — Feb 2026",
+    title: "Team Offsite - Feb 2026",
     images: [
       { src: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=400&h=300&fit=crop", alt: "Team collaboration session", caption: "Design sprint kickoff" },
       { src: "https://images.unsplash.com/photo-1515187029135-18ee286d815b?w=400&h=300&fit=crop", alt: "Team building activity", caption: "Escape room challenge" },
@@ -548,7 +548,7 @@ export const stressTests: PersistedCard[] = [
 
   makeCard("audio", {
     url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-    title: "Podcast: Building Bots at Scale — Episode 12",
+    title: "Podcast: Building Bots at Scale - Episode 12",
   }, { width: 320, height: 100 }, "Audio Player"),
 
   makeCard("text_message", {
@@ -612,7 +612,7 @@ console.log(sequence); // [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]`,
       },
       {
         component: "alert",
-        props: { message: "System healthy — all services operational", variant: "success" },
+        props: { message: "System healthy - all services operational", variant: "success" },
       },
     ],
     columns: 3,

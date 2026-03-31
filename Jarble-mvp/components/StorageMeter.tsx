@@ -65,7 +65,7 @@ export function StorageMeter({ usedGb, totalGb, percentUsed, compact = false, cl
       </div>
       {percentUsed >= 90 && (
         <p className="text-xs text-red-500 font-medium">
-          Storage almost full — consider upgrading your plan.
+          Storage almost full - consider upgrading your plan.
         </p>
       )}
     </div>

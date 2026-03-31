@@ -1,5 +1,5 @@
 /**
- * SimpleCanvasGrid — Component Tests
+ * SimpleCanvasGrid - Component Tests
  *
  * Tests the freeform canvas grid with drag-to-reorder, split/merge,
  * keyboard navigation, empty state, and card action buttons.

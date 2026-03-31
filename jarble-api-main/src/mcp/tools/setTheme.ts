@@ -47,7 +47,7 @@ export const setThemeTool: McpTool = {
     if (!hasParams) {
       const current = ctx.deployment.themeConfig;
       if (!current) {
-        return { success: true, message: "No custom theme set — using platform defaults." };
+        return { success: true, message: "No custom theme set - using platform defaults." };
       }
       try {
         const parsed = JSON.parse(current);
@@ -57,7 +57,7 @@ export const setThemeTool: McpTool = {
           data: parsed,
         };
       } catch {
-        return { success: true, message: "No custom theme set — using platform defaults." };
+        return { success: true, message: "No custom theme set - using platform defaults." };
       }
     }
 

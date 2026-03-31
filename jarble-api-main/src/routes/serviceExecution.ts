@@ -87,7 +87,7 @@ serviceExecutionRouter.post(
     const gatewayToken = req.headers["x-gateway-token"] as string | undefined;
 
     if (bearerToken) {
-      // JWT auth — verify token and check deployment ownership
+      // JWT auth - verify token and check deployment ownership
       try {
         const payload = await verifyToken(bearerToken);
         const user = await getUserFromToken(payload);
@@ -112,7 +112,7 @@ serviceExecutionRouter.post(
         return;
       }
     } else if (gatewayToken) {
-      // Gateway token auth — verify against K8s Secret (primary) or DB field (fallback)
+      // Gateway token auth - verify against K8s Secret (primary) or DB field (fallback)
       const deployment = await db.query.deployments.findFirst({
         where: eq(tables.deployments.id, deploymentId),
       });
@@ -127,8 +127,8 @@ serviceExecutionRouter.post(
       const expectedToken = k8sToken ?? (deployment as any).gatewayToken;
 
       if (!expectedToken) {
-        log.warn({ deploymentId }, "Service execution: no gateway token configured — rejecting request");
-        res.status(401).set("X-Request-Id", requestId).json({ error: "Unauthorized — gateway token not configured" });
+        log.warn({ deploymentId }, "Service execution: no gateway token configured - rejecting request");
+        res.status(401).set("X-Request-Id", requestId).json({ error: "Unauthorized - gateway token not configured" });
         return;
       }
       if (gatewayToken.length !== expectedToken.length ||
@@ -140,7 +140,7 @@ serviceExecutionRouter.post(
     } else {
       log.warn({ deploymentId }, "Service execution: no authentication provided");
       res.status(401).set("X-Request-Id", requestId).json({
-        error: "Unauthorized — provide Bearer JWT or X-Gateway-Token",
+        error: "Unauthorized - provide Bearer JWT or X-Gateway-Token",
       });
       return;
     }
@@ -281,7 +281,7 @@ serviceExecutionRouter.post(
 
     // ── 11. Execute ─────────────────────────────────────────────────────────────
     if (executionMode === "agent") {
-      // Agent mode — future enhancement. The bot would receive a structured
+      // Agent mode - future enhancement. The bot would receive a structured
       // skill call message and respond with JSON. Not yet implemented.
       res.status(501).set("X-Request-Id", requestId).json({
         error: "Agent mode not yet implemented. Use handler mode.",
@@ -289,7 +289,7 @@ serviceExecutionRouter.post(
       return;
     }
 
-    // Handler mode — execute JS handler code in the creator pod
+    // Handler mode - execute JS handler code in the creator pod
     const creatorDeploymentId = serviceCard.creatorDeploymentId;
     if (!creatorDeploymentId) {
       log.warn({ serviceId }, "Service execution: service has no creator deployment");
@@ -316,7 +316,7 @@ serviceExecutionRouter.post(
       const { findPodForDeployment } = await import("../k8s/exec.js");
       podName = await findPodForDeployment(creatorDeploymentId);
     } catch {
-      // K8s not available — check if we can use dev runtime
+      // K8s not available - check if we can use dev runtime
       if (process.env.USE_SQLITE === "true") {
         useDevRuntime = true;
         log.info({ serviceId, skillName }, "Service execution: K8s unavailable, using dev handler runtime");
@@ -331,7 +331,7 @@ serviceExecutionRouter.post(
     }
 
     if (!podName && !useDevRuntime) {
-      // Pod not found — try dev runtime as fallback if SQLite mode
+      // Pod not found - try dev runtime as fallback if SQLite mode
       if (process.env.USE_SQLITE === "true") {
         useDevRuntime = true;
         log.info({ serviceId, skillName }, "Service execution: pod not found, using dev handler runtime");
@@ -382,7 +382,7 @@ serviceExecutionRouter.post(
     }
 
     // Build wrapper script that executes the handler in the pod Node.js runtime.
-    // The handler code is a JS function body string — we wrap it in a Function
+    // The handler code is a JS function body string - we wrap it in a Function
     // constructor, invoke it with the request body, and print the JSON result.
     const wrapperScript = [
       `const handler = new Function('args', 'context', ${JSON.stringify(handlerCode)});`,
@@ -420,7 +420,7 @@ serviceExecutionRouter.post(
       try {
         parsed = JSON.parse(stdout);
       } catch {
-        // stdout was not valid JSON — the handler likely printed raw output
+        // stdout was not valid JSON - the handler likely printed raw output
         log.warn(
           { serviceId, skillName, requestId, stdout: stdout.slice(0, 500) },
           "Service execution: handler output is not valid JSON",

@@ -9,7 +9,7 @@
  *   RAM:     $2.50  per 1 GB
  *   Storage: $0.08  per 1 GB
  *
- * Note: storageMb is named historically — the value is actually in GB.
+ * Note: storageMb is named historically - the value is actually in GB.
  */
 
 // Prices in cents per unit

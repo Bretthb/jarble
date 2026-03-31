@@ -5,9 +5,9 @@
  * and updates their remoteHealth + remoteLastCheck fields in the DB.
  *
  * Health statuses:
- *   - "healthy"  — endpoint returned HTTP 200 within 10s
- *   - "degraded" — endpoint returned a non-200 response, or heartbeat 2x late
- *   - "offline"  — request timed out or failed entirely, or heartbeat 3x late
+ *   - "healthy"  - endpoint returned HTTP 200 within 10s
+ *   - "degraded" - endpoint returned a non-200 response, or heartbeat 2x late
+ *   - "offline"  - request timed out or failed entirely, or heartbeat 3x late
  *
  * Supports push-based heartbeats: services with a recent heartbeat skip
  * the pull-based check. Stale heartbeats trigger degraded/offline status.
@@ -87,7 +87,7 @@ async function checkStaleHeartbeats(): Promise<void> {
       const elapsed = now - lastBeat;
 
       if (elapsed > intervalMs * 3) {
-        // 3x interval — offline
+        // 3x interval - offline
         await db
           .update(tables.marketplaceServices)
           .set({
@@ -101,7 +101,7 @@ async function checkStaleHeartbeats(): Promise<void> {
           "Service heartbeat stale: marking offline (3x interval exceeded)",
         );
       } else if (elapsed > intervalMs * 2) {
-        // 2x interval — degraded
+        // 2x interval - degraded
         await db
           .update(tables.marketplaceServices)
           .set({
@@ -154,21 +154,21 @@ async function checkServiceHealth(svc: any): Promise<void> {
       healthUrl = `${svc.remoteApiEndpoint}/health`;
     }
   } catch {
-    // Invalid config JSON — skip
+    // Invalid config JSON - skip
   }
 
   if (!healthUrl) {
     return; // No endpoint to check
   }
 
-  // Skip the network call if the circuit breaker is open — the service is
+  // Skip the network call if the circuit breaker is open - the service is
   // already known to be down, so hitting it again is wasteful. Just mark it
   // offline and let the circuit breaker recovery timeout handle re-probing.
   const circuit = await canRequest(svc.id);
   if (!circuit.allowed) {
     logger.info(
       { serviceId: svc.id, healthUrl },
-      "Service health check: skipping — circuit breaker is OPEN",
+      "Service health check: skipping - circuit breaker is OPEN",
     );
 
     await db
@@ -185,7 +185,7 @@ async function checkServiceHealth(svc: any): Promise<void> {
   if (!validateExternalUrl(healthUrl)) {
     logger.warn(
       { serviceId: svc.id, healthUrl },
-      "Service health check: blocked SSRF — URL points to private/internal network",
+      "Service health check: blocked SSRF - URL points to private/internal network",
     );
     return;
   }

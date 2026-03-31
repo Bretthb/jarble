@@ -1,7 +1,7 @@
 /**
  * Integration tests for services admin moderation procedures.
  *
- * Tests adminList, adminApprove, adminReject — both success (admin user)
+ * Tests adminList, adminApprove, adminReject - both success (admin user)
  * and rejection (non-admin user) paths.
  *
  * Uses real in-memory SQLite with mocked K8s, Stripe, configSync, and OpenRouter.

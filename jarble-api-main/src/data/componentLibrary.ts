@@ -1,5 +1,5 @@
 /**
- * Component Library — Seed data for composite UI templates.
+ * Component Library - Seed data for composite UI templates.
  *
  * These ~25 composite definitions are written to each deployment's PVC at
  * `/data/components/{name}.json` during the initial deploy. The bot discovers

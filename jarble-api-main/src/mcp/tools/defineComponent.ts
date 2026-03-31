@@ -1,5 +1,5 @@
 /**
- * define_component MCP Tool — Save a reusable UI component template to the bot's PVC.
+ * define_component MCP Tool - Save a reusable UI component template to the bot's PVC.
  *
  * Bots call this to create custom components composed of built-in primitives
  * with {{variable}} placeholders for dynamic data.

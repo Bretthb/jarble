@@ -29,7 +29,7 @@ interface SandboxControlBarProps {
   onToggle: () => void;
 }
 
-/** Minimal control button — absolutely positioned bottom-right over sandbox content. */
+/** Minimal control button - absolutely positioned bottom-right over sandbox content. */
 export const SandboxControlBar = memo(function SandboxControlBar({
   stopped,
   onToggle,
@@ -61,7 +61,7 @@ export const SandboxStoppedOverlay = memo(function SandboxStoppedOverlay() {
       style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0 }}
       className="rounded-lg bg-muted/30 text-muted-foreground text-sm"
     >
-      Sandbox stopped — click Restart to resume
+      Sandbox stopped - click Restart to resume
     </div>
   );
 });
@@ -73,7 +73,7 @@ interface SandboxShellProps {
 }
 
 /**
- * Shared sandbox shell — control bar + content area.
+ * Shared sandbox shell - control bar + content area.
  * Wraps the iframe (or stopped overlay) with consistent layout.
  */
 export const SandboxShell = memo(function SandboxShell({

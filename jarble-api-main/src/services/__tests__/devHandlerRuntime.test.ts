@@ -1,5 +1,5 @@
 /**
- * Tests for the dev handler runtime — in-process handler execution,
+ * Tests for the dev handler runtime - in-process handler execution,
  * store persistence, and event streaming (subscribe/emit).
  *
  * This is the core of the streaming todo service:
@@ -62,7 +62,7 @@ const SERVICE_ID = "svc_todo_test";
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("Dev Handler Runtime — Streaming Todo Service", () => {
+describe("Dev Handler Runtime - Streaming Todo Service", () => {
   beforeEach(() => {
     clearAllStores();
   });

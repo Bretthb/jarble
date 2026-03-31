@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DeploymentContextProvider — provides deployment ID context to child components.
+ * DeploymentContextProvider - provides deployment ID context to child components.
  *
  * Previously wrapped TamboProvider; now a thin context wrapper after Tambo removal.
  * Kept as DeploymentTamboProvider export name for backward compatibility with imports.

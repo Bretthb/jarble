@@ -14,7 +14,7 @@ import http from "http";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-// DB mock — create individual mock functions for fine-grained assertions
+// DB mock - create individual mock functions for fine-grained assertions
 const mockFindFirstDeployments = vi.fn();
 const mockFindFirstMarketplaceComponents = vi.fn();
 const mockFindManyMarketplaceComponents = vi.fn();
@@ -110,7 +110,7 @@ vi.mock("../../db/index.js", () => ({
   dbDate: () => new Date().toISOString(),
 }));
 
-// K8s client mock — prevent dynamic import from failing
+// K8s client mock - prevent dynamic import from failing
 vi.mock("../../k8s/client.js", () => ({
   coreApi: null,
 }));
@@ -119,7 +119,7 @@ vi.mock("../../k8s/constants.js", () => ({
   NAMESPACE: "jarble",
 }));
 
-// ConfigSync mock — no-op
+// ConfigSync mock - no-op
 vi.mock("../../services/configSync.js", () => ({
   syncConfigsToPvc: vi.fn().mockResolvedValue(undefined),
 }));
@@ -139,7 +139,7 @@ vi.mock("../../services/serviceHandshake.js", () => ({
   performInstallHandshake: vi.fn().mockResolvedValue({ remoteInstallId: "remote-001" }),
 }));
 
-// Logger mock — suppress output
+// Logger mock - suppress output
 vi.mock("../../utils/logger.js", () => ({
   createModuleLogger: () => ({
     debug: vi.fn(),

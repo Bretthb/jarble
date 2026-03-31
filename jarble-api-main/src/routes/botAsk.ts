@@ -1,5 +1,5 @@
 /**
- * Bot Ask — sandbox components ask the bot contextual questions.
+ * Bot Ask - sandbox components ask the bot contextual questions.
  *
  * POST /api/deployments/:id/bridge/ask
  * Auth: Bearer JWT (user must own the deployment)
@@ -131,7 +131,7 @@ botAskRouter.post("/:id/bridge/ask", async (req: Request, res: Response) => {
         podIp = pod.body.status?.podIP ?? null;
       }
     } catch {
-      // K8s not available (dev mode) — use mock
+      // K8s not available (dev mode) - use mock
     }
 
     if (!podIp) {
@@ -156,7 +156,7 @@ botAskRouter.post("/:id/bridge/ask", async (req: Request, res: Response) => {
       AbortSignal.timeout(60_000),
     );
 
-    // Return plain text only (strip UI blocks — asks shouldn't generate UI)
+    // Return plain text only (strip UI blocks - asks shouldn't generate UI)
     res.json({ answer: response.text });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

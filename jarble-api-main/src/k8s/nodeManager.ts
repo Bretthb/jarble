@@ -116,7 +116,7 @@ function buildCloudInit(nodeIp: string, hasVolume: boolean): string {
   const k3sToken = process.env.K3S_JOIN_TOKEN;
   if (!k3sToken) throw new Error("K3S_JOIN_TOKEN not set");
 
-  // Volume mount section — waits for Hetzner block storage device to appear
+  // Volume mount section - waits for Hetzner block storage device to appear
   // The volume ID isn't known at cloud-init time, so we find it by scanning /dev/disk/by-id/
   const volumeMount = hasVolume ? `
 # Mount Hetzner block storage for Longhorn
@@ -320,7 +320,7 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
       // Non-fatal: without the taint, container/website pods could land here
       // but the scheduler's affinity rules still prefer pool nodes.
       logger.warn({ nodeName, err: taintErr instanceof Error ? taintErr.message : taintErr },
-        "Failed to taint auto-scaled node (non-fatal — containers may schedule here)");
+        "Failed to taint auto-scaled node (non-fatal - containers may schedule here)");
     }
 
     await db.update(managedNodes)
@@ -427,7 +427,7 @@ async function getPodResources(pod: any): Promise<{ cpuCores: number; memGb: num
         if (storageStr.endsWith("Gi")) storageGb = parseInt(storageStr);
         else if (storageStr.endsWith("Mi")) storageGb = Math.ceil(parseInt(storageStr) / 1024);
       } catch {
-        // PVC not found — use default
+        // PVC not found - use default
       }
       break;
     }
@@ -466,7 +466,7 @@ async function poll(): Promise<void> {
           pendingCount: pendingPods.length,
           activeManagedNodes: activeCount,
           maxManagedNodes: maxServers,
-        }, "Pending pods detected but at server limit — cannot auto-scale");
+        }, "Pending pods detected but at server limit - cannot auto-scale");
       } else {
         // Use the first pending pod's resources to size the server
         const pod = pendingPods[0];
@@ -477,7 +477,7 @@ async function poll(): Promise<void> {
           cpu: resources.cpuCores,
           mem: resources.memGb,
           storage: resources.storageGb,
-        }, "Pending bot pod detected — provisioning right-sized server");
+        }, "Pending bot pod detected - provisioning right-sized server");
         // Extract deployment ID from pod name (dep-{deploymentId}-{replicaset}-{random})
         const podDeploymentId = pod.metadata?.labels?.app?.replace("dep-", "") || undefined;
         provisionNode(resources.cpuCores, resources.memGb, resources.storageGb, podDeploymentId).catch(() => {
@@ -486,7 +486,7 @@ async function poll(): Promise<void> {
       }
     } else if (pendingPods.length > 0 && provisioning) {
       logger.debug({ pendingCount: pendingPods.length },
-        "Pending pods detected but provisioning already in progress — skipping scale-up");
+        "Pending pods detected but provisioning already in progress - skipping scale-up");
     }
 
     // 2. Scale DOWN: check for auto-scaled nodes with no deployments referencing them.
@@ -521,13 +521,13 @@ async function poll(): Promise<void> {
             const readyTime = managedNode.readyAt ? new Date(managedNode.readyAt).getTime() : 0;
             if (Date.now() - readyTime > SCALE_DOWN_GRACE_MS) {
               logger.info({ nodeName: managedNode.nodeName },
-                "No deployments or pods reference this node — eligible for scale-down");
+                "No deployments or pods reference this node - eligible for scale-down");
               void deprovisionNode(managedNode);
             }
           }
         } else {
           logger.debug({ nodeName: managedNode.nodeName },
-            "Node has K8s Deployments referencing it (may be stopped) — keeping VPS alive");
+            "Node has K8s Deployments referencing it (may be stopped) - keeping VPS alive");
         }
       }
     }
@@ -603,7 +603,7 @@ async function countActiveManagedNodes(): Promise<number> {
   return rows.length;
 }
 
-// Provisioning semaphore — allows up to MAX_CONCURRENT_PROVISIONS VPS creations in parallel.
+// Provisioning semaphore - allows up to MAX_CONCURRENT_PROVISIONS VPS creations in parallel.
 // When the limit is reached, additional deploys wait for a slot to free up, then re-check
 // capacity (a newly provisioned node may already fit their pod).
 const MAX_CONCURRENT_PROVISIONS = 3;
@@ -694,12 +694,12 @@ async function checkCapacityAndProvision(
 
     if (freeCpuMillis >= requiredCpuMillis && freeMemMi >= requiredMemMi) {
       logger.info({ node: name, freeCpu: `${freeCpuMillis}m`, freeMem: `${freeMemMi}Mi` },
-        "Existing node has sufficient capacity — letting scheduler place pod");
+        "Existing node has sufficient capacity - letting scheduler place pod");
       return undefined;  // Let the K8s scheduler pick the node
     }
   }
 
-  // 5. No node has enough room — check if we can provision a new one
+  // 5. No node has enough room - check if we can provision a new one
   const maxServers = getMaxManagedServers();
   const activeCount = await countActiveManagedNodes();
 
@@ -709,7 +709,7 @@ async function checkCapacityAndProvision(
     maxManagedNodes: maxServers,
     requiredCpu: `${requiredCpuMillis}m`,
     requiredMem: `${requiredMemMi}Mi`,
-  }, "No existing node has sufficient capacity — checking server limit");
+  }, "No existing node has sufficient capacity - checking server limit");
 
   if (activeCount >= maxServers) {
     throw new CapacityError(
@@ -718,13 +718,13 @@ async function checkCapacityAndProvision(
     );
   }
 
-  // 6. Under the limit — provision a new server and WAIT for it to join
+  // 6. Under the limit - provision a new server and WAIT for it to join
   logger.info({
     activeManagedNodes: activeCount,
     maxManagedNodes: maxServers,
     requiredCpu: `${requiredCpuMillis}m`,
     requiredMem: `${requiredMemMi}Mi`,
-  }, "Under server limit — provisioning new worker (blocking)");
+  }, "Under server limit - provisioning new worker (blocking)");
 
   const cpuCores = requiredCpuMillis / 1000;
   const memGb = requiredMemMi / 1024;
@@ -748,20 +748,20 @@ async function checkCapacityAndProvision(
  * wait for the lock, then each re-checks capacity in turn. The newly provisioned node
  * may fit multiple pods, preventing a thundering herd of unnecessary VPS creations.
  *
- * Errors are NOT swallowed — callers must handle CapacityError for user-facing
+ * Errors are NOT swallowed - callers must handle CapacityError for user-facing
  * rejection and other errors for transient failures.
  */
 export async function ensureCapacityForDeployment(
   _db: any, cpuLimit?: string, memoryMb?: number, deploymentType?: string, deploymentId?: string
 ): Promise<string | undefined> {
-  // Container/website types share existing pool nodes — no VPS provisioning needed.
+  // Container/website types share existing pool nodes - no VPS provisioning needed.
   if (deploymentType === "container" || deploymentType === "website") {
-    logger.info({ deploymentType }, "Skipping VPS provisioning — container/website types use shared pool nodes");
+    logger.info({ deploymentType }, "Skipping VPS provisioning - container/website types use shared pool nodes");
     return undefined;
   }
 
   if (!isEnabled()) {
-    logger.debug("Auto-scaling disabled — skipping capacity check");
+    logger.debug("Auto-scaling disabled - skipping capacity check");
     return undefined;
   }
 

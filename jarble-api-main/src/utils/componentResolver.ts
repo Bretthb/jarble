@@ -1,12 +1,12 @@
 /**
- * Component Resolver — Template substitution + validation for bot-defined components.
+ * Component Resolver - Template substitution + validation for bot-defined components.
  *
  * Custom components are JSON definitions stored on the PVC at /data/components/{name}.json.
  * They contain a `layout` array of built-in primitive blocks with {{variable}} placeholders
  * that get substituted from the caller's props.
  */
 
-// Built-in component names — imported from the shared manifest (single source of truth)
+// Built-in component names - imported from the shared manifest (single source of truth)
 import { COMPONENT_NAME_SET } from "@jarble/component-manifest";
 import { createModuleLogger } from "./logger.js";
 
@@ -182,7 +182,7 @@ function substituteValue(
 /** Max total resolved blocks from a single custom component expansion */
 const MAX_EXPANDED = 50;
 
-/** Max serialized size (in bytes) of resolved props after substitution — prevents memory bombs */
+/** Max serialized size (in bytes) of resolved props after substitution - prevents memory bombs */
 const MAX_RESOLVED_PROPS_SIZE = 256 * 1024; // 256KB
 
 /**

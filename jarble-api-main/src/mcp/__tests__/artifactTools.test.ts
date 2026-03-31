@@ -1,5 +1,5 @@
 /**
- * Tests for the artifact store module — CRUD operations, validation,
+ * Tests for the artifact store module - CRUD operations, validation,
  * manifest integrity, and migration from old file format.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -63,7 +63,7 @@ describe("saveArtifact", () => {
     });
   });
 
-  it("updates an existing artifact — updatedAt bumps, createdAt preserved", async () => {
+  it("updates an existing artifact - updatedAt bumps, createdAt preserved", async () => {
     const first = saveArtifact(workspaceDir, makeInput());
     const firstCreatedAt = first.createdAt;
 
@@ -262,7 +262,7 @@ describe("listArtifacts", () => {
     await new Promise((r) => setTimeout(r, 10));
     saveArtifact(workspaceDir, makeInput({ id: "second", title: "Second" }));
     await new Promise((r) => setTimeout(r, 10));
-    // Update the first one — should now be most recent
+    // Update the first one - should now be most recent
     saveArtifact(workspaceDir, makeInput({ id: "first", title: "First Updated" }));
 
     const result = listArtifacts(workspaceDir);
@@ -535,7 +535,7 @@ describe("corrupted manifest recovery", () => {
     // Corrupt the manifest
     writeFileSync(join(workspaceDir, "manifest.json"), "CORRUPTED!", "utf-8");
 
-    // Operations should still work — manifest rebuilt from disk
+    // Operations should still work - manifest rebuilt from disk
     const list = listArtifacts(workspaceDir);
     expect(list).toHaveLength(2);
     const ids = list.map(a => a.id).sort();

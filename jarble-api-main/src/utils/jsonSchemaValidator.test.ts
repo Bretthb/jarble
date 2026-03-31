@@ -271,7 +271,7 @@ describe("validateJsonSchema", () => {
           optional: { type: "number" },
         },
       };
-      // "optional" is not required and not present — should not error
+      // "optional" is not required and not present - should not error
       expect(validateJsonSchema({}, schema)).toEqual([]);
     });
   });

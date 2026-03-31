@@ -1,4 +1,4 @@
-// Barrel re-export — all K8s operations
+// Barrel re-export - all K8s operations
 // Consumers should import from "../k8s/index.js" (or just "../k8s")
 
 export { coreApi, appsApi, customApi, execClient, kc } from "./client.js";

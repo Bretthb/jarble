@@ -90,7 +90,7 @@ export default function DataTableEditor({ props, onChange, disabled }: EditorPro
                   colSpan={columns.length + 1}
                   className="py-6 text-center text-xs text-muted-foreground"
                 >
-                  No rows yet — click Add Row
+                  No rows yet - click Add Row
                 </td>
               </tr>
             ) : (

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * useCanvasPersistence — debounced save/restore for canvas state.
+ * useCanvasPersistence - debounced save/restore for canvas state.
  *
  * Small props: localStorage (fast, sync).
  * Large props (sandbox, code_editor, etc.): IndexedDB (no size limit).
@@ -16,7 +16,7 @@ const MAX_BYTES = 2 * 1024 * 1024; // 2MB
 const EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const DEBOUNCE_MS = 300;
 
-/** Components whose props are too large for localStorage — stored in IndexedDB. */
+/** Components whose props are too large for localStorage - stored in IndexedDB. */
 const LARGE_PROP_COMPONENTS = new Set(["sandbox", "spreadsheet", "code_editor", "video", "audio"]);
 
 /** Components with small-enough props to always persist in localStorage. */
@@ -69,7 +69,7 @@ async function saveLargeProps(
     });
     db.close();
   } catch {
-    // IndexedDB unavailable — silently fail
+    // IndexedDB unavailable - silently fail
   }
 }
 
@@ -279,7 +279,7 @@ export function useCanvasPersistence(
     restoreCanvas(deploymentId, conversationId, dispatch);
   }, [deploymentId, conversationId, dispatch]);
 
-  // Handle conversation switch — save outgoing, restore incoming
+  // Handle conversation switch - save outgoing, restore incoming
   useEffect(() => {
     if (!hasRestored.current) return;
     if (prevConvRef.current === conversationId) return;
@@ -355,7 +355,7 @@ function restoreCanvas(
       console.log(`[Canvas] Restored ${saved.cards.length} card(s) for conversation ${conversationId ?? "default"}`);
     }
   } else {
-    // No saved canvas for this conversation — clear
+    // No saved canvas for this conversation - clear
     dispatch({ type: "CLEAR_CANVAS" });
   }
 }

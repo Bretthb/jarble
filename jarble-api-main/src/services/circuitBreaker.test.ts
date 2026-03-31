@@ -265,7 +265,7 @@ describe("circuitBreaker", () => {
         await recordFailure(pkg, openedAt, store);
       }
 
-      // Exactly at recovery time — should transition to HALF_OPEN, not return negative
+      // Exactly at recovery time - should transition to HALF_OPEN, not return negative
       const result = await canRequest(pkg, openedAt + RECOVERY_TIMEOUT_MS, store);
       expect(result.allowed).toBe(true);
     });
@@ -345,7 +345,7 @@ describe("circuitBreaker", () => {
       await canRequest(pkg, now + RECOVERY_TIMEOUT_MS, store);
       expect((await getCircuitState(pkg, store)).state).toBe("HALF_OPEN");
 
-      // Probe fails — consecutive failures should increment
+      // Probe fails - consecutive failures should increment
       await recordFailure(pkg, now + RECOVERY_TIMEOUT_MS + 100, store);
       expect((await getCircuitState(pkg, store)).state).toBe("OPEN");
       expect((await getCircuitState(pkg, store)).consecutiveFailures).toBe(FAILURE_THRESHOLD + 1);

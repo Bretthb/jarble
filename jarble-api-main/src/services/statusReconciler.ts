@@ -34,7 +34,7 @@ interface StatusMismatch {
  * Checks deployments with status: creating, running, restarting
  */
 export async function reconcileStatuses(): Promise<void> {
-  // Skip in local dev mode — no real K8s cluster to reconcile against
+  // Skip in local dev mode - no real K8s cluster to reconcile against
   if (process.env.USE_SQLITE === "true") return;
 
   try {
@@ -110,10 +110,10 @@ async function checkDeploymentStatus(dep: {
 
     case "creating":
       // Pod is still starting up (Pending, or Running but readiness probe not yet passing).
-      // Never downgrade "running" → "creating" — a pod can temporarily lose readiness
+      // Never downgrade "running" → "creating" - a pod can temporarily lose readiness
       // during initialDelaySeconds, configSync restarts, or brief probe failures.
       if (dep.status === "running") return null;
-      // Preserve transitional statuses — restarting and reloading resolve on their own
+      // Preserve transitional statuses - restarting and reloading resolve on their own
       if (dep.status === "restarting" || dep.status === "reloading") return null;
       expectedDbStatus = "creating";
       break;
@@ -216,7 +216,7 @@ export function startStatusReconciler(intervalMs: number = 30 * 1000): NodeJS.Ti
   logger.info({ intervalMs }, "statusReconciler: starting periodic status reconciliation");
   safeFireAndForget(reconcileStatuses(), { operation: "reconcileStatuses" });
 
-  // MCP server auto-sync — runs every 5 minutes, pushes latest MCP server to outdated pods
+  // MCP server auto-sync - runs every 5 minutes, pushes latest MCP server to outdated pods
   const mcpSyncIntervalMs = 5 * 60 * 1000;
   setInterval(async () => {
     try {

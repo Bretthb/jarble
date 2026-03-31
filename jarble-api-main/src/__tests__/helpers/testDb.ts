@@ -1,5 +1,5 @@
 /**
- * Test database helper — creates a fresh in-memory SQLite DB per test suite.
+ * Test database helper - creates a fresh in-memory SQLite DB per test suite.
  *
  * Uses better-sqlite3 + drizzle-orm to create the same tables as schema.sqlite.ts,
  * then exposes the db and raw connection for tests.
@@ -8,7 +8,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as sqliteSchema from "../../db/schema.sqlite.js";
 
-// Same CREATE TABLE SQL from db/init.ts — keeps test DB schema in sync
+// Same CREATE TABLE SQL from db/init.ts - keeps test DB schema in sync
 const CREATE_TABLES_SQL = `
   CREATE TABLE IF NOT EXISTS runtime_catalog (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -641,7 +641,7 @@ export function createTestDb(): TestDbContext {
       ('persona-sales', 'Sales Coach', 'sales-coach', 'business', 'B2B/B2C sales strategy', 'You are an experienced sales coach.', '["Help me close a deal", "Write a pitch"]', 1, 2);
   `);
 
-  // Seed test user (free deployment NOT used — fresh user)
+  // Seed test user (free deployment NOT used - fresh user)
   const testUserId = "test-user-001";
   const testAuth0Id = "auth0|test-integration-001";
   raw.exec(`

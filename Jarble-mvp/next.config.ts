@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
-  // Skip tsc errors during build — types are verified locally via `npm run check`
+  // Skip tsc errors during build - types are verified locally via `npm run check`
   typescript: {
     ignoreBuildErrors: true,
   },

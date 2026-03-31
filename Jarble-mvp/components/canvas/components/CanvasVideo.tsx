@@ -68,12 +68,12 @@ function getEmbedUrl(url: string): string | null {
       }
     }
 
-    // TradingView: s.tradingview.com or tradingview-widget.com embed URLs — pass through as-is
+    // TradingView: s.tradingview.com or tradingview-widget.com embed URLs - pass through as-is
     if (u.hostname.includes("tradingview.com") || u.hostname.includes("tradingview-widget.com")) {
       return url;
     }
   } catch {
-    // Invalid URL — fall through to ReactPlayer
+    // Invalid URL - fall through to ReactPlayer
   }
   return null;
 }

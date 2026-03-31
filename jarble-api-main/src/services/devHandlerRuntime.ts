@@ -1,5 +1,5 @@
 /**
- * Dev-mode handler runtime — executes service handler code in-process
+ * Dev-mode handler runtime - executes service handler code in-process
  * when K8s is unavailable (USE_SQLITE=true / tests).
  *
  * Each service gets an isolated in-memory store that simulates the
@@ -106,7 +106,7 @@ export interface DevExecResult {
  *   - `args`: the request body (skill input)
  *   - `context`: { env, store }
  *     - `store.get(key)` / `store.set(key, value)` / `store.getAll()`
- *       — persistent (per service) key-value store
+ *       - persistent (per service) key-value store
  */
 export async function executeHandlerLocally(
   serviceId: string,

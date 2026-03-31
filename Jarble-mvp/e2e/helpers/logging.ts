@@ -6,7 +6,7 @@ const FAILURE_LOG = path.join(__dirname, "..", "test-failures.log");
 
 /**
  * Attach console and network loggers to the page.
- * Returns a flush() function — call it in afterEach to write logs as attachments.
+ * Returns a flush() function - call it in afterEach to write logs as attachments.
  */
 export function attachAllLoggers(page: Page, testInfo: TestInfo) {
   const consoleLines: string[] = [];
@@ -81,7 +81,7 @@ export async function waitForBotResponse(page: Page, timeout = 60_000) {
 
   // Wait for streaming to start
   await spinner.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {
-    // Spinner may have already come and gone for fast responses — that's OK
+    // Spinner may have already come and gone for fast responses - that's OK
   });
 
   // Wait for streaming to finish
@@ -155,6 +155,6 @@ export function logTestFailure(
   try {
     fs.appendFileSync(FAILURE_LOG, JSON.stringify(record) + "\n", "utf-8");
   } catch {
-    // Non-fatal — log file may not be writable
+    // Non-fatal - log file may not be writable
   }
 }

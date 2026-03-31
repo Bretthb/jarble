@@ -9,7 +9,7 @@ export function Auth0Provider({ children }: { children: ReactNode }) {
   const clientId = process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID ?? '';
   const audience = process.env.NEXT_PUBLIC_AUTH0_AUDIENCE ?? '';
 
-  // During SSR/prerendering, window is undefined — return a loading placeholder.
+  // During SSR/prerendering, window is undefined - return a loading placeholder.
   // On the client, compute redirectUri synchronously so the Auth0 Provider
   // mounts on the FIRST client render. This is critical: the SDK must be
   // mounted when the page loads with ?code=&state= after an OAuth redirect,

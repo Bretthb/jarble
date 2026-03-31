@@ -155,7 +155,7 @@ export default function StepLlmSetup({
               </div>
               <p className="text-sm text-muted-foreground mt-1">
                 Use Jarble-managed LLM credits via OpenRouter. No API key needed
-                — we handle everything.
+                - we handle everything.
               </p>
             </div>
             {llmMode === "included" && (
@@ -466,7 +466,7 @@ export default function StepLlmSetup({
           <div className="flex items-start gap-3 p-4 rounded-lg bg-secondary/50 border border-border">
             <HelpCircle className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
             <p className="text-sm text-muted-foreground">
-              <strong>Tip:</strong> Just paste your API key — we&apos;ll
+              <strong>Tip:</strong> Just paste your API key - we&apos;ll
               auto-detect the provider from the key prefix. Or select a provider
               first, then enter your key.
             </p>

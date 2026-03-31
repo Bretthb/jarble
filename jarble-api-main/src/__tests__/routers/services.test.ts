@@ -1173,7 +1173,7 @@ describe("services.listByCreator", () => {
   });
 });
 
-describe("services.publish — remoteApiConfig validation", () => {
+describe("services.publish - remoteApiConfig validation", () => {
   it("stores remoteApiConfig as JSON string for remote service", async () => {
     seedCreatorProfile();
     const comp = seedComponent(ctx.testUserId, { name: "remote-cfg-comp" });
@@ -1617,7 +1617,7 @@ describe("services.rotateSigningSecret", () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("Connection refused"));
 
     const caller = authedCaller();
-    // Should NOT throw — rotation still succeeds locally
+    // Should NOT throw - rotation still succeeds locally
     const result = await caller.services.rotateSigningSecret({ serviceId: pkgId, deploymentId: depId });
     expect(result.success).toBe(true);
 
@@ -1641,7 +1641,7 @@ describe("services.rotateSigningSecret", () => {
 
 // ── Enhanced uninstall with webhook ──────────────────────────────────────────
 
-describe("services.uninstall — remote webhook", () => {
+describe("services.uninstall - remote webhook", () => {
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => {

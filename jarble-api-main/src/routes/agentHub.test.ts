@@ -1,5 +1,5 @@
 /**
- * Tests for the agentHub route — Phase 2 agent call event emission.
+ * Tests for the agentHub route - Phase 2 agent call event emission.
  *
  * Since supertest is not available, these tests verify the agentCallEvents
  * bridge behavior by calling the route handler directly with mock req/res.
@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { agentCallEvents } from "../utils/agentCallEvents.js";
 
-// Mock auth — always resolves to a test user
+// Mock auth - always resolves to a test user
 vi.mock("../services/auth.js", () => ({
   verifyToken: vi.fn().mockResolvedValue({ sub: "auth0|test-user" }),
   getUserFromToken: vi
@@ -26,7 +26,7 @@ vi.mock("../utils/logger.js", () => ({
   }),
 }));
 
-// Mock DB — returns matching deployment for ownership check
+// Mock DB - returns matching deployment for ownership check
 vi.mock("../db/index.js", () => ({
   db: {
     select: vi.fn().mockReturnThis(),
@@ -111,7 +111,7 @@ function getCallHandler() {
   return handlers[handlers.length - 1].handle;
 }
 
-describe("agentHub /call route — agent call event emission", () => {
+describe("agentHub /call route - agent call event emission", () => {
   let startHandler: (...args: any[]) => void;
   let endHandler: (...args: any[]) => void;
   let callHandler: Function;

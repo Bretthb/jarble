@@ -502,7 +502,7 @@ describe("Service Health Check Service", () => {
       startServiceHealthCheck(60_000);
       await vi.advanceTimersByTimeAsync(0);
 
-      // fetch should NOT have been called — circuit is open
+      // fetch should NOT have been called - circuit is open
       expect(globalThis.fetch).not.toHaveBeenCalled();
 
       // DB should still be updated to "offline"

@@ -1,5 +1,5 @@
 /**
- * Chat Control WebSocket — /ws/chat
+ * Chat Control WebSocket - /ws/chat
  *
  * Lightweight control channel for chat operations that don't fit in SSE:
  * - Stop generation (abort active SSE run)

@@ -1,5 +1,5 @@
 /**
- * Chat Session Manager — In-memory tracker for active chat runs.
+ * Chat Session Manager - In-memory tracker for active chat runs.
  *
  * Enables cross-channel coordination between the WS control channel
  * and SSE chat streams. Single-process only (no Redis needed yet).

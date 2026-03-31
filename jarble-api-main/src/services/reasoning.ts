@@ -1,10 +1,10 @@
 /**
- * Reasoning Engine — generates "thinking" content via a cheap secondary model.
+ * Reasoning Engine - generates "thinking" content via a cheap secondary model.
  *
  * Fires BEFORE the main bot response streams. Uses GPT-4o-mini (via OpenRouter)
  * or Claude Haiku (via Anthropic API) as fallback.
  *
- * This is the same approach used by Claude.ai, ChatGPT, and Perplexity —
+ * This is the same approach used by Claude.ai, ChatGPT, and Perplexity -
  * the "thinking" UX is an infrastructure concern, not a prompt problem.
  * Since OpenClaw's 41k system prompt makes <think> tag instructions unreliable,
  * we generate reasoning externally for consistent UX.
@@ -19,24 +19,24 @@ const REASONING_TIMEOUT_MS = 4_000;
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
-const SYSTEM_PROMPT = `You are a reasoning engine. Given a user's message to an AI assistant, generate a brief internal reasoning summary — what the assistant would think before responding.
+const SYSTEM_PROMPT = `You are a reasoning engine. Given a user's message to an AI assistant, generate a brief internal reasoning summary - what the assistant would think before responding.
 
 Rules:
 - 1-3 sentences max. Be concise.
 - Write in first person ("I should...", "The user wants...", "Let me...")
-- For simple greetings/chat: 1 sentence ("Casual greeting — I'll respond warmly.")
+- For simple greetings/chat: 1 sentence ("Casual greeting - I'll respond warmly.")
 - For questions: note the topic and approach ("User asks about X. I'll explain Y.")
 - For tasks with UI: mention tool/component choices ("I'll search for data first, then render a chart.")
-- Match the tone — casual for casual, technical for technical
+- Match the tone - casual for casual, technical for technical
 - Return ONLY the reasoning text, no tags or formatting`;
 
 /**
  * Generate reasoning/thinking content for a user message.
- * Returns empty string on failure (non-fatal — response proceeds without thinking block).
+ * Returns empty string on failure (non-fatal - response proceeds without thinking block).
  *
  * Provider priority:
- * 1. OpenRouter (GPT-4o-mini) — cheapest, ~$0.00005/call
- * 2. Anthropic (Haiku) — fallback using AGENT_LLM_API_KEY
+ * 1. OpenRouter (GPT-4o-mini) - cheapest, ~$0.00005/call
+ * 2. Anthropic (Haiku) - fallback using AGENT_LLM_API_KEY
  */
 export async function generateReasoning(
   userMessage: string,
@@ -51,7 +51,7 @@ export async function generateReasoning(
     return callAnthropic(userMessage, anthropicKey);
   }
 
-  log.debug("No API key available for reasoning — skipping");
+  log.debug("No API key available for reasoning - skipping");
   return "";
 }
 

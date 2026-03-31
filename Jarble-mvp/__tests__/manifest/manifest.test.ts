@@ -1,5 +1,5 @@
 /**
- * Component Manifest — Comprehensive Tests
+ * Component Manifest - Comprehensive Tests
  *
  * Tests the single source of truth for all 37+ component definitions,
  * derived exports, derive functions, and security constants.

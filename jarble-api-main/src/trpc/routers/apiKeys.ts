@@ -43,7 +43,7 @@ export const apiKeysRouter = router({
 
   /**
    * Create a new API key.
-   * Returns the raw key exactly once — it cannot be retrieved later.
+   * Returns the raw key exactly once - it cannot be retrieved later.
    */
   create: protectedProcedure
     .input(

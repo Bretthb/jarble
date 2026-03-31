@@ -98,7 +98,7 @@ export const marketplaceRouter = router({
   browse: publicProcedure
     .input(browseInput)
     .query(async ({ ctx, input }) => {
-      // Fetch all published components — filter/sort in memory for MVP.
+      // Fetch all published components - filter/sort in memory for MVP.
       const allComponents = await ctx.db.query.marketplaceComponents.findMany({
         where: eq(marketplaceComponents.status, "published"),
       });
@@ -170,7 +170,7 @@ export const marketplaceRouter = router({
       const page = filtered.slice(startIdx, startIdx + input.limit);
       const nextCursor = page.length === input.limit ? page[page.length - 1]?.id : undefined;
 
-      // creatorId references users.id — look up creator profiles by userId
+      // creatorId references users.id - look up creator profiles by userId
       const creatorUserIds = [...new Set(page.map((c) => c.creatorId).filter(Boolean))];
       const creatorProfilesList: CreatorRow[] = [];
       for (const userId of creatorUserIds) {
@@ -766,7 +766,7 @@ export const marketplaceRouter = router({
       deploymentId: z.string(),
     }))
     .mutation(async () => {
-      // Placeholder — Stripe Connect setup is Phase 3.3
+      // Placeholder - Stripe Connect setup is Phase 3.3
       throw new TRPCError({
         code: "PRECONDITION_FAILED",
         message: "Paid marketplace coming soon",
@@ -1093,7 +1093,7 @@ export const marketplaceRouter = router({
         componentId,
         version: "1.0.0",
         changelog: "Initial version",
-        packageUrl: "pending://upload", // Placeholder — real uploads added later
+        packageUrl: "pending://upload", // Placeholder - real uploads added later
         packageSizeBytes: 0,
         manifestHash: crypto.createHash("sha256").update(componentId).digest("hex"),
         createdAt: dbDate(),
@@ -1233,7 +1233,7 @@ export const marketplaceRouter = router({
     }),
 
   myComponents: protectedProcedure.query(async ({ ctx }) => {
-    // creatorId references users.id — filter by current user
+    // creatorId references users.id - filter by current user
     const myComponents = await ctx.db.query.marketplaceComponents.findMany({
       where: eq(marketplaceComponents.creatorId, ctx.user.id),
     });

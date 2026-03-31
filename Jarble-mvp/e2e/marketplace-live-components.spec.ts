@@ -20,7 +20,7 @@ test.afterAll(() => {
   closeDb();
 });
 
-test.describe("Marketplace — Live Component Tests", () => {
+test.describe("Marketplace - Live Component Tests", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -247,7 +247,7 @@ test.describe("Marketplace — Live Component Tests", () => {
     const installButton = page.getByRole("button", { name: /Install/i });
     await expect(installButton).toBeVisible();
 
-    // The DeploymentPicker should render — either a select or a loading/empty message
+    // The DeploymentPicker should render - either a select or a loading/empty message
     const deploymentArea = page.locator("text=Select a deployment").or(
       page.locator("text=Loading deployments")
     ).or(
@@ -289,7 +289,7 @@ test.describe("Marketplace — Live Component Tests", () => {
     // Select DEPLOYMENT_2 from the picker
     await deploymentSelect.click();
 
-    // Look for the deployment option — it may show the deployment name or ID
+    // Look for the deployment option - it may show the deployment name or ID
     const options = page.getByRole("option");
     const optionCount = await options.count();
     if (optionCount === 0) {
@@ -305,7 +305,7 @@ test.describe("Marketplace — Live Component Tests", () => {
     await expect(installButton).toBeEnabled();
     await installButton.click();
 
-    // Wait for install to complete — should show "Installed" state
+    // Wait for install to complete - should show "Installed" state
     await expect(page.getByText("Installed")).toBeVisible({ timeout: 15_000 });
 
     await screenshotMilestone(page, testInfo, "component-installed");

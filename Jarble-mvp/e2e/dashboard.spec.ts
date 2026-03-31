@@ -7,8 +7,8 @@ import { setupAuthIntercept } from "./helpers/auth";
  *
  * Tests the dashboard (/dashboard) and linked deployments (/deployments) pages
  * against the REAL API. Uses the two running test deployments:
- *   - test1 (3vt3ej3hj1oi) — running, openclaw
- *   - test2 (42puqb1asrdx) — running, openclaw
+ *   - test1 (3vt3ej3hj1oi) - running, openclaw
+ *   - test2 (42puqb1asrdx) - running, openclaw
  *
  * All tests are READ-ONLY: they verify UI renders correctly without
  * modifying any deployment settings.
@@ -18,10 +18,10 @@ const DEPLOYMENT_1 = { id: "3vt3ej3hj1oi", name: "test1" };
 const DEPLOYMENT_2 = { id: "42puqb1asrdx", name: "test2" };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Dashboard page (/dashboard) — page structure
+// Dashboard page (/dashboard) - page structure
 // ═══════════════════════════════════════════════════════════════════════════
 
-test.describe("Dashboard — page structure", () => {
+test.describe("Dashboard - page structure", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -53,10 +53,10 @@ test.describe("Dashboard — page structure", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Deployment cards — rendering, content, structure
+// Deployment cards - rendering, content, structure
 // ═══════════════════════════════════════════════════════════════════════════
 
-test.describe("Dashboard — deployment cards", () => {
+test.describe("Dashboard - deployment cards", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -98,7 +98,7 @@ test.describe("Dashboard — deployment cards", () => {
     await page.goto("/dashboard");
     await page.waitForTimeout(5_000);
 
-    // Should show pricing — either "$XX/mo" or "Xd free"
+    // Should show pricing - either "$XX/mo" or "Xd free"
     await expect(page.getByText(/(\$\d+\/mo|\d+d free)/).first()).toBeVisible({ timeout: 15_000 });
   });
 
@@ -106,16 +106,16 @@ test.describe("Dashboard — deployment cards", () => {
     await page.goto("/dashboard");
     await page.waitForTimeout(5_000);
 
-    // Should show LLM mode — "BYOK LLM" or "Included LLM"
+    // Should show LLM mode - "BYOK LLM" or "Included LLM"
     await expect(page.getByText(/(BYOK|Included) LLM/).first()).toBeVisible({ timeout: 15_000 });
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Action buttons — visible on deployment cards
+// Action buttons - visible on deployment cards
 // ═══════════════════════════════════════════════════════════════════════════
 
-test.describe("Dashboard — action buttons", () => {
+test.describe("Dashboard - action buttons", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -169,10 +169,10 @@ test.describe("Dashboard — action buttons", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Card navigation — clicking cards navigates to detail/chat
+// Card navigation - clicking cards navigates to detail/chat
 // ═══════════════════════════════════════════════════════════════════════════
 
-test.describe("Dashboard — card navigation", () => {
+test.describe("Dashboard - card navigation", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -216,10 +216,10 @@ test.describe("Dashboard — card navigation", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Linked Deployments page (/deployments) — graph view
+// Linked Deployments page (/deployments) - graph view
 // ═══════════════════════════════════════════════════════════════════════════
 
-test.describe("Linked Deployments — page structure", () => {
+test.describe("Linked Deployments - page structure", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -279,7 +279,7 @@ test.describe("Linked Deployments — page structure", () => {
   });
 });
 
-test.describe("Linked Deployments — graph rendering", () => {
+test.describe("Linked Deployments - graph rendering", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -296,7 +296,7 @@ test.describe("Linked Deployments — graph rendering", () => {
     await page.goto("/deployments");
     await page.waitForTimeout(5_000);
 
-    // ReactFlow renders nodes — deployment names should be visible
+    // ReactFlow renders nodes - deployment names should be visible
     await expect(page.getByText(DEPLOYMENT_1.name)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(DEPLOYMENT_2.name)).toBeVisible();
 
@@ -367,7 +367,7 @@ test.describe("Linked Deployments — graph rendering", () => {
 // Unauthenticated state
 // ═══════════════════════════════════════════════════════════════════════════
 
-test.describe("Dashboard — unauthenticated", () => {
+test.describe("Dashboard - unauthenticated", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
   let flush: () => Promise<void>;

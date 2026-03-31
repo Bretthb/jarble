@@ -11,7 +11,7 @@ export const getWhatsappQrTool: McpTool = {
     type: "object",
     properties: {},
   },
-  // No rendersComponent — the frontend handles WhatsApp QR via the SSE stream
+  // No rendersComponent - the frontend handles WhatsApp QR via the SSE stream
   async execute(_params: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
     if (ctx.deployment.status !== "running") {
       return {

@@ -29,7 +29,7 @@ test.describe("Canvas form interactions", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -61,7 +61,7 @@ test.describe("Canvas form interactions", () => {
     await waitForBotResponse(page, 60_000);
     await screenshotMilestone(page, testInfo, `${entry.id}-submitted`);
 
-    // Verify bot acknowledged the data (soft assertion — LLM response is non-deterministic)
+    // Verify bot acknowledged the data (soft assertion - LLM response is non-deterministic)
     const pageText = await page.textContent("body");
     const mentionsData =
       pageText?.includes("E2E Test User") ||

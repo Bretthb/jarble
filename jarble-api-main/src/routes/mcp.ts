@@ -1,14 +1,14 @@
 /**
- * MCP Streamable HTTP Endpoint — Serves MCP protocol at /api/mcp/:deploymentId
+ * MCP Streamable HTTP Endpoint - Serves MCP protocol at /api/mcp/:deploymentId
  *
  * Exposes the Jarble deployment management tools (from mcpServer.ts) over
  * the standard MCP Streamable HTTP transport so external MCP clients (Claude
  * Desktop, Cursor, Tambo, etc.) can connect and call tools.
  *
  * Three handlers:
- *   POST /:deploymentId  — MCP requests (initialize, tool calls)
- *   GET  /:deploymentId  — SSE stream for server-to-client notifications
- *   DELETE /:deploymentId — Close/terminate session
+ *   POST /:deploymentId  - MCP requests (initialize, tool calls)
+ *   GET  /:deploymentId  - SSE stream for server-to-client notifications
+ *   DELETE /:deploymentId - Close/terminate session
  *
  * Sessions are keyed by the `mcp-session-id` response header and cleaned
  * up after 30 minutes of inactivity (checked every 5 minutes).
@@ -115,7 +115,7 @@ async function authenticate(
 
 export const mcpRouter = Router();
 
-// ── POST /:deploymentId — MCP requests (initialize, tool calls) ─────────
+// ── POST /:deploymentId - MCP requests (initialize, tool calls) ─────────
 
 mcpRouter.post("/:deploymentId", async (req: Request, res: Response) => {
   const { deploymentId } = req.params;
@@ -150,7 +150,7 @@ mcpRouter.post("/:deploymentId", async (req: Request, res: Response) => {
     return;
   }
 
-  // 3. New session — must be an initialization request
+  // 3. New session - must be an initialization request
   if (!isInitializeRequest(req.body)) {
     res.status(400).json({
       jsonrpc: "2.0",
@@ -234,7 +234,7 @@ mcpRouter.post("/:deploymentId", async (req: Request, res: Response) => {
   }
 });
 
-// ── GET /:deploymentId — SSE stream for server-to-client notifications ──
+// ── GET /:deploymentId - SSE stream for server-to-client notifications ──
 
 mcpRouter.get("/:deploymentId", async (req: Request, res: Response) => {
   // 1. Authenticate
@@ -276,7 +276,7 @@ mcpRouter.get("/:deploymentId", async (req: Request, res: Response) => {
   }
 });
 
-// ── DELETE /:deploymentId — Close session ───────────────────────────────
+// ── DELETE /:deploymentId - Close session ───────────────────────────────
 
 mcpRouter.delete("/:deploymentId", async (req: Request, res: Response) => {
   const sessionId = req.headers["mcp-session-id"] as string | undefined;

@@ -1,9 +1,9 @@
 /**
  * SSE endpoint for streaming flow execution progress.
  *
- * POST /api/flows/:flowId/execute — starts execution, returns SSE stream
- * GET  /api/flows/:flowId/executions/:execId/stream — reconnect to running execution
- * POST /api/flows/:flowId/executions/:execId/resume — resume a paused execution
+ * POST /api/flows/:flowId/execute - starts execution, returns SSE stream
+ * GET  /api/flows/:flowId/executions/:execId/stream - reconnect to running execution
+ * POST /api/flows/:flowId/executions/:execId/resume - resume a paused execution
  */
 
 import { Router } from "express";
@@ -104,7 +104,7 @@ function setupSSEHeaders(res: any): void {
   res.write(": connected\n\n");
 }
 
-// ── POST /:flowId/execute — Start execution and stream progress ─────────
+// ── POST /:flowId/execute - Start execution and stream progress ─────────
 
 flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
   let user: Awaited<ReturnType<typeof authenticateSSE>> = null;
@@ -138,7 +138,7 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
       .limit(1);
 
     if (dbFlow.length > 0) {
-      // Use the stored definition — don't trust client-provided definition
+      // Use the stored definition - don't trust client-provided definition
       try {
         definition = typeof dbFlow[0].definition === "string"
           ? JSON.parse(dbFlow[0].definition)
@@ -193,7 +193,7 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
         // Silently ignore unowned callerDeploymentId rather than rejecting
         log.warn(
           { callerDeploymentId, userId: user.id },
-          "callerDeploymentId not owned by user — ignoring"
+          "callerDeploymentId not owned by user - ignoring"
         );
         callerDeploymentId = undefined;
       }
@@ -219,7 +219,7 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
     // Register for reconnection and SSE streaming
     runningExecutions.set(executionId, { engine, userId: user.id });
 
-    // Return JSON with executionId — client connects to GET endpoint for SSE
+    // Return JSON with executionId - client connects to GET endpoint for SSE
     releaseConnection(user.id); // POST doesn't hold connection; GET will acquire
     res.json({ executionId, flowId, totalSteps: definition.nodes.length });
 
@@ -238,11 +238,11 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
         clearTimeout(executionTimeout);
         if ((state.status as string) === "paused") {
           // Keep execution alive for resume, but schedule cleanup if never resumed
-          log.info({ executionId }, "Flow paused — waiting for resume (max 30min)");
+          log.info({ executionId }, "Flow paused - waiting for resume (max 30min)");
           setTimeout(() => {
             const entry = runningExecutions.get(executionId);
             if (entry && (entry.engine.executionState.status as string) === "paused") {
-              log.warn({ executionId }, "Paused flow expired (30min) — cleaning up");
+              log.warn({ executionId }, "Paused flow expired (30min) - cleaning up");
               entry.engine.cancel();
               runningExecutions.delete(executionId);
             }
@@ -267,7 +267,7 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
   }
 });
 
-// ── POST /:flowId/executions/:execId/resume — Resume a paused execution ─
+// ── POST /:flowId/executions/:execId/resume - Resume a paused execution ─
 
 flowExecutionRouter.post(
   "/:flowId/executions/:execId/resume",
@@ -312,7 +312,7 @@ flowExecutionRouter.post(
       }
 
       try {
-        // Resume the engine — this completes the waitForInput node and
+        // Resume the engine - this completes the waitForInput node and
         // continues execution. resume() returns the final state (or paused
         // again if another waitForInput is hit).
         // Run in background so we can respond immediately.
@@ -345,7 +345,7 @@ flowExecutionRouter.post(
   }
 );
 
-// ── GET /:flowId/executions/:execId/stream — Reconnect to running ───────
+// ── GET /:flowId/executions/:execId/stream - Reconnect to running ───────
 
 flowExecutionRouter.get(
   "/:flowId/executions/:execId/stream",

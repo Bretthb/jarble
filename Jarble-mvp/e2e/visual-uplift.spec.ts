@@ -10,7 +10,7 @@ import { setupAuthIntercept } from "./helpers/auth";
 // ────────────────────────────────────────────────────────────────────────────
 // Part 1: Component Visual Tests
 //
-// Uses /test-components — a standalone page that renders all canvas components
+// Uses /test-components - a standalone page that renders all canvas components
 // with sample props. No auth or API required.
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -307,7 +307,7 @@ test.describe("Part 2: Marketplace UI Tests", () => {
 
     // Set up Auth0 intercept if auth state exists
     await setupAuthIntercept(page).catch(() => {
-      // Auth state may not exist — marketplace is partially accessible without auth
+      // Auth state may not exist - marketplace is partially accessible without auth
     });
   });
 
@@ -366,10 +366,10 @@ test.describe("Part 2: Marketplace UI Tests", () => {
       await page.waitForTimeout(1_000);
       await screenshotMilestone(page, testInfo, "marketplace-my-services-tab");
     } else {
-      // Not authenticated — skip but don't fail
+      // Not authenticated - skip but don't fail
       test.info().annotations.push({
         type: "skip-reason",
-        description: "My Services tab not visible — user not authenticated",
+        description: "My Services tab not visible - user not authenticated",
       });
     }
   });
@@ -384,7 +384,7 @@ test.describe("Part 2: Marketplace UI Tests", () => {
     if (!isVisible) {
       test.info().annotations.push({
         type: "skip-reason",
-        description: "Create tab not visible — user not authenticated",
+        description: "Create tab not visible - user not authenticated",
       });
       return;
     }
@@ -411,7 +411,7 @@ test.describe("Part 2: Marketplace UI Tests", () => {
     await expect(page.getByRole("tab", { name: "Components" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Services" })).toBeVisible();
 
-    // My Services and Create are gated by auth — check if present
+    // My Services and Create are gated by auth - check if present
     const tabs = page.getByRole("tab");
     const tabCount = await tabs.count();
     const tabLabels: string[] = [];
@@ -454,7 +454,7 @@ test.describe("Part 3: Workspace Publish Button", () => {
 
   test("workspace loads and publish button is present on canvas cards", async ({ page }, testInfo) => {
     const config = getTestConfig();
-    test.skip(!config.deploymentId, "No deploymentId configured — run test:e2e:auth first");
+    test.skip(!config.deploymentId, "No deploymentId configured - run test:e2e:auth first");
 
     await page.goto(`/d/${config.deploymentId}`);
     await page.waitForTimeout(5_000);
@@ -483,7 +483,7 @@ test.describe("Part 3: Workspace Publish Button", () => {
       } else {
         test.info().annotations.push({
           type: "info",
-          description: "Publish button not visible on hover — may need card interaction",
+          description: "Publish button not visible on hover - may need card interaction",
         });
       }
 
@@ -496,7 +496,7 @@ test.describe("Part 3: Workspace Publish Button", () => {
     } else {
       test.info().annotations.push({
         type: "info",
-        description: "No canvas cards present — skipping publish button check",
+        description: "No canvas cards present - skipping publish button check",
       });
       await screenshotMilestone(page, testInfo, "workspace-no-cards");
     }

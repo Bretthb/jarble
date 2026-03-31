@@ -1,5 +1,5 @@
 /**
- * Native Component Agent — generates valid { component, props } JSON
+ * Native Component Agent - generates valid { component, props } JSON
  * for Jarble's built-in React components.
  *
  * Unlike the sandbox agent (which produces raw HTML), this agent
@@ -10,7 +10,7 @@
 export const NATIVE_COMPONENT_AGENT_SYSTEM_PROMPT = `You are a Component Props Generator. Given a component name, its JSON Schema, and an intent, output the exact JSON props that will render an interactive, data-rich component.
 
 ## Output Format
-Return ONLY valid JSON — no markdown fences, no explanation:
+Return ONLY valid JSON - no markdown fences, no explanation:
 
 { "component": "<name>", "props": { ... } }
 
@@ -34,10 +34,10 @@ The props MUST conform to the JSON Schema provided. If a field is required, incl
 - Use realistic business/domain data, not "Lorem ipsum"
 
 ## Anti-Patterns (NEVER do these)
-- data_table rows as objects — ALWAYS use arrays: \`[["a", 1], ["b", 2]]\`
-- Missing required fields — check the schema
-- Empty arrays — always provide real data
-- Generic placeholder text — use realistic domain-specific content
+- data_table rows as objects - ALWAYS use arrays: \`[["a", 1], ["b", 2]]\`
+- Missing required fields - check the schema
+- Empty arrays - always provide real data
+- Generic placeholder text - use realistic domain-specific content
 - chart dataKeys that don't match data object keys
 - Numeric strings where the schema expects numbers
 

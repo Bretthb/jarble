@@ -26,7 +26,7 @@ export async function waitForBotReady(
         return; // Bot is ready
       }
     }
-    // Bot is down or busy — wait and retry
+    // Bot is down or busy - wait and retry
     await page.waitForTimeout(3_000);
     // Try clicking Start Bot if visible
     const startBtn = page.locator('button:has-text("Start Bot")');
@@ -61,7 +61,7 @@ export async function sendPromptAndWait(
   await spinner
     .waitFor({ state: "visible", timeout: 30_000 })
     .catch(() => {
-      /* fast response — spinner may have already gone */
+      /* fast response - spinner may have already gone */
     });
 
   // Wait for streaming to finish (spinner disappears)
@@ -91,7 +91,7 @@ export async function waitForCanvasCards(
     .nth(minCount - 1)
     .waitFor({ state: "visible", timeout })
     .catch(() => {
-      /* non-fatal — bot may not have rendered enough cards */
+      /* non-fatal - bot may not have rendered enough cards */
     });
 }
 
@@ -285,7 +285,7 @@ export async function closeCard(
 
 /** Switch to freeform mode. */
 export async function switchToFreeformMode(page: Page): Promise<void> {
-  const btn = page.locator('button[title="Freeform mode — drag & resize freely"]');
+  const btn = page.locator('button[title="Freeform mode - drag & resize freely"]');
   if (await btn.isVisible().catch(() => false)) {
     await btn.click();
     await page.waitForTimeout(500);
@@ -294,14 +294,14 @@ export async function switchToFreeformMode(page: Page): Promise<void> {
 
 /** Switch to dashboard mode. */
 export async function switchToDashboardMode(page: Page): Promise<void> {
-  const btn = page.locator('button[title="Dashboard mode — auto-arranged grid"]');
+  const btn = page.locator('button[title="Dashboard mode - auto-arranged grid"]');
   if (await btn.isVisible().catch(() => false)) {
     await btn.click();
     await page.waitForTimeout(500);
   }
 }
 
-// NOTE: logTestFailure is defined in helpers/logging.ts — import it from there.
+// NOTE: logTestFailure is defined in helpers/logging.ts - import it from there.
 
 // ---------------------------------------------------------------------------
 // Page setup helper (common beforeEach pattern)

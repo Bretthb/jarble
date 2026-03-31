@@ -97,10 +97,10 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
 
-// ─── Stripe webhook (MUST be before express.json() AND rate limiter — needs raw body, must not be rate-limited) ───
+// ─── Stripe webhook (MUST be before express.json() AND rate limiter - needs raw body, must not be rate-limited) ───
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhookHandler);
 
-// Global rate limiter — 300 req/min per IP (after webhook route to avoid rate-limiting Stripe events)
+// Global rate limiter - 300 req/min per IP (after webhook route to avoid rate-limiting Stripe events)
 app.use(globalLimiter);
 
 // ─── JSON parsing (after webhook route) ───
@@ -138,14 +138,14 @@ app.use("/api/beta-signup", betaRouter);
 app.use("/api/flows", authLimiter, flowExecutionRouter);
 app.use("/api/flows", authLimiter, flowChatRouter);
 
-// Debug endpoints — dev only
+// Debug endpoints - dev only
 if (env.NODE_ENV === "development") {
   app.use("/debug", debugRouter);
   app.get("/debug-sentry", (_req, _res) => { throw new Error("Sentry test error!"); });
   logger.info("Debug endpoints enabled: /debug/db, /debug/deployment/:id/status, /debug/seed-deployment, /debug/deployment/:id/sync-config");
 }
 
-// A2A agent card — public discovery endpoint
+// A2A agent card - public discovery endpoint
 registerAgentCard(app);
 
 // Health check for K8s probes
@@ -153,7 +153,7 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// tRPC handler — cache middleware sets Cache-Control on read-heavy queries
+// tRPC handler - cache middleware sets Cache-Control on read-heavy queries
 app.use("/trpc", trpcCacheMiddleware(), authLimiter, createExpressMiddleware({
   router: appRouter,
   createContext,
@@ -169,10 +169,10 @@ app.use("/trpc", trpcCacheMiddleware(), authLimiter, createExpressMiddleware({
   }
 }));
 
-// Sentry error handler — must be before custom error handler
+// Sentry error handler - must be before custom error handler
 Sentry.setupExpressErrorHandler(app);
 
-// Global error handler — catches unhandled sync errors in Express routes
+// Global error handler - catches unhandled sync errors in Express routes
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const log = req.log || logger;
 

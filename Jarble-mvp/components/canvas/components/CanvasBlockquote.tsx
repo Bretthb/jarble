@@ -58,7 +58,7 @@ function CanvasBlockquoteInner({ text, attribution, variant = "default" }: Canva
           <>
             <div className="mt-3 h-px w-12 bg-gradient-to-r from-border/60 to-transparent" />
             <footer className="mt-2 text-xs font-medium text-muted-foreground/70">
-              — {attribution}
+              - {attribution}
             </footer>
           </>
         )}

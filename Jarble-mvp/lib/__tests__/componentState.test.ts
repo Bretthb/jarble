@@ -30,7 +30,7 @@ describe("saveComponentState", () => {
 
     saveComponentState(DEP_ID, CARD_ID, { count: 1 }, TOKEN, 500);
 
-    // Not called yet — still within debounce window
+    // Not called yet - still within debounce window
     expect(mockFetch).not.toHaveBeenCalled();
 
     // Advance past the debounce delay
@@ -57,7 +57,7 @@ describe("saveComponentState", () => {
     mockFetch.mockResolvedValue({ ok: true });
 
     saveComponentState(DEP_ID, CARD_ID, { v: 1 }, TOKEN, 300);
-    vi.advanceTimersByTime(200); // 200ms in — still within debounce
+    vi.advanceTimersByTime(200); // 200ms in - still within debounce
     saveComponentState(DEP_ID, CARD_ID, { v: 2 }, TOKEN, 300); // resets timer
 
     vi.advanceTimersByTime(200); // 400ms total from first call, 200 from second
@@ -114,7 +114,7 @@ describe("saveComponentState", () => {
     vi.advanceTimersByTime(100);
     await vi.advanceTimersByTimeAsync(0);
 
-    // Both should fire — they have different keys
+    // Both should fire - they have different keys
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });

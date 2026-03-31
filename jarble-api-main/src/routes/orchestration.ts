@@ -1,5 +1,5 @@
 /**
- * Orchestration WebSocket — /ws/orchestration
+ * Orchestration WebSocket - /ws/orchestration
  *
  * Pushes real-time orchestration events to the frontend when the bot
  * delegates work to subagents, platform agents, or team members.
@@ -172,7 +172,7 @@ export function attachOrchestrationWs(server: http.Server) {
 
         switch (msg.type) {
           case "cancel": {
-            // Store for future use — log for now
+            // Store for future use - log for now
             log.info({ deploymentId, stepId: msg.stepId }, "Client requested step cancellation");
             break;
           }

@@ -3,8 +3,8 @@
  *
  * Express routes for agent-to-agent communication via the marketplace hub.
  *
- * POST /api/agent-hub/call   — Execute an agent-to-agent call (auth required)
- * GET  /api/agent-hub/discover — Search for available agents (public)
+ * POST /api/agent-hub/call   - Execute an agent-to-agent call (auth required)
+ * GET  /api/agent-hub/discover - Search for available agents (public)
  */
 
 import { Router } from "express";
@@ -20,7 +20,7 @@ const logger = createModuleLogger("agent-hub");
 export const agentHubRouter = Router();
 
 /**
- * POST /call — Execute an agent-to-agent call via the marketplace hub.
+ * POST /call - Execute an agent-to-agent call via the marketplace hub.
  *
  * Auth: Bearer JWT or X-Gateway-Token (pod auth).
  *
@@ -33,7 +33,7 @@ export const agentHubRouter = Router();
  */
 agentHubRouter.post("/call", async (req, res) => {
   try {
-    // Authenticate — JWT or gateway token
+    // Authenticate - JWT or gateway token
     let userId: string | null = null;
 
     const authHeader = req.headers.authorization;
@@ -51,7 +51,7 @@ agentHubRouter.post("/call", async (req, res) => {
     }
 
     if (!userId && gatewayToken) {
-      // Pod-level auth — get user from deployment
+      // Pod-level auth - get user from deployment
       const deploymentId = req.headers["x-deployment-id"] as string;
       if (deploymentId) {
         const deployment = await db
@@ -150,14 +150,14 @@ agentHubRouter.post("/call", async (req, res) => {
 });
 
 /**
- * GET /discover — Search for available agents/services.
+ * GET /discover - Search for available agents/services.
  *
  * Query params:
- *   q?: string       — search query (matches name/description)
- *   category?: string — filter by category
- *   limit?: number   — max results (default 20)
+ *   q?: string       - search query (matches name/description)
+ *   category?: string - filter by category
+ *   limit?: number   - max results (default 20)
  *
- * Public endpoint — no auth required.
+ * Public endpoint - no auth required.
  */
 agentHubRouter.get("/discover", async (req, res) => {
   try {

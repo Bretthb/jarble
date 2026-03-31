@@ -4,7 +4,7 @@
  * Validates `Authorization: Bearer jrbl_...` tokens against the apiKeys table.
  * Used for the external mesh gateway endpoints.
  *
- * Keys are stored as SHA-256 hashes — the raw key is only shown once at creation.
+ * Keys are stored as SHA-256 hashes - the raw key is only shown once at creation.
  */
 import crypto from "crypto";
 import { Request, Response, NextFunction } from "express";

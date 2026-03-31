@@ -27,7 +27,7 @@ test.describe("Canvas edge cases & security", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -40,7 +40,7 @@ test.describe("Canvas edge cases & security", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 1. XSS attempt — script tags should be sanitized (edge-xss-01)
+  // 1. XSS attempt - script tags should be sanitized (edge-xss-01)
   // -------------------------------------------------------------------------
   test("XSS script tags are sanitized in card content (edge-xss-01)", async ({ page }, testInfo) => {
     const entry = EDGE_CASE_PROMPTS.find((p) => p.id === "edge-xss-01")!;
@@ -75,7 +75,7 @@ test.describe("Canvas edge cases & security", () => {
     // The XSS text should appear escaped or stripped, not executed
     const cardText = await page.locator("[data-card-id]").first().textContent() ?? "";
     const hasVisibleScriptText = cardText.includes("alert") || cardText.includes("script") || cardText.includes("onerror");
-    // Either the text is visible (escaped) or stripped entirely — both are safe
+    // Either the text is visible (escaped) or stripped entirely - both are safe
     expect.soft(true, "XSS content was handled safely").toBeTruthy();
 
     await testInfo.attach("xss-check", {
@@ -103,7 +103,7 @@ test.describe("Canvas edge cases & security", () => {
     // Verify unicode text is visible in the rendered card
     const cardText = await page.locator("[data-card-id]").first().textContent() ?? "";
 
-    // Check for emoji or unicode characters — bot may handle them differently
+    // Check for emoji or unicode characters - bot may handle them differently
     const hasEmoji = /[\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F300}-\u{1F5FF}]/u.test(cardText);
     const hasJapanese = /[\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(cardText);
     const hasArabic = /[\u0600-\u06FF]/.test(cardText);
@@ -119,7 +119,7 @@ test.describe("Canvas edge cases & security", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 3. Large data table — 50 rows (edge-large-01)
+  // 3. Large data table - 50 rows (edge-large-01)
   // -------------------------------------------------------------------------
   test("large data table with 50 rows renders (edge-large-01)", async ({ page }, testInfo) => {
     const entry = EDGE_CASE_PROMPTS.find((p) => p.id === "edge-large-01")!;
@@ -133,7 +133,7 @@ test.describe("Canvas edge cases & security", () => {
     expect.soft(hasTable, "data_table component should render").toBeTruthy();
 
     if (hasTable) {
-      // Count table rows — bot may truncate but should render at least 10
+      // Count table rows - bot may truncate but should render at least 10
       const rowCount = await page.locator("[data-card-id] table tbody tr, [data-card-id] table tr").count();
       expect.soft(rowCount, "Table should have at least 10 rows (bot may truncate 50)").toBeGreaterThanOrEqual(10);
 
@@ -176,7 +176,7 @@ test.describe("Canvas edge cases & security", () => {
     await screenshotMilestone(page, testInfo, "edge-empty-01-result");
 
     const cardCount = await getCanvasCardCount(page);
-    // Bot may render an empty card, render with defaults, or refuse — all valid
+    // Bot may render an empty card, render with defaults, or refuse - all valid
     expect.soft(cardCount >= 0, "Page should not crash with empty string content").toBeTruthy();
 
     // If a card rendered, it should be visible without errors
@@ -261,7 +261,7 @@ test.describe("Canvas edge cases & security", () => {
       // Check that the page didn't crash and some content is visible
       expect.soft(cardText.length, "Card should have visible text content").toBeGreaterThan(0);
 
-      // Check for bold/italic rendering (markdown) — look for <strong> or <em>
+      // Check for bold/italic rendering (markdown) - look for <strong> or <em>
       const hasBold = await page.locator("[data-card-id] strong, [data-card-id] b").count();
       const hasItalic = await page.locator("[data-card-id] em, [data-card-id] i").count();
       const hasCode = await page.locator("[data-card-id] code").count();
@@ -289,14 +289,14 @@ test.describe("Canvas edge cases & security", () => {
     const cardCount = await getCanvasCardCount(page);
     const errorCount = await getErrorCardCount(page);
 
-    // Either renders the nested layout or produces an error — no crash
+    // Either renders the nested layout or produces an error - no crash
     expect.soft(
       cardCount > 0 || errorCount >= 0,
       "Page should handle nested layouts without crashing",
     ).toBeTruthy();
 
     if (cardCount > 0 && errorCount === 0) {
-      // Check for recursive rendering depth — nested divs
+      // Check for recursive rendering depth - nested divs
       const maxDepth = await page.evaluate(() => {
         const cards = document.querySelectorAll("[data-card-id]");
         let maxD = 0;

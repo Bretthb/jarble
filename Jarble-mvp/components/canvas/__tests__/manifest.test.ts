@@ -1,5 +1,5 @@
 /**
- * Component Manifest — Tests
+ * Component Manifest - Tests
  *
  * Tests the shared component manifest that defines all canvas component
  * metadata, schemas, names, and derived data structures.

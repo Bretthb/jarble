@@ -1,5 +1,5 @@
 /**
- * Chat error classification — maps raw error strings to structured codes
+ * Chat error classification - maps raw error strings to structured codes
  * with user-facing messages, suggestions, and available actions.
  */
 

@@ -1,5 +1,5 @@
 /**
- * Artifact Store — CRUD operations for artifacts stored as JSON files on the PVC.
+ * Artifact Store - CRUD operations for artifacts stored as JSON files on the PVC.
  *
  * Artifacts are the persistent building blocks of a deployment's workspace.
  * Each artifact maps to a rendered canvas component (chart, table, sandbox, etc.)
@@ -209,7 +209,7 @@ export function saveArtifact(
     try {
       existing = JSON.parse(readFileSync(filePath, "utf-8")) as Artifact;
     } catch {
-      // Corrupted file — treat as new
+      // Corrupted file - treat as new
     }
   }
 
@@ -289,7 +289,7 @@ export function listArtifacts(workspaceDir: string): ArtifactMeta[] {
 }
 
 /**
- * Delete an artifact by ID. Idempotent — returns false if the artifact did not exist.
+ * Delete an artifact by ID. Idempotent - returns false if the artifact did not exist.
  */
 export function deleteArtifact(workspaceDir: string, id: string): boolean {
   validateId(id);

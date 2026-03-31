@@ -50,7 +50,7 @@ async function checkDeploymentSubscription(dep: {
   cancelAtPeriodEnd: Date | null;
   error: string | null;
 }): Promise<void> {
-  // Platform agents are always allowed to run — no subscription needed
+  // Platform agents are always allowed to run - no subscription needed
   if (dep.isPlatform) return;
 
   // All non-platform deployments need a valid subscription
@@ -120,7 +120,7 @@ async function validateSubscriptionWithStripe(dep: {
       ? new Date((subscription as any).current_period_end * 1000)
       : null;
 
-    // Subscription is deleted/canceled — stop deployment
+    // Subscription is deleted/canceled - stop deployment
     if (status === "canceled" || status === "incomplete_expired") {
       logger.info(
         { deploymentId: dep.id, status, subscriptionId: dep.stripeSubscriptionId },
@@ -140,7 +140,7 @@ async function validateSubscriptionWithStripe(dep: {
       return;
     }
 
-    // Payment issues — flag error but don't stop immediately (Stripe retries)
+    // Payment issues - flag error but don't stop immediately (Stripe retries)
     if (status === "past_due" || status === "unpaid") {
       const existingPaymentError = dep.error?.startsWith(`${SUBSCRIPTION_ERROR_PREFIX} ${status}`);
       if (!existingPaymentError) {
@@ -158,7 +158,7 @@ async function validateSubscriptionWithStripe(dep: {
       return;
     }
 
-    // Subscription is active — sync cancellation state if needed
+    // Subscription is active - sync cancellation state if needed
     if (status === "active") {
       const updates: Record<string, any> = {};
 

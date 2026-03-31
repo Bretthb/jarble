@@ -93,11 +93,11 @@ describe("test harness", () => {
   it("creates an anonymous caller that rejects protected procedures", async () => {
     const caller = createAnonymousCaller(db);
 
-    // user.me is a publicProcedure — should return null
+    // user.me is a publicProcedure - should return null
     const me = await caller.user.me();
     expect(me).toBeNull();
 
-    // deployment.list is a protectedProcedure — should throw
+    // deployment.list is a protectedProcedure - should throw
     await expect(caller.deployment.list()).rejects.toThrow("You must be logged in");
   });
 });

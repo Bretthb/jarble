@@ -1,10 +1,10 @@
 /**
- * Suggestion Engine — generates follow-up prompts via a cheap secondary model call.
+ * Suggestion Engine - generates follow-up prompts via a cheap secondary model call.
  *
  * Fires after the main bot response completes. Uses GPT-4o-mini (via OpenRouter)
  * to generate 3-4 contextual suggestions. Cost: ~$0.00009 per call.
  *
- * This is the same pattern used by ChatGPT, Claude.ai, and Gemini —
+ * This is the same pattern used by ChatGPT, Claude.ai, and Gemini -
  * suggestions are an infrastructure concern, not a prompt engineering problem.
  */
 
@@ -80,7 +80,7 @@ export async function generateSuggestions(
     const content = data.choices?.[0]?.message?.content;
     if (!content) return [];
 
-    // Parse — handle both raw array and { suggestions: [...] } wrapper
+    // Parse - handle both raw array and { suggestions: [...] } wrapper
     const parsed = JSON.parse(content);
     const arr = Array.isArray(parsed) ? parsed : (parsed.suggestions || parsed.prompts || []);
 

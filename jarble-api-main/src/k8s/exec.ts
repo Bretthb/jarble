@@ -191,9 +191,9 @@ export async function streamExecInPod(
  * Returns the pod name or null if no pod exists.
  *
  * @param requireReady - if true (default), pod must pass readiness probe.
- *   For exec operations (e.g. pairing commands), set false — the pod just needs
+ *   For exec operations (e.g. pairing commands), set false - the pod just needs
  *   to be in Running phase so we can exec into it.
- * @param managedBy - "legacy" or "operator" — determines label selector and container name
+ * @param managedBy - "legacy" or "operator" - determines label selector and container name
  */
 export async function findPodForDeployment(
   deploymentId: string,

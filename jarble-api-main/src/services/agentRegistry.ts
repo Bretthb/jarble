@@ -1,5 +1,5 @@
 /**
- * Agent Registry — maps agent names to their configs.
+ * Agent Registry - maps agent names to their configs.
  *
  * Each agent is a stateless specialist that uses a specific system prompt
  * and (typically cheap) LLM model. The bot delegates tasks to the right
@@ -12,7 +12,7 @@
 export interface AgentConfig {
   name: string;
   description: string;
-  /** System prompt — imported from prompts/ directory */
+  /** System prompt - imported from prompts/ directory */
   systemPromptModule: string;
   /** Default model (can be overridden per-request) */
   defaultModel: string;

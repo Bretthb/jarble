@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * Runtime Handler Types — Defines the strategy pattern for runtime-specific
+ * Runtime Handler Types - Defines the strategy pattern for runtime-specific
  * config rendering, validation, and K8s Secret generation.
  * ═══════════════════════════════════════════════════════════════════════
  *
@@ -11,7 +11,7 @@
  * HOW TO ADD A NEW RUNTIME:
  *   1. Create src/runtimes/handlers/yourruntime.ts implementing RuntimeHandler
  *   2. Import and register it in src/runtimes/index.ts
- *   That's it — the deployment router and K8s layer pick it up automatically.
+ *   That's it - the deployment router and K8s layer pick it up automatically.
  */
 
 // ─── Config File Types ────────────────────────────────────────────────
@@ -54,15 +54,15 @@ export interface DeploymentFields {
   llmApiKey: string | null;
   /** Platform credentials: { platformId: { fieldKey: value } } e.g. { discord: { botToken: "..." } } */
   platformCredentials?: Record<string, Record<string, string>>;
-  /** Gateway auth token for OpenClaw WS auth — generated at deploy time, stored in K8s Secret */
+  /** Gateway auth token for OpenClaw WS auth - generated at deploy time, stored in K8s Secret */
   gatewayToken?: string;
-  /** If true, deployment only uses messaging platforms (no web chat) — enables condensed prompt */
+  /** If true, deployment only uses messaging platforms (no web chat) - enables condensed prompt */
   messagingOnly?: boolean;
   /** Management mode: "legacy" (K8s Deployment) or "operator" (OpenClaw CRD). Affects PVC paths. */
   managedBy?: "legacy" | "operator";
   /** Installed skills: array of { name, config } from deploymentSkills + skillsCatalog join */
   skills?: Array<{ name: string; config: string }>;
-  /** Instruction snippets from installed packages — appended to soul.md */
+  /** Instruction snippets from installed packages - appended to soul.md */
   packageSnippets?: Array<{ packageName: string; snippet: string }>;
   /**
    * Remote skill proxy configs from remote/hybrid package installs.
@@ -74,7 +74,7 @@ export interface DeploymentFields {
     skillName: string;
     proxyUrl: string;
   }>;
-  /** Installed marketplace components — included in soul.md so the bot knows what's available */
+  /** Installed marketplace components - included in soul.md so the bot knows what's available */
   installedComponents?: Array<{
     name: string;
     displayName: string;
@@ -83,7 +83,7 @@ export interface DeploymentFields {
     tier: string;
     category: string;
   }>;
-  /** User-configured subagents for this deployment — rendered as MCP tools + soul.md section */
+  /** User-configured subagents for this deployment - rendered as MCP tools + soul.md section */
   subagents?: Array<{
     slug: string;
     name: string;
@@ -93,9 +93,9 @@ export interface DeploymentFields {
     triggerType: string;
     triggerConfig: string | null;
     tools: string | null;
-    source?: string;  // "custom" | "platform" | "delegation" — undefined treated as "custom" for backward compat
+    source?: string;  // "custom" | "platform" | "delegation" - undefined treated as "custom" for backward compat
   }>;
-  /** Team members from Bot Teams flows — other deployments linked via flow_deployment_memberships */
+  /** Team members from Bot Teams flows - other deployments linked via flow_deployment_memberships */
   teamMembers?: Array<{
     deploymentId: string;
     name: string;
@@ -137,12 +137,12 @@ export interface RuntimeCapabilities {
 
 /**
  * The core interface every runtime must implement.
- * Handlers are pure transformation layers — they don't own data or
+ * Handlers are pure transformation layers - they don't own data or
  * interact with the DB/K8s directly. The deployment router and K8s
  * layer call handler methods and act on the results.
  */
 export interface RuntimeHandler {
-  /** Runtime slug — must match runtime_catalog.slug and deployments.runtime */
+  /** Runtime slug - must match runtime_catalog.slug and deployments.runtime */
   readonly slug: string;
 
   /** Human-readable name */

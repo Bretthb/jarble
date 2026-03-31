@@ -1,5 +1,5 @@
 /**
- * Platform skills — the authoritative source for bot skills.
+ * Platform skills - the authoritative source for bot skills.
  *
  * Pods fetch these from GET /debug/platform-skills on boot and cache to PVC.
  * The MCP server (jarble-ui-server.js) has a baked-in copy as fallback,
@@ -11,7 +11,7 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-// Current skills version — bump when making changes so pods know to update
+// Current skills version - bump when making changes so pods know to update
 const SKILLS_VERSION = 2;
 const SKILLS_UPDATED_AT = "2026-03-06T00:00:00Z";
 

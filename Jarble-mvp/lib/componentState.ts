@@ -1,5 +1,5 @@
 /**
- * Component State Persistence — saves/loads component state to/from the pod's PVC.
+ * Component State Persistence - saves/loads component state to/from the pod's PVC.
  *
  * State is stored at /data/component-state/{cardId}.json on the pod.
  * PVC survives pod restarts and deletions (Longhorn persistent storage).

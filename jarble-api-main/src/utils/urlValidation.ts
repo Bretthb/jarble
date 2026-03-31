@@ -1,5 +1,5 @@
 /**
- * URL Validation — SSRF protection for outbound requests.
+ * URL Validation - SSRF protection for outbound requests.
  *
  * Blocks requests to private/internal networks, cloud metadata endpoints,
  * and non-HTTPS URLs in production. Used by the service proxy, health checks,
@@ -11,33 +11,33 @@
  * Each entry: [network as 32-bit integer, mask as 32-bit integer].
  */
 const BLOCKED_IPV4_CIDRS: Array<[number, number]> = [
-  // 10.0.0.0/8 — Private (RFC 1918)
+  // 10.0.0.0/8 - Private (RFC 1918)
   [0x0a000000, 0xff000000],
-  // 172.16.0.0/12 — Private (RFC 1918)
+  // 172.16.0.0/12 - Private (RFC 1918)
   [0xac100000, 0xfff00000],
-  // 192.168.0.0/16 — Private (RFC 1918)
+  // 192.168.0.0/16 - Private (RFC 1918)
   [0xc0a80000, 0xffff0000],
-  // 127.0.0.0/8 — Loopback
+  // 127.0.0.0/8 - Loopback
   [0x7f000000, 0xff000000],
-  // 169.254.0.0/16 — Link-local / Cloud metadata
+  // 169.254.0.0/16 - Link-local / Cloud metadata
   [0xa9fe0000, 0xffff0000],
-  // 0.0.0.0/8 — "This" network
+  // 0.0.0.0/8 - "This" network
   [0x00000000, 0xff000000],
-  // 100.64.0.0/10 — Carrier-grade NAT (RFC 6598)
+  // 100.64.0.0/10 - Carrier-grade NAT (RFC 6598)
   [0x64400000, 0xffc00000],
-  // 198.18.0.0/15 — Benchmarking (RFC 2544)
+  // 198.18.0.0/15 - Benchmarking (RFC 2544)
   [0xc6120000, 0xfffe0000],
-  // 192.0.0.0/24 — IETF Protocol Assignments
+  // 192.0.0.0/24 - IETF Protocol Assignments
   [0xc0000000, 0xffffff00],
-  // 192.0.2.0/24 — TEST-NET-1
+  // 192.0.2.0/24 - TEST-NET-1
   [0xc0000200, 0xffffff00],
-  // 198.51.100.0/24 — TEST-NET-2
+  // 198.51.100.0/24 - TEST-NET-2
   [0xc6336400, 0xffffff00],
-  // 203.0.113.0/24 — TEST-NET-3
+  // 203.0.113.0/24 - TEST-NET-3
   [0xcb007100, 0xffffff00],
-  // 224.0.0.0/4 — Multicast
+  // 224.0.0.0/4 - Multicast
   [0xe0000000, 0xf0000000],
-  // 240.0.0.0/4 — Reserved
+  // 240.0.0.0/4 - Reserved
   [0xf0000000, 0xf0000000],
 ];
 
@@ -46,9 +46,9 @@ const BLOCKED_IPV4_CIDRS: Array<[number, number]> = [
  */
 const BLOCKED_IPV6_PREFIXES = [
   "::1",        // Loopback
-  "fc",         // fc00::/7 — Unique Local (first byte fc or fd)
-  "fd",         // fc00::/7 — Unique Local
-  "fe80:",      // fe80::/10 — Link-local
+  "fc",         // fc00::/7 - Unique Local (first byte fc or fd)
+  "fd",         // fc00::/7 - Unique Local
+  "fe80:",      // fe80::/10 - Link-local
   "::ffff:127", // IPv4-mapped loopback
   "::ffff:10.",  // IPv4-mapped 10.x
   "::ffff:192.168.", // IPv4-mapped 192.168.x
@@ -169,7 +169,7 @@ export function validateExternalUrl(
     return !isBlockedIPv6(bareHostname);
   }
 
-  // Regular domain name — allowed (DNS resolution to private IPs is handled
+  // Regular domain name - allowed (DNS resolution to private IPs is handled
   // at the network layer via egress NetworkPolicy on K8s pods, but we still
   // block obvious hostnames above)
   return true;

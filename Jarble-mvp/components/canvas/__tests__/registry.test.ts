@@ -1,5 +1,5 @@
 /**
- * Canvas Component Registry — Tests
+ * Canvas Component Registry - Tests
  *
  * Tests the component registry that maps component names to React components
  * and Zod prop schemas. Verifies alignment with the shared manifest.

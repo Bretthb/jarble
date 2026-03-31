@@ -1,5 +1,5 @@
 /**
- * MemoryStateStore — In-memory implementation of the StateStore interface.
+ * MemoryStateStore - In-memory implementation of the StateStore interface.
  *
  * Wraps the same Map-based logic that the rate limiter and circuit breaker
  * used before the StateStore abstraction. Used as fallback when DB is

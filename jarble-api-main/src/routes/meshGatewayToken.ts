@@ -6,10 +6,10 @@
  * import this module so they share the same token value within the process.
  *
  * Token source (in priority order):
- *   1. MESH_GATEWAY_SECRET env var — use this when gateway and proxy run in
+ *   1. MESH_GATEWAY_SECRET env var - use this when gateway and proxy run in
  *      separate processes (e.g. separate K8s pods). Both processes must share
  *      the same secret.
- *   2. crypto.randomUUID() — generated once at import time. Safe when both
+ *   2. crypto.randomUUID() - generated once at import time. Safe when both
  *      gateway and proxy run in the same Node process (the common case),
  *      because they share the same module cache and therefore the same token.
  *

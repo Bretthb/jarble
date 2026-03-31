@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * canvasImageUtils — utilities for capturing, compressing, and describing
+ * canvasImageUtils - utilities for capturing, compressing, and describing
  * the canvas state as images or text for LLM context.
  */
 
@@ -126,7 +126,7 @@ export async function compressImage(
  */
 export function canvasStateToImageDescription(cards: CanvasCard[]): string {
   if (cards.length === 0) {
-    return "The canvas is empty — no components are displayed.";
+    return "The canvas is empty - no components are displayed.";
   }
 
   const lines: string[] = [];

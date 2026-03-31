@@ -697,10 +697,10 @@ function DeploymentTableRow({
               compact
             />
           ) : (
-            <span className="text-xs text-muted-foreground">—</span>
+            <span className="text-xs text-muted-foreground">-</span>
           )
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="text-xs text-muted-foreground">-</span>
         )}
       </TableCell>
       <TableCell className="text-right">
@@ -710,10 +710,10 @@ function DeploymentTableRow({
           ) : creditQuery.data ? (
             <span className="text-xs font-mono">${creditQuery.data.usage.toFixed(2)}</span>
           ) : (
-            <span className="text-xs text-muted-foreground">—</span>
+            <span className="text-xs text-muted-foreground">-</span>
           )
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="text-xs text-muted-foreground">-</span>
         )}
       </TableCell>
     </TableRow>

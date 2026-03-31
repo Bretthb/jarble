@@ -19,7 +19,7 @@ import { stripeActionLimiter } from "../middleware/rateLimit.js";
 import { calculateMonthlyPriceCents } from "../utils/pricing.js";
 
 /**
- * Stripe webhook handler — must be mounted BEFORE express.json() in index.ts
+ * Stripe webhook handler - must be mounted BEFORE express.json() in index.ts
  * because it needs the raw request body for signature verification.
  */
 export async function stripeWebhookHandler(req: Request, res: Response) {
@@ -65,7 +65,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
             })
             .where(eq(tables.users.id, userId));
 
-          logger.info({ userId, customerId, subscriptionId }, "Checkout completed — subscription pending link");
+          logger.info({ userId, customerId, subscriptionId }, "Checkout completed - subscription pending link");
         }
         break;
       }
@@ -133,7 +133,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
         const subscription = event.data.object as any;
         const subscriptionId = subscription.id as string;
         const customerId = subscription.customer as string;
-        logger.info({ customerId, subscriptionId }, "Subscription canceled — stopping deployment");
+        logger.info({ customerId, subscriptionId }, "Subscription canceled - stopping deployment");
 
         try {
           const linked = await db.query.deployments.findFirst({
@@ -170,7 +170,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
 
             if (linked) {
               await db.update(tables.deployments)
-                .set({ error: "Payment failed — please update your payment method" })
+                .set({ error: "Payment failed - please update your payment method" })
                 .where(eq(tables.deployments.id, linked.id));
               logger.warn({ deploymentId: linked.id, subscriptionId: invoiceSubscriptionId }, "Deployment flagged for payment failure");
             }
@@ -186,7 +186,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
               for (const dep of userDeployments) {
                 if (!dep.isFree && dep.stripeSubscriptionId) {
                   await db.update(tables.deployments)
-                    .set({ error: "Payment failed — please update your payment method" })
+                    .set({ error: "Payment failed - please update your payment method" })
                     .where(eq(tables.deployments.id, dep.id));
                 }
               }
@@ -225,7 +225,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
 }
 
 /**
- * Stripe router — checkout and portal endpoints.
+ * Stripe router - checkout and portal endpoints.
  * Mounted at /api/stripe in index.ts (after express.json()).
  */
 export const stripeRouter = Router();

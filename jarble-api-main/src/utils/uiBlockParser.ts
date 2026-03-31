@@ -118,7 +118,7 @@ function extractJsonFromBlock(text: string, startIndex: number): { json: string;
   let inString = false;
   let escape = false;
   const start = i;
-  // Track the last position where depth was 1 and we just closed a value —
+  // Track the last position where depth was 1 and we just closed a value -
   // this is a potential truncation repair point
   let lastDepth1Close = -1;
 
@@ -139,7 +139,7 @@ function extractJsonFromBlock(text: string, startIndex: number): { json: string;
     }
   }
 
-  // Incomplete block — try to repair truncated JSON.
+  // Incomplete block - try to repair truncated JSON.
   // Large sandbox components often get truncated by OpenClaw CLI timeout.
   // Strategy: find the last point where the "props" object was somewhat valid
   // and close all open braces.
@@ -153,7 +153,7 @@ function extractJsonFromBlock(text: string, startIndex: number): { json: string;
       logger.debug("[uiBlockParser] Repaired truncated JSON (%d chars, added %d closing braces)", repaired.length, depth);
       return { json: repaired, endIndex: text.length };
     } catch {
-      // Repair failed — might be mid-string. Try closing the string first.
+      // Repair failed - might be mid-string. Try closing the string first.
       const repairedWithString = truncated + '"' + closingBraces;
       try {
         JSON.parse(repairedWithString);
@@ -220,7 +220,7 @@ function findFencedBlocks(text: string, marker: string): FencedBlock[] {
     // Find the JSON object using brace-depth parsing
     let result = extractJsonFromBlock(text, afterMarker);
     if (!result) {
-      // Brace-depth parser failed — try fallback: find closing ``` and JSON.parse the content
+      // Brace-depth parser failed - try fallback: find closing ``` and JSON.parse the content
       const closingIdx = text.indexOf("```", afterMarker);
       if (closingIdx !== -1) {
         const rawContent = text.slice(afterMarker, closingIdx).trim();
@@ -230,12 +230,12 @@ function findFencedBlocks(text: string, marker: string): FencedBlock[] {
             result = { json: rawContent, endIndex: closingIdx };
             logger.debug("[uiBlockParser] Brace-depth parser failed but JSON.parse fallback succeeded (%d chars)", rawContent.length);
           } catch {
-            // Not valid JSON either — truly incomplete
+            // Not valid JSON either - truly incomplete
           }
         }
       }
       if (!result) {
-        // Incomplete block (still streaming) — skip
+        // Incomplete block (still streaming) - skip
         searchFrom = afterMarker;
         continue;
       }

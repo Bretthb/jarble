@@ -1,5 +1,5 @@
 /**
- * Service Stream — SSE endpoint for real-time service data updates.
+ * Service Stream - SSE endpoint for real-time service data updates.
  *
  * Consumers subscribe to a service's mutations via Server-Sent Events.
  * When any consumer (or the host) executes a mutating skill, all
@@ -15,9 +15,9 @@
  *   - deploymentId: required
  *
  * Events:
- *   - "connected" — initial connection confirmation with current state
- *   - "mutation"  — a skill was executed, includes skill name + result
- *   - "ping"      — keepalive every 30s
+ *   - "connected" - initial connection confirmation with current state
+ *   - "mutation"  - a skill was executed, includes skill name + result
+ *   - "ping"      - keepalive every 30s
  */
 
 import { Router, type Request, type Response } from "express";

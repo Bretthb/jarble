@@ -9,7 +9,7 @@ import {
   MOCK_SERVICE_LIST_ITEM,
 } from "./helpers/marketplace";
 
-test.describe("Marketplace — Navigation", () => {
+test.describe("Marketplace - Navigation", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -59,7 +59,7 @@ test.describe("Marketplace — Navigation", () => {
     await page.goto("/marketplace");
     await page.waitForTimeout(3_000);
 
-    // Click the Jarble logo/heading link — the h1 is inside a Link to "/"
+    // Click the Jarble logo/heading link - the h1 is inside a Link to "/"
     const logoLink = page.getByRole("link", { name: "Jarble", exact: true });
     await logoLink.click();
 

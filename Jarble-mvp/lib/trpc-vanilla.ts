@@ -9,7 +9,7 @@ import superjson from "superjson";
 import type { AppRouter } from "jarble-api";
 import { API_URL } from "./trpc";
 
-// Auth0 token getter — set by providers.tsx on mount
+// Auth0 token getter - set by providers.tsx on mount
 let tokenGetter: (() => Promise<string>) | null = null;
 
 export function setTokenGetter(fn: () => Promise<string>) {

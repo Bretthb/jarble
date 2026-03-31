@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * OrchestrationSteps — Shows real-time agent orchestration progress in chat.
+ * OrchestrationSteps - Shows real-time agent orchestration progress in chat.
  *
  * Displays a step-by-step view of what internal agents are doing:
  * - Planning dashboard layout
@@ -33,13 +33,13 @@ export interface OrchestrationStep {
   id: string;
   label: string;
   status: "pending" | "running" | "complete" | "error";
-  /** Agent type — legacy: planner/component/qa/debug/external/tool; WS: subagent/delegation/platform */
+  /** Agent type - legacy: planner/component/qa/debug/external/tool; WS: subagent/delegation/platform */
   agent: "planner" | "component" | "qa" | "debug" | "external" | "tool" | "subagent" | "delegation" | "platform";
   /** Optional sub-label (e.g. component intent or task description) */
   detail?: string;
   /** Duration in ms (set on complete) */
   duration?: number;
-  /** WS orchestration fields — present when step comes from useOrchestration */
+  /** WS orchestration fields - present when step comes from useOrchestration */
   agentType?: "subagent" | "delegation" | "platform";
   toolName?: string;
   targetDeploymentId?: string;

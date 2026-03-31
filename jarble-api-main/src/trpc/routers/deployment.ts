@@ -98,7 +98,7 @@ export const deploymentRouter = router({
       if (!child) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       if (!owner) throw new TRPCError({ code: "NOT_FOUND", message: "Pool owner not found" });
       if ((owner as any).llmMode !== "included") throw new TRPCError({ code: "BAD_REQUEST", message: "Target deployment does not use included credits" });
-      if ((owner as any).llmApiKeySourceDeploymentId) throw new TRPCError({ code: "BAD_REQUEST", message: "Target is itself linked — cannot chain pools" });
+      if ((owner as any).llmApiKeySourceDeploymentId) throw new TRPCError({ code: "BAD_REQUEST", message: "Target is itself linked - cannot chain pools" });
       if ((child as any).llmApiKeySourceDeploymentId) throw new TRPCError({ code: "BAD_REQUEST", message: "This deployment is already linked" });
       if (input.deploymentId === input.sourceDeploymentId) throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot link a deployment to itself" });
 
@@ -194,7 +194,7 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      // Built-in component metadata — derived from the canonical component manifest
+      // Built-in component metadata - derived from the canonical component manifest
       const builtins = Object.entries(COMPONENT_MANIFEST).map(([name, entry]) => ({
         name,
         description: entry.description,
@@ -294,9 +294,9 @@ export const deploymentRouter = router({
       systemPrompt: z.string().optional(),
       creditLimitDollars: z.number().min(1).max(1000).optional(), // Monthly spending cap for "included" mode (default $5)
       linkToDeploymentId: z.string().optional(), // Link to an existing deployment's credit pool instead of provisioning a new key
-      cpuLimit: z.string().optional(),    // e.g. "2.0" — overrides runtime catalog default
-      memoryMb: z.number().int().positive().optional(),   // e.g. 2048 — RAM in MB
-      storageMb: z.number().int().positive().optional(),  // e.g. 30 — storage in GB (historical naming)
+      cpuLimit: z.string().optional(),    // e.g. "2.0" - overrides runtime catalog default
+      memoryMb: z.number().int().positive().optional(),   // e.g. 2048 - RAM in MB
+      storageMb: z.number().int().positive().optional(),  // e.g. 30 - storage in GB (historical naming)
       telegramBotToken: z.string().optional(), // Pre-validated Telegram bot token (included in initial K8s Secret)
       messagingOnly: z.boolean().optional(), // If true, omit web-chat UI prompt (~1,250 tokens saved)
       isolationLevel: z.enum(["standard", "gvisor", "kata"]).optional(), // Runtime sandbox isolation (default: "standard")
@@ -471,7 +471,7 @@ export const deploymentRouter = router({
       const finalStorage = input.storageMb || catalogEntry.storageMb;
       const monthlyPriceCents = calculateMonthlyPriceCents(finalCpu, finalMemory, finalStorage);
 
-      // Insert deployment — price calculated from hardware specs
+      // Insert deployment - price calculated from hardware specs
       await ctx.db.insert(deployments).values({
         id: deploymentId,
         userId: ctx.user.id,
@@ -502,7 +502,7 @@ export const deploymentRouter = router({
 
       // Save Telegram bot token to platformCredentials (if provided during wizard)
       // This ensures the token is in the DB before deploy, so it gets included in
-      // the initial K8s Secret — avoiding a post-deploy configSync restart cycle.
+      // the initial K8s Secret - avoiding a post-deploy configSync restart cycle.
       if (input.telegramBotToken) {
         const encrypted = encryptApiKey(JSON.stringify({ botToken: input.telegramBotToken }));
         await ctx.db.insert(platformCredentials).values({
@@ -514,7 +514,7 @@ export const deploymentRouter = router({
         logger.info({ deploymentId }, "Telegram credentials saved during create (pre-deploy)");
       }
 
-      // Seed default platform agents (component, data, workflow) — non-fatal
+      // Seed default platform agents (component, data, workflow) - non-fatal
       await seedPlatformAgents(ctx.db, deploymentId);
 
       const deployment = await ctx.db.query.deployments.findFirst({
@@ -611,7 +611,7 @@ export const deploymentRouter = router({
           const decrypted = decryptApiKey(row.credentials);
           platformCredsMap[row.platformId] = JSON.parse(decrypted);
         } catch (err) {
-          logger.warn({ deploymentId, platformId: row.platformId, err }, "Failed to decrypt platform credentials — skipping");
+          logger.warn({ deploymentId, platformId: row.platformId, err }, "Failed to decrypt platform credentials - skipping");
         }
       }
 
@@ -641,7 +641,7 @@ export const deploymentRouter = router({
       const initialConfigs = runtimeHandler?.renderConfigs(deploymentFields) ?? [];
       const extraSecretEntries = runtimeHandler?.getSecretEntries(deploymentFields) ?? {};
 
-      // Seed component library — write ~25 composite templates to PVC
+      // Seed component library - write ~25 composite templates to PVC
       // Only runs on first deploy; user modifications are never overwritten by configSync.
       for (const comp of COMPONENT_LIBRARY) {
         initialConfigs.push({
@@ -671,7 +671,7 @@ export const deploymentRouter = router({
         if (targetNode) logger.info({ deploymentId, targetNode }, "Node capacity confirmed");
       } catch (capacityErr) {
         if (capacityErr instanceof CapacityError) {
-          // At the server limit — revert status and return a clear error to the user
+          // At the server limit - revert status and return a clear error to the user
           await ctx.db.update(deployments)
             .set({ status: "failed", error: (capacityErr as Error).message })
             .where(eq(deployments.id, deploymentId));
@@ -680,13 +680,13 @@ export const deploymentRouter = router({
             message: (capacityErr as Error).message,
           });
         }
-        // Transient failure (K8s API error, network issue, etc.) — log but proceed.
+        // Transient failure (K8s API error, network issue, etc.) - log but proceed.
         // The K8s scheduler may still be able to place the pod on an existing node.
         logger.error({ deploymentId, err: capacityErr instanceof Error ? capacityErr.message : capacityErr },
           "Auto-scale capacity check failed, proceeding without node pinning");
       }
 
-      // Start K8s deployment (fire-and-forget — don't block the response)
+      // Start K8s deployment (fire-and-forget - don't block the response)
       void (async () => {
         try {
           // Persist managedBy on the DB row before creating K8s resources
@@ -710,7 +710,7 @@ export const deploymentRouter = router({
           }, managedBy);
           logger.info({ deploymentId }, "K8s createDeployment returned, polling for readiness...");
 
-          // Poll for pod readiness — 150 attempts × 2s = 300s (5 min) timeout
+          // Poll for pod readiness - 150 attempts × 2s = 300s (5 min) timeout
           // Fresh VPS: ~60s K3s join + ~23s image pull + ~120-180s OpenClaw boot = ~4-5 min
           await new Promise((r) => setTimeout(r, 1500));
           let ready = false;
@@ -919,7 +919,7 @@ export const deploymentRouter = router({
           updates.llmApiKeySourceDeploymentId = null;
         }
       } else if (rawUpdates.llmApiKey) {
-        // Mode didn't change but user provided a new API key — encrypt it
+        // Mode didn't change but user provided a new API key - encrypt it
         updates.llmApiKey = encryptApiKey(rawUpdates.llmApiKey);
       }
 
@@ -968,7 +968,7 @@ export const deploymentRouter = router({
       const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
 
       try {
-        // Atomic conditional update — prevents double-stop race condition.
+        // Atomic conditional update - prevents double-stop race condition.
         // If two concurrent requests both pass the status check above, only
         // one will succeed in setting "stopping" (the other gets 0 rows).
         const stopResult = await ctx.db.update(deployments)
@@ -1050,14 +1050,14 @@ export const deploymentRouter = router({
         if (targetNode) logger.info({ deploymentId: input.id, targetNode }, "Node capacity confirmed for start");
       } catch (capacityErr) {
         if (capacityErr instanceof CapacityError) {
-          // At the server limit — don't change deployment status (it's still stopped/failed),
+          // At the server limit - don't change deployment status (it's still stopped/failed),
           // just return the error to the user
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: (capacityErr as Error).message,
           });
         }
-        // Transient failure — log but proceed without node pinning
+        // Transient failure - log but proceed without node pinning
         logger.error({ deploymentId: input.id, err: capacityErr instanceof Error ? capacityErr.message : capacityErr },
           "Auto-scale capacity check failed during start, proceeding without node pinning");
       }
@@ -1129,7 +1129,7 @@ export const deploymentRouter = router({
             await ctx.db.update(deployments)
               .set({ status: ready ? "running" : "failed" })
               .where(and(eq(deployments.id, input.id), eq(deployments.status, "creating")));
-            // Sync configs after start — picks up any changes made while stopped
+            // Sync configs after start - picks up any changes made while stopped
             if (ready) {
               safeFireAndForget(syncConfigsToPvc(input.id), { operation: "syncConfigsToPvc", deploymentId: input.id });
             }
@@ -1239,7 +1239,7 @@ export const deploymentRouter = router({
     }),
 
   // Push the latest MCP server + tools to a running pod without restarting.
-  // Fixes the "old pod doesn't have set_theme" problem — zero downtime.
+  // Fixes the "old pod doesn't have set_theme" problem - zero downtime.
   updateRuntime: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -1628,7 +1628,7 @@ export const deploymentRouter = router({
 
         if (linkedChildren.length > 0) {
           const names = linkedChildren.map((c) => c.name).join(", ");
-          logger.warn({ deploymentId: input.id, linkedCount: linkedChildren.length }, "delete: blocked — credit pool has linked children");
+          logger.warn({ deploymentId: input.id, linkedCount: linkedChildren.length }, "delete: blocked - credit pool has linked children");
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: `Cannot delete: ${linkedChildren.length} deployment(s) are linked to this credit pool (${names}). Unlink or delete them first.`,
@@ -1646,7 +1646,7 @@ export const deploymentRouter = router({
           await revokeOpenRouterKey(keyId);
           logger.debug({ deploymentId: input.id, keyId }, "delete: OpenRouter key revoked");
         } catch (err) {
-          logger.warn({ err, deploymentId: input.id, keyId }, "delete: failed to revoke OpenRouter key — continuing");
+          logger.warn({ err, deploymentId: input.id, keyId }, "delete: failed to revoke OpenRouter key - continuing");
         }
       }
 
@@ -1657,11 +1657,11 @@ export const deploymentRouter = router({
           await cancelSubscriptionImmediately(deployment.stripeSubscriptionId);
           logger.debug({ deploymentId: input.id }, "delete: Stripe subscription cancelled");
         } catch (err) {
-          logger.warn({ err, deploymentId: input.id, subscriptionId: deployment.stripeSubscriptionId }, "delete: failed to cancel Stripe subscription — continuing");
+          logger.warn({ err, deploymentId: input.id, subscriptionId: deployment.stripeSubscriptionId }, "delete: failed to cancel Stripe subscription - continuing");
         }
       }
 
-      // Delete K8s resources first — if this throws, we abort and leave the DB record intact
+      // Delete K8s resources first - if this throws, we abort and leave the DB record intact
       // so the user can retry. Step-by-step logs are inside deleteDeployment.
       const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
       logger.info({ deploymentId: input.id, managedBy }, "delete: starting K8s resource cleanup");
@@ -1673,7 +1673,7 @@ export const deploymentRouter = router({
         logger.warn({ err }, "Scale-down check failed (non-blocking)");
       });
 
-      // Explicitly clean up child rows — SQLite doesn't enforce FK cascades by default
+      // Explicitly clean up child rows - SQLite doesn't enforce FK cascades by default
       const credResult = await ctx.db.delete(platformCredentials)
         .where(eq(platformCredentials.deploymentId, input.id));
       logger.debug({ deploymentId: input.id, rows: (credResult as any)?.changes ?? (credResult as any)?.rowsAffected ?? "?" }, "delete: platform_credentials removed");
@@ -1700,7 +1700,7 @@ export const deploymentRouter = router({
       name: z.string().min(1),
     }))
     .mutation(async ({ ctx, input }) => {
-      // 1. Fetch source deployment — must be isPublic=true OR owned by user
+      // 1. Fetch source deployment - must be isPublic=true OR owned by user
       const source = await ctx.db.query.deployments.findFirst({
         where: eq(deployments.id, input.sourceId),
       });
@@ -2031,7 +2031,7 @@ export const deploymentRouter = router({
         .map((ci: any) => ci.component?.name)
         .filter(Boolean);
 
-      // Return sanitized profile — never expose llmApiKey, stripeSubscriptionId, userId
+      // Return sanitized profile - never expose llmApiKey, stripeSubscriptionId, userId
       return {
         name: deployment.name,
         description: deployment.description,
@@ -2164,7 +2164,7 @@ export const deploymentRouter = router({
     }),
 
   // ── Resource Graph ────────────────────────────────────────────────────
-  // Returns the deployment relationship graph for a user — all implicit
+  // Returns the deployment relationship graph for a user - all implicit
   // data-sharing connections between their deployments.
   getResourceGraph: protectedProcedure.query(async ({ ctx }) => {
     // 1. Get all user's deployments

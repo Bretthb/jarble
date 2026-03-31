@@ -56,7 +56,7 @@ export async function verifyToken(token: string): Promise<TokenPayload> {
   if (result[`${CLAIMS_NAMESPACE}/email_verified`] !== undefined) {
     result.email_verified = result[`${CLAIMS_NAMESPACE}/email_verified`] as boolean;
   }
-  // Extract role claim (informational only — DB is authoritative, not the JWT)
+  // Extract role claim (informational only - DB is authoritative, not the JWT)
   if (result[`${CLAIMS_NAMESPACE}/role`]) {
     result.role = result[`${CLAIMS_NAMESPACE}/role`] as string;
   }
@@ -164,7 +164,7 @@ export async function getUserFromToken(payload: TokenPayload) {
     }
   }
 
-  // Create new user — no existing account with this email
+  // Create new user - no existing account with this email
   const userId = nanoid(12);
 
   try {
@@ -185,14 +185,14 @@ export async function getUserFromToken(payload: TokenPayload) {
     }, "New user created");
   } catch (err: unknown) {
     // Handle race condition: two concurrent first-requests both try to INSERT.
-    // The second one hits a unique constraint violation — re-fetch instead of 500.
+    // The second one hits a unique constraint violation - re-fetch instead of 500.
     const code = (err as { code?: string })?.code;
     const isConstraintViolation =
       code === "SQLITE_CONSTRAINT" ||  // SQLite
       code === "ER_DUP_ENTRY" ||       // MySQL
       code === "23505";                // Postgres
     if (isConstraintViolation) {
-      log.info({ auth0Id: payload.sub }, "User creation race condition — re-fetching");
+      log.info({ auth0Id: payload.sub }, "User creation race condition - re-fetching");
       user = await db.query.users.findFirst({
         where: eq(tables.users.auth0Id, payload.sub),
       });

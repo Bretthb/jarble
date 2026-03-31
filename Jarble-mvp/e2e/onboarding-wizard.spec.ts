@@ -27,7 +27,7 @@ test.describe("Onboarding Wizard", () => {
 
   // ── Step 1: Name Step ──────────────────────────────────────────────────
 
-  test.describe("Step 1 — Name Your Deployment", () => {
+  test.describe("Step 1 - Name Your Deployment", () => {
     test("wizard loads and shows the Name step first", async ({ page }, testInfo) => {
       await page.goto(WIZARD_URL);
       await page.waitForTimeout(5_000);
@@ -96,7 +96,7 @@ test.describe("Onboarding Wizard", () => {
 
   // ── Step 2: Choose Runtime ────────────────────────────────────────────
 
-  test.describe("Step 2 — Choose Runtime", () => {
+  test.describe("Step 2 - Choose Runtime", () => {
     /** Navigate to runtime step */
     async function goToRuntimeStep(page: import("@playwright/test").Page) {
       await page.goto(WIZARD_URL);
@@ -157,7 +157,7 @@ test.describe("Onboarding Wizard", () => {
 
   // ── Step 3: LLM Setup ────────────────────────────────────────────────
 
-  test.describe("Step 3 — LLM Setup", () => {
+  test.describe("Step 3 - LLM Setup", () => {
     /** Navigate to the LLM step with OpenClaw selected */
     async function goToLlmStep(page: import("@playwright/test").Page) {
       await page.goto(WIZARD_URL);
@@ -301,7 +301,7 @@ test.describe("Onboarding Wizard", () => {
 
   // ── Step 4: Deploy Step ───────────────────────────────────────────────
 
-  test.describe("Step 4 — Deploy", () => {
+  test.describe("Step 4 - Deploy", () => {
     /** Navigate to the Deploy step using Included Credits (no key needed) */
     async function goToDeployStep(page: import("@playwright/test").Page) {
       await page.goto(WIZARD_URL);
@@ -317,7 +317,7 @@ test.describe("Onboarding Wizard", () => {
       await page.getByRole("button", { name: "Continue" }).click();
       await page.waitForTimeout(1_000);
 
-      // Step 3: LLM — use Included Credits
+      // Step 3: LLM - use Included Credits
       await page.getByText("Included Credits").first().click();
       await page.waitForTimeout(300);
       await page.getByRole("button", { name: "Continue" }).click();

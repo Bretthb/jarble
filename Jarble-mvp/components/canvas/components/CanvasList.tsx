@@ -40,7 +40,7 @@ function CanvasListInner({ title, items, ordered = false }: CanvasListProps) {
     const ctx = useCanvasAction();
     dispatch = ctx.dispatch;
   } catch {
-    // Not inside CanvasActionProvider — interactivity disabled
+    // Not inside CanvasActionProvider - interactivity disabled
   }
 
   if (!Array.isArray(items) || items.length === 0) return null;

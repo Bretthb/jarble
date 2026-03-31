@@ -25,7 +25,7 @@ test.describe("Canvas error recovery", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -72,14 +72,14 @@ test.describe("Canvas error recovery", () => {
     const cardCount = await getCanvasCardCount(page);
     const errorCount = await getErrorCardCount(page);
 
-    // Bot may clamp the value, render it as-is, or produce an error — all acceptable
+    // Bot may clamp the value, render it as-is, or produce an error - all acceptable
     expect.soft(
       cardCount > 0,
       "At least one card (component or error) should appear",
     ).toBeTruthy();
 
     if (errorCount === 0) {
-      // AutoFix may have clamped the value — check that progress rendered
+      // AutoFix may have clamped the value - check that progress rendered
       const hasProgress = await waitForComponentType(page, "progress", 5_000);
       expect.soft(hasProgress, "Progress component should render when no error").toBeTruthy();
     }
@@ -146,7 +146,7 @@ test.describe("Canvas error recovery", () => {
     const cardCount = await getCanvasCardCount(page);
     const errorCount = await getErrorCardCount(page);
 
-    // AutoFix may fill in defaults, or an error card may appear — both acceptable
+    // AutoFix may fill in defaults, or an error card may appear - both acceptable
     expect.soft(
       cardCount > 0,
       "Should render at least one card (component or error)",
@@ -183,7 +183,7 @@ test.describe("Canvas error recovery", () => {
     if (await lastMessage.isVisible().catch(() => false)) {
       const text = (await lastMessage.textContent()) || "";
       const mentionsError = /error|syntax|broken|invalid|fix/i.test(text);
-      // It's fine either way — bot may render the broken code or explain the error
+      // It's fine either way - bot may render the broken code or explain the error
       if (mentionsError) {
         expect.soft(true, "Bot acknowledged the broken JS").toBeTruthy();
       }
@@ -222,7 +222,7 @@ test.describe("Canvas error recovery", () => {
     await screenshotMilestone(page, testInfo, "error-08-result");
 
     const cardCount = await getCanvasCardCount(page);
-    // Image component should show fallback or error state — not crash
+    // Image component should show fallback or error state - not crash
     expect.soft(
       cardCount > 0,
       "Should render at least one card (image with fallback or error card)",
@@ -250,7 +250,7 @@ test.describe("Canvas error recovery", () => {
       // If rendered, at least a submit button should be present
       const submitBtn = page.locator('[data-card-id] button[type="submit"], [data-card-id] button:has-text("Submit")').first();
       const hasSubmit = await submitBtn.isVisible().catch(() => false);
-      // Not a hard requirement — bot may interpret "zero fields" differently
+      // Not a hard requirement - bot may interpret "zero fields" differently
       if (hasSubmit) {
         expect.soft(true, "Form rendered with submit button").toBeTruthy();
       }
@@ -269,7 +269,7 @@ test.describe("Canvas error recovery", () => {
     const errorCount = await getErrorCardCount(page);
 
     // Bot may refuse the request, create tabs with default content, or produce error
-    // All outcomes are valid — we just ensure no crash
+    // All outcomes are valid - we just ensure no crash
     expect.soft(
       cardCount >= 0,
       "Page should handle zero-tab request without crashing",

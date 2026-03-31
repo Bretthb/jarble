@@ -1,5 +1,5 @@
 /**
- * AutoFix Prop Repair — Phase 2.2
+ * AutoFix Prop Repair - Phase 2.2
  *
  * Catches common LLM errors BEFORE Zod validation to reduce error cards.
  * Applies 20 high-confidence repair rules across 6 categories:
@@ -11,10 +11,10 @@
  *   6. Data normalization (progress percent strip, sparkline cleanup)
  *
  * Guardrails:
- *   - Never invents data — only transforms existing values
- *   - Never removes fields — only adds defaults or transforms types
+ *   - Never invents data - only transforms existing values
+ *   - Never removes fields - only adds defaults or transforms types
  *   - Deep-clones props before mutating
- *   - High-confidence only — ambiguous transforms are skipped
+ *   - High-confidence only - ambiguous transforms are skipped
  */
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ export interface AutoFixResult {
 // ── Component Name Normalization Map ─────────────────────────────────────────
 
 export const COMPONENT_NAME_MAP: Record<string, string> = {
-  // Casing variants — PascalCase
+  // Casing variants - PascalCase
   DataTable: "data_table",
   MetricCard: "metric_card",
   StatGrid: "stat_grid",
@@ -46,7 +46,7 @@ export const COMPONENT_NAME_MAP: Record<string, string> = {
   TagCloud: "tag_cloud",
   KeyValue: "key_value",
   TextMessage: "text_message",
-  // Casing variants — camelCase
+  // Casing variants - camelCase
   dataTable: "data_table",
   metricCard: "metric_card",
   statGrid: "stat_grid",
@@ -337,7 +337,7 @@ function applyEnumNormalization(
   props: Record<string, unknown>,
   repairs: AutoFixRepair[],
 ): void {
-  // Rule 4: enum-variant-alias — applies to "variant" and "status" fields
+  // Rule 4: enum-variant-alias - applies to "variant" and "status" fields
   for (const field of ["variant", "status"]) {
     const val = props[field];
     if (typeof val === "string" && val in VARIANT_ALIAS_MAP) {
@@ -361,7 +361,7 @@ function applyEnumNormalization(
     }
   }
 
-  // Rule 6: size-enum-alias — applies to "size" and "spacing" fields
+  // Rule 6: size-enum-alias - applies to "size" and "spacing" fields
   for (const field of ["size", "spacing"]) {
     const val = props[field];
     if (typeof val === "string") {
@@ -394,7 +394,7 @@ function applyMissingDefaults(
     recordRepair(repairs, "steps-default-current", "props.current", undefined, 0);
   }
 
-  // Rule 9: chart-default-xAxisKey — infer from first data object
+  // Rule 9: chart-default-xAxisKey - infer from first data object
   if (
     component === "chart" &&
     props.xAxisKey === undefined &&
@@ -420,7 +420,7 @@ function applyMissingDefaults(
     }
   }
 
-  // Rule 35: chart-default-type — default to "bar" when chart type is missing
+  // Rule 35: chart-default-type - default to "bar" when chart type is missing
   if (component === "chart" && props.type === undefined) {
     props.type = "bar";
     recordRepair(repairs, "chart-default-type", "props.type", undefined, "bar");
@@ -506,7 +506,7 @@ function applyStructuralFixes(
   props: Record<string, unknown>,
   repairs: AutoFixRepair[],
 ): void {
-  // Rule 12: unwrap-nested-props — {props: {title: "..."}} → {title: "..."}
+  // Rule 12: unwrap-nested-props - {props: {title: "..."}} → {title: "..."}
   if (
     isPlainObject(props.props) &&
     Object.keys(props).length === 1
@@ -533,7 +533,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 13: wrap-single-to-array — single object → array where array expected
+  // Rule 13: wrap-single-to-array - single object → array where array expected
   const arrayFieldsForComponent = ARRAY_FIELDS[component];
   if (arrayFieldsForComponent) {
     for (const field of arrayFieldsForComponent) {
@@ -552,7 +552,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 14b: button-group-auto-id + auto-label — fix missing required fields
+  // Rule 14b: button-group-auto-id + auto-label - fix missing required fields
   if (component === "button_group" && Array.isArray(props.buttons)) {
     for (let i = 0; i < props.buttons.length; i++) {
       const btn = props.buttons[i];
@@ -587,7 +587,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 14: rows-object-to-array — data_table rows as array of objects → array of arrays
+  // Rule 14: rows-object-to-array - data_table rows as array of objects → array of arrays
   if (component === "data_table" && Array.isArray(props.rows) && Array.isArray(props.columns)) {
     const rows = props.rows;
     const columns = props.columns as string[];
@@ -611,7 +611,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 14c: button-group-variant-normalize — fix invalid variant values in buttons
+  // Rule 14c: button-group-variant-normalize - fix invalid variant values in buttons
   if (component === "button_group" && Array.isArray(props.buttons)) {
     for (let i = 0; i < props.buttons.length; i++) {
       const btn = props.buttons[i];
@@ -627,7 +627,7 @@ function applyStructuralFixes(
           recordRepair(repairs, "button-group-variant-normalize", `props.buttons[${i}].variant`, btn.variant, fixed);
           btn.variant = fixed;
         } else {
-          // Unrecognized variant — remove (field is optional)
+          // Unrecognized variant - remove (field is optional)
           recordRepair(repairs, "button-group-variant-normalize", `props.buttons[${i}].variant`, btn.variant, undefined);
           delete btn.variant;
         }
@@ -635,9 +635,9 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 21: chart-data-transform — convert chart.js-style data to recharts format
+  // Rule 21: chart-data-transform - convert chart.js-style data to recharts format
   if (component === "chart" && props.data === undefined) {
-    // Pattern 1: chart.js format — {labels: [...], datasets: [{label, data: [...]}]}
+    // Pattern 1: chart.js format - {labels: [...], datasets: [{label, data: [...]}]}
     if (Array.isArray(props.labels) && Array.isArray(props.datasets)) {
       const labels = props.labels as string[];
       const datasets = props.datasets as Array<Record<string, unknown>>;
@@ -675,7 +675,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 21b: chart-dataKeys-infer — infer dataKeys from data when missing
+  // Rule 21b: chart-dataKeys-infer - infer dataKeys from data when missing
   if (component === "chart" && props.dataKeys === undefined) {
     // Try field aliases first
     if (Array.isArray(props.keys)) {
@@ -702,7 +702,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 21c: chart-data-coerce-numbers — coerce string numbers in chart data rows
+  // Rule 21c: chart-data-coerce-numbers - coerce string numbers in chart data rows
   if (component === "chart" && Array.isArray(props.data) && Array.isArray(props.dataKeys)) {
     const keys = props.dataKeys as string[];
     let coerced = false;
@@ -726,7 +726,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 23: tree-node-normalize — fix tree node fields (name/label→title, auto-generate key)
+  // Rule 23: tree-node-normalize - fix tree node fields (name/label→title, auto-generate key)
   if (component === "tree" && Array.isArray(props.data)) {
     fixTreeNodes(props.data as unknown[], repairs);
   }
@@ -738,7 +738,7 @@ function applyStructuralFixes(
     fixTreeNodes(props.data as unknown[], repairs);
   }
 
-  // Rule 22: form-options-flatten — [{label, value}] → [value || label] for select options
+  // Rule 22: form-options-flatten - [{label, value}] → [value || label] for select options
   if (component === "form" && Array.isArray(props.fields)) {
     for (let i = 0; i < props.fields.length; i++) {
       const field = props.fields[i];
@@ -751,7 +751,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 28: map-center-normalize — convert {lat, lng} object to [lat, lng] tuple
+  // Rule 28: map-center-normalize - convert {lat, lng} object to [lat, lng] tuple
   if (component === "map") {
     // Fix center field: {lat, lng} → [lat, lng]
     for (const field of ["center", "location", "position"] as const) {
@@ -798,7 +798,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 29: tabs-content-to-children — convert object content to children array
+  // Rule 29: tabs-content-to-children - convert object content to children array
   if (component === "tabs" && Array.isArray(props.tabs)) {
     for (let i = 0; i < props.tabs.length; i++) {
       const tab = props.tabs[i];
@@ -818,11 +818,11 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 31: spreadsheet-array-to-records — convert 2D array data to array of records
+  // Rule 31: spreadsheet-array-to-records - convert 2D array data to array of records
   if (component === "spreadsheet" && Array.isArray(props.data) && props.data.length > 0) {
     const first = props.data[0];
     if (Array.isArray(first)) {
-      // 2D array detected — convert to array of records
+      // 2D array detected - convert to array of records
       const rows = props.data as unknown[][];
       // If first row is all strings, treat as header row
       const firstAllStrings = rows[0].every((v: unknown) => typeof v === "string");
@@ -847,7 +847,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 30: image-gallery-src-alias — fix image objects missing src but having url/source/href
+  // Rule 30: image-gallery-src-alias - fix image objects missing src but having url/source/href
   if (component === "image_gallery" && Array.isArray(props.images)) {
     for (let i = 0; i < props.images.length; i++) {
       const img = props.images[i];
@@ -866,7 +866,7 @@ function applyStructuralFixes(
     }
   }
 
-  // Rule 36: sandbox-detect-bare-globals — detect unimported globals and convert to module mode
+  // Rule 36: sandbox-detect-bare-globals - detect unimported globals and convert to module mode
   if (component === "sandbox" && typeof props.js === "string" && !props.moduleJs && !props.libraries) {
     const jsCode = props.js as string;
     const GLOBAL_TO_IMPORT: Record<string, string> = {
@@ -908,28 +908,28 @@ interface FieldAliasRule {
 }
 
 const FIELD_ALIAS_RULES: FieldAliasRule[] = [
-  // Rule 15: field-content-to-body — content → body (card)
+  // Rule 15: field-content-to-body - content → body (card)
   {
     components: ["card"],
     from: "content",
     to: "body",
     rule: "field-content-to-body",
   },
-  // Rule 16: field-description-to-message — description → message (alert)
+  // Rule 16: field-description-to-message - description → message (alert)
   {
     components: ["alert"],
     from: "description",
     to: "message",
     rule: "field-description-to-message",
   },
-  // Rule 17: field-name-to-label — name → label (metric_card, stat items)
+  // Rule 17: field-name-to-label - name → label (metric_card, stat items)
   {
     components: ["metric_card"],
     from: "name",
     to: "label",
     rule: "field-name-to-label",
   },
-  // Rule 18: field-data-to-items — data → items (list, timeline, steps, accordion, tabs)
+  // Rule 18: field-data-to-items - data → items (list, timeline, steps, accordion, tabs)
   {
     components: ["list", "steps", "accordion"],
     from: "data",
@@ -948,7 +948,7 @@ const FIELD_ALIAS_RULES: FieldAliasRule[] = [
     to: "tabs",
     rule: "field-data-to-items",
   },
-  // Rule 19: field-sections-to-items — sections/panels → items (accordion, tabs)
+  // Rule 19: field-sections-to-items - sections/panels → items (accordion, tabs)
   {
     components: ["accordion"],
     from: "sections",
@@ -967,29 +967,29 @@ const FIELD_ALIAS_RULES: FieldAliasRule[] = [
     to: "tabs",
     rule: "field-sections-to-items",
   },
-  // Rule 20: field-submitText-to-submitLabel — submitText → submitLabel (form)
+  // Rule 20: field-submitText-to-submitLabel - submitText → submitLabel (form)
   {
     components: ["form"],
     from: "submitText",
     to: "submitLabel",
     rule: "field-submitText-to-submitLabel",
   },
-  // Rule 25: image url→src — LLMs use url/source/href instead of src
+  // Rule 25: image url→src - LLMs use url/source/href instead of src
   { components: ["image"], from: "url", to: "src", rule: "field-url-to-src" },
   { components: ["image"], from: "source", to: "src", rule: "field-url-to-src" },
   { components: ["image"], from: "href", to: "src", rule: "field-url-to-src" },
-  // Rule 26: steps/carousel field aliases — LLMs use "steps"/"slides" instead of "items"
+  // Rule 26: steps/carousel field aliases - LLMs use "steps"/"slides" instead of "items"
   { components: ["steps"], from: "steps", to: "items", rule: "field-steps-to-items" },
   { components: ["carousel"], from: "slides", to: "items", rule: "field-slides-to-items" },
   { components: ["carousel"], from: "cards", to: "items", rule: "field-cards-to-items" },
-  // Rule 32: timeline items→events — LLMs use "items" instead of "events"
+  // Rule 32: timeline items→events - LLMs use "items" instead of "events"
   { components: ["timeline"], from: "items", to: "events", rule: "field-items-to-events" },
-  // Rule 33: stat_grid items→stats — LLMs use "items" or "metrics" instead of "stats"
+  // Rule 33: stat_grid items→stats - LLMs use "items" or "metrics" instead of "stats"
   { components: ["stat_grid"], from: "items", to: "stats", rule: "field-items-to-stats" },
   { components: ["stat_grid"], from: "metrics", to: "stats", rule: "field-metrics-to-stats" },
-  // Rule 34: carousel images→items — LLMs use "images" instead of "items"
+  // Rule 34: carousel images→items - LLMs use "images" instead of "items"
   { components: ["carousel"], from: "images", to: "items", rule: "field-images-to-items" },
-  // Rule 27: text_message field aliases — LLMs use many names for botText
+  // Rule 27: text_message field aliases - LLMs use many names for botText
   { components: ["text_message"], from: "message", to: "botText", rule: "field-message-to-botText" },
   { components: ["text_message"], from: "text", to: "botText", rule: "field-text-to-botText" },
   { components: ["text_message"], from: "content", to: "botText", rule: "field-content-to-botText" },
@@ -997,7 +997,7 @@ const FIELD_ALIAS_RULES: FieldAliasRule[] = [
   { components: ["text_message"], from: "assistant_message", to: "botText", rule: "field-assistant-to-botText" },
   { components: ["text_message"], from: "user_message", to: "userText", rule: "field-user_message-to-userText" },
   { components: ["text_message"], from: "user_text", to: "userText", rule: "field-user_text-to-userText" },
-  // Rule 35: data_table headers→columns — LLMs use "headers" instead of "columns"
+  // Rule 35: data_table headers→columns - LLMs use "headers" instead of "columns"
   { components: ["data_table"], from: "headers", to: "columns", rule: "field-headers-to-columns" },
 ];
 
@@ -1057,7 +1057,7 @@ function applyDataNormalization(
   props: Record<string, unknown>,
   repairs: AutoFixRepair[],
 ): void {
-  // Rule 19: progress-percent-strip — "75%" → 75 for progress.value
+  // Rule 19: progress-percent-strip - "75%" → 75 for progress.value
   if (component === "progress" && typeof props.value === "string") {
     const stripped = props.value.replace(/%$/, "").trim();
     if (isNumericString(stripped)) {
@@ -1073,7 +1073,7 @@ function applyDataNormalization(
     }
   }
 
-  // Rule 20: sparkline-normalize — mixed string/number sparkline arrays → all numbers
+  // Rule 20: sparkline-normalize - mixed string/number sparkline arrays → all numbers
   if (
     (component === "metric_card" || component === "statistic") &&
     Array.isArray(props.sparkline)
@@ -1086,7 +1086,7 @@ function applyDataNormalization(
         anyFixed = true;
         return Number(v);
       }
-      // Non-numeric entries — keep as-is (Zod will catch truly invalid data)
+      // Non-numeric entries - keep as-is (Zod will catch truly invalid data)
       return v;
     });
     if (anyFixed) {
@@ -1108,7 +1108,7 @@ function applyDataNormalization(
  * Applies high-confidence automatic fixes to component props before Zod validation.
  *
  * Returns the (possibly modified) component name, fixed props, and a list of all
- * repairs applied. Safe to call on any input — null/undefined/empty objects are
+ * repairs applied. Safe to call on any input - null/undefined/empty objects are
  * handled gracefully.
  */
 export function autoFixProps(

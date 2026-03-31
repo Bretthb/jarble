@@ -18,7 +18,7 @@ import {
  * Build pod-level and container-level security contexts based on isolation level.
  *
  * - "standard": Minimal changes for backwards compat (existing behavior).
- * - "gvisor" / "kata": Full hardening — runAsNonRoot, drop all capabilities,
+ * - "gvisor" / "kata": Full hardening - runAsNonRoot, drop all capabilities,
  *   seccomp RuntimeDefault profile, no privilege escalation.
  */
 export function buildSecurityContext(isolationLevel: IsolationLevel = "standard") {
@@ -73,7 +73,7 @@ export function buildSecurityContext(isolationLevel: IsolationLevel = "standard"
  * - "container"/"website": Prefers shared container-pool nodes
  *   (`jarble.ai/role=container-pool`). Uses `preferredDuringScheduling` so
  *   pods can still schedule on any node while the pool is being built out.
- *   No pod anti-affinity — multiple containers can share a node.
+ *   No pod anti-affinity - multiple containers can share a node.
  */
 function buildAffinityForType(deploymentType: DeploymentType) {
   if (deploymentType === "container" || deploymentType === "website") {
@@ -94,7 +94,7 @@ function buildAffinityForType(deploymentType: DeploymentType) {
           },
         ],
       },
-      // No podAntiAffinity — containers/websites share nodes
+      // No podAntiAffinity - containers/websites share nodes
     };
   }
 
@@ -138,7 +138,7 @@ function buildAffinityForType(deploymentType: DeploymentType) {
  * - "agent": Tolerates the `jarble.ai/workload=agent:NoSchedule` taint so
  *   agents CAN schedule on dedicated VPS nodes that are tainted to exclude
  *   container/website workloads.
- * - "container"/"website": No toleration for the agent taint — they will
+ * - "container"/"website": No toleration for the agent taint - they will
  *   never be placed on agent VPS nodes.
  */
 function buildTolerationsForType(deploymentType: DeploymentType) {
@@ -345,7 +345,7 @@ async function createDeploymentLegacy(
   //     trusted code (renderConfigs), validation adds ~10-30s startup time for no
   //     practical benefit. Config errors surface immediately via container logs.
   //   - Reduced terminationGracePeriodSeconds from default 30s to 10s: OpenClaw
-  //     has no long-running requests to drain — it's a WebSocket gateway that
+  //     has no long-running requests to drain - it's a WebSocket gateway that
   //     reconnects instantly. Faster termination means faster restarts.
   //   - Tuned readiness probe: initialDelaySeconds 10s (down from 20s) since warm
   //     boots (with .initialized marker) start the gateway in <5s. periodSeconds 5s
@@ -359,7 +359,7 @@ async function createDeploymentLegacy(
 
   // ── Resource requests based on deployment type ──────────────────────────
   // Agent type: Guaranteed QoS (requests = limits) for dedicated VPS nodes.
-  // Container/website type: Burstable QoS — lower requests, higher limits for
+  // Container/website type: Burstable QoS - lower requests, higher limits for
   // efficient bin-packing on shared pool nodes.
   const cpuLimitVal = parseFloat(cpuLimit);
   const cpuRequestMillicores = isSharedPool
@@ -702,7 +702,7 @@ async function deleteDeploymentLegacy(deploymentId: string): Promise<void> {
     if (statusCode === 404) {
       log.debug({ deploymentId }, "deleteDeployment: K8s deployment not found (already stopped/never created), skipping scale-down");
     } else {
-      log.warn({ deploymentId, err }, "deleteDeployment: failed to scale down before delete — proceeding anyway");
+      log.warn({ deploymentId, err }, "deleteDeployment: failed to scale down before delete - proceeding anyway");
     }
   }
 
@@ -740,7 +740,7 @@ async function deleteDeploymentLegacy(deploymentId: string): Promise<void> {
   log.debug({ deploymentId }, "deleteDeployment: deleting K8s ConfigMap");
   await deleteDeploymentConfigMap(deploymentId);
 
-  // Step 6: Delete PVC (data is gone — intentional)
+  // Step 6: Delete PVC (data is gone - intentional)
   log.debug({ deploymentId }, "deleteDeployment: deleting K8s PVC");
   try {
     await coreApi.deleteNamespacedPersistentVolumeClaim(`pvc-${deploymentId}`, NAMESPACE);

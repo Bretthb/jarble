@@ -1,7 +1,7 @@
 /**
  * Seed PostgreSQL with runtime catalog and skills.
  * Called by entrypoint.sh after migrations, before the API server starts.
- * Idempotent — skips if data already exists.
+ * Idempotent - skips if data already exists.
  */
 import "dotenv/config";
 import { drizzle } from "drizzle-orm/node-postgres";

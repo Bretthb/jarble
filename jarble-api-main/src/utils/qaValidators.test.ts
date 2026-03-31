@@ -1,5 +1,5 @@
 /**
- * Tests for qaValidators — QA pipeline for composed component blocks.
+ * Tests for qaValidators - QA pipeline for composed component blocks.
  *
  * Covers: validateCspCompliance, validateHtmlIntegrity, validateNativeProps,
  * validateDataConsistency, runPipelineQA.
@@ -301,7 +301,7 @@ describe("validateNativeProps", () => {
 
   it("auto-derives missing chart dataKeys from data (autofix)", () => {
     // When dataKeys is missing but data has numeric fields, autofixNativeProps
-    // derives dataKeys automatically — so the warning does NOT fire
+    // derives dataKeys automatically - so the warning does NOT fire
     const result = validateNativeProps("chart", {
       type: "bar",
       data: [{ month: "Jan", sales: 100 }],
@@ -417,7 +417,7 @@ describe("validateDataConsistency", () => {
       },
     ];
     const result = validateDataConsistency(blocks);
-    // $48K = 48000, $50K = 50000 — within 2x, so consistent
+    // $48K = 48000, $50K = 50000 - within 2x, so consistent
     expect(result.passed).toBe(true);
     expect(result.validator).toBe("data_consistency");
   });
@@ -480,7 +480,7 @@ describe("validateDataConsistency", () => {
       },
     ];
     const result = validateDataConsistency(blocks);
-    // 48K = 48000, 48000 = 48000 — exact match
+    // 48K = 48000, 48000 = 48000 - exact match
     expect(result.passed).toBe(true);
   });
 

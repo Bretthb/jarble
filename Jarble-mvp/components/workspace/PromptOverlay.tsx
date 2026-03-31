@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * PromptOverlay — Cmd+K floating prompt for the freeform canvas.
+ * PromptOverlay - Cmd+K floating prompt for the freeform canvas.
  *
  * Bottom-center when cards exist; vertically centered when empty.
  */

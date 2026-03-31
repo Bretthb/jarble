@@ -61,7 +61,7 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
       const target = state.cards.find((c) => c.id === action.id);
       // Only auto-resize if card hasn't been manually resized
       if (!target || target.autoHeight === false) return state;
-      // Only grow beyond current height — never shrink (prevents feedback loops)
+      // Only grow beyond current height - never shrink (prevents feedback loops)
       const newH = Math.max(target.size.height, action.height);
       if (newH - target.size.height < 16) return state; // Skip trivial growth
       // Cap at 2000px to prevent runaway growth

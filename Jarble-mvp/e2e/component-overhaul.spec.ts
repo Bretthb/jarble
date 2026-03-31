@@ -4,7 +4,7 @@ test("interactive component overhaul test", async ({ page }) => {
   // Navigate to the app
   await page.goto("/");
 
-  // Pause here — log in manually, then click "Resume" in the Playwright Inspector
+  // Pause here - log in manually, then click "Resume" in the Playwright Inspector
   await page.pause();
 
   // After login, navigate to deployments to find a deployment to test

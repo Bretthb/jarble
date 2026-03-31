@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DrawingTools — toolbar segment for drawing tool selection,
+ * DrawingTools - toolbar segment for drawing tool selection,
  * color picker, and width picker.
  */
 

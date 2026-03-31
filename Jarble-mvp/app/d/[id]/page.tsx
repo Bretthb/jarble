@@ -155,7 +155,7 @@ export default function DeploymentChatPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useAuth0();
 
-  // Auth redirect — must be before any early returns (hooks can't be after conditionals)
+  // Auth redirect - must be before any early returns (hooks can't be after conditionals)
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       router.replace("/login");
@@ -505,7 +505,7 @@ function WorkspacePage({
   );
 }
 
-// ── Keyed Chat Panel — remounts on conversation switch to reset assistant-ui runtime ──
+// ── Keyed Chat Panel - remounts on conversation switch to reset assistant-ui runtime ──
 
 function KeyedChatPanel({
   messages,
@@ -599,7 +599,7 @@ function CanvasWorkspace({
     conversations, activeConversationId, switchConversation, newConversation, deleteConversation,
   } = useCanvasChat(deploymentId, state, dispatch, liveStatus, onRefetchDeployment);
 
-  // Real-time orchestration events via WebSocket — supersedes legacy predictive steps
+  // Real-time orchestration events via WebSocket - supersedes legacy predictive steps
   const { steps: wsOrchestrationSteps, isConnected: orchWsConnected, clearSteps: clearOrchSteps } = useOrchestration(deploymentId);
 
   // Merge WS steps with legacy SSE-based predictive steps. Real WS events take priority.
@@ -621,14 +621,14 @@ function CanvasWorkspace({
     return orchestrationSteps; // Fall back to legacy SSE-based steps
   }, [wsOrchestrationSteps, orchestrationSteps]);
 
-  // runtime created inside KeyedChatPanel — keyed by activeConversationId
+  // runtime created inside KeyedChatPanel - keyed by activeConversationId
   useCanvasPersistence(deploymentId, state, dispatch, activeConversationId);
   useArtifactSync(deploymentId, state, dispatch);
   const [input, setInput] = useState("");
   const [showCanvas, setShowCanvas] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Stable callback for canvas onHide — avoids breaking memo on DashboardCanvas / SimpleCanvasGrid
+  // Stable callback for canvas onHide - avoids breaking memo on DashboardCanvas / SimpleCanvasGrid
   const handleHideCanvas = useCallback(() => setShowCanvas(false), []);
 
   // Slash command menu state
@@ -786,7 +786,7 @@ function CanvasWorkspace({
     };
     window.addEventListener("keydown", handleWindowKeyDown);
     return () => window.removeEventListener("keydown", handleWindowKeyDown);
-  }, [dispatch]); // stable — selectedCard accessed via ref, dispatch is stable from useReducer
+  }, [dispatch]); // stable - selectedCard accessed via ref, dispatch is stable from useReducer
 
   // Handle example prompt click
   const handleExamplePrompt = useCallback(
@@ -829,7 +829,7 @@ function CanvasWorkspace({
             [style*="--chat-width"] { width: var(--chat-width) !important; }
           }
         `}</style>
-        {/* Chat messages via assistant-ui — keyed so runtime resets on conversation switch */}
+        {/* Chat messages via assistant-ui - keyed so runtime resets on conversation switch */}
         <KeyedChatPanel
           key={activeConversationId ?? "default"}
           messages={messages}
@@ -846,7 +846,7 @@ function CanvasWorkspace({
           onExamplePrompt={handleExamplePrompt}
         />
 
-        {/* Chat error card — diagnosis auto-runs inline in chat */}
+        {/* Chat error card - diagnosis auto-runs inline in chat */}
         {lastChatError && !isStreaming && (
           <div className="px-4 pb-2">
             <ChatErrorCard
@@ -963,7 +963,7 @@ function CanvasWorkspace({
         </div>
       )}
 
-      {/* Dashboard Grid Panel -- for UI blocks only (hidden on mobile — chat is full-width) */}
+      {/* Dashboard Grid Panel -- for UI blocks only (hidden on mobile - chat is full-width) */}
       {canvasSidebarVisible && (
         <div className="hidden md:flex flex-1 flex-col overflow-hidden relative min-w-[300px] bg-secondary/10 border-l border-border/40">
           {state.mode === "dashboard" ? (
@@ -1057,13 +1057,13 @@ const CardContent = memo(function CardContent({
       const actionStart = Date.now();
       console.log(`[Jarble:ActionRelay] Action received: ${action.component} → ${action.action} (blockId: ${action.blockId})`);
 
-      // Content edit — user modified component content (code, text, etc.)
+      // Content edit - user modified component content (code, text, etc.)
       // Update card props locally + debounced save to pod PVC for persistence
       if (action.action === "content_edit") {
         console.log(`[Jarble:ActionRelay] Content edit: ${action.blockId} (${action.component})`);
         const mergedProps = { ...card.props, ...action.payload };
         canvasDispatch({ type: "UPDATE_CARD_PROPS", id: action.blockId, props: action.payload, merge: true });
-        // Persist merged state to pod PVC — debounced, fire-and-forget
+        // Persist merged state to pod PVC - debounced, fire-and-forget
         if (getAuthToken) {
           getAuthToken().then((token: string) => {
             saveComponentState(deploymentId, action.blockId, mergedProps, token);
@@ -1072,7 +1072,7 @@ const CardContent = memo(function CardContent({
         return;
       }
 
-      // Confirmation response — user approved/rejected a confirm_action card
+      // Confirmation response - user approved/rejected a confirm_action card
       if (action.action === "confirmation_response") {
         const { confirmationId, actionId, status: responseStatus } = action.payload as {
           confirmationId: string;
@@ -1107,11 +1107,11 @@ const CardContent = memo(function CardContent({
         const now = Date.now();
         if (entry) {
           if (entry.count >= ERROR_RELAY_MAX_ATTEMPTS) {
-            console.log(`[Jarble:ActionRelay] Suppressing error relay for ${cardId} — max attempts (${ERROR_RELAY_MAX_ATTEMPTS}) reached. User can click "Fix" manually.`);
+            console.log(`[Jarble:ActionRelay] Suppressing error relay for ${cardId} - max attempts (${ERROR_RELAY_MAX_ATTEMPTS}) reached. User can click "Fix" manually.`);
             return true;
           }
           if (now - entry.lastSentAt < ERROR_RELAY_COOLDOWN_MS) {
-            console.log(`[Jarble:ActionRelay] Suppressing error relay for ${cardId} — cooldown (${Math.round((ERROR_RELAY_COOLDOWN_MS - (now - entry.lastSentAt)) / 1000)}s remaining)`);
+            console.log(`[Jarble:ActionRelay] Suppressing error relay for ${cardId} - cooldown (${Math.round((ERROR_RELAY_COOLDOWN_MS - (now - entry.lastSentAt)) / 1000)}s remaining)`);
             return true;
           }
         }
@@ -1119,12 +1119,12 @@ const CardContent = memo(function CardContent({
         return false;
       };
 
-      // Component render error — auto-relay to bot (throttled)
+      // Component render error - auto-relay to bot (throttled)
       // Include card ID so the bot uses jarble_ui_update to fix in-place
       if (action.action === "component_error") {
         const { error, component } = action.payload as { error: string; component: string };
         if (shouldThrottleErrorRelay(action.blockId)) return;
-        const errorMsg = `[COMPONENT_ERROR] cardId=${action.blockId} component=${component}\nThe component failed to render with this error:\n${error}\n\nPlease fix the component by outputting a \`\`\`jarble_ui_update\`\`\` block with card_id="${action.blockId}" and corrected props. Do NOT create a new component — update the existing one in place.`;
+        const errorMsg = `[COMPONENT_ERROR] cardId=${action.blockId} component=${component}\nThe component failed to render with this error:\n${error}\n\nPlease fix the component by outputting a \`\`\`jarble_ui_update\`\`\` block with card_id="${action.blockId}" and corrected props. Do NOT create a new component - update the existing one in place.`;
         console.log("[Jarble:ActionRelay] Forwarding component error to bot for fix");
         try {
           await sendMessage(errorMsg, "Fix this component");
@@ -1134,7 +1134,7 @@ const CardContent = memo(function CardContent({
         return;
       }
 
-      // Component abandon — user clicked "Remove" on error card
+      // Component abandon - user clicked "Remove" on error card
       if (action.action === "component_abandon") {
         console.log("[Jarble:ActionRelay] Removing broken card:", action.blockId);
         canvasDispatch({ type: "REMOVE_CARD", id: action.blockId });
@@ -1143,7 +1143,7 @@ const CardContent = memo(function CardContent({
         return;
       }
 
-      // Special handling for sandbox errors — auto-relay to bot (throttled)
+      // Special handling for sandbox errors - auto-relay to bot (throttled)
       if (action.action === "sandbox_error") {
         const error = action.payload.error as { message: string; line: number; column: number; stack?: string } | undefined;
         if (error) {

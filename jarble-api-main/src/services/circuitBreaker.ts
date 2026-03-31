@@ -1,5 +1,5 @@
 /**
- * Circuit Breaker — Per-service failure isolation for the service proxy.
+ * Circuit Breaker - Per-service failure isolation for the service proxy.
  *
  * Prevents cascading failures by stopping requests to a creator API that
  * is consistently failing. Uses the standard 3-state pattern:
@@ -50,7 +50,7 @@ export interface CircuitStatus {
 
 let defaultStore: StateStore = new MemoryStateStore();
 
-/** Unique identifier for this API replica — used for HALF_OPEN probe coordination. */
+/** Unique identifier for this API replica - used for HALF_OPEN probe coordination. */
 const REPLICA_ID = crypto.randomUUID();
 
 /**
@@ -91,7 +91,7 @@ export async function canRequest(
   // State: OPEN
   // Check if the recovery timeout has elapsed.
   if (entry.openedAt !== null && now - entry.openedAt >= RECOVERY_TIMEOUT_MS) {
-    // Transition to HALF_OPEN — allow one probe request.
+    // Transition to HALF_OPEN - allow one probe request.
     entry.state = "HALF_OPEN";
     entry.halfOpenClaimedBy = null;
     entry.halfOpenClaimedAt = null;
@@ -149,7 +149,7 @@ export async function recordFailure(
   entry.lastFailureAt = now;
 
   if (entry.state === "HALF_OPEN") {
-    // Probe failed — reopen the circuit.
+    // Probe failed - reopen the circuit.
     entry.state = "OPEN";
     entry.openedAt = now;
     entry.halfOpenClaimedBy = null;
@@ -183,7 +183,7 @@ export async function recordFailure(
  * Get the current circuit state for a service.
  *
  * Useful for health check endpoints and diagnostics.
- * Returns a snapshot — the state may change on the next `canRequest()` call.
+ * Returns a snapshot - the state may change on the next `canRequest()` call.
  */
 export async function getCircuitState(
   packageId: string,

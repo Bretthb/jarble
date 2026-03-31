@@ -71,7 +71,7 @@ export default function AdminUsers() {
                   onClick={() => router.push(`/admin/users/${user.id}`)}
                 >
                   <TableCell className="font-medium">
-                    {user.name || "—"}
+                    {user.name || "-"}
                   </TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>

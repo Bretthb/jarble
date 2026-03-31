@@ -18,7 +18,7 @@ test.describe("Canvas memory system", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -31,7 +31,7 @@ test.describe("Canvas memory system", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Sequential conversation test — all 8 memory prompts in order
+  // Sequential conversation test - all 8 memory prompts in order
   // Must run as a single test to maintain conversation context.
   // -----------------------------------------------------------------------
   test("sequential memory: store, recall, overwrite, and list facts", async ({ page }, testInfo) => {
@@ -68,7 +68,7 @@ test.describe("Canvas memory system", () => {
     const recall02 = await getLastBotMessage();
     expect.soft(
       /typescript/i.test(recall02),
-      `Bot should mention "TypeScript" in recall — got: "${recall02.slice(0, 200)}"`,
+      `Bot should mention "TypeScript" in recall - got: "${recall02.slice(0, 200)}"`,
     ).toBeTruthy();
 
     // ---------------------------------------------------------------
@@ -96,7 +96,7 @@ test.describe("Canvas memory system", () => {
       /platform\s*engineering/i.test(recall04) || /12/i.test(recall04);
     expect.soft(
       mentionsTeam,
-      `Bot should mention "Platform Engineering" or "12" — got: "${recall04.slice(0, 200)}"`,
+      `Bot should mention "Platform Engineering" or "12" - got: "${recall04.slice(0, 200)}"`,
     ).toBeTruthy();
 
     // ---------------------------------------------------------------
@@ -130,11 +130,11 @@ test.describe("Canvas memory system", () => {
 
     expect.soft(
       mentionsLanguage || mentionsTeamOrDeadline,
-      `Bot should recall multiple facts — got: "${recallAll.slice(0, 300)}"`,
+      `Bot should recall multiple facts - got: "${recallAll.slice(0, 300)}"`,
     ).toBeTruthy();
 
     // ---------------------------------------------------------------
-    // memory-07: Overwrite — language changed to Rust
+    // memory-07: Overwrite - language changed to Rust
     // ---------------------------------------------------------------
     const mem07 = MEMORY_PROMPTS.find((p) => p.id === "memory-07")!;
     await sendPromptAndWait(page, mem07.prompt);
@@ -147,7 +147,7 @@ test.describe("Canvas memory system", () => {
     ).toBeTruthy();
 
     // ---------------------------------------------------------------
-    // memory-08: Recall updated fact — should say Rust
+    // memory-08: Recall updated fact - should say Rust
     // ---------------------------------------------------------------
     const mem08 = MEMORY_PROMPTS.find((p) => p.id === "memory-08")!;
     await sendPromptAndWait(page, mem08.prompt);
@@ -156,7 +156,7 @@ test.describe("Canvas memory system", () => {
     const recallUpdated = await getLastBotMessage();
     expect.soft(
       /rust/i.test(recallUpdated),
-      `Bot should mention "Rust" after overwrite — got: "${recallUpdated.slice(0, 200)}"`,
+      `Bot should mention "Rust" after overwrite - got: "${recallUpdated.slice(0, 200)}"`,
     ).toBeTruthy();
   });
 });

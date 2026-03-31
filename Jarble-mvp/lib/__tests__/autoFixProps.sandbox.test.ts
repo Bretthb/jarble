@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { autoFixProps } from "../autoFixProps";
 
-describe("autoFixProps — sandbox-detect-bare-globals", () => {
+describe("autoFixProps - sandbox-detect-bare-globals", () => {
   it("converts THREE.js bare global to module mode", () => {
     const result = autoFixProps("sandbox", {
       html: "<canvas id='c'></canvas>",

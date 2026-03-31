@@ -30,7 +30,7 @@ interface ArtifactMeta {
 }
 
 /**
- * useArtifactSync — auto-saves artifact-worthy canvas cards to the pod,
+ * useArtifactSync - auto-saves artifact-worthy canvas cards to the pod,
  * restores pinned artifacts on session start.
  */
 export function useArtifactSync(
@@ -146,7 +146,7 @@ export function useArtifactSync(
 
       const propsHash = JSON.stringify(card.props);
 
-      // Cards loaded from gallery already exist on the pod — record their props
+      // Cards loaded from gallery already exist on the pod - record their props
       // hash (so we don't re-sync after unsave) but don't sync them
       if (card.fileId) {
         prevPropsRef.current.set(card.id, propsHash);

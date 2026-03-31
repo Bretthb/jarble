@@ -289,7 +289,7 @@ test.describe("Polished Canvas Components", () => {
       const section = page.getByTestId("dashboard-kpi-row");
       await section.scrollIntoViewIfNeeded();
       // At 500px, a 3-col grid with max-w-4xl (896px) will have the grid
-      // constrained — verify cards are still visible and rendered
+      // constrained - verify cards are still visible and rendered
       await expect(section.getByText("Revenue")).toBeVisible();
       await expect(section.getByText("Churn Rate")).toBeVisible();
     });
