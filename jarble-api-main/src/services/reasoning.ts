@@ -65,7 +65,7 @@ async function callOpenRouter(userMessage: string, apiKey: string): Promise<stri
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://jarble.ai",
+        "HTTP-Referer": env.FRONTEND_URL,
         "X-Title": "Jarble Reasoning",
       },
       body: JSON.stringify({

@@ -50,7 +50,7 @@ export async function generateSuggestions(
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://jarble.ai",
+        "HTTP-Referer": env.FRONTEND_URL,
         "X-Title": "Jarble Suggestions",
       },
       body: JSON.stringify({

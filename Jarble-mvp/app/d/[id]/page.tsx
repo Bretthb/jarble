@@ -1044,6 +1044,8 @@ const CardContent = memo(function CardContent({
   canvasDispatch: React.Dispatch<import("@/components/workspace/types").CanvasAction>;
   getAuthToken?: () => Promise<string>;
 }) {
+  const isDev = process.env.NODE_ENV === "development";
+
   // ── Error relay throttle ──────────────────────────────────────────────────
   // Prevents cascading "Fix this component" messages when a sandbox/component
   // keeps erroring. Each card gets max 2 auto-fix attempts with a 30s cooldown.
@@ -1055,12 +1057,12 @@ const CardContent = memo(function CardContent({
   const handleAction = useCallback(
     async (action: CanvasAction) => {
       const actionStart = Date.now();
-      console.log(`[Jarble:ActionRelay] Action received: ${action.component} → ${action.action} (blockId: ${action.blockId})`);
+      isDev && console.log(`[Jarble:ActionRelay] Action received: ${action.component} → ${action.action} (blockId: ${action.blockId})`);
 
       // Content edit - user modified component content (code, text, etc.)
       // Update card props locally + debounced save to pod PVC for persistence
       if (action.action === "content_edit") {
-        console.log(`[Jarble:ActionRelay] Content edit: ${action.blockId} (${action.component})`);
+        isDev && console.log(`[Jarble:ActionRelay] Content edit: ${action.blockId} (${action.component})`);
         const mergedProps = { ...card.props, ...action.payload };
         canvasDispatch({ type: "UPDATE_CARD_PROPS", id: action.blockId, props: action.payload, merge: true });
         // Persist merged state to pod PVC - debounced, fire-and-forget
@@ -1079,7 +1081,7 @@ const CardContent = memo(function CardContent({
           actionId: string | null;
           status: "approved" | "rejected" | "expired";
         };
-        console.log(`[Jarble:ActionRelay] Confirmation response: ${confirmationId} → ${responseStatus} (action: ${actionId})`);
+        isDev && console.log(`[Jarble:ActionRelay] Confirmation response: ${confirmationId} → ${responseStatus} (action: ${actionId})`);
         // Update the card props to reflect the resolved state
         canvasDispatch({
           type: "UPDATE_CARD_PROPS",
@@ -1107,11 +1109,11 @@ const CardContent = memo(function CardContent({
         const now = Date.now();
         if (entry) {
           if (entry.count >= ERROR_RELAY_MAX_ATTEMPTS) {
-            console.log(`[Jarble:ActionRelay] Suppressing error relay for ${cardId} - max attempts (${ERROR_RELAY_MAX_ATTEMPTS}) reached. User can click "Fix" manually.`);
+            isDev && console.log(`[Jarble:ActionRelay] Suppressing error relay for ${cardId} - max attempts (${ERROR_RELAY_MAX_ATTEMPTS}) reached. User can click "Fix" manually.`);
             return true;
           }
           if (now - entry.lastSentAt < ERROR_RELAY_COOLDOWN_MS) {
-            console.log(`[Jarble:ActionRelay] Suppressing error relay for ${cardId} - cooldown (${Math.round((ERROR_RELAY_COOLDOWN_MS - (now - entry.lastSentAt)) / 1000)}s remaining)`);
+            isDev && console.log(`[Jarble:ActionRelay] Suppressing error relay for ${cardId} - cooldown (${Math.round((ERROR_RELAY_COOLDOWN_MS - (now - entry.lastSentAt)) / 1000)}s remaining)`);
             return true;
           }
         }
@@ -1125,7 +1127,7 @@ const CardContent = memo(function CardContent({
         const { error, component } = action.payload as { error: string; component: string };
         if (shouldThrottleErrorRelay(action.blockId)) return;
         const errorMsg = `[COMPONENT_ERROR] cardId=${action.blockId} component=${component}\nThe component failed to render with this error:\n${error}\n\nPlease fix the component by outputting a \`\`\`jarble_ui_update\`\`\` block with card_id="${action.blockId}" and corrected props. Do NOT create a new component - update the existing one in place.`;
-        console.log("[Jarble:ActionRelay] Forwarding component error to bot for fix");
+        isDev && console.log("[Jarble:ActionRelay] Forwarding component error to bot for fix");
         try {
           await sendMessage(errorMsg, "Fix this component");
         } catch (err) {
@@ -1136,7 +1138,7 @@ const CardContent = memo(function CardContent({
 
       // Component abandon - user clicked "Remove" on error card
       if (action.action === "component_abandon") {
-        console.log("[Jarble:ActionRelay] Removing broken card:", action.blockId);
+        isDev && console.log("[Jarble:ActionRelay] Removing broken card:", action.blockId);
         canvasDispatch({ type: "REMOVE_CARD", id: action.blockId });
         // Clear error tracking so a new component with same ID gets fresh attempts
         errorRelayTracker.current.delete(action.blockId);
@@ -1150,7 +1152,7 @@ const CardContent = memo(function CardContent({
           if (shouldThrottleErrorRelay(action.blockId)) return;
           const errorMsg = `[SANDBOX_ERROR] cardId=${action.blockId}\nThe sandbox component threw an error:\nError: ${error.message}${error.line ? `\nAt line ${error.line}, column ${error.column}` : ""}${error.stack ? `\nStack: ${error.stack.slice(0, 500)}` : ""}\n\nPlease fix the JavaScript code by outputting a \`\`\`jarble_ui_update\`\`\` block with card_id="${action.blockId}" and corrected props (merge: false for sandbox). Do NOT create a new component.`;
           const displayText = "Fix this component";
-          console.log("[Jarble:ActionRelay] Forwarding sandbox error to bot");
+          isDev && console.log("[Jarble:ActionRelay] Forwarding sandbox error to bot");
           try {
             await sendMessage(errorMsg, displayText);
           } catch (err) {
@@ -1165,7 +1167,7 @@ const CardContent = memo(function CardContent({
 
       // Generic action relay -- forward all user interactions to the bot
       const actionMsg = `[UI_ACTION] cardId=${action.blockId} component=${action.component} action=${action.action}\n${JSON.stringify(action.payload)}`;
-      console.log(`[Jarble:ActionRelay] Relaying UI action to bot (${Date.now() - actionStart}ms prep)`);
+      isDev && console.log(`[Jarble:ActionRelay] Relaying UI action to bot (${Date.now() - actionStart}ms prep)`);
       try {
         await sendMessage(actionMsg, displayText);
       } catch (err) {
