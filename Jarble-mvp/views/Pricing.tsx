@@ -8,7 +8,6 @@ import {
   ArrowRight,
   Building2,
   MessageSquare,
-  Bot,
   Cpu,
   HardDrive,
   MemoryStick,
@@ -42,6 +41,18 @@ const FAQ = [
   {
     question: "Can I create multiple deployments?",
     answer: "Absolutely! There are no deployment limits. Create as many deployments as you need - each is billed separately based on its runtime."
+  },
+  {
+    question: "How do I publish an agent to the marketplace?",
+    answer: "Once you have a deployment running, you can publish it to the marketplace from your dashboard. Set a monthly price, write a description, and submit for review. Once approved, businesses can deploy your agent with one click."
+  },
+  {
+    question: "How do builders earn money?",
+    answer: "When a business deploys your marketplace agent, they pay a monthly subscription that includes your listing price. Jarble takes a platform fee and the rest is paid to you as the builder. You earn on every active deployment of your agent."
+  },
+  {
+    question: "What is the difference between building my own agent and deploying from the marketplace?",
+    answer: "Building your own agent gives you full control — you write the system prompt, choose the model, and configure everything from scratch. Deploying from the marketplace lets you start with a pre-built agent from another builder, which you can use as-is or fork and customize."
   },
 ];
 
@@ -123,7 +134,7 @@ export default function Pricing() {
                         ? "bg-gradient-to-br from-purple-500 to-blue-500"
                         : "bg-gradient-to-br from-emerald-500 to-teal-500"
                     }`}>
-                      <Bot className="w-7 h-7 text-white" />
+                      <Cpu className="w-7 h-7 text-white" />
                     </div>
                     <div>
                       <h3 className="text-xl font-serif font-medium">{runtime.name}</h3>
@@ -286,6 +297,44 @@ export default function Pricing() {
                 Coming Soon
               </Button>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Builder Economics */}
+      <section className="py-20 relative z-10 border-t border-border">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-serif font-medium mb-2">Builder Economics</h2>
+            <p className="text-muted-foreground">Publish agents to the marketplace and earn on every deployment</p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6 mb-10">
+            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border text-center animate-fade-in-up-fast">
+              <div className="text-4xl font-bold text-primary mb-2">Publish</div>
+              <p className="text-foreground font-medium mb-2">List your agent</p>
+              <p className="text-sm text-muted-foreground">Set a monthly price. Your agent appears in the marketplace for businesses to discover and deploy.</p>
+            </div>
+            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-primary text-center animate-fade-in-up-fast shadow-lg">
+              <div className="text-4xl font-bold text-primary mb-2">Earn</div>
+              <p className="text-foreground font-medium mb-2">Per deployment</p>
+              <p className="text-sm text-muted-foreground">Every time a business deploys your agent, you earn. Revenue share on every active subscription.</p>
+            </div>
+            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border text-center animate-fade-in-up-fast">
+              <div className="text-4xl font-bold text-primary mb-2">Fork</div>
+              <p className="text-foreground font-medium mb-2">Build on what works</p>
+              <p className="text-sm text-muted-foreground">Fork any public marketplace agent, customize it with your own prompt and tools, republish as a new listing.</p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl p-6 border bg-secondary/20 border-border animate-fade-in-up-fast">
+            <div className="flex items-center gap-3 mb-3">
+              <Building2 className="w-5 h-5 text-primary flex-shrink-0" />
+              <p className="font-medium">How the marketplace works</p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Businesses pay the agent&apos;s monthly listing price when they deploy. Jarble takes a platform fee; the rest goes to the builder. Infrastructure costs (hosting, compute) are separate and billed to the business directly. You keep what you earn.
+            </p>
           </div>
         </div>
       </section>

@@ -8,12 +8,12 @@ import {
   Lightbulb,
   Users,
   Rocket,
-  Bot,
   Puzzle,
   Globe,
   TrendingUp,
   CheckCircle2,
-  Zap
+  Zap,
+  Store,
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
 import MarketingNav from "@/components/marketing/MarketingNav";
@@ -33,15 +33,15 @@ export default function About() {
       <section className="pt-32 pb-20 relative overflow-hidden z-10">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center animate-fade-in-up">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary/80 backdrop-blur-sm text-xs font-medium text-muted-foreground border border-border/50 mb-8">
-            The Future of AI Deployment
+            Infrastructure for AI Agents
           </div>
-          <h1 className="text-5xl lg:text-6xl font-serif font-medium mb-6 leading-tight">
-            Making AI Accessible
-            <span className="block text-primary">for Everyone</span>
+          <h1 className="text-5xl lg:text-6xl font-serif font-medium leading-tight mb-6">
+            The infrastructure layer<br />
+            <span className="text-primary">the agent economy runs on.</span>
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Jarble empowers businesses and individuals to deploy sophisticated AI agents
-            without writing a single line of code. We're democratizing artificial intelligence.
+            Builders create and monetize agents. Businesses deploy and run them.
+            The marketplace connects both sides. The infrastructure makes it all work.
           </p>
         </div>
       </section>
@@ -142,15 +142,14 @@ export default function About() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-8">
             <div className="bg-card/80 backdrop-blur-md border border-border rounded-2xl p-8 shadow-sm hover:border-primary/30 transition-colors animate-fade-in-up-fast">
               <div className="w-12 h-12 rounded-xl bg-secondary/80 flex items-center justify-center mb-6">
-                <Bot className="w-6 h-6 text-primary" />
+                <Rocket className="w-6 h-6 text-primary" />
               </div>
-              <h3 className="text-xl font-serif font-medium mb-3">No-Code Builder</h3>
+              <h3 className="text-xl font-serif font-medium mb-3">Guided Deployment</h3>
               <p className="text-muted-foreground">
-                Create sophisticated AI bots with our intuitive wizard. Configure personality, knowledge, 
-                and behavior without writing code.
+                A white-glove onboarding experience that is still a product motion, not a consulting engagement. From idea to live agent in one sitting.
               </p>
             </div>
             <div className="bg-card/80 backdrop-blur-md border border-border rounded-2xl p-8 shadow-sm hover:border-primary/30 transition-colors animate-fade-in-up-fast">
@@ -159,8 +158,7 @@ export default function About() {
               </div>
               <h3 className="text-xl font-serif font-medium mb-3">Universal Integration</h3>
               <p className="text-muted-foreground">
-                Deploy to 50+ platforms from a single dashboard. Discord, Slack, WhatsApp, 
-                Telegram, web chat, email, and more.
+                Deploy to WhatsApp, Discord, Slack, Telegram, and a full-featured web chat — all from a single dashboard. Your agent, everywhere your team already is.
               </p>
             </div>
             <div className="bg-card/80 backdrop-blur-md border border-border rounded-2xl p-8 shadow-sm hover:border-primary/30 transition-colors animate-fade-in-up-fast">
@@ -169,8 +167,22 @@ export default function About() {
               </div>
               <h3 className="text-xl font-serif font-medium mb-3">Model Agnostic</h3>
               <p className="text-muted-foreground">
-                Use any AI provider-OpenAI, Anthropic, Google, Mistral-or let us handle it. 
+                Use any AI provider-OpenAI, Anthropic, Google, Mistral-or let us handle it.
                 Switch models anytime without code changes.
+              </p>
+            </div>
+            <div className="bg-card/80 backdrop-blur-md border border-border rounded-2xl p-6 hover:border-primary/30 transition-colors">
+              <Store className="w-8 h-8 text-primary mb-4" />
+              <h3 className="font-semibold text-lg mb-2">A two-sided marketplace</h3>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                Builders publish agents and earn on every deployment. Businesses discover and deploy pre-built agents. Fork any agent to customize it.
+              </p>
+            </div>
+            <div className="bg-card/80 backdrop-blur-md border border-border rounded-2xl p-6 hover:border-primary/30 transition-colors">
+              <Zap className="w-8 h-8 text-primary mb-4" />
+              <h3 className="font-semibold text-lg mb-2">MCP tools and skills</h3>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                Agents connect to external tools via MCP — web search, calculators, custom APIs. Install skills from the marketplace or build your own.
               </p>
             </div>
           </div>
@@ -190,7 +202,7 @@ export default function About() {
             {[
               { step: 1, title: "Choose Your Model", desc: "Select from top AI providers or use our managed service" },
               { step: 2, title: "Configure Behavior", desc: "Set personality, knowledge base, and guardrails" },
-              { step: 3, title: "Connect Platforms", desc: "Pick where your bot lives-Discord, Slack, web, etc." },
+              { step: 3, title: "Connect Platforms", desc: "Pick where your agent lives—Discord, Slack, web, and more." },
               { step: 4, title: "Deploy & Scale", desc: "Go live instantly, scale automatically as you grow" },
             ].map((item) => (
               <div key={item.step} className="relative animate-fade-in-up-fast">
@@ -240,10 +252,10 @@ export default function About() {
             <h3 className="text-2xl font-serif font-medium mb-4 text-center">Why Jarble Wins</h3>
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
-                "First-mover in no-code AI deployment",
-                "Model-agnostic architecture",
-                "50+ platform integrations",
-                "Tiered pricing for all segments",
+                "Infrastructure platform for the agent economy",
+                "Model-agnostic, runtime-agnostic architecture",
+                "Two-sided marketplace with builder economics",
+                "Every agent runs in its own isolated pod",
               ].map((point) => (
                 <div key={point} className="flex items-center gap-3">
                   <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0" />
@@ -263,15 +275,14 @@ export default function About() {
             Our Vision
           </div>
           <h2 className="text-4xl font-serif font-medium mb-6">
-            A World Where Everyone Has an AI Assistant
+            The infrastructure layer the agent economy runs on
           </h2>
           <p className="text-lg text-muted-foreground mb-8">
-            We envision a future where deploying AI is as simple as creating a social media account.
-            Where small businesses have the same AI capabilities as Fortune 500 companies.
-            Where creators, entrepreneurs, and teams can focus on their vision while AI handles the rest.
+            As the AI agent ecosystem fragments across runtimes, models, tools, and platforms, Jarble becomes the connective tissue that makes it all work together.
+            Builders focus on what their agents do. Businesses focus on the work the agents perform. The infrastructure runs invisibly underneath.
           </p>
           <p className="text-xl text-primary font-medium">
-            Jarble is building that future.
+            Build. Deploy. Earn.
           </p>
         </div>
       </section>

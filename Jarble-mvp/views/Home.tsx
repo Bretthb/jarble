@@ -3,10 +3,9 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { ArrowRight, Clock, DollarSign, Lock, MessageSquare, Cpu, Globe, Zap } from "lucide-react";
+import { ArrowRight, Clock, DollarSign, Lock, MessageSquare, Cpu, Globe, Zap, Store } from "lucide-react";
 import { useState } from "react";
 import MarketingNav from "@/components/marketing/MarketingNav";
 import MarketingFooter from "@/components/marketing/MarketingFooter";
@@ -47,23 +46,9 @@ export default function Home() {
     <div className="min-h-screen bg-background text-foreground relative overflow-x-hidden">
       <MarketingNav />
 
-      {/* Beta Banner */}
-      <div className="fixed inset-x-0 top-[64px] z-40 bg-primary/10 border-b border-primary/20 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-center gap-3 text-sm">
-          <span className="font-medium">Beta Testing opens March 29th</span>
-          <Link
-            href="/beta"
-            className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
-          >
-            Apply Now
-            <ArrowRight className="w-3 h-3" />
-          </Link>
-        </div>
-      </div>
-
       {/* Hero Section */}
       <div className="relative pt-16">
-        <section className="relative z-10 pt-40 pb-20 lg:pt-56 lg:pb-32 px-4 scroll-mt-20">
+        <section className="relative z-10 pt-32 pb-20 lg:pt-44 lg:pb-32 px-4 scroll-mt-20">
           <div className="max-w-6xl mx-auto relative lg:grid lg:grid-cols-[1fr_1fr] lg:gap-4 lg:items-center">
             {/* Mobile: static image */}
             <div className="absolute inset-0 flex items-start justify-end -top-6 -right-16 sm:hidden pointer-events-none animate-fade-in-scale">
@@ -85,14 +70,14 @@ export default function Home() {
               <div className="max-w-xl space-y-8 animate-fade-in-up">
                 <div className="space-y-4">
                   <span className="inline-flex items-center px-3 py-1 rounded-full bg-secondary/80 backdrop-blur-sm text-xs font-medium text-muted-foreground border border-border/50">
-                    AI Agent Ecosystem
+                    Infrastructure for AI Agents
                   </span>
                   <h2 className="text-5xl lg:text-7xl font-serif font-medium leading-[1.1] tracking-tight">
-                    Launch an AI agent
-                    <span className="block text-primary">in minutes.</span>
+                    Build. Deploy.
+                    <span className="block text-primary">Earn.</span>
                   </h2>
                   <p className="text-xl text-muted-foreground">
-                    Pick a model. Tell it what to do. Your agent is live and ready to work, from our web chat or any messaging platform you already use.
+                    The platform where builders create and monetize agents, and businesses deploy them into the tools their teams already use.
                   </p>
                 </div>
 
@@ -100,22 +85,22 @@ export default function Home() {
                   <div className="flex gap-3 items-start animate-fade-in-up-fast">
                     <Zap className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
                     <div>
-                      <h3 className="font-semibold">Go from idea to running agent in one sitting</h3>
-                      <p className="text-sm text-muted-foreground">No servers to provision, no code to write. A guided wizard handles the setup so you can focus on what your agent actually does.</p>
+                      <h3 className="font-semibold">Builders: create, publish, and earn</h3>
+                      <p className="text-sm text-muted-foreground">Pick a runtime, write a system prompt, add MCP tools. Publish to the marketplace and earn on every deployment — no infrastructure to manage.</p>
                     </div>
                   </div>
                   <div className="flex gap-3 items-start animate-fade-in-up-fast">
                     <Globe className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
                     <div>
-                      <h3 className="font-semibold">Talk to your agent anywhere</h3>
-                      <p className="text-sm text-muted-foreground">Use our web chat for a full-featured experience, or connect WhatsApp, Discord, Slack, and Telegram to reach your agent wherever you already are.</p>
+                      <h3 className="font-semibold">Businesses: deploy in one click</h3>
+                      <p className="text-sm text-muted-foreground">Browse the marketplace, deploy an agent, connect it to WhatsApp, Discord, Slack, or your web chat. Your team works exactly how they already do.</p>
                     </div>
                   </div>
                   <div className="flex gap-3 items-start animate-fade-in-up-fast">
                     <DollarSign className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
                     <div>
-                      <h3 className="font-semibold">Use any model. Pay the provider, not us.</h3>
-                      <p className="text-sm text-muted-foreground">Bring your own API key from OpenAI, Anthropic, Google, or 200+ models through OpenRouter. We never mark up your AI costs.</p>
+                      <h3 className="font-semibold">Infrastructure that runs it all</h3>
+                      <p className="text-sm text-muted-foreground">Every agent runs in its own isolated pod. Any model, any runtime. Bring your own API key or use managed credits — we never mark up AI costs.</p>
                     </div>
                   </div>
                 </div>
@@ -127,7 +112,7 @@ export default function Home() {
                     onClick={handleStartOnboarding}
                     className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
                   >
-                    Launch Your First Agent
+                    Start Building
                     <ArrowRight className="w-5 h-5 ml-2" />
                   </Button>
                 </div>
@@ -151,24 +136,24 @@ export default function Home() {
                 Web Chat
               </span>
               <h2 className="text-4xl font-serif font-medium leading-tight">
-                Your agent, always<br />
-                <span className="text-primary">one tab away.</span>
+                Rich responses, not<br />
+                <span className="text-primary">just plain text.</span>
               </h2>
               <p className="text-lg text-muted-foreground">
-                Every agent gets its own web chat at jarble.ai. No app to install, no platform to join. Open the link and start working with your agent immediately.
+                Every agent gets its own web chat with a full canvas — charts, tables, code blocks, live data widgets, and 3D visualizations rendered inline. Your agent doesn&apos;t just respond, it shows its work.
               </p>
               <div className="space-y-3">
                 <div className="flex gap-3 items-start">
                   <MessageSquare className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground">Full conversation history that persists across sessions. Pick up where you left off.</p>
+                  <p className="text-sm text-muted-foreground">Charts, tables, maps, code editors, and 3D visualizations — all rendered inline as the agent responds.</p>
                 </div>
                 <div className="flex gap-3 items-start">
                   <Globe className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground">Works on any device with a browser. Access your agent from your phone, tablet, or desktop.</p>
+                  <p className="text-sm text-muted-foreground">Full conversation history across sessions. Persistent canvas — your agent remembers what it built.</p>
                 </div>
                 <div className="flex gap-3 items-start">
                   <Zap className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground">Connect WhatsApp, Discord, or Slack later. Your web chat is always there as the home base.</p>
+                  <p className="text-sm text-muted-foreground">37 built-in UI components. Install more from the marketplace. Builders can define custom components.</p>
                 </div>
               </div>
               <Button
@@ -192,20 +177,29 @@ export default function Home() {
               <div className="space-y-4">
                 <div className="flex gap-3">
                   <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-medium">You</div>
-                  <div className="bg-muted rounded-lg p-3 text-sm max-w-[80%]">Summarize the key points from yesterday&apos;s meeting notes and draft a follow-up email</div>
+                  <div className="bg-muted rounded-lg p-3 text-sm max-w-[80%]">Show me Q1 sales performance with a breakdown by region</div>
                 </div>
                 <div className="flex gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">AI</div>
-                  <div className="space-y-2 max-w-[80%]">
+                  <div className="space-y-2 max-w-[90%]">
                     <div className="bg-muted rounded-lg p-3 text-sm">
-                      <p className="font-medium mb-2">Key takeaways from yesterday:</p>
-                      <ul className="text-muted-foreground space-y-1 text-xs list-disc pl-4">
-                        <li>Q2 launch moved to April 15</li>
-                        <li>Design review approved with minor changes</li>
-                        <li>Budget increased by 12% for marketing</li>
-                      </ul>
-                      <p className="mt-3 font-medium mb-1">Draft follow-up:</p>
-                      <p className="text-muted-foreground text-xs">Hi team, thanks for a productive session yesterday. Here are the action items we agreed on...</p>
+                      <p className="text-muted-foreground text-xs mb-3">Here&apos;s your Q1 breakdown — North America leading at +31%:</p>
+                      <div className="bg-background rounded-lg p-3 border border-border/50">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium">Q1 Revenue by Region</span>
+                          <span className="text-xs text-primary font-medium">↑ 24% overall</span>
+                        </div>
+                        <div className="flex items-end gap-1.5 h-16">
+                          {[90, 65, 50, 75, 40, 55].map((h, i) => (
+                            <div key={i} className="flex-1 bg-primary/70 rounded-t-sm" style={{ height: `${h}%` }} />
+                          ))}
+                        </div>
+                        <div className="flex justify-between mt-1.5">
+                          {["NA", "EU", "APAC", "LATAM", "ME", "AF"].map(label => (
+                            <span key={label} className="text-[9px] text-muted-foreground flex-1 text-center">{label}</span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -247,6 +241,66 @@ export default function Home() {
             </div>
           </div>
           <IntegrationsMarquee searchQuery={searchQuery} />
+        </div>
+      </section>
+
+      {/* Marketplace Section */}
+      <section className="py-24 relative z-10 border-t border-border">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <span className="inline-flex items-center px-3 py-1 rounded-full bg-primary/10 text-xs font-medium text-primary border border-primary/20 mb-6">
+              Marketplace
+            </span>
+            <h2 className="text-4xl font-serif font-medium mb-4">
+              The flywheel that powers<br />
+              <span className="text-primary">the agent economy.</span>
+            </h2>
+            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+              More builders means more agents. More agents means more businesses. The marketplace connects both sides and grows itself.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+            <div className="p-8 rounded-2xl bg-card/80 backdrop-blur-md border border-border hover:border-primary/30 transition-colors">
+              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+                <Zap className="w-6 h-6 text-primary" />
+              </div>
+              <h3 className="text-xl font-semibold mb-3">For Builders</h3>
+              <p className="text-muted-foreground text-sm mb-4">Create an agent, add MCP tools, set a price. Every time someone deploys your agent, you earn. Fork any existing agent to build faster.</p>
+              <div className="space-y-2">
+                {[
+                  "Pick a runtime, write a system prompt",
+                  "Add skills, tools, and components",
+                  "Publish and earn on every deployment",
+                  "Fork any public agent to customize",
+                ].map(item => (
+                  <div key={item} className="flex items-start gap-2 text-sm">
+                    <span className="text-primary mt-0.5 flex-shrink-0">&#10003;</span>
+                    <span className="text-muted-foreground">{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="p-8 rounded-2xl bg-card/80 backdrop-blur-md border border-border hover:border-primary/30 transition-colors">
+              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+                <Store className="w-6 h-6 text-primary" />
+              </div>
+              <h3 className="text-xl font-semibold mb-3">For Businesses</h3>
+              <p className="text-muted-foreground text-sm mb-4">Browse agents by workflow category. Deploy in one click with guided onboarding. Your agent runs inside the tools your team already uses.</p>
+              <div className="space-y-2">
+                {[
+                  "Browse agents by workflow category",
+                  "Deploy in one click with guided onboarding",
+                  "Connect WhatsApp, Discord, Slack, or Telegram",
+                  "Your team works the same way — agent adapts",
+                ].map(item => (
+                  <div key={item} className="flex items-start gap-2 text-sm">
+                    <span className="text-primary mt-0.5 flex-shrink-0">&#10003;</span>
+                    <span className="text-muted-foreground">{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -299,10 +353,10 @@ export default function Home() {
               </p>
             </div>
             <div className="p-6 rounded-xl bg-card/80 backdrop-blur-md border border-border shadow-sm animate-fade-in-up-fast">
-              <Zap className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No code, no infrastructure</h3>
+              <Store className="w-8 h-8 text-primary mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Fork, customize, republish</h3>
               <p className="text-muted-foreground text-sm">
-                We handle servers, storage, networking, and uptime. You tell your agent what to do. That&apos;s the whole setup.
+                Any marketplace agent can be forked, customized with your own prompt and tools, and republished. Build on what already works.
               </p>
             </div>
           </div>
