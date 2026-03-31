@@ -10,6 +10,8 @@ import { encryptApiKey } from "../utils/encryption.js";
 import { generateSigningSecret } from "../utils/hmac.js";
 import { performInstallHandshake } from "../services/serviceHandshake.js";
 import { validateThemeConfig } from "@jarble/component-manifest";
+import { decryptApiKey } from "../utils/encryption.js";
+import { RESERVED_ENV_VARS } from "../trpc/routers/deploymentSecrets.js";
 
 const logger = createModuleLogger("podApi");
 
@@ -1056,5 +1058,152 @@ podApiRouter.post("/theme", async (req: Request, res: Response) => {
   } catch (err) {
     logger.error({ err }, "Pod API: theme update failed");
     res.status(500).json({ error: "Failed to update theme", details: String(err) });
+  }
+});
+
+// ── Deployment Secrets (bottom-up from agent) ───────────────────────────────
+
+const SECRET_KEY_REGEX = /^[A-Z][A-Z0-9_]{0,127}$/;
+const MAX_SECRETS_PER_DEPLOYMENT = 50;
+
+// Rate limiter: 10 writes per minute per deployment
+const secretWriteRates = new Map<string, { count: number; resetAt: number }>();
+
+function checkSecretRateLimit(deploymentId: string): boolean {
+  const now = Date.now();
+  const entry = secretWriteRates.get(deploymentId);
+  if (!entry || now > entry.resetAt) {
+    secretWriteRates.set(deploymentId, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  if (entry.count >= 10) return false;
+  entry.count++;
+  return true;
+}
+
+// POST /api/pod/secrets — Store a secret from inside the pod
+podApiRouter.post("/secrets", async (req: Request, res: Response) => {
+  const deploymentId = (req as any).podDeploymentId as string;
+
+  if (!checkSecretRateLimit(deploymentId)) {
+    res.status(429).json({ error: "Rate limit exceeded. Max 10 secret writes per minute." });
+    return;
+  }
+
+  try {
+    const { key, value } = req.body;
+
+    if (!key || typeof key !== "string") {
+      res.status(400).json({ error: "Missing or invalid 'key'" });
+      return;
+    }
+    if (!value || typeof value !== "string") {
+      res.status(400).json({ error: "Missing or invalid 'value'" });
+      return;
+    }
+    if (value.length > 10240) {
+      res.status(400).json({ error: "Value too large (max 10KB)" });
+      return;
+    }
+    if (!SECRET_KEY_REGEX.test(key)) {
+      res.status(400).json({ error: `Invalid key format. Must match ${SECRET_KEY_REGEX}` });
+      return;
+    }
+    if (RESERVED_ENV_VARS.has(key)) {
+      res.status(400).json({ error: `"${key}" is a reserved environment variable` });
+      return;
+    }
+
+    const encrypted = encryptApiKey(value);
+
+    const existing = await db.query.deploymentSecrets.findFirst({
+      where: and(
+        eq(tables.deploymentSecrets.deploymentId, deploymentId),
+        eq(tables.deploymentSecrets.key, key),
+      ),
+    });
+
+    if (existing) {
+      await db.update(tables.deploymentSecrets)
+        .set({ value: encrypted, source: "agent", updatedAt: dbDate() })
+        .where(eq(tables.deploymentSecrets.id, existing.id));
+    } else {
+      // Check count limit
+      const count = await db.query.deploymentSecrets.findMany({
+        where: eq(tables.deploymentSecrets.deploymentId, deploymentId),
+      });
+      if (count.length >= MAX_SECRETS_PER_DEPLOYMENT) {
+        res.status(400).json({ error: `Maximum of ${MAX_SECRETS_PER_DEPLOYMENT} secrets reached` });
+        return;
+      }
+      await db.insert(tables.deploymentSecrets).values({
+        id: nanoid(12),
+        deploymentId,
+        key,
+        value: encrypted,
+        source: "agent",
+      });
+    }
+
+    logger.info({ deploymentId, key, source: "agent" }, "Pod API: secret stored");
+
+    safeFireAndForget(syncConfigsToPvc(deploymentId), {
+      operation: "syncConfigsToPvc",
+      deploymentId,
+    });
+
+    res.json({ success: true, key });
+  } catch (err) {
+    logger.error({ err, deploymentId }, "Pod API: secret store failed");
+    res.status(500).json({ error: "Failed to store secret" });
+  }
+});
+
+// GET /api/pod/secrets — List secret keys (no values) for this deployment
+podApiRouter.get("/secrets", async (req: Request, res: Response) => {
+  const deploymentId = (req as any).podDeploymentId as string;
+
+  try {
+    const secrets = await db.query.deploymentSecrets.findMany({
+      where: eq(tables.deploymentSecrets.deploymentId, deploymentId),
+    });
+
+    res.json({
+      secrets: secrets.map((s) => ({
+        key: s.key,
+        source: s.source,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+      })),
+    });
+  } catch (err) {
+    logger.error({ err, deploymentId }, "Pod API: secret list failed");
+    res.status(500).json({ error: "Failed to list secrets" });
+  }
+});
+
+// DELETE /api/pod/secrets/:key — Delete a secret from inside the pod
+podApiRouter.delete("/secrets/:key", async (req: Request, res: Response) => {
+  const deploymentId = (req as any).podDeploymentId as string;
+  const key = req.params.key;
+
+  try {
+    await db.delete(tables.deploymentSecrets)
+      .where(and(
+        eq(tables.deploymentSecrets.deploymentId, deploymentId),
+        eq(tables.deploymentSecrets.key, key),
+      ));
+
+    logger.info({ deploymentId, key, source: "agent" }, "Pod API: secret deleted");
+
+    safeFireAndForget(syncConfigsToPvc(deploymentId), {
+      operation: "syncConfigsToPvc",
+      deploymentId,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    logger.error({ err, deploymentId }, "Pod API: secret delete failed");
+    res.status(500).json({ error: "Failed to delete secret" });
   }
 });
