@@ -480,7 +480,7 @@ describe.skip("useCanvasChat", () => {
     it("cleans up pending blocks that never got TOOL_CALL_END", async () => {
       mockFetchOk([
         { type: "TOOL_CALL_START", toolCallId: "orphan-1", toolCallName: "show_chart" },
-        // No TOOL_CALL_END — stream ends without completing the block
+        // No TOOL_CALL_END - stream ends without completing the block
         { type: "RUN_FINISHED" },
       ]);
       const state = makeState();

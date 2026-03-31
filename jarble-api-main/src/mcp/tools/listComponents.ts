@@ -1,5 +1,5 @@
 /**
- * list_components MCP Tool — Discover available UI components (built-in + custom).
+ * list_components MCP Tool - Discover available UI components (built-in + custom).
  *
  * Returns a data_table showing all components the bot can use with render_ui.
  */

@@ -1,5 +1,5 @@
 /**
- * MCP Tool Registry — Singleton that registers all available tools.
+ * MCP Tool Registry - Singleton that registers all available tools.
  *
  * Import `mcpRegistry` to access tools in the agent endpoint.
  */
@@ -46,7 +46,7 @@ mcpRegistry.register(listSkillsTool);
 mcpRegistry.register(installSkillTool);
 mcpRegistry.register(uninstallSkillTool);
 
-// Lifecycle (confirmation only — no direct execution)
+// Lifecycle (confirmation only - no direct execution)
 mcpRegistry.register(restartBotTool);
 mcpRegistry.register(stopBotTool);
 mcpRegistry.register(startBotTool);

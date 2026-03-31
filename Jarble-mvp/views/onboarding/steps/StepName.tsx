@@ -47,7 +47,7 @@ function ServerSlots() {
       </div>
       <span className={`text-sm font-medium ${color}`}>
         {available === 0
-          ? "All server slots in use — stop a deployment to free a slot"
+          ? "All server slots in use - stop a deployment to free a slot"
           : `${available} of ${total} server slots available`}
       </span>
     </div>

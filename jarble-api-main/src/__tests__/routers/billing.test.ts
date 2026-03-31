@@ -726,7 +726,7 @@ describe("billing.getSubscriptions", () => {
   });
 });
 
-describe("billing — mixed scenarios", () => {
+describe("billing - mixed scenarios", () => {
   it("overview handles a mix of free and paid deployments correctly", async () => {
     seedDeployment({ id: "dep-free-1", isFree: 1, monthlyPriceCents: 0 });
     seedDeployment({ id: "dep-free-2", isFree: 1, monthlyPriceCents: 0 });

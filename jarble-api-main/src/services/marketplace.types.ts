@@ -1,5 +1,5 @@
 /**
- * Marketplace Types — Shared TypeScript types for the component marketplace.
+ * Marketplace Types - Shared TypeScript types for the component marketplace.
  *
  * These types define the shape of marketplace component packages: manifests,
  * template layouts, and category constants. Used by the manifest validator,

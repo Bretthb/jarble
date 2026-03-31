@@ -22,7 +22,7 @@ test.describe("Artifact workspace", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
   });
 
   test.afterEach(async ({}, testInfo) => {
@@ -35,8 +35,8 @@ test.describe("Artifact workspace", () => {
     }
   });
 
-  // ── Test 1: artifact round-trip — create component, verify sync fires ──
-  test("artifact round-trip — create component, verify sync fires", async ({
+  // ── Test 1: artifact round-trip - create component, verify sync fires ──
+  test("artifact round-trip - create component, verify sync fires", async ({
     page,
   }, testInfo) => {
     test.slow();
@@ -67,7 +67,7 @@ test.describe("Artifact workspace", () => {
 
     await screenshotMilestone(page, testInfo, "artifact-01-created");
 
-    // Soft assert — sync depends on whether the component is artifact-worthy
+    // Soft assert - sync depends on whether the component is artifact-worthy
     expect
       .soft(
         syncCalled,
@@ -76,8 +76,8 @@ test.describe("Artifact workspace", () => {
       .toBe(true);
   });
 
-  // ── Test 2: session restore — artifact list fires on page load ─────────
-  test("session restore — artifact list fires on page load", async ({
+  // ── Test 2: session restore - artifact list fires on page load ─────────
+  test("session restore - artifact list fires on page load", async ({
     page,
   }, testInfo) => {
     let listCallCount = 0;
@@ -107,8 +107,8 @@ test.describe("Artifact workspace", () => {
     await screenshotMilestone(page, testInfo, "artifact-02-session-load");
   });
 
-  // ── Test 3: pin and restore — pinned artifacts survive navigation ──────
-  test("pin and restore — pinned artifacts survive navigation", async ({
+  // ── Test 3: pin and restore - pinned artifacts survive navigation ──────
+  test("pin and restore - pinned artifacts survive navigation", async ({
     page,
   }, testInfo) => {
     test.slow();
@@ -144,7 +144,7 @@ test.describe("Artifact workspace", () => {
     // Wait for artifact restore
     await page.waitForTimeout(5_000);
 
-    // Soft assert — depends on bot actually pinning the artifact
+    // Soft assert - depends on bot actually pinning the artifact
     const restoredCount = await getCanvasCardCount(page);
     expect
       .soft(
@@ -156,8 +156,8 @@ test.describe("Artifact workspace", () => {
     await screenshotMilestone(page, testInfo, "artifact-03-after-navigate");
   });
 
-  // ── Test 4: API endpoint validation — network requests at correct times ─
-  test("API endpoint validation — network requests at correct times", async ({
+  // ── Test 4: API endpoint validation - network requests at correct times ─
+  test("API endpoint validation - network requests at correct times", async ({
     page,
   }, testInfo) => {
     test.slow();
@@ -196,7 +196,7 @@ test.describe("Artifact workspace", () => {
     // Wait for sync debounce
     await page.waitForTimeout(3_000);
 
-    // Soft assert — chart is artifact-worthy so sync should fire
+    // Soft assert - chart is artifact-worthy so sync should fire
     expect
       .soft(
         syncCount,
@@ -207,8 +207,8 @@ test.describe("Artifact workspace", () => {
     await screenshotMilestone(page, testInfo, "artifact-04-network");
   });
 
-  // ── Test 5: SSE update — bot updates existing card in place ────────────
-  test("SSE update — bot updates existing card in place", async ({
+  // ── Test 5: SSE update - bot updates existing card in place ────────────
+  test("SSE update - bot updates existing card in place", async ({
     page,
   }, testInfo) => {
     test.slow();
@@ -235,7 +235,7 @@ test.describe("Artifact workspace", () => {
 
     const countAfter = await getCanvasCardCount(page);
 
-    // Soft assert — update should modify in place, not create extra cards
+    // Soft assert - update should modify in place, not create extra cards
     // Allow +2 tolerance since bot may render additional text cards
     expect
       .soft(
@@ -269,7 +269,7 @@ test.describe("Artifact workspace", () => {
     // Wait well past the debounce window
     await page.waitForTimeout(4_000);
 
-    // Alert is NOT artifact-worthy — sync should not fire
+    // Alert is NOT artifact-worthy - sync should not fire
     expect
       .soft(
         syncCount,
@@ -304,7 +304,7 @@ test.describe("Artifact workspace", () => {
     // Wait for sync debounce
     await page.waitForTimeout(3_000);
 
-    // Soft assert — code_editor IS artifact-worthy
+    // Soft assert - code_editor IS artifact-worthy
     expect
       .soft(
         syncCount,

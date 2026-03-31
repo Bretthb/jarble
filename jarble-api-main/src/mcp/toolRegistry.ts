@@ -1,5 +1,5 @@
 /**
- * MCP-inspired Tool Registry — In-process tool system for the chat agent.
+ * MCP-inspired Tool Registry - In-process tool system for the chat agent.
  *
  * Tools are registered at startup and executed server-side during
  * the multi-turn LLM tool calling loop in tamboAgent.ts.

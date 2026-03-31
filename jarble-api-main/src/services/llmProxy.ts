@@ -19,8 +19,8 @@ export interface LlmToolCall {
 export interface LlmMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
-  toolCallId?: string;       // For role: "tool" — which tool call this result is for
-  toolCalls?: LlmToolCall[]; // For role: "assistant" — tool calls the model made
+  toolCallId?: string;       // For role: "tool" - which tool call this result is for
+  toolCalls?: LlmToolCall[]; // For role: "assistant" - tool calls the model made
 }
 
 export interface LlmToolDefinition {

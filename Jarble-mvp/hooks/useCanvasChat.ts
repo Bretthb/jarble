@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * useCanvasChat — Streaming hook for chat + canvas.
+ * useCanvasChat - Streaming hook for chat + canvas.
  *
  * Separation of concerns:
  * - Chat messages (user + bot text) → returned in `messages` array for chat panel
@@ -43,7 +43,7 @@ export interface ChatMessage {
   createdAt: number;
   /** Optional friendly text shown in chat instead of raw content (e.g. action relay messages) */
   displayText?: string;
-  /** If true, this message is an action relay — styled more compactly in chat */
+  /** If true, this message is an action relay - styled more compactly in chat */
   isActionRelay?: boolean;
   /** Reasoning / thinking content from the LLM (shown as collapsible "Thought process") */
   reasoning?: string;
@@ -114,12 +114,12 @@ export function useCanvasChat(
   // Keep a live ref to state so the SSE handler always reads the latest cards (avoids stale closure)
   const stateRef = useRef(state);
   stateRef.current = state;
-  // Ref-based streaming guard — avoids stale closure when isStreaming is in useCallback deps
+  // Ref-based streaming guard - avoids stale closure when isStreaming is in useCallback deps
   const isStreamingRef = useRef(false);
   // Distinguishes "waiting for server response after page return" from "actively SSE streaming"
   // The merge effect should run when waiting for server, but NOT when actively streaming
   const waitingForServerRef = useRef(false);
-  // Generation counter — detects when a new request supersedes an aborted one in finally
+  // Generation counter - detects when a new request supersedes an aborted one in finally
   const generationRef = useRef(0);
   // Typewriter reveal: target text accumulates instantly, displayed text catches up
   // by revealing CHARS_PER_FRAME characters per animation frame (~60fps)
@@ -128,24 +128,24 @@ export function useCanvasChat(
   const rafIdRef = useRef<number | null>(null);
   const targetReasoningRef = useRef<string>("");
   const displayedReasoningLenRef = useRef<number>(0);
-  // reasoningRafIdRef removed — merged into single rafIdRef loop
+  // reasoningRafIdRef removed - merged into single rafIdRef loop
   // Resolve function: called by the typewriter tick when it catches up to the
   // final target text after the stream has ended. This lets the typewriter finish
   // its reveal animation instead of jumping to the end. The corresponding Promise
   // is awaited in finally{} so streaming state isn't cleared prematurely.
   const typewriterDoneRef = useRef<(() => void) | null>(null);
-  // Design intent tracking — persists style choices across the session
+  // Design intent tracking - persists style choices across the session
   const designContextRef = useRef<Record<string, unknown> | null>(null);
-  const CHARS_PER_FRAME = 8; // ~480 chars/sec at 60fps — fast but visible
+  const CHARS_PER_FRAME = 8; // ~480 chars/sec at 60fps - fast but visible
   // Track current run's LLM provider/model from RUN_STARTED event (ref avoids stale closure)
   const currentLlmRef = useRef<{ provider?: string; model?: string }>({});
   // Track which card was selected when the user sent the message (for provenance linking)
   const selectedCardRef = useRef<string | null>(null);
-  // Track edit mode — when set, the next TOOL_CALL_END with matching component type
+  // Track edit mode - when set, the next TOOL_CALL_END with matching component type
   // updates the card in-place instead of creating a new one
   const editModeRef = useRef<{ cardId: string; component: string } | null>(null);
 
-  // Server sync mutation (fire-and-forget — localStorage is the fast path)
+  // Server sync mutation (fire-and-forget - localStorage is the fast path)
   const syncMutation = trpc.deployment.syncChatSession.useMutation();
   const syncToServer = useCallback(async (sessionId: string, title: string, msgs: ChatMessage[]) => {
     try {
@@ -183,13 +183,13 @@ export function useCanvasChat(
     scheduleSyncToServer(deploymentId, convId, syncToServer);
   }, [deploymentId, syncToServer]);
 
-  // Server sessions query — fetches once on mount for merge
+  // Server sessions query - fetches once on mount for merge
   const serverSessionsQuery = trpc.deployment.listChatSessions.useQuery(
     { deploymentId },
     { staleTime: Infinity, refetchOnWindowFocus: false }
   );
 
-  // Server messages query — refetches when activeConversationId changes
+  // Server messages query - refetches when activeConversationId changes
   const serverMessagesQuery = trpc.deployment.getChatMessages.useQuery(
     { sessionId: activeConversationId!, deploymentId },
     {
@@ -211,16 +211,16 @@ export function useCanvasChat(
     let index = loadConversationIndex(deploymentId);
 
     if (index.conversations.length === 0) {
-      // No local conversations — check if server has any before creating new
+      // No local conversations - check if server has any before creating new
       if (!serverSessionsLoaded) return; // Wait for server query to resolve
 
       const serverSessions = serverSessionsQuery.data || [];
       if (serverSessions.length > 0) {
-        // Server has conversations — merge them into localStorage first
+        // Server has conversations - merge them into localStorage first
         const merged = mergeServerSessions(deploymentId, serverSessions as unknown as Array<{ id: string; title: string; createdAt: string; updatedAt: string }>);
         index = merged;
       } else {
-        // Neither local nor server has conversations — create a fresh one
+        // Neither local nor server has conversations - create a fresh one
         createConversation(deploymentId);
         index = loadConversationIndex(deploymentId);
       }
@@ -257,7 +257,7 @@ export function useCanvasChat(
     }
   }, [deploymentId, serverSessionsLoaded, serverSessionsQuery.data]);
 
-  // Merge server messages when they arrive — server is source of truth for messages
+  // Merge server messages when they arrive - server is source of truth for messages
   // that completed after client disconnect. Show localStorage immediately (above),
   // then merge server data if it has more messages.
   const lastMergedConvRef = useRef<string | null>(null);
@@ -275,7 +275,7 @@ export function useCanvasChat(
     if (serverMsgs.length === 0) return;
 
     // Convert server messages to ChatMessage format
-    // Strip [CANVAS_STATE]...[/CANVAS_STATE] prefix from user messages — it's metadata
+    // Strip [CANVAS_STATE]...[/CANVAS_STATE] prefix from user messages - it's metadata
     // for the bot, not meant for display.
     const stripCanvasState = (text: string) =>
       text.replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]\s*/g, "").trim();
@@ -288,12 +288,12 @@ export function useCanvasChat(
       ...(m.thinkingText ? { reasoning: m.thinkingText } : {}),
     }));
 
-    // Use the LONGER of server vs current messages — server may have a bot response
+    // Use the LONGER of server vs current messages - server may have a bot response
     // that completed after the client disconnected
     const currentMsgs = messagesRef.current;
     if (converted.length > currentMsgs.length) {
       isDev && console.log(
-        `[Jarble:Chat] Server has ${converted.length} messages vs ${currentMsgs.length} local — using server`
+        `[Jarble:Chat] Server has ${converted.length} messages vs ${currentMsgs.length} local - using server`
       );
 
       // Extract component blocks from new assistant messages and render on canvas.
@@ -380,7 +380,7 @@ export function useCanvasChat(
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
-      // Build the final message list — append in-flight streaming text if active
+      // Build the final message list - append in-flight streaming text if active
       let finalMessages = messagesRef.current;
       if (isStreamingRef.current && targetTextRef.current) {
         const cleanText = stripUIMarkers(targetTextRef.current);
@@ -430,10 +430,10 @@ export function useCanvasChat(
         await new Promise((r) => setTimeout(r, 0));
       }
 
-      // Skip card reference prepend for action/error messages — these already contain card context
+      // Skip card reference prepend for action/error messages - these already contain card context
       const isActionMessage = text.startsWith("[UI_ACTION]") || text.startsWith("[SANDBOX_ERROR]") || text.startsWith("[COMPONENT_ERROR]") || text.startsWith("[PUBLISH_SERVICE]");
 
-      // Use stateRef.current for selectedCard and canvas state — keeps deps stable
+      // Use stateRef.current for selectedCard and canvas state - keeps deps stable
       const currentState = stateRef.current;
 
       // If a card is selected, prepend a clear reference so the bot knows which card to update
@@ -441,7 +441,7 @@ export function useCanvasChat(
       const selectedCard = currentState.cards.find((c) => c.selected);
       // Track selected card ID so new cards rendered during this stream can be linked as children
       selectedCardRef.current = selectedCard?.id ?? null;
-      // Reset edit mode — will be set below only for "edit" mode
+      // Reset edit mode - will be set below only for "edit" mode
       editModeRef.current = null;
       if (selectedCard && !isActionMessage) {
         const title = selectedCard.title || selectedCard.component.replace(/_/g, " ");
@@ -475,7 +475,7 @@ export function useCanvasChat(
         messageToSend += `\n${debugLines.join("\n")}`;
       }
 
-      // Build canvas state summary — skip for action/error messages since they already carry
+      // Build canvas state summary - skip for action/error messages since they already carry
       // cardId context and the extra tokens are wasteful for every interaction relay.
       // Always send [CANVAS_STATE] (even when empty) so the bot knows it's on the web dashboard.
       if (!isActionMessage) {
@@ -500,7 +500,7 @@ export function useCanvasChat(
         }
       }
 
-      // Track this request's generation — used in finally to avoid the abort race where
+      // Track this request's generation - used in finally to avoid the abort race where
       // the old request's finally fires after the new request has already set isStreaming=true
       const generation = ++generationRef.current;
       isStreamingRef.current = true;
@@ -535,7 +535,7 @@ export function useCanvasChat(
       };
       setMessages((prev) => [...prev, userMessage]);
 
-      // Predictive orchestration steps — show which agents are working while the bot generates.
+      // Predictive orchestration steps - show which agents are working while the bot generates.
       // Uses real agent names (Component Agent, Data Agent, etc.) with proper type icons.
       // Superseded by real WS events when they arrive (merge logic in page.tsx).
       const COMPONENT_INTENT_RE = /\b(create|make|build|generate|render|show|drop|design|compose)\b.*\b(landing\s*page|dashboard|chart|table|form|card|component|widget|page|visualization|3d|graph|site|website|app|layout|sandbox)\b/i;
@@ -633,7 +633,7 @@ export function useCanvasChat(
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "Request failed");
-          console.error(`[Jarble:Chat] SSE error: HTTP ${res.status} — ${errText.slice(0, 200)}`);
+          console.error(`[Jarble:Chat] SSE error: HTTP ${res.status} - ${errText.slice(0, 200)}`);
           // Add error as assistant message
           setMessages((prev) => [
             ...prev,
@@ -654,9 +654,9 @@ export function useCanvasChat(
         const decoder = new TextDecoder();
         let buffer = "";
         const pendingBlocks = new Map<string, UIBlockPending>();
-        // Track when each block's TOOL_CALL_START arrived — used to detect orphaned blocks
+        // Track when each block's TOOL_CALL_START arrived - used to detect orphaned blocks
         const blockStartTimes = new Map<string, number>();
-        const BLOCK_TIMEOUT_MS = 10_000; // 10 seconds — generous for slow LLM responses
+        const BLOCK_TIMEOUT_MS = 10_000; // 10 seconds - generous for slow LLM responses
         // Track cards added during this stream so findOpenPosition can see them
         // even before React re-renders and updates stateRef.current.cards.
         const cardsAddedThisStream: CanvasCard[] = [];
@@ -735,7 +735,7 @@ export function useCanvasChat(
                   console.log(`[Jarble:Chat] SSE event: TEXT_MESSAGE_CONTENT (x${textContentCount}, ${accumulatedText.length} chars total)`);
                 }
                 accumulatedText += event.delta;
-                // Schedule rAF-throttled update — coalesces rapid deltas into one render per frame
+                // Schedule rAF-throttled update - coalesces rapid deltas into one render per frame
                 scheduleTextUpdate(stripUIMarkers(accumulatedText));
               } else if (isDev && event.type !== "TEXT_MESSAGE_CONTENT") {
                 console.log(`[Jarble:Chat] SSE event: ${event.type}`);
@@ -756,7 +756,7 @@ export function useCanvasChat(
                 reasoningText += event.delta;
                 scheduleReasoningUpdate(reasoningText);
               }
-              // REASONING_END is handled implicitly — reasoning text already accumulated
+              // REASONING_END is handled implicitly - reasoning text already accumulated
 
               // ── Orchestration tracking for multi-agent tools ──
               if (event.type === "TOOL_CALL_START" && event.toolCallName) {
@@ -927,7 +927,7 @@ export function useCanvasChat(
 
               // ── AG-UI CUSTOM events ──
               if (event.type === "CUSTOM") {
-                // Orchestration steps from the API (exec path — blocks about to render)
+                // Orchestration steps from the API (exec path - blocks about to render)
                 if (event.name === "jarble.orchestration.steps" && event.value?.steps) {
                   const steps = (event.value.steps as Array<{ id: string; label: string; status: string; agent: string }>).map((s, i) => ({
                     ...s,
@@ -1002,7 +1002,7 @@ export function useCanvasChat(
                 }
                 if (event.name === "jarble.suggestions" && event.value?.suggestions) {
                   isDev && console.log(`[Jarble:Chat] Suggestions received: ${event.value.suggestions.length}`);
-                  // assistant-ui needs { prompt, title } — title is what SuggestionPrimitive.Title renders
+                  // assistant-ui needs { prompt, title } - title is what SuggestionPrimitive.Title renders
                   const normalized = (event.value.suggestions as Array<{ prompt: string; title?: string }>).map(s => ({
                     prompt: s.prompt,
                     title: s.title || s.prompt,
@@ -1010,7 +1010,7 @@ export function useCanvasChat(
                   setSuggestions(normalized);
                 }
                 if (event.name === "jarble.theme.updated") {
-                  // Theme was changed by the bot — trigger a deployment refetch
+                  // Theme was changed by the bot - trigger a deployment refetch
                   // so useDeploymentTheme picks up the new themeConfig from the DB
                   window.dispatchEvent(new CustomEvent("jarble:theme-updated", { detail: event.value }));
                 }
@@ -1019,7 +1019,7 @@ export function useCanvasChat(
                   designContextRef.current = event.value as Record<string, unknown>;
                 }
                 if (event.name === "jarble.clear_chat") {
-                  // /clear command — reset messages and canvas
+                  // /clear command - reset messages and canvas
                   setMessages([]);
                   messagesRef.current = [];
                   dispatch({ type: "CLEAR_CANVAS" });
@@ -1036,14 +1036,14 @@ export function useCanvasChat(
 
         isDev && console.log(`[Jarble:Chat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
 
-        // Clean up orphaned pending blocks — these had TOOL_CALL_START but never got TOOL_CALL_END
+        // Clean up orphaned pending blocks - these had TOOL_CALL_START but never got TOOL_CALL_END
         if (pendingBlocks.size > 0) {
           const now = Date.now();
           for (const [blockId, block] of pendingBlocks) {
             const startTime = blockStartTimes.get(blockId) ?? now;
             const elapsed = now - startTime;
             console.warn(
-              `[Jarble:Chat] Orphaned block "${blockId}" (${block.component}) — ` +
+              `[Jarble:Chat] Orphaned block "${blockId}" (${block.component}) - ` +
               `TOOL_CALL_START received ${elapsed}ms ago but TOOL_CALL_END never arrived. ` +
               `Discarding to prevent memory leak.`
             );
@@ -1074,20 +1074,20 @@ export function useCanvasChat(
               ...(reasoningText ? { reasoning: reasoningText } : {}),
             };
             // Write to ref synchronously so unmount cleanup always has the latest messages
-            // (React's setMessages is batched — may not flush before cleanup runs on navigate)
+            // (React's setMessages is batched - may not flush before cleanup runs on navigate)
             messagesRef.current = [...messagesRef.current, assistantMsg];
             setMessages((prev) => [...prev, assistantMsg]);
           }
         };
 
         if (rafIdRef.current !== null) {
-          // Typewriter is still animating — wait for it to catch up.
+          // Typewriter is still animating - wait for it to catch up.
           // The tick() function calls typewriterDoneRef.current when needsMore becomes false.
           await new Promise<void>((resolve) => {
             typewriterDoneRef.current = resolve;
           });
         }
-        // Typewriter caught up — flush final text and add the message
+        // Typewriter caught up - flush final text and add the message
         setStreamingText(cleanText);
         setStreamingReasoning(reasoningText);
         addAssistantMessage();
@@ -1124,7 +1124,7 @@ export function useCanvasChat(
         if (generationRef.current === generation) {
           // In the happy path the typewriter has already finished (we awaited
           // its promise in the try block). In error/abort paths it may still
-          // be running — cancel it to prevent stale updates.
+          // be running - cancel it to prevent stale updates.
           typewriterDoneRef.current = null;
           if (rafIdRef.current !== null) {
             cancelAnimationFrame(rafIdRef.current);
@@ -1143,7 +1143,7 @@ export function useCanvasChat(
         }
       }
     },
-    // Stable deps — isStreaming replaced by isStreamingRef, state replaced by stateRef.current.
+    // Stable deps - isStreaming replaced by isStreamingRef, state replaced by stateRef.current.
     // registerComponent is safe to omit: created with useCallback(fn, []) in ComponentCatalogProvider
     // so it is referentially stable for the lifetime of the provider.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1152,7 +1152,7 @@ export function useCanvasChat(
 
   const clearChatError = useCallback(() => setLastChatError(null), []);
 
-  // Auto-diagnose when a diagnosable chat error occurs — inject result as chat message
+  // Auto-diagnose when a diagnosable chat error occurs - inject result as chat message
   const hasDiagnosedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!lastChatError?.canDiagnose) return;
@@ -1186,7 +1186,7 @@ export function useCanvasChat(
         let lines: string[];
 
         if (data.overallHealth === "healthy") {
-          // Clean restart — brief message
+          // Clean restart - brief message
           lines = [`${healthEmoji} Bot restarted successfully. Try sending your message again.`];
         } else if (data.overallHealth === "degraded") {
           // Filter to only actual issues (skip cosmetic permission warnings)
@@ -1200,7 +1200,7 @@ export function useCanvasChat(
             !cosmeticPatterns.some((p) => c.detail?.includes(p))
           );
           if (issues.length === 0) {
-            // All warnings are cosmetic — treat as healthy
+            // All warnings are cosmetic - treat as healthy
             lines = [`✅ Bot restarted successfully. Try sending your message again.`];
           } else {
             lines = [`${healthEmoji} Bot restarted with warnings:`];
@@ -1210,7 +1210,7 @@ export function useCanvasChat(
             lines.push("", "Try sending your message again.");
           }
         } else {
-          // Unhealthy — show full diagnostics so user can report/debug
+          // Unhealthy - show full diagnostics so user can report/debug
           lines = [`${healthEmoji} **Diagnosis: ${data.overallHealth}**`, ""];
           for (const check of data.checks || []) {
             const icon = check.status === "ok" ? "✅" : check.status === "warning" ? "⚠️" : check.status === "error" ? "❌" : "⏭️";
@@ -1274,16 +1274,16 @@ export function useCanvasChat(
         const data = await res.json();
 
         if (data.overallHealth === "healthy") {
-          // Clean one-liner — don't dump diagnostics into chat
+          // Clean one-liner - don't dump diagnostics into chat
           setMessages((msgs) =>
-            msgs.map((m) => m.id === diagMsgId ? { ...m, content: `✅ Bot ${action} and healthy — ready to go.` } : m)
+            msgs.map((m) => m.id === diagMsgId ? { ...m, content: `✅ Bot ${action} and healthy - ready to go.` } : m)
           );
         } else {
           // Only show errors (not warnings) to keep chat clean
           const errors = data.checks.filter((c: any) => c.status === "error");
           if (errors.length === 0) {
             setMessages((msgs) =>
-              msgs.map((m) => m.id === diagMsgId ? { ...m, content: `✅ Bot ${action} — ready to go.` } : m)
+              msgs.map((m) => m.id === diagMsgId ? { ...m, content: `✅ Bot ${action} - ready to go.` } : m)
             );
           } else {
             const errorSummary = errors.map((c: any) => c.name).join(", ");

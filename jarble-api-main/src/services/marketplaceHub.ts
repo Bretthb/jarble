@@ -1,8 +1,8 @@
 /**
- * Marketplace Hub — mediates agent-to-agent calls
+ * Marketplace Hub - mediates agent-to-agent calls
  *
  * Central proxy that handles call tracking for agent-to-agent
- * skill invocations. Credit billing has been removed (JAR-6) —
+ * skill invocations. Credit billing has been removed (JAR-6) -
  * usage is now metered via OpenRouter included credits.
  */
 

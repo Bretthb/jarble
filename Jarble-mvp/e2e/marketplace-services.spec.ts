@@ -3,7 +3,7 @@ import { attachAllLoggers, screenshotMilestone } from "./helpers/logging";
 import { setupAuthIntercept } from "./helpers/auth";
 import { switchToTab } from "./helpers/marketplace";
 
-test.describe("Marketplace — Services tab", () => {
+test.describe("Marketplace - Services tab", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -124,7 +124,7 @@ test.describe("Marketplace — Services tab", () => {
     await page.waitForTimeout(3_000);
     await switchToTab(page, "Services");
 
-    // Services should load from real API — check for card links
+    // Services should load from real API - check for card links
     const serviceLinks = page.locator("a[href^='/marketplace/services/']");
     const count = await serviceLinks.count();
 
@@ -132,7 +132,7 @@ test.describe("Marketplace — Services tab", () => {
       // At least one service card should be visible
       await expect(serviceLinks.first()).toBeVisible();
     } else {
-      // No services published yet — empty state message should show
+      // No services published yet - empty state message should show
       await expect(page.getByText(/no services|coming soon/i).first()).toBeVisible();
     }
 

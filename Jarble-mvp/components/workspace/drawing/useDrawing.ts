@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * useDrawing — hook for freehand drawing state and handlers.
+ * useDrawing - hook for freehand drawing state and handlers.
  *
  * Manages active tool, pen settings, stroke collection,
  * RDP simplification on stroke end, and undo/redo.
@@ -174,7 +174,7 @@ export function useDrawing(canvasDispatch: React.Dispatch<CanvasAction>) {
     undoStackRef.current.push(stroke);
   }, [canvasDispatch]);
 
-  // Keyboard shortcuts — only fire when no modifier keys are held
+  // Keyboard shortcuts - only fire when no modifier keys are held
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // Don't intercept when typing in inputs or contenteditable
@@ -201,7 +201,7 @@ export function useDrawing(canvasDispatch: React.Dispatch<CanvasAction>) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []); // Empty deps — handler uses dispatch which is stable from useReducer
+  }, []); // Empty deps - handler uses dispatch which is stable from useReducer
 
   return {
     activeTool: state.activeTool,

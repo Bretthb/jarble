@@ -62,7 +62,7 @@ const log = createModuleLogger("service-proxy");
 
 const MAX_RESPONSE_BYTES = 1 * 1024 * 1024; // 1 MB
 const DEFAULT_TIMEOUT_MS = 30_000; // 30 seconds
-const MAX_TIMEOUT_MS = 120_000; // 120 seconds — absolute cap
+const MAX_TIMEOUT_MS = 120_000; // 120 seconds - absolute cap
 
 /**
  * Hop-by-hop headers that MUST NOT be forwarded from the upstream response.
@@ -115,7 +115,7 @@ serviceProxyRouter.post(
     const gatewayToken = req.headers["x-gateway-token"] as string | undefined;
 
     if (bearerToken) {
-      // JWT auth — verify token and check deployment ownership
+      // JWT auth - verify token and check deployment ownership
       try {
         const payload = await verifyToken(bearerToken);
         const user = await getUserFromToken(payload);
@@ -140,7 +140,7 @@ serviceProxyRouter.post(
         return;
       }
     } else if (gatewayToken) {
-      // Gateway token auth — verify against K8s Secret (primary) or DB field (fallback)
+      // Gateway token auth - verify against K8s Secret (primary) or DB field (fallback)
       const deployment = await db.query.deployments.findFirst({
         where: eq(tables.deployments.id, deploymentId),
       });
@@ -155,7 +155,7 @@ serviceProxyRouter.post(
       // unavailable (e.g. SQLite dev mode).
       if (meshGatewayToken && gatewayToken.length === meshGatewayToken.length &&
           timingSafeEqual(Buffer.from(gatewayToken), Buffer.from(meshGatewayToken))) {
-        // Authenticated via mesh gateway shared secret — proceed.
+        // Authenticated via mesh gateway shared secret - proceed.
       } else {
         // Try K8s Secret first (production), fall back to DB field (tests/legacy)
         const k8sToken = await readGatewayTokenFromK8s(deploymentId);
@@ -164,11 +164,11 @@ serviceProxyRouter.post(
         // Security: ALWAYS reject if we have no expected token to compare against.
         // Previous code allowed requests through when expectedToken was falsy
         // (e.g. K8s Secret lookup failed and no DB fallback). This was a bypass
-        // vulnerability — an attacker with any gateway token value could authenticate
+        // vulnerability - an attacker with any gateway token value could authenticate
         // simply because there was nothing to compare against.
         if (!expectedToken) {
-          log.warn({ deploymentId }, "Service proxy: no gateway token configured — rejecting request");
-          res.status(401).json({ error: "Unauthorized — gateway token not configured for deployment" });
+          log.warn({ deploymentId }, "Service proxy: no gateway token configured - rejecting request");
+          res.status(401).json({ error: "Unauthorized - gateway token not configured for deployment" });
           return;
         }
 
@@ -181,7 +181,7 @@ serviceProxyRouter.post(
       }
     } else {
       log.warn({ deploymentId }, "Service proxy: no authentication provided");
-      res.status(401).json({ error: "Unauthorized — provide Bearer JWT or X-Gateway-Token" });
+      res.status(401).json({ error: "Unauthorized - provide Bearer JWT or X-Gateway-Token" });
       return;
     }
 
@@ -337,7 +337,7 @@ serviceProxyRouter.post(
     // schema already validates the endpoint. This catches edge cases where
     // the endpoint was stored before SSRF validation was added.
     if (!validateExternalUrl(targetUrl)) {
-      log.warn({ deploymentId, serviceId, skillName, targetUrl }, "Service proxy: SSRF blocked — target URL points to private/internal network");
+      log.warn({ deploymentId, serviceId, skillName, targetUrl }, "Service proxy: SSRF blocked - target URL points to private/internal network");
       res.status(403).json({ error: "Target URL is blocked for security reasons" });
       return;
     }
@@ -448,7 +448,7 @@ serviceProxyRouter.post(
       if (upstreamRes.status === 401 && fallbackSigningSecret) {
         log.info(
           { deploymentId, serviceId, skillName, requestId },
-          "Service proxy: 401 from creator — retrying with previous signing secret (grace period)",
+          "Service proxy: 401 from creator - retrying with previous signing secret (grace period)",
         );
         outboundHeaders = buildOutboundHeaders(fallbackSigningSecret);
         upstreamRes = await attemptFetch();
@@ -461,7 +461,7 @@ serviceProxyRouter.post(
           const delayMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
           log.info(
             { deploymentId, serviceId, skillName, requestId, status: lastStatus, attempt: attempt + 1, delayMs },
-            "Service proxy: transient error — retrying with backoff",
+            "Service proxy: transient error - retrying with backoff",
           );
           await sleepWithJitter(delayMs);
           upstreamRes = await attemptFetch();
@@ -563,7 +563,7 @@ serviceProxyRouter.post(
     if (skill.outputSchema && upstreamRes.status >= 200 && upstreamRes.status < 300) {
       if (!isJsonResponse) {
         // Cannot validate non-JSON response against schema
-        responseHeaders["X-Jarble-Schema-Warning"] = "response is not JSON — cannot validate";
+        responseHeaders["X-Jarble-Schema-Warning"] = "response is not JSON - cannot validate";
       } else {
         try {
           const parsedResponse = JSON.parse(responseBody);

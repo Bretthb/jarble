@@ -174,7 +174,7 @@ export function tidyLayout(cards: CanvasCard[], containerWidth: number): CanvasC
         y += rowHeight + GAP;
         i += 2;
       } else {
-        // Single card — center it
+        // Single card - center it
         const x = PADDING + Math.max(0, (maxWidth - card.size.width) / 2);
         result.push({ ...card, position: { x, y } });
         y += card.size.height + GAP;

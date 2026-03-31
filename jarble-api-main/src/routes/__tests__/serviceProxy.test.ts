@@ -25,7 +25,7 @@ const mockWhereUsage = vi.fn().mockResolvedValue(undefined);
 const mockInsertUsage = vi.fn().mockReturnThis();
 const mockValuesUsage = vi.fn().mockResolvedValue(undefined);
 
-// Auth mock — prevent env.ts from loading at import time
+// Auth mock - prevent env.ts from loading at import time
 const mockVerifyToken = vi.fn();
 const mockGetUserFromToken = vi.fn();
 vi.mock("../../services/auth.js", () => ({
@@ -110,7 +110,7 @@ vi.mock("../../utils/encryption.js", () => ({
   }),
 }));
 
-// HMAC mock — use real implementation for signature verification
+// HMAC mock - use real implementation for signature verification
 vi.mock("../../utils/hmac.js", async () => {
   const actual = await vi.importActual<typeof import("../../utils/hmac.js")>("../../utils/hmac.js");
   return {
@@ -119,7 +119,7 @@ vi.mock("../../utils/hmac.js", async () => {
   };
 });
 
-// Logger mock — suppress output
+// Logger mock - suppress output
 vi.mock("../../utils/logger.js", () => ({
   createModuleLogger: () => ({
     debug: vi.fn(),

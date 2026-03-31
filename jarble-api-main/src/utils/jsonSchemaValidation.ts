@@ -10,7 +10,7 @@
  *
  * Does NOT support: $ref, allOf/anyOf/oneOf, pattern, format, min/max,
  * additionalProperties enforcement, or any advanced keywords. This is
- * intentional — we want a zero-dependency validator for the proxy hot path.
+ * intentional - we want a zero-dependency validator for the proxy hot path.
  *
  * For full JSON Schema validation, use a dedicated library like Ajv.
  */
@@ -61,7 +61,7 @@ function matchesType(value: unknown, type: string): boolean {
     case "null":
       return value === null;
     default:
-      // Unknown type — don't reject (be lenient with extensions)
+      // Unknown type - don't reject (be lenient with extensions)
       return true;
   }
 }
@@ -105,7 +105,7 @@ function validateProperty(
   if (schema.enum !== undefined && Array.isArray(schema.enum)) {
     const found = schema.enum.some((e) => {
       if (typeof e === "object" && typeof value === "object") {
-        // Shallow comparison for objects — don't recurse deeply for enums
+        // Shallow comparison for objects - don't recurse deeply for enums
         return JSON.stringify(e) === JSON.stringify(value);
       }
       return e === value;

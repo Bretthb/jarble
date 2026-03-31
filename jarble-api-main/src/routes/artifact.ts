@@ -1,18 +1,18 @@
 /**
- * Artifact API — CRUD endpoints for the pod workspace artifact system
+ * Artifact API - CRUD endpoints for the pod workspace artifact system
  *
  * The bot pods have a workspace at /data/workspace/ with:
- *   - manifest.json  — array of ArtifactMeta (id, title, component, updatedAt, ...)
- *   - {id}.json      — full Artifact payload per artifact
+ *   - manifest.json  - array of ArtifactMeta (id, title, component, updatedAt, ...)
+ *   - {id}.json      - full Artifact payload per artifact
  *
  * These endpoints exec into the pod to read/write those files, following the
  * same auth + ownership + pod-exec patterns used by canvasFiles.ts.
  *
  * Routes (all under /api/deployments):
- *   GET  /:id/artifact/list          — list all artifact metadata
- *   GET  /:id/artifact/:artifactId   — fetch a single artifact
- *   POST /:id/artifact/sync          — upsert an artifact from the frontend
- *   DELETE /:id/artifact/:artifactId — delete an artifact
+ *   GET  /:id/artifact/list          - list all artifact metadata
+ *   GET  /:id/artifact/:artifactId   - fetch a single artifact
+ *   POST /:id/artifact/sync          - upsert an artifact from the frontend
+ *   DELETE /:id/artifact/:artifactId - delete an artifact
  */
 
 import { Router } from "express";
@@ -121,7 +121,7 @@ artifactRouter.get("/:id/artifact/list", async (req, res) => {
 
     const podName = await findPodForDeployment(deploymentId);
     if (!podName) {
-      // Pod not running — return empty list rather than error
+      // Pod not running - return empty list rather than error
       res.json({ artifacts: [] });
       return;
     }
@@ -242,7 +242,7 @@ artifactRouter.post("/:id/artifact/sync", async (req, res) => {
     const now = Date.now();
     const lastSync = syncTimestamps.get(deploymentId) || 0;
     if (now - lastSync < SYNC_COOLDOWN_MS) {
-      res.status(429).json({ error: "Rate limited — try again shortly" });
+      res.status(429).json({ error: "Rate limited - try again shortly" });
       return;
     }
     syncTimestamps.set(deploymentId, now);

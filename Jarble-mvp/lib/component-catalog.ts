@@ -1,5 +1,5 @@
 /**
- * Component Catalog — Types + template resolution for custom bot components.
+ * Component Catalog - Types + template resolution for custom bot components.
  *
  * Ported from jarble-api-main/src/utils/componentResolver.ts for client-side use.
  * Custom components are templates composed of built-in primitives with {{variable}} placeholders.

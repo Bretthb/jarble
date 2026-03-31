@@ -20,7 +20,7 @@ const resolveProvider = (): "mysql" | "postgres" | "sqlite" => {
 export const DB_PROVIDER = resolveProvider();
 export const USE_SQLITE = DB_PROVIDER === "sqlite";
 
-// Use MySql2Database as the canonical type — all three Drizzle clients share
+// Use MySql2Database as the canonical type - all three Drizzle clients share
 // the same relational query API at runtime, so the cast is safe. This avoids
 // TypeScript union-type issues where method signatures become incompatible.
 export type DbClient = MySql2Database<typeof mysqlSchema>;
@@ -65,7 +65,7 @@ export const sqliteDb = DB_PROVIDER === "sqlite"
 
 // Export the active schema tables for use in queries.
 // Each provider uses its own table definitions to ensure correct SQL generation.
-// The return is typed as MySQL schema to match DbClient — all three Drizzle
+// The return is typed as MySQL schema to match DbClient - all three Drizzle
 // providers share identical runtime APIs, so the cast is safe and lets us
 // use `db.update(tables.X)` etc. without per-call-site `as any` casts.
 type ActiveTables = {

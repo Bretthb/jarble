@@ -706,8 +706,8 @@ async function seedDatabase() {
     return;
   }
 
-  // Seed runtime catalog (2 runtimes — pricing TBD)
-  // NOTE: storageMb values are in GB (historical naming — column is "storage_mb" but unit is GB)
+  // Seed runtime catalog (2 runtimes - pricing TBD)
+  // NOTE: storageMb values are in GB (historical naming - column is "storage_mb" but unit is GB)
   const runtimes = [
     {
       slug: "openclaw",
@@ -775,7 +775,7 @@ async function seedDatabase() {
     { id: nanoid(), name: "Calculator", description: "Perform math calculations", runtime: "openclaw", config: JSON.stringify({ tool: "calculator" }), author: "Jarble", isOfficial: true },
     { id: nanoid(), name: "Wikipedia", description: "Look up information from Wikipedia", runtime: "openclaw", config: JSON.stringify({ tool: "wikipedia", params: { language: "en" } }), author: "Jarble", isOfficial: true },
     { id: nanoid(), name: "Translator", description: "Translate text between languages", runtime: "openclaw", config: JSON.stringify({ tool: "translator" }), author: "Jarble", isOfficial: true },
-    // 16 new MCP tools — free, no API keys needed
+    // 16 new MCP tools - free, no API keys needed
     { id: nanoid(), name: "Web Fetch", description: "Read and extract text content from any URL", runtime: "openclaw", config: JSON.stringify({ tool: "web_fetch", params: { maxLength: 10000 } }), author: "Jarble", isOfficial: true },
     { id: nanoid(), name: "News Search", description: "Search recent news articles", runtime: "openclaw", config: JSON.stringify({ tool: "news_search", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
     { id: nanoid(), name: "Hacker News", description: "Search Hacker News stories and discussions", runtime: "openclaw", config: JSON.stringify({ tool: "hacker_news", params: { maxResults: 5 } }), author: "Jarble", isOfficial: true },
@@ -1075,7 +1075,7 @@ async function seedPersonaTemplates(db: NonNullable<typeof sqliteDb>) {
       slug: "tutor",
       category: "education",
       description: "Patient explanations, Socratic method, adaptive difficulty",
-      systemPrompt: "You are a patient and encouraging tutor who adapts to each student's learning level. Use the Socratic method — ask guiding questions rather than giving answers directly. Break complex topics into manageable steps, use analogies and real-world examples, and check understanding frequently. Celebrate progress and normalize mistakes as part of learning. Adjust difficulty based on the student's responses.",
+      systemPrompt: "You are a patient and encouraging tutor who adapts to each student's learning level. Use the Socratic method - ask guiding questions rather than giving answers directly. Break complex topics into manageable steps, use analogies and real-world examples, and check understanding frequently. Celebrate progress and normalize mistakes as part of learning. Adjust difficulty based on the student's responses.",
       suggestedLlm: "anthropic/claude-sonnet-4-20250514",
       icon: "\u{1F4DA}",
       defaultTheme: JSON.stringify({ preset: "default", skin: "flat" }),
@@ -1083,7 +1083,7 @@ async function seedPersonaTemplates(db: NonNullable<typeof sqliteDb>) {
         "Explain calculus derivatives like I'm in high school",
         "Help me understand the causes of World War I",
         "Quiz me on basic organic chemistry concepts",
-        "I'm struggling with essay structure — can you help?",
+        "I'm struggling with essay structure - can you help?",
       ]),
       sortOrder: 11,
     },
@@ -1251,7 +1251,7 @@ async function seedMarketplaceData(
 // ── Handler code templates for Dashboard Designer skills ───────────────────
 
 const DASHBOARD_HANDLER_CODE = `
-// Dashboard Designer Pro — create_dashboard handler
+// Dashboard Designer Pro - create_dashboard handler
 // Input: { title, metrics, chartData, theme }
 const { title, metrics, chartData, theme } = args;
 const dashTitle = title || "Dashboard";
@@ -1319,7 +1319,7 @@ return {
 `;
 
 const CHART_HANDLER_CODE = `
-// Dashboard Designer Pro — create_chart handler
+// Dashboard Designer Pro - create_chart handler
 // Input: { type, data, title, color }
 const chartType = args.type || "line";
 const data = args.data || [
@@ -1369,7 +1369,7 @@ return {
 `;
 
 const KPI_HANDLER_CODE = `
-// Dashboard Designer Pro — create_kpi_cards handler
+// Dashboard Designer Pro - create_kpi_cards handler
 // Input: { cards, columns }
 const cards = args.cards || [
   { label: "Total Revenue", value: "$128,430", change: "+14.2%", up: true, icon: "💰" },

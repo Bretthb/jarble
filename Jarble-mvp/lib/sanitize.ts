@@ -12,7 +12,7 @@ import DOMPurify from "dompurify";
 export function sanitizeHtml(dirty: string): string {
   if (typeof window === "undefined") {
     // Server-side: strip all HTML tags as a safe fallback.
-    // This is conservative but safe — better to lose formatting than allow XSS.
+    // This is conservative but safe - better to lose formatting than allow XSS.
     return dirty.replace(/<[^>]*>/g, "");
   }
   return DOMPurify.sanitize(dirty, {

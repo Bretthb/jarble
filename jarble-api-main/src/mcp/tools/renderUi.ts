@@ -1,5 +1,5 @@
 /**
- * render_ui MCP Tool — Render a UI component on the Jarble canvas.
+ * render_ui MCP Tool - Render a UI component on the Jarble canvas.
  *
  * Supports both built-in components (card, data_table, etc.) and custom
  * bot-defined components stored on the PVC.
@@ -38,11 +38,11 @@ export const renderUiTool: McpTool = {
       component: {
         type: "string",
         description:
-          "Component name — a built-in (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, avatar, blockquote, metric_card, header, button_group, form, gauge, radar, treemap, funnel, waterfall, scatter, steps, result, tree, calendar_heatmap, descriptions, code_editor, map, carousel, stock, sankey, sunburst, heatmap, wordcloud, histogram, box, liquid, rose, dual_axes, bullet, radial_bar, venn, circle_packing, statistic, tag_cloud, video, image_gallery, audio, spreadsheet, sandbox) or a custom component name",
+          "Component name - a built-in (card, data_table, stat_grid, key_value, code_block, alert, progress, image, layout, chart, tabs, accordion, badge, list, timeline, divider, avatar, blockquote, metric_card, header, button_group, form, gauge, radar, treemap, funnel, waterfall, scatter, steps, result, tree, calendar_heatmap, descriptions, code_editor, map, carousel, stock, sankey, sunburst, heatmap, wordcloud, histogram, box, liquid, rose, dual_axes, bullet, radial_bar, venn, circle_packing, statistic, tag_cloud, video, image_gallery, audio, spreadsheet, sandbox) or a custom component name",
       },
       props: {
         type: "object",
-        description: "Component props — structure depends on the component type. See component reference for required fields.",
+        description: "Component props - structure depends on the component type. See component reference for required fields.",
         additionalProperties: true,
       },
     },
@@ -60,7 +60,7 @@ export const renderUiTool: McpTool = {
       return { success: false, message: "Missing 'component' parameter." };
     }
 
-    // Built-in component — validate props, then pass through
+    // Built-in component - validate props, then pass through
     if (isBuiltinComponent(component)) {
       const schema = COMPONENT_SCHEMAS[component];
       if (schema) {
@@ -83,7 +83,7 @@ export const renderUiTool: McpTool = {
       };
     }
 
-    // Custom component — resolve from PVC
+    // Custom component - resolve from PVC
     try {
       const definition = await readComponentFromPvc(ctx.deploymentId, component);
       if (!definition) {

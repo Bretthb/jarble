@@ -1,5 +1,5 @@
 /**
- * Email Service — Sends transactional emails via Resend.
+ * Email Service - Sends transactional emails via Resend.
  * Used for beta invitations and platform notifications.
  */
 import { Resend } from "resend";
@@ -67,17 +67,17 @@ function betaWelcomeHtml(name: string): string {
     </div>
     <div class="body">
       <h2>Hey ${firstName},</h2>
-      <p>You've been accepted into the <strong>Jarble beta</strong>. We're building the easiest way to deploy AI-powered bots to any messaging platform — no coding required.</p>
+      <p>You've been accepted into the <strong>Jarble beta</strong>. We're building the easiest way to deploy AI-powered bots to any messaging platform - no coding required.</p>
       <p>Here's what you can do right now:</p>
       <ul class="features">
-        <li><strong>Deploy in 2 minutes</strong> — Pick a runtime, connect your LLM key, and launch</li>
-        <li><strong>WhatsApp, Telegram, Discord, Slack</strong> — Connect any platform with one click</li>
-        <li><strong>Rich UI components</strong> — Your bot can render charts, tables, maps, and more</li>
-        <li><strong>Web chat interface</strong> — Every bot gets a shareable chat page</li>
+        <li><strong>Deploy in 2 minutes</strong> - Pick a runtime, connect your LLM key, and launch</li>
+        <li><strong>WhatsApp, Telegram, Discord, Slack</strong> - Connect any platform with one click</li>
+        <li><strong>Rich UI components</strong> - Your bot can render charts, tables, maps, and more</li>
+        <li><strong>Web chat interface</strong> - Every bot gets a shareable chat page</li>
       </ul>
       <a href="https://jarble.ai" class="cta">Get Started &rarr;</a>
       <p>If you have questions or feedback, just reply to this email. We read everything.</p>
-      <p>— The Jarble Team</p>
+      <p>- The Jarble Team</p>
     </div>
     <div class="footer">
       <p>Jarble AI &middot; You received this because you signed up for the beta at jarble.ai</p>

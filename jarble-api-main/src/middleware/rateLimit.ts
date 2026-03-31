@@ -1,17 +1,17 @@
 // ═══════════════════════════════════════════════════════════════════════
-// Rate Limiting Middleware — Jarble AI Platform
+// Rate Limiting Middleware - Jarble AI Platform
 // ═══════════════════════════════════════════════════════════════════════
 //
 // Three tiers of rate limiting:
-//   globalLimiter        — 300 req/min per IP (all traffic)
-//   authLimiter          — 120 req/min per user ID (tRPC endpoints)
-//   stripeActionLimiter  — 10 req/min per user ID (checkout + portal)
+//   globalLimiter        - 300 req/min per IP (all traffic)
+//   authLimiter          - 120 req/min per user ID (tRPC endpoints)
+//   stripeActionLimiter  - 10 req/min per user ID (checkout + portal)
 //
 // Exempt from all rate limiting:
-//   GET  /health                     — K8s probes
-//   POST /api/stripe/webhook         — Stripe-signed
-//   POST /api/auth0/email-verified   — M2M secret
-//   SSE  endpoints                   — Long-lived connections
+//   GET  /health                     - K8s probes
+//   POST /api/stripe/webhook         - Stripe-signed
+//   POST /api/auth0/email-verified   - M2M secret
+//   SSE  endpoints                   - Long-lived connections
 //
 // Architecture note: With 2 replicas, in-memory limits are NOT shared
 // between pods. The effective per-user limit is up to 2x the configured
@@ -32,7 +32,7 @@ const log = createModuleLogger("rateLimit");
  * Used ONLY for rate limit key generation, not for authorization.
  * Route handlers still perform full JWT verification independently.
  *
- * Returns null if token is missing or malformed — callers fall back to IP.
+ * Returns null if token is missing or malformed - callers fall back to IP.
  */
 function extractSubFromToken(req: Request): string | null {
   const authHeader = req.headers.authorization;

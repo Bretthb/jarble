@@ -125,7 +125,7 @@ export async function getDeploymentMetrics(deploymentId: string): Promise<PodMet
           }
           metricsAvailable = true;
         } catch {
-          // Metrics API unavailable — set circuit breaker
+          // Metrics API unavailable - set circuit breaker
           if (metricsAvailable) {
             logger.warn("Metrics API unavailable, disabling for 60s");
           }

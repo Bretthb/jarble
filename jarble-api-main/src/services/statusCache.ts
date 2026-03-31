@@ -121,12 +121,12 @@ export async function subscribe(
   let entry = cache.get(deploymentId);
 
   if (entry) {
-    // Already being watched — add subscriber, return cached status
+    // Already being watched - add subscriber, return cached status
     entry.subscribers.add(callback);
     return entry.lastStatus;
   }
 
-  // First subscriber for this deployment — fetch initial status from K8s
+  // First subscriber for this deployment - fetch initial status from K8s
   const podStatus = await getDeploymentPodStatus(deploymentId);
   const initialStatus: CachedStatus = {
     deploymentId,

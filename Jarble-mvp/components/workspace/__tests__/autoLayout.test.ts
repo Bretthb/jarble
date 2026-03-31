@@ -63,7 +63,7 @@ describe("findOpenPosition", () => {
   });
 
   it("uses fallback when all spiral positions are occupied", () => {
-    // Fill a grid of positions (extreme case — this tests the fallback branch)
+    // Fill a grid of positions (extreme case - this tests the fallback branch)
     // We can't easily fill 20 rings x 12 angles, but verify function doesn't crash
     const cards = [makeCard({ position: { x: 0, y: 0 }, size: { width: 10000, height: 10000 } })];
     const pos = findOpenPosition(cards, viewport, zoom, containerW, containerH, cardSize);
@@ -204,7 +204,7 @@ describe("packIntoRows", () => {
   it("overflows to next row when span exceeds totalColumns", () => {
     const cards = [
       makeCard({ id: "a", component: "chart" }),    // span 2
-      makeCard({ id: "b", component: "chart" }),    // span 2 — won't fit in row 1
+      makeCard({ id: "b", component: "chart" }),    // span 2 - won't fit in row 1
     ];
     const rows = packIntoRows(cards);
     expect(rows).toHaveLength(2);
@@ -280,7 +280,7 @@ describe("tidyLayout", () => {
       makeCard({ id: "b", component: "badge", size: { width: 200, height: 100 } }),
     ];
     const result = tidyLayout(cards, 1200);
-    // Both compact — should share the same y
+    // Both compact - should share the same y
     expect(result[0].position.y).toBe(result[1].position.y);
   });
 

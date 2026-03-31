@@ -226,7 +226,7 @@ test.describe("Marketplace (authenticated)", () => {
 
     const packageSearch = page.getByPlaceholder("Search packages...");
     if (!(await packageSearch.isVisible().catch(() => false))) {
-      test.skip(true, "Package search not visible — tab may not have loaded");
+      test.skip(true, "Package search not visible - tab may not have loaded");
       return;
     }
 
@@ -376,7 +376,7 @@ test.describe("Marketplace (authenticated)", () => {
     await screenshotMilestone(page, testInfo, "marketplace-publish-form");
   });
 
-  // 11. Publish form validation — submit disabled until fields filled
+  // 11. Publish form validation - submit disabled until fields filled
   test("publish form validation", async ({ page }, testInfo) => {
     await page.goto("/marketplace");
     await page.waitForLoadState("networkidle");
@@ -412,7 +412,7 @@ test.describe("Marketplace (authenticated)", () => {
     await screenshotMilestone(page, testInfo, "marketplace-publish-validation");
   });
 
-  // 12. Tab navigation works — switch all 3 tabs
+  // 12. Tab navigation works - switch all 3 tabs
   test("tab navigation works", async ({ page }, testInfo) => {
     await page.goto("/marketplace");
     await page.waitForLoadState("networkidle");
@@ -509,7 +509,7 @@ test.describe("Marketplace (unauthenticated)", () => {
 
   test.beforeEach(async ({ page }, testInfo) => {
     ({ flush } = attachAllLoggers(page, testInfo));
-    // NO setupAuthIntercept — user is unauthenticated
+    // NO setupAuthIntercept - user is unauthenticated
   });
 
   test.afterEach(async ({}, testInfo) => {
@@ -522,7 +522,7 @@ test.describe("Marketplace (unauthenticated)", () => {
     }
   });
 
-  // 14. Unauthenticated views — no Publish tab
+  // 14. Unauthenticated views - no Publish tab
   test("unauthenticated views", async ({ page }, testInfo) => {
     await page.goto("/marketplace");
     await page.waitForLoadState("networkidle");

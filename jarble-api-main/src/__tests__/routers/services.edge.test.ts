@@ -276,7 +276,7 @@ function buildServiceCardJson(overrides?: { endpoint?: string }): string {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("services.list — search edge cases", () => {
+describe("services.list - search edge cases", () => {
   it("search matches displayName", async () => {
     const cpId = seedCreatorProfile();
     seedService(cpId, { name: "svc-x", displayName: "Weather Dashboard" });
@@ -334,7 +334,7 @@ describe("services.list — search edge cases", () => {
   });
 });
 
-describe("services.list — anonymous access", () => {
+describe("services.list - anonymous access", () => {
   it("list is accessible without authentication (public procedure)", async () => {
     const cpId = seedCreatorProfile();
     seedService(cpId, { name: "public-svc" });
@@ -345,7 +345,7 @@ describe("services.list — anonymous access", () => {
   });
 });
 
-describe("services.list — combined filters", () => {
+describe("services.list - combined filters", () => {
   it("combines hostingModel and pricingModel filters", async () => {
     const cpId = seedCreatorProfile();
     seedService(cpId, { name: "s1", hostingModel: "remote", pricingModel: "paid" });
@@ -370,7 +370,7 @@ describe("services.list — combined filters", () => {
   });
 });
 
-describe("services.list — pagination edge cases", () => {
+describe("services.list - pagination edge cases", () => {
   it("cursor pointing to non-existent ID starts from beginning", async () => {
     const cpId = seedCreatorProfile();
     seedService(cpId, { name: "svc-only" });
@@ -392,7 +392,7 @@ describe("services.list — pagination edge cases", () => {
   });
 });
 
-describe("services.get — anonymous access", () => {
+describe("services.get - anonymous access", () => {
   it("get is accessible without authentication (public procedure)", async () => {
     const cpId = seedCreatorProfile();
     const pkgId = seedService(cpId, { name: "get-public" });
@@ -403,7 +403,7 @@ describe("services.get — anonymous access", () => {
   });
 });
 
-describe("services.get — field completeness", () => {
+describe("services.get - field completeness", () => {
   it("returns remoteApiEndpoint and remoteApiConfig for remote services", async () => {
     const cpId = seedCreatorProfile();
     const cardJson = buildServiceCardJson();
@@ -437,7 +437,7 @@ describe("services.get — field completeness", () => {
   });
 });
 
-describe("services.install — component status edge cases", () => {
+describe("services.install - component status edge cases", () => {
   it("allows install when component status is approved", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -481,7 +481,7 @@ describe("services.install — component status edge cases", () => {
   });
 });
 
-describe("services.install — multiple components and skills", () => {
+describe("services.install - multiple components and skills", () => {
   it("installs all components and skills in a service atomically", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -526,7 +526,7 @@ describe("services.install — multiple components and skills", () => {
   });
 });
 
-describe("services.install — syncMarketplaceComponent for running deployment", () => {
+describe("services.install - syncMarketplaceComponent for running deployment", () => {
   it("calls syncMarketplaceComponent for each newly installed component on running deployment", async () => {
     const depId = seedDeployment({ status: "running" });
     const cpId = seedCreatorProfile();
@@ -558,7 +558,7 @@ describe("services.install — syncMarketplaceComponent for running deployment",
   });
 });
 
-describe("services.install — service with only instruction snippet (no components/skills)", () => {
+describe("services.install - service with only instruction snippet (no components/skills)", () => {
   it("install works for a service with only an instruction snippet and one skill", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -574,7 +574,7 @@ describe("services.install — service with only instruction snippet (no compone
   });
 });
 
-describe("services.uninstall — totalInstalls floor-at-zero", () => {
+describe("services.uninstall - totalInstalls floor-at-zero", () => {
   it("floors component totalInstalls at 0 when already at 0", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -606,7 +606,7 @@ describe("services.uninstall — totalInstalls floor-at-zero", () => {
   });
 });
 
-describe("services.uninstall — decrements counts correctly", () => {
+describe("services.uninstall - decrements counts correctly", () => {
   it("decrements component totalInstalls by 1", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -639,7 +639,7 @@ describe("services.uninstall — decrements counts correctly", () => {
   });
 });
 
-describe("services.uninstall — skill removal", () => {
+describe("services.uninstall - skill removal", () => {
   it("removes skills linked to service on uninstall", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -672,7 +672,7 @@ describe("services.uninstall — skill removal", () => {
   });
 });
 
-describe("services.getServiceStatus — edge cases", () => {
+describe("services.getServiceStatus - edge cases", () => {
   it("returns health field from service", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -733,7 +733,7 @@ describe("services.getServiceStatus — edge cases", () => {
   });
 });
 
-describe("services.publish — input validation edge cases", () => {
+describe("services.publish - input validation edge cases", () => {
   it("rejects name with uppercase letters", async () => {
     seedCreatorProfile();
     const skill = seedSkill();
@@ -875,7 +875,7 @@ describe("services.publish — input validation edge cases", () => {
   });
 });
 
-describe("services.listByCreator — filtering", () => {
+describe("services.listByCreator - filtering", () => {
   it("excludes draft services", async () => {
     const cpId = seedCreatorProfile();
     seedService(cpId, { name: "draft-svc", status: "draft" });
@@ -961,7 +961,7 @@ describe("services.install → status → uninstall lifecycle", () => {
   });
 });
 
-describe("services.install — same service on multiple deployments", () => {
+describe("services.install - same service on multiple deployments", () => {
   it("allows installing the same service on different deployments", async () => {
     const dep1 = seedDeployment({ status: "running" });
     const dep2 = seedDeployment({ status: "running" });
@@ -984,7 +984,7 @@ describe("services.install — same service on multiple deployments", () => {
   });
 });
 
-describe("services.creatorInstalls — multiple deployments", () => {
+describe("services.creatorInstalls - multiple deployments", () => {
   it("shows installs from multiple deployments", async () => {
     const cpId = seedCreatorProfile();
     const skill = seedSkill();
@@ -1003,7 +1003,7 @@ describe("services.creatorInstalls — multiple deployments", () => {
   });
 });
 
-describe("services.creatorUsage — no creator profile", () => {
+describe("services.creatorUsage - no creator profile", () => {
   it("throws FORBIDDEN when user has no creator profile at all", async () => {
     const cpId = seedCreatorProfile();
     const pkgId = seedService(cpId, { name: "usage-no-profile" });
@@ -1016,7 +1016,7 @@ describe("services.creatorUsage — no creator profile", () => {
   });
 });
 
-describe("services.upgradeService — edge cases", () => {
+describe("services.upgradeService - edge cases", () => {
   it("triggers syncMarketplaceComponent for new components on running deployment", async () => {
     const depId = seedDeployment({ status: "running" });
     const cpId = seedCreatorProfile();
@@ -1059,7 +1059,7 @@ describe("services.upgradeService — edge cases", () => {
   });
 });
 
-describe("services.listInstalled — edge cases", () => {
+describe("services.listInstalled - edge cases", () => {
   it("returns multiple installed services", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -1085,7 +1085,7 @@ describe("services.listInstalled — edge cases", () => {
   });
 });
 
-describe("services.checkForUpdates — edge cases", () => {
+describe("services.checkForUpdates - edge cases", () => {
   it("returns update when new component added to service after install", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -1127,7 +1127,7 @@ describe("services.checkForUpdates — edge cases", () => {
   });
 });
 
-describe("services.listDeploymentSkills — edge cases", () => {
+describe("services.listDeploymentSkills - edge cases", () => {
   it("returns multiple installed skills", async () => {
     const depId = seedDeployment();
     const skill1 = seedSkill();
@@ -1148,7 +1148,7 @@ describe("services.listDeploymentSkills — edge cases", () => {
   });
 });
 
-describe("services.listDeploymentComponents — edge cases", () => {
+describe("services.listDeploymentComponents - edge cases", () => {
   it("returns multiple installed published components", async () => {
     const depId = seedDeployment();
     const comp1 = seedComponent(ctx.testUserId, { name: "dc-1" });
@@ -1171,7 +1171,7 @@ describe("services.listDeploymentComponents — edge cases", () => {
   });
 });
 
-describe("services.install — handshake status for self-hosted", () => {
+describe("services.install - handshake status for self-hosted", () => {
   it("returns handshakeStatus=skipped for self_hosted service", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -1185,7 +1185,7 @@ describe("services.install — handshake status for self-hosted", () => {
   });
 });
 
-describe("services.list — sort stability", () => {
+describe("services.list - sort stability", () => {
   it("services with same totalInstalls are sorted alphabetically by name", async () => {
     const cpId = seedCreatorProfile();
     seedService(cpId, { name: "charlie", totalInstalls: 5 });
@@ -1211,7 +1211,7 @@ describe("services.list — sort stability", () => {
   });
 });
 
-describe("services.get — service with no skills linked", () => {
+describe("services.get - service with no skills linked", () => {
   it("returns empty skills array when no skills are linked", async () => {
     const cpId = seedCreatorProfile();
     const pkgId = seedService(cpId, { name: "no-skills-pkg" });
@@ -1222,7 +1222,7 @@ describe("services.get — service with no skills linked", () => {
   });
 });
 
-describe("services.publish — creator profile from different user", () => {
+describe("services.publish - creator profile from different user", () => {
   it("uses the caller's own creator profile, not another user's", async () => {
     // Create two users with creator profiles
     const user2 = seedSecondUser();
@@ -1247,7 +1247,7 @@ describe("services.publish — creator profile from different user", () => {
   });
 });
 
-describe("services.install — service with zero totalInstalls incremented to 1", () => {
+describe("services.install - service with zero totalInstalls incremented to 1", () => {
   it("increments from 0 to 1 on first install", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -1263,7 +1263,7 @@ describe("services.install — service with zero totalInstalls incremented to 1"
   });
 });
 
-describe("services.uninstall — multiple components and skills", () => {
+describe("services.uninstall - multiple components and skills", () => {
   it("removes all components and skills linked to service", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -1300,7 +1300,7 @@ describe("services.uninstall — multiple components and skills", () => {
   });
 });
 
-describe("services.getServiceStatus — skill counts", () => {
+describe("services.getServiceStatus - skill counts", () => {
   it("returns correct skill installed count when some are installed", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -1322,7 +1322,7 @@ describe("services.getServiceStatus — skill counts", () => {
   });
 });
 
-describe("services.list — creator info present", () => {
+describe("services.list - creator info present", () => {
   it("returns creator info when creator profile exists", async () => {
     const cpId = seedCreatorProfile();
     seedService(cpId, { name: "with-creator-svc" });
@@ -1336,7 +1336,7 @@ describe("services.list — creator info present", () => {
   });
 });
 
-describe("services.publish — description limits", () => {
+describe("services.publish - description limits", () => {
   it("accepts description at max length (2000 chars)", async () => {
     seedCreatorProfile();
     const skill = seedSkill();
@@ -1367,7 +1367,7 @@ describe("services.publish — description limits", () => {
   });
 });
 
-describe("services.install — configSync for creating status deployment", () => {
+describe("services.install - configSync for creating status deployment", () => {
   it("does not trigger configSync for creating status deployment", async () => {
     const depId = seedDeployment({ status: "creating" });
     const cpId = seedCreatorProfile();
@@ -1383,7 +1383,7 @@ describe("services.install — configSync for creating status deployment", () =>
   });
 });
 
-describe("services.uninstall — deployment ownership check", () => {
+describe("services.uninstall - deployment ownership check", () => {
   it("rejects uninstall on another user's deployment", async () => {
     const user2 = seedSecondUser();
     const depId = seedDeployment({ userId: user2.userId });
@@ -1395,7 +1395,7 @@ describe("services.uninstall — deployment ownership check", () => {
   });
 });
 
-describe("services.listByCreator — return fields", () => {
+describe("services.listByCreator - return fields", () => {
   it("returns all expected fields", async () => {
     const cpId = seedCreatorProfile();
     seedService(cpId, {
@@ -1423,7 +1423,7 @@ describe("services.listByCreator — return fields", () => {
   });
 });
 
-describe("services.install — component totalInstalls incremented", () => {
+describe("services.install - component totalInstalls incremented", () => {
   it("increments each component's totalInstalls by 1", async () => {
     const depId = seedDeployment();
     const cpId = seedCreatorProfile();
@@ -1445,7 +1445,7 @@ describe("services.install — component totalInstalls incremented", () => {
   });
 });
 
-describe("services.creatorInstalls — empty installs", () => {
+describe("services.creatorInstalls - empty installs", () => {
   it("returns totalInstalls=0 and empty array when no installs", async () => {
     const cpId = seedCreatorProfile();
     const pkgId = seedService(cpId, { name: "no-installs-svc" });
@@ -1457,7 +1457,7 @@ describe("services.creatorInstalls — empty installs", () => {
   });
 });
 
-describe("services.rotateSigningSecret — deployment ownership", () => {
+describe("services.rotateSigningSecret - deployment ownership", () => {
   it("rejects rotation for another user's deployment", async () => {
     const user2 = seedSecondUser();
     const depId = seedDeployment({ userId: user2.userId });
@@ -1469,7 +1469,7 @@ describe("services.rotateSigningSecret — deployment ownership", () => {
   });
 });
 
-describe("services.checkForUpdates — deployment ownership", () => {
+describe("services.checkForUpdates - deployment ownership", () => {
   it("rejects for another user's deployment", async () => {
     const user2 = seedSecondUser();
     const depId = seedDeployment({ userId: user2.userId });
@@ -1481,7 +1481,7 @@ describe("services.checkForUpdates — deployment ownership", () => {
   });
 });
 
-describe("services.upgradeService — deployment ownership", () => {
+describe("services.upgradeService - deployment ownership", () => {
   it("rejects upgrade for another user's deployment", async () => {
     const user2 = seedSecondUser();
     const depId = seedDeployment({ userId: user2.userId });
@@ -1493,7 +1493,7 @@ describe("services.upgradeService — deployment ownership", () => {
   });
 });
 
-describe("services.install — anonymous access rejected", () => {
+describe("services.install - anonymous access rejected", () => {
   it("rejects anonymous caller for install", async () => {
     const caller = createAnonymousCaller(ctx.db);
     await expect(
@@ -1584,7 +1584,7 @@ describe("services.install — anonymous access rejected", () => {
   });
 });
 
-describe("services.listInstalled — deployment ownership", () => {
+describe("services.listInstalled - deployment ownership", () => {
   it("rejects listing installed services for another user's deployment", async () => {
     const user2 = seedSecondUser();
     const depId = seedDeployment({ userId: user2.userId });
@@ -1596,7 +1596,7 @@ describe("services.listInstalled — deployment ownership", () => {
   });
 });
 
-describe("services.publish — multiple skills and components", () => {
+describe("services.publish - multiple skills and components", () => {
   it("publishes a service with multiple components and multiple skills", async () => {
     seedCreatorProfile();
     const comp1 = seedComponent(ctx.testUserId, { name: "multi-pub-c1" });

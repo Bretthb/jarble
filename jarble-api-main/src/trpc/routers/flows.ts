@@ -315,13 +315,13 @@ export const flowsRouter = router({
       }
 
       if (input.hard) {
-        // Hard delete — cascade deletes executions via FK
+        // Hard delete - cascade deletes executions via FK
         await db
           .delete(orchestrationFlows)
           .where(eq(orchestrationFlows.id, input.id));
         logger.info({ flowId: input.id, userId }, "Flow hard-deleted");
       } else {
-        // Soft delete — archive
+        // Soft delete - archive
         await db
           .update(orchestrationFlows)
           .set({ status: "archived", updatedAt: dbDate() })
@@ -346,7 +346,7 @@ export const flowsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.user.id;
 
-      // Fetch the source flow — user must own it OR it must be public
+      // Fetch the source flow - user must own it OR it must be public
       const source = await db
         .select()
         .from(orchestrationFlows)
@@ -499,7 +499,7 @@ export const flowsRouter = router({
         for (const dep of input.availableDeployments) {
           userMessage += `- ${dep.name} (id: ${dep.id})`;
           if (dep.skills && dep.skills.length > 0) {
-            userMessage += ` — skills: ${dep.skills.join(", ")}`;
+            userMessage += ` - skills: ${dep.skills.join(", ")}`;
           }
           userMessage += "\n";
         }
@@ -526,7 +526,7 @@ export const flowsRouter = router({
           messages,
         });
 
-        // Parse the JSON response — strip markdown fences if present
+        // Parse the JSON response - strip markdown fences if present
         let jsonText = result.text.trim();
         if (jsonText.startsWith("```")) {
           jsonText = jsonText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");

@@ -12,7 +12,7 @@ import archiver from "archiver";
 
 /**
  * Write config files to a deployment's PVC by exec-ing into the running pod.
- * Files are written to {pvcMount}/config/{path} — the config/ subdirectory keeps
+ * Files are written to {pvcMount}/config/{path} - the config/ subdirectory keeps
  * Jarble-managed configs separate from runtime data (node_modules, etc.).
  *
  * Optimization: All files are written in a single exec call using a batched
@@ -233,7 +233,7 @@ export async function exportDeploymentConfigs(
   const isRunning = pod.status?.phase === "Running" && containerStatus?.ready;
 
   if (!podName || !isRunning) {
-    throw new Error("Pod is not running — cannot export configs");
+    throw new Error("Pod is not running - cannot export configs");
   }
 
   // List all config files
@@ -293,7 +293,7 @@ export async function exportDeploymentConfigs(
  * Returns true if the signal was sent, false if the pod doesn't support it
  * (caller should fall back to full pod restart).
  *
- * For operator mode, always returns false — process restart is not supported
+ * For operator mode, always returns false - process restart is not supported
  * (the operator manages the pod lifecycle).
  */
 export async function signalProcessRestart(
@@ -301,13 +301,13 @@ export async function signalProcessRestart(
   envOverrides: Record<string, string>,
   managedBy: ManagedBy = "legacy"
 ): Promise<boolean> {
-  // Operator mode: process restart not supported — fall through to Tier 3
+  // Operator mode: process restart not supported - fall through to Tier 3
   if (managedBy === "operator") {
     log.debug({ deploymentId }, "signalProcessRestart: operator mode, falling back to pod restart");
     return false;
   }
 
-  // 1. Find running pod (don't require readiness — it may be briefly unready during reload)
+  // 1. Find running pod (don't require readiness - it may be briefly unready during reload)
   const podName = await findPodForDeployment(deploymentId, { requireReady: false });
   if (!podName) {
     log.debug({ deploymentId }, "signalProcessRestart: no running pod found");
@@ -323,7 +323,7 @@ export async function signalProcessRestart(
       return false;
     }
   } catch {
-    // PID file doesn't exist — old image without restart loop support
+    // PID file doesn't exist - old image without restart loop support
     log.debug({ deploymentId }, "signalProcessRestart: no PID file (old image), falling back");
     return false;
   }
@@ -346,7 +346,7 @@ export async function signalProcessRestart(
   // 4. Touch .reload marker (entrypoint checks this after process exits)
   await execInPod(podName, ["touch", "/data/.reload"]);
 
-  // 5. Kill OpenClaw process — entrypoint loop will detect .reload and restart
+  // 5. Kill OpenClaw process - entrypoint loop will detect .reload and restart
   try {
     await execInPod(podName, ["kill", pid]);
   } catch {

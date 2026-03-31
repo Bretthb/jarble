@@ -1,5 +1,5 @@
 /**
- * Tests for chatSessionManager.ts — in-memory tracker for active chat runs.
+ * Tests for chatSessionManager.ts - in-memory tracker for active chat runs.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 

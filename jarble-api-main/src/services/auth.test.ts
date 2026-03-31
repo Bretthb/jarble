@@ -1,5 +1,5 @@
 /**
- * Tests for auth.ts — Auth0 JWT verification and user extraction.
+ * Tests for auth.ts - Auth0 JWT verification and user extraction.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as jose from "jose";

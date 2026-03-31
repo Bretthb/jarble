@@ -1,4 +1,4 @@
-// Tab type — now dynamic based on runtime (see wizardStepConfig.ts → getConfigTabs)
+// Tab type - now dynamic based on runtime (see wizardStepConfig.ts → getConfigTabs)
 export type Tab = string;
 
 export interface PlatformConfig {

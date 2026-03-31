@@ -91,7 +91,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
       }
     }, 3000);
 
-    // 8-minute timeout — first-boot npm install (2-3 min) + configSync restart (1-2 min)
+    // 8-minute timeout - first-boot npm install (2-3 min) + configSync restart (1-2 min)
     telegramTimeoutRef.current = setTimeout(() => {
       stopTelegramPolling();
       setTelegramPhase("error");
@@ -407,7 +407,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                 <div className="text-center">
                   <p className="font-medium">Open Telegram and message your bot</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Send any message to your bot — it will auto-approve the pairing request
+                    Send any message to your bot - it will auto-approve the pairing request
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -484,7 +484,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                   </p>
                 </div>
 
-                {/* WhatsApp special case — QR code pairing */}
+                {/* WhatsApp special case - QR code pairing */}
                 {selectedPlatform.id === "whatsapp" && selectedPlatform.fields.length === 0 && (
                   <div className="space-y-4">
                     {whatsAppStatusQuery.data?.connected ? (
@@ -600,7 +600,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                 </a>
               </div>
 
-              {/* Actions — hide for WhatsApp (uses QR pairing instead) */}
+              {/* Actions - hide for WhatsApp (uses QR pairing instead) */}
               {selectedPlatform.id !== "whatsapp" && (
               <div className="flex items-center justify-between mt-6 pt-4 border-t border-border">
                 <Button

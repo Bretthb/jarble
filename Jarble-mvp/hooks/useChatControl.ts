@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * useChatControl — WebSocket control channel for chat operations.
+ * useChatControl - WebSocket control channel for chat operations.
  *
  * Connects to the backend's /ws/chat endpoint for:
  * - Stop generation (abort active SSE stream server-side)
@@ -104,7 +104,7 @@ export function useChatControl(
         } else if (msg.type === "stopped") {
           isDev && console.log("[Jarble:ChatControl] Generation stopped:", msg.message);
         }
-        // Other messages are informational — no action needed
+        // Other messages are informational - no action needed
       } catch {
         // Ignore malformed messages
       }

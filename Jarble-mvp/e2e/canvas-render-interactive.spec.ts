@@ -17,7 +17,7 @@ import {
 } from "./helpers/canvas";
 import { INTERACTIVE_RENDER_PROMPTS } from "./helpers/prompts";
 
-test.describe("Canvas render — Interactive Components", () => {
+test.describe("Canvas render - Interactive Components", () => {
   let flush: () => Promise<void>;
   let deploymentId: string;
 
@@ -26,7 +26,7 @@ test.describe("Canvas render — Interactive Components", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -59,7 +59,7 @@ test.describe("Canvas render — Interactive Components", () => {
         .soft(found, `Expected ${entry.expectedComponents[0]} to render`)
         .toBe(true);
 
-      // Component-specific DOM assertions — find card by component type
+      // Component-specific DOM assertions - find card by component type
       const componentType = entry.expectedComponents[0];
       const typedCard = page.locator(`[data-component="${componentType}"]`).first();
       const card = (await typedCard.isVisible().catch(() => false))

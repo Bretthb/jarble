@@ -110,7 +110,7 @@ export {
   confirmationSchema,
 };
 
-// ── Lightweight components — static imports ──────────────────────────────────
+// ── Lightweight components - static imports ──────────────────────────────────
 
 import CanvasCard from "./components/CanvasCard";
 import CanvasDataTable from "./components/CanvasDataTable";
@@ -141,7 +141,7 @@ import CanvasSources from "./components/CanvasSources";
 import CanvasPage from "./components/CanvasPage";
 import CanvasConfirmation from "./components/CanvasConfirmation";
 
-// ── Heavy components — lazy-loaded (ssr: false) ─────────────────────────────
+// ── Heavy components - lazy-loaded (ssr: false) ─────────────────────────────
 
 const CanvasChart = dynamic(() => import("./components/CanvasChart"), { ssr: false });
 const CanvasCodeEditor = dynamic(() => import("./components/CanvasCodeEditor"), { ssr: false });
@@ -154,7 +154,7 @@ const CanvasEmbed = dynamic(() => import("./components/CanvasEmbed"), { ssr: fal
 const CanvasMap = dynamic(() => import("./components/CanvasMap"), { ssr: false });
 const CanvasImageGallery = dynamic(() => import("./components/CanvasImageGallery"), { ssr: false });
 
-// ── Antd-based — lazy-loaded ────────────────────────────────────────────────
+// ── Antd-based - lazy-loaded ────────────────────────────────────────────────
 
 const CanvasTree = dynamic(() => import("./components/CanvasTree"), { ssr: false });
 const CanvasDescriptions = dynamic(() => import("./components/CanvasDescriptions"), { ssr: false });
@@ -172,7 +172,7 @@ export interface CanvasComponentEntry {
   propsSchema: ZodType;
 }
 
-// Log registered components — call explicitly in a useEffect if needed, not at module load time
+// Log registered components - call explicitly in a useEffect if needed, not at module load time
 // (module-level calls fire on every hot reload and in SSR contexts)
 export const logRegistry = () => {
   if (typeof window !== "undefined" && process.env.NODE_ENV === "development") {

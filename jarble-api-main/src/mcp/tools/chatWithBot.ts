@@ -8,7 +8,7 @@ import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 export const chatWithBotTool: McpTool = {
   name: "chat_with_bot",
   description:
-    "Forward a conversational message to the OpenClaw bot running in the pod. Use this when the user wants to chat with their bot. The bot may return rich UI blocks — if so, render each as a BotCanvas component.",
+    "Forward a conversational message to the OpenClaw bot running in the pod. Use this when the user wants to chat with their bot. The bot may return rich UI blocks - if so, render each as a BotCanvas component.",
   parameters: {
     type: "object",
     properties: {

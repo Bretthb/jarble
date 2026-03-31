@@ -45,7 +45,7 @@ export async function setupAuthIntercept(page: Page) {
  * (indicating the user is authenticated).
  */
 export async function waitForAuthReady(page: Page, timeout = 10_000) {
-  // Wait for page to settle — Auth0 SDK needs time to restore from cache
+  // Wait for page to settle - Auth0 SDK needs time to restore from cache
   await page.waitForTimeout(3_000);
 
   // Check if we're on a "Please log in" page by looking for the Sign In button

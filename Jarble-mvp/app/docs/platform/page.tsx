@@ -28,7 +28,7 @@ export const metadata: Metadata = {
 };
 
 /* ------------------------------------------------------------------ */
-/*  Inline helpers (server component — no hooks)                       */
+/*  Inline helpers (server component - no hooks)                       */
 /* ------------------------------------------------------------------ */
 
 function SectionHeading({

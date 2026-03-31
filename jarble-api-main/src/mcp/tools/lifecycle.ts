@@ -1,5 +1,5 @@
 /**
- * Lifecycle tools — restart, stop, start.
+ * Lifecycle tools - restart, stop, start.
  *
  * These tools do NOT execute the action. They render a confirm_action
  * component so the user can click Confirm in the UI. The actual lifecycle
@@ -10,7 +10,7 @@ import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 export const restartBotTool: McpTool = {
   name: "restart_bot",
   description:
-    "Request a restart of the bot. Shows a confirmation dialog — does NOT execute immediately. Use when the user asks to restart or reboot.",
+    "Request a restart of the bot. Shows a confirmation dialog - does NOT execute immediately. Use when the user asks to restart or reboot.",
   parameters: {
     type: "object",
     properties: {},
@@ -28,7 +28,7 @@ export const restartBotTool: McpTool = {
 export const stopBotTool: McpTool = {
   name: "stop_bot",
   description:
-    "Request to stop the bot. Shows a confirmation dialog — does NOT execute immediately. Use when the user asks to stop or shut down.",
+    "Request to stop the bot. Shows a confirmation dialog - does NOT execute immediately. Use when the user asks to stop or shut down.",
   parameters: {
     type: "object",
     properties: {},
@@ -46,7 +46,7 @@ export const stopBotTool: McpTool = {
 export const startBotTool: McpTool = {
   name: "start_bot",
   description:
-    "Request to start a stopped bot. Shows a confirmation dialog — does NOT execute immediately. Use when the user asks to start the bot.",
+    "Request to start a stopped bot. Shows a confirmation dialog - does NOT execute immediately. Use when the user asks to start the bot.",
   parameters: {
     type: "object",
     properties: {},

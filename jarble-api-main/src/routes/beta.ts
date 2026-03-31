@@ -1,5 +1,5 @@
 /**
- * Beta Signup Route — Public endpoint for beta tester applications.
+ * Beta Signup Route - Public endpoint for beta tester applications.
  * No auth required. Stores signups in the beta_signups table for manual review.
  */
 import { Router } from "express";

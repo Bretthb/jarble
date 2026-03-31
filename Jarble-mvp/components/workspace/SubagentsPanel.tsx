@@ -452,7 +452,7 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
               </p>
             </div>
 
-            {/* Trigger Type — hidden for platform agents */}
+            {/* Trigger Type - hidden for platform agents */}
             {editingSource !== "platform" && (
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">
@@ -665,7 +665,7 @@ function SubagentListItem({
             onCheckedChange={onToggleEnabled}
             className="scale-75"
           />
-          {/* Edit — available for custom and platform, not delegation */}
+          {/* Edit - available for custom and platform, not delegation */}
           {!isDelegation && (
             <Button
               variant="ghost"
@@ -677,7 +677,7 @@ function SubagentListItem({
               <Pencil className="w-3 h-3" />
             </Button>
           )}
-          {/* Delete — only for custom agents */}
+          {/* Delete - only for custom agents */}
           {!isPlatform && !isDelegation && (
             <Button
               variant="ghost"

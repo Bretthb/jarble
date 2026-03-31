@@ -248,7 +248,7 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
 
   const cancelMutation = trpc.openrouter.cancelManagedKey.useMutation({
     onSuccess: () => {
-      toast.success("Managed key cancelled — switched to BYOK mode");
+      toast.success("Managed key cancelled - switched to BYOK mode");
       window.location.reload();
     },
     onError: (err: { message?: string }) => {
@@ -277,7 +277,7 @@ function IncludedKeySection({ deploymentId, deployment }: { deploymentId: string
 
   const usage = usageQuery.data;
   const keyHash = deployment.llmApiKeyId;
-  const maskedKey = keyHash ? `...${keyHash.slice(-8)}` : "—";
+  const maskedKey = keyHash ? `...${keyHash.slice(-8)}` : "-";
   const isDisabled = usage?.disabled ?? false;
 
   const handleUpdateLimit = () => {
@@ -740,7 +740,7 @@ function ByokKeySection({
   );
 }
 
-// ─── Model Combobox — dropdown with "Custom..." freeform option ──────────
+// ─── Model Combobox - dropdown with "Custom..." freeform option ──────────
 
 function ModelCombobox({
   value,

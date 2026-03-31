@@ -237,7 +237,7 @@ function parseApiFlow(row: ApiFlow): FlowDefinition {
         }))
       : [];
   } catch {
-    // Corrupted definition — treat as empty
+    // Corrupted definition - treat as empty
   }
   // Extract teamType from definition or API row
   let teamType: TeamType = "hierarchy";
@@ -1016,7 +1016,7 @@ function FlowDeploymentNode({
         </div>
       )}
 
-      {/* Input handle (left) — always visible emerald, large hit area */}
+      {/* Input handle (left) - always visible emerald, large hit area */}
       <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center z-20">
         <Handle
           type="target"
@@ -1025,7 +1025,7 @@ function FlowDeploymentNode({
         />
       </div>
 
-      {/* Output handle (right) — always visible blue, large hit area */}
+      {/* Output handle (right) - always visible blue, large hit area */}
       <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center z-20">
         <Handle
           type="source"
@@ -1741,7 +1741,7 @@ function FlowToolbar({
 
             <div className="w-px h-6 bg-border mx-1" />
 
-            {/* Chat with Team button — prominent blue */}
+            {/* Chat with Team button - prominent blue */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

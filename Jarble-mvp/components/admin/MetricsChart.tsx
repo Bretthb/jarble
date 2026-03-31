@@ -70,7 +70,7 @@ export function MetricsChart({ title, series, unit, isLoading }: MetricsChartPro
     );
   }
 
-  // Sanitize labels — recharts interprets dots in dataKey as nested property
+  // Sanitize labels - recharts interprets dots in dataKey as nested property
   // access, so "10.0.1.10:9100" would fail. Replace dots/colons with safe chars.
   const safeKey = (label: string) => label.replace(/[.:]/g, "_");
 

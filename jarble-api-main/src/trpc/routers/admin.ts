@@ -623,7 +623,7 @@ const sendBetaInvite = adminProcedure
 
     const sent = await sendBetaWelcomeEmail(signup.email, signup.name);
     if (!sent) {
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to send email — check RESEND_API_KEY" });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to send email - check RESEND_API_KEY" });
     }
 
     await db

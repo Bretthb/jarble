@@ -174,7 +174,7 @@ describe.skip("useCanvasChat edge cases", () => {
   });
 
   afterEach(() => {
-    // Don't use vi.restoreAllMocks() — it undoes vi.mock() module mocks
+    // Don't use vi.restoreAllMocks() - it undoes vi.mock() module mocks
     // and breaks useAuth0/trpc/etc for subsequent tests
     vi.clearAllMocks();
   });
@@ -186,7 +186,7 @@ describe.skip("useCanvasChat edge cases", () => {
       mockFetchDropping([
         { type: "TEXT_MESSAGE_CONTENT", delta: "Hello, I'm working on " },
         { type: "TEXT_MESSAGE_CONTENT", delta: "your request..." },
-        // Stream drops here — no RUN_FINISHED
+        // Stream drops here - no RUN_FINISHED
       ], 2);
 
       const state = makeState();
@@ -458,7 +458,7 @@ describe.skip("useCanvasChat edge cases", () => {
 
   describe("abort and re-send", () => {
     it("handles rapid send-abort-send cycle", async () => {
-      // First fetch is slow — will be aborted
+      // First fetch is slow - will be aborted
       const abortError = new Error("The operation was aborted.");
       abortError.name = "AbortError";
 

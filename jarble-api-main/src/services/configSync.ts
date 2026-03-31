@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * Config Sync Service — Two-way config synchronization between DB and PVC
+ * Config Sync Service - Two-way config synchronization between DB and PVC
  * ═══════════════════════════════════════════════════════════════════════
  *
  * Direction 1: Frontend → PVC (syncConfigsToPvc)
@@ -265,7 +265,7 @@ async function buildDeploymentFields(
         });
       }
     } catch (err) {
-      // Table may not exist yet — non-fatal
+      // Table may not exist yet - non-fatal
       log.debug({ deploymentId: deployment.id, err }, "configSync: failed to load subagents (table may not exist yet)");
     }
   }
@@ -415,9 +415,9 @@ function compareSecrets(
  *     4. Compare secret entries with current K8s secret
  *
  *   Phase 2 - Execution (tiered by change type):
- *     File-only: Write configs to PVC — zero downtime
- *     Secret changed: Process restart via .reload marker — ~5-10s
- *     Secret removed or old image: Full pod restart — ~30-60s (fallback)
+ *     File-only: Write configs to PVC - zero downtime
+ *     Secret changed: Process restart via .reload marker - ~5-10s
+ *     Secret removed or old image: Full pod restart - ~30-60s (fallback)
  */
 /** Result of a configSync→PVC operation */
 export interface ConfigSyncResult {
@@ -464,7 +464,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
     previousStatus = deployment.status;
     const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
 
-    // 2. If deployment is still creating, just update the ConfigMap —
+    // 2. If deployment is still creating, just update the ConfigMap -
     //    the init container will copy files on boot, no need to wait for the pod.
     if (deployment.status === "creating") {
       const runtimeHandler = getHandlerOrNull(deployment.runtime);
@@ -555,7 +555,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
 
     if (!comparison.changed) {
       // ── Tier 1: File-only change (zero downtime) ──────────────────────
-      // Secrets are unchanged — update the ConfigMap (source of truth for
+      // Secrets are unchanged - update the ConfigMap (source of truth for
       // restarts) and write to the running pod's PVC for immediate effect.
       log.info({ deploymentId, tier: 1 }, "ConfigSync: starting tier 1 (file-only, zero downtime)");
       if (configFiles.length > 0) {
@@ -638,11 +638,11 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
         ...secretEntries,
       };
 
-      // Attempt process restart (operator mode skips Tier 2 — signalProcessRestart returns false)
+      // Attempt process restart (operator mode skips Tier 2 - signalProcessRestart returns false)
       const restarted = await signalProcessRestart(deploymentId, envOverrides, managedBy);
 
       if (restarted) {
-        // Process restart signaled — poll for readiness (shorter timeout since no pod recreation)
+        // Process restart signaled - poll for readiness (shorter timeout since no pod recreation)
         let ready = false;
         let failureReason = "";
         for (let i = 0; i < 30; i++) { // 30 × 2s = 60s max
@@ -677,7 +677,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
         }
       }
 
-      // Process restart not supported (old image without PID file) — fall through to Tier 3
+      // Process restart not supported (old image without PID file) - fall through to Tier 3
       log.info({ deploymentId }, "configSync→PVC: process restart not available, falling back to pod restart");
       await db.update(deployments)
         .set({ status: "restarting", error: null })
@@ -685,7 +685,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
     } else {
       // ── Tier 3 entry: Secrets removed (need full pod restart) ─────────
       log.info({ deploymentId, tier: 3 }, "ConfigSync: starting tier 3 (secrets removed, full pod restart)");
-      // Env vars can't be unset via .env sourcing — must recreate the pod
+      // Env vars can't be unset via .env sourcing - must recreate the pod
       // so the K8s Secret envFrom produces a clean environment.
 
       // Set transitional status
@@ -739,7 +739,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
         log.info({ deploymentId }, "ConfigSync: cleared stale .env before Tier 3 restart");
       }
     } catch {
-      // Pod may already be terminating — .env will be clean on next boot
+      // Pod may already be terminating - .env will be clean on next boot
       // since the init container doesn't create one.
     }
 
@@ -782,7 +782,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
       const affected = getRowsAffected(result);
       if (affected === 0) {
-        log.warn({ deploymentId }, "configSync→PVC: status update skipped — deployment no longer in 'restarting' state");
+        log.warn({ deploymentId }, "configSync→PVC: status update skipped - deployment no longer in 'restarting' state");
       } else {
         const durationMs = Date.now() - syncStartMs;
         log.info({ deploymentId, durationMs, tier: 3 }, "ConfigSync: completed (full pod restart)");
@@ -797,7 +797,7 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
         .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
       const affected = getRowsAffected(result);
       if (affected === 0) {
-        log.warn({ deploymentId, failureReason }, "configSync→PVC: failure status update skipped — deployment no longer in 'restarting' state");
+        log.warn({ deploymentId, failureReason }, "configSync→PVC: failure status update skipped - deployment no longer in 'restarting' state");
       } else {
         log.warn({ deploymentId, failureReason }, "configSync→PVC: pod failed to become ready");
       }
@@ -895,7 +895,7 @@ export async function syncConfigsFromPvc(deploymentId: string): Promise<void> {
     // 5. Parse files into DB fields
     const parsed = runtimeHandler.parseConfigs(files);
 
-    // 6. Compare to current DB values — only update if different
+    // 6. Compare to current DB values - only update if different
     const updates: Record<string, any> = {};
 
     if (parsed.systemPrompt !== undefined && parsed.systemPrompt !== (deployment.systemPrompt ?? undefined)) {
@@ -1024,7 +1024,7 @@ async function signalGatewayRestart(
 
     const pid = pidCheck.trim();
     if (!pid) {
-      // Old entrypoint — no reload support
+      // Old entrypoint - no reload support
       return false;
     }
 
@@ -1056,7 +1056,7 @@ async function signalGatewayRestart(
 
 /**
  * Stage the latest MCP server on a running pod's PVC.
- * Does NOT restart the gateway — safe to call while users are chatting.
+ * Does NOT restart the gateway - safe to call while users are chatting.
  * The update takes effect on the pod's next restart.
  *
  * Returns { staged, fromHash, toHash }.
@@ -1088,7 +1088,7 @@ export async function stageMcpServer(
       "sh", "-c", `cat ${mcpDir}/.version 2>/dev/null || echo ""`,
     ], containerName)).trim();
   } catch {
-    // No version file — needs update
+    // No version file - needs update
   }
 
   if (podHash === currentHash) {
@@ -1185,7 +1185,7 @@ export function isDeploymentActive(deploymentId: string): boolean {
 
 /**
  * Auto-sync MCP server to all running deployments.
- * - Active pods (users chatting): Stage only — no restart, no disruption.
+ * - Active pods (users chatting): Stage only - no restart, no disruption.
  * - Idle pods (no active sessions): Stage + restart gateway for immediate effect.
  */
 export async function syncMcpServerToAllRunning(): Promise<{
@@ -1206,12 +1206,12 @@ export async function syncMcpServerToAllRunning(): Promise<{
       const managedBy = (dep.managedBy ?? "legacy") as ManagedBy;
 
       if (isDeploymentActive(dep.id)) {
-        // User is chatting — stage only, don't interrupt
+        // User is chatting - stage only, don't interrupt
         const result = await stageMcpServer(dep.id, managedBy);
         if (result.staged) results.staged++;
         else results.skipped++;
       } else {
-        // Pod is idle — stage and apply (restart gateway)
+        // Pod is idle - stage and apply (restart gateway)
         const result = await syncMcpServer(dep.id, managedBy);
         if (result.updated) results.applied++;
         else results.skipped++;
@@ -1236,12 +1236,12 @@ export async function syncMcpServerToAllRunning(): Promise<{
  * Called when a component is installed on a deployment.
  *
  * Writes to two locations:
- * 1. /data/marketplace/{componentId}/ — manifest.json + component file (metadata)
- * 2. /data/components/{name}.json — define_component format (for MCP server discovery)
+ * 1. /data/marketplace/{componentId}/ - manifest.json + component file (metadata)
+ * 2. /data/components/{name}.json - define_component format (for MCP server discovery)
  *
  * The MCP server on the pod reads custom components from /data/components/ using
  * the same resolution path as bot-defined components (define_component tool).
- * This ensures marketplace components work transparently with render_ui — the
+ * This ensures marketplace components work transparently with render_ui - the
  * template gets resolved to built-in primitives that the frontend can render.
  *
  * @param deploymentId - Target deployment
@@ -1311,8 +1311,8 @@ export async function syncMarketplaceComponent(
  * Called when a component is uninstalled.
  *
  * Removes from both locations:
- * 1. /data/marketplace/{componentId}/ — metadata directory
- * 2. /data/components/{componentName}.json — define_component definition
+ * 1. /data/marketplace/{componentId}/ - metadata directory
+ * 2. /data/components/{componentName}.json - define_component definition
  *
  * @param deploymentId - Target deployment
  * @param componentId - Component to remove

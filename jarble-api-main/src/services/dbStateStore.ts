@@ -1,8 +1,8 @@
 /**
- * DbStateStore — Database-backed implementation of the StateStore interface.
+ * DbStateStore - Database-backed implementation of the StateStore interface.
  *
  * Uses Drizzle ORM for atomic operations. Rate limit increments use
- * `sql\`count + 1\`` for atomicity — no read-modify-write race conditions.
+ * `sql\`count + 1\`` for atomicity - no read-modify-write race conditions.
  * Circuit breaker HALF_OPEN probe coordination uses conditional updates.
  */
 

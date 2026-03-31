@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * AssistantUIChat — Thread-based chat component powered by assistant-ui.
+ * AssistantUIChat - Thread-based chat component powered by assistant-ui.
  *
  * Replaces the inline chat rendering in the workspace page with assistant-ui
  * primitives. Gains: message editing, regeneration, copy-to-clipboard,
@@ -70,7 +70,7 @@ function AssistantUIChatInner({
             }}
           />
 
-          {/* Agent orchestration steps — multi-step progress for compose/debug/test tools */}
+          {/* Agent orchestration steps - multi-step progress for compose/debug/test tools */}
           {isStreaming && orchestrationSteps.length > 0 && (
             <OrchestrationSteps
               steps={orchestrationSteps}
@@ -78,7 +78,7 @@ function AssistantUIChatInner({
             />
           )}
 
-          {/* Agent delegation indicator — shows when bot is calling another agent */}
+          {/* Agent delegation indicator - shows when bot is calling another agent */}
           {isStreaming && activeAgentCall && orchestrationSteps.length === 0 && (
             <div className="flex items-center gap-2 px-4 py-2 animate-in fade-in slide-in-from-bottom-1 duration-200">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
@@ -94,7 +94,7 @@ function AssistantUIChatInner({
             </div>
           )}
 
-          {/* Tool status indicator — shows what the bot is doing during streaming */}
+          {/* Tool status indicator - shows what the bot is doing during streaming */}
           {isStreaming && toolStatus && !activeAgentCall && orchestrationSteps.length === 0 && (
             <div className="flex items-center gap-2 px-4 py-1.5 animate-in fade-in slide-in-from-bottom-1 duration-200">
               <Loader2 className="w-3 h-3 text-primary/60 animate-spin" />
@@ -104,7 +104,7 @@ function AssistantUIChatInner({
             </div>
           )}
 
-          {/* Suggestion pills — rendered directly from our state, bypassing assistant-ui store */}
+          {/* Suggestion pills - rendered directly from our state, bypassing assistant-ui store */}
           {!isStreaming && suggestions.length > 0 && (
             <div className="flex flex-wrap gap-2 px-4 py-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
               {suggestions.map((s, i) => (
@@ -128,7 +128,7 @@ function AssistantUIChatInner({
           )}
         </ThreadPrimitive.Viewport>
 
-        {/* Composer — rendered separately by parent to include selected card chip */}
+        {/* Composer - rendered separately by parent to include selected card chip */}
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );

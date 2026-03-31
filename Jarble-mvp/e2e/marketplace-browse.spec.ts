@@ -3,7 +3,7 @@ import { attachAllLoggers, screenshotMilestone } from "./helpers/logging";
 import { setupAuthIntercept } from "./helpers/auth";
 import { switchToTab } from "./helpers/marketplace";
 
-test.describe("Marketplace — Components tab", () => {
+test.describe("Marketplace - Components tab", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -55,7 +55,7 @@ test.describe("Marketplace — Components tab", () => {
     const searchInput = page.getByPlaceholder("Search components...");
     await searchInput.fill("chart");
 
-    // Clear (X) button should appear — it's a <button> inside the search wrapper
+    // Clear (X) button should appear - it's a <button> inside the search wrapper
     const clearBtn = page.locator("button").filter({ has: page.locator('svg.lucide-x') }).first();
     await expect(clearBtn).toBeVisible();
 

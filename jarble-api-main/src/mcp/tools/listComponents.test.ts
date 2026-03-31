@@ -1,5 +1,5 @@
 /**
- * Tests for list_components MCP Tool — component discovery.
+ * Tests for list_components MCP Tool - component discovery.
  *
  * Covers: built-in listing, custom component integration, response format,
  * edge cases with empty/failing PVC reads.

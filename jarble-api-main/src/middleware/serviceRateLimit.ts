@@ -1,5 +1,5 @@
 /**
- * Per-Service Rate Limiting — Service Proxy Middleware
+ * Per-Service Rate Limiting - Service Proxy Middleware
  *
  * Enforces the rate limits declared in a ServiceCard's `rateLimits` field:
  *   - requestsPerMinute: fixed 1-minute window
@@ -114,14 +114,14 @@ export async function checkServiceRateLimit(
   now: number = Date.now(),
   store: StateStore = defaultStore,
 ): Promise<RateLimitResult> {
-  // No rate limits configured — always allow.
+  // No rate limits configured - always allow.
   if (!rateLimits) {
     return { allowed: true };
   }
 
   const { requestsPerMinute, requestsPerDay } = rateLimits;
 
-  // Both limits are undefined — always allow.
+  // Both limits are undefined - always allow.
   if (requestsPerMinute === undefined && requestsPerDay === undefined) {
     return { allowed: true };
   }
@@ -171,7 +171,7 @@ export async function checkServiceRateLimit(
     }
   }
 
-  // Allowed — increment both counters atomically.
+  // Allowed - increment both counters atomically.
   await store.incrementRateLimitWindow(deploymentId, serviceId, "minute", minuteWindowStart);
   await store.incrementRateLimitWindow(deploymentId, serviceId, "day", dayWindowStart);
 

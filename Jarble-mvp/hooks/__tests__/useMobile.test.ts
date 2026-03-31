@@ -71,7 +71,7 @@ describe("useIsMobile", () => {
     mockMatchMedia(true);
 
     const { result } = renderHook(() => useIsMobile());
-    // After mount, the effect has already run — should reflect the actual width
+    // After mount, the effect has already run - should reflect the actual width
     expect(result.current).toBe(true);
   });
 

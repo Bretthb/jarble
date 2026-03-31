@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * FreeformCanvas — absolute-positioned, draggable, resizable card canvas.
+ * FreeformCanvas - absolute-positioned, draggable, resizable card canvas.
  *
  * Cards are positioned freely (not in a grid). Users drag to move, drag
  * bottom-right handle to resize. Optional grid-snap toggle.
@@ -150,7 +150,7 @@ function SimpleCanvasGridInner({
   // Track observed elements so we can unobserve when they unmount
   const observedElementsRef = useRef(new Map<string, HTMLDivElement>());
 
-  // Stable callback ref for content divs — uses data attribute instead of closure
+  // Stable callback ref for content divs - uses data attribute instead of closure
   const autoHeightRefCallback = useCallback((el: HTMLDivElement | null) => {
     const observer = autoHeightObserverRef.current;
     if (!observer) return;
@@ -434,7 +434,7 @@ function SimpleCanvasGridInner({
 
   const handleSaveClick = useCallback((card: CanvasCard) => {
     if (card.savedName) {
-      // Already saved — toggle unsave confirmation
+      // Already saved - toggle unsave confirmation
       setUnsavingCardId(prev => prev === card.id ? null : card.id);
       setSavingCardId(null); setSaveNameInput("");
       return;
@@ -575,19 +575,19 @@ function SimpleCanvasGridInner({
         onKeyDown={handleGridKeyDown}
         className="flex-1 overflow-auto relative"
         style={{
-          // Dot grid background — adjust for zoom
+          // Dot grid background - adjust for zoom
           backgroundImage: gridSnap
             ? `radial-gradient(circle, hsl(var(--border) / 0.3) 1px, transparent 1px)`
             : `radial-gradient(circle, hsl(var(--border) / 0.15) 1px, transparent 1px)`,
           backgroundSize: `${SNAP_SIZE * zoom}px ${SNAP_SIZE * zoom}px`,
         }}
       >
-        {/* Zoom wrapper — scales all canvas content */}
+        {/* Zoom wrapper - scales all canvas content */}
         <div style={{ transform: `scale(${zoom})`, transformOrigin: "top left", width: `${100 / zoom}%` }}>
         {/* Spacer to make the canvas scrollable beyond the last card */}
         <div style={{ width: Math.max(1200, ...cards.map(c => c.position.x + c.size.width + 100)), height: Math.max(800, ...cards.map(c => c.position.y + c.size.height + 100)) }} />
 
-        {/* Dashboard group frames — rendered behind cards */}
+        {/* Dashboard group frames - rendered behind cards */}
         {Object.entries(dashboardGroups).map(([groupId, meta]) => {
           const groupCards = meta.cardIds
             .map(id => cards.find(c => c.id === id))
@@ -618,7 +618,7 @@ function SimpleCanvasGridInner({
           );
         })}
 
-        {/* Drawing layer — strokes rendered below cards */}
+        {/* Drawing layer - strokes rendered below cards */}
         <DrawingLayer
           strokes={strokes}
           activePoints={drawing.activePoints}
@@ -629,7 +629,7 @@ function SimpleCanvasGridInner({
           onDeleteStroke={drawing.deleteStroke}
         />
 
-        {/* Drawing capture div — intercepts pointer events when drawing tool is active */}
+        {/* Drawing capture div - intercepts pointer events when drawing tool is active */}
         {drawing.activeTool && drawing.activeTool !== "eraser" && (
           <div
             className="absolute inset-0"
@@ -656,7 +656,7 @@ function SimpleCanvasGridInner({
           />
         )}
 
-        {/* Provenance arrows — connect child cards to their parent */}
+        {/* Provenance arrows - connect child cards to their parent */}
         <svg className="absolute inset-0 pointer-events-none" style={{ zIndex: 0, overflow: "visible" }}>
           <defs>
             <marker id="arrow-head" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
@@ -759,7 +759,7 @@ function SimpleCanvasGridInner({
                       : "cursor-grab"
               }`}
             >
-              {/* Page badge — always visible on page-type cards */}
+              {/* Page badge - always visible on page-type cards */}
               {card.component === "page" && (
                 <div className="absolute top-1 left-1 z-20 pointer-events-none">
                   <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 text-[9px] font-semibold uppercase tracking-wider backdrop-blur-sm border border-purple-500/20">
@@ -768,7 +768,7 @@ function SimpleCanvasGridInner({
                 </div>
               )}
 
-              {/* Card menu trigger — small ... button, top-right corner */}
+              {/* Card menu trigger - small ... button, top-right corner */}
               <div
                 className="absolute top-1 right-1 z-20 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center gap-1"
                 onContextMenu={(e) => e.stopPropagation()}
@@ -805,7 +805,7 @@ function SimpleCanvasGridInner({
               </div>
 
 
-              {/* Save name input — overlay below header */}
+              {/* Save name input - overlay below header */}
               {savingCardId === card.id && (
                 <div className="absolute top-6 left-0 right-0 z-20 flex items-center gap-1 px-2 py-1 bg-background/90 backdrop-blur-sm border-b border-border/20"
                   onPointerDown={(e) => e.stopPropagation()}>
@@ -826,7 +826,7 @@ function SimpleCanvasGridInner({
                 </div>
               )}
 
-              {/* Unsave confirmation — overlay below header */}
+              {/* Unsave confirmation - overlay below header */}
               {unsavingCardId === card.id && (
                 <div className="absolute top-6 left-0 right-0 z-20 flex items-center gap-1.5 px-2 py-1 bg-background/90 backdrop-blur-sm border-b border-border/20"
                   onPointerDown={(e) => e.stopPropagation()}>
@@ -842,7 +842,7 @@ function SimpleCanvasGridInner({
                 </div>
               )}
 
-              {/* Inline chat input — appears when card is selected and has the sparkle button */}
+              {/* Inline chat input - appears when card is selected and has the sparkle button */}
               {inlineChatCardId === card.id && onSendMessage && (
                 <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center gap-1 px-2 py-1.5 bg-background/95 backdrop-blur-sm border-t border-primary/30 rounded-b-lg"
                   onPointerDown={(e) => e.stopPropagation()}>
@@ -871,7 +871,7 @@ function SimpleCanvasGridInner({
                 </div>
               )}
 
-              {/* Props-lost banner — shown for cards whose data was stripped during persistence */}
+              {/* Props-lost banner - shown for cards whose data was stripped during persistence */}
               {card.propsLost && (
                 <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs">
                   <span>Data lost on reload</span>
@@ -887,7 +887,7 @@ function SimpleCanvasGridInner({
                 </div>
               )}
 
-              {/* Card content — fills entire card, auto-height measured */}
+              {/* Card content - fills entire card, auto-height measured */}
               <div
                 ref={card.autoHeight !== false ? autoHeightRefCallback : undefined}
                 data-auto-height-id={card.autoHeight !== false ? card.id : undefined}
@@ -896,7 +896,7 @@ function SimpleCanvasGridInner({
                 {renderCard(card)}
               </div>
 
-              {/* Resize handle — bottom right */}
+              {/* Resize handle - bottom right */}
               <div
                 onPointerDown={(e) => handleResizeStart(e, card)}
                 role="slider"
@@ -921,7 +921,7 @@ function SimpleCanvasGridInner({
         </AnimatePresence>
         </div>{/* /zoom wrapper */}
 
-        {/* Selection branch prompt — appears when a card is selected */}
+        {/* Selection branch prompt - appears when a card is selected */}
         {onSendMessage && (() => {
           const selected = cards.find(c => c.selected);
           return selected ? (
@@ -967,7 +967,7 @@ function SimpleCanvasGridInner({
           </div>
         )}
 
-        {/* Card context menu — rendered at canvas root to avoid transform issues */}
+        {/* Card context menu - rendered at canvas root to avoid transform issues */}
         {contextMenu && (() => {
           const card = cards.find(c => c.id === contextMenu.cardId);
           if (!card) return null;
@@ -1019,7 +1019,7 @@ function SimpleCanvasGridInner({
           );
         })()}
 
-        {/* Zoom controls — bottom right of canvas */}
+        {/* Zoom controls - bottom right of canvas */}
         <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-background/90 backdrop-blur-sm px-1 py-0.5 shadow-sm">
           <button
             onClick={() => dispatch({ type: "SET_ZOOM", zoom: zoom - 0.1 })}

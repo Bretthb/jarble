@@ -15,7 +15,7 @@ import { isStripeConfigured, cancelSubscriptionImmediately } from "./stripe.js";
  *   4. Delete Auth0 user
  *
  * Errors in external services (Stripe, K8s, Auth0) are logged but do NOT
- * block deletion — the user's data is removed regardless.
+ * block deletion - the user's data is removed regardless.
  */
 export async function deleteAccount(params: {
   userId: string;
@@ -52,7 +52,7 @@ export async function deleteAccount(params: {
       } catch (err) {
         logger.error(
           { userId, deploymentId: dep.id, subscriptionId: dep.stripeSubscriptionId, err },
-          "Account deletion: failed to cancel Stripe subscription — continuing"
+          "Account deletion: failed to cancel Stripe subscription - continuing"
         );
       }
     }
@@ -69,12 +69,12 @@ export async function deleteAccount(params: {
         } catch (err) {
           logger.error(
             { userId, deploymentId: depId, err },
-            "Account deletion: failed to delete K8s resources — continuing"
+            "Account deletion: failed to delete K8s resources - continuing"
           );
         }
       }
     } catch (err) {
-      logger.error({ userId, err }, "Account deletion: failed to load K8s module — continuing");
+      logger.error({ userId, err }, "Account deletion: failed to load K8s module - continuing");
     }
   } else {
     logger.info({ userId }, "Account deletion: skipping K8s cleanup (SQLite/local dev)");
@@ -209,7 +209,7 @@ export async function deleteAccount(params: {
     } catch (err) {
       logger.error(
         { userId, auth0Id, err },
-        "Account deletion: Auth0 deletion failed — continuing"
+        "Account deletion: Auth0 deletion failed - continuing"
       );
     }
   } else {

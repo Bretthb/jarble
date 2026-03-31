@@ -22,7 +22,7 @@ const COMMANDS: SlashCommand[] = [
 ];
 
 interface SlashCommandMenuProps {
-  query: string; // text after "/" — e.g. "th" for "/th"
+  query: string; // text after "/" - e.g. "th" for "/th"
   onSelect: (command: string) => void;
   onClose: () => void;
   selectedIndex: number;

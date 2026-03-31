@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * SandboxConfigPanel — renders a config UI from a JSON Schema.
+ * SandboxConfigPanel - renders a config UI from a JSON Schema.
  *
  * Sandbox components can declare a `configSchema` (JSON Schema format) in their
  * props. This panel renders form fields for each schema property, allowing users

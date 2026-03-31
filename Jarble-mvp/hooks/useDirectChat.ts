@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * useDirectChat — Slim streaming hook for direct bot chat via SSE.
+ * useDirectChat - Slim streaming hook for direct bot chat via SSE.
  *
  * Handles text deltas and UI blocks from the pod proxy.
  * No tool call handling (management goes through the config panel).
@@ -29,7 +29,7 @@ export interface DirectChatMessage {
   uiBlocks?: UIBlock[];
   /** Optional friendly text shown in chat instead of raw content (e.g. action relay messages) */
   displayText?: string;
-  /** If true, this message is an action relay — styled more compactly in chat */
+  /** If true, this message is an action relay - styled more compactly in chat */
   isActionRelay?: boolean;
   /** Accumulated thinking/reasoning text from the LLM */
   thinkingText?: string;
@@ -109,7 +109,7 @@ export function useDirectChat(deploymentId: string) {
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "Request failed");
-          console.error(`[Jarble:DirectChat] SSE error: HTTP ${res.status} — ${errText.slice(0, 200)}`);
+          console.error(`[Jarble:DirectChat] SSE error: HTTP ${res.status} - ${errText.slice(0, 200)}`);
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId ? { ...m, content: `Error: ${errText}` } : m
@@ -301,7 +301,7 @@ export function useDirectChat(deploymentId: string) {
         setIsStreaming(false);
       }
     },
-    // Stable deps — isStreaming replaced by isStreamingRef, messages replaced by messagesRef
+    // Stable deps - isStreaming replaced by isStreamingRef, messages replaced by messagesRef
     [deploymentId, getAccessTokenSilently]
   );
 

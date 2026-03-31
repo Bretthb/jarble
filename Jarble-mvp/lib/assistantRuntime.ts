@@ -27,7 +27,7 @@ interface JarbleRuntimeOptions {
 }
 
 function convertMessage(msg: ChatMessage): ThreadMessageLike {
-  // Build content parts — include reasoning before text if available
+  // Build content parts - include reasoning before text if available
   const contentParts: Array<
     | { type: "text"; text: string }
     | { type: "reasoning"; text: string }

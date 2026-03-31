@@ -29,7 +29,7 @@ const FAQ = [
   },
   {
     question: "How is pricing calculated?",
-    answer: "Pricing is based on the runtime you choose. Each runtime has preset hardware specs (CPU, RAM, Storage) and a fixed monthly price. You only pay for what you deploy — no hidden fees."
+    answer: "Pricing is based on the runtime you choose. Each runtime has preset hardware specs (CPU, RAM, Storage) and a fixed monthly price. You only pay for what you deploy - no hidden fees."
   },
   {
     question: "Can I use my own API keys?",
@@ -41,7 +41,7 @@ const FAQ = [
   },
   {
     question: "Can I create multiple deployments?",
-    answer: "Absolutely! There are no deployment limits. Create as many deployments as you need — each is billed separately based on its runtime."
+    answer: "Absolutely! There are no deployment limits. Create as many deployments as you need - each is billed separately based on its runtime."
   },
 ];
 
@@ -78,7 +78,7 @@ export default function Pricing() {
         </div>
       </section>
 
-      {/* Compute Pricing — Runtime Cards */}
+      {/* Compute Pricing - Runtime Cards */}
       <section className="pb-20 relative z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
@@ -87,7 +87,7 @@ export default function Pricing() {
               Compute
             </div>
             <h2 className="text-3xl font-serif font-medium mb-2">Runtime Catalog</h2>
-            <p className="text-muted-foreground">Each runtime comes with preset hardware — choose what fits your needs</p>
+            <p className="text-muted-foreground">Each runtime comes with preset hardware - choose what fits your needs</p>
           </div>
 
           {runtimesQuery.isLoading ? (
@@ -251,7 +251,7 @@ export default function Pricing() {
                       Coming Soon
                     </span>
                   </div>
-                  <p className="text-sm text-muted-foreground">We handle everything — just deploy and go</p>
+                  <p className="text-sm text-muted-foreground">We handle everything - just deploy and go</p>
                 </div>
               </div>
 

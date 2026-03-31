@@ -15,7 +15,7 @@ import { encodeConfigKey, decodeConfigKey } from "./configmap.js";
 
 // ── encodeConfigKey (legacy mode) ────────────────────────────────────────────
 
-describe("encodeConfigKey — legacy mode", () => {
+describe("encodeConfigKey - legacy mode", () => {
   it("returns relative paths unchanged", () => {
     expect(encodeConfigKey("soul.md")).toBe("soul.md");
   });
@@ -48,7 +48,7 @@ describe("encodeConfigKey — legacy mode", () => {
 
 // ── encodeConfigKey (operator mode) ──────────────────────────────────────────
 
-describe("encodeConfigKey — operator mode", () => {
+describe("encodeConfigKey - operator mode", () => {
   it("returns relative paths unchanged", () => {
     expect(encodeConfigKey("soul.md", "operator")).toBe("soul.md");
   });

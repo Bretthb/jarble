@@ -1,5 +1,5 @@
 /**
- * Bridge Data Fetch — routes sandbox jarble.fetch() requests to MCP tools and services.
+ * Bridge Data Fetch - routes sandbox jarble.fetch() requests to MCP tools and services.
  *
  * POST /api/deployments/:id/bridge/fetch
  * Auth: Bearer JWT (user must own the deployment)
@@ -136,7 +136,7 @@ async function executeServiceCall(
 
   if (!serviceId) throw new Error(`Service "${payload.service}" not found or not installed`);
 
-  // Internal redirect to the existing service proxy — reuses all rate limiting,
+  // Internal redirect to the existing service proxy - reuses all rate limiting,
   // circuit breaking, HMAC signing, input/output validation
   const apiBase = process.env.JARBLE_API_URL ?? process.env.API_BASE_URL ?? "http://localhost:3001";
   const proxyUrl = `${apiBase}/api/services/proxy/${deploymentId}/${serviceId}/${payload.endpoint}`;
@@ -205,7 +205,7 @@ bridgeFetchRouter.post("/:id/bridge/fetch", async (req: Request, res: Response) 
       return;
     }
   } catch {
-    // In dev mode (SQLite), auth may not be configured — allow through
+    // In dev mode (SQLite), auth may not be configured - allow through
     // But NEVER in production, even if USE_SQLITE is accidentally set
     if (process.env.USE_SQLITE !== "true" || process.env.NODE_ENV === "production") {
       res.status(401).json({ error: "Invalid token" });

@@ -28,7 +28,7 @@ test.describe("Canvas custom component define & render", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -79,7 +79,7 @@ test.describe("Canvas custom component define & render", () => {
       await screenshotMilestone(page, testInfo, `${entry.id}-rendered-bob`);
     }
 
-    // Step 4 (custom-04): List components — should include "status_badge"
+    // Step 4 (custom-04): List components - should include "status_badge"
     {
       const entry = CUSTOM_COMPONENT_PROMPTS[3];
       await sendPromptAndWait(page, entry.prompt);
@@ -135,7 +135,7 @@ test.describe("Canvas custom component define & render", () => {
       await screenshotMilestone(page, testInfo, `${entry.id}-rendered`);
     }
 
-    // Step 8 (custom-08): Render unknown component — bot should handle gracefully
+    // Step 8 (custom-08): Render unknown component - bot should handle gracefully
     {
       const entry = CUSTOM_COMPONENT_PROMPTS[7];
       await sendPromptAndWait(page, entry.prompt);

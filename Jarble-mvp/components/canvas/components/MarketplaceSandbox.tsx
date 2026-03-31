@@ -18,7 +18,7 @@ export interface MarketplaceSandboxProps {
   title?: string;
   /** CDN libraries to load (e.g. ["https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"]) */
   libraries?: string[];
-  /** Marketplace component ID — triggers double-iframe mode */
+  /** Marketplace component ID - triggers double-iframe mode */
   marketplaceId?: string;
 }
 
@@ -44,7 +44,7 @@ function MarketplaceSandboxInner({
   // Sanitize: extract <script>/<style>/<link> tags from html prop into proper fields
   const sanitized = sanitizeHtmlProp(html, js, libraries, "[Jarble:MarketplaceSandbox]", css);
 
-  // Build the inner document (component content) — inject parent theme vars
+  // Build the inner document (component content) - inject parent theme vars
   const innerSrcdoc = buildDocument(
     sanitized.html,
     sanitized.css,
@@ -61,7 +61,7 @@ function MarketplaceSandboxInner({
 
   isDev &&
     console.log(
-      "[Jarble:MarketplaceSandbox] Render — html:",
+      "[Jarble:MarketplaceSandbox] Render - html:",
       html?.length,
       "chars, css:",
       css?.length || 0,
@@ -237,7 +237,7 @@ function MarketplaceSandboxInner({
       bridgeReadyRef.current = false;
       isDev &&
         console.log(
-          "[Jarble:MarketplaceSandbox] Stopped — outer iframe destroyed",
+          "[Jarble:MarketplaceSandbox] Stopped - outer iframe destroyed",
         );
     }
   }, [stopped]);

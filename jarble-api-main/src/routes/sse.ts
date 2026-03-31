@@ -297,7 +297,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
     const markConnected = async () => {
       if (connected) return;
       connected = true;
-      // Clear the 90s pairing timeout — QR was scanned successfully
+      // Clear the 90s pairing timeout - QR was scanned successfully
       if (pairingTimeout) {
         clearTimeout(pairingTimeout);
         pairingTimeout = null;
@@ -411,7 +411,7 @@ sseRouter.get("/:id/whatsapp/qr", async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error" });
     } else {
-      // Headers already sent — SSE connection open but broken, must close it
+      // Headers already sent - SSE connection open but broken, must close it
       if (user) releaseConnection(user.id);
       res.end();
     }
@@ -475,7 +475,7 @@ sseRouter.get("/status/stream", async (req, res) => {
 
       // Subscribe to all deployments in parallel.
       // For deployments in transitional states (creating/restarting/stopping),
-      // we still subscribe — the cache will query K8s and report the actual pod state.
+      // we still subscribe - the cache will query K8s and report the actual pod state.
       // For non-transitional states, the cache deduplicates across connections.
       const initialStatuses = await Promise.all(
         userDeployments.map(async (dep) => {
@@ -483,7 +483,7 @@ sseRouter.get("/status/stream", async (req, res) => {
           const isTransitional = ["creating", "restarting", "stopping"].includes(dbStatus);
 
           if (!isTransitional && dbStatus !== "running" && dbStatus !== "failed") {
-            // Stopped or other non-pollable state — use DB status directly
+            // Stopped or other non-pollable state - use DB status directly
             return { deploymentId: dep.id, status: dbStatus };
           }
 

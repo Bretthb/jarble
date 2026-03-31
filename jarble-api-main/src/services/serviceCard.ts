@@ -1,5 +1,5 @@
 /**
- * ServiceCard — Structured descriptor for remote/hybrid marketplace services.
+ * ServiceCard - Structured descriptor for remote/hybrid marketplace services.
  *
  * When a creator publishes a remote service, they provide a ServiceCard that
  * describes their API endpoint, authentication requirements, exposed skills
@@ -19,7 +19,7 @@ import { validateExternalUrl } from "../utils/urlValidation.js";
 
 // ── JSON Schema sub-schema ──────────────────────────────────────────────────
 // Lightweight validator for JSON Schema objects used in skill input/output.
-// We only require `type: "object"` with `properties` — full draft-07 validation
+// We only require `type: "object"` with `properties` - full draft-07 validation
 // happens at proxy time via the existing schemaValidation utility.
 
 const jsonSchemaSchema = z
@@ -46,10 +46,10 @@ export const serviceCardSkillSchema = z.object({
   /** Human-readable description shown to the LLM. */
   description: z.string().min(1).max(1000),
 
-  /** JSON Schema for tool call arguments — validated at proxy before forwarding. */
+  /** JSON Schema for tool call arguments - validated at proxy before forwarding. */
   inputSchema: jsonSchemaSchema,
 
-  /** Optional JSON Schema for the expected response — validated on response at proxy. */
+  /** Optional JSON Schema for the expected response - validated on response at proxy. */
   outputSchema: jsonSchemaSchema.optional(),
 
   /** How the platform executes this skill: "handler" runs JS inline, "agent" delegates to a bot. */

@@ -1,5 +1,5 @@
 /**
- * Dashboard Planner Agent — Phase 1 of the 3-phase compose pipeline.
+ * Dashboard Planner Agent - Phase 1 of the 3-phase compose pipeline.
  *
  * Takes the user's dashboard request and outputs a structured JSON spec:
  * layout grid, per-slot type assignments (native vs sandbox), and theme tokens.
@@ -39,7 +39,7 @@ function buildComponentCatalog(): string {
   for (const name of DASHBOARD_NATIVE_COMPONENTS) {
     const entry = COMPONENT_MANIFEST[name];
     if (!entry) continue;
-    lines.push(`- **${name}**: ${entry.description} — ${entry.reference}`);
+    lines.push(`- **${name}**: ${entry.description} - ${entry.reference}`);
   }
   return lines.join("\n");
 }
@@ -50,8 +50,8 @@ export const DASHBOARD_PLANNER_SYSTEM_PROMPT = `You are a Dashboard Layout Plann
 
 ## Your Job
 Decompose the request into 2-8 component slots. For each slot, decide:
-- **type: "native"** — use when the data fits a known component schema cleanly AND the component has built-in interactivity (sorting, pagination, form inputs, tooltips). Native components render instantly with no iframe overhead.
-- **type: "sandbox"** — use when you need custom visualization (Chart.js/D3 charts, 3D scenes, animated widgets, gauges, heatmaps, complex multi-element compositions, live data fetching). Sandbox components have full HTML/CSS/JS freedom.
+- **type: "native"** - use when the data fits a known component schema cleanly AND the component has built-in interactivity (sorting, pagination, form inputs, tooltips). Native components render instantly with no iframe overhead.
+- **type: "sandbox"** - use when you need custom visualization (Chart.js/D3 charts, 3D scenes, animated widgets, gauges, heatmaps, complex multi-element compositions, live data fetching). Sandbox components have full HTML/CSS/JS freedom.
 
 ## Decision Criteria
 - Data tables → **native** (built-in sorting, pagination, column resizing)
@@ -102,10 +102,10 @@ Return ONLY valid JSON (no markdown fences, no commentary):
 - columns: 1-4 (usually 2)
 - colSpan per slot: 1-4, must not exceed columns
 - Row slots colSpans must sum to columns (or less)
-- Always include "sharedContext" — a 1-line description of the dashboard's domain
+- Always include "sharedContext" - a 1-line description of the dashboard's domain
 - For native slots: "component" is required, set to one of the native component names above
 - For sandbox slots: omit "component", the intent drives the generation
 - If the user provides data, include a "data" field on the relevant slot with the actual data
-- Prefer sandbox for charts — they produce much higher quality visualizations than the native chart component
+- Prefer sandbox for charts - they produce much higher quality visualizations than the native chart component
 - Group related KPIs into a single stat_grid slot rather than separate metric_cards
 `;

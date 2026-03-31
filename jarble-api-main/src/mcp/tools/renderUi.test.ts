@@ -1,5 +1,5 @@
 /**
- * Tests for render_ui MCP Tool — server-side component rendering.
+ * Tests for render_ui MCP Tool - server-side component rendering.
  *
  * Covers: builtin component rendering, props validation, custom component
  * resolution, error formatting, and edge cases.
@@ -11,7 +11,7 @@ vi.mock("../../k8s/index.js", () => ({
   readComponentFromPvc: vi.fn(),
 }));
 
-// Mock componentResolver — keep isBuiltinComponent real, mock resolveCustomComponent
+// Mock componentResolver - keep isBuiltinComponent real, mock resolveCustomComponent
 vi.mock("../../utils/componentResolver.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../utils/componentResolver.js")>();
   return {
@@ -510,7 +510,7 @@ describe("props passthrough", () => {
 
 describe("components without schema", () => {
   it("renders successfully when no schema exists for validation", async () => {
-    // Some builtins might not have schemas — test that it still works
+    // Some builtins might not have schemas - test that it still works
     // We test with divider which has minimal/no required props
     const result = await renderUiTool.execute(
       { component: "divider", props: {} },

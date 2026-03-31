@@ -80,7 +80,7 @@ async function mgmtApi(
   }
 
   if (!res.ok) {
-    // 409 = already exists — that's fine for some operations
+    // 409 = already exists - that's fine for some operations
     if (res.status === 409) return data;
     throw new Error(
       `Management API ${method} ${endpoint} failed (${res.status}): ${typeof data === "string" ? data : JSON.stringify(data)}`,

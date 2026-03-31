@@ -141,7 +141,7 @@ vi.mock("../../services/prometheus.js", () => ({
   QUERY_KEYS: ["node_cpu", "node_memory", "node_disk", "running_pods", "pod_restarts"],
 }));
 
-// Mock auditLog — the admin router calls logAdminAction which also uses module-level `db`.
+// Mock auditLog - the admin router calls logAdminAction which also uses module-level `db`.
 // By mocking this, we avoid the audit log trying to hit a different DB instance.
 const mockLogAdminAction = vi.fn().mockResolvedValue(undefined);
 vi.mock("../../services/auditLog.js", () => ({
@@ -165,7 +165,7 @@ vi.mock("../../utils/env.js", () => ({
 
 // ── Schema SQL (same as testDb.ts) ──────────────────────────────────────────
 
-// We reuse the same CREATE TABLE SQL from testDb — kept in sync with db/init.ts
+// We reuse the same CREATE TABLE SQL from testDb - kept in sync with db/init.ts
 const CREATE_TABLES_SQL = `
   CREATE TABLE IF NOT EXISTS runtime_catalog (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

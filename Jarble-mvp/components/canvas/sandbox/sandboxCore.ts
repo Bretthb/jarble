@@ -14,7 +14,7 @@ import { HEARTBEAT_INTERVAL_MS } from "./types";
 const isDev = process.env.NODE_ENV === "development";
 
 /**
- * Default ESM import map — pre-configured for common libraries.
+ * Default ESM import map - pre-configured for common libraries.
  * Merged with user-supplied importMap in buildDocument().
  * Unused entries have zero runtime cost (browsers ignore them).
  */
@@ -56,7 +56,7 @@ export function escapeAttr(s: string): string {
 /**
  * Sanitize the html prop: extract inline <script> content into JS,
  * extract <script src> URLs into libraries, strip structural tags.
- * LLMs often dump full HTML documents into the html prop — this normalizes them.
+ * LLMs often dump full HTML documents into the html prop - this normalizes them.
  */
 export function sanitizeHtmlProp(
   html: string,
@@ -189,7 +189,7 @@ export function sanitizeHtmlProp(
 
   if (extractedJs.length > 0 || extractedModuleJs.length > 0 || extractedLibs.length > (existingLibs?.length || 0) || extractedCss.length > 0) {
     isDev && console.log(
-      `${logPrefix} Sanitized html prop — extracted`,
+      `${logPrefix} Sanitized html prop - extracted`,
       extractedJs.length, "script blocks,",
       extractedModuleJs.length, "module script blocks,",
       extractedCss.length, "style blocks,",
@@ -230,7 +230,7 @@ function buildSkinCSS(skinName: string): string {
 /**
  * Build the full HTML document for a sandbox iframe.
  *
- * Rendered via srcdoc — without allow-same-origin the iframe gets a unique
+ * Rendered via srcdoc - without allow-same-origin the iframe gets a unique
  * opaque origin and CANNOT access the parent page's DOM, cookies, or storage.
  *
  * @param config.logPrefix - Log prefix for console messages (e.g. "[Jarble:Sandbox]" or "[Jarble:MarketplaceSandbox:Inner]")
@@ -282,7 +282,7 @@ export function buildDocument(
 
   const cdnOrigins = TRUSTED_CDN_ORIGINS.join(" ");
   // CSP strategy: the iframe `sandbox` attribute (no allow-same-origin) is the
-  // primary security boundary — opaque origin, no parent access, no cookies.
+  // primary security boundary - opaque origin, no parent access, no cookies.
   // CSP is defense-in-depth:
   //   - Scripts locked to trusted CDNs (prevent loading malicious JS)
   //   - Passive content (images, media, fonts) open to any HTTPS (zero exec risk)
@@ -343,14 +343,14 @@ ${tailwindUrl ? `<script src="${escapeAttr(tailwindUrl)}"><\/script>` : ""}
 <body>
 ${html}
 <script>
-// Error overlay — show errors visually AND report to parent
+// Error overlay - show errors visually AND report to parent
 window.onerror = function(msg, src, line, col, err) {
   console.error("${logPrefix} Error:", msg, src, line, col);
   var d = document.createElement("div");
   d.style.cssText = "position:fixed;top:0;left:0;right:0;padding:8px 12px;background:#fee;color:#c00;font:12px monospace;z-index:99999;white-space:pre-wrap;border-bottom:2px solid #c00";
   d.textContent = "Error: " + msg + "\\n" + (src||"") + ":" + line + ":" + col;
   document.body.prepend(d);
-  // Report error to parent — use only plain strings (structured clone can't handle Error objects)
+  // Report error to parent - use only plain strings (structured clone can't handle Error objects)
   parent.postMessage({
     type: "jarble:error",
     error: {
@@ -385,7 +385,7 @@ window.onunhandledrejection = function(e) {
     }
   }, "*");
 };
-// Canvas2D safety patches — LLM-generated code often passes invalid values
+// Canvas2D safety patches - LLM-generated code often passes invalid values
 // to Canvas APIs (negative radius, NaN coords, etc). Guard these at the API
 // level so one bad frame doesn't crash the entire sandbox.
 (function() {
@@ -400,7 +400,7 @@ window.onunhandledrejection = function(e) {
     return _arcTo.call(this, x1, y1, x2, y2, Math.abs(r) || 0);
   };
 })();
-// CSP violation monitoring — report blocked resources to parent
+// CSP violation monitoring - report blocked resources to parent
 document.addEventListener("securitypolicyviolation", function(e) {
   parent.postMessage({
     type: "jarble:csp-violation",
@@ -465,7 +465,7 @@ window.jarble = {
   reportProgress: function(percent) {
     parent.postMessage({ type: "jarble:progress", percent: percent }, "*");
   },
-  // Storage proxy — scoped localStorage via parent (since sandbox has opaque origin)
+  // Storage proxy - scoped localStorage via parent (since sandbox has opaque origin)
   _pendingStorage: {},
   _storageIdCounter: 0,
   storage: {
@@ -514,7 +514,7 @@ window.jarble = {
       parent.postMessage({ type: "jarble:set-title", title: title }, "*");
     }
   },
-  // Data channel — fetch data through the platform (MCP tools, services, etc.)
+  // Data channel - fetch data through the platform (MCP tools, services, etc.)
   // Bypasses CSP restrictions by routing through the host bridge -> API
   _pendingFetch: {},
   _fetchIdCounter: 0,
@@ -622,7 +622,7 @@ new ResizeObserver(function(entries) {
 setInterval(function() {
   window.jarble.heartbeat();
 }, ${HEARTBEAT_INTERVAL_MS});
-// Dynamic library loader — loads scripts SEQUENTIALLY to preserve dependency order,
+// Dynamic library loader - loads scripts SEQUENTIALLY to preserve dependency order,
 // then executes user JS at GLOBAL scope (not in a function) so const/let/var
 // declarations are accessible to auto-resize and other global code.
 (function() {
@@ -641,7 +641,7 @@ setInterval(function() {
       s.textContent = ${JSON.stringify(escapedJs)};
       document.body.appendChild(s);
     }
-    // Execute ES module JS (if provided) — runs as <script type="module">
+    // Execute ES module JS (if provided) - runs as <script type="module">
     // enabling import statements from esm.sh/esm.run CDNs.
     if (${JSON.stringify(escapedModuleJs.length)} > 0) {
       var m = document.createElement("script");
@@ -671,7 +671,7 @@ setInterval(function() {
  * Build the outer iframe's HTML document for the double-iframe marketplace model.
  *
  * The outer iframe contains:
- * 1. A strict CSP (no connect-src, no img-src — only the inner iframe needs those)
+ * 1. A strict CSP (no connect-src, no img-src - only the inner iframe needs those)
  * 2. The inner iframe element with sandbox="allow-scripts"
  * 3. A postMessage bridge that relays messages between inner iframe and main app
  */

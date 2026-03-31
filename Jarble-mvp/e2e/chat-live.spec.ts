@@ -29,7 +29,7 @@ const DEPLOYMENT_ID_2 = "42puqb1asrdx"; // test2
 // 1. Chat Page Loading & Basic UI
 // ---------------------------------------------------------------------------
 
-test.describe("Chat page — loading and basic UI", () => {
+test.describe("Chat page - loading and basic UI", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -75,7 +75,7 @@ test.describe("Chat page — loading and basic UI", () => {
     // Verify it has the placeholder text
     await expect(textarea).toHaveAttribute("placeholder", /type a message/i);
 
-    // Focus and type — textarea should accept input
+    // Focus and type - textarea should accept input
     await textarea.focus();
     await textarea.fill("test input");
     await expect(textarea).toHaveValue("test input");
@@ -91,7 +91,7 @@ test.describe("Chat page — loading and basic UI", () => {
     // Button should be disabled when textarea is empty
     await expect(submitBtn).toBeDisabled();
 
-    // Type something — button should become enabled
+    // Type something - button should become enabled
     await textarea.fill("hello");
     await expect(submitBtn).toBeEnabled();
   });
@@ -152,7 +152,7 @@ test.describe("Chat page — loading and basic UI", () => {
 // 2. Error States
 // ---------------------------------------------------------------------------
 
-test.describe("Chat page — error states", () => {
+test.describe("Chat page - error states", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -184,10 +184,10 @@ test.describe("Chat page — error states", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Live Chat Interaction — Simple Message
+// 3. Live Chat Interaction - Simple Message
 // ---------------------------------------------------------------------------
 
-test.describe("Chat page — live bot interaction", () => {
+test.describe("Chat page - live bot interaction", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -241,7 +241,7 @@ test.describe("Chat page — live bot interaction", () => {
     // Spinner should appear on the submit button during streaming
     const spinner = page.locator('button[type="submit"] svg.animate-spin');
     await spinner.waitFor({ state: "visible", timeout: 15_000 }).catch(() => {
-      // Fast response — spinner may have come and gone
+      // Fast response - spinner may have come and gone
     });
 
     // Textarea should be disabled during streaming
@@ -280,7 +280,7 @@ test.describe("Chat page — live bot interaction", () => {
     await textarea.press("Shift+Enter");
     await textarea.type("Line two");
 
-    // Textarea should contain a newline — message NOT submitted
+    // Textarea should contain a newline - message NOT submitted
     const value = await textarea.inputValue();
     expect(value).toContain("Line one");
     expect(value).toContain("Line two");
@@ -310,10 +310,10 @@ test.describe("Chat page — live bot interaction", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Live Chat — Component Rendering
+// 4. Live Chat - Component Rendering
 // ---------------------------------------------------------------------------
 
-test.describe("Chat page — component rendering", () => {
+test.describe("Chat page - component rendering", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -426,7 +426,7 @@ test.describe("Chat page — component rendering", () => {
 // 5. Multiple Messages in Sequence
 // ---------------------------------------------------------------------------
 
-test.describe("Chat page — multiple messages", () => {
+test.describe("Chat page - multiple messages", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -443,7 +443,7 @@ test.describe("Chat page — multiple messages", () => {
     }
   });
 
-  test("send two messages in sequence — both appear with responses", async ({ page }, testInfo) => {
+  test("send two messages in sequence - both appear with responses", async ({ page }, testInfo) => {
     await waitForBotReady(page, 30_000);
 
     // First message
@@ -477,7 +477,7 @@ test.describe("Chat page — multiple messages", () => {
     await screenshotMilestone(page, testInfo, "two-messages");
   });
 
-  test("send text then component request — both render correctly", async ({ page }, testInfo) => {
+  test("send text then component request - both render correctly", async ({ page }, testInfo) => {
     await waitForBotReady(page, 30_000);
 
     // First: text-only message
@@ -509,7 +509,7 @@ test.describe("Chat page — multiple messages", () => {
 // 6. Long Messages & Edge Cases
 // ---------------------------------------------------------------------------
 
-test.describe("Chat page — edge cases", () => {
+test.describe("Chat page - edge cases", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -574,7 +574,7 @@ test.describe("Chat page — edge cases", () => {
     await textarea.fill("   ");
     await expect(submitBtn).toBeDisabled();
 
-    // Type actual content — should enable
+    // Type actual content - should enable
     await textarea.fill("hello");
     await expect(submitBtn).toBeEnabled();
   });
@@ -609,7 +609,7 @@ test.describe("Chat page — edge cases", () => {
 // 7. Canvas Persistence (localStorage)
 // ---------------------------------------------------------------------------
 
-test.describe("Chat page — canvas persistence", () => {
+test.describe("Chat page - canvas persistence", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -660,7 +660,7 @@ test.describe("Chat page — canvas persistence", () => {
 // 8. Chat on Second Deployment
 // ---------------------------------------------------------------------------
 
-test.describe("Chat page — second deployment", () => {
+test.describe("Chat page - second deployment", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -700,7 +700,7 @@ test.describe("Chat page — second deployment", () => {
 // 9. Chat Panel Resize
 // ---------------------------------------------------------------------------
 
-test.describe("Chat page — panel resize", () => {
+test.describe("Chat page - panel resize", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -758,7 +758,7 @@ test.describe("Chat page — panel resize", () => {
 // 10. Markdown Rendering in Bot Responses
 // ---------------------------------------------------------------------------
 
-test.describe("Chat page — markdown rendering", () => {
+test.describe("Chat page - markdown rendering", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {

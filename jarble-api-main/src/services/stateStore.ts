@@ -1,5 +1,5 @@
 /**
- * StateStore — Abstraction for rate limiter and circuit breaker state.
+ * StateStore - Abstraction for rate limiter and circuit breaker state.
  *
  * Allows swapping between in-memory (single-replica) and DB-backed
  * (shared across replicas) storage without touching consumer code.
@@ -106,7 +106,7 @@ export function createStateStore(): StateStore {
     const { DbStateStore } = require("./dbStateStore.js");
     dbStore = new DbStateStore();
   } catch {
-    // DB not available — use memory-only
+    // DB not available - use memory-only
   }
 
   const memStore = new MemoryStateStore();

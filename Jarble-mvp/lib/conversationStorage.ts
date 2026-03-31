@@ -71,7 +71,7 @@ export function saveConversationMessages(deploymentId: string, conversationId: s
     localStorage.setItem(messagesKey(deploymentId, conversationId), JSON.stringify(trimmed));
     return true;
   } catch (err) {
-    // QuotaExceededError — try evicting oldest conversations to make room
+    // QuotaExceededError - try evicting oldest conversations to make room
     if (err instanceof DOMException && err.name === "QuotaExceededError") {
       try {
         const index = loadConversationIndex(deploymentId);
@@ -87,7 +87,7 @@ export function saveConversationMessages(deploymentId: string, conversationId: s
           return true;
         }
       } catch {
-        // Eviction also failed — give up
+        // Eviction also failed - give up
       }
     }
     return false;
@@ -210,7 +210,7 @@ export function flushPendingSyncs(): void {
 
 /**
  * Load conversations from server and merge with localStorage.
- * Server is source of truth — localStorage is fast cache.
+ * Server is source of truth - localStorage is fast cache.
  */
 export function mergeServerSessions(
   deploymentId: string,

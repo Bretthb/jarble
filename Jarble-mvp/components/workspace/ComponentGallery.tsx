@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * ComponentGallery — collapsible panel showing saved components.
+ * ComponentGallery - collapsible panel showing saved components.
  *
  * Fetches the list from the pod via list_canvas_files, displays them
  * as clickable cards, and loads them onto the canvas on click.
@@ -28,7 +28,7 @@ interface ComponentGalleryProps {
   deploymentId: string;
   cards: CanvasCard[];
   dispatch: React.Dispatch<CanvasAction>;
-  /** Incremented each time an unsave happens — triggers gallery refetch */
+  /** Incremented each time an unsave happens - triggers gallery refetch */
   refetchTrigger?: number;
 }
 
@@ -116,17 +116,17 @@ function ComponentGalleryInner({ deploymentId, cards, dispatch, refetchTrigger }
         if (Array.isArray(parsed)) { setItems(parsed); return; }
       } catch { /* not JSON, parse markdown below */ }
 
-      // Fall back to parsing markdown: - **Name** (`fileId`) — component...
+      // Fall back to parsing markdown: - **Name** (`fileId`) - component...
       if (text.includes("No saved components") || text.includes("No saved artifacts") || !text.includes("**")) {
         setItems([]);
         return;
       }
       const parsed: SavedComponent[] = [];
       for (const line of text.split("\n")) {
-        const match = line.match(/^- \*\*(.+?)\*\* \(`(.+?)`\) — (\w+)/);
+        const match = line.match(/^- \*\*(.+?)\*\* \(`(.+?)`\) - (\w+)/);
         if (match) {
           const [, name, fileId, component] = match;
-          const descMatch = line.match(/— \w+: (.+?)(?:\s*\[|$)/);
+          const descMatch = line.match(/- \w+: (.+?)(?:\s*\[|$)/);
           const tagMatch = line.match(/\[([^\]]+)\]/);
           const dateMatch = line.match(/_\((?:saved|updated) (.+?)\)_/);
           parsed.push({
@@ -348,7 +348,7 @@ function ComponentGalleryInner({ deploymentId, cards, dispatch, refetchTrigger }
                       className="group relative flex flex-col gap-1 p-2 rounded-md border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 hover:border-amber-500/40 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-500/50"
                       onClick={() => handleLoad(item)}
                       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), handleLoad(item))}
-                      title={`Load "${item.name}" onto canvas — or drag to drop`}
+                      title={`Load "${item.name}" onto canvas - or drag to drop`}
                     >
                       {/* Component type badge */}
                       <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400/80 self-start truncate max-w-full">
@@ -436,7 +436,7 @@ function ComponentGalleryInner({ deploymentId, cards, dispatch, refetchTrigger }
                         className="group relative flex flex-col gap-1 p-2 rounded-md border border-indigo-500/20 bg-indigo-500/5 hover:bg-indigo-500/10 hover:border-indigo-500/40 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
                         onClick={() => handleLoadMarketplace(item)}
                         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), handleLoadMarketplace(item))}
-                        title={`Add "${item.component.displayName}" to canvas — or drag to drop`}
+                        title={`Add "${item.component.displayName}" to canvas - or drag to drop`}
                       >
                         {/* Tier + Category badges */}
                         <div className="flex items-center gap-1">

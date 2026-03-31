@@ -1,5 +1,5 @@
 /**
- * Tests for uiBlockParser — fenced block extraction from bot text.
+ * Tests for uiBlockParser - fenced block extraction from bot text.
  *
  * Covers: extractUIBlocks, extractUIUpdates, extractComponentDefs,
  * extractAllUIBlocks, validateLibraryUrl, sanitizeLibraries,
@@ -543,7 +543,7 @@ describe("extractComponentDefs", () => {
     expect(cleanText).toBe("I'll define a component:\n\nNow I'll use it.");
   });
 
-  it("rejects invalid component name format — uppercase", () => {
+  it("rejects invalid component name format - uppercase", () => {
     const text = '```jarble_ui_define\n{"name":"KPI-Row","layout":[{"component":"card","props":{}}]}\n```';
     const { componentDefs } = extractComponentDefs(text);
     expect(componentDefs).toHaveLength(0);

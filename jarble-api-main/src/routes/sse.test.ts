@@ -109,7 +109,7 @@ function createMockReq(params: any = {}, query: any = {}, headers: any = {}) {
 
 const mockUser = { id: "user-1", email: "test@example.com" };
 
-// Import the router — must be after mocks
+// Import the router - must be after mocks
 let sseRouter: any;
 
 beforeEach(async () => {

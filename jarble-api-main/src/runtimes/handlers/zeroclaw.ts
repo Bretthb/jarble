@@ -10,12 +10,12 @@
  *          ghcr.io/jarble-ai/zeroclaw:latest (Jarble-wrapped)
  *
  * Config files on PVC:
- *   /data/config/config.toml    — Main configuration
+ *   /data/config/config.toml    - Main configuration
  *
  * ZeroClaw env vars (different from OpenClaw):
- *   API_KEY          — LLM provider API key (not OPENROUTER_API_KEY)
- *   PROVIDER         — LLM provider name (not LLM_PROVIDER)
- *   ZEROCLAW_MODEL   — Model identifier (not LLM_MODEL)
+ *   API_KEY          - LLM provider API key (not OPENROUTER_API_KEY)
+ *   PROVIDER         - LLM provider name (not LLM_PROVIDER)
+ *   ZEROCLAW_MODEL   - Model identifier (not LLM_MODEL)
  */
 
 import type {
@@ -52,7 +52,7 @@ export const zeroclawHandler: RuntimeHandler = {
     log.debug({ deploymentId: deployment.name }, "renderConfigs");
     // ZeroClaw uses TOML configuration
     const lines = [
-      "# ZeroClaw Configuration — Managed by Jarble AI Platform",
+      "# ZeroClaw Configuration - Managed by Jarble AI Platform",
       "# See https://github.com/openagen/zeroclaw for full options",
       "",
       "[agent]",
@@ -76,7 +76,7 @@ export const zeroclawHandler: RuntimeHandler = {
   },
 
   parseConfigs(files: ConfigFile[]): ParsedDeploymentFields {
-    // ZeroClaw config.toml parsing — minimal for now
+    // ZeroClaw config.toml parsing - minimal for now
     // Future: parse TOML and extract relevant fields
     return {};
   },

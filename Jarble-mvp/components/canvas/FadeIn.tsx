@@ -6,7 +6,7 @@ interface FadeInProps extends HTMLAttributes<HTMLDivElement> {
   delay?: number;
 }
 
-/** Lightweight fade-in wrapper — replaces motion.div for simple entrance animations. ~0.5KB vs ~30KB for framer-motion. */
+/** Lightweight fade-in wrapper - replaces motion.div for simple entrance animations. ~0.5KB vs ~30KB for framer-motion. */
 export function FadeIn({ children, className = "", delay = 0, style, ...rest }: FadeInProps) {
   return (
     <div

@@ -29,15 +29,15 @@ export const deployments = sqliteTable("deployments", {
   name: text("name").notNull(),
   description: text("description"),
   runtime: text("runtime").notNull().default("openclaw"),
-  deploymentType: text("deployment_type").notNull().default("agent"), // "agent" | "container" | "website" — determines K8s scheduling
+  deploymentType: text("deployment_type").notNull().default("agent"), // "agent" | "container" | "website" - determines K8s scheduling
   image: text("image"),
   runtimeCatalogId: integer("runtime_catalog_id").references(() => runtimeCatalog.id),
   isFree: integer("is_free", { mode: "boolean" }).notNull().default(false),
   monthlyPriceCents: integer("monthly_price_cents").notNull().default(0),
   freeExpiresAt: text("free_expires_at"),
-  cpuLimit: text("cpu_limit"),        // e.g. "2.0" — overrides runtime_catalog default if set
-  memoryMb: integer("memory_mb"),     // e.g. 2048 — RAM in MB, overrides runtime_catalog default
-  storageMb: integer("storage_mb"),   // e.g. 30 — storage in GB (historical naming), overrides runtime_catalog default
+  cpuLimit: text("cpu_limit"),        // e.g. "2.0" - overrides runtime_catalog default if set
+  memoryMb: integer("memory_mb"),     // e.g. 2048 - RAM in MB, overrides runtime_catalog default
+  storageMb: integer("storage_mb"),   // e.g. 30 - storage in GB (historical naming), overrides runtime_catalog default
   llmMode: text("llm_mode").notNull().default("byok"), // "included" | "byok"
   llmProvider: text("llm_provider").notNull().default("openrouter"), // "openrouter" | "openai" | "anthropic" | "google"
   llmModel: text("llm_model"), // e.g. "openrouter/auto", "gpt-4o", "claude-sonnet-4-20250514"
@@ -56,7 +56,7 @@ export const deployments = sqliteTable("deployments", {
   isolationLevel: text("isolation_level").notNull().default("standard"),  // "standard" | "gvisor" | "kata"
   isPlatform: integer("is_platform", { mode: "boolean" }).notNull().default(false),  // Platform-owned agent (bypasses subscription/storage enforcement)
   resourceTier: text("resource_tier"),  // Named resource preset: "small" | "medium" | "large"
-  themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
+  themeConfig: text("theme_config"),  // JSON ThemeConfig - per-deployment custom theme
   // Fork & public profile fields
   forkedFromId: text("forked_from_id"),  // Source deployment ID (null = original)
   isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
@@ -99,14 +99,14 @@ export const platformCredentials = sqliteTable("platform_credentials", {
   deploymentPlatformIdx: uniqueIndex("uq_deployment_platform").on(table.deploymentId, table.platformId),
 }));
 
-// Webhook idempotency tracking — stores processed webhook event IDs to prevent duplicate processing
+// Webhook idempotency tracking - stores processed webhook event IDs to prevent duplicate processing
 export const processedWebhookEvents = sqliteTable("processed_webhook_events", {
   eventId: text("event_id").primaryKey(), // Stripe event ID (e.g., evt_xxx)
   eventType: text("event_type").notNull(), // e.g., "checkout.session.completed"
   processedAt: text("processed_at").notNull().$defaultFn(now),
 });
 
-// Global skills marketplace catalog — all available skills across runtimes
+// Global skills marketplace catalog - all available skills across runtimes
 export const skillsCatalog = sqliteTable("skills_catalog", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -118,7 +118,7 @@ export const skillsCatalog = sqliteTable("skills_catalog", {
   createdAt: text("created_at").notNull().$defaultFn(now),
 });
 
-// Join table — which skills are installed on which deployment
+// Join table - which skills are installed on which deployment
 export const deploymentSkills = sqliteTable("deployment_skills", {
   id: text("id").primaryKey(),
   deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
@@ -309,7 +309,7 @@ export const serviceCredentials = sqliteTable("package_credentials", {
   packageId: text("package_id").notNull().references(() => marketplaceServices.id),
   signingSecret: text("signing_secret").notNull(), // Encrypted HMAC-SHA256 signing secret
   previousSigningSecret: text("previous_signing_secret"), // Previous secret, accepted during grace period
-  previousSecretExpiresAt: text("previous_secret_expires_at"), // ISO 8601 — after this, only new secret is accepted
+  previousSecretExpiresAt: text("previous_secret_expires_at"), // ISO 8601 - after this, only new secret is accepted
   handshakeStatus: text("handshake_status").notNull().default("pending"), // "pending" | "completed" | "failed"
   handshakeError: text("handshake_error"),
   remoteInstallId: text("remote_install_id"), // ID returned by creator's endpoint

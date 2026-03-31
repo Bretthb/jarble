@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * SelectionBranch — "+" branch prompt on selected cards.
+ * SelectionBranch - "+" branch prompt on selected cards.
  *
  * Shows a "+" button at the right edge of the selected card.
  * Clicking expands to a text input for branch prompts.

@@ -20,7 +20,7 @@ test.describe("Chat component rendering", () => {
 
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId in test-config.json — run auth-setup first");
+    test.skip(!deploymentId, "No deploymentId in test-config.json - run auth-setup first");
 
     await page.goto(`/d/${deploymentId}`);
     // Wait for the chat textarea to be ready
@@ -66,19 +66,19 @@ test.describe("Chat component rendering", () => {
 
     // Check if canvas panel is visible
     const canvasPanel = page.locator(".min-w-\\[300px\\]");
-    test.skip(!(await canvasPanel.isVisible()), "No canvas panel rendered — skipping view mode test");
+    test.skip(!(await canvasPanel.isVisible()), "No canvas panel rendered - skipping view mode test");
 
     // Screenshot dashboard mode (default)
     await screenshotMilestone(page, testInfo, "mode-dashboard");
 
     // Switch to freeform mode
-    const freeformBtn = page.locator('button[title="Freeform mode — drag & resize freely"]');
+    const freeformBtn = page.locator('button[title="Freeform mode - drag & resize freely"]');
     await freeformBtn.click();
     await page.waitForTimeout(500);
     await screenshotMilestone(page, testInfo, "mode-freeform");
 
     // Switch back to dashboard mode
-    const dashboardBtn = page.locator('button[title="Dashboard mode — auto-arranged grid"]');
+    const dashboardBtn = page.locator('button[title="Dashboard mode - auto-arranged grid"]');
     await dashboardBtn.click();
     await page.waitForTimeout(500);
     await screenshotMilestone(page, testInfo, "mode-dashboard-restored");

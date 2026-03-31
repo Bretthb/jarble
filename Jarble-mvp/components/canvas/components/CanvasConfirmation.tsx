@@ -120,7 +120,7 @@ function CanvasConfirmationInner({
     (actionId: string) => {
       if (!isPending) return;
       setSelectedActionId(actionId);
-      // Determine status from action — first action is treated as "approve", others as "reject"
+      // Determine status from action - first action is treated as "approve", others as "reject"
       const isApprove = actions.length > 0 && actions[0].id === actionId;
       const newStatus = isApprove ? "approved" : "rejected";
       setStatus(newStatus);

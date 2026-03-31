@@ -42,7 +42,7 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
     const client = new QueryClient({
       defaultOptions: {
         queries: {
-          // Don't refetch on window focus while auth is settling — this prevents
+          // Don't refetch on window focus while auth is settling - this prevents
           // the race condition where React Query refetches after Auth0 redirect
           // but the token isn't ready yet.
           refetchOnWindowFocus: () => !authRef.current.isLoading,
@@ -72,7 +72,7 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
       if (event.type === "updated" && event.action.type === "error") {
         const error = event.query.state.error;
         redirectToLoginIfUnauthorized(error);
-        // Only log if auth is settled — suppress noise during auth callback
+        // Only log if auth is settled - suppress noise during auth callback
         if (!authRef.current.isLoading) {
           console.error("[API Query Error]", error);
         }
@@ -93,7 +93,7 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
   const [trpcClient] = useState(() =>
     trpc.createClient({
       links: [
-        // Mutations must never be batched with queries — a slow query (e.g. getPodConfig
+        // Mutations must never be batched with queries - a slow query (e.g. getPodConfig
         // doing K8s exec) would hold the entire batch hostage, making mutations hang.
         splitLink({
           condition: (op) => op.type === "mutation",

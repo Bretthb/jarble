@@ -201,7 +201,7 @@ function ServiceActions({ service, onMutate }: { service: MyService; onMutate: (
     );
   }
 
-  // Default: treat unknown statuses (e.g. "submitted") as draft-like — show edit link
+  // Default: treat unknown statuses (e.g. "submitted") as draft-like - show edit link
   return (
     <div className="pt-1">
       <Button variant="outline" size="sm" asChild className="w-full">

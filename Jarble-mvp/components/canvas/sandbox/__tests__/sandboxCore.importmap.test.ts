@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildDocument, DEFAULT_SANDBOX_IMPORTS } from "../sandboxCore";
 
-describe("sandboxCore — default import map", () => {
+describe("sandboxCore - default import map", () => {
   it("exports DEFAULT_SANDBOX_IMPORTS with expected libraries", () => {
     expect(DEFAULT_SANDBOX_IMPORTS).toBeDefined();
     expect(DEFAULT_SANDBOX_IMPORTS["three"]).toContain("esm.sh");

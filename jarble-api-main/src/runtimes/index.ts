@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * Runtime Registry — Single entry point for runtime handler lookup.
+ * Runtime Registry - Single entry point for runtime handler lookup.
  * ═══════════════════════════════════════════════════════════════════════
  *
  * All runtime handlers are registered here. The deployment router and
@@ -10,7 +10,7 @@
  * HOW TO ADD A NEW RUNTIME:
  *   1. Create src/runtimes/handlers/yourruntime.ts implementing RuntimeHandler
  *   2. Import it here and add it to HANDLERS
- *   That's it — deployment router and K8s layer pick it up automatically.
+ *   That's it - deployment router and K8s layer pick it up automatically.
  */
 
 import type { RuntimeHandler } from "./types.js";

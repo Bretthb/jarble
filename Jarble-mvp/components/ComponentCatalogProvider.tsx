@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * ComponentCatalogProvider — React context that fetches and caches the
+ * ComponentCatalogProvider - React context that fetches and caches the
  * per-deployment component catalog (built-in + custom).
  *
  * Wrap this around the deployment page so the canvas renderer

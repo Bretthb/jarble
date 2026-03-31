@@ -199,7 +199,7 @@ describe("FlowExecutionEngine", () => {
         "{{A.data.items}}",
         stepResults
       );
-      // Full match — returns the raw value (array)
+      // Full match - returns the raw value (array)
       expect(result).toEqual([1, 2, 3]);
     });
 
@@ -278,7 +278,7 @@ describe("FlowExecutionEngine", () => {
 
   // ── Step execution by node type ─────────────────────────────────────────
 
-  describe("execute — deployment node", () => {
+  describe("execute - deployment node", () => {
     it("calls executeAgentCall and records the result", async () => {
       const nodes = [
         makeNode("agent1", "deployment", { prompt: "Hello" }),
@@ -317,7 +317,7 @@ describe("FlowExecutionEngine", () => {
     });
   });
 
-  describe("execute — transform node", () => {
+  describe("execute - transform node", () => {
     it("applies pick transform", async () => {
       const nodes = [
         makeNode("A", "deployment"),
@@ -370,7 +370,7 @@ describe("FlowExecutionEngine", () => {
     });
   });
 
-  describe("execute — condition node", () => {
+  describe("execute - condition node", () => {
     it("evaluates truthy value to true", async () => {
       const nodes = [
         makeNode("C", "condition", { value: "non-empty" }),
@@ -410,7 +410,7 @@ describe("FlowExecutionEngine", () => {
     });
   });
 
-  describe("execute — output node", () => {
+  describe("execute - output node", () => {
     it("resolves template vars and returns config as result", async () => {
       const nodes = [
         makeNode("A", "deployment"),
@@ -488,7 +488,7 @@ describe("FlowExecutionEngine", () => {
       expect(state.totalCredits).toBe(0);
     });
 
-    it("handles pure cycle A<->B during execute() — runs with iteration limit", async () => {
+    it("handles pure cycle A<->B during execute() - runs with iteration limit", async () => {
       // With the state-machine model, A<->B is a pure cycle.
       // Both nodes have incoming edges, so the engine picks minimum in-degree nodes.
       // The cycle runs up to maxIterations (default 10) then stops.

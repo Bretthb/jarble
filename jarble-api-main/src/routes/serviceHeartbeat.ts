@@ -1,5 +1,5 @@
 /**
- * Service Heartbeat Route — Push-based health monitoring.
+ * Service Heartbeat Route - Push-based health monitoring.
  *
  * Creator services can POST heartbeats to signal they are alive,
  * reducing detection delay from 5 minutes (pull-based) to seconds.

@@ -6,9 +6,9 @@
  * stores its personality/system prompt in soul.md on the PVC.
  *
  * Config files on PVC:
- *   /data/soul.md          — System prompt / personality
- *   /data/openclaw.json    — Agent + channel configuration (OpenClaw native format)
- *   /data/skills/*         — Skill definitions (one JSON file per installed skill)
+ *   /data/soul.md          - System prompt / personality
+ *   /data/openclaw.json    - Agent + channel configuration (OpenClaw native format)
+ *   /data/skills/*         - Skill definitions (one JSON file per installed skill)
  *
  * OpenClaw channel config format (openclaw.json):
  *   {
@@ -22,7 +22,7 @@
  *   }
  *
  * OpenClaw also falls back to env vars: DISCORD_BOT_TOKEN, TELEGRAM_BOT_TOKEN,
- * SLACK_BOT_TOKEN, SLACK_APP_TOKEN — we set both for maximum compatibility.
+ * SLACK_BOT_TOKEN, SLACK_APP_TOKEN - we set both for maximum compatibility.
  */
 
 import { readFileSync } from "node:fs";
@@ -39,7 +39,7 @@ import type {
 import { createModuleLogger } from "../../utils/logger.js";
 import { env } from "../../utils/env.js";
 import { PLATFORM_CREDENTIAL_KEYS, PLATFORM_ENV_MAP } from "../../trpc/routers/platformCredentials.js";
-// generatePromptReference removed — component docs now served on-demand via MCP tools
+// generatePromptReference removed - component docs now served on-demand via MCP tools
 import { AGENT_REGISTRY } from "../../services/agentRegistry.js";
 
 const log = createModuleLogger("runtime:openclaw");
@@ -69,7 +69,7 @@ try {
   );
   MCP_SERVER_HASH = createHash("sha256").update(MCP_SERVER_SCRIPT).digest("hex").slice(0, 12);
 } catch {
-  // Script not found — pod will rely on whatever version was deployed at creation time
+  // Script not found - pod will rely on whatever version was deployed at creation time
 }
 
 /** Returns the current MCP server script content and its content hash. */
@@ -80,8 +80,8 @@ export function getMcpServerInfo(): { content: string; hash: string } {
 // ── Jarble UI prompt injected into soul.md ────────────────────────────────
 // Core rendering instructions only. Detailed component props, sandbox docs,
 // error recovery, and best practices are available on-demand via MCP tools:
-//   - component_reference(name) — prop schemas, examples, anti-patterns
-//   - skill_reference(skill)    — rendering guides, sandbox mastery, etc.
+//   - component_reference(name) - prop schemas, examples, anti-patterns
+//   - skill_reference(skill)    - rendering guides, sandbox mastery, etc.
 const JARBLE_UI_PROMPT = `## Reasoning
 Wrap internal reasoning in <think>...</think> at the START of every response (1-4 sentences: what, approach, tools). Shown as collapsible "Thought process".
 
@@ -94,7 +94,7 @@ If neither tag is present, assume NOT on dashboard.
 NEVER fabricate data. Use \`web_search\`/\`web_fetch\` to get real data FIRST, then render.
 
 ## Tools
-35+ MCP tools, all LIVE. Key categories: Search (\`web_search\`, \`web_fetch\`, \`news_search\`, \`wikipedia\`, etc.), UI (\`list_components\`, \`component_reference\`, \`skill_reference\`), Rendering (\`render_ui\`, \`render_page\`, \`compose_dashboard\`, \`save_artifact\`), Marketplace (\`browse_marketplace\`, \`install_marketplace_item\`, \`publish_component\`), Agents (\`discover_agents\`, \`call_agent\` — 1 credit/call), Knowledge (\`knowledge_search\`), Memory (\`store_memory\`, \`recall_memory\`).
+35+ MCP tools, all LIVE. Key categories: Search (\`web_search\`, \`web_fetch\`, \`news_search\`, \`wikipedia\`, etc.), UI (\`list_components\`, \`component_reference\`, \`skill_reference\`), Rendering (\`render_ui\`, \`render_page\`, \`compose_dashboard\`, \`save_artifact\`), Marketplace (\`browse_marketplace\`, \`install_marketplace_item\`, \`publish_component\`), Agents (\`discover_agents\`, \`call_agent\` - 1 credit/call), Knowledge (\`knowledge_search\`), Memory (\`store_memory\`, \`recall_memory\`).
 
 ## Jarble UI (dashboard only)
 
@@ -117,13 +117,13 @@ One block = one card. \`jarble_ui_update\`: \`{"card_id": "...", "props": {...},
 - Design: polished, professional, real data, descriptive titles, meaningful colors. Match \`[DESIGN_CONTEXT]\` if present; use \`update_design_context\` to save choices.
 - \`[EDITING cardId]\` = update in-place. \`[BRANCH cardId]\` = create new related cards.
 - On \`[COMPONENT_ERROR]\`/\`[SANDBOX_ERROR]\`: fix with \`jarble_ui_update\` + \`merge: false\`. Never create new card for errors.
-- \`[UI_ACTION]\` = user interacted with card — respond by updating/creating cards.
+- \`[UI_ACTION]\` = user interacted with card - respond by updating/creating cards.
 - Theme changes (\`/theme\`, \`/skin\`) are pre-processed. Only call \`set_theme\` if user explicitly asks.
 
 ### Component Chooser
 **Default \`sandbox\`** for anything visual. Typed components only for simple standalone use:
 - \`sandbox\`: dashboards, charts, data viz, interactive widgets, 3D, games
-- \`compose_dashboard\`: 3+ components, parallel agents — \`{ title, components: [{ intent, style }] }\`
+- \`compose_dashboard\`: 3+ components, parallel agents - \`{ title, components: [{ intent, style }] }\`
 - \`render_page\`: 4+ related components as fullscreen view (dashboard, kanban, crm, landing)
 - \`metric_card\`/\`stat_grid\`: single KPI. \`alert\`: single notification. \`list\`: simple list.
 - \`carousel\`/\`image_gallery\`: items with images. \`image\`: single image. \`form\`: user input. \`embed\`: third-party widgets.
@@ -197,7 +197,7 @@ export const openclawHandler: RuntimeHandler = {
     const managedBy = deployment.managedBy ?? "legacy";
     const home = managedBy === "operator" ? "/home/openclaw" : "/data";
 
-    // soul.md — system prompt / personality + platform-appropriate UI instructions
+    // soul.md - system prompt / personality + platform-appropriate UI instructions
     // Messaging-only deployments get a condensed prompt (~1,250 tokens saved)
     const uiPromptSection = isMessagingOnly(deployment)
       ? MESSAGING_ONLY_PROMPT
@@ -226,10 +226,10 @@ export const openclawHandler: RuntimeHandler = {
     // Append installed marketplace components so the bot knows what's available
     if (deployment.installedComponents && deployment.installedComponents.length > 0) {
       const lines = deployment.installedComponents.map((c) =>
-        `- **${c.name}** — ${c.description}`
+        `- **${c.name}** - ${c.description}`
       );
       soulParts.push(
-        `## Installed Marketplace Components\nYou have the following custom components installed. To use them, output a \`\`\`jarble_ui\`\`\` block with \`"component"\` set to the name below — they work exactly like built-in components. Call \`component_reference\` with the component name for full prop details.\n\n**IMPORTANT:** Do NOT use \`load_artifact\` or \`save_artifact\` for marketplace components. Just use \`render_ui\` / jarble_ui blocks directly. Artifacts are a separate persistence system for user-saved dashboards.\n${lines.join("\n")}`
+        `## Installed Marketplace Components\nYou have the following custom components installed. To use them, output a \`\`\`jarble_ui\`\`\` block with \`"component"\` set to the name below - they work exactly like built-in components. Call \`component_reference\` with the component name for full prop details.\n\n**IMPORTANT:** Do NOT use \`load_artifact\` or \`save_artifact\` for marketplace components. Just use \`render_ui\` / jarble_ui blocks directly. Artifacts are a separate persistence system for user-saved dashboards.\n${lines.join("\n")}`
       );
     }
 
@@ -239,33 +239,33 @@ export const openclawHandler: RuntimeHandler = {
     {
       const poolSections: string[] = [];
 
-      // 1. Platform agents — from subagents with source === "platform"
+      // 1. Platform agents - from subagents with source === "platform"
       const platformAgents = (deployment.subagents ?? []).filter(
         (a) => a.source === "platform"
       );
       if (platformAgents.length > 0) {
         const lines = platformAgents.map((a) => {
           const toolName = PLATFORM_AGENT_TOOL_MAP[a.slug] ?? `agent_${a.slug}`;
-          return `- **${toolName}** — ${a.description || a.name}`;
+          return `- **${toolName}** - ${a.description || a.name}`;
         });
         poolSections.push(`### Platform Agents\n${lines.join("\n")}`);
       }
 
-      // 2. Custom subagents — source === "custom" or undefined (backward compat)
+      // 2. Custom subagents - source === "custom" or undefined (backward compat)
       const customAgents = (deployment.subagents ?? []).filter(
         (a) => !a.source || a.source === "custom"
       );
       if (customAgents.length > 0) {
         const lines = customAgents.map((a) =>
-          `- **agent_${a.slug}** — ${a.description || a.name}`
+          `- **agent_${a.slug}** - ${a.description || a.name}`
         );
         poolSections.push(`### Custom Subagents\n${lines.join("\n")}`);
       }
 
-      // 3. Team members — other deployments linked via Bot Teams flows
+      // 3. Team members - other deployments linked via Bot Teams flows
       if (deployment.teamMembers && deployment.teamMembers.length > 0) {
         const lines = deployment.teamMembers.map((m) =>
-          `- **delegate_to_${m.slug}** — ${m.name}${m.role ? `: ${m.role}` : ""}`
+          `- **delegate_to_${m.slug}** - ${m.name}${m.role ? `: ${m.role}` : ""}`
         );
         poolSections.push(
           `### Team Members\n` +
@@ -280,19 +280,19 @@ export const openclawHandler: RuntimeHandler = {
           `You are an orchestrator. For complex, multi-part tasks, delegate to your specialist agents instead of doing everything yourself.\n\n` +
           `### When to Delegate\n` +
           `- **Simple request** (single chart, quick answer, one component): Handle it yourself with render_ui or sandbox. Fast and direct.\n` +
-          `- **Dashboard or multi-component request** (3+ visual elements): Use \`compose_dashboard\` — it runs agents in parallel for faster results.\n` +
+          `- **Dashboard or multi-component request** (3+ visual elements): Use \`compose_dashboard\` - it runs agents in parallel for faster results.\n` +
           `- **Data + visualization** (user provides data or asks for analytics): Call \`delegate_to_data_agent\` first to process/structure the data, then use the result in your visualization.\n` +
-          `- **Multi-step pipeline** (analyze → transform → visualize): Call agents sequentially — each one's output feeds the next.\n\n` +
+          `- **Multi-step pipeline** (analyze → transform → visualize): Call agents sequentially - each one's output feeds the next.\n\n` +
           `### How to Call Agents\n` +
           `All agents are MCP tools. Call them the same way you call render_ui or web_search. Pass a "task" string argument.\n` +
           `IMPORTANT: Do NOT use call_agent or discover_agents for these. Call the tool name directly.\n\n` +
           `### Orchestration Patterns\n` +
-          `**Pattern 1 — Data-First Pipeline:**\n` +
+          `**Pattern 1 - Data-First Pipeline:**\n` +
           `1. Call \`delegate_to_data_agent\` with task: "Analyze this data and return chart_data format"\n` +
           `2. Use the structured result in your \`render_ui\` or sandbox call\n\n` +
-          `**Pattern 2 — Parallel Dashboard:**\n` +
-          `Call \`compose_dashboard\` with multiple component intents — agents generate each component in parallel\n\n` +
-          `**Pattern 3 — Sequential Multi-Agent:**\n` +
+          `**Pattern 2 - Parallel Dashboard:**\n` +
+          `Call \`compose_dashboard\` with multiple component intents - agents generate each component in parallel\n\n` +
+          `**Pattern 3 - Sequential Multi-Agent:**\n` +
           `1. Call \`delegate_to_data_agent\` for data processing\n` +
           `2. Call \`create_component\` for custom component generation\n` +
           `3. Combine results in your response\n\n` +
@@ -309,7 +309,7 @@ export const openclawHandler: RuntimeHandler = {
     files.push({ path: "soul.md", content: soulContent });
     files.push({ path: `${home}/.openclaw/.openclaw/workspace/SOUL.md`, content: soulContent });
 
-    // openclaw.json — agent config + channel credentials
+    // openclaw.json - agent config + channel credentials
     const openclawConfig: Record<string, any> = {};
 
     // Agent section (model config)
@@ -327,10 +327,10 @@ export const openclawHandler: RuntimeHandler = {
       };
     }
 
-    // NOTE: OpenClaw validates agents config strictly — only "defaults" is allowed.
+    // NOTE: OpenClaw validates agents config strictly - only "defaults" is allowed.
     // Custom subagents are routed via MCP tools (agent_{slug}) → API → LLM instead.
 
-    // Channels section — build from platformCredentials
+    // Channels section - build from platformCredentials
     // Only include channels the user has explicitly configured
     const channels: Record<string, any> = {};
 
@@ -353,7 +353,7 @@ export const openclawHandler: RuntimeHandler = {
           channelConfig.dmPolicy = "pairing";
         }
 
-        // Discord/Telegram: always use "pairing" — auto-approve handles onboarding
+        // Discord/Telegram: always use "pairing" - auto-approve handles onboarding
         if (platformId === "discord" || platformId === "telegram") {
           channelConfig.dmPolicy = "pairing";
         }
@@ -381,7 +381,7 @@ export const openclawHandler: RuntimeHandler = {
     openclawConfig.gateway = gatewayConfig;
 
     // Disable built-in tools that conflict with Jarble's web dashboard rendering.
-    // The canvas tool generates HTML artifacts that the dashboard can't render —
+    // The canvas tool generates HTML artifacts that the dashboard can't render -
     // the bot should use jarble_ui fenced blocks or the render_ui MCP tool instead.
     openclawConfig.tools = {
       deny: ["canvas"],
@@ -397,14 +397,14 @@ export const openclawHandler: RuntimeHandler = {
       const configContent = JSON.stringify(openclawConfig, null, 2) + "\n";
       // Write to Jarble config path (for reference / reverse sync)
       files.push({ path: "openclaw.json", content: configContent });
-      // Write to OpenClaw's actual config path — the gateway reads from the DOUBLE-nested path:
+      // Write to OpenClaw's actual config path - the gateway reads from the DOUBLE-nested path:
       //   $HOME/.openclaw/.openclaw/openclaw.json (NOT $HOME/.openclaw/openclaw.json)
       // This matches the entrypoint first-boot path and where `openclaw config` reads/writes.
       files.push({ path: `${home}/.openclaw/openclaw.json`, content: configContent });
       files.push({ path: `${home}/.openclaw/.openclaw/openclaw.json`, content: configContent });
     }
 
-    // MCP server script — deployed to {pvcMount}/config/mcp/jarble-ui-server.js
+    // MCP server script - deployed to {pvcMount}/config/mcp/jarble-ui-server.js
     // Relative path so writeConfigsToPvc prefixes with correct PVC mount.
     if (MCP_SERVER_SCRIPT) {
       files.push({ path: "mcp/jarble-ui-server.js", content: MCP_SERVER_SCRIPT });
@@ -445,7 +445,7 @@ export const openclawHandler: RuntimeHandler = {
       }
     }
 
-    // Write service-tools.json — aggregate MCP tool definitions for installed services.
+    // Write service-tools.json - aggregate MCP tool definitions for installed services.
     // The MCP server reads this file to dynamically register service skills as first-class
     // bot tools (e.g. "weather_forecast" instead of generic service_call).
     if (deployment.remoteSkillConfigs && deployment.remoteSkillConfigs.length > 0) {
@@ -489,7 +489,7 @@ export const openclawHandler: RuntimeHandler = {
       }
     }
 
-    // Write subagent-tools.json — MCP tool definitions for user-configured subagents.
+    // Write subagent-tools.json - MCP tool definitions for user-configured subagents.
     // The MCP server reads this file to dynamically register subagent tools (agent_{slug}).
     if (deployment.subagents && deployment.subagents.length > 0) {
       const subagentTools = deployment.subagents.map((a) => ({
@@ -513,7 +513,7 @@ export const openclawHandler: RuntimeHandler = {
       log.info({ toolCount: subagentTools.length }, "renderConfigs: wrote subagent-tools.json");
     }
 
-    // Write delegation-tools.json — MCP tool definitions for Bot Teams delegation.
+    // Write delegation-tools.json - MCP tool definitions for Bot Teams delegation.
     // The MCP server reads this file to dynamically register delegate_to_{slug} tools.
     if (deployment.teamMembers && deployment.teamMembers.length > 0) {
       const delegationTools = deployment.teamMembers.map((m) => ({
@@ -557,7 +557,7 @@ export const openclawHandler: RuntimeHandler = {
       try {
         const config = JSON.parse(openclawJson.content);
 
-        // Extract LLM model — check both config paths
+        // Extract LLM model - check both config paths
         // New format: agents.defaults.model.primary (what OpenClaw actually reads)
         // Legacy format: agent.model (old Jarble configs)
         const model = config.agents?.defaults?.model?.primary || config.agent?.model;
@@ -611,7 +611,7 @@ export const openclawHandler: RuntimeHandler = {
     log.debug({ provider: deployment.llmProvider }, "getSecretEntries");
     const entries: Record<string, string> = {};
 
-    // LLM config — set the correct env var based on provider
+    // LLM config - set the correct env var based on provider
     const providerEnvMap: Record<string, string> = {
       openrouter: "OPENROUTER_API_KEY",
       anthropic: "ANTHROPIC_API_KEY",
@@ -629,7 +629,7 @@ export const openclawHandler: RuntimeHandler = {
       } else {
         log.error(
           { deploymentId: deployment.id },
-          "Platform mode deployment has no platform LLM key configured (AGENT_LLM_API_KEY / OPENROUTER_API_KEY) — pod LLM calls will fail",
+          "Platform mode deployment has no platform LLM key configured (AGENT_LLM_API_KEY / OPENROUTER_API_KEY) - pod LLM calls will fail",
         );
       }
     } else if (deployment.llmApiKey) {
@@ -679,8 +679,8 @@ export const openclawHandler: RuntimeHandler = {
 
   validateCreate(input: Partial<DeploymentFields>): string | null {
     // OpenClaw needs LLM configuration when using BYOK mode.
-    // "included" mode auto-provisions via OpenRouter — no key needed from user.
-    // "platform" mode uses platform-managed keys — no key needed from user.
+    // "included" mode auto-provisions via OpenRouter - no key needed from user.
+    // "platform" mode uses platform-managed keys - no key needed from user.
     if (input.llmMode === "byok" && !input.llmApiKey) {
       const error = "OpenClaw requires an LLM API key when using Bring Your Own Key mode";
       log.warn({ error }, "validateCreate failed");

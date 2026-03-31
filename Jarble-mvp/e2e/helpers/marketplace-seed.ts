@@ -194,7 +194,7 @@ export const SERVICES = {
     id: `${E2E}pkg_hybrid`,
     name: "media-studio-suite",
     displayName: "Media Studio Suite",
-    description: "Hybrid media service — image processing runs in the cloud, UI components render locally on your pod.",
+    description: "Hybrid media service - image processing runs in the cloud, UI components render locally on your pod.",
     hostingModel: "hybrid",
     instructionSnippet:
       "For image-related requests, use image-carousel-pro for display. Heavy image processing is handled by the cloud API.",
@@ -246,7 +246,7 @@ let _db: any = null;
 
 function getDb() {
   if (!_db) {
-    // Dynamic import from jarble-api-main's node_modules — better-sqlite3 is a native module
+    // Dynamic import from jarble-api-main's node_modules - better-sqlite3 is a native module
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Database = require(path.resolve(__dirname, "../../../jarble-api-main/node_modules/better-sqlite3"));
     _db = new Database(DB_PATH);

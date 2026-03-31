@@ -91,7 +91,7 @@ vi.mock("../../k8s/constants.js", () => ({
 // K8s status mock (not directly used, but may be imported transitively)
 vi.mock("../../k8s/status.js", () => ({}));
 
-// Logger mock — suppress output
+// Logger mock - suppress output
 vi.mock("../../utils/logger.js", () => ({
   createModuleLogger: () => ({
     debug: vi.fn(),
@@ -757,7 +757,7 @@ describe("Service Execution Route", () => {
 
       const res = await executeRequest();
 
-      // Still 200 — output schema validation is warn-only
+      // Still 200 - output schema validation is warn-only
       expect(res.status).toBe(200);
       expect(res.headers.get("X-Jarble-Schema-Warning")).toBe("output schema mismatch");
     });

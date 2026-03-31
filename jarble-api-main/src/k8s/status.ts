@@ -55,7 +55,7 @@ export async function getDeploymentPodStatus(
       }
     }
 
-    // Running and ready — takes priority over restart count
+    // Running and ready - takes priority over restart count
     if (phase === "Running" && containerStatus?.ready) {
       return {
         status: "running",

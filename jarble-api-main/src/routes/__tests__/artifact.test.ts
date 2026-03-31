@@ -24,7 +24,7 @@ vi.mock("../../services/auth.js", () => ({
   getUserFromToken: vi.fn(),
 }));
 
-// DB — vi.fn() inside factory is safe (no top-level variable reference)
+// DB - vi.fn() inside factory is safe (no top-level variable reference)
 vi.mock("../../db/index.js", () => ({
   db: { query: { deployments: { findFirst: vi.fn() } } },
   tables: {
@@ -32,7 +32,7 @@ vi.mock("../../db/index.js", () => ({
   },
 }));
 
-// Logger — suppress output
+// Logger - suppress output
 vi.mock("../../utils/logger.js", () => ({
   createModuleLogger: () => ({
     debug: vi.fn(),

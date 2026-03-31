@@ -1,17 +1,17 @@
 /**
- * File Management API — upload, download, browse, and manage files on pod PVCs.
+ * File Management API - upload, download, browse, and manage files on pod PVCs.
  *
  * All endpoints follow the same auth pattern as artifact.ts:
  *   Bearer token → user → deployment ownership → running pod check
  *
  * Routes (all under /api/deployments):
- *   GET    /:id/files/list?path=       — list directory entries
- *   POST   /:id/files/upload           — multipart file upload (up to 50MB)
- *   GET    /:id/files/download?path=   — stream single file download
- *   POST   /:id/files/download-archive — multi-file ZIP export
- *   POST   /:id/files/mkdir            — create directory
- *   DELETE /:id/files?path=            — delete file/directory
- *   PATCH  /:id/files/move             — rename/move
+ *   GET    /:id/files/list?path=       - list directory entries
+ *   POST   /:id/files/upload           - multipart file upload (up to 50MB)
+ *   GET    /:id/files/download?path=   - stream single file download
+ *   POST   /:id/files/download-archive - multi-file ZIP export
+ *   POST   /:id/files/mkdir            - create directory
+ *   DELETE /:id/files?path=            - delete file/directory
+ *   PATCH  /:id/files/move             - rename/move
  */
 
 import { Router } from "express";
@@ -193,7 +193,7 @@ filesRouter.get("/:id/files/list", async (req, res) => {
 /**
  * POST /:id/files/upload
  * Multipart form: `file` field + `path` field (target directory on pod)
- * Streams directly to pod via execInPodWithStdin — no API buffering.
+ * Streams directly to pod via execInPodWithStdin - no API buffering.
  */
 filesRouter.post("/:id/files/upload", uploadLimiter, async (req, res) => {
   try {

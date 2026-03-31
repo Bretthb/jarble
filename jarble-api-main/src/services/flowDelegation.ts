@@ -171,7 +171,7 @@ export function parseDelegationCalls(text: string): ParsedDelegationCall[] {
         });
       }
     } catch {
-      // Not valid JSON or not a delegation call — skip
+      // Not valid JSON or not a delegation call - skip
     }
   }
 
@@ -181,7 +181,7 @@ export function parseDelegationCalls(text: string): ParsedDelegationCall[] {
 // ── Execute delegation ───────────────────────────────────────────────────────
 
 /**
- * Execute a delegation — send a task to a target deployment and get the response.
+ * Execute a delegation - send a task to a target deployment and get the response.
  *
  * Uses the same chat pathway as tamboAgent (exec into pod via K8s API).
  * This is the non-streaming variant: the delegation completes and the full
@@ -196,7 +196,7 @@ export async function executeDelegation(params: {
   conversationHistory?: Array<{ role: string; content: string }>;
   sessionId?: string;
   depth?: number;
-  /** Source deployment ID — used to scope orchestration events to the right SSE stream */
+  /** Source deployment ID - used to scope orchestration events to the right SSE stream */
   sourceDeploymentId?: string;
   /** Tool name for orchestration event (e.g. "delegate_to_cto") */
   toolName?: string;
@@ -278,7 +278,7 @@ export async function executeDelegation(params: {
       targetDeploymentId: params.targetDeploymentId,
     });
   } catch {
-    // Non-fatal — orchestration events are nice-to-have
+    // Non-fatal - orchestration events are nice-to-have
   }
 
   // Create an AbortController with timeout

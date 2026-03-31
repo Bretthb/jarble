@@ -16,9 +16,9 @@ export interface CanvasSandboxProps {
   html: string;
   css?: string;
   js?: string;
-  /** ES module JavaScript — rendered as `<script type="module">`. Use for `import` from esm.sh/esm.run. */
+  /** ES module JavaScript - rendered as `<script type="module">`. Use for `import` from esm.sh/esm.run. */
   moduleJs?: string;
-  /** Import map entries — enables clean imports (e.g. `"react"` → `"https://esm.sh/react@18"`). */
+  /** Import map entries - enables clean imports (e.g. `"react"` → `"https://esm.sh/react@18"`). */
   importMap?: Record<string, string>;
   props?: Record<string, unknown>;
   height?: number;
@@ -53,7 +53,7 @@ function CanvasSandboxInner({
     getAccessTokenSilently().then(setAuthToken).catch(() => {});
   }, [getAccessTokenSilently]);
 
-  // Config panel state — values from configSchema override sandbox props
+  // Config panel state - values from configSchema override sandbox props
   const [configValues, setConfigValues] = useState<Record<string, unknown>>({});
   const handleConfigChange = useCallback((values: Record<string, unknown>) => {
     setConfigValues(values);
@@ -67,12 +67,12 @@ function CanvasSandboxInner({
   // Sanitize: extract <script>/<style>/<link> tags from html prop into proper fields
   const sanitized = sanitizeHtmlProp(html, js, libraries, "[Jarble:Sandbox]", css);
 
-  // Build srcdoc string — changes when content changes (includes parent theme vars)
+  // Build srcdoc string - changes when content changes (includes parent theme vars)
   const srcdoc = buildDocument(sanitized.html, sanitized.css, sanitized.js, sanitized.libraries, {
     logPrefix: "[Jarble:Sandbox]",
   }, sanitized.moduleJs || moduleJs, importMap, themeVars);
 
-  isDev && console.log("[Jarble:Sandbox] Render — html:", html?.length, "chars, css:", css?.length || 0, "chars, js:", js?.length || 0, "chars, libraries:", libraries);
+  isDev && console.log("[Jarble:Sandbox] Render - html:", html?.length, "chars, css:", css?.length || 0, "chars, js:", js?.length || 0, "chars, libraries:", libraries);
 
   const { stopped, handleStop, resetReady } = useSandboxBridge({
     iframeRef,

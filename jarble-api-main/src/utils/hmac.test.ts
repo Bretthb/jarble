@@ -102,7 +102,7 @@ describe("verifySignature", () => {
     const body = '{"test":true}';
     const sig = signRequest(secret, ts, body);
 
-    // Tamper with the hex portion — flip the last character
+    // Tamper with the hex portion - flip the last character
     const tampered = sig.slice(0, -1) + (sig.endsWith("0") ? "1" : "0");
 
     const result = verifySignature(secret, tampered, ts, body);

@@ -630,7 +630,7 @@ describe("useSandboxBridge", () => {
       const { config, iframe } = createConfig();
       renderHook(() => useSandboxBridge(config));
 
-      // Just verify it does not throw — Sentry mock is already set up
+      // Just verify it does not throw - Sentry mock is already set up
       act(() => {
         window.dispatchEvent(
           new MessageEvent("message", {

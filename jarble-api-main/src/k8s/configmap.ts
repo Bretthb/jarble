@@ -36,7 +36,7 @@ import type { ConfigFile } from "../runtimes/types.js";
  *   We encode "/" as "--" and prefix absolute paths with "abs-".
  *
  * Operator mode:
- *   Uses flat keys (just the filename) — the operator reads these directly
+ *   Uses flat keys (just the filename) - the operator reads these directly
  *   and merges them into its own config. Absolute paths are stripped to basename.
  */
 export function encodeConfigKey(path: string, managedBy: ManagedBy = "legacy"): string {
@@ -136,7 +136,7 @@ export async function updateDeploymentConfigMap(
   } catch (err: unknown) {
     const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
     if (statusCode === 404) {
-      // ConfigMap doesn't exist yet (old deployment) — create it
+      // ConfigMap doesn't exist yet (old deployment) - create it
       await createDeploymentConfigMap(deploymentId, files, managedBy);
     } else {
       throw err;

@@ -7,7 +7,7 @@ const DEPLOYMENT_ID = "3vt3ej3hj1oi";
 
 // ─── Authenticated navigation ───────────────────────────────────────────────
 
-test.describe("Navigation — Authenticated", () => {
+test.describe("Navigation - Authenticated", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -110,7 +110,7 @@ test.describe("Navigation — Authenticated", () => {
     await page.goto("/marketplace");
     await page.waitForTimeout(3_000);
 
-    // Marketplace page has its own nav — navigate home via Jarble logo
+    // Marketplace page has its own nav - navigate home via Jarble logo
     const logoLink = page.locator("nav").getByRole("link", { name: "Jarble" });
     await logoLink.click();
     await expect(page).toHaveURL("/");
@@ -245,11 +245,11 @@ test.describe("Navigation — Authenticated", () => {
     await page.getByRole("link", { name: "Dashboard" }).first().click();
     await expect(page).toHaveURL("/dashboard");
 
-    // Go back — should return to marketplace
+    // Go back - should return to marketplace
     await page.goBack();
     await expect(page).toHaveURL("/marketplace");
 
-    // Go back again — should return to homepage
+    // Go back again - should return to homepage
     await page.goBack();
     await expect(page).toHaveURL("/");
   });
@@ -269,21 +269,21 @@ test.describe("Navigation — Authenticated", () => {
     await page.goto("/marketplace");
     await page.waitForTimeout(3_000);
 
-    // Still authenticated — Dashboard link should be visible in nav
+    // Still authenticated - Dashboard link should be visible in nav
     await expect(page.getByRole("link", { name: "Dashboard" }).first()).toBeVisible();
 
     // Navigate to pricing
     await page.goto("/pricing");
     await page.waitForTimeout(3_000);
 
-    // Still authenticated — Dashboard button should be visible (pricing page uses Button, not Link)
+    // Still authenticated - Dashboard button should be visible (pricing page uses Button, not Link)
     await expect(page.getByRole("button", { name: "Dashboard" })).toBeVisible();
   });
 });
 
 // ─── Unauthenticated navigation ─────────────────────────────────────────────
 
-test.describe("Navigation — Unauthenticated", () => {
+test.describe("Navigation - Unauthenticated", () => {
   let flush: () => Promise<void>;
 
   // Override storage state to clear auth for this group
@@ -367,7 +367,7 @@ test.describe("Navigation — Unauthenticated", () => {
 
 // ─── 404 Not Found ──────────────────────────────────────────────────────────
 
-test.describe("Navigation — 404 Not Found", () => {
+test.describe("Navigation - 404 Not Found", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -414,7 +414,7 @@ test.describe("Navigation — 404 Not Found", () => {
 
 // ─── Cross-page nav consistency ─────────────────────────────────────────────
 
-test.describe("Navigation — Consistency across pages", () => {
+test.describe("Navigation - Consistency across pages", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {

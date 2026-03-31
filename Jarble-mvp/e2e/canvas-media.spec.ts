@@ -27,7 +27,7 @@ test.describe("Canvas media components", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -146,7 +146,7 @@ test.describe("Canvas media components", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 4. Image gallery — multiple images (media-gallery-01)
+  // 4. Image gallery - multiple images (media-gallery-01)
   // -------------------------------------------------------------------------
   test("image gallery renders multiple images (media-gallery-01)", async ({ page }, testInfo) => {
     const entry = MEDIA_PROMPTS.find((p) => p.id === "media-gallery-01")!;
@@ -201,7 +201,7 @@ test.describe("Canvas media components", () => {
     expect.soft(foundCarousel, "Carousel component should render").toBeTruthy();
 
     if (foundCarousel) {
-      // Look for navigation buttons (prev/next) — Embla carousel typically has these
+      // Look for navigation buttons (prev/next) - Embla carousel typically has these
       const navButtons = page.locator(
         "[data-card-id] button[aria-label*='previous' i], " +
         "[data-card-id] button[aria-label*='next' i], " +
@@ -240,7 +240,7 @@ test.describe("Canvas media components", () => {
     const cardCount = await getCanvasCardCount(page);
     const errorCount = await getErrorCardCount(page);
 
-    // The page should not crash — either:
+    // The page should not crash - either:
     // a) Shows a fallback/placeholder image
     // b) Shows error text about the broken image
     // c) The bot handles it in its text response

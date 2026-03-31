@@ -1,5 +1,5 @@
 /**
- * Mesh Gateway — External agent access to installed services.
+ * Mesh Gateway - External agent access to installed services.
  *
  * POST /api/mesh/services/:serviceId/:skillName
  * Auth: API Key (Bearer jrbl_...)
@@ -74,7 +74,7 @@ meshGatewayRouter.post(
           "Content-Type": "application/json",
           // Authenticate to the service proxy using the shared mesh gateway secret.
           // This token is either configured via MESH_GATEWAY_SECRET or generated
-          // randomly per process — see meshGatewayToken.ts for details.
+          // randomly per process - see meshGatewayToken.ts for details.
           "X-Gateway-Token": meshGatewayToken,
           "X-Request-Id": req.headers["x-request-id"] as string || crypto.randomUUID(),
         },

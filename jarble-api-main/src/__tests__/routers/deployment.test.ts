@@ -307,7 +307,7 @@ describe("deployment.deploy", () => {
     const result = await caller.deployment.deploy("dep-deploy");
     expect(result.success).toBe(true);
 
-    // K8s runs as fire-and-forget — with mocks it resolves instantly,
+    // K8s runs as fire-and-forget - with mocks it resolves instantly,
     // so status may already be "running". Either "creating" or "running" is valid.
     const dep = ctx.raw.prepare("SELECT status FROM deployments WHERE id = ?").get("dep-deploy") as any;
     expect(["creating", "running"]).toContain(dep.status);

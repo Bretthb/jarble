@@ -1,5 +1,5 @@
 /**
- * Chat Endpoint — Pod proxy for direct OpenClaw conversation.
+ * Chat Endpoint - Pod proxy for direct OpenClaw conversation.
  *
  * Frontend calls POST /api/tambo-agent with Bearer JWT auth:
  *   1. Verify Auth0 JWT
@@ -146,7 +146,7 @@ function sendEvent(res: any, event: Record<string, unknown>) {
         })}\n\n`
       );
     } catch {
-      // Connection is doomed — nothing more we can do
+      // Connection is doomed - nothing more we can do
     }
   }
 }
@@ -210,7 +210,7 @@ function createReasoningTracker() {
           remaining = remaining.slice(openMatch.index + openMatch[0].length);
 
           // Check if the opening tag might be at the very end (incomplete)
-          // No — we matched it, so it's complete
+          // No - we matched it, so it's complete
           callbacks.onReasoningStart();
           state.started = true;
         } else {
@@ -220,17 +220,17 @@ function createReasoningTracker() {
           if (partialTagIdx !== -1) {
             // Emit everything before the potential partial tag
             visibleDelta += remaining.slice(0, partialTagIdx);
-            // Don't advance processedLength past the partial tag — we'll
+            // Don't advance processedLength past the partial tag - we'll
             // re-process it on the next delta when more text arrives.
             state.processedLength += newText.length - remaining.length + partialTagIdx;
             return visibleDelta;
           }
-          // No tag found — all visible text
+          // No tag found - all visible text
           visibleDelta += remaining;
           remaining = "";
         }
       } else {
-        // Inside reasoning — look for closing tag
+        // Inside reasoning - look for closing tag
         const closeMatch = remaining.match(/<\/(think|reasoning)>/i);
         if (closeMatch && closeMatch.index !== undefined) {
           // Emit reasoning content before the closing tag
@@ -254,7 +254,7 @@ function createReasoningTracker() {
             state.processedLength += newText.length - remaining.length + partialCloseIdx;
             return visibleDelta;
           }
-          // No closing tag — entire remaining text is reasoning
+          // No closing tag - entire remaining text is reasoning
           if (remaining) {
             callbacks.onReasoningContent(remaining);
           }
@@ -372,8 +372,8 @@ const SKIN_DESCRIPTIONS: Record<string, string> = {
   handdrawn: "hand-drawn sketchy borders, wobbly elements, cursive font",
   neobrutalist: "bold 3px borders, chunky offset shadows, playful rotations",
   glass: "frosted glassmorphism with blur effects and subtle glow",
-  minimal: "clean and spacious — hidden avatars, borderless messages",
-  win98: "classic Windows 98 — silver gray, 3D beveled borders, blue title bar",
+  minimal: "clean and spacious - hidden avatars, borderless messages",
+  win98: "classic Windows 98 - silver gray, 3D beveled borders, blue title bar",
 };
 
 /** Helper: send a quick text response via SSE and close. */
@@ -393,12 +393,12 @@ function sendQuickResponse(res: any, runId: string, threadId: string, text: stri
  * Returns true if the command was handled (response already sent).
  *
  * Supported commands:
- *   /theme <preset> [skin]  — Change color preset and/or skin
- *   /color-preset <preset>  — Alias for /theme
- *   /skin <skin>            — Change chat skin only
- *   /commands, /help        — List available commands
- *   /clear                  — Signal frontend to clear chat
- *   /reset                  — Reset theme to default
+ *   /theme <preset> [skin]  - Change color preset and/or skin
+ *   /color-preset <preset>  - Alias for /theme
+ *   /skin <skin>            - Change chat skin only
+ *   /commands, /help        - List available commands
+ *   /clear                  - Signal frontend to clear chat
+ *   /reset                  - Reset theme to default
  */
 async function tryHandleSlashCommand(
   userText: string,
@@ -489,7 +489,7 @@ ${Object.entries(SKIN_DESCRIPTIONS).map(([k, v]) => `- **${k}**: ${v}`).join("\n
     return handleThemeChange(args, deploymentId, deployment, res, runId, threadId, true);
   }
 
-  // Unknown slash command — let the pod handle it
+  // Unknown slash command - let the pod handle it
   return false;
 }
 
@@ -578,7 +578,7 @@ async function resolveUIBlocks(
       resolved.push(block);
       continue;
     }
-    // Custom component — try to resolve from PVC
+    // Custom component - try to resolve from PVC
     try {
       const definition = await readComponentFromPvc(deploymentId, block.component, managedBy);
       if (!definition) {
@@ -639,12 +639,12 @@ tamboAgentRouter.post("/", async (req, res) => {
         res.status(401).json({ error: "Invalid agent secret" });
         return;
       }
-      // Secret auth is service-to-service — require userId in body for ownership check
+      // Secret auth is service-to-service - require userId in body for ownership check
       if (req.body.userId) {
         authenticatedUserId = req.body.userId;
       }
     } else {
-      // No secret configured and no JWT — always reject (even in dev mode)
+      // No secret configured and no JWT - always reject (even in dev mode)
       log.warn("Chat: no auth token and no agent secret configured");
       res.status(401).json({ error: "Unauthorized" });
       return;
@@ -732,13 +732,13 @@ tamboAgentRouter.post("/", async (req, res) => {
   // so the bot knows it can see the canvas
   let messageWithVision = lastUserText;
   if (canvasImage) {
-    messageWithVision += "\n\n[CANVAS_SCREENSHOT attached — you can see the current canvas layout, rendered components, and any drawings the user made. Describe what you see if relevant to the request.]";
+    messageWithVision += "\n\n[CANVAS_SCREENSHOT attached - you can see the current canvas layout, rendered components, and any drawings the user made. Describe what you see if relevant to the request.]";
     log.info({ deploymentId, imageSize: Math.round(canvasImage.length / 1024) + "KB" }, "Chat: canvas image attached");
   }
 
   log.info({ deploymentId, messageLength: lastUserText.length, hasCanvasImage: !!canvasImage }, "Chat: request started");
 
-  // ── Slash command interception — handle /theme, /commands, etc. directly ──
+  // ── Slash command interception - handle /theme, /commands, etc. directly ──
   // Must run BEFORE RUN_STARTED to avoid double-emit (command handler sends its own).
   // Strip canvas state/design context prefixes to find the actual user text for slash detection.
   const slashText = lastUserText
@@ -773,7 +773,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     }
   }, 25_000);
 
-  // Master timeout: 5 minutes — prevents indefinitely hanging connections
+  // Master timeout: 5 minutes - prevents indefinitely hanging connections
   // if the gateway WebSocket or exec hangs without triggering its own timeout.
   // Initialized as null and armed after messageId is defined (avoids TDZ reference).
   const MASTER_TIMEOUT_MS = 5 * 60 * 1000;
@@ -802,7 +802,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     return originalEnd(...args);
   }) as typeof res.end;
 
-  // Track client disconnect — when client navigates away, we stop sending SSE
+  // Track client disconnect - when client navigates away, we stop sending SSE
   // events but let the bot finish so we can persist the response to DB.
   let clientDisconnected = false;
 
@@ -810,7 +810,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     log.debug({ deploymentId, threadId }, "Chat client disconnected");
     clientDisconnected = true;
     cleanupChat();
-    // DON'T abort — let the bot finish so we can save the response.
+    // DON'T abort - let the bot finish so we can save the response.
     // Only abort if the request has been running for more than 5 minutes (orphan safety).
     setTimeout(() => {
       if (!abortController.signal.aborted) {
@@ -832,7 +832,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     abortController.abort();
   });
 
-  // ── Safe SSE write — skip writes when client has disconnected ──────────────
+  // ── Safe SSE write - skip writes when client has disconnected ──────────────
   /** Wrapper around sendEvent that silently drops writes when the client is gone. */
   const safeSendEvent = (r: any, data: Record<string, unknown>) => {
     if (!clientDisconnected && !r.writableEnded) {
@@ -840,9 +840,9 @@ tamboAgentRouter.post("/", async (req, res) => {
     }
   };
 
-  // ── Pod Proxy — WebSocket to OpenClaw gateway (streaming) ───────────────────
+  // ── Pod Proxy - WebSocket to OpenClaw gateway (streaming) ───────────────────
 
-  // Empty messages (e.g. Tambo init probes or StrictMode double-mounts) —
+  // Empty messages (e.g. Tambo init probes or StrictMode double-mounts) -
   // return a no-op success instead of exec'ing with an empty --message flag.
   if (!lastUserText.trim()) {
     const messageId = nanoid();
@@ -872,11 +872,11 @@ tamboAgentRouter.post("/", async (req, res) => {
   // Arm the master timeout now that messageId is defined
   masterTimeout = setTimeout(() => {
     if (clientDisconnected || res.writableEnded) return;
-    log.warn({ deploymentId, threadId }, "Chat SSE master timeout (5 min) — closing connection");
+    log.warn({ deploymentId, threadId }, "Chat SSE master timeout (5 min) - closing connection");
     safeSendEvent(res, {
       type: "TEXT_MESSAGE_CONTENT",
       messageId,
-      delta: "\n\nSorry, the request timed out. The bot may be processing a complex task — please try again.",
+      delta: "\n\nSorry, the request timed out. The bot may be processing a complex task - please try again.",
     });
     safeSendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
     safeSendEvent(res, { type: "RUN_FINISHED", runId, threadId });
@@ -926,7 +926,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     const now = dbDate();
     (async () => {
       try {
-        // Upsert chat session — must complete before message insert (FK constraint)
+        // Upsert chat session - must complete before message insert (FK constraint)
         const existing = await db.query.chatSessions.findFirst({
           where: eq(tables.chatSessions.id, convId),
         });
@@ -945,7 +945,7 @@ tamboAgentRouter.post("/", async (req, res) => {
         }
 
         // Now safe to insert message (session exists)
-        // Strip [CANVAS_STATE] prefix — it's bot context metadata, not user text
+        // Strip [CANVAS_STATE] prefix - it's bot context metadata, not user text
         const cleanUserText = lastUserText.replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]\s*/g, "").trim();
         await db.insert(tables.chatMessages).values({
           id: nanoid(),
@@ -1027,19 +1027,19 @@ tamboAgentRouter.post("/", async (req, res) => {
       }
     }
   } catch (err) {
-    // Non-fatal — bot works without team context
+    // Non-fatal - bot works without team context
     log.debug({ deploymentId, err: err instanceof Error ? err.message : String(err) }, "Failed to load team context");
   }
 
   // ── Reasoning / Thinking ──────────────────────────────────────────────────
   // 3-tier strategy ensures every response gets a visible "thinking" block:
-  //   1. Native thinking — extracted from OpenClaw's LLM response (highest quality)
-  //   2. <think> tags — parsed from bot text by the reasoning tracker
-  //   3. External reasoning — GPT-4o-mini generates a brief thinking summary (fallback)
+  //   1. Native thinking - extracted from OpenClaw's LLM response (highest quality)
+  //   2. <think> tags - parsed from bot text by the reasoning tracker
+  //   3. External reasoning - GPT-4o-mini generates a brief thinking summary (fallback)
   //
   // External reasoning fires immediately (resolves in ~1-2s) so it's ready
   // as a fallback by the time the bot response arrives (5-60s). We never skip
-  // it — it's cheap ($0.00005/call) and acts as the safety net.
+  // it - it's cheap ($0.00005/call) and acts as the safety net.
   const reasoningMsgId = nanoid();
   let reasoningEmitted = false; // true once ANY reasoning source has been emitted
   const reasoningPromise = generateReasoning(lastUserText);
@@ -1061,17 +1061,17 @@ tamboAgentRouter.post("/", async (req, res) => {
       const reasoning = await reasoningPromise;
       if (reasoning) emitReasoningBlock(reasoning, "external");
     } catch {
-      // Non-fatal — skip reasoning
+      // Non-fatal - skip reasoning
     }
   };
 
-  // Reasoning tag tracker — parses <think>/<reasoning> tags from bot text.
+  // Reasoning tag tracker - parses <think>/<reasoning> tags from bot text.
   // If reasoning was already emitted from another source, tag-based reasoning
   // is suppressed to avoid duplicates.
   const reasoningTracker = createReasoningTracker();
 
   /** Process a streaming text delta through the reasoning tracker and emit appropriate events.
-   *  Also suppresses jarble_ui/jarble_suggestions fenced blocks from the text stream —
+   *  Also suppresses jarble_ui/jarble_suggestions fenced blocks from the text stream -
    *  UI blocks are emitted separately as TOOL_CALL events via onBlockDetected. */
   let inFencedBlock = false; // tracks whether we're mid-way through a ```jarble_* fence
   let fenceBuffer = ""; // accumulates text when we might be entering a fence
@@ -1102,7 +1102,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       fenceBuffer = "";
 
       if (inFencedBlock) {
-        // We're inside a fence — look for the closing ``` on its own line
+        // We're inside a fence - look for the closing ``` on its own line
         // (avoids matching backticks inside code_block/sandbox content)
         const closeMatch = combined.match(/\n```\s*(?:\n|$)/);
         if (closeMatch && closeMatch.index !== undefined) {
@@ -1146,7 +1146,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     lastDeltaText = fullTextSoFar;
   };
 
-  // In local dev (USE_SQLITE), pod IPs are unreachable from the host — skip
+  // In local dev (USE_SQLITE), pod IPs are unreachable from the host - skip
   // the WS gateway entirely and go straight to exec through the K8s API.
   const useExecOnly = process.env.USE_SQLITE === "true" || process.env.USE_SQLITE === "1";
 
@@ -1163,7 +1163,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     }
 
     // ── Reasoning fallback chain ──
-    // Priority 1: Native thinking from OpenClaw (highest quality — the LLM's own thinking)
+    // Priority 1: Native thinking from OpenClaw (highest quality - the LLM's own thinking)
     if (!reasoningEmitted && gatewayResult.nativeThinking) {
       emitReasoningBlock(gatewayResult.nativeThinking, "native");
     }
@@ -1183,7 +1183,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
     // Notify the user if the response was truncated by a timeout
     if (gatewayResult.timedOut) {
-      safeSendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "\n\n---\n*Response was cut short due to a timeout. The bot may have been processing a complex request — try breaking it into smaller parts.*" });
+      safeSendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "\n\n---\n*Response was cut short due to a timeout. The bot may have been processing a complex request - try breaking it into smaller parts.*" });
       log.warn({ deploymentId, textLength: gatewayResult.rawText.length }, "Chat: response truncated by gateway timeout");
     }
 
@@ -1291,7 +1291,7 @@ tamboAgentRouter.post("/", async (req, res) => {
           }
         }
       } catch (err) {
-        // Non-fatal — don't break the chat if delegation parsing/execution fails
+        // Non-fatal - don't break the chat if delegation parsing/execution fails
         log.warn(
           { deploymentId, err: err instanceof Error ? err.message : String(err) },
           "Chat: delegation round-trip failed (non-fatal)",
@@ -1403,7 +1403,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       }
     }
 
-    // Handle component definitions — save to PVC and notify frontend
+    // Handle component definitions - save to PVC and notify frontend
     if (gatewayResult.componentDefs && gatewayResult.componentDefs.length > 0) {
       for (const def of gatewayResult.componentDefs) {
         // Save to PVC in the background (fire-and-forget)
@@ -1434,7 +1434,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       log.debug({ deploymentId }, "Chat: emitted design context update");
     }
 
-    // Emit suggestions — use bot's own suggestions if present, otherwise generate via secondary model
+    // Emit suggestions - use bot's own suggestions if present, otherwise generate via secondary model
     if (gatewayResult.suggestions && gatewayResult.suggestions.length > 0) {
       safeSendEvent(res, {
         type: CUSTOM,
@@ -1443,7 +1443,7 @@ tamboAgentRouter.post("/", async (req, res) => {
       });
       log.debug({ deploymentId, count: gatewayResult.suggestions.length, source: "bot" }, "Chat: emitted suggestions");
     } else {
-      // Secondary model call — cheap GPT-4o-mini generates contextual follow-ups
+      // Secondary model call - cheap GPT-4o-mini generates contextual follow-ups
       try {
         const generated = await generateSuggestions(lastUserText, gatewayResult.text);
         if (generated.length > 0) {
@@ -1455,7 +1455,7 @@ tamboAgentRouter.post("/", async (req, res) => {
           log.debug({ deploymentId, count: generated.length, source: "secondary" }, "Chat: emitted suggestions");
         }
       } catch {
-        // Non-fatal — skip suggestions for this turn
+        // Non-fatal - skip suggestions for this turn
       }
     }
 
@@ -1570,7 +1570,7 @@ tamboAgentRouter.post("/", async (req, res) => {
         return;
       }
 
-      // Don't emit external reasoning upfront — the bot's native thinking or
+      // Don't emit external reasoning upfront - the bot's native thinking or
       // <think> tags may arrive during streaming, and those are higher quality.
       // emitGatewayResult() handles the fallback chain:
       // native thinking > <think> tags > external reasoning.
@@ -1620,7 +1620,7 @@ tamboAgentRouter.post("/", async (req, res) => {
         }
       };
 
-      // Primary path: HTTP chat completions — true per-token streaming via
+      // Primary path: HTTP chat completions - true per-token streaming via
       // OpenClaw's OpenAI-compatible /v1/chat/completions endpoint.
       // Falls back to WS gateway if HTTP fails (e.g. endpoint not available
       // on older OpenClaw versions).

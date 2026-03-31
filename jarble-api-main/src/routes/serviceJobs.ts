@@ -1,11 +1,11 @@
 /**
- * Service Async Jobs Route — Polling endpoint for async skill executions.
+ * Service Async Jobs Route - Polling endpoint for async skill executions.
  *
  * When a skill has `callMode: "async"`, the proxy returns a 202 with
  * a job ID. The client polls this endpoint to get the result.
  *
  * Routes:
- *   GET /api/services/jobs/:jobId — Poll job status + result
+ *   GET /api/services/jobs/:jobId - Poll job status + result
  *
  * Job cleanup runs hourly, deleting expired jobs (24h TTL).
  */
@@ -27,12 +27,12 @@ serviceJobsRouter.get("/jobs/:jobId", async (req, res) => {
   const { jobId } = req.params;
 
   try {
-    // Auth check — require Bearer JWT
+    // Auth check - require Bearer JWT
     const authHeader = req.headers.authorization;
     const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
     if (!bearerToken) {
-      res.status(401).json({ error: "Unauthorized — Bearer JWT required" });
+      res.status(401).json({ error: "Unauthorized - Bearer JWT required" });
       return;
     }
 

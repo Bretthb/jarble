@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock node:fs before importing the handler — the module reads jarble-ui-server.js at import time
+// Mock node:fs before importing the handler - the module reads jarble-ui-server.js at import time
 vi.mock("node:fs", () => ({
   readFileSync: vi.fn(() => "// mock MCP server script"),
 }));
 
-// Mock env module before importing handler — platform mode reads env vars.
+// Mock env module before importing handler - platform mode reads env vars.
 // vi.mock factory is hoisted, so we cannot reference top-level variables.
 // Instead, we import the mocked env and mutate it directly in tests.
 vi.mock("../../utils/env.js", () => ({
@@ -602,7 +602,7 @@ describe("openclawHandler.validateCreate", () => {
 
 // ── Phase 1: Sandbox-First Prompt Pivot ──────────────────────────────────────
 
-describe("Phase 1 — sandbox-first prompt language", () => {
+describe("Phase 1 - sandbox-first prompt language", () => {
   it("soul.md contains 'SANDBOX-FIRST RULE' (not LAST RESORT)", () => {
     const deployment = makeDeployment();
     const files = openclawHandler.renderConfigs(deployment);
@@ -640,9 +640,9 @@ describe("Phase 1 — sandbox-first prompt language", () => {
   });
 });
 
-// ── Phase 2: Agent Forking — platform LLM key injection ─────────────────────
+// ── Phase 2: Agent Forking - platform LLM key injection ─────────────────────
 
-describe("openclawHandler.getSecretEntries — platform mode", () => {
+describe("openclawHandler.getSecretEntries - platform mode", () => {
   it("uses AGENT_LLM_API_KEY when llmMode is 'platform'", () => {
     mockEnv.AGENT_LLM_API_KEY = "platform-key-abc";
     mockEnv.AGENT_LLM_PROVIDER = "anthropic";
@@ -665,7 +665,7 @@ describe("openclawHandler.getSecretEntries — platform mode", () => {
 
   it("defaults provider to openrouter when AGENT_LLM_PROVIDER is not set", () => {
     mockEnv.AGENT_LLM_API_KEY = "platform-key-456";
-    // No AGENT_LLM_PROVIDER — should default to "openrouter"
+    // No AGENT_LLM_PROVIDER - should default to "openrouter"
 
     const entries = openclawHandler.getSecretEntries(
       makeDeployment({ llmMode: "platform", llmApiKey: null })

@@ -27,7 +27,7 @@ export const deployments = mysqlTable("deployments", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   runtime: varchar("runtime", { length: 100 }).notNull().default("openclaw"),
-  deploymentType: varchar("deployment_type", { length: 20 }).notNull().default("agent"), // "agent" | "container" | "website" — determines K8s scheduling
+  deploymentType: varchar("deployment_type", { length: 20 }).notNull().default("agent"), // "agent" | "container" | "website" - determines K8s scheduling
   image: varchar("image", { length: 255 }),
   runtimeCatalogId: int("runtime_catalog_id").references(() => runtimeCatalog.id),
   isFree: boolean("is_free").notNull().default(false),
@@ -54,7 +54,7 @@ export const deployments = mysqlTable("deployments", {
   isolationLevel: varchar("isolation_level", { length: 20 }).notNull().default("standard"),  // "standard" | "gvisor" | "kata"
   isPlatform: boolean("is_platform").notNull().default(false),  // Platform-owned agent (bypasses subscription/storage enforcement)
   resourceTier: varchar("resource_tier", { length: 20 }),  // Named resource preset: "small" | "medium" | "large"
-  themeConfig: text("theme_config"),  // JSON ThemeConfig — per-deployment custom theme
+  themeConfig: text("theme_config"),  // JSON ThemeConfig - per-deployment custom theme
   // Fork & public profile fields
   forkedFromId: varchar("forked_from_id", { length: 255 }),
   isPublic: boolean("is_public").notNull().default(false),
@@ -97,14 +97,14 @@ export const platformCredentials = mysqlTable("platform_credentials", {
   deploymentPlatformIdx: uniqueIndex("uq_deployment_platform").on(table.deploymentId, table.platformId),
 }));
 
-// Webhook idempotency tracking — stores processed webhook event IDs to prevent duplicate processing
+// Webhook idempotency tracking - stores processed webhook event IDs to prevent duplicate processing
 export const processedWebhookEvents = mysqlTable("processed_webhook_events", {
   eventId: varchar("event_id", { length: 255 }).primaryKey(), // Stripe event ID (e.g., evt_xxx)
   eventType: varchar("event_type", { length: 100 }).notNull(), // e.g., "checkout.session.completed"
   processedAt: timestamp("processed_at").defaultNow().notNull(),
 });
 
-// Global skills marketplace catalog — all available skills across runtimes
+// Global skills marketplace catalog - all available skills across runtimes
 export const skillsCatalog = mysqlTable("skills_catalog", {
   id: varchar("id", { length: 255 }).primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
@@ -116,7 +116,7 @@ export const skillsCatalog = mysqlTable("skills_catalog", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// Join table — which skills are installed on which deployment
+// Join table - which skills are installed on which deployment
 export const deploymentSkills = mysqlTable("deployment_skills", {
   id: varchar("id", { length: 255 }).primaryKey(),
   deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),

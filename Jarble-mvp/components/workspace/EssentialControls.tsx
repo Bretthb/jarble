@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * EssentialControls — compact toolbar for deployment lifecycle actions.
+ * EssentialControls - compact toolbar for deployment lifecycle actions.
  * Direct tRPC mutations for deployment lifecycle.
  *
  * Visual polish:

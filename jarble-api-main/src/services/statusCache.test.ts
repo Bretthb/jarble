@@ -1,5 +1,5 @@
 /**
- * Tests for statusCache.ts — shared in-memory deployment status cache with pub/sub.
+ * Tests for statusCache.ts - shared in-memory deployment status cache with pub/sub.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -86,7 +86,7 @@ describe("statusCache", () => {
       expect(mockGetDeploymentPodStatus).toHaveBeenCalledTimes(1);
 
       const status2 = await subscribe("dep-1", cb2);
-      // Should NOT call K8s again — uses cache
+      // Should NOT call K8s again - uses cache
       expect(mockGetDeploymentPodStatus).toHaveBeenCalledTimes(1);
       expect(status2.status).toBe("running");
     });
@@ -499,11 +499,11 @@ describe("statusCache", () => {
       const cb = vi.fn();
       await subscribe("dep-1", cb);
 
-      // First poll — status unchanged (same as initial)
+      // First poll - status unchanged (same as initial)
       await vi.advanceTimersByTimeAsync(5000);
       expect(cb).not.toHaveBeenCalled();
 
-      // Second poll — still unchanged
+      // Second poll - still unchanged
       await vi.advanceTimersByTimeAsync(5000);
       expect(cb).not.toHaveBeenCalled();
     });
@@ -519,7 +519,7 @@ describe("statusCache", () => {
         restarts: 10,
       });
 
-      // Re-subscribe — should fetch fresh from K8s
+      // Re-subscribe - should fetch fresh from K8s
       const status = await subscribe("dep-1", cb);
       expect(status.status).toBe("failed");
       expect(status.restarts).toBe(10);

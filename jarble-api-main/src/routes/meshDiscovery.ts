@@ -1,9 +1,9 @@
 /**
- * Mesh Discovery — Service catalog and A2A agent card for external agents.
+ * Mesh Discovery - Service catalog and A2A agent card for external agents.
  *
- * GET /api/mesh/services              — Browse available services (API key auth)
- * GET /api/mesh/services/:id          — Get service details + skills (API key auth)
- * GET /.well-known/jarble-mesh.json   — A2A agent card (public)
+ * GET /api/mesh/services              - Browse available services (API key auth)
+ * GET /api/mesh/services/:id          - Get service details + skills (API key auth)
+ * GET /.well-known/jarble-mesh.json   - A2A agent card (public)
  *
  * Allows external agents to discover what services are available,
  * their skill definitions, and how to call them.

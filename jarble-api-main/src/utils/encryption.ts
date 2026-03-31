@@ -15,7 +15,7 @@ const AUTH_TAG_BYTES = 16;
 
 /**
  * Resolve the 32-byte encryption key from the env var.
- * Returns null when not configured (local dev mode — keys stored in plaintext).
+ * Returns null when not configured (local dev mode - keys stored in plaintext).
  */
 function getEncryptionKey(): Buffer | null {
   const hex = env.API_KEY_ENCRYPTION_KEY;

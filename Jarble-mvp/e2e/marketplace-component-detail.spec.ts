@@ -7,7 +7,7 @@ import {
   mockComponentReviews,
 } from "./helpers/marketplace";
 
-test.describe("Marketplace — Component detail page", () => {
+test.describe("Marketplace - Component detail page", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {

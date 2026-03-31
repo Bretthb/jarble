@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DashboardCanvas — CSS Grid-based auto-layout for canvas cards.
+ * DashboardCanvas - CSS Grid-based auto-layout for canvas cards.
  *
  * Cards flow into a responsive grid (3 cols at 900px+, 2 at 600-900, 1 under 600).
  * Sort order is type-priority based (header → KPIs → charts → tables → detail).
@@ -26,7 +26,7 @@ const IMMERSIVE_COMPONENTS = new Set([
   "sandbox", "map", "video", "code_editor", "spreadsheet", "audio",
 ]);
 
-/** Preferred heights for immersive components — used as minHeight so they always get space. */
+/** Preferred heights for immersive components - used as minHeight so they always get space. */
 const PREFERRED_HEIGHTS: Record<string, number> = {
   sandbox: 800,
   map: 600,
@@ -392,7 +392,7 @@ function DashboardCanvasInner({
                           : "hover:ring-1 hover:ring-border/50"
                   }`}
                 >
-                  {/* Card header — icons only, hidden until hover/focus */}
+                  {/* Card header - icons only, hidden until hover/focus */}
                   <div className="shrink-0 flex items-center justify-end px-1 py-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto transition-opacity absolute top-0 left-0 right-0 z-20">
                     {/* Saved badge + save status (left-aligned, only when present) */}
                     <div className="flex items-center gap-1 mr-auto">

@@ -12,7 +12,7 @@ export interface CanvasEmbedProps {
   provider?: string;
 }
 
-/** Exact domain match — prevents subdomain bypasses like evil-youtube.com. */
+/** Exact domain match - prevents subdomain bypasses like evil-youtube.com. */
 function domainMatch(hostname: string, domain: string): boolean {
   return hostname === domain || hostname.endsWith(`.${domain}`);
 }
@@ -240,7 +240,7 @@ function CanvasEmbedInner({ url, title, height, provider }: CanvasEmbedProps) {
       <div className="relative flex-1 min-h-0 overflow-hidden rounded-lg bg-muted">
         {/* allow-same-origin is required for third-party embeds (Google Maps, TradingView, etc.)
             that need cookie/storage access. Safe here because content is from TRUSTED_EMBED_ORIGINS
-            (not our domain). Do NOT add allow-same-origin to CanvasSandbox — different threat model. */}
+            (not our domain). Do NOT add allow-same-origin to CanvasSandbox - different threat model. */}
         <iframe
           src={embedUrl}
           title={title || `${resolvedProvider} embed`}

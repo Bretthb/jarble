@@ -1,5 +1,5 @@
 /**
- * Tests for platformSkills — BOT_SKILLS extraction from jarble-ui-server.js.
+ * Tests for platformSkills - BOT_SKILLS extraction from jarble-ui-server.js.
  *
  * Covers: successful extraction, brace-depth parsing edge cases,
  * malformed files, error fallbacks, and skill structure validation.

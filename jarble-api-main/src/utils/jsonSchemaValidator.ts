@@ -27,7 +27,7 @@ export function validateJsonSchema(
 
   if (!schema || typeof schema !== "object") return errors;
 
-  // anyOf / oneOf — valid if any sub-schema passes
+  // anyOf / oneOf - valid if any sub-schema passes
   const anyOf = (schema.anyOf || schema.oneOf) as Record<string, unknown>[] | undefined;
   if (anyOf && Array.isArray(anyOf)) {
     const anyMatch = anyOf.some((sub) => validateJsonSchema(value, sub, path).length === 0);

@@ -1,11 +1,11 @@
 /**
- * Document Parser — Simple document ingestion for RAG / Knowledge Base
+ * Document Parser - Simple document ingestion for RAG / Knowledge Base
  *
  * Accepts text content + filename, detects type from extension,
  * splits into semantic chunks with overlap, returns chunk array.
  *
  * Supported formats: .txt, .md, .json, .csv
- * No external dependencies — uses only Node.js built-ins.
+ * No external dependencies - uses only Node.js built-ins.
  */
 
 import { createHash } from "node:crypto";
@@ -74,7 +74,7 @@ function chunkText(text: string, source: string): DocumentChunk[] {
     if (para.length <= MAX_CHUNK_CHARS) {
       rawChunks.push(para.trim());
     } else {
-      // Paragraph too long — split on sentences
+      // Paragraph too long - split on sentences
       const sentences = splitSentences(para);
       let current = "";
       for (const sentence of sentences) {

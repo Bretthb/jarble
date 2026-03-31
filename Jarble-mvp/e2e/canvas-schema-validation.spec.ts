@@ -27,7 +27,7 @@ test.describe("Canvas schema validation & autoFix", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -71,7 +71,7 @@ test.describe("Canvas schema validation & autoFix", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 2. Enum normalization — capital 'Bar' to 'bar' (schema-02)
+  // 2. Enum normalization - capital 'Bar' to 'bar' (schema-02)
   // -------------------------------------------------------------------------
   test("chart renders with capitalized type normalized (schema-02)", async ({ page }, testInfo) => {
     const entry = SCHEMA_VALIDATION_PROMPTS.find((p) => p.id === "schema-02")!;
@@ -100,7 +100,7 @@ test.describe("Canvas schema validation & autoFix", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 3. Component name alias — info_card -> card (schema-03)
+  // 3. Component name alias - info_card -> card (schema-03)
   // -------------------------------------------------------------------------
   test("card renders via component name alias (schema-03)", async ({ page }, testInfo) => {
     const entry = SCHEMA_VALIDATION_PROMPTS.find((p) => p.id === "schema-03")!;
@@ -164,7 +164,7 @@ test.describe("Canvas schema validation & autoFix", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 5. Field alias — title -> label in stat grid (schema-05)
+  // 5. Field alias - title -> label in stat grid (schema-05)
   // -------------------------------------------------------------------------
   test("stat grid renders with title->label field alias (schema-05)", async ({ page }, testInfo) => {
     const entry = SCHEMA_VALIDATION_PROMPTS.find((p) => p.id === "schema-05")!;
@@ -234,7 +234,7 @@ test.describe("Canvas schema validation & autoFix", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 7. Chart data shape fix — flat array to objects (schema-07)
+  // 7. Chart data shape fix - flat array to objects (schema-07)
   // -------------------------------------------------------------------------
   test("chart renders with flat array data converted to objects (schema-07)", async ({ page }, testInfo) => {
     const entry = SCHEMA_VALIDATION_PROMPTS.find((p) => p.id === "schema-07")!;
@@ -270,7 +270,7 @@ test.describe("Canvas schema validation & autoFix", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 8. Duplicate field handling — body + content (schema-08)
+  // 8. Duplicate field handling - body + content (schema-08)
   // -------------------------------------------------------------------------
   test("card renders with duplicate body/content fields handled (schema-08)", async ({ page }, testInfo) => {
     const entry = SCHEMA_VALIDATION_PROMPTS.find((p) => p.id === "schema-08")!;

@@ -14,7 +14,7 @@ import {
 
 // ── CORE_COMPONENT_NAMES ordering ────────────────────────────────────────────
 
-describe("generatePromptReference — core component ordering", () => {
+describe("generatePromptReference - core component ordering", () => {
   it("lists sandbox as the first component in top-10 mode", () => {
     const output = generatePromptReference(COMPONENT_MANIFEST, {
       top10Only: true,
@@ -84,7 +84,7 @@ describe("generatePromptReference — core component ordering", () => {
 
 // ── Full reference mode ──────────────────────────────────────────────────────
 
-describe("generatePromptReference — full mode", () => {
+describe("generatePromptReference - full mode", () => {
   it("includes all builtin components grouped by category", () => {
     const output = generatePromptReference(COMPONENT_MANIFEST);
 
@@ -102,7 +102,7 @@ describe("generatePromptReference — full mode", () => {
 
 // ── Sandbox entry ────────────────────────────────────────────────────────────
 
-describe("sandbox manifest entry — Phase 1 size change", () => {
+describe("sandbox manifest entry - Phase 1 size change", () => {
   it("exists in the component manifest", () => {
     expect(COMPONENT_MANIFEST["sandbox"]).toBeDefined();
   });

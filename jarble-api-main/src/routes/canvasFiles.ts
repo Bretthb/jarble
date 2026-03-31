@@ -1,8 +1,8 @@
 /**
- * Canvas Files — MCP proxy endpoint
+ * Canvas Files - MCP proxy endpoint
  *
  * Routes MCP tool calls from the frontend to the bot's jarble-ui MCP server
- * running inside the pod. Our API is just a dumb pipe — it doesn't touch the data.
+ * running inside the pod. Our API is just a dumb pipe - it doesn't touch the data.
  *
  * POST /api/deployments/:id/mcp/invoke
  *   body: { tool: string, args: Record<string, unknown> }
@@ -113,7 +113,7 @@ canvasFilesRouter.get("/:id/component-state/:cardId", async (req, res) => {
       const state = JSON.parse(stdout);
       res.json({ state });
     } catch {
-      // File doesn't exist yet — return null (use original props)
+      // File doesn't exist yet - return null (use original props)
       res.json({ state: null });
     }
   } catch (err) {
@@ -122,7 +122,7 @@ canvasFilesRouter.get("/:id/component-state/:cardId", async (req, res) => {
   }
 });
 
-/** Allowed jarble-ui tool names — whitelist to prevent arbitrary command injection */
+/** Allowed jarble-ui tool names - whitelist to prevent arbitrary command injection */
 const ALLOWED_TOOLS = new Set([
   "save_canvas_file",
   "load_canvas_file",

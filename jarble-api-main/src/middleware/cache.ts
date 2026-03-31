@@ -4,11 +4,11 @@ import type { RequestHandler } from "express";
 export function trpcCacheMiddleware(): RequestHandler {
   // Cache these read-heavy queries (values in seconds)
   const CACHED_QUERIES: Record<string, number> = {
-    "runtimeCatalog.list": 300,      // 5 min — rarely changes
+    "runtimeCatalog.list": 300,      // 5 min - rarely changes
     "template.list": 300,            // 5 min
     "marketplace.listPublished": 60, // 1 min
     "services.listPublished": 60,    // 1 min
-    "deployment.list": 10,           // 10 sec — changes more often
+    "deployment.list": 10,           // 10 sec - changes more often
     "flows.list": 10,                // 10 sec
   };
 

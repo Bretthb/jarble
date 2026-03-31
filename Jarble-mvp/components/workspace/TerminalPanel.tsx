@@ -101,7 +101,7 @@ export default function TerminalPanel({ deploymentId }: TerminalPanelProps) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle resize — debounced to avoid thrashing during CSS transitions
+  // Handle resize - debounced to avoid thrashing during CSS transitions
   useEffect(() => {
     if (!fitAddonRef.current || !termRef.current) return;
 
@@ -180,7 +180,7 @@ export default function TerminalPanel({ deploymentId }: TerminalPanelProps) {
         </div>
       )}
 
-      {/* Terminal container — extra wrapper creates inset so xterm doesn't touch edges */}
+      {/* Terminal container - extra wrapper creates inset so xterm doesn't touch edges */}
       <div className="flex-1 relative min-h-0 overflow-hidden bg-[#0a0a0a]">
         {isConnecting && !initialized && (
           <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0a] z-10">

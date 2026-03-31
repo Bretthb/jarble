@@ -118,7 +118,7 @@ export default function OnboardingWizard() {
       if (active) {
         active = false;
         clearInterval(interval);
-        toast.error("Pairing timed out — you can pair from the dashboard later.");
+        toast.error("Pairing timed out - you can pair from the dashboard later.");
         setTimeout(() => router.replace("/dashboard"), 2000);
       }
     }, 8 * 60 * 1000);
@@ -130,7 +130,7 @@ export default function OnboardingWizard() {
     };
   }, [deployPhase, createdDeploymentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Hardware config (optional overrides — null means "use runtime catalog defaults")
+  // Hardware config (optional overrides - null means "use runtime catalog defaults")
   const [cpuLimit, setCpuLimit] = useState<string | null>(null);
   const [memoryMb, setMemoryMb] = useState<number | null>(null);
   const [storageMb, setStorageMb] = useState<number | null>(null);
@@ -274,7 +274,7 @@ export default function OnboardingWizard() {
         setCreatedDeploymentId(id);
         deployMutation.mutate(id);
       } else if (createdDeploymentId) {
-        // Deployment already created but deploy failed — retry deploy only
+        // Deployment already created but deploy failed - retry deploy only
         deployMutation.mutate(createdDeploymentId);
       } else {
         createMutation.mutate({
@@ -501,7 +501,7 @@ export default function OnboardingWizard() {
                   }}
                 />
               )}
-              {/* Telegram step removed — platform connections happen via config panel after deploy */}
+              {/* Telegram step removed - platform connections happen via config panel after deploy */}
             </motion.div>
           </AnimatePresence>
         </div>

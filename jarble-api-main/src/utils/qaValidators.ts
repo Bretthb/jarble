@@ -1,5 +1,5 @@
 /**
- * QA Validators — pure synchronous functions for validating composed components.
+ * QA Validators - pure synchronous functions for validating composed components.
  *
  * Run in Phase 3 (Synthesize) of the compose pipeline, after all component
  * agents return but before sending to the frontend.
@@ -33,7 +33,7 @@ function isUrlTrustedCdn(url: string): boolean {
   }
 }
 
-// No `g` flag on regexes used with .test() — prevents lastIndex state bugs across calls
+// No `g` flag on regexes used with .test() - prevents lastIndex state bugs across calls
 const INLINE_HANDLER_RE = /\bon(?:click|load|error|mouse\w+|key\w+|submit|change|input|focus|blur)\s*=\s*["']/i;
 const EVAL_RE = /\beval\s*\(/;
 const NEW_FUNCTION_RE = /\bnew\s+Function\s*\(/;

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * useCanvasScreenshot — captures the canvas area or individual cards as base64 PNG images.
+ * useCanvasScreenshot - captures the canvas area or individual cards as base64 PNG images.
  *
  * Uses html2canvas for DOM-to-image conversion. The library is dynamically imported
  * so this hook degrades gracefully if html2canvas is not installed.
@@ -9,7 +9,7 @@
  * SETUP: html2canvas must be installed in Jarble-mvp:
  *   npm install html2canvas
  *
- * Returns { captureCanvas, captureCard } — both return Promise<string | null>.
+ * Returns { captureCanvas, captureCard } - both return Promise<string | null>.
  */
 
 import { useCallback, useRef } from "react";

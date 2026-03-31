@@ -19,7 +19,7 @@ export const PLATFORM_CREDENTIAL_KEYS: Record<string, Record<string, string>> = 
   discord: { botToken: "token" },                 // channels.discord.token
   telegram: { botToken: "botToken" },             // channels.telegram.botToken
   slack: { botToken: "botToken", appToken: "appToken" },
-  whatsapp: {},                                    // QR pairing via Baileys — no tokens
+  whatsapp: {},                                    // QR pairing via Baileys - no tokens
   web: { allowedDomains: "allowedDomains" },
   teams: { appId: "appId", appPassword: "appPassword" },
   messenger: { pageAccessToken: "pageAccessToken", verifyToken: "verifyToken" },
@@ -150,7 +150,7 @@ export const platformCredentialsRouter = router({
       }
 
       // Config sync: push updated configs to PVC
-      // Always fire — syncConfigsToPvc handles status checks internally
+      // Always fire - syncConfigsToPvc handles status checks internally
       // and will wait for "creating" deployments to become "running"
       safeFireAndForget(syncConfigsToPvc(input.deploymentId), { operation: "syncConfigsToPvc", deploymentId: input.deploymentId });
 
@@ -296,7 +296,7 @@ export const platformCredentialsRouter = router({
 
         logger.debug({ deploymentId: input.deploymentId, listOutput }, "pollTelegramPairing: raw list output");
 
-        // Robustly extract the JSON array — some openclaw versions may prefix log lines
+        // Robustly extract the JSON array - some openclaw versions may prefix log lines
         let requests: Array<{ code: string; status?: string }>;
         try {
           let jsonStr = listOutput.trim();
@@ -336,9 +336,9 @@ export const platformCredentialsRouter = router({
           logger.info({ deploymentId: input.deploymentId, code: pending.code }, "Auto-approved Telegram pairing request");
         } catch (approveErr) {
           // Pod may have restarted immediately after approval (e.g. liveness probe or configSync).
-          // The approve command was fired — treat as paired regardless.
+          // The approve command was fired - treat as paired regardless.
           logger.warn({ deploymentId: input.deploymentId, code: pending.code, approveErr },
-            "Approve exec errored (pod likely restarted) — treating as paired");
+            "Approve exec errored (pod likely restarted) - treating as paired");
         }
 
         return { status: "paired" as const };
@@ -348,7 +348,7 @@ export const platformCredentialsRouter = router({
       }
     }),
 
-  // Test connection (placeholder — validates required fields are present)
+  // Test connection (placeholder - validates required fields are present)
   testConnection: protectedProcedure
     .input(z.object({
       deploymentId: z.string(),

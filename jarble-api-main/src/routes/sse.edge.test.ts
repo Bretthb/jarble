@@ -180,7 +180,7 @@ describe("client reconnection mid-stream", () => {
     req1.emit("close");
     expect(abortFn1).toHaveBeenCalled();
 
-    // Client reconnects — should succeed because connection was released
+    // Client reconnects - should succeed because connection was released
     const req2 = createMockReq({ id: "dep-1" }, {}, { authorization: "Bearer t" });
     const res2 = createMockRes();
     await handler(req2, res2);

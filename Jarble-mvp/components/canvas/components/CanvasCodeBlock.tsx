@@ -127,7 +127,7 @@ function CanvasCodeBlockInner({ code, language, title }: CanvasCodeBlockProps) {
   return (
     <div
       role="region"
-      aria-label={`Code${language ? `: ${language}` : ""}${title ? ` — ${title}` : ""}`}
+      aria-label={`Code${language ? `: ${language}` : ""}${title ? ` - ${title}` : ""}`}
       className="h-full flex flex-col overflow-hidden rounded-xl bg-[#0d1117] border border-zinc-800/50"
     >
       {/* Header */}

@@ -6,7 +6,7 @@ import {
 } from "./helpers/logging";
 import { setupAuthIntercept, waitForAuthReady } from "./helpers/auth";
 
-test.describe("Visual testing — authenticated flows", () => {
+test.describe("Visual testing - authenticated flows", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -21,25 +21,25 @@ test.describe("Visual testing — authenticated flows", () => {
     await flush();
   });
 
-  test("homepage — authenticated user sees nav changes", async ({ page }, testInfo) => {
+  test("homepage - authenticated user sees nav changes", async ({ page }, testInfo) => {
     await page.goto("/");
     await page.waitForTimeout(3_000);
     await screenshotMilestone(page, testInfo, "homepage-authed");
   });
 
-  test("dashboard — shows user content", async ({ page }, testInfo) => {
+  test("dashboard - shows user content", async ({ page }, testInfo) => {
     await page.goto("/dashboard");
     await waitForAuthReady(page);
     await screenshotMilestone(page, testInfo, "dashboard-authed");
   });
 
-  test("deployments — linked graph view", async ({ page }, testInfo) => {
+  test("deployments - linked graph view", async ({ page }, testInfo) => {
     await page.goto("/deployments");
     await waitForAuthReady(page);
     await screenshotMilestone(page, testInfo, "deployments-graph");
   });
 
-  test("deployment chat page — loads UI", async ({ page }, testInfo) => {
+  test("deployment chat page - loads UI", async ({ page }, testInfo) => {
     const config = getTestConfig();
     test.skip(!config.deploymentId, "No deploymentId configured");
 
@@ -55,7 +55,7 @@ test.describe("Visual testing — authenticated flows", () => {
     }
   });
 
-  test("deployment chat — send stat_grid prompt", async ({ page }, testInfo) => {
+  test("deployment chat - send stat_grid prompt", async ({ page }, testInfo) => {
     const config = getTestConfig();
     test.skip(!config.deploymentId, "No deploymentId configured");
 
@@ -63,7 +63,7 @@ test.describe("Visual testing — authenticated flows", () => {
     await page.waitForTimeout(5_000);
 
     const textarea = page.locator("textarea");
-    test.skip(!(await textarea.isVisible().catch(() => false)), "No chat input — bot not accessible");
+    test.skip(!(await textarea.isVisible().catch(() => false)), "No chat input - bot not accessible");
 
     await textarea.fill("Show me a stat grid with 4 metrics: Revenue ($1.2M), Users (45K), Growth (23%), Churn (2.1%)");
     await screenshotMilestone(page, testInfo, "prompt-filled");
@@ -85,7 +85,7 @@ test.describe("Visual testing — authenticated flows", () => {
     }
   });
 
-  test("deployment chat — send chart prompt", async ({ page }, testInfo) => {
+  test("deployment chat - send chart prompt", async ({ page }, testInfo) => {
     const config = getTestConfig();
     test.skip(!config.deploymentId, "No deploymentId configured");
 
@@ -106,7 +106,7 @@ test.describe("Visual testing — authenticated flows", () => {
     await screenshotMilestone(page, testInfo, "response-chart");
   });
 
-  test("deployment chat — send data_table prompt", async ({ page }, testInfo) => {
+  test("deployment chat - send data_table prompt", async ({ page }, testInfo) => {
     const config = getTestConfig();
     test.skip(!config.deploymentId, "No deploymentId configured");
 
@@ -127,13 +127,13 @@ test.describe("Visual testing — authenticated flows", () => {
     await screenshotMilestone(page, testInfo, "response-data-table");
   });
 
-  test("marketplace — browse components", async ({ page }, testInfo) => {
+  test("marketplace - browse components", async ({ page }, testInfo) => {
     await page.goto("/marketplace");
     await page.waitForTimeout(3_000);
     await screenshotMilestone(page, testInfo, "marketplace-browse");
   });
 
-  test("pricing — full page scroll", async ({ page }, testInfo) => {
+  test("pricing - full page scroll", async ({ page }, testInfo) => {
     await page.goto("/pricing");
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(2_000);

@@ -1,5 +1,5 @@
 /**
- * Tests for configSync.ts — the two-way config synchronization service.
+ * Tests for configSync.ts - the two-way config synchronization service.
  *
  * Since configSync depends heavily on DB, K8s, and runtime handlers, we mock
  * all external boundaries and test the orchestration logic, error paths, and
@@ -333,7 +333,7 @@ describe("configSync", () => {
         await syncConfigsToPvc("dep-1");
 
         expect(mockUpdateDeploymentConfigMap).toHaveBeenCalled();
-        // Should not throw — error is caught and logged
+        // Should not throw - error is caught and logged
         expect(mockRestartDeployment).not.toHaveBeenCalled();
       });
 
@@ -911,7 +911,7 @@ describe("configSync", () => {
 
       await syncConfigsToPvc("dep-1");
 
-      // Should not throw — llmApiKey is null so decryptApiKey is skipped
+      // Should not throw - llmApiKey is null so decryptApiKey is skipped
       expect(mockRenderConfigs).toHaveBeenCalled();
     });
 
@@ -924,7 +924,7 @@ describe("configSync", () => {
       mockRenderConfigs.mockReturnValue([]);
       mockGetSecretEntries.mockReturnValue({});
 
-      // Should not throw — corrupted creds are skipped with a warning
+      // Should not throw - corrupted creds are skipped with a warning
       await syncConfigsToPvc("dep-1");
       expect(mockRenderConfigs).toHaveBeenCalled();
     });
@@ -1047,7 +1047,7 @@ describe("configSync", () => {
       mockRenderConfigs.mockReturnValue([]);
       mockGetSecretEntries.mockReturnValue({});
 
-      // Should not throw — malformed config is logged and skipped
+      // Should not throw - malformed config is logged and skipped
       await syncConfigsToPvc("dep-1");
       expect(mockRenderConfigs).toHaveBeenCalled();
     });
@@ -1456,7 +1456,7 @@ describe("compareSecrets logic (via syncConfigsToPvc tiers)", () => {
       id: "dep-1", userId: "u1", name: "Bot", runtime: "openclaw",
       status: "running", managedBy: "legacy",
     });
-    // DEPLOYMENT_ID is a base key — even if not in new entries, should not trigger Tier 3
+    // DEPLOYMENT_ID is a base key - even if not in new entries, should not trigger Tier 3
     mockReadCurrentSecretData.mockResolvedValue({
       DEPLOYMENT_ID: "dep-1",
       LLM_PROVIDER: "openrouter",

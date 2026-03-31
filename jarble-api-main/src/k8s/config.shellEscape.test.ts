@@ -85,7 +85,7 @@ describe("writeConfigsToPvc shell escape", () => {
     // Instead, the escaped form it'\''s should be present.
     expect(script).toContain("it'\\''s a file.json");
     // Verify the UNescaped form (single quote inside single-quoted string) is NOT present.
-    // The unescaped form would be: 'it's a file.json' — which would break the shell.
+    // The unescaped form would be: 'it's a file.json' - which would break the shell.
     expect(script).not.toContain("'it's a file.json'");
   });
 
@@ -96,7 +96,7 @@ describe("writeConfigsToPvc shell escape", () => {
 
     const script = mockExecInPod.mock.calls[0][1][2];
 
-    // Inside single quotes, backticks are literal — they should appear as-is
+    // Inside single quotes, backticks are literal - they should appear as-is
     // The key check: the path is wrapped in single quotes so backticks are inert.
     // Verify the path appears inside single-quoted context
     expect(script).toContain("'");

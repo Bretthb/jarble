@@ -43,7 +43,7 @@ export const openrouterRouter = router({
     return data.data || [];
   }),
 
-  // Validate an OpenRouter API key (legacy — use validateProviderKey for multi-provider)
+  // Validate an OpenRouter API key (legacy - use validateProviderKey for multi-provider)
   validateApiKey: protectedProcedure
     .input(z.object({ apiKey: z.string() }))
     .mutation(async ({ input }) => {
@@ -73,7 +73,7 @@ export const openrouterRouter = router({
       }
 
       // Claude Max OAuth tokens (sk-ant-oat*) can't be validated via the
-      // standard API — accept them based on prefix format
+      // standard API - accept them based on prefix format
       if (input.provider === "anthropic" && input.apiKey.startsWith("sk-ant-oat")) {
         return { valid: true };
       }
@@ -262,7 +262,7 @@ export const openrouterRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      // Block linked deployments — must update the owner instead
+      // Block linked deployments - must update the owner instead
       if (deployment.llmApiKeySourceDeploymentId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -297,7 +297,7 @@ export const openrouterRouter = router({
       return { success: true };
     }),
 
-  // Update managed key plan — changes both Stripe price and OpenRouter limit
+  // Update managed key plan - changes both Stripe price and OpenRouter limit
   updateManagedKeyPlan: protectedProcedure
     .input(z.object({
       deploymentId: z.string(),
@@ -344,7 +344,7 @@ export const openrouterRouter = router({
         if (managedItem) {
           await updateManagedKeyLineItem(managedItem.itemId, input.newLimitDollars * 100);
         } else {
-          // No managed key line item yet — add one
+          // No managed key line item yet - add one
           await addManagedKeyLineItem(subscriptionId, input.newLimitDollars * 100);
         }
       }
@@ -371,7 +371,7 @@ export const openrouterRouter = router({
       return { success: true };
     }),
 
-  // Cancel managed keys — removes Stripe line item, revokes OpenRouter key, switches to BYOK
+  // Cancel managed keys - removes Stripe line item, revokes OpenRouter key, switches to BYOK
   cancelManagedKey: protectedProcedure
     .input(z.object({ deploymentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -444,7 +444,7 @@ export const openrouterRouter = router({
       return { success: true };
     }),
 
-  // Revoke (disable) an OpenRouter key — admin/cleanup utility
+  // Revoke (disable) an OpenRouter key - admin/cleanup utility
   revokeKey: protectedProcedure
     .input(z.object({ deploymentId: z.string() }))
     .mutation(async ({ ctx, input }) => {

@@ -25,7 +25,7 @@ test.describe("Canvas multi-component dashboards", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -76,7 +76,7 @@ test.describe("Canvas multi-component dashboards", () => {
     const cardCount = await getCanvasCardCount(page);
     expect.soft(cardCount, "Should render at least 1 card for tabs").toBeGreaterThanOrEqual(1);
 
-    // Skip assertNoErrorCards — nested component props often fail validation.
+    // Skip assertNoErrorCards - nested component props often fail validation.
     // The bot may render tabs with error children, individual components, or error cards.
     // Known limitation: tabs/accordion schemas accept string content, not nested objects.
     // Verify the bot rendered something (we already checked cardCount >= 1 above).
@@ -101,7 +101,7 @@ test.describe("Canvas multi-component dashboards", () => {
     const cardCount = await getCanvasCardCount(page);
     expect.soft(cardCount, "Should render at least 1 card for accordion").toBeGreaterThanOrEqual(1);
 
-    // Skip assertNoErrorCards — nested component props often fail validation.
+    // Skip assertNoErrorCards - nested component props often fail validation.
     // Known limitation: accordion content expects strings, not nested component objects.
     // Verify the bot rendered something (we already checked cardCount >= 1 above).
 
@@ -271,7 +271,7 @@ test.describe("Canvas multi-component dashboards", () => {
 
   // -----------------------------------------------------------------------
   // multi-10: API documentation page (header + tabs)
-  // Tabs with nested code_block/data_table children — same nesting limitation.
+  // Tabs with nested code_block/data_table children - same nesting limitation.
   // -----------------------------------------------------------------------
   test("renders API docs layout (multi-10)", async ({ page }, testInfo) => {
     const entry = MULTI_DASHBOARD_PROMPTS.find((p) => p.id === "multi-10")!;
@@ -281,7 +281,7 @@ test.describe("Canvas multi-component dashboards", () => {
     const cardCount = await getCanvasCardCount(page);
     expect.soft(cardCount, "Should render at least 1 card for API docs").toBeGreaterThanOrEqual(1);
 
-    // Skip assertNoErrorCards — tabs with nested components may produce error cards.
+    // Skip assertNoErrorCards - tabs with nested components may produce error cards.
     // Check for header at minimum (it's a flat component, should always work).
     const hasHeader = await waitForComponentType(page, "header", 10_000);
     const hasTabs = await waitForComponentType(page, "tabs", 5_000);

@@ -125,7 +125,7 @@ describe("validateJsonSchema", () => {
     });
 
     it("does not validate fields not present in data", () => {
-      // Only present fields are validated — missing optional fields are fine
+      // Only present fields are validated - missing optional fields are fine
       const result = validateJsonSchema({}, schema);
       expect(result.valid).toBe(true);
     });

@@ -1,5 +1,5 @@
 /**
- * Tests for webhookCleanup.ts — periodic deletion of old webhook events.
+ * Tests for webhookCleanup.ts - periodic deletion of old webhook events.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -170,7 +170,7 @@ describe("webhookCleanup", () => {
     it("uses 24-hour default interval", () => {
       const timer = startWebhookCleanup();
 
-      // Timer was created — default is 24h (86400000ms)
+      // Timer was created - default is 24h (86400000ms)
       expect(timer).toBeDefined();
       clearInterval(timer);
     });

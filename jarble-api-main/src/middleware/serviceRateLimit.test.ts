@@ -71,7 +71,7 @@ describe("serviceRateLimit", () => {
       }
       expect((await checkServiceRateLimit("dep-1", "pkg-1", limits, window1, store)).allowed).toBe(false);
 
-      // New window — allowed again
+      // New window - allowed again
       const result = await checkServiceRateLimit("dep-1", "pkg-1", limits, window2, store);
       expect(result.allowed).toBe(true);
     });
@@ -152,7 +152,7 @@ describe("serviceRateLimit", () => {
       const w3 = minuteMs * 12;
       await checkServiceRateLimit("dep-1", "pkg-1", limits, w3, store);
 
-      // 6th request — day limit reached
+      // 6th request - day limit reached
       const result = await checkServiceRateLimit("dep-1", "pkg-1", limits, w3, store);
       expect(result.allowed).toBe(false);
       if (!result.allowed) {
@@ -172,7 +172,7 @@ describe("serviceRateLimit", () => {
       await checkServiceRateLimit("dep-1", "pkg-1", limits, now, store);
       expect((await checkServiceRateLimit("dep-1", "pkg-1", limits, now, store)).allowed).toBe(false);
 
-      // Different deployment, same service — should be allowed
+      // Different deployment, same service - should be allowed
       expect((await checkServiceRateLimit("dep-2", "pkg-1", limits, now, store)).allowed).toBe(true);
     });
 
@@ -182,7 +182,7 @@ describe("serviceRateLimit", () => {
       await checkServiceRateLimit("dep-1", "pkg-1", limits, now, store);
       expect((await checkServiceRateLimit("dep-1", "pkg-1", limits, now, store)).allowed).toBe(false);
 
-      // Same deployment, different service — should be allowed
+      // Same deployment, different service - should be allowed
       expect((await checkServiceRateLimit("dep-1", "pkg-2", limits, now, store)).allowed).toBe(true);
     });
   });
@@ -400,7 +400,7 @@ describe("serviceRateLimit", () => {
       await checkServiceRateLimit("dep-1", "pkg-1", limits, w1, store);
       expect((await checkServiceRateLimit("dep-1", "pkg-1", limits, w1, store)).allowed).toBe(false);
 
-      // Window 2 — minute resets, day does not
+      // Window 2 - minute resets, day does not
       const w2 = minuteMs * 11;
       expect((await checkServiceRateLimit("dep-1", "pkg-1", limits, w2, store)).allowed).toBe(true);
     });

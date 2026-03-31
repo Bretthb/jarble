@@ -38,7 +38,7 @@ vi.mock("../../services/auth.js", () => ({
   getUserFromToken: (...args: any[]) => mockGetUserFromToken(...args),
 }));
 
-// Mock the DB module — flow execution now looks up flows from DB
+// Mock the DB module - flow execution now looks up flows from DB
 const mockDbSelect = vi.fn();
 const mockDbSelectFrom = vi.fn();
 const mockDbSelectWhere = vi.fn();

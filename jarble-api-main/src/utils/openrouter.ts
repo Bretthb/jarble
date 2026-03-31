@@ -14,7 +14,7 @@ const MANAGEMENT_BASE = "https://openrouter.ai/api/v1/keys";
 export interface ProvisionedKey {
   /** The actual API key string (only shown once at creation time) */
   key: string;
-  /** Unique hash identifier — used for revocation, usage lookups, updates */
+  /** Unique hash identifier - used for revocation, usage lookups, updates */
   hash: string;
   /** Key display name */
   name: string;
@@ -97,7 +97,7 @@ export async function provisionOpenRouterKey(params: {
     throw new Error("No key returned from OpenRouter Management API");
   }
   if (!hash) {
-    logger.warn({ userId, deploymentId }, "OpenRouter did not return a hash — revocation will not be possible");
+    logger.warn({ userId, deploymentId }, "OpenRouter did not return a hash - revocation will not be possible");
   }
 
   logger.info({ deploymentId, userId, hash }, "Provisioned OpenRouter tenant key");
@@ -113,7 +113,7 @@ export async function provisionOpenRouterKey(params: {
 
 /**
  * Disable an OpenRouter API key by its hash.
- * OpenRouter doesn't have a DELETE endpoint — we PATCH `disabled: true`.
+ * OpenRouter doesn't have a DELETE endpoint - we PATCH `disabled: true`.
  *
  * @param hash - The key hash (returned during provisioning)
  * @returns true if successfully disabled, false if hash was empty/missing
@@ -133,7 +133,7 @@ export async function revokeOpenRouterKey(hash: string): Promise<boolean> {
 
     if (!res.ok) {
       const body = await res.text();
-      // 404 = key already deleted/doesn't exist — not an error worth throwing
+      // 404 = key already deleted/doesn't exist - not an error worth throwing
       if (res.status === 404) {
         logger.info({ hash }, "OpenRouter key not found (already deleted?)");
         return true;

@@ -1,9 +1,9 @@
 /**
- * Knowledge Base Routes — Document ingestion + collection management
+ * Knowledge Base Routes - Document ingestion + collection management
  *
- * POST /api/deployments/:id/knowledge/ingest — Ingest document text
- * GET  /api/deployments/:id/knowledge/collections — List collections
- * DELETE /api/deployments/:id/knowledge/collections/:collectionId — Delete collection
+ * POST /api/deployments/:id/knowledge/ingest - Ingest document text
+ * GET  /api/deployments/:id/knowledge/collections - List collections
+ * DELETE /api/deployments/:id/knowledge/collections/:collectionId - Delete collection
  *
  * In dev mode (USE_SQLITE=true), stores files locally at jarble-api-main/data/knowledge/.
  * In prod, writes to the pod PVC at /data/knowledge/.
@@ -28,12 +28,12 @@ export const knowledgeRouter = Router();
 
 function getKnowledgeDir(deploymentId: string): string {
   if (env.USE_SQLITE) {
-    // Local dev — store under jarble-api-main/data/knowledge/{deploymentId}
+    // Local dev - store under jarble-api-main/data/knowledge/{deploymentId}
     const dir = join(process.cwd(), "data", "knowledge", deploymentId);
     mkdirSync(join(dir, "chunks"), { recursive: true });
     return dir;
   }
-  // Prod — pod PVC
+  // Prod - pod PVC
   const dir = `/data/knowledge`;
   mkdirSync(join(dir, "chunks"), { recursive: true });
   return dir;

@@ -15,7 +15,7 @@ test.describe("Editable canvas persistence", () => {
     ({ flush } = attachAllLoggers(page, testInfo));
     await setupAuthIntercept(page);
     const { deploymentId } = getTestConfig();
-    test.skip(!deploymentId, "No deploymentId configured — skipping");
+    test.skip(!deploymentId, "No deploymentId configured - skipping");
     await page.goto(`/d/${deploymentId}`);
     await page
       .locator("textarea")
@@ -39,7 +39,7 @@ test.describe("Editable canvas persistence", () => {
     await page.waitForTimeout(3000);
     await screenshotMilestone(page, testInfo, "table-before-edit");
 
-    // Look for the edit (pencil) button — EditableCanvas shows it on hover
+    // Look for the edit (pencil) button - EditableCanvas shows it on hover
     const editBtn = page
       .locator("button")
       .filter({ has: page.locator("svg.lucide-pencil") })
@@ -56,7 +56,7 @@ test.describe("Editable canvas persistence", () => {
       .isVisible({ timeout: 5_000 })
       .catch(() => false);
     if (!editVisible) {
-      test.skip(true, "Edit button not found — component may not be editable");
+      test.skip(true, "Edit button not found - component may not be editable");
       return;
     }
 
@@ -104,14 +104,14 @@ test.describe("Editable canvas persistence", () => {
 
     // Wait for at least one canvas card
     await waitForCanvasCards(page, 1, 15_000).catch(() => {
-      // Non-fatal — bot may not have rendered canvas cards
+      // Non-fatal - bot may not have rendered canvas cards
     });
 
     await screenshotMilestone(page, testInfo, "dashboard-mode");
 
     // Click Freeform mode toggle
     const freeformBtn = page.locator(
-      'button[title="Freeform mode — drag & resize freely"]',
+      'button[title="Freeform mode - drag & resize freely"]',
     );
     const freeformVisible = await freeformBtn
       .isVisible({ timeout: 5_000 })
@@ -119,7 +119,7 @@ test.describe("Editable canvas persistence", () => {
     if (!freeformVisible) {
       test.skip(
         true,
-        "Freeform mode button not found — canvas toolbar may not be rendered",
+        "Freeform mode button not found - canvas toolbar may not be rendered",
       );
       return;
     }
@@ -137,7 +137,7 @@ test.describe("Editable canvas persistence", () => {
 
     // Switch back to Dashboard mode
     const dashboardBtn = page.locator(
-      'button[title="Dashboard mode — auto-arranged grid"]',
+      'button[title="Dashboard mode - auto-arranged grid"]',
     );
     if (await dashboardBtn.isVisible().catch(() => false)) {
       await dashboardBtn.click();
@@ -172,7 +172,7 @@ test.describe("Editable canvas persistence", () => {
         `after-prompt-${i + 1}`,
       );
 
-      // Count canvas elements — try data-card-id first, fallback to grid children
+      // Count canvas elements - try data-card-id first, fallback to grid children
       let currentCount = await page.locator("[data-card-id]").count();
       if (currentCount === 0) {
         // Fallback: count children in the canvas grid panel

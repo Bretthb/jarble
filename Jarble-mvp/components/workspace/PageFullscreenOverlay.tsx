@@ -77,7 +77,7 @@ function PageFullscreenOverlayInner({ card, onClose, onUngroup, onSelect, onAsk,
                     ? "text-blue-400 bg-blue-500/10 hover:bg-blue-500/20"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
-                title={card.selected ? "Deselect — stop referencing in messages" : "Select — reference this page in your next message"}
+                title={card.selected ? "Deselect - stop referencing in messages" : "Select - reference this page in your next message"}
               >
                 <MousePointerClick className="w-3.5 h-3.5" />
                 {card.selected ? "Selected" : "Select"}

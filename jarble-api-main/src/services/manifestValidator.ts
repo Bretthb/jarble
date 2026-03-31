@@ -1,9 +1,9 @@
 /**
- * Manifest Validator — Pure validation for marketplace component packages.
+ * Manifest Validator - Pure validation for marketplace component packages.
  *
  * Validates marketplace manifests, template JSON (Tier 1), and sandbox HTML
  * (Tier 2) before they're accepted into the marketplace. All functions are
- * pure (no DB access, no side effects) — they just validate data and return
+ * pure (no DB access, no side effects) - they just validate data and return
  * structured results.
  */
 
@@ -86,7 +86,7 @@ function tryParseJson(val: unknown): boolean {
       return false;
     }
   }
-  // Already an object/array — valid JSON value
+  // Already an object/array - valid JSON value
   return isPlainObject(val) || Array.isArray(val);
 }
 
@@ -121,7 +121,7 @@ export function validateManifest(manifest: unknown): ManifestValidationResult {
     }
   }
 
-  // If we're missing critical fields, return early — subsequent checks depend on them
+  // If we're missing critical fields, return early - subsequent checks depend on them
   if (errors.length > 0) {
     return { valid: false, errors, warnings, tier: null };
   }
@@ -158,21 +158,21 @@ export function validateManifest(manifest: unknown): ManifestValidationResult {
     }
   }
 
-  // 7. propsSchema — must be valid JSON if present
+  // 7. propsSchema - must be valid JSON if present
   if ("propsSchema" in m && m.propsSchema !== undefined) {
     if (!tryParseJson(m.propsSchema)) {
       errors.push(`Field "propsSchema" must be valid JSON.`);
     }
   }
 
-  // 8. exampleProps — must be valid JSON if present
+  // 8. exampleProps - must be valid JSON if present
   if ("exampleProps" in m && m.exampleProps !== undefined) {
     if (!tryParseJson(m.exampleProps)) {
       errors.push(`Field "exampleProps" must be valid JSON.`);
     }
   }
 
-  // 9. examplePrompts — must be array of strings, max 5
+  // 9. examplePrompts - must be array of strings, max 5
   if ("examplePrompts" in m && m.examplePrompts !== undefined) {
     if (!Array.isArray(m.examplePrompts)) {
       errors.push(`Field "examplePrompts" must be an array.`);
@@ -213,7 +213,7 @@ export function validateManifest(manifest: unknown): ManifestValidationResult {
     }
   }
 
-  // 13. sdkVersion — optional, must be a valid version string if present
+  // 13. sdkVersion - optional, must be a valid version string if present
   if ("sdkVersion" in m && m.sdkVersion !== undefined) {
     if (typeof m.sdkVersion !== "string" || !/^\d+\.\d+$/.test(m.sdkVersion)) {
       errors.push(`Field "sdkVersion" must be a version string (e.g., "1.0").`);
@@ -359,7 +359,7 @@ export function validateSandboxHtml(html: string): ManifestValidationResult {
         warnings.push(`Flagged for review: Non-CDN script source "${src}"`);
       }
     } catch {
-      // Relative paths are fine — only flag absolute URLs from unknown origins
+      // Relative paths are fine - only flag absolute URLs from unknown origins
     }
   }
 
@@ -440,10 +440,10 @@ export function validateConfigSchema(schema: unknown): { valid: boolean; errors:
 
     // Warn about advanced features the config panel renders as plain inputs
     if (prop.type === "object") {
-      warnings.push(`configSchema.properties["${key}"] has type "object" — rendered as JSON textarea.`);
+      warnings.push(`configSchema.properties["${key}"] has type "object" - rendered as JSON textarea.`);
     }
     if (prop.type === "array") {
-      warnings.push(`configSchema.properties["${key}"] has type "array" — rendered as JSON textarea.`);
+      warnings.push(`configSchema.properties["${key}"] has type "array" - rendered as JSON textarea.`);
     }
   }
 

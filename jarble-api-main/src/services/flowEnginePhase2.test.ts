@@ -1,5 +1,5 @@
 /**
- * Flow Engine Phase 2 tests — cycles, human-in-the-loop, nested subflows.
+ * Flow Engine Phase 2 tests - cycles, human-in-the-loop, nested subflows.
  *
  * Mocks: executeAgentCall, db, logger.
  */
@@ -249,7 +249,7 @@ describe("FlowExecutionEngine Phase 2", () => {
       const engine = createEngine({ nodes, edges });
       engine.on("flow:paused", (e) => pausedEvents.push(e));
 
-      // Start execution — should pause at W synchronously (no blocking)
+      // Start execution - should pause at W synchronously (no blocking)
       const firstState = await engine.execute();
 
       // Verify engine returned with "paused" status
@@ -269,7 +269,7 @@ describe("FlowExecutionEngine Phase 2", () => {
       expect(firstState.stepResults.get("A")?.status).toBe("completed");
       expect(firstState.stepResults.get("W")?.status).toBe("running");
 
-      // Now resume with input — this completes W and continues the flow
+      // Now resume with input - this completes W and continues the flow
       const finalState = await engine.resume("W", "World");
 
       expect(finalState.status).toBe("completed");
@@ -288,7 +288,7 @@ describe("FlowExecutionEngine Phase 2", () => {
 
       const engine = createEngine({ nodes, edges: [] });
 
-      // Execute — pauses at W
+      // Execute - pauses at W
       const state = await engine.execute();
       expect(state.status).toBe("paused");
 

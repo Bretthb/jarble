@@ -246,7 +246,7 @@ describe("useFlowExecution", () => {
       expect(step!.innerText).toBe("Hello world");
     });
 
-    it("handles flow.state completed — closes stream", async () => {
+    it("handles flow.state completed - closes stream", async () => {
       const { hook, es } = await startAndGetES();
 
       act(() => {
@@ -262,7 +262,7 @@ describe("useFlowExecution", () => {
       expect(es.readyState).toBe(2); // CLOSED
     });
 
-    it("handles flow.state failed — closes stream", async () => {
+    it("handles flow.state failed - closes stream", async () => {
       const { hook, es } = await startAndGetES();
 
       act(() => {
@@ -402,7 +402,7 @@ describe("useFlowExecution", () => {
         es.onmessage?.({ data: "not-json{" });
       });
 
-      // Should not crash — state stays as-is
+      // Should not crash - state stays as-is
       expect(hook.result.current.state.status).toBe("running");
     });
   });
@@ -463,7 +463,7 @@ describe("useFlowExecution", () => {
 
       await act(async () => {
         result.current.reconnect("exec-existing");
-        // connectToStream is async — flush the microtask queue
+        // connectToStream is async - flush the microtask queue
         await vi.advanceTimersByTimeAsync(0);
       });
 

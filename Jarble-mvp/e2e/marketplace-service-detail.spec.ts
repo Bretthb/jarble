@@ -7,7 +7,7 @@ import {
   MOCK_REMOTE_SERVICE,
 } from "./helpers/marketplace";
 
-test.describe("Marketplace — Service Detail", () => {
+test.describe("Marketplace - Service Detail", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -34,7 +34,7 @@ test.describe("Marketplace — Service Detail", () => {
   });
 
   test("not-found state renders when no API data", async ({ page }, testInfo) => {
-    // No mock — tRPC query will fail or return null
+    // No mock - tRPC query will fail or return null
     await page.goto("/marketplace/services/pkg-nonexistent");
     await page.waitForTimeout(3_000);
 

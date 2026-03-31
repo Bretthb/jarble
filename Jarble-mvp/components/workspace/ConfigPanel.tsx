@@ -170,7 +170,7 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
 
   const clearFeedback = useCallback(() => setFeedback(null), []);
 
-  // Get suggested models for the active provider (not exhaustive — user can type any model ID)
+  // Get suggested models for the active provider (not exhaustive - user can type any model ID)
   const activeProvider = editProvider ?? dep?.llmProvider ?? "anthropic";
   const suggestedModels = getModelsForProvider(activeProvider);
 
@@ -288,7 +288,7 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
                         setCustomModelMode(true);
                         setEditModel("");
                       } else if (e.target.value === "__current__") {
-                        // noop — they re-selected the already-active unlisted model
+                        // noop - they re-selected the already-active unlisted model
                       } else {
                         setEditModel(e.target.value);
                       }
@@ -327,7 +327,7 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
                 podConfig.model !== dep?.llmModel ? (
                   <p className="text-[10px] text-amber-500">
                     Pod running <span className="font-mono">{podConfig.model}</span>
-                    <span className="text-muted-foreground"> — DB: {dep?.llmModel}</span>
+                    <span className="text-muted-foreground"> - DB: {dep?.llmModel}</span>
                   </p>
                 ) : (
                   <p className="text-[10px] text-green-500">

@@ -17,7 +17,7 @@ import {
 } from "./helpers/canvas";
 import { DATA_PROMPTS } from "./helpers/prompts";
 
-test.describe("Canvas render — Charts, Tables, Metrics", () => {
+test.describe("Canvas render - Charts, Tables, Metrics", () => {
   let flush: () => Promise<void>;
   let deploymentId: string;
 
@@ -26,7 +26,7 @@ test.describe("Canvas render — Charts, Tables, Metrics", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -56,7 +56,7 @@ test.describe("Canvas render — Charts, Tables, Metrics", () => {
         .soft(found, `Expected ${entry.expectedComponents[0]} to render`)
         .toBe(true);
 
-      // Component-specific DOM assertions — find card by component type (not just first card)
+      // Component-specific DOM assertions - find card by component type (not just first card)
       const componentType = entry.expectedComponents[0];
       const typedCard = page.locator(`[data-component="${componentType}"]`).first();
       const card = (await typedCard.isVisible().catch(() => false))
@@ -97,10 +97,10 @@ test.describe("Canvas render — Charts, Tables, Metrics", () => {
 
       if (componentType === "map") {
         // Maps should contain a Leaflet container (dynamically loaded)
-        // Wait for Leaflet to fully load — it needs extra time for dynamic import
+        // Wait for Leaflet to fully load - it needs extra time for dynamic import
         await page.waitForTimeout(5_000);
 
-        // Check multiple Leaflet indicators — the dynamic import may render differently
+        // Check multiple Leaflet indicators - the dynamic import may render differently
         const leaflet = page.locator(".leaflet-container").first();
         const hasLeaflet = await leaflet.isVisible().catch(() => false);
         // Leaflet zoom buttons have accessible name "Zoom in" with text "+"

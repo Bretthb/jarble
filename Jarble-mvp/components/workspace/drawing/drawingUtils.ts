@@ -1,5 +1,5 @@
 /**
- * Drawing utilities — RDP simplification, SVG path generation, color presets.
+ * Drawing utilities - RDP simplification, SVG path generation, color presets.
  */
 
 interface Point {

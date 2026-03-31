@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock DOMPurify (runs on server in tests — sanitizeHtml returns input as-is)
+// Mock DOMPurify (runs on server in tests - sanitizeHtml returns input as-is)
 vi.mock("@/lib/sanitize", () => ({
   sanitizeHtml: (html: string) => html,
 }));

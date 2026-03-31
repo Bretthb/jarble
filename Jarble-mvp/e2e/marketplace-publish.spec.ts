@@ -3,7 +3,7 @@ import { attachAllLoggers, screenshotMilestone } from "./helpers/logging";
 import { setupAuthIntercept } from "./helpers/auth";
 import { switchToTab } from "./helpers/marketplace";
 
-test.describe("Marketplace — Publish tab", () => {
+test.describe("Marketplace - Publish tab", () => {
   let flush: () => Promise<void>;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -72,7 +72,7 @@ test.describe("Marketplace — Publish tab", () => {
     await page.waitForTimeout(3_000);
     await switchToTab(page, "Publish");
 
-    // Default is Self-hosted — remote endpoint should not be visible
+    // Default is Self-hosted - remote endpoint should not be visible
     await expect(page.locator("#pkg-endpoint")).not.toBeVisible();
 
     // Switch to Cloud
@@ -148,7 +148,7 @@ test.describe("Marketplace — Publish tab", () => {
     await page.waitForTimeout(3_000);
     await switchToTab(page, "Publish");
 
-    // Default is Free — price input should not be visible
+    // Default is Free - price input should not be visible
     await expect(page.locator("#pkg-price")).not.toBeVisible();
 
     // Find the Pricing Model combobox by its label
@@ -181,7 +181,7 @@ test.describe("Marketplace — Publish tab", () => {
     await page.locator("#pkg-name").fill("test-pkg");
     await page.locator("#pkg-display-name").fill("Test Service");
 
-    // Still disabled — need at least one component or skill ID
+    // Still disabled - need at least one component or skill ID
     await expect(submitBtn).toBeDisabled();
 
     // Add a component ID
@@ -210,7 +210,7 @@ test.describe("Marketplace — Publish tab", () => {
     await componentInput.fill("comp-test-001");
     await page.locator("button:has(svg.lucide-plus)").first().click();
 
-    // Submit button should be enabled (but we don't click it — read-only test)
+    // Submit button should be enabled (but we don't click it - read-only test)
     const submitBtn = page.getByRole("button", { name: "Submit for Review" });
     await expect(submitBtn).toBeEnabled();
 

@@ -51,7 +51,7 @@ describe("validateLibraryUrl", () => {
   });
 
   it("rejects path traversal attempts on untrusted domains", () => {
-    // Path traversal on trusted CDN still has a trusted origin — CDN handles path normalization
+    // Path traversal on trusted CDN still has a trusted origin - CDN handles path normalization
     expect(validateLibraryUrl("https://cdn.jsdelivr.net/../../etc/passwd")).toBe(true);
     // Relative paths are not valid HTTPS URLs
     expect(validateLibraryUrl("../../etc/passwd")).toBe(false);
@@ -61,7 +61,7 @@ describe("validateLibraryUrl", () => {
   });
 
   it("handles URLs with embedded credentials (user:pass@host)", () => {
-    // URL spec: origin ignores userinfo — origin is still the trusted CDN
+    // URL spec: origin ignores userinfo - origin is still the trusted CDN
     // The function validates by origin, so trusted-domain credential URLs pass
     expect(
       validateLibraryUrl("https://admin:secret@cdn.jsdelivr.net/npm/d3"),
@@ -148,7 +148,7 @@ describe("sanitizeLibraries", () => {
 
 // ── extractUIBlocks integration (library filtering) ─────────────────────────
 
-describe("extractUIBlocks — sandbox library filtering", () => {
+describe("extractUIBlocks - sandbox library filtering", () => {
   it("filters untrusted library URLs from sandbox blocks", () => {
     const text = [
       "```jarble_ui",

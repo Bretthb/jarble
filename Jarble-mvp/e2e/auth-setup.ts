@@ -1,5 +1,5 @@
 /**
- * Auth setup — gets auth tokens for Playwright E2E tests.
+ * Auth setup - gets auth tokens for Playwright E2E tests.
  *
  * Two modes:
  *   1. ROPC (automatic): Set E2E_TEST_EMAIL + E2E_TEST_PASSWORD env vars
@@ -212,7 +212,7 @@ async function manualAuthSetup(): Promise<{
 
   const state = JSON.parse(answer);
   if (!state.origins || !Array.isArray(state.origins)) {
-    throw new Error("Invalid JSON — missing origins array.");
+    throw new Error("Invalid JSON - missing origins array.");
   }
   return state;
 }
@@ -301,7 +301,7 @@ async function main() {
   if (deploymentId) {
     console.log(`Found deployment ID: ${deploymentId}`);
   } else {
-    console.warn("No deployment found — chat tests will be skipped.");
+    console.warn("No deployment found - chat tests will be skipped.");
   }
 
   console.log("\nAuth setup complete! Run tests with: npm run test:e2e");

@@ -268,7 +268,7 @@ export function useFlowExecution(): UseFlowExecutionReturn {
                 error: data.error,
                 totalCredits: data.totalCredits ?? prev.totalCredits,
               }));
-              // Terminal states — close stream cleanly
+              // Terminal states - close stream cleanly
               if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {
                 cancelledRef.current = true; // prevent reconnection
                 es.close();
@@ -286,7 +286,7 @@ export function useFlowExecution(): UseFlowExecutionReturn {
               }));
             }
 
-            // Heartbeat — ignore
+            // Heartbeat - ignore
           } catch {
             // Ignore parse errors
           }

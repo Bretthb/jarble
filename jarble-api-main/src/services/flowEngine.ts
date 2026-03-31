@@ -1,5 +1,5 @@
 /**
- * Flow Execution Engine — executes flow graphs with cycle support,
+ * Flow Execution Engine - executes flow graphs with cycle support,
  * human-in-the-loop pausing, and nested subflow execution.
  *
  * Architecture:
@@ -265,7 +265,7 @@ export class FlowExecutionEngine extends EventEmitter {
       }
     }
 
-    // If paused, don't finalize — resume() will continue
+    // If paused, don't finalize - resume() will continue
     if ((this.state.status as string) === "paused") {
       // Checkpoint the paused state
       await this.checkpointState().catch((err) => {
@@ -311,7 +311,7 @@ export class FlowExecutionEngine extends EventEmitter {
     let readyQueue: string[];
 
     if (this.resumeFromNodes) {
-      // Resuming from a paused state — start from the specified nodes
+      // Resuming from a paused state - start from the specified nodes
       readyQueue = [...this.resumeFromNodes];
       this.resumeFromNodes = null;
     } else {
@@ -395,7 +395,7 @@ export class FlowExecutionEngine extends EventEmitter {
           const maxIter = node.maxIterations ?? 10;
 
           if (visitCount >= maxIter) {
-            // Max iterations reached — emit warning and skip
+            // Max iterations reached - emit warning and skip
             log.warn(
               { nodeId: targetId, visitCount, maxIter },
               "Node max iterations reached, skipping"
@@ -478,7 +478,7 @@ export class FlowExecutionEngine extends EventEmitter {
       });
     }
 
-    // Check if any dependency failed — if so, skip this step
+    // Check if any dependency failed - if so, skip this step
     const incoming = this.incomingEdges.get(nodeId) ?? [];
     for (const edge of incoming) {
       const depResult = this.state.stepResults.get(edge.source);
@@ -776,7 +776,7 @@ export class FlowExecutionEngine extends EventEmitter {
     return this.resolveTemplateVars(config, this.state.stepResults);
   }
 
-  // ── Feature 2: waitForInput — synchronous pause ─────────────────────────
+  // ── Feature 2: waitForInput - synchronous pause ─────────────────────────
 
   /**
    * Pause the engine at a waitForInput node. Does NOT block execute().
@@ -859,7 +859,7 @@ export class FlowExecutionEngine extends EventEmitter {
     const outgoing = this.outgoingEdges.get(nodeId) ?? [];
     this.resumeFromNodes = outgoing.map((e) => e.target);
 
-    // If no outgoing edges, the flow is done — use empty array so execute
+    // If no outgoing edges, the flow is done - use empty array so execute
     // will proceed to final status determination
     if (this.resumeFromNodes.length === 0) {
       this.resumeFromNodes = [];
@@ -1134,9 +1134,9 @@ export class FlowExecutionEngine extends EventEmitter {
       }
     }
 
-    // No operator found — warn about potentially malformed condition
+    // No operator found - warn about potentially malformed condition
     if (resolved && resolvedStr.length > 10) {
-      log.warn({ condition, resolved }, "Condition has no recognized operator — treating as truthy check");
+      log.warn({ condition, resolved }, "Condition has no recognized operator - treating as truthy check");
     }
     return !!resolved && resolved !== "false" && resolved !== "0";
   }

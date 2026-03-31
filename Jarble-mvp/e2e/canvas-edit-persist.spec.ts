@@ -27,7 +27,7 @@ test.describe("Canvas edit & persist", () => {
     await setupAuthIntercept(page);
     const config = getTestConfig();
     deploymentId = config.deploymentId;
-    test.skip(!deploymentId, "No deploymentId — run test:e2e:auth first");
+    test.skip(!deploymentId, "No deploymentId - run test:e2e:auth first");
     await page.goto(`/d/${deploymentId}`);
     await clearCanvasState(page);
   });
@@ -42,7 +42,7 @@ test.describe("Canvas edit & persist", () => {
   // -------------------------------------------------------------------------
   // 1. Editable data table (edit-01)
   // -------------------------------------------------------------------------
-  test("editable data table — enter and exit edit mode (edit-01)", async ({ page }, testInfo) => {
+  test("editable data table - enter and exit edit mode (edit-01)", async ({ page }, testInfo) => {
     const entry = EDIT_PERSIST_PROMPTS.find((p) => p.id === "edit-01")!;
     await sendPromptAndWait(page, entry.prompt, { minCards: 1 });
     await assertNoErrorCards(page);
@@ -65,7 +65,7 @@ test.describe("Canvas edit & persist", () => {
       .first();
     const pencilVisible = await pencilBtn.isVisible({ timeout: 5_000 }).catch(() => false);
     if (!pencilVisible) {
-      test.skip(true, "Edit button not found — component may not support edit mode");
+      test.skip(true, "Edit button not found - component may not support edit mode");
       return;
     }
 
@@ -100,7 +100,7 @@ test.describe("Canvas edit & persist", () => {
   // -------------------------------------------------------------------------
   // 2. Editable code editor (edit-02)
   // -------------------------------------------------------------------------
-  test("editable code editor — Monaco becomes interactive (edit-02)", async ({ page }, testInfo) => {
+  test("editable code editor - Monaco becomes interactive (edit-02)", async ({ page }, testInfo) => {
     const entry = EDIT_PERSIST_PROMPTS.find((p) => p.id === "edit-02")!;
     await sendPromptAndWait(page, entry.prompt, { minCards: 1 });
     await assertNoErrorCards(page);
@@ -122,7 +122,7 @@ test.describe("Canvas edit & persist", () => {
       .first();
     const pencilVisible = await pencilBtn.isVisible({ timeout: 5_000 }).catch(() => false);
     if (!pencilVisible) {
-      test.skip(true, "Edit button not found — code_editor may not support edit mode");
+      test.skip(true, "Edit button not found - code_editor may not support edit mode");
       return;
     }
 
@@ -136,7 +136,7 @@ test.describe("Canvas edit & persist", () => {
 
     await screenshotMilestone(page, testInfo, "edit-02-edit-mode");
 
-    // Exit edit mode — save or cancel
+    // Exit edit mode - save or cancel
     const saveBtn = page
       .locator("button")
       .filter({ has: page.locator("svg.lucide-save") })
@@ -159,7 +159,7 @@ test.describe("Canvas edit & persist", () => {
   // -------------------------------------------------------------------------
   // 3. Editable card (edit-03)
   // -------------------------------------------------------------------------
-  test("editable card — enter edit mode (edit-03)", async ({ page }, testInfo) => {
+  test("editable card - enter edit mode (edit-03)", async ({ page }, testInfo) => {
     const entry = EDIT_PERSIST_PROMPTS.find((p) => p.id === "edit-03")!;
     await sendPromptAndWait(page, entry.prompt, { minCards: 1 });
     await assertNoErrorCards(page);
@@ -195,7 +195,7 @@ test.describe("Canvas edit & persist", () => {
         await saveBtn.click();
       }
     } else {
-      // Card may not support edit mode — document this
+      // Card may not support edit mode - document this
       await screenshotMilestone(page, testInfo, "edit-03-no-edit-button");
     }
   });
@@ -203,7 +203,7 @@ test.describe("Canvas edit & persist", () => {
   // -------------------------------------------------------------------------
   // 4. Editable stat grid (edit-04)
   // -------------------------------------------------------------------------
-  test("editable stat grid — enter edit mode (edit-04)", async ({ page }, testInfo) => {
+  test("editable stat grid - enter edit mode (edit-04)", async ({ page }, testInfo) => {
     const entry = EDIT_PERSIST_PROMPTS.find((p) => p.id === "edit-04")!;
     await sendPromptAndWait(page, entry.prompt, { minCards: 1 });
     await assertNoErrorCards(page);
@@ -266,12 +266,12 @@ test.describe("Canvas edit & persist", () => {
     const idsAfter = await getCanvasCardIds(page);
 
     // Soft-assert: cards may or may not be restored from localStorage
-    // depending on implementation — document the behavior
+    // depending on implementation - document the behavior
     if (countAfter > 0) {
       expect.soft(countAfter, "Card count should match or be >= previous count").toBeGreaterThanOrEqual(1);
       await screenshotMilestone(page, testInfo, "after-reload-restored");
     } else {
-      // Cards were not persisted — this is valid behavior to document
+      // Cards were not persisted - this is valid behavior to document
       await screenshotMilestone(page, testInfo, "after-reload-empty");
     }
 

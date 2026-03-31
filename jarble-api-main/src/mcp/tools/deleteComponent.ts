@@ -1,5 +1,5 @@
 /**
- * delete_component MCP Tool — Remove a custom component definition from the bot's PVC.
+ * delete_component MCP Tool - Remove a custom component definition from the bot's PVC.
  */
 import { deleteComponentFromPvc } from "../../k8s/index.js";
 import type { ManagedBy } from "../../k8s/constants.js";

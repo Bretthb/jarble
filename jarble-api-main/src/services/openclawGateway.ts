@@ -113,7 +113,7 @@ export async function chatViaGateway(
   const connectStartMs = Date.now();
 
   return new Promise<GatewayResponse>((resolve, reject) => {
-    const timeoutMs = 180_000; // 3 min — generous for Opus thinking + large system prompts
+    const timeoutMs = 180_000; // 3 min - generous for Opus thinking + large system prompts
     let fullText = "";
     let nativeThinking = "";
     let connected = false;
@@ -126,7 +126,7 @@ export async function chatViaGateway(
 
     const ws = new WebSocket(wsUrl, {
       origin: `http://${ip}:${port}`,
-      handshakeTimeout: 10_000, // 10s connect timeout — fail fast on unreachable pods
+      handshakeTimeout: 10_000, // 10s connect timeout - fail fast on unreachable pods
     });
 
     const timeout = setTimeout(() => {
@@ -188,7 +188,7 @@ export async function chatViaGateway(
 
       // ── Event messages ──
       if (msg.type === "event") {
-        // Connect challenge — authenticate as Control UI with device identity.
+        // Connect challenge - authenticate as Control UI with device identity.
         // Using "openclaw-control-ui" client ID + dangerouslyDisableDeviceAuth=true
         // in the gateway config allows full operator scopes without pairing approval.
         if (msg.event === "connect.challenge") {
@@ -422,7 +422,7 @@ function extractThinking(payload: any): string {
  * Chat via OpenClaw's OpenAI-compatible /v1/chat/completions endpoint.
  *
  * Uses standard SSE streaming for true token-by-token delivery.
- * This is the fastest path — direct HTTP to the pod with Bearer token auth.
+ * This is the fastest path - direct HTTP to the pod with Bearer token auth.
  */
 export async function chatViaHTTP(
   opts: GatewayOptions,
@@ -437,7 +437,7 @@ export async function chatViaHTTP(
 
   log.info({ url }, "chatViaHTTP: starting streaming request");
 
-  // 3 min timeout — matches gateway WS timeout; prevents hanging forever if
+  // 3 min timeout - matches gateway WS timeout; prevents hanging forever if
   // the pod accepts the connection but the LLM never responds.
   const httpTimeoutMs = 180_000;
   const timeoutSignal = AbortSignal.timeout(httpTimeoutMs);
@@ -513,7 +513,7 @@ export async function chatViaHTTP(
       }
     }
   } catch (err: unknown) {
-    // Distinguish timeout from caller abort — TimeoutError comes from AbortSignal.timeout()
+    // Distinguish timeout from caller abort - TimeoutError comes from AbortSignal.timeout()
     const isTimeout = err instanceof DOMException && err.name === "TimeoutError";
     if (isTimeout) {
       log.warn({ url, httpTimeoutMs, textLength: fullText.length }, "chatViaHTTP: response timed out");
@@ -574,7 +574,7 @@ export async function chatViaExec(
       if (!/^[A-Za-z0-9+/=\s]+$/.test(base64Data)) {
         log.warn({ podName }, "chatViaExec: canvas image contains invalid base64 characters, skipping");
       } else {
-        // Write to pod filesystem via stdin pipe (safe — no shell interpolation)
+        // Write to pod filesystem via stdin pipe (safe - no shell interpolation)
         const { execInPodWithStdin } = await import("../k8s/exec.js");
         await execInPodWithStdin(podName, [
           "sh", "-c", "base64 -d > /tmp/canvas-screenshot.jpg",
@@ -603,7 +603,7 @@ export async function chatViaExec(
     args.push("--image", "/tmp/canvas-screenshot.jpg");
   }
   // Race the exec against the abort signal so user cancellation stops it promptly
-  const execPromise = execInPod(podName, args, undefined, 90_000); // 90s — cold start + LLM generation can take 30-60s
+  const execPromise = execInPod(podName, args, undefined, 90_000); // 90s - cold start + LLM generation can take 30-60s
   let output: string;
   if (signal) {
     output = await Promise.race([
