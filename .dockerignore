@@ -1,8 +1,37 @@
+# Git
+.git
+.gitignore
+
+# Dependencies & build outputs (rebuilt in Docker)
 **/node_modules
 **/dist
 **/.next
-**/local.db
-**/local.db.bak
+**/.vercel
+
+# Environment files (passed as build args or runtime env)
 **/.env
 **/.env.local
-.git
+**/.env.*.local
+
+# Database files
+**/*.db
+**/*.db.bak
+
+# IDE
+**/.vscode
+**/.idea
+
+# Test artifacts
+**/coverage
+**/test-results
+**/playwright-report
+**/e2e
+
+# Docs & infrastructure (not needed for frontend build)
+docs/
+infrastructure/
+runtimes/
+scripts/
+.claude/
+.github/
+*.md

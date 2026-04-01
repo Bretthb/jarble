@@ -59,6 +59,28 @@ output "longhorn_volume_size_gb" {
   value       = var.longhorn_volume_size
 }
 
+# ─── Coolify (Frontend Hosting) ─────────────────────────────────────────────
+
+output "coolify_ip" {
+  description = "Public IP of the Coolify VPS (point jarble.ai DNS here)"
+  value       = var.enable_coolify ? hcloud_server.coolify[0].ipv4_address : null
+}
+
+output "coolify_private_ip" {
+  description = "Private IP of the Coolify VPS"
+  value       = var.enable_coolify ? "10.0.1.30" : null
+}
+
+output "coolify_ssh" {
+  description = "SSH command to connect to Coolify VPS"
+  value       = var.enable_coolify ? "ssh root@${hcloud_server.coolify[0].ipv4_address}" : null
+}
+
+output "coolify_dashboard" {
+  description = "Coolify dashboard URL (after install)"
+  value       = var.enable_coolify ? "http://${hcloud_server.coolify[0].ipv4_address}:8000" : null
+}
+
 # ─── Sandbox Isolation ──────────────────────────────────────────────────────
 
 output "runtime_classes" {
