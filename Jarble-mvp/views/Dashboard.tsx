@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { useState, useCallback, memo } from "react";
 import ProfileDropdown from "@/components/ProfileDropdown";
+import { useOrg } from "@/contexts/OrgContext";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StorageMeter, StorageMeterSkeleton } from "@/components/StorageMeter";
 import { ResourceMetrics } from "@/components/ResourceMetrics";
@@ -48,6 +49,7 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export default function Dashboard() {
   const { user, isAuthenticated, isLoading: authLoading, error: authError } = useAuth0();
+  const { activeOrgId, activeOrg } = useOrg();
 
   if (authError) {
     console.error('[Auth0] Authentication error:', authError);
@@ -57,6 +59,11 @@ export default function Dashboard() {
   const deploymentsQuery = trpc.deployment.list.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading,
   });
+
+  // Filter deployments by active org context
+  const filteredDeployments = (deploymentsQuery.data ?? []).filter((d: any) =>
+    activeOrgId ? d.orgId === activeOrgId : !d.orgId,
+  );
 
   // Real-time status stream - pushes status changes via SSE
   const { getStatus: getLiveStatus } = useStatusStream({
@@ -139,12 +146,12 @@ export default function Dashboard() {
   );
 
   // Batch storage query - one request for all running deployments instead of N
-  const runningIds = (deploymentsQuery.data ?? [])
-    .filter((d) => {
+  const runningIds = filteredDeployments
+    .filter((d: any) => {
       const live = getLiveStatus(d.id)?.status;
       return (live || d.status) === "running";
     })
-    .map((d) => d.id);
+    .map((d: any) => d.id);
 
   const storageBatchQuery = trpc.deployment.getStorageUsageBatch.useQuery(
     { ids: runningIds },
@@ -320,9 +327,9 @@ export default function Dashboard() {
               Retry
             </Button>
           </div>
-        ) : deploymentsQuery.data && deploymentsQuery.data.length > 0 ? (
+        ) : filteredDeployments.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {deploymentsQuery.data.map((deployment: any) => (
+            {filteredDeployments.map((deployment: any) => (
               <DeploymentCard
                 key={deployment.id}
                 deployment={deployment}
