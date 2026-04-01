@@ -27,12 +27,16 @@ import {
   Shield,
 } from "lucide-react";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
+import OrgSwitcher from "@/components/organizations/OrgSwitcher";
+import CreateOrgDialog from "@/components/organizations/CreateOrgDialog";
+import { useState } from "react";
 
 export default function ProfileDropdown() {
   const { user, logout } = useAuth0();
   const router = useRouter();
   const { theme, toggleTheme, switchable } = useTheme();
   const { isAdmin } = useIsAdmin();
+  const [createOrgOpen, setCreateOrgOpen] = useState(false);
 
   const initials = user?.name
     ? user.name
@@ -67,6 +71,7 @@ export default function ProfileDropdown() {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <OrgSwitcher onCreateOrg={() => setCreateOrgOpen(true)} />
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={() => router.push("/dashboard")}>
             <LayoutDashboard className="w-4 h-4" />
@@ -120,6 +125,7 @@ export default function ProfileDropdown() {
           Log Out
         </DropdownMenuItem>
       </DropdownMenuContent>
+      <CreateOrgDialog open={createOrgOpen} onOpenChange={setCreateOrgOpen} />
     </DropdownMenu>
   );
 }
