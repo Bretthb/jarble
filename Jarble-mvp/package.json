@@ -44,7 +44,6 @@
 "@codesandbox/sandpack-react": "^2.20.0",
     "@fortune-sheet/react": "^1.0.4",
     "@hookform/resolvers": "^5.2.2",
-    "@modelcontextprotocol/sdk": "^1.26.0",
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/primitive": "1.1.3",
     "@radix-ui/react-accordion": "^1.2.12",
@@ -102,7 +101,6 @@
     "jarble-api": "file:../jarble-api-main",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.453.0",
-    "nanoid": "^5.1.5",
     "next": "^15.3.3",
     "next-themes": "^0.4.6",
     "posthog-js": "^1.356.1",
@@ -125,8 +123,7 @@
     "tailwindcss-animate": "^1.0.7",
     "use-sync-external-store": "^1.0.0",
     "vaul": "^1.1.2",
-    "zod": "^4.1.12",
-    "zod-to-json-schema": "^3.25.1"
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

@@ -62,6 +62,11 @@ const envSchema = z.object({
   // Resend - transactional email service, disabled if not set
   RESEND_API_KEY: z.string().optional().default(""),
 
+  // Additional CORS origins (comma-separated), merged with FRONTEND_URL + localhost in dev
+  ALLOWED_ORIGINS: z.string().optional().default("").transform(s =>
+    s ? s.split(",").map(o => o.trim()).filter(Boolean) : []
+  ),
+
   // Stripe - all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
