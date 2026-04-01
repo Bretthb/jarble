@@ -1,8 +1,18 @@
 api:
-  - jarble-api-main/**
+  - changed-files:
+      - any-glob-to-any-file: "jarble-api-main/**"
 frontend:
-  - Jarble-mvp/**
+  - changed-files:
+      - any-glob-to-any-file: "Jarble-mvp/**"
 infrastructure:
-  - infrastructure/**
+  - changed-files:
+      - any-glob-to-any-file: "infrastructure/**"
 shared:
-  - shared/**
+  - changed-files:
+      - any-glob-to-any-file: "shared/**"
+ci:
+  - changed-files:
+      - any-glob-to-any-file: ".github/**"
+runtimes:
+  - changed-files:
+      - any-glob-to-any-file: "runtimes/**"

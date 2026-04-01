@@ -1,14 +1,55 @@
+# ═══════════════════════════════════════════════════════════════════════
+# CI — The single gate for all PRs and post-merge verification
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Triggers:
+#   - All PRs targeting develop or main
+#   - Push to develop or main (post-merge verification)
+#
+# Jobs run in parallel where possible. Frontend build depends on tests.
+# Configure these as required status checks in GitHub branch protection
+# to block merges when CI fails:
+#   - "Typecheck — API"
+#   - "Typecheck — Frontend"
+#   - "Test — API"
+#   - "Test — Frontend"
+#   - "Build — Frontend"
+#   - "Manifest Sync"
+# ═══════════════════════════════════════════════════════════════════════
+
 name: CI
+
 on:
-  push:
-    branches: [main, develop, merge-branch]
   pull_request:
-    branches: [main, develop]
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
-  api-tests:
-    name: API Tests
+  # ── Label PRs by changed paths ────────────────────────────────────
+  label:
+    name: Label PR
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── API ───────────────────────────────────────────────────────────
+  typecheck-api:
+    name: Typecheck — API
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: jarble-api-main
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,56 +57,108 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: jarble-api-main/package-lock.json
-      - run: cd jarble-api-main && npm ci
-      - run: cd jarble-api-main && npm run typecheck
-      - run: cd jarble-api-main && npm run test
+      - run: npm ci
+      - run: npm run typecheck
 
-  frontend-tests:
-    name: Frontend Tests
+  test-api:
+    name: Test — API
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: jarble-api-main
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: Jarble-mvp/package-lock.json
-      - run: cd jarble-api-main && npm ci
-      - run: cd jarble-api-main && npm run build:types
-      - run: cd Jarble-mvp && npm ci
-      - run: cd Jarble-mvp && npm run test
-      - run: cd Jarble-mvp && npm run check
+          cache-dependency-path: jarble-api-main/package-lock.json
+      - run: npm ci
+      - run: npm run test
 
-  frontend-build:
-    name: Frontend Build
+  # ── Frontend ──────────────────────────────────────────────────────
+  typecheck-frontend:
+    name: Typecheck — Frontend
     runs-on: ubuntu-latest
-    needs: [frontend-tests]
+    defaults:
+      run:
+        working-directory: Jarble-mvp
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: Jarble-mvp/package-lock.json
-      - run: cd jarble-api-main && npm ci
-      - run: cd jarble-api-main && npm run build:types
-      - run: cd Jarble-mvp && npm ci
-      - run: cd Jarble-mvp && npm run build
+          cache: pnpm
+          cache-dependency-path: Jarble-mvp/pnpm-lock.yaml
+      # API types needed for frontend typecheck
+      - run: cd ../jarble-api-main && npm ci && npm run build:types
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+
+  test-frontend:
+    name: Test — Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Jarble-mvp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: Jarble-mvp/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test
+
+  build-frontend:
+    name: Build — Frontend
+    runs-on: ubuntu-latest
+    needs: [typecheck-frontend, test-frontend]
+    defaults:
+      run:
+        working-directory: Jarble-mvp
     env:
       NEXT_PUBLIC_API_URL: https://api.jarble.ai
       NEXT_PUBLIC_AUTH0_DOMAIN: jarble-dev.us.auth0.com
       NEXT_PUBLIC_AUTH0_CLIENT_ID: placeholder
       NEXT_PUBLIC_AUTH0_AUDIENCE: https://api.jarble.ai
-
-  manifest-check:
-    name: Component Manifest Sync
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: Jarble-mvp/package-lock.json
-      - run: cd Jarble-mvp && npm ci
-      - run: cd Jarble-mvp && npm run check:manifest
+          cache: pnpm
+          cache-dependency-path: Jarble-mvp/pnpm-lock.yaml
+      - run: cd ../jarble-api-main && npm ci && npm run build:types
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+
+  # ── Shared ────────────────────────────────────────────────────────
+  manifest-check:
+    name: Manifest Sync
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Jarble-mvp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: Jarble-mvp/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check:manifest
