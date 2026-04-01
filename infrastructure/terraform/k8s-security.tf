@@ -51,12 +51,12 @@ resource "kubernetes_resource_quota" "jarble" {
 
   spec {
     hard = {
-      "requests.cpu"               = "32"
-      "requests.memory"            = "64Gi"
-      "limits.cpu"                 = "64"
-      "limits.memory"              = "128Gi"
-      "pods"                       = "200"
-      "persistentvolumeclaims"     = "200"
+      "requests.cpu"           = "32"
+      "requests.memory"        = "64Gi"
+      "limits.cpu"             = "64"
+      "limits.memory"          = "128Gi"
+      "pods"                   = "200"
+      "persistentvolumeclaims" = "200"
     }
   }
 }

@@ -87,7 +87,7 @@ output "runtime_classes" {
   description = "Available Kubernetes RuntimeClasses for sandbox isolation"
   value = compact([
     var.enable_gvisor ? "gvisor" : "",
-    var.enable_kata   ? "kata-clh" : "",
+    var.enable_kata ? "kata-clh" : "",
   ])
 }
 
