@@ -52,9 +52,10 @@ export function OrgProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, []);
 
-  // Fetch user's orgs
+  // Fetch user's orgs (retry: false to avoid noise if API doesn't have org router yet)
   const orgsQuery = trpc.org.list.useQuery(undefined, {
     enabled: isAuthenticated,
+    retry: false,
   });
 
   const orgs: OrgInfo[] = (orgsQuery.data ?? []).map((o: any) => ({
