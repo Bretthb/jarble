@@ -81,6 +81,8 @@ const CREATE_TABLES_SQL = `
     bio TEXT,
     showcase_prompts TEXT,
     theme_config TEXT,
+    deployment_type TEXT DEFAULT 'agent' NOT NULL,
+    org_id TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
@@ -581,6 +583,40 @@ const CREATE_TABLES_SQL = `
   CREATE UNIQUE INDEX IF NOT EXISTS uq_flow_deployment_node ON flow_deployment_memberships(flow_id, deployment_id, node_id);
   CREATE INDEX IF NOT EXISTS idx_flow_dep_membership_deployment_id ON flow_deployment_memberships(deployment_id);
   CREATE INDEX IF NOT EXISTS idx_flow_dep_membership_flow_id ON flow_deployment_memberships(flow_id);
+
+  CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    avatar_url TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    role TEXT DEFAULT 'member' NOT NULL,
+    invited_by TEXT REFERENCES users(id),
+    joined_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_org_member_user ON org_members(org_id, user_id);
+
+  CREATE TABLE IF NOT EXISTS org_invites (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT DEFAULT 'member' NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    invited_by TEXT NOT NULL REFERENCES users(id),
+    status TEXT DEFAULT 'pending' NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_org_invite_email ON org_invites(org_id, email);
+  CREATE INDEX IF NOT EXISTS idx_deployments_org_id ON deployments(org_id);
 `;
 
 export async function initDatabase() {
@@ -629,6 +665,22 @@ export async function initDatabase() {
     }
   } catch (err) {
     logger.warn({ err }, "Deployment fork/public columns migration skipped (may already exist)");
+  }
+
+  // Migration: add org_id column to deployments (for existing DBs)
+  try {
+    const depCols = sqliteRaw.pragma("table_info(deployments)") as Array<{ name: string }>;
+    const depColNames = new Set(depCols.map((c: any) => c.name));
+    if (!depColNames.has("org_id")) {
+      sqliteRaw.exec("ALTER TABLE deployments ADD COLUMN org_id TEXT");
+      logger.info("Added org_id column to deployments");
+    }
+    if (!depColNames.has("deployment_type")) {
+      sqliteRaw.exec("ALTER TABLE deployments ADD COLUMN deployment_type TEXT DEFAULT 'agent' NOT NULL");
+      logger.info("Added deployment_type column to deployments");
+    }
+  } catch (err) {
+    logger.warn({ err }, "Org/deployment_type migration skipped (may already exist)");
   }
 
   // Migration: add source column to deployment_subagents (for existing DBs)
