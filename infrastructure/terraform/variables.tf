@@ -93,20 +93,6 @@ variable "k3s_token" {
   sensitive   = true
 }
 
-# ─── Coolify (Frontend Hosting) ──────────────────────────────────────────────
-
-variable "enable_coolify" {
-  description = "Provision a dedicated VPS for Coolify (self-hosted frontend PaaS)"
-  type        = bool
-  default     = true
-}
-
-variable "coolify_server_type" {
-  description = "Hetzner server type for Coolify VPS"
-  type        = string
-  default     = "cx22" # 2 vCPU, 4GB RAM, 40GB disk — ~$5.35/mo
-}
-
 # ─── DNS ─────────────────────────────────────────────────────────────────────
 
 variable "domain" {

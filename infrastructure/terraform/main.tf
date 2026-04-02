@@ -270,11 +270,13 @@ resource "hcloud_server" "agent" {
     # ────────────────────────────────────────────────────────────────
 
     # Install K3s agent — joins the master
+    # Roles: index 0 = jarble-agents (Discord bots, not platform), index 1 = api (backend)
     curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${var.k3s_version}" sh -s - agent \
       --server "https://10.0.1.10:6443" \
       --token "${local.k3s_token}" \
       --node-ip "10.0.1.${20 + count.index}" \
-      --flannel-iface "enp7s0"
+      --flannel-iface "enp7s0" \
+      --node-label "jarble.ai/role=${count.index == 0 ? "jarble-agents" : "api"}"
 
     echo "K3s agent setup complete" > /var/log/k3s-setup.log
   EOF

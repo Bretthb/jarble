@@ -286,6 +286,7 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
         metadata: {
           labels: {
             "jarble.ai/auto-scaled": "true",
+            "jarble.ai/role": "agent",
             "jarble.ai/managed-node-id": String(nodeId),
           },
         },
