@@ -21,7 +21,7 @@ import { NAMESPACE } from "./constants.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { db } from "../db/index.js";
 import { eq, and, inArray, lt } from "drizzle-orm";
-import { managedNodes } from "../db/schema.js";
+import { managedNodes } from "../db/schema.pg.js";
 import { customAlphabet } from "nanoid";
 
 const logger = createModuleLogger("nodeManager");

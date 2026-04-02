@@ -24,7 +24,7 @@ async function requireOrgMembership(
   userId: string,
   orgId: string,
 ): Promise<{ orgId: string; userId: string; role: OrgRole }> {
-  const schema = await import("../../db/schema.js");
+  const schema = await import("../../db/schema.pg.js");
   const membership = await db.query.orgMembers.findFirst({
     where: and(
       eq(schema.orgMembers.orgId, orgId),
@@ -60,7 +60,7 @@ export const orgRouter = router({
       slug: z.string().min(2).max(50).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, "Slug must be lowercase alphanumeric with hyphens"),
     }))
     .mutation(async ({ ctx, input }) => {
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
       const { tables, dbDate } = await import("../../db/index.js");
 
       // Check slug uniqueness
@@ -101,7 +101,7 @@ export const orgRouter = router({
 
   // List organizations the current user belongs to
   list: protectedProcedure.query(async ({ ctx }) => {
-    const schema = await import("../../db/schema.js");
+    const schema = await import("../../db/schema.pg.js");
     const memberships = await ctx.db.query.orgMembers.findMany({
       where: eq(schema.orgMembers.userId, ctx.user.id),
       with: { org: true },
@@ -123,7 +123,7 @@ export const orgRouter = router({
     .query(async ({ ctx, input }) => {
       await requireOrgMembership(ctx.db, ctx.user.id, input.orgId);
 
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
       const org = await ctx.db.query.organizations.findFirst({
         where: eq(schema.organizations.id, input.orgId),
         with: {
@@ -166,7 +166,7 @@ export const orgRouter = router({
       await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
 
       const { tables, dbDate } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       const updates: Record<string, any> = { updatedAt: dbDate() };
       if (input.name !== undefined) updates.name = input.name;
@@ -185,7 +185,7 @@ export const orgRouter = router({
       await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner"]);
 
       const { tables } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       // Unset orgId on all org deployments (return them to personal mode)
       await ctx.db.update(tables.deployments).set({ orgId: null }).where(eq(schema.deployments.orgId, input.orgId));
@@ -210,7 +210,7 @@ export const orgRouter = router({
       await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
 
       const { tables, dbDate } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       // Check if already a member
       const existingMember = await ctx.db.query.orgMembers.findFirst({
@@ -266,7 +266,7 @@ export const orgRouter = router({
     .input(z.object({ token: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const { tables, dbDate } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       const invite = await ctx.db.query.orgInvites.findFirst({
         where: eq(schema.orgInvites.token, input.token),
@@ -329,7 +329,7 @@ export const orgRouter = router({
     .query(async ({ ctx, input }) => {
       await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
 
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
       const invites = await ctx.db.query.orgInvites.findMany({
         where: and(
           eq(schema.orgInvites.orgId, input.orgId),
@@ -355,7 +355,7 @@ export const orgRouter = router({
     .input(z.object({ inviteId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const { tables } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       const invite = await ctx.db.query.orgInvites.findFirst({
         where: eq(schema.orgInvites.id, input.inviteId),
@@ -386,7 +386,7 @@ export const orgRouter = router({
       }
 
       const { tables } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       // Check target membership
       const targetMembership = await requireOrgMembership(ctx.db, input.userId, input.orgId);
@@ -430,7 +430,7 @@ export const orgRouter = router({
       }
 
       const { tables } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       // Verify target is a member
       await requireOrgMembership(ctx.db, input.userId, input.orgId);
@@ -454,7 +454,7 @@ export const orgRouter = router({
       }
 
       const { tables } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       // Unset orgId on user's deployments in this org
       await ctx.db.update(tables.deployments).set({ orgId: null }).where(

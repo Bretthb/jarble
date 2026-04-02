@@ -1146,9 +1146,9 @@ tamboAgentRouter.post("/", async (req, res) => {
     lastDeltaText = fullTextSoFar;
   };
 
-  // In local dev (USE_SQLITE), pod IPs are unreachable from the host - skip
+  // In local dev, pod IPs may be unreachable from the host - skip
   // the WS gateway entirely and go straight to exec through the K8s API.
-  const useExecOnly = process.env.USE_SQLITE === "true" || process.env.USE_SQLITE === "1";
+  const useExecOnly = process.env.NODE_ENV === "development";
 
   // Helper: send a gateway result as SSE events
   const emitGatewayResult = async (gatewayResult: GatewayResponse) => {

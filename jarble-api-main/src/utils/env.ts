@@ -5,10 +5,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("production"),
   FRONTEND_URL: z.string().default("http://localhost:3000"),
 
-  // Database provider: "mysql" | "postgres" | "sqlite" (in-memory, dev only)
-  DB_PROVIDER: z.enum(["mysql", "postgres", "sqlite"]).default("mysql"),
-  USE_SQLITE: z.string().optional(), // Legacy - same as DB_PROVIDER=sqlite
-  DATABASE_URL: z.string().optional(), // Required when not using SQLite
+  // Database connection string (Postgres/Neon)
+  DATABASE_URL: z.string(), // Required
   
   // Auth0 - optional for testing, required for production
   AUTH0_DOMAIN: z.string().default("test.auth0.com"),
@@ -70,14 +68,6 @@ const envSchema = z.object({
   // Stripe - all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
-}).refine((data) => {
-  // DATABASE_URL required unless using SQLite
-  if (data.USE_SQLITE !== "true" && data.USE_SQLITE !== "1" && !data.DATABASE_URL) {
-    return false;
-  }
-  return true;
-}, {
-  message: "DATABASE_URL is required when not using SQLite",
 });
 
 export const env = envSchema.parse(process.env);
