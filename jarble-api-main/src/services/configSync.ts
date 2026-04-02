@@ -48,7 +48,7 @@ import { createModuleLogger } from "../utils/logger.js";
 const log = createModuleLogger("configSync");
 import { nanoid } from "nanoid";
 
-const { deployments, platformCredentials, deploymentSkills, skillsCatalog, serviceInstalls, marketplaceServices, componentInstalls, marketplaceComponents } = tables;
+const { deployments, platformCredentials, deploymentSecrets, deploymentSkills, skillsCatalog, serviceInstalls, marketplaceServices, componentInstalls, marketplaceComponents } = tables;
 // deploymentSubagents may not exist yet (schema created by separate agent)
 const deploymentSubagents = (tables as any).deploymentSubagents;
 
@@ -140,6 +140,23 @@ async function buildDeploymentFields(
         "configSync: failed to decrypt platform credentials, skipping"
       );
     }
+  }
+
+  // Load and decrypt deployment secrets (user/agent-defined env vars)
+  const deploymentSecretsMap: Record<string, string> = {};
+  try {
+    const secretRows = await db.query.deploymentSecrets.findMany({
+      where: eq(deploymentSecrets.deploymentId, deployment.id),
+    });
+    for (const row of secretRows) {
+      try {
+        deploymentSecretsMap[row.key] = decryptApiKey(row.value);
+      } catch (err) {
+        log.warn({ deploymentId: deployment.id, key: row.key }, "configSync: failed to decrypt deployment secret, skipping");
+      }
+    }
+  } catch (err) {
+    log.debug({ deploymentId: deployment.id, err }, "configSync: failed to load deployment secrets (table may not exist yet)");
   }
 
   // Load installed skills for this deployment (single query with join)
@@ -345,6 +362,7 @@ async function buildDeploymentFields(
     packageSnippets: serviceSnippets.length > 0 ? serviceSnippets : undefined,
     remoteSkillConfigs: remoteSkillConfigs.length > 0 ? remoteSkillConfigs : undefined,
     installedComponents: installedComponents.length > 0 ? installedComponents : undefined,
+    deploymentSecrets: Object.keys(deploymentSecretsMap).length > 0 ? deploymentSecretsMap : undefined,
     subagents: subagents.length > 0 ? subagents : undefined,
     teamMembers: teamMembers.length > 0 ? teamMembers : undefined,
   };

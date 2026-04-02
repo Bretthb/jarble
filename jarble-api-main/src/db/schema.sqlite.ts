@@ -65,12 +65,14 @@ export const deployments = sqliteTable("deployments", {
   specialties: text("specialties"),  // JSON array of domain slugs
   bio: text("bio"),  // Public description of what this bot does
   showcasePrompts: text("showcase_prompts"),  // JSON array of example prompts
+  orgId: text("org_id"),  // null = personal deployment, non-null = org-owned
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 }, (table) => ({
   userIdIdx: index("idx_deployments_user_id").on(table.userId),
   statusIdx: index("idx_deployments_status").on(table.status),
   isPublicIdx: index("idx_deployments_is_public").on(table.isPublic),
+  orgIdIdx: index("idx_deployments_org_id").on(table.orgId),
 }));
 
 export const runtimeCatalog = sqliteTable("runtime_catalog", {
@@ -97,6 +99,19 @@ export const platformCredentials = sqliteTable("platform_credentials", {
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 }, (table) => ({
   deploymentPlatformIdx: uniqueIndex("uq_deployment_platform").on(table.deploymentId, table.platformId),
+}));
+
+// Deployment secrets — generic key/value secrets stored by users or agents, injected as pod env vars
+export const deploymentSecrets = sqliteTable("deployment_secrets", {
+  id: text("id").primaryKey(),
+  deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  key: text("key").notNull(), // env var name, e.g. "MY_API_KEY"
+  value: text("value").notNull(), // AES-256-GCM encrypted
+  source: text("source").notNull().default("user"), // "user" | "agent"
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+}, (table) => ({
+  deploymentKeyIdx: uniqueIndex("uq_deployment_secret_key").on(table.deploymentId, table.key),
 }));
 
 // Webhook idempotency tracking - stores processed webhook event IDs to prevent duplicate processing
@@ -347,15 +362,22 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   componentInstalls: many(componentInstalls),
   componentPurchases: many(componentPurchases),
   componentReviews: many(componentReviews),
+  orgMemberships: many(orgMembers),
 }));
 
 export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   user: one(users, { fields: [deployments.userId], references: [users.id] }),
+  org: one(organizations, { fields: [deployments.orgId], references: [organizations.id] }),
   runtimeCatalogEntry: one(runtimeCatalog, { fields: [deployments.runtimeCatalogId], references: [runtimeCatalog.id] }),
   platformCredentials: many(platformCredentials),
   componentInstalls: many(componentInstalls),
   subagents: many(deploymentSubagents),
   flowMemberships: many(flowDeploymentMemberships),
+  deploymentSecrets: many(deploymentSecrets),
+}));
+
+export const deploymentSecretsRelations = relations(deploymentSecrets, ({ one }) => ({
+  deployment: one(deployments, { fields: [deploymentSecrets.deploymentId], references: [deployments.id] }),
 }));
 
 // ── Chat History Tables ───────────────────────────────────────────────────
@@ -855,4 +877,59 @@ export const flowDeploymentMemberships = sqliteTable("flow_deployment_membership
 export const flowDeploymentMembershipsRelations = relations(flowDeploymentMemberships, ({ one }) => ({
   flow: one(orchestrationFlows, { fields: [flowDeploymentMemberships.flowId], references: [orchestrationFlows.id] }),
   deployment: one(deployments, { fields: [flowDeploymentMemberships.deploymentId], references: [deployments.id] }),
+}));
+
+// ── Organizations ─────────────────────────────────────────────────────────
+
+export const organizations = sqliteTable("organizations", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  ownerId: text("owner_id").notNull().references(() => users.id),
+  avatarUrl: text("avatar_url"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+});
+
+export const orgMembers = sqliteTable("org_members", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id),
+  role: text("role").notNull().default("member"),  // "owner" | "admin" | "member"
+  invitedBy: text("invited_by").references(() => users.id),
+  joinedAt: text("joined_at").notNull().$defaultFn(now),
+}, (table) => ({
+  orgUserIdx: uniqueIndex("uq_org_member_user").on(table.orgId, table.userId),
+}));
+
+export const orgInvites = sqliteTable("org_invites", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  role: text("role").notNull().default("member"),
+  token: text("token").notNull().unique(),
+  invitedBy: text("invited_by").notNull().references(() => users.id),
+  status: text("status").notNull().default("pending"),  // "pending" | "accepted" | "expired"
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+}, (table) => ({
+  orgEmailIdx: uniqueIndex("uq_org_invite_email").on(table.orgId, table.email),
+}));
+
+export const organizationsRelations = relations(organizations, ({ one, many }) => ({
+  owner: one(users, { fields: [organizations.ownerId], references: [users.id] }),
+  members: many(orgMembers),
+  invites: many(orgInvites),
+  deployments: many(deployments),
+}));
+
+export const orgMembersRelations = relations(orgMembers, ({ one }) => ({
+  org: one(organizations, { fields: [orgMembers.orgId], references: [organizations.id] }),
+  user: one(users, { fields: [orgMembers.userId], references: [users.id] }),
+  invitedByUser: one(users, { fields: [orgMembers.invitedBy], references: [users.id] }),
+}));
+
+export const orgInvitesRelations = relations(orgInvites, ({ one }) => ({
+  org: one(organizations, { fields: [orgInvites.orgId], references: [organizations.id] }),
+  invitedByUser: one(users, { fields: [orgInvites.invitedBy], references: [users.id] }),
 }));

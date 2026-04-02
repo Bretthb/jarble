@@ -63,12 +63,14 @@ export const deployments = mysqlTable("deployments", {
   specialties: text("specialties"),  // JSON array of domain slugs
   bio: text("bio"),
   showcasePrompts: text("showcase_prompts"),  // JSON array of example prompts
+  orgId: varchar("org_id", { length: 255 }),  // null = personal deployment, non-null = org-owned
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   userIdIdx: index("idx_deployments_user_id").on(table.userId),
   statusIdx: index("idx_deployments_status").on(table.status),
   isPublicIdx: index("idx_deployments_is_public").on(table.isPublic),
+  orgIdIdx: index("idx_deployments_org_id").on(table.orgId),
 }));
 
 export const runtimeCatalog = mysqlTable("runtime_catalog", {
@@ -95,6 +97,19 @@ export const platformCredentials = mysqlTable("platform_credentials", {
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   deploymentPlatformIdx: uniqueIndex("uq_deployment_platform").on(table.deploymentId, table.platformId),
+}));
+
+// Deployment secrets — generic key/value secrets stored by users or agents, injected as pod env vars
+export const deploymentSecrets = mysqlTable("deployment_secrets", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  key: varchar("key", { length: 128 }).notNull(), // env var name, e.g. "MY_API_KEY"
+  value: text("value").notNull(), // AES-256-GCM encrypted
+  source: varchar("source", { length: 20 }).notNull().default("user"), // "user" | "agent"
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  deploymentKeyIdx: uniqueIndex("uq_deployment_secret_key").on(table.deploymentId, table.key),
 }));
 
 // Webhook idempotency tracking - stores processed webhook event IDs to prevent duplicate processing
@@ -325,15 +340,22 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   componentInstalls: many(componentInstalls),
   componentPurchases: many(componentPurchases),
   componentReviews: many(componentReviews),
+  orgMemberships: many(orgMembers),
 }));
 
 export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   user: one(users, { fields: [deployments.userId], references: [users.id] }),
+  org: one(organizations, { fields: [deployments.orgId], references: [organizations.id] }),
   runtimeCatalogEntry: one(runtimeCatalog, { fields: [deployments.runtimeCatalogId], references: [runtimeCatalog.id] }),
   platformCredentials: many(platformCredentials),
   componentInstalls: many(componentInstalls),
   subagents: many(deploymentSubagents),
   flowMemberships: many(flowDeploymentMemberships),
+  deploymentSecrets: many(deploymentSecrets),
+}));
+
+export const deploymentSecretsRelations = relations(deploymentSecrets, ({ one }) => ({
+  deployment: one(deployments, { fields: [deploymentSecrets.deploymentId], references: [deployments.id] }),
 }));
 
 // ── Chat History Tables ───────────────────────────────────────────────────
@@ -847,4 +869,59 @@ export const flowDeploymentMemberships = mysqlTable("flow_deployment_memberships
 export const flowDeploymentMembershipsRelations = relations(flowDeploymentMemberships, ({ one }) => ({
   flow: one(orchestrationFlows, { fields: [flowDeploymentMemberships.flowId], references: [orchestrationFlows.id] }),
   deployment: one(deployments, { fields: [flowDeploymentMemberships.deploymentId], references: [deployments.id] }),
+}));
+
+// ── Organizations ─────────────────────────────────────────────────────────
+
+export const organizations = mysqlTable("organizations", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 100 }).notNull().unique(),
+  ownerId: varchar("owner_id", { length: 255 }).notNull().references(() => users.id),
+  avatarUrl: varchar("avatar_url", { length: 512 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+export const orgMembers = mysqlTable("org_members", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  orgId: varchar("org_id", { length: 255 }).notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  role: varchar("role", { length: 20 }).notNull().default("member"),  // "owner" | "admin" | "member"
+  invitedBy: varchar("invited_by", { length: 255 }).references(() => users.id),
+  joinedAt: timestamp("joined_at").defaultNow().notNull(),
+}, (table) => ({
+  orgUserIdx: uniqueIndex("uq_org_member_user").on(table.orgId, table.userId),
+}));
+
+export const orgInvites = mysqlTable("org_invites", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  orgId: varchar("org_id", { length: 255 }).notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  email: varchar("email", { length: 255 }).notNull(),
+  role: varchar("role", { length: 20 }).notNull().default("member"),
+  token: varchar("token", { length: 255 }).notNull().unique(),
+  invitedBy: varchar("invited_by", { length: 255 }).notNull().references(() => users.id),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),  // "pending" | "accepted" | "expired"
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  orgEmailIdx: uniqueIndex("uq_org_invite_email").on(table.orgId, table.email),
+}));
+
+export const organizationsRelations = relations(organizations, ({ one, many }) => ({
+  owner: one(users, { fields: [organizations.ownerId], references: [users.id] }),
+  members: many(orgMembers),
+  invites: many(orgInvites),
+  deployments: many(deployments),
+}));
+
+export const orgMembersRelations = relations(orgMembers, ({ one }) => ({
+  org: one(organizations, { fields: [orgMembers.orgId], references: [organizations.id] }),
+  user: one(users, { fields: [orgMembers.userId], references: [users.id] }),
+  invitedByUser: one(users, { fields: [orgMembers.invitedBy], references: [users.id] }),
+}));
+
+export const orgInvitesRelations = relations(orgInvites, ({ one }) => ({
+  org: one(organizations, { fields: [orgInvites.orgId], references: [organizations.id] }),
+  invitedByUser: one(users, { fields: [orgInvites.invitedBy], references: [users.id] }),
 }));

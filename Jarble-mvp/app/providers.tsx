@@ -7,6 +7,7 @@ import { httpBatchLink, httpLink, splitLink, TRPCClientError } from "@trpc/clien
 import { useRef, useState, useEffect } from "react";
 import superjson from "superjson";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { OrgProvider } from "@/contexts/OrgContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -133,11 +134,13 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
       <QueryClientProvider client={queryClient}>
         <ErrorBoundary>
           <ThemeProvider defaultTheme="light" switchable>
-            <TooltipProvider>
-              <Toaster />
-              {process.env.NODE_ENV === "development" && <DevNav />}
-              {children}
-            </TooltipProvider>
+            <OrgProvider>
+              <TooltipProvider>
+                <Toaster />
+                {process.env.NODE_ENV === "development" && <DevNav />}
+                {children}
+              </TooltipProvider>
+            </OrgProvider>
           </ThemeProvider>
         </ErrorBoundary>
       </QueryClientProvider>

@@ -29,7 +29,7 @@ import { isAdmin } from "../../utils/admin.js";
 import { RESOURCE_TIERS } from "../../k8s/constants.js";
 import { validateThemeConfig, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 
-const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, chatSessions, chatMessages, agentCalls, orchestrationFlows } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations } = tables;
 
 export const deploymentRouter = router({
 
@@ -50,10 +50,19 @@ export const deploymentRouter = router({
     }
   }),
 
-  // List user's deployments
+  // List user's deployments (personal + org-owned)
   list: protectedProcedure.query(async ({ ctx }) => {
+    // Get user's org memberships
+    const memberships = await ctx.db.query.orgMembers.findMany({
+      where: eq(orgMembers.userId, ctx.user.id),
+      columns: { orgId: true },
+    });
+    const orgIds = memberships.map((m: any) => m.orgId);
+
     const result = await ctx.db.query.deployments.findMany({
-      where: eq(deployments.userId, ctx.user.id),
+      where: orgIds.length > 0
+        ? or(eq(deployments.userId, ctx.user.id), inArray(deployments.orgId, orgIds))
+        : eq(deployments.userId, ctx.user.id),
       with: { runtimeCatalogEntry: true },
       orderBy: (d, { desc }) => [desc(d.createdAt)],
     });
@@ -79,6 +88,36 @@ export const deploymentRouter = router({
       llmCreditLimitDollars: d.llmCreditLimitDollars,
     }));
   }),
+
+  // Assign or unassign a deployment to/from an organization
+  assignToOrg: protectedProcedure
+    .input(z.object({
+      deploymentId: z.string(),
+      orgId: z.string().nullable(), // null to unassign (return to personal)
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Only deployment owner can assign
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Verify org membership if assigning
+      if (input.orgId) {
+        const membership = await ctx.db.query.orgMembers.findFirst({
+          where: and(eq(orgMembers.orgId, input.orgId), eq(orgMembers.userId, ctx.user.id)),
+        });
+        if (!membership) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this organization" });
+        }
+      }
+
+      await ctx.db.update(deployments).set({ orgId: input.orgId }).where(eq(deployments.id, input.deploymentId));
+
+      return { success: true };
+    }),
 
   // Link a deployment to a credit pool (another deployment's managed key)
   linkToPool: protectedProcedure
@@ -301,8 +340,19 @@ export const deploymentRouter = router({
       messagingOnly: z.boolean().optional(), // If true, omit web-chat UI prompt (~1,250 tokens saved)
       isolationLevel: z.enum(["standard", "gvisor", "kata"]).optional(), // Runtime sandbox isolation (default: "standard")
       deploymentType: z.enum(["agent", "container", "website"]).default("agent"), // Scheduling type: agent (dedicated VPS), container/website (shared pool)
+      orgId: z.string().nullish(), // Assign to org on creation (optional)
     }))
     .mutation(async ({ ctx, input }) => {
+      // Verify org membership if orgId provided
+      if (input.orgId) {
+        const membership = await ctx.db.query.orgMembers.findFirst({
+          where: and(eq(orgMembers.orgId, input.orgId), eq(orgMembers.userId, ctx.user.id)),
+        });
+        if (!membership) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this organization" });
+        }
+      }
+
       // Platform mode is admin-only
       if (input.llmMode === "platform" && !isAdmin(ctx.user.id)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Platform LLM mode is restricted to administrators" });
@@ -497,6 +547,7 @@ export const deploymentRouter = router({
         isolationLevel: input.isolationLevel || "standard",
         deploymentType: input.deploymentType,
         isPlatform: input.llmMode === "platform",
+        orgId: input.orgId ?? null,
         status: "pending",
       });
 

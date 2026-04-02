@@ -1006,6 +1006,46 @@ const TOOLS = [
     },
   },
   {
+    name: "store_secret",
+    description: "Store a secret (API key, token, or credential) as an encrypted environment variable for this deployment. The secret is encrypted at rest and injected into the pod after a brief restart (~5-10s). Use this when a user provides an API key or when you discover a credential that should be persisted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: {
+          type: "string",
+          description: "Environment variable name (uppercase letters, digits, underscores only, e.g. MY_API_KEY)",
+        },
+        value: {
+          type: "string",
+          description: "The secret value to store",
+        },
+      },
+      required: ["key", "value"],
+    },
+  },
+  {
+    name: "list_secrets",
+    description: "List all stored secret keys for this deployment (values are not returned for security). Use this to check what secrets are already configured before storing new ones.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "delete_secret",
+    description: "Delete a stored secret by key name. Triggers a pod restart.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: {
+          type: "string",
+          description: "The secret key to delete",
+        },
+      },
+      required: ["key"],
+    },
+  },
+  {
     name: "update_design_context",
     description: "Save your current design choices (color palette, chart style, typography, layout preferences) so they persist across the session. Call this after rendering your first charts/components to lock in a consistent visual style. The saved context is automatically included in subsequent messages via [DESIGN_CONTEXT] so you can maintain consistency without re-specifying styles.",
     inputSchema: {
@@ -5707,6 +5747,61 @@ async function executeSetTheme(args) {
   };
 }
 
+// ── Deployment Secrets (store/list/delete) ───────────────────────────────
+
+async function executeStoreSecret(args) {
+  const key = (args.key || "").trim();
+  const value = args.value || "";
+
+  if (!key) return { isError: true, text: "Missing required 'key' parameter" };
+  if (!value) return { isError: true, text: "Missing required 'value' parameter" };
+  if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key)) {
+    return { isError: true, text: `Invalid key format. Must be uppercase letters, digits, and underscores (e.g. MY_API_KEY)` };
+  }
+
+  try {
+    const result = await apiRequest("POST", "/api/pod/secrets", { key, value });
+    return {
+      isError: false,
+      text: `Secret "${key}" stored successfully. It will be available as an environment variable after a brief pod restart (~5-10s).`,
+    };
+  } catch (err) {
+    return { isError: true, text: `Failed to store secret: ${err.message}` };
+  }
+}
+
+async function executeListSecrets() {
+  try {
+    const result = await apiRequest("GET", "/api/pod/secrets");
+    const secrets = result.secrets || [];
+    if (secrets.length === 0) {
+      return { isError: false, text: "No secrets stored for this deployment." };
+    }
+    const lines = secrets.map(s => `- ${s.key} (source: ${s.source}, updated: ${s.updatedAt})`);
+    return {
+      isError: false,
+      text: `${secrets.length} secret(s) stored:\n${lines.join("\n")}`,
+    };
+  } catch (err) {
+    return { isError: true, text: `Failed to list secrets: ${err.message}` };
+  }
+}
+
+async function executeDeleteSecret(args) {
+  const key = (args.key || "").trim();
+  if (!key) return { isError: true, text: "Missing required 'key' parameter" };
+
+  try {
+    await apiRequest("DELETE", `/api/pod/secrets/${encodeURIComponent(key)}`);
+    return {
+      isError: false,
+      text: `Secret "${key}" deleted. Pod will restart to remove the environment variable.`,
+    };
+  } catch (err) {
+    return { isError: true, text: `Failed to delete secret: ${err.message}` };
+  }
+}
+
 // ── Design Context (session-level style tracking) ───────────────────────
 
 const DESIGN_CONTEXT_PATH = (() => {
@@ -7039,6 +7134,9 @@ async function executeTool(name, args) {
     case "discover_agents": return executeDiscoverAgents(args || {});
     case "call_agent": return executeCallAgent(args || {});
     case "set_theme": return executeSetTheme(args || {});
+    case "store_secret": return executeStoreSecret(args || {});
+    case "list_secrets": return executeListSecrets();
+    case "delete_secret": return executeDeleteSecret(args || {});
     case "update_design_context": return executeUpdateDesignContext(args || {});
     // Web & Search tools
     case "web_fetch": return executeWebFetch(args || {});

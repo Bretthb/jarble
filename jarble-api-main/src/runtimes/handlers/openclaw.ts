@@ -673,6 +673,15 @@ export const openclawHandler: RuntimeHandler = {
       }
     }
 
+    // User/agent-defined deployment secrets — lowest priority (cannot overwrite system entries)
+    if (deployment.deploymentSecrets) {
+      for (const [key, value] of Object.entries(deployment.deploymentSecrets)) {
+        if (!entries[key]) {
+          entries[key] = value;
+        }
+      }
+    }
+
     log.debug({ entryCount: Object.keys(entries).length }, "getSecretEntries complete");
     return entries;
   },
