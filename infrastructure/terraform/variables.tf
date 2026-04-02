@@ -52,26 +52,6 @@ variable "master_server_type" {
   default     = "cpx21" # 3 vCPU, 4GB RAM, 80GB disk — $7.59/mo
 }
 
-variable "agent_server_type" {
-  description = "Hetzner server type for K3s agent (worker) nodes"
-  type        = string
-  default     = "cpx21" # 3 vCPU, 4GB RAM, 80GB disk — $7.59/mo
-}
-
-variable "agent_count" {
-  description = "Number of K3s agent (worker) nodes"
-  type        = number
-  default     = 2
-}
-
-# ─── Block Storage (Longhorn) ────────────────────────────────────────────────
-
-variable "longhorn_volume_size" {
-  description = "Size in GB of Hetzner Block Storage per worker node for Longhorn persistent data (formula: deployments_per_node x max_storage_per_deployment)"
-  type        = number
-  default     = 100 # 1 deployment x 100 GB max — increase for higher density
-}
-
 variable "os_image" {
   description = "Operating system image"
   type        = string

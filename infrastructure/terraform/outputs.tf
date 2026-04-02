@@ -10,16 +10,6 @@ output "master_private_ip" {
   value       = "10.0.1.10"
 }
 
-output "agent_ips" {
-  description = "Public IPs of K3s agent nodes"
-  value       = hcloud_server.agent[*].ipv4_address
-}
-
-output "agent_private_ips" {
-  description = "Private IPs of K3s agent nodes"
-  value       = [for i in range(var.agent_count) : "10.0.1.${20 + i}"]
-}
-
 output "ingress_ip" {
   description = "Floating IP for ingress (point DNS here)"
   value       = hcloud_primary_ip.ingress.ip_address
@@ -49,15 +39,6 @@ output "dns_records" {
   }
 }
 
-output "longhorn_volume_ids" {
-  description = "Hetzner Block Storage volume IDs for Longhorn"
-  value       = hcloud_volume.longhorn[*].id
-}
-
-output "longhorn_volume_size_gb" {
-  description = "Size (GB) of each Longhorn block storage volume"
-  value       = var.longhorn_volume_size
-}
 
 # ─── Coolify (Frontend Hosting) ─────────────────────────────────────────────
 

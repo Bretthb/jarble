@@ -48,21 +48,21 @@ Each deployment gets a **web chat interface** (`/d/[id]`) with rich UI component
 
 ## Common Commands
 
-### Frontend (Jarble-mvp/)
+### Frontend (Jarble-mvp/) — uses pnpm
 ```bash
-npm run dev          # Start dev server on :3000
-npm run build        # Production build
-npm run check        # TypeScript type-check (tsc --noEmit)
-npm run test         # Run Vitest unit tests (37 test files in src/)
-npm run check:manifest   # Verify manifest ↔ component sync
+pnpm run dev          # Start dev server on :3000
+pnpm run build        # Production build
+pnpm run check        # TypeScript type-check (tsc --noEmit)
+pnpm run test         # Run Vitest unit tests (44 test files)
+pnpm run check:manifest   # Verify manifest ↔ component sync
 ```
 
-### API (jarble-api-main/)
+### API (jarble-api-main/) — uses npm
 ```bash
 npm run dev          # Start with file watching (tsx watch)
 npm run dev:test     # Start with SQLite (USE_SQLITE=true) for local dev
 npm run typecheck    # TypeScript type-check
-npm run test         # Run Vitest unit tests (82 test files in src/)
+npm run test         # Run Vitest unit tests (87 test files)
 npm run db:push      # Push schema to database
 npm run db:studio    # Open Drizzle Studio
 ```
@@ -70,21 +70,32 @@ npm run db:studio    # Open Drizzle Studio
 ### Running Both Services
 ```bash
 # Terminal 1 - API on :3001
-cd jarble-api-main && npm run dev
+cd jarble-api-main && npm run dev:test
 # Terminal 2 - Frontend on :3000
-cd Jarble-mvp && npm run dev
+cd Jarble-mvp && pnpm run dev
 ```
 
 ## Tech Stack
-- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind v4, shadcn/ui, @assistant-ui/react, recharts, @xyflow/react, Monaco Editor, shiki (syntax highlighting)
-- **API**: Express, tRPC, SuperJSON, Drizzle ORM
+- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind v4, shadcn/ui, pnpm
+- **API**: Express, tRPC, SuperJSON, Drizzle ORM, npm
 - **MCP**: Custom stdio MCP server (`jarble-ui-server.js`) — `render_ui`, `define_component`, `list_components`, `component_reference`, `skill_reference`
-- **Database**: MySQL (prod), PostgreSQL (alt), SQLite (dev with USE_SQLITE=true)
+- **Database**: PostgreSQL via Neon (prod), SQLite (dev with USE_SQLITE=true)
 - **Auth**: Auth0 (JWT + JWKS), **Payments**: Stripe, **Infra**: Hetzner Cloud, Terraform, K3s, Longhorn
 
+**Package managers**: Frontend uses **pnpm** (declared in package.json `packageManager` field). API uses **npm**. Do not mix them — use the correct lockfile for each.
+
 ## tRPC Router Structure
-15 routers with 80+ procedures at `/trpc`:
-`user`, `deployment`, `runtimeCatalog`, `openrouter`, `billing`, `platformCredentials`, `template`, `marketplace` (components), `services` (service marketplace + hosted dashboard), `flows` (flow CRUD + execution), `admin`, `agentCredits`, `apiKeys`, `benchmarks`, `skills`
+16 routers with 90+ procedures at `/trpc`:
+`user`, `deployment`, `runtimeCatalog`, `openrouter`, `billing`, `platformCredentials`, `template`, `marketplace` (components), `services` (service marketplace + hosted dashboard), `flows` (flow CRUD + execution), `admin`, `apiKeys`, `skills`, `subagents`, `org` (organizations)
+
+## Organizations
+Individual-first model: users sign up as individuals, then create/join unlimited orgs. Deployments have an optional `orgId` — null means personal mode.
+
+- **Tables**: `organizations`, `org_members`, `org_invites` (in all 3 DB schemas)
+- **Roles**: owner > admin > member
+- **Router**: `org` — create, list, getById, update, delete, invite, acceptInvite, listInvites, cancelInvite, removeMember, updateMemberRole, leave
+- **Frontend**: `OrgContext` provider, `OrgSwitcher` in ProfileDropdown, org management in Settings
+- **Invite flow**: Email via Resend, accept at `/invite/[token]`
 
 ## Frontend-Backend Communication
 - **tRPC + React Query**: Type-safe API calls with automatic caching
@@ -116,7 +127,7 @@ DAG-based pipeline executor with 6 node types, cycle support, HITL (`waitForInpu
 ### Adding a New Runtime
 1. Add entry to `RUNTIME_EXTRA_STEPS` and `RUNTIME_CONFIG_TABS` in `wizardStepConfig.ts`
 2. Create runtime handler in `jarble-api-main/src/runtimes/handlers/`
-3. Add render blocks in `OnboardingWizard.tsx` and `DeploymentConfiguration.tsx`
+3. Add render blocks in `OnboardingWizard.tsx` and deployment config views
 
 ### Adding a New LLM Provider
 1. Add to `LLM_PROVIDERS` in `wizardStepConfig.ts`
@@ -176,13 +187,35 @@ Wizard steps and config tabs driven by `Jarble-mvp/views/onboarding/wizardStepCo
 
 Background watcher polls for Pending pods, provisions right-sized Hetzner servers (cpx11-cpx51), joins K3s via cloud-init. Empty workers deprovisioned after 5 min. Controlled by `AUTOSCALE_ENABLED=true`.
 
+## Database Schema (3 Providers)
+Schema is defined in 3 files that must stay in sync:
+- `jarble-api-main/src/db/schema.ts` (MySQL)
+- `jarble-api-main/src/db/schema.pg.ts` (PostgreSQL — production via Neon)
+- `jarble-api-main/src/db/schema.sqlite.ts` (SQLite — local dev)
+
+When adding tables or columns, update ALL THREE files plus `db/init.ts` (SQLite CREATE TABLE + migrations) and `db/index.ts` (ActiveTables type + getActiveTables()).
+
 ## Environment Variables
 > Full details in `.claude/rules/env-config.md` (auto-loads when working in .env/infrastructure files)
 
-- **API**: `jarble-api-main/.env` — DATABASE_URL, AUTH0_*, STRIPE_*, ENCRYPTION_KEY, HETZNER_*, K3S_JOIN_TOKEN
+- **API**: `jarble-api-main/.env` — DATABASE_URL, AUTH0_*, STRIPE_*, ENCRYPTION_KEY, ALLOWED_ORIGINS
 - **Frontend**: `Jarble-mvp/.env.local` — NEXT_PUBLIC_API_URL, NEXT_PUBLIC_AUTH0_*
 - **Local dev**: `USE_SQLITE=true` for file-based SQLite at `local.db`
-- **Debug endpoints**: `/debug/db`, `/debug/deployment/:id/status`, `/debug/deployment/:id/pod-status`
+- **CORS**: `ALLOWED_ORIGINS` env var (comma-separated) for additional origins beyond FRONTEND_URL
+- **Debug endpoints**: `/debug/db`, `/debug/deployment/:id/status`, `/debug/deployment/:id/pod-status` (dev only, gated by NODE_ENV)
+
+## CI/CD Workflows (`.github/workflows/`)
+
+| Workflow | Triggers | What it does |
+|----------|----------|-------------|
+| `ci.yml` | PRs + push to develop/main | 7 jobs: API/Frontend typecheck, tests, build, manifest sync, PR labels |
+| `deploy-api.yml` | Push to main (API changes) | Build + push Docker image to GHCR |
+| `deploy-frontend.yml` | Push to main (frontend changes) | Build + push frontend Docker image to GHCR |
+| `deploy-runtimes.yml` | Push to main (runtime changes) | Build runtime images (openclaw, zeroclaw) |
+| `terraform.yml` | Push to main (infra changes) | Plan + apply Hetzner/K3s infrastructure |
+| `nightly-qa.yml` | Manual dispatch only | Agentic QA (Claude Code) |
+
+**Frontend CI uses pnpm**, API CI uses npm. Vercel auto-deploys the frontend on every push. API Docker image must be manually redeployed to K3s after build.
 
 ## Rules Index (`.claude/rules/`)
 
