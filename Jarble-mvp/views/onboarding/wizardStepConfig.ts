@@ -72,6 +72,7 @@ import {
   Shield,
   Terminal,
   Package,
+  KeyRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -175,13 +176,15 @@ const RUNTIME_CONFIG_TABS: Record<string, ConfigTabDef[]> = {
   openclaw: [
     { id: "model", label: "Model", icon: Bot },
     { id: "platforms", label: "Platforms", icon: Link2 },
+    { id: "secrets", label: "Secrets", icon: KeyRound },
     { id: "skills", label: "Skills", icon: Sparkles },
     { id: "components", label: "Components", icon: Package },
   ],
 
-  // ZeroClaw - lightweight bot, Platforms + Components
+  // ZeroClaw - lightweight bot, Platforms + Components + Secrets
   zeroclaw: [
     { id: "platforms", label: "Platforms", icon: Link2 },
+    { id: "secrets", label: "Secrets", icon: KeyRound },
     { id: "components", label: "Components", icon: Package },
   ],
 
@@ -197,6 +200,7 @@ const RUNTIME_CONFIG_TABS: Record<string, ConfigTabDef[]> = {
 const DEFAULT_CONFIG_TABS: ConfigTabDef[] = [
   { id: "model", label: "Model", icon: Bot },
   { id: "platforms", label: "Platforms", icon: Link2 },
+  { id: "secrets", label: "Secrets", icon: KeyRound },
   { id: "skills", label: "Skills", icon: Sparkles },
   { id: "components", label: "Components", icon: Package },
 ];

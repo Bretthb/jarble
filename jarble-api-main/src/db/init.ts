@@ -98,6 +98,18 @@ const CREATE_TABLES_SQL = `
 
   CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_platform ON platform_credentials(deployment_id, platform_id);
 
+  CREATE TABLE IF NOT EXISTS deployment_secrets (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_secret_key ON deployment_secrets(deployment_id, key);
+
   CREATE TABLE IF NOT EXISTS processed_webhook_events (
     event_id TEXT PRIMARY KEY,
     event_type TEXT NOT NULL,

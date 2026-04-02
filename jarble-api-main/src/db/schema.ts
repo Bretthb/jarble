@@ -99,6 +99,19 @@ export const platformCredentials = mysqlTable("platform_credentials", {
   deploymentPlatformIdx: uniqueIndex("uq_deployment_platform").on(table.deploymentId, table.platformId),
 }));
 
+// Deployment secrets — generic key/value secrets stored by users or agents, injected as pod env vars
+export const deploymentSecrets = mysqlTable("deployment_secrets", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
+  key: varchar("key", { length: 128 }).notNull(), // env var name, e.g. "MY_API_KEY"
+  value: text("value").notNull(), // AES-256-GCM encrypted
+  source: varchar("source", { length: 20 }).notNull().default("user"), // "user" | "agent"
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  deploymentKeyIdx: uniqueIndex("uq_deployment_secret_key").on(table.deploymentId, table.key),
+}));
+
 // Webhook idempotency tracking - stores processed webhook event IDs to prevent duplicate processing
 export const processedWebhookEvents = mysqlTable("processed_webhook_events", {
   eventId: varchar("event_id", { length: 255 }).primaryKey(), // Stripe event ID (e.g., evt_xxx)
@@ -338,6 +351,11 @@ export const deploymentsRelations = relations(deployments, ({ one, many }) => ({
   componentInstalls: many(componentInstalls),
   subagents: many(deploymentSubagents),
   flowMemberships: many(flowDeploymentMemberships),
+  deploymentSecrets: many(deploymentSecrets),
+}));
+
+export const deploymentSecretsRelations = relations(deploymentSecrets, ({ one }) => ({
+  deployment: one(deployments, { fields: [deploymentSecrets.deploymentId], references: [deployments.id] }),
 }));
 
 // ── Chat History Tables ───────────────────────────────────────────────────

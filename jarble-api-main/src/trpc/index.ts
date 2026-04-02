@@ -5,6 +5,7 @@ import { runtimeCatalogRouter } from "./routers/runtimeCatalog.js";
 import { templateRouter } from "./routers/template.js";
 import { openrouterRouter } from "./routers/openrouter.js";
 import { platformCredentialsRouter } from "./routers/platformCredentials.js";
+import { deploymentSecretsRouter } from "./routers/deploymentSecrets.js";
 import { billingRouter } from "./routers/billing.js";
 import { skillsRouter } from "./routers/skills.js";
 import { marketplaceRouter } from "./routers/marketplace.js";
@@ -22,6 +23,7 @@ export const appRouter = router({
   template: templateRouter,
   openrouter: openrouterRouter,
   platformCredentials: platformCredentialsRouter,
+  deploymentSecrets: deploymentSecretsRouter,
   billing: billingRouter,
   skills: skillsRouter,
   marketplace: marketplaceRouter,

@@ -95,6 +95,8 @@ export interface DeploymentFields {
     tools: string | null;
     source?: string;  // "custom" | "platform" | "delegation" - undefined treated as "custom" for backward compat
   }>;
+  /** User/agent-defined deployment secrets: { envVarName: decryptedValue } — injected as pod env vars */
+  deploymentSecrets?: Record<string, string>;
   /** Team members from Bot Teams flows - other deployments linked via flow_deployment_memberships */
   teamMembers?: Array<{
     deploymentId: string;
