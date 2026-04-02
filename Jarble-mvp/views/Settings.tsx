@@ -26,6 +26,8 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import DeleteAccountSection from "@/components/DeleteAccountSection";
+import { useOrg } from "@/contexts/OrgContext";
+import OrgSettings from "@/components/organizations/OrgSettings";
 
 export default function SettingsView() {
   const router = useRouter();
@@ -412,6 +414,9 @@ export default function SettingsView() {
               </div>
             )}
           </Card>
+
+          {/* Organization */}
+          <OrgSettings />
 
           {/* Danger Zone */}
           <DeleteAccountSection />
