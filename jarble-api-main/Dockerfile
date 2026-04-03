@@ -37,10 +37,6 @@ COPY jarble-api-main/drizzle-pg/ ./drizzle-pg/
 # MCP server (not compiled by tsc — runs as plain JS)
 COPY jarble-api-main/src/mcp/jarble-ui-server.js ./dist/jarble-api-main/src/mcp/jarble-ui-server.js
 
-# Entrypoint: migrate → seed → start
-COPY jarble-api-main/entrypoint.sh ./entrypoint.sh
-RUN chmod +x entrypoint.sh
-
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
@@ -50,4 +46,4 @@ USER node
 
 EXPOSE 3001
 
-CMD ["./entrypoint.sh"]
+CMD ["sh", "-c", "node dist/jarble-api-main/src/db/migrate.pg.js && node dist/jarble-api-main/src/db/seed.pg.js && node dist/jarble-api-main/src/index.js"]
