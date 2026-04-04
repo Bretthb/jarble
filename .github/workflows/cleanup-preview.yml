@@ -1,0 +1,149 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Cleanup Preview Deployments
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Triggers:
+#   - PR closed (merged or not) → delete that PR's preview
+#   - Daily at 6 AM UTC → delete stale previews (>72h since last commit)
+# ═══════════════════════════════════════════════════════════════════════
+
+name: Cleanup Previews
+
+on:
+  pull_request:
+    types: [closed]
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ── Cleanup on PR close ──────────────────────────────────────────
+  cleanup-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete preview resources
+        run: |
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+
+          SLUG="pr-${{ github.event.pull_request.number }}"
+          echo "Cleaning up preview: ${SLUG}"
+
+          kubectl delete deployment "preview-${SLUG}" -n jarble-preview --ignore-not-found
+          kubectl delete service "preview-${SLUG}" -n jarble-preview --ignore-not-found
+          kubectl delete ingress "preview-${SLUG}" -n jarble-preview --ignore-not-found
+
+          rm /tmp/kubeconfig
+
+      - name: Remove Auth0 callback URLs
+        continue-on-error: true
+        run: |
+          SLUG="pr-${{ github.event.pull_request.number }}"
+          DOMAIN="${SLUG}.preview.jarble.ai"
+
+          TOKEN=$(curl -s --request POST \
+            --url https://jarble-dev.us.auth0.com/oauth/token \
+            --header 'content-type: application/json' \
+            --data "{\"client_id\":\"${{ secrets.AUTH0_M2M_CLIENT_ID }}\",\"client_secret\":\"${{ secrets.AUTH0_M2M_CLIENT_SECRET }}\",\"audience\":\"https://jarble-dev.us.auth0.com/api/v2/\",\"grant_type\":\"client_credentials\"}" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+
+          SPA_ID="${{ secrets.AUTH0_CLIENT_ID }}"
+
+          python3 -c "
+          import json, urllib.request
+          token = '${TOKEN}'
+          spa_id = '${SPA_ID}'
+          remove = 'https://${DOMAIN}'
+          auth0 = 'jarble-dev.us.auth0.com'
+
+          req = urllib.request.Request(
+              f'https://{auth0}/api/v2/clients/{spa_id}?fields=callbacks,allowed_logout_urls,web_origins&include_fields=true',
+              headers={'Authorization': f'Bearer {token}'}
+          )
+          app = json.loads(urllib.request.urlopen(req).read())
+
+          cb = [u for u in app.get('callbacks', []) if not u.startswith(remove)]
+          lo = [u for u in app.get('allowed_logout_urls', []) if not u.startswith(remove)]
+          wo = [u for u in app.get('web_origins', []) if not u.startswith(remove)]
+
+          req2 = urllib.request.Request(
+              f'https://{auth0}/api/v2/clients/{spa_id}',
+              data=json.dumps({'callbacks': cb, 'allowed_logout_urls': lo, 'web_origins': wo}).encode(),
+              headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+              method='PATCH'
+          )
+          urllib.request.urlopen(req2)
+          print(f'Auth0: deregistered {remove}')
+          "
+
+      - name: Delete GHCR image tag
+        continue-on-error: true
+        run: |
+          SLUG="pr-${{ github.event.pull_request.number }}"
+          TAG="preview-${SLUG}"
+
+          # Get the image version ID for this tag
+          VERSION_ID=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/orgs/Jarble-AI/packages/container/frontend/versions" \
+            --jq ".[] | select(.metadata.container.tags[] == \"${TAG}\") | .id" 2>/dev/null)
+
+          if [[ -n "$VERSION_ID" ]]; then
+            gh api --method DELETE \
+              "/orgs/Jarble-AI/packages/container/frontend/versions/${VERSION_ID}" || true
+            echo "Deleted GHCR tag: ${TAG}"
+          else
+            echo "No GHCR image found for tag: ${TAG}"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Scheduled stale cleanup ──────────────────────────────────────
+  cleanup-stale:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove stale previews
+        run: |
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+
+          # List all preview deployments
+          DEPLOYS=$(kubectl get deployments -n jarble-preview -l app=jarble-preview \
+            -o jsonpath='{range .items[*]}{.metadata.labels.preview-slug}{"\n"}{end}' 2>/dev/null)
+
+          NOW=$(date +%s)
+          STALE_HOURS=72
+
+          for SLUG in $DEPLOYS; do
+            # Skip the develop staging deployment
+            if [[ "$SLUG" == "develop" ]]; then
+              continue
+            fi
+
+            # Extract PR number from slug (pr-123 → 123)
+            PR_NUM="${SLUG#pr-}"
+
+            # Check if PR is still open
+            PR_STATE=$(gh pr view "$PR_NUM" --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")
+
+            if [[ "$PR_STATE" == "CLOSED" || "$PR_STATE" == "MERGED" || "$PR_STATE" == "UNKNOWN" ]]; then
+              echo "Deleting stale preview: ${SLUG} (PR state: ${PR_STATE})"
+              kubectl delete deployment "preview-${SLUG}" -n jarble-preview --ignore-not-found
+              kubectl delete service "preview-${SLUG}" -n jarble-preview --ignore-not-found
+              kubectl delete ingress "preview-${SLUG}" -n jarble-preview --ignore-not-found
+            fi
+          done
+
+          rm /tmp/kubeconfig
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
