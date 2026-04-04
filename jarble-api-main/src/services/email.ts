@@ -8,7 +8,7 @@ import { env } from "../utils/env.js";
 
 const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
 
-const FROM_EMAIL = "Jarble <onboarding@resend.dev>";
+const FROM_EMAIL = "Jarble <noreply@noreply.jarble.ai>";
 
 export async function sendBetaWelcomeEmail(to: string, name: string): Promise<boolean> {
   if (!resend) {
