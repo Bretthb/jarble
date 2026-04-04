@@ -91,7 +91,9 @@ jobs:
   deploy:
     needs: context
     runs-on: ubuntu-latest
-    environment: ${{ needs.context.outputs.env_name }}
+    environment:
+      name: ${{ needs.context.outputs.env_name }}
+      url: ${{ needs.context.outputs.app_url }}
     steps:
       - uses: actions/checkout@v4
 
