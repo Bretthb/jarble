@@ -10,6 +10,7 @@ import {
   Plus,
   Loader2,
   Bot,
+  Building2,
   Trash2,
   Clock,
   DollarSign,
@@ -20,6 +21,7 @@ import {
   RotateCw,
   AlertCircle,
   Download,
+  User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -272,6 +274,43 @@ export default function Dashboard() {
             </Button>
           </div>
         )}
+
+        {/* Workspace Banner */}
+        <div className={`mb-6 flex items-center gap-3 rounded-lg border px-4 py-3 ${
+          activeOrg
+            ? "border-primary/30 bg-primary/5"
+            : "border-border bg-secondary/30"
+        }`}>
+          {activeOrg ? (
+            <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Building2 className="w-5 h-5 text-primary" />
+            </div>
+          ) : (
+            <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+              <User className="w-5 h-5 text-muted-foreground" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">
+              {activeOrg ? activeOrg.name : "Personal Workspace"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {activeOrg
+                ? `Viewing organization deployments \u00b7 ${activeOrg.role}`
+                : "Viewing your personal deployments"}
+            </p>
+          </div>
+          {activeOrg && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs shrink-0"
+              onClick={() => router.push(`/orgs/${activeOrg.id}`)}
+            >
+              Manage
+            </Button>
+          )}
+        </div>
 
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
