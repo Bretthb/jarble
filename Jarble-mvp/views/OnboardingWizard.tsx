@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
+import { useOrg } from "@/contexts/OrgContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -37,6 +38,7 @@ export default function OnboardingWizard() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
+  const { activeOrgId } = useOrg();
 
   // Step navigation
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -290,6 +292,7 @@ export default function OnboardingWizard() {
           memoryMb: memoryMb || undefined,
           storageMb: storageMb || undefined,
           systemPrompt: undefined,
+          orgId: activeOrgId ?? undefined,
         });
       }
     } else if (currentStepIndex < steps.length - 1) {
