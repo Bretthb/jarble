@@ -72,9 +72,6 @@ app.use(cors({
 
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
-    } else if (/^https:\/\/pr-\d+\.preview\.jarble\.ai$/.test(origin)) {
-      // Allow preview deployment origins (pr-N.preview.jarble.ai only)
-      callback(null, true);
     } else if (env.NODE_ENV === "development") {
       // In development, allow any localhost origin
       if (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
