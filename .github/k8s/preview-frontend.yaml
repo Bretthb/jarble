@@ -21,6 +21,7 @@ spec:
       containers:
       - name: frontend
         image: ghcr.io/jarble-ai/frontend:${IMAGE_TAG}
+        imagePullPolicy: Always
         ports:
         - containerPort: 3000
         resources:
@@ -32,13 +33,13 @@ spec:
             memory: "256Mi"
         readinessProbe:
           httpGet:
-            path: /
+            path: /_next/static/
             port: 3000
           initialDelaySeconds: 5
           periodSeconds: 10
         livenessProbe:
           httpGet:
-            path: /
+            path: /_next/static/
             port: 3000
           initialDelaySeconds: 15
           periodSeconds: 30

@@ -62,7 +62,10 @@ jobs:
       - name: Set deploy context
         id: ctx
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.ref }}" != "refs/heads/main" && "${{ github.ref }}" != "refs/heads/develop" ]]; then
+            echo "::error::Manual dispatch only allowed from main or develop branches."
+            exit 1
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
             PR_NUM="${{ github.event.pull_request.number }}"
             SLUG="pr-${PR_NUM}"
             echo "env_name=preview" >> $GITHUB_OUTPUT
@@ -102,13 +105,13 @@ jobs:
         if: needs.context.outputs.env_name == 'preview'
         run: |
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
-          EXISTING=$(kubectl --kubeconfig=/tmp/kubeconfig get deployments -n jarble-preview -l app=jarble-preview --no-headers 2>/dev/null | wc -l)
+          trap 'rm -f /tmp/kubeconfig' EXIT
+          EXISTING=$(kubectl --kubeconfig=/tmp/kubeconfig get deployments -n jarble-preview -l app=jarble-preview -l 'preview-slug!=develop' --no-headers 2>/dev/null | wc -l)
           EXISTS=$(kubectl --kubeconfig=/tmp/kubeconfig get deployment preview-${{ needs.context.outputs.slug }} -n jarble-preview --no-headers 2>/dev/null | wc -l)
           if [[ "$EXISTING" -ge "$MAX_PREVIEWS" && "$EXISTS" -eq 0 ]]; then
             echo "::error::Preview limit reached ($MAX_PREVIEWS). Close an existing PR first."
             exit 1
           fi
-          rm /tmp/kubeconfig
 
       # ── Build Docker image ───────────────────────────────────────
       - name: Set up Docker Buildx
@@ -145,6 +148,7 @@ jobs:
       - name: Deploy to cluster
         run: |
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
+          trap 'rm -f /tmp/kubeconfig' EXIT
           export KUBECONFIG=/tmp/kubeconfig
 
           export SLUG="${{ needs.context.outputs.slug }}"
@@ -158,12 +162,22 @@ jobs:
               -n jarble-production 2>/dev/null || \
             echo "Production deployment will be created via KuberoApp"
           else
-            envsubst < .github/k8s/preview-frontend.yaml | kubectl apply -f -
+            envsubst '$SLUG $IMAGE_TAG $DOMAIN $NAMESPACE' < .github/k8s/preview-frontend.yaml | kubectl apply -f -
             kubectl rollout status deployment/preview-${SLUG} \
               -n jarble-preview --timeout=120s
           fi
 
-          rm /tmp/kubeconfig
+      - name: Cleanup on failed rollout
+        if: failure() && needs.context.outputs.env_name != 'production'
+        run: |
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
+          trap 'rm -f /tmp/kubeconfig' EXIT
+          export KUBECONFIG=/tmp/kubeconfig
+          SLUG="${{ needs.context.outputs.slug }}"
+          kubectl delete deployment "preview-${SLUG}" -n jarble-preview --ignore-not-found
+          kubectl delete service "preview-${SLUG}" -n jarble-preview --ignore-not-found
+          kubectl delete ingress "preview-${SLUG}" -n jarble-preview --ignore-not-found
+          echo "Cleaned up failed preview: ${SLUG}"
 
       # ── Register Auth0 callback URLs ─────────────────────────────
       - name: Register Auth0 preview URLs
