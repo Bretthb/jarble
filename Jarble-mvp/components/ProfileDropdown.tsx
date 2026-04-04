@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useOrg } from "@/contexts/OrgContext";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,28 +16,28 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
-  Settings,
-  LogOut,
-  Moon,
-  Sun,
-  User,
+  BarChart3,
+  Building2,
+  CreditCard,
   LayoutDashboard,
   Layers,
-  BarChart3,
-  CreditCard,
-  Store,
+  LogOut,
+  Moon,
+  Settings,
   Shield,
+  Store,
+  Sun,
 } from "lucide-react";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import OrgSwitcher from "@/components/organizations/OrgSwitcher";
 import CreateOrgDialog from "@/components/organizations/CreateOrgDialog";
-import { useState } from "react";
 
 export default function ProfileDropdown() {
   const { user, logout } = useAuth0();
   const router = useRouter();
   const { theme, toggleTheme, switchable } = useTheme();
   const { isAdmin } = useIsAdmin();
+  const { activeOrg } = useOrg();
   const [createOrgOpen, setCreateOrgOpen] = useState(false);
 
   const initials = user?.name
@@ -51,7 +53,7 @@ export default function ProfileDropdown() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex items-center gap-2 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-transform hover:scale-105 active:scale-95">
-          <Avatar className="h-8 w-8 border border-border/60 hover:border-stone-400/50 transition-colors shadow-sm">
+          <Avatar className="h-7 w-7 border border-border/60 hover:border-stone-400/50 transition-colors shadow-sm">
             <AvatarImage src={user?.picture} alt={user?.name || "User"} />
             <AvatarFallback className="text-xs font-medium bg-stone-700 text-stone-200">
               {initials}
@@ -60,51 +62,73 @@ export default function ProfileDropdown() {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="font-normal">
-          <div className="flex flex-col space-y-1">
+        {/* Account header */}
+        <DropdownMenuLabel className="font-normal py-1.5">
+          <div className="flex flex-col space-y-0.5">
             <p className="text-sm font-medium leading-none">
               {user?.name || "User"}
             </p>
             <p className="text-xs text-muted-foreground leading-none truncate">
               {user?.email || ""}
             </p>
+            {activeOrg && (
+              <p className="text-xs text-primary leading-none mt-1 flex items-center gap-1">
+                <Building2 className="w-3 h-3" />
+                {activeOrg.name}
+              </p>
+            )}
           </div>
         </DropdownMenuLabel>
+
         <DropdownMenuSeparator />
+
+        {/* Workspace switcher */}
         <OrgSwitcher onCreateOrg={() => setCreateOrgOpen(true)} />
+
+        {/* Navigation */}
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => router.push("/dashboard")}>
+          <DropdownMenuItem onClick={() => router.push("/dashboard")} className="py-1.5 gap-1.5">
             <LayoutDashboard className="w-4 h-4" />
             Dashboard
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => router.push("/deployments")}>
+          <DropdownMenuItem onClick={() => router.push("/deployments")} className="py-1.5 gap-1.5">
             <Layers className="w-4 h-4" />
             Linked Deployments
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => router.push("/marketplace")}>
+          <DropdownMenuItem onClick={() => router.push("/marketplace")} className="py-1.5 gap-1.5">
             <Store className="w-4 h-4" />
             Marketplace
           </DropdownMenuItem>
           {isAdmin && (
-            <DropdownMenuItem onClick={() => router.push("/admin")}>
+            <DropdownMenuItem onClick={() => router.push("/admin")} className="py-1.5 gap-1.5">
               <Shield className="w-4 h-4" />
               Admin Dashboard
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem onClick={() => router.push("/analytics")}>
+          <DropdownMenuItem onClick={() => router.push("/analytics")} className="py-1.5 gap-1.5">
             <BarChart3 className="w-4 h-4" />
             Usage Analytics
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => router.push("/billing")}>
+          <DropdownMenuItem onClick={() => router.push("/billing")} className="py-1.5 gap-1.5">
             <CreditCard className="w-4 h-4" />
             Billing
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => router.push("/settings")}>
-            <User className="w-4 h-4" />
-            Profile Settings
+        </DropdownMenuGroup>
+
+        <DropdownMenuSeparator />
+
+        {/* Account & Org Management */}
+        <DropdownMenuGroup>
+          <DropdownMenuItem onClick={() => router.push("/orgs")} className="py-1.5 gap-1.5">
+            <Building2 className="w-4 h-4" />
+            Manage Organizations
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push("/settings")} className="py-1.5 gap-1.5">
+            <Settings className="w-4 h-4" />
+            Settings
           </DropdownMenuItem>
           {switchable && toggleTheme && (
-            <DropdownMenuItem onClick={toggleTheme}>
+            <DropdownMenuItem onClick={toggleTheme} className="py-1.5 gap-1.5 text-muted-foreground">
               {theme === "light" ? (
                 <Moon className="w-4 h-4" />
               ) : (
@@ -114,9 +138,13 @@ export default function ProfileDropdown() {
             </DropdownMenuItem>
           )}
         </DropdownMenuGroup>
+
         <DropdownMenuSeparator />
+
+        {/* Logout */}
         <DropdownMenuItem
           variant="destructive"
+          className="py-1.5 gap-1.5"
           onClick={() =>
             logout({ logoutParams: { returnTo: window.location.origin } })
           }
