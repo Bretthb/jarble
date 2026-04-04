@@ -7,3 +7,4 @@ const Home = dynamic(() => import("@/views/Home"), {
 export default function HomePage() {
   return <Home />;
 }
+// Coolify preview test - Sat Apr  4 17:24:09 EDT 2026
