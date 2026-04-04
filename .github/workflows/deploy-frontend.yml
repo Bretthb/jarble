@@ -1,14 +1,23 @@
 # ═══════════════════════════════════════════════════════════════════════
-# Build & Deploy Frontend — Production, Develop, and PR Previews
+# Build & Deploy Frontend — Production, Staging, and PR Previews
 # ═══════════════════════════════════════════════════════════════════════
 #
-# Triggers:
-#   - Push to main    → build + deploy to jarble.ai (production)
-#   - Push to develop → build + deploy to dev.jarble.ai (staging)
-#   - PR opened/updated → build + deploy preview at {slug}.preview.jarble.ai
-#   - Manual dispatch
+# Uses GitHub Environments for per-environment secrets/variables:
+#   - production: push to main    → jarble.ai
+#   - staging:    push to develop → dev.jarble.ai
+#   - preview:    PR branches     → pr-N.preview.jarble.ai
 #
-# Publishes to: ghcr.io/jarble-ai/frontend:{tag}
+# Configure env vars per environment at:
+#   repo Settings → Environments → [environment] → Environment variables
+#
+# Shared secrets (set at repo level):
+#   KUBE_CONFIG, AUTH0_M2M_CLIENT_ID, AUTH0_M2M_CLIENT_SECRET
+#
+# Per-environment variables (set on each environment):
+#   NEXT_PUBLIC_API_URL, NEXT_PUBLIC_AUTH0_DOMAIN, NEXT_PUBLIC_AUTH0_CLIENT_ID,
+#   NEXT_PUBLIC_AUTH0_AUDIENCE, NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+#   NEXT_PUBLIC_SENTRY_DSN
+#
 # ═══════════════════════════════════════════════════════════════════════
 
 name: Deploy Frontend
@@ -39,33 +48,38 @@ permissions:
   pull-requests: write
 
 jobs:
-  deploy:
+  # ── Determine which environment to deploy to ─────────────────────
+  context:
     runs-on: ubuntu-latest
+    outputs:
+      env_name: ${{ steps.ctx.outputs.env_name }}
+      slug: ${{ steps.ctx.outputs.slug }}
+      image_tag: ${{ steps.ctx.outputs.image_tag }}
+      domain: ${{ steps.ctx.outputs.domain }}
+      namespace: ${{ steps.ctx.outputs.namespace }}
+      app_url: ${{ steps.ctx.outputs.app_url }}
     steps:
-      - uses: actions/checkout@v4
-
-      # ── Determine environment ──────────────────────────────────────
       - name: Set deploy context
         id: ctx
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             PR_NUM="${{ github.event.pull_request.number }}"
             SLUG="pr-${PR_NUM}"
-            echo "env=preview" >> $GITHUB_OUTPUT
+            echo "env_name=preview" >> $GITHUB_OUTPUT
             echo "slug=${SLUG}" >> $GITHUB_OUTPUT
             echo "image_tag=preview-${SLUG}" >> $GITHUB_OUTPUT
             echo "domain=${SLUG}.preview.jarble.ai" >> $GITHUB_OUTPUT
             echo "namespace=jarble-preview" >> $GITHUB_OUTPUT
             echo "app_url=https://${SLUG}.preview.jarble.ai" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
-            echo "env=staging" >> $GITHUB_OUTPUT
+            echo "env_name=staging" >> $GITHUB_OUTPUT
             echo "slug=develop" >> $GITHUB_OUTPUT
             echo "image_tag=develop" >> $GITHUB_OUTPUT
             echo "domain=dev.jarble.ai" >> $GITHUB_OUTPUT
             echo "namespace=jarble-preview" >> $GITHUB_OUTPUT
             echo "app_url=https://dev.jarble.ai" >> $GITHUB_OUTPUT
           else
-            echo "env=production" >> $GITHUB_OUTPUT
+            echo "env_name=production" >> $GITHUB_OUTPUT
             echo "slug=production" >> $GITHUB_OUTPUT
             echo "image_tag=latest" >> $GITHUB_OUTPUT
             echo "domain=jarble.ai" >> $GITHUB_OUTPUT
@@ -73,21 +87,28 @@ jobs:
             echo "app_url=https://jarble.ai" >> $GITHUB_OUTPUT
           fi
 
-      # ── Preview cap check ──────────────────────────────────────────
+  # ── Build and Deploy ─────────────────────────────────────────────
+  deploy:
+    needs: context
+    runs-on: ubuntu-latest
+    environment: ${{ needs.context.outputs.env_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Preview cap check ────────────────────────────────────────
       - name: Check preview limit
-        if: steps.ctx.outputs.env == 'preview'
+        if: needs.context.outputs.env_name == 'preview'
         run: |
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
           EXISTING=$(kubectl --kubeconfig=/tmp/kubeconfig get deployments -n jarble-preview -l app=jarble-preview --no-headers 2>/dev/null | wc -l)
-          # Check if this slug already exists (update, not new)
-          EXISTS=$(kubectl --kubeconfig=/tmp/kubeconfig get deployment preview-${{ steps.ctx.outputs.slug }} -n jarble-preview --no-headers 2>/dev/null | wc -l)
+          EXISTS=$(kubectl --kubeconfig=/tmp/kubeconfig get deployment preview-${{ needs.context.outputs.slug }} -n jarble-preview --no-headers 2>/dev/null | wc -l)
           if [[ "$EXISTING" -ge "$MAX_PREVIEWS" && "$EXISTS" -eq 0 ]]; then
             echo "::error::Preview limit reached ($MAX_PREVIEWS). Close an existing PR first."
             exit 1
           fi
           rm /tmp/kubeconfig
 
-      # ── Build Docker image ─────────────────────────────────────────
+      # ── Build Docker image ───────────────────────────────────────
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -105,38 +126,36 @@ jobs:
           file: Jarble-mvp/Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE }}:${{ steps.ctx.outputs.image_tag }}
+            ${{ env.IMAGE }}:${{ needs.context.outputs.image_tag }}
             ${{ env.IMAGE }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            NEXT_PUBLIC_API_URL=https://api.jarble.ai
-            NEXT_PUBLIC_APP_URL=${{ steps.ctx.outputs.app_url }}
-            NEXT_PUBLIC_AUTH0_DOMAIN=${{ secrets.AUTH0_DOMAIN }}
-            NEXT_PUBLIC_AUTH0_CLIENT_ID=${{ secrets.AUTH0_CLIENT_ID }}
-            NEXT_PUBLIC_AUTH0_AUDIENCE=https://api.jarble.ai
-            NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-            NEXT_PUBLIC_SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'https://api.jarble.ai' }}
+            NEXT_PUBLIC_APP_URL=${{ needs.context.outputs.app_url }}
+            NEXT_PUBLIC_AUTH0_DOMAIN=${{ vars.NEXT_PUBLIC_AUTH0_DOMAIN || secrets.AUTH0_DOMAIN }}
+            NEXT_PUBLIC_AUTH0_CLIENT_ID=${{ vars.NEXT_PUBLIC_AUTH0_CLIENT_ID || secrets.AUTH0_CLIENT_ID }}
+            NEXT_PUBLIC_AUTH0_AUDIENCE=${{ vars.NEXT_PUBLIC_AUTH0_AUDIENCE || 'https://api.jarble.ai' }}
+            NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ vars.NEXT_PUBLIC_SENTRY_DSN || secrets.SENTRY_DSN }}
 
-      # ── Deploy to K8s ──────────────────────────────────────────────
+      # ── Deploy to K8s ────────────────────────────────────────────
       - name: Deploy to cluster
         run: |
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
           export KUBECONFIG=/tmp/kubeconfig
 
-          export SLUG="${{ steps.ctx.outputs.slug }}"
-          export IMAGE_TAG="${{ steps.ctx.outputs.image_tag }}"
-          export DOMAIN="${{ steps.ctx.outputs.domain }}"
-          export NAMESPACE="${{ steps.ctx.outputs.namespace }}"
+          export SLUG="${{ needs.context.outputs.slug }}"
+          export IMAGE_TAG="${{ needs.context.outputs.image_tag }}"
+          export DOMAIN="${{ needs.context.outputs.domain }}"
+          export NAMESPACE="${{ needs.context.outputs.namespace }}"
 
-          # For production, use the production ingress (HTTP-01 cert)
-          if [[ "${{ steps.ctx.outputs.env }}" == "production" ]]; then
+          if [[ "${{ needs.context.outputs.env_name }}" == "production" ]]; then
             kubectl set image deployment/jarble-frontend \
-              frontend=${{ env.IMAGE }}:${{ steps.ctx.outputs.image_tag }} \
+              frontend=${{ env.IMAGE }}:${{ needs.context.outputs.image_tag }} \
               -n jarble-production 2>/dev/null || \
             echo "Production deployment will be created via KuberoApp"
           else
-            # Preview/staging: apply template with envsubst
             envsubst < .github/k8s/preview-frontend.yaml | kubectl apply -f -
             kubectl rollout status deployment/preview-${SLUG} \
               -n jarble-preview --timeout=120s
@@ -144,21 +163,19 @@ jobs:
 
           rm /tmp/kubeconfig
 
-      # ── Register Auth0 callback URLs ────────────────────────────────
+      # ── Register Auth0 callback URLs ─────────────────────────────
       - name: Register Auth0 preview URLs
-        if: steps.ctx.outputs.env == 'preview'
+        if: needs.context.outputs.env_name == 'preview'
         run: |
-          DOMAIN="${{ steps.ctx.outputs.domain }}"
-          # Get M2M token
+          DOMAIN="${{ needs.context.outputs.domain }}"
           TOKEN=$(curl -s --request POST \
             --url https://jarble-dev.us.auth0.com/oauth/token \
             --header 'content-type: application/json' \
             --data "{\"client_id\":\"${{ secrets.AUTH0_M2M_CLIENT_ID }}\",\"client_secret\":\"${{ secrets.AUTH0_M2M_CLIENT_SECRET }}\",\"audience\":\"https://jarble-dev.us.auth0.com/api/v2/\",\"grant_type\":\"client_credentials\"}" \
             | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
 
-          SPA_ID="${{ secrets.AUTH0_CLIENT_ID }}"
+          SPA_ID="${{ vars.NEXT_PUBLIC_AUTH0_CLIENT_ID || secrets.AUTH0_CLIENT_ID }}"
 
-          # Fetch current URLs, add preview, update
           python3 -c "
           import json, urllib.request
           token = '${TOKEN}'
@@ -192,16 +209,16 @@ jobs:
           print(f'Auth0: registered {domain_url}')
           "
 
-      # ── Comment on PR ──────────────────────────────────────────────
+      # ── Comment on PR ────────────────────────────────────────────
       - name: Comment preview URL
-        if: steps.ctx.outputs.env == 'preview' && github.event_name == 'pull_request'
+        if: needs.context.outputs.env_name == 'preview' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
-            const domain = '${{ steps.ctx.outputs.domain }}';
-            const body = `🔗 **Preview deployed**: https://${domain}\n\n_Built from ${context.sha.substring(0, 7)} · [View logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})_`;
+            const domain = '${{ needs.context.outputs.domain }}';
+            const env = '${{ needs.context.outputs.env_name }}';
+            const body = `**Preview deployed**: https://${domain}\n\nEnvironment: \`${env}\` · Built from ${context.sha.substring(0, 7)} · [View logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
 
-            // Update existing comment or create new one
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
