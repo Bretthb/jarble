@@ -150,6 +150,11 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// Kubero probes hit "/" by default
+app.get("/", (_req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 // tRPC handler - cache middleware sets Cache-Control on read-heavy queries
 app.use("/trpc", trpcCacheMiddleware(), authLimiter, createExpressMiddleware({
   router: appRouter,

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
+  Building2,
   ChevronLeft,
   Save,
   Loader2,
@@ -26,8 +27,6 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import DeleteAccountSection from "@/components/DeleteAccountSection";
-import { useOrg } from "@/contexts/OrgContext";
-import OrgSettings from "@/components/organizations/OrgSettings";
 
 export default function SettingsView() {
   const router = useRouter();
@@ -416,7 +415,22 @@ export default function SettingsView() {
           </Card>
 
           {/* Organization */}
-          <OrgSettings />
+          <Card className="p-6 space-y-3">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-5 h-5 text-primary" />
+              <h3 className="text-lg font-semibold">Organizations</h3>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Create and manage your organizations, invite team members, and configure settings.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/orgs")}
+            >
+              Manage Organizations
+            </Button>
+          </Card>
 
           {/* Danger Zone */}
           <DeleteAccountSection />
