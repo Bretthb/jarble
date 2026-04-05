@@ -80,7 +80,8 @@ cd Jarble-mvp && pnpm run dev
 - **API**: Express, tRPC, SuperJSON, Drizzle ORM, npm
 - **MCP**: Custom stdio MCP server (`jarble-ui-server.js`) — `render_ui`, `define_component`, `list_components`, `component_reference`, `skill_reference`
 - **Database**: PostgreSQL via Neon (prod), SQLite (dev with USE_SQLITE=true)
-- **Auth**: Auth0 (JWT + JWKS), **Payments**: Stripe, **Infra**: Hetzner Cloud, Terraform, K3s, Longhorn
+- **Auth**: Auth0 (JWT + JWKS), **Payments**: Stripe, **Email**: Resend (transactional, from `noreply@noreply.jarble.ai`)
+- **Infra**: Hetzner Cloud, Terraform, K3s, Longhorn
 
 **Package managers**: Frontend uses **pnpm** (declared in package.json `packageManager` field). API uses **npm**. Do not mix them — use the correct lockfile for each.
 
@@ -94,8 +95,9 @@ Individual-first model: users sign up as individuals, then create/join unlimited
 - **Tables**: `organizations`, `org_members`, `org_invites` (in all 3 DB schemas)
 - **Roles**: owner > admin > member
 - **Router**: `org` — create, list, getById, update, delete, invite, acceptInvite, listInvites, cancelInvite, removeMember, updateMemberRole, leave
-- **Frontend**: `OrgContext` provider, `OrgSwitcher` in ProfileDropdown, org management in Settings
-- **Invite flow**: Email via Resend, accept at `/invite/[token]`
+- **Frontend**: `OrgContext` provider, `OrgSwitcher` in ProfileDropdown, dedicated `/orgs` list + `/orgs/[orgId]` detail pages, workspace banner on dashboard
+- **Invite flow**: Email via Resend, accept at `/invite/[token]` (handles expired, already-used, wrong-email, already-member states)
+- **Deployment scoping**: `OnboardingWizard` passes `activeOrgId` on creation; `Dashboard` filters by active org
 
 ## Frontend-Backend Communication
 - **tRPC + React Query**: Type-safe API calls with automatic caching
@@ -204,6 +206,31 @@ When adding tables or columns, update ALL THREE files plus `db/init.ts` (SQLite 
 - **CORS**: `ALLOWED_ORIGINS` env var (comma-separated) for additional origins beyond FRONTEND_URL
 - **Debug endpoints**: `/debug/db`, `/debug/deployment/:id/status`, `/debug/deployment/:id/pod-status` (dev only, gated by NODE_ENV)
 
+## Production Infrastructure
+
+| Layer | Tool | Domain | Notes |
+|-------|------|--------|-------|
+| **Frontend** | Coolify | `dev.jarble.ai` (dev), `jarble.ai` (prod) | Next.js deployed via Coolify on K3s |
+| **API** | Kubero | `api.jarble.ai` | Express + tRPC, namespace `jarble-production` |
+| **Database** | Neon Postgres | — | Production DB (SQLite for local dev) |
+| **Cluster** | K3s on Hetzner | master: `178.156.230.13` | Traefik ingress, Longhorn storage, cert-manager |
+| **Email** | Resend | — | Transactional email (org invites, beta welcome) |
+
+**SSH to master**: `ssh -i ~/.ssh/id_ed25519_hetzner root@178.156.230.13`
+
+**Dashboards**:
+- Coolify (frontend deploys): `coolify.jarble.ai`
+- Kubero (API deploys): `kubero.jarble.ai`
+
+**API env vars** are managed through Kubero dashboard or KuberoApp CRD. Frontend env vars are managed through Coolify.
+
+**Key K8s commands**:
+```bash
+kubectl -n jarble-production get pods                    # List API pods
+kubectl -n jarble-production logs deployment/jarble-api-kuberoapp-web  # API logs
+kubectl -n jarble-production exec deployment/jarble-api-kuberoapp-web -- env  # Check env vars
+```
+
 ## CI/CD Workflows (`.github/workflows/`)
 
 | Workflow | Triggers | What it does |
@@ -215,7 +242,7 @@ When adding tables or columns, update ALL THREE files plus `db/init.ts` (SQLite 
 | `terraform.yml` | Push to main (infra changes) | Plan + apply Hetzner/K3s infrastructure |
 | `nightly-qa.yml` | Manual dispatch only | Agentic QA (Claude Code) |
 
-**Frontend CI uses pnpm**, API CI uses npm. Vercel auto-deploys the frontend on every push. API Docker image must be manually redeployed to K3s after build.
+**Frontend CI uses pnpm**, API CI uses npm. Frontend deploys via Coolify (replaced Vercel). API deploys via Kubero on K3s.
 
 ## Rules Index (`.claude/rules/`)
 
