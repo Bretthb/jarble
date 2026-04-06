@@ -11,7 +11,7 @@
  */
 
 import { db, tables } from "../db/index.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, inArray } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
 import { emitOrchestrationStart, emitOrchestrationEnd } from "../utils/agentCallEvents.js";
 import { nanoid } from "nanoid";
@@ -214,9 +214,23 @@ export async function executeDelegation(params: {
   const startTime = Date.now();
 
   // Look up the target deployment with ownership verification
-  const whereConditions = params.userId
-    ? and(eq(tables.deployments.id, params.targetDeploymentId), eq(tables.deployments.userId, params.userId))
-    : eq(tables.deployments.id, params.targetDeploymentId);
+  // (check both personal ownership and org membership)
+  let whereConditions;
+  if (params.userId) {
+    const memberships = await db.query.orgMembers.findMany({
+      where: eq(tables.orgMembers.userId, params.userId),
+      columns: { orgId: true },
+    });
+    const orgIds = memberships.map((m: any) => m.orgId);
+
+    const ownershipFilter = orgIds.length > 0
+      ? or(eq(tables.deployments.userId, params.userId), inArray(tables.deployments.orgId, orgIds))
+      : eq(tables.deployments.userId, params.userId);
+
+    whereConditions = and(eq(tables.deployments.id, params.targetDeploymentId), ownershipFilter);
+  } else {
+    whereConditions = eq(tables.deployments.id, params.targetDeploymentId);
+  }
 
   const deployment = await db.query.deployments.findFirst({
     where: whereConditions,

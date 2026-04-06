@@ -18,7 +18,7 @@
 
 import { Router } from "express";
 import { nanoid } from "nanoid";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, inArray } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
@@ -222,9 +222,9 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       return;
     }
 
-    // 3. Find the entry node
+    // 3. Find the entry node (check both top-level and config.isEntryPoint)
     const entryNode =
-      definition.nodes.find((n) => n.isEntryPoint) || definition.nodes[0];
+      definition.nodes.find((n) => n.isEntryPoint || (n.config as any)?.isEntryPoint) || definition.nodes[0];
 
     if (!entryNode.deploymentId) {
       res.status(400).json({
@@ -235,10 +235,21 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     }
 
     // Verify the entry deployment exists, is running, and belongs to this user
+    // (check both personal ownership and org membership)
+    const memberships = await db.query.orgMembers.findMany({
+      where: eq(tables.orgMembers.userId, user.id),
+      columns: { orgId: true },
+    });
+    const orgIds = memberships.map((m: any) => m.orgId);
+
+    const ownershipFilter = orgIds.length > 0
+      ? or(eq(tables.deployments.userId, user.id), inArray(tables.deployments.orgId, orgIds))
+      : eq(tables.deployments.userId, user.id);
+
     const entryDeployment = await db.query.deployments.findFirst({
       where: and(
         eq(tables.deployments.id, entryNode.deploymentId),
-        eq(tables.deployments.userId, user.id),
+        ownershipFilter,
       ),
     });
 

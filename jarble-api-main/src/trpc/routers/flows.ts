@@ -50,7 +50,7 @@ async function syncFlowMemberships(
         deploymentId: node.deploymentId,
         nodeId: node.id,
         role: node.role || node.label || null,
-        isEntryPoint: node.isEntryPoint ?? false,
+        isEntryPoint: node.isEntryPoint ?? (node.config as any)?.isEntryPoint ?? false,
         createdAt: dbDate(),
       });
     }
