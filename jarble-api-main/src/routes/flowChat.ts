@@ -475,9 +475,24 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           },
         });
 
-        // Execute the delegation
+        // Execute the delegation (with heartbeat during long-running calls)
         let delegationResult: DelegationResult | null = null;
         let delegationError: string | null = null;
+        const delegationStartMs = Date.now();
+
+        const heartbeat = setInterval(() => {
+          if (!res.writableEnded) {
+            sendEvent(res, {
+              type: CUSTOM,
+              name: "jarble.flow.delegation.heartbeat",
+              value: {
+                toolName: call.toolName,
+                targetDeploymentId: tool.targetDeploymentId,
+                elapsedMs: Date.now() - delegationStartMs,
+              },
+            });
+          }
+        }, 5_000);
 
         try {
           delegationResult = await executeDelegation({
@@ -502,6 +517,8 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             },
             "Delegation failed",
           );
+        } finally {
+          clearInterval(heartbeat);
         }
 
         // Emit delegation end event
@@ -517,6 +534,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             creditsUsed: delegationResult?.creditsUsed ?? 0,
             error: delegationError,
             responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
+            uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
           },
         });
 
@@ -541,6 +559,22 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             messageId,
             delta: `**${roleName}:** ${delegationResult.response}\n\n`,
           });
+
+          // Forward UI blocks from delegated bot to the frontend
+          if (delegationResult.uiBlocks?.length) {
+            for (const block of delegationResult.uiBlocks) {
+              sendEvent(res, {
+                type: CUSTOM,
+                name: "jarble.flow.delegation.uiblock",
+                value: {
+                  delegationToolName: call.toolName,
+                  sourceDeploymentId: tool.targetDeploymentId,
+                  sourceRole: targetNode?.role || targetNode?.label || "Team member",
+                  block,
+                },
+              });
+            }
+          }
         } else if (delegationError) {
           sendEvent(res, {
             type: TEXT_MESSAGE_CONTENT,
