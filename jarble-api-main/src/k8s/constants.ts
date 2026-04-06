@@ -59,9 +59,9 @@ export const RUNTIME_PORTS: Record<string, number> = {
 
 /** Named resource presets for platform-hosted agents */
 export const RESOURCE_TIERS = {
-  small:  { cpuLimit: "0.5", memoryMb: 1024, storageMb: 10 },
-  medium: { cpuLimit: "1.0", memoryMb: 2048, storageMb: 20 },
-  large:  { cpuLimit: "2.0", memoryMb: 3072, storageMb: 30 },
+  small:  { cpuLimit: "0.5", memoryMb: 1024, storageMb: 5 },
+  medium: { cpuLimit: "1.0", memoryMb: 2048, storageMb: 10 },
+  large:  { cpuLimit: "2.0", memoryMb: 3072, storageMb: 20 },
 } as const;
 
 export type ResourceTier = keyof typeof RESOURCE_TIERS;

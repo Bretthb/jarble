@@ -64,7 +64,7 @@ export function buildCRSpec(
   // Derive resource values
   const cpuLimit = config.cpuLimit || "2.0";
   const memoryMb = config.memoryMb || 3072;
-  const storageGbVal = config.storageMb || 30;
+  const storageGbVal = config.storageMb || 20;
   const cpuMillicores = `${Math.round(parseFloat(cpuLimit) * 1000)}m`;
   const memoryMi = `${memoryMb}Mi`;
   const storageGi = `${Math.max(1, storageGbVal)}Gi`;

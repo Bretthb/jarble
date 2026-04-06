@@ -257,7 +257,7 @@ async function createDeploymentLegacy(
   const isSharedPool = deploymentType === "container" || deploymentType === "website";
   const cpuLimit = config.cpuLimit || (isSharedPool ? "0.5" : "2.0");
   const memoryMb = config.memoryMb || (isSharedPool ? 512 : 3072);
-  const storageGbVal = config.storageMb || (isSharedPool ? 10 : 30); // "storageMb" is actually GB (historical naming)
+  const storageGbVal = config.storageMb || (isSharedPool ? 10 : 20); // "storageMb" is actually GB (historical naming)
 
   // Convert to K8s resource units
   const cpuMillicores = `${Math.round(parseFloat(cpuLimit) * 1000)}m`;

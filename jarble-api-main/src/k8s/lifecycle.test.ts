@@ -153,12 +153,12 @@ describe("createDeployment (legacy)", () => {
   });
 
   it("configures storage with minimum 1Gi (Math.max enforced)", async () => {
-    // storageMb uses || 30 so 0 falls through to default 30; use -1 to verify Math.max(1, ...)
-    // Actually, || 30 means falsy values always get 30. Test that the default is reasonable:
+    // storageMb uses || 20 so 0 falls through to default 20; use -1 to verify Math.max(1, ...)
+    // Actually, || 20 means falsy values always get 20. Test that the default is reasonable:
     await createDeployment("dep-1", "user-1", baseConfig);
 
     const pvcSpec = mockCoreApi.createNamespacedPersistentVolumeClaim.mock.calls[0][1];
-    expect(pvcSpec.spec?.resources?.requests?.storage).toBe("30Gi"); // default
+    expect(pvcSpec.spec?.resources?.requests?.storage).toBe("20Gi"); // default
   });
 
   it("uses custom storage size", async () => {
