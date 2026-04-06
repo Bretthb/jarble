@@ -32,6 +32,7 @@ import {
   type DelegationTool,
   type DelegationResult,
 } from "../services/flowDelegation.js";
+import { getDeploymentCapabilitiesBatch } from "../services/deploymentCapabilities.js";
 import type { FlowDefinition, FlowNode, FlowEdge } from "../services/flowEngine.js";
 import {
   CUSTOM,
@@ -330,11 +331,17 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     // 5. Send RUN_STARTED
     sendEvent(res, { type: RUN_STARTED, runId, threadId });
 
-    // 6. Build delegation tools for the entry bot
+    // 6. Load capabilities for all deployments in the flow and build delegation tools
+    const deploymentIds = definition.nodes
+      .map((n) => n.deploymentId)
+      .filter((id): id is string => !!id);
+    const capabilitiesMap = await getDeploymentCapabilitiesBatch(deploymentIds);
+
     const delegationTools = buildDelegationTools(
       entryNode,
       definition.nodes,
       definition.edges,
+      capabilitiesMap,
     );
 
     log.info(

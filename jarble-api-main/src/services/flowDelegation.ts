@@ -16,6 +16,7 @@ import { createModuleLogger } from "../utils/logger.js";
 import { emitOrchestrationStart, emitOrchestrationEnd } from "../utils/agentCallEvents.js";
 import { nanoid } from "nanoid";
 import type { FlowNode, FlowEdge } from "./flowEngine.js";
+import type { DeploymentCapabilities } from "./deploymentCapabilities.js";
 
 const log = createModuleLogger("flow-delegation");
 
@@ -58,6 +59,7 @@ export function buildDelegationTools(
   node: FlowNode,
   nodes: FlowNode[],
   edges: FlowEdge[],
+  capabilitiesMap?: Map<string, DeploymentCapabilities>,
 ): DelegationTool[] {
   if (node.canDelegate === false) return [];
 
@@ -80,10 +82,15 @@ export function buildDelegationTools(
       .slice(0, 40);
 
     const goalStr = targetNode.goal ? ` Goal: ${targetNode.goal}` : "";
+    const caps = capabilitiesMap?.get(targetNode.deploymentId);
+    let capsStr = "";
+    if (caps) {
+      capsStr = ` ${caps.llmSummary}`;
+    }
 
     tools.push({
       name: `delegate_to_${safeName}`,
-      description: `Delegate a task to ${targetNode.role || targetNode.label}.${goalStr}`,
+      description: `Delegate a task to ${targetNode.role || targetNode.label}.${goalStr}${capsStr}`,
       targetNodeId: targetNode.id,
       targetDeploymentId: targetNode.deploymentId,
       contextScope: edge.contextScope || targetNode.contextScope || "task",
@@ -115,14 +122,15 @@ export function buildFlowSystemPrompt(
 
   if (delegationTools.length > 0 && node.canDelegate !== false) {
     parts.push("\n\n## Delegation");
-    parts.push("You can delegate tasks to these team members:");
+    parts.push("You can delegate tasks to these team members. Each member is a full agent that may have its own internal specialists:");
     for (const tool of delegationTools) {
       parts.push(`- **${tool.name}**: ${tool.description}`);
     }
     parts.push(
-      "\nWhen the user's request falls outside your expertise or when a specialist " +
-      "would produce better results, delegate to the appropriate team member. " +
-      "To delegate, respond with a JSON tool call block:\n" +
+      "\nDelegate when a task matches a team member's capabilities or when a specialist " +
+      "would produce better results. The team member will use their own internal agents " +
+      "to process the request and return a complete result." +
+      "\nTo delegate, respond with a JSON tool call block:\n" +
       "```json\n" +
       '{ "tool": "delegate_to_<name>", "task": "the task description", "context": "optional context" }\n' +
       "```\n" +
