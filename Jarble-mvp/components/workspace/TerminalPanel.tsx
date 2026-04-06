@@ -47,10 +47,10 @@ export default function TerminalPanel({ deploymentId }: TerminalPanelProps) {
       fontSize: 12,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
       theme: {
-        background: "#0e0e1a",
-        foreground: "#f0e6d2",
-        cursor: "#d4a574",
-        selectionBackground: "#1a1a28",
+        background: "#141414",
+        foreground: "#e8e6e2",
+        cursor: "#a08cbe",
+        selectionBackground: "#202020",
         black: "#1a1a2e",
         red: "#ff6b6b",
         green: "#69db7c",
@@ -135,7 +135,7 @@ export default function TerminalPanel({ deploymentId }: TerminalPanelProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Terminal toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30 bg-[#0e0e1a]">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30 bg-[#141414]">
         <div className="flex items-center gap-2">
           <div
             className={`w-2 h-2 rounded-full ${
@@ -181,9 +181,9 @@ export default function TerminalPanel({ deploymentId }: TerminalPanelProps) {
       )}
 
       {/* Terminal container - extra wrapper creates inset so xterm doesn't touch edges */}
-      <div className="flex-1 relative min-h-0 overflow-hidden bg-[#0e0e1a]">
+      <div className="flex-1 relative min-h-0 overflow-hidden bg-[#141414]">
         {isConnecting && !initialized && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0e0e1a] z-10">
+          <div className="absolute inset-0 flex items-center justify-center bg-[#141414] z-10">
             <Loader2 className="w-5 h-5 animate-spin text-neutral-500" />
           </div>
         )}

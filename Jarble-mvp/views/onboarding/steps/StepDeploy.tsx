@@ -113,36 +113,36 @@ export default function StepDeploy({
     return {
       theme: isDark ? "night" : "stripe",
       variables: {
-        colorPrimary: isDark ? "#d4a574" : "#d4a574",
-        colorBackground: isDark ? "#12121e" : "#ffffff",
-        colorText: isDark ? "#f0e6d2" : "#1a1a1a",
-        colorTextSecondary: isDark ? "#8a8a9a" : "#8a8078",
-        colorDanger: isDark ? "#c45050" : "#c45050",
+        colorPrimary: "#a08cbe",
+        colorBackground: isDark ? "#1a1a1a" : "#ffffff",
+        colorText: isDark ? "#e8e6e2" : "#1a1a1a",
+        colorTextSecondary: isDark ? "#8a8a8a" : "#807a88",
+        colorDanger: "#c45050",
         fontFamily: "'Inter', sans-serif",
         borderRadius: "0.5rem",
-        colorTextPlaceholder: isDark ? "#5a5a6a" : "#b0a898",
+        colorTextPlaceholder: isDark ? "#5a5a5a" : "#a8a2b0",
       },
       rules: {
         ".Input": {
-          border: `1px solid ${isDark ? "rgba(212, 165, 116, 0.15)" : "#ddd6ca"}`,
-          backgroundColor: isDark ? "#0e0e1a" : "#ffffff",
+          border: `1px solid ${isDark ? "rgba(160, 140, 190, 0.15)" : "#dad6e2"}`,
+          backgroundColor: isDark ? "#141414" : "#ffffff",
           boxShadow: "none",
         },
         ".Input:focus": {
-          border: `1px solid ${isDark ? "#d4a574" : "#d4a574"}`,
-          boxShadow: `0 0 0 1px ${isDark ? "rgba(212, 165, 116, 0.25)" : "#d4a574"}`,
+          border: "1px solid #a08cbe",
+          boxShadow: `0 0 0 1px ${isDark ? "rgba(160, 140, 190, 0.25)" : "#a08cbe"}`,
         },
         ".Label": {
-          color: isDark ? "#8a8a9a" : "#8a8078",
+          color: isDark ? "#8a8a8a" : "#807a88",
           fontSize: "0.8125rem",
         },
         ".Tab": {
-          border: `1px solid ${isDark ? "rgba(212, 165, 116, 0.08)" : "#e8e2d8"}`,
-          backgroundColor: isDark ? "#1a1a28" : "#f0ece6",
+          border: `1px solid ${isDark ? "rgba(160, 140, 190, 0.08)" : "#e4e1ea"}`,
+          backgroundColor: isDark ? "#202020" : "#f0eef3",
         },
         ".Tab--selected": {
-          border: `1px solid ${isDark ? "#d4a574" : "#d4a574"}`,
-          backgroundColor: isDark ? "#12121e" : "#ffffff",
+          border: "1px solid #a08cbe",
+          backgroundColor: isDark ? "#1a1a1a" : "#ffffff",
         },
       },
     };

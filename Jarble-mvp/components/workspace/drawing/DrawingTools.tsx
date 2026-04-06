@@ -31,8 +31,8 @@ const tools: Array<{ tool: DrawingTool; icon: typeof MousePointer2; label: strin
 /** Human-readable color names for accessibility */
 const COLOR_NAMES: Record<string, string> = {
   "#1a1a1a": "Black", "#c45050": "Red", "#6a8ab0": "Blue",
-  "#5a9a7a": "Green", "#d4a574": "Bronze", "#b0804a": "Amber",
-  "#f0e6d2": "White",
+  "#5a9a7a": "Green", "#a08cbe": "Violet", "#8a76a6": "Plum",
+  "#e8e6e2": "White",
 };
 
 function DrawingToolsInner({

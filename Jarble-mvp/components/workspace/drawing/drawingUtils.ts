@@ -92,8 +92,8 @@ export function strokeBoundingBox(points: Point[]): { minX: number; minY: number
 
 /** Theme-aware drawing color presets */
 export const DRAWING_COLORS = {
-  light: ["#1a1a1a", "#c45050", "#6a8ab0", "#5a9a7a", "#d4a574", "#b0804a"],
-  dark: ["#f0e6d2", "#c45050", "#6a8ab0", "#5a9a7a", "#d4a574", "#b0804a"],
+  light: ["#1a1a1a", "#c45050", "#6a8ab0", "#5a9a7a", "#a08cbe", "#8a76a6"],
+  dark: ["#e8e6e2", "#c45050", "#6a8ab0", "#5a9a7a", "#a08cbe", "#8a76a6"],
 };
 
 /** Pen width presets */
