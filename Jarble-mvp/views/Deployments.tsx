@@ -2524,7 +2524,18 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   // ── Chat with team ────────────────────────────────────────────────
   const { getAccessTokenSilently } = useAuth0();
   const [showFlowChat, setShowFlowChat] = useState(false);
-  const [flowChatMessages, setFlowChatMessages] = useState<Array<{ role: string; content: string }>>([]);
+  const [flowChatMessages, setFlowChatMessages] = useState<Array<{
+    role: string;
+    content: string;
+    delegations?: Array<{
+      toolName: string;
+      targetRole: string;
+      status: "running" | "completed" | "failed";
+      elapsedMs?: number;
+      uiBlockCount?: number;
+      error?: string;
+    }>;
+  }>>([]);
   const [flowChatInput, setFlowChatInput] = useState("");
   const [flowChatLoading, setFlowChatLoading] = useState(false);
 
@@ -2577,6 +2588,58 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                   }
                   return msgs;
                 });
+              } else if (data.type === "CUSTOM" || data.type === "custom") {
+                const name = data.name || data.value?.name;
+                const value = data.value || {};
+
+                if (name === "jarble.flow.delegation.start") {
+                  // Add delegation status indicator
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === "assistant") {
+                      const delegations = [...(last.delegations || []), {
+                        toolName: value.toolName,
+                        targetRole: value.targetRole || "Team member",
+                        status: "running" as const,
+                      }];
+                      return [...prev.slice(0, -1), { ...last, delegations }];
+                    }
+                    return prev;
+                  });
+                } else if (name === "jarble.flow.delegation.heartbeat") {
+                  // Update elapsed time on running delegation
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === "assistant" && last.delegations) {
+                      const delegations = last.delegations.map((d) =>
+                        d.toolName === value.toolName && d.status === "running"
+                          ? { ...d, elapsedMs: value.elapsedMs }
+                          : d
+                      );
+                      return [...prev.slice(0, -1), { ...last, delegations }];
+                    }
+                    return prev;
+                  });
+                } else if (name === "jarble.flow.delegation.end") {
+                  // Mark delegation as completed or failed
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === "assistant" && last.delegations) {
+                      const delegations = last.delegations.map((d) =>
+                        d.toolName === value.toolName
+                          ? {
+                              ...d,
+                              status: (value.success ? "completed" : "failed") as "completed" | "failed",
+                              uiBlockCount: value.uiBlockCount,
+                              error: value.error,
+                            }
+                          : d
+                      );
+                      return [...prev.slice(0, -1), { ...last, delegations }];
+                    }
+                    return prev;
+                  });
+                }
               }
             } catch {
               // skip non-JSON lines
@@ -2717,6 +2780,35 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                       msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary"
                     }`}>
                       {msg.content}
+                      {/* Delegation status indicators */}
+                      {msg.delegations && msg.delegations.length > 0 && (
+                        <div className="mt-2 space-y-1 border-t border-border/30 pt-2">
+                          {msg.delegations.map((d, di) => (
+                            <div key={di} className="flex items-center gap-2 text-[10px]">
+                              {d.status === "running" && (
+                                <span className="inline-flex items-center gap-1 text-blue-400">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                                  Delegating to {d.targetRole}...
+                                  {d.elapsedMs && <span className="text-muted-foreground">{Math.round(d.elapsedMs / 1000)}s</span>}
+                                </span>
+                              )}
+                              {d.status === "completed" && (
+                                <span className="inline-flex items-center gap-1 text-emerald-400">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                  {d.targetRole} responded
+                                  {d.uiBlockCount ? ` (${d.uiBlockCount} components)` : ""}
+                                </span>
+                              )}
+                              {d.status === "failed" && (
+                                <span className="inline-flex items-center gap-1 text-red-400">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                                  {d.targetRole} failed{d.error ? `: ${d.error}` : ""}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
