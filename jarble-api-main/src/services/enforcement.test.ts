@@ -129,17 +129,20 @@ describe("enforceSubscriptionStatus", () => {
     expect(mockStopDeployment).toHaveBeenCalledWith("dep-test-001");
   });
 
-  it("does not stop free deployment within trial period", async () => {
+  it("stops non-platform deployment without subscription even if marked free", async () => {
     const freeDep = makeDep({
       isPlatform: false,
       isFree: true,
+      stripeSubscriptionId: null,
       freeExpiresAt: new Date(Date.now() + 86400000), // tomorrow
     });
     mockFindMany.mockResolvedValue([freeDep]);
 
     await enforceSubscriptionStatus();
 
-    expect(mockStopDeployment).not.toHaveBeenCalled();
+    // Free trial logic was removed — all non-platform deployments
+    // without a stripeSubscriptionId get stopped
+    expect(mockStopDeployment).toHaveBeenCalledWith("dep-test-001");
   });
 
   it("stops free deployment with expired trial", async () => {

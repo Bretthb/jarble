@@ -66,18 +66,19 @@ vi.mock("../../services/stripe.js", () => ({
   addManagedKeyLineItem: vi.fn().mockResolvedValue(undefined),
 }));
 
+const mockEnv = vi.hoisted(() => ({
+  DB_PROVIDER: "postgres",
+  AUTH0_DOMAIN: "test.auth0.com",
+  AUTH0_AUDIENCE: "https://api.jarble.ai",
+  OPENROUTER_API_KEY: "sk-test",
+  OPENROUTER_MANAGEMENT_KEY: "mgmt-key-test",
+  API_KEY_ENCRYPTION_KEY: undefined as string | undefined,
+  STRIPE_SECRET_KEY: undefined as string | undefined,
+  NODE_ENV: "test" as string,
+  FRONTEND_URL: "http://localhost:3000",
+}));
 vi.mock("../../utils/env.js", () => ({
-  env: {
-    DB_PROVIDER: "postgres",
-    AUTH0_DOMAIN: "test.auth0.com",
-    AUTH0_AUDIENCE: "https://api.jarble.ai",
-    OPENROUTER_API_KEY: "sk-test",
-    OPENROUTER_MANAGEMENT_KEY: "mgmt-key-test",
-    API_KEY_ENCRYPTION_KEY: undefined,
-    STRIPE_SECRET_KEY: undefined,
-    NODE_ENV: "test",
-    FRONTEND_URL: "http://localhost:3000",
-  },
+  env: mockEnv,
 }));
 // Mock db/index.js to prevent Postgres connection at import time.
 // Tests pass the in-memory SQLite db through the tRPC caller context.
@@ -159,13 +160,19 @@ describe("openrouter router", () => {
 
   describe("validateProviderKey", () => {
     it("should accept dev-* keys in dev mode", async () => {
-      const result = await caller().openrouter.validateProviderKey({
-        provider: "openrouter",
-        apiKey: "dev-test-key",
-      });
-      expect(result).toEqual({ valid: true });
-      // Should NOT call fetch for dev keys
-      expect(mockFetch).not.toHaveBeenCalled();
+      const origNodeEnv = mockEnv.NODE_ENV;
+      mockEnv.NODE_ENV = "development";
+      try {
+        const result = await caller().openrouter.validateProviderKey({
+          provider: "openrouter",
+          apiKey: "dev-test-key",
+        });
+        expect(result).toEqual({ valid: true });
+        // Should NOT call fetch for dev keys
+        expect(mockFetch).not.toHaveBeenCalled();
+      } finally {
+        mockEnv.NODE_ENV = origNodeEnv;
+      }
     });
 
     it("should auto-accept Claude Max OAuth tokens (sk-ant-oat prefix)", async () => {

@@ -159,13 +159,14 @@ describe("billing.getOverview", () => {
     expect(result.totalMonthlyCents).toBe(1500);
   });
 
-  it("excludes free deployments from totalMonthlyCents even if monthlyPriceCents is set", async () => {
+  it("includes all deployments in totalMonthlyCents when Stripe is not configured", async () => {
     seedDeployment({ id: "dep-free", monthlyPriceCents: 999, isFree: 1 });
 
     const caller = authedCaller();
     const result = await caller.billing.getOverview();
 
-    expect(result.totalMonthlyCents).toBe(0);
+    // isFree no longer filters out deployments — all monthlyPriceCents are summed
+    expect(result.totalMonthlyCents).toBe(999);
   });
 
   it("counts active subscriptions (non-free with stripeSubscriptionId)", async () => {
@@ -707,13 +708,15 @@ describe("billing.getSubscriptions", () => {
     await expect(caller.billing.getSubscriptions()).rejects.toThrow("You must be logged in");
   });
 
-  it("excludes free deployments even with stripeSubscriptionId", async () => {
+  it("includes free deployments with stripeSubscriptionId in subscriptions", async () => {
     seedDeployment({ isFree: 1, stripeSubscriptionId: "sub_free" });
 
     const caller = authedCaller();
     const result = await caller.billing.getSubscriptions();
 
-    expect(result).toEqual([]);
+    // isFree no longer filters — subscriptions are determined by stripeSubscriptionId
+    expect(result).toHaveLength(1);
+    expect(result[0].deploymentId).toBe("dep-test-001");
   });
 
   it("falls back to runtime field when runtimeCatalogEntry is null", async () => {

@@ -189,23 +189,22 @@ describe("deployment.create", () => {
     expect(result!.llmApiKey).toBe("plain:sk-or-my-real-key");
   });
 
-  it("claims free deployment for first-time user", async () => {
+  it("creates deployment with calculated price (no free trial logic)", async () => {
     const caller = authedCaller();
     const result = await caller.deployment.create({
-      name: "Free Bot",
+      name: "New Bot",
       runtimeCatalogId: ctx.openclawCatalogId,
       llmMode: "byok",
       llmProvider: "openrouter",
       llmApiKey: "sk-or-key",
     });
 
-    expect(result!.isFree).toBe(true);
-    expect(result!.freeExpiresAt).toBeTruthy();
-    expect(result!.monthlyPriceCents).toBe(0);
-
-    // User should now have freeDeploymentUsed = true
-    const user = ctx.raw.prepare("SELECT free_deployment_used FROM users WHERE id = ?").get(ctx.testUserId) as any;
-    expect(user.free_deployment_used).toBe(1);
+    // Free trial logic was removed — all deployments get a calculated price
+    expect(result).toBeTruthy();
+    expect(result!.name).toBe("New Bot");
+    expect(result!.status).toBe("pending");
+    // monthlyPriceCents is calculated from hardware specs, not zero
+    expect(typeof result!.monthlyPriceCents).toBe("number");
   });
 
   it("second deployment is not free", async () => {
@@ -291,19 +290,21 @@ describe("deployment.getById", () => {
     expect(result!.name).toBe("My Bot");
   });
 
-  it("returns undefined for non-existent deployment", async () => {
+  it("throws NOT_FOUND for non-existent deployment", async () => {
     const caller = authedCaller();
-    const result = await caller.deployment.getById({ id: "nonexistent" });
-    expect(result).toBeUndefined();
+    await expect(
+      caller.deployment.getById({ id: "nonexistent" })
+    ).rejects.toThrow("Deployment not found");
   });
 
-  it("returns undefined for another user's deployment", async () => {
+  it("throws NOT_FOUND for another user's deployment", async () => {
     ctx.raw.exec(`INSERT INTO users (id, email, name, auth0_id, email_verified) VALUES ('user2', 'other@test.com', 'Other', 'auth0|other', 1)`);
     seedDeployment({ id: "dep-theirs", userId: "user2" });
 
     const caller = authedCaller();
-    const result = await caller.deployment.getById({ id: "dep-theirs" });
-    expect(result).toBeUndefined();
+    await expect(
+      caller.deployment.getById({ id: "dep-theirs" })
+    ).rejects.toThrow("Deployment not found");
   });
 });
 

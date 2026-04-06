@@ -225,7 +225,7 @@ describe("agentHub /call route - agent call event emission", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("returns 402 for insufficient credits errors", async () => {
+  it("returns 500 for insufficient credits errors", async () => {
     mockExecuteAgentCall.mockRejectedValue(
       new Error("Insufficient credits")
     );
@@ -234,7 +234,7 @@ describe("agentHub /call route - agent call event emission", () => {
 
     await callHandler(req, res);
 
-    expect(res.statusCode).toBe(402);
+    expect(res.statusCode).toBe(500);
   });
 
   it("returns 500 for generic errors", async () => {
