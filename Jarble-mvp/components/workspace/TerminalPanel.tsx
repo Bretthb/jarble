@@ -49,7 +49,7 @@ export default function TerminalPanel({ deploymentId }: TerminalPanelProps) {
       theme: {
         background: "#141414",
         foreground: "#e8e6e2",
-        cursor: "#a08cbe",
+        cursor: "#c85a5a",
         selectionBackground: "#202020",
         black: "#1a1a2e",
         red: "#ff6b6b",

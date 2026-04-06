@@ -113,35 +113,35 @@ export default function StepDeploy({
     return {
       theme: isDark ? "night" : "stripe",
       variables: {
-        colorPrimary: "#a08cbe",
+        colorPrimary: "#c85a5a",
         colorBackground: isDark ? "#1a1a1a" : "#ffffff",
         colorText: isDark ? "#e8e6e2" : "#1a1a1a",
-        colorTextSecondary: isDark ? "#8a8a8a" : "#807a88",
+        colorTextSecondary: isDark ? "#8a8a8a" : "#887a7a",
         colorDanger: "#c45050",
         fontFamily: "'Inter', sans-serif",
         borderRadius: "0.5rem",
-        colorTextPlaceholder: isDark ? "#5a5a5a" : "#a8a2b0",
+        colorTextPlaceholder: isDark ? "#5a5a5a" : "#b0a2a2",
       },
       rules: {
         ".Input": {
-          border: `1px solid ${isDark ? "rgba(160, 140, 190, 0.15)" : "#dad6e2"}`,
+          border: `1px solid ${isDark ? "rgba(200, 90, 90, 0.15)" : "#e2d6d6"}`,
           backgroundColor: isDark ? "#141414" : "#ffffff",
           boxShadow: "none",
         },
         ".Input:focus": {
-          border: "1px solid #a08cbe",
-          boxShadow: `0 0 0 1px ${isDark ? "rgba(160, 140, 190, 0.25)" : "#a08cbe"}`,
+          border: "1px solid #c85a5a",
+          boxShadow: `0 0 0 1px ${isDark ? "rgba(200, 90, 90, 0.25)" : "#c85a5a"}`,
         },
         ".Label": {
-          color: isDark ? "#8a8a8a" : "#807a88",
+          color: isDark ? "#8a8a8a" : "#887a7a",
           fontSize: "0.8125rem",
         },
         ".Tab": {
-          border: `1px solid ${isDark ? "rgba(160, 140, 190, 0.08)" : "#e4e1ea"}`,
-          backgroundColor: isDark ? "#202020" : "#f0eef3",
+          border: `1px solid ${isDark ? "rgba(200, 90, 90, 0.08)" : "#eae1e1"}`,
+          backgroundColor: isDark ? "#202020" : "#f3efef",
         },
         ".Tab--selected": {
-          border: "1px solid #a08cbe",
+          border: "1px solid #c85a5a",
           backgroundColor: isDark ? "#1a1a1a" : "#ffffff",
         },
       },
