@@ -1,6 +1,6 @@
 /**
  * Dev-mode handler runtime - executes service handler code in-process
- * when K8s is unavailable (USE_SQLITE=true / tests).
+ * when K8s is unavailable (development mode / tests).
  *
  * Each service gets an isolated in-memory store that simulates the
  * pod's `/data/service-data/` filesystem. Handlers use a simple

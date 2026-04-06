@@ -35,7 +35,7 @@ interface StatusMismatch {
  */
 export async function reconcileStatuses(): Promise<void> {
   // Skip in local dev mode - no real K8s cluster to reconcile against
-  if (process.env.USE_SQLITE === "true") return;
+  if (process.env.NODE_ENV === "development") return;
 
   try {
     // Find deployments that might have drifted
@@ -55,7 +55,7 @@ export async function reconcileStatuses(): Promise<void> {
 
     for (const dep of driftCandidates) {
       try {
-        const mismatch = await checkDeploymentStatus(dep as { id: string; status: DbStatus; name: string; managedBy: string | null });
+        const mismatch = await checkDeploymentStatus(dep as { id: string; status: DbStatus; name: string; updatedAt: Date | null; managedBy: string | null });
         if (mismatch) {
           mismatches.push(mismatch);
         }
@@ -89,6 +89,7 @@ async function checkDeploymentStatus(dep: {
   id: string;
   status: DbStatus;
   name: string;
+  updatedAt: Date | null;
   managedBy: string | null;
 }): Promise<StatusMismatch | null> {
   const managedBy = (dep.managedBy ?? "legacy") as ManagedBy;
@@ -121,8 +122,18 @@ async function checkDeploymentStatus(dep: {
     case "not_found":
       // No pod exists
       if (dep.status === "creating" || dep.status === "restarting" || dep.status === "reloading") {
-        // Deployment is in progress but pod doesn't exist yet - could be normal
-        // Only flag as issue if we've been waiting too long (handled elsewhere)
+        // Check if stuck: if updatedAt is more than 10 minutes ago, the pod never appeared
+        const updatedAt = dep.updatedAt ? new Date(dep.updatedAt).getTime() : 0;
+        const stuckMs = Date.now() - updatedAt;
+        if (updatedAt > 0 && stuckMs > 10 * 60 * 1000) {
+          return {
+            deploymentId: dep.id,
+            dbStatus: dep.status as any,
+            k8sStatus,
+            newStatus: "failed" as any,
+            error: "Deployment timed out: pod never appeared after 10 minutes",
+          };
+        }
         return null;
       }
       // DB says running but pod is gone

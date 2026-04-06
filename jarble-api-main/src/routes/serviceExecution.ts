@@ -317,7 +317,7 @@ serviceExecutionRouter.post(
       podName = await findPodForDeployment(creatorDeploymentId);
     } catch {
       // K8s not available - check if we can use dev runtime
-      if (process.env.USE_SQLITE === "true") {
+      if (process.env.NODE_ENV === "development") {
         useDevRuntime = true;
         log.info({ serviceId, skillName }, "Service execution: K8s unavailable, using dev handler runtime");
       } else {
@@ -331,8 +331,8 @@ serviceExecutionRouter.post(
     }
 
     if (!podName && !useDevRuntime) {
-      // Pod not found - try dev runtime as fallback if SQLite mode
-      if (process.env.USE_SQLITE === "true") {
+      // Pod not found - try dev runtime as fallback in dev mode
+      if (process.env.NODE_ENV === "development") {
         useDevRuntime = true;
         log.info({ serviceId, skillName }, "Service execution: pod not found, using dev handler runtime");
       } else {

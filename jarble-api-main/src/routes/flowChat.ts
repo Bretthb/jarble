@@ -18,7 +18,7 @@
 
 import { Router } from "express";
 import { nanoid } from "nanoid";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, inArray } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
@@ -32,6 +32,7 @@ import {
   type DelegationTool,
   type DelegationResult,
 } from "../services/flowDelegation.js";
+import { getDeploymentCapabilitiesBatch } from "../services/deploymentCapabilities.js";
 import type { FlowDefinition, FlowNode, FlowEdge } from "../services/flowEngine.js";
 import {
   CUSTOM,
@@ -222,9 +223,9 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       return;
     }
 
-    // 3. Find the entry node
+    // 3. Find the entry node (check both top-level and config.isEntryPoint)
     const entryNode =
-      definition.nodes.find((n) => n.isEntryPoint) || definition.nodes[0];
+      definition.nodes.find((n) => n.isEntryPoint || (n.config as any)?.isEntryPoint) || definition.nodes[0];
 
     if (!entryNode.deploymentId) {
       res.status(400).json({
@@ -235,10 +236,21 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     }
 
     // Verify the entry deployment exists, is running, and belongs to this user
+    // (check both personal ownership and org membership)
+    const memberships = await db.query.orgMembers.findMany({
+      where: eq(tables.orgMembers.userId, user.id),
+      columns: { orgId: true },
+    });
+    const orgIds = memberships.map((m: any) => m.orgId);
+
+    const ownershipFilter = orgIds.length > 0
+      ? or(eq(tables.deployments.userId, user.id), inArray(tables.deployments.orgId, orgIds))
+      : eq(tables.deployments.userId, user.id);
+
     const entryDeployment = await db.query.deployments.findFirst({
       where: and(
         eq(tables.deployments.id, entryNode.deploymentId),
-        eq(tables.deployments.userId, user.id),
+        ownershipFilter,
       ),
     });
 
@@ -319,11 +331,17 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     // 5. Send RUN_STARTED
     sendEvent(res, { type: RUN_STARTED, runId, threadId });
 
-    // 6. Build delegation tools for the entry bot
+    // 6. Load capabilities for all deployments in the flow and build delegation tools
+    const deploymentIds = definition.nodes
+      .map((n) => n.deploymentId)
+      .filter((id): id is string => !!id);
+    const capabilitiesMap = await getDeploymentCapabilitiesBatch(deploymentIds);
+
     const delegationTools = buildDelegationTools(
       entryNode,
       definition.nodes,
       definition.edges,
+      capabilitiesMap,
     );
 
     log.info(
@@ -457,9 +475,24 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           },
         });
 
-        // Execute the delegation
+        // Execute the delegation (with heartbeat during long-running calls)
         let delegationResult: DelegationResult | null = null;
         let delegationError: string | null = null;
+        const delegationStartMs = Date.now();
+
+        const heartbeat = setInterval(() => {
+          if (!res.writableEnded) {
+            sendEvent(res, {
+              type: CUSTOM,
+              name: "jarble.flow.delegation.heartbeat",
+              value: {
+                toolName: call.toolName,
+                targetDeploymentId: tool.targetDeploymentId,
+                elapsedMs: Date.now() - delegationStartMs,
+              },
+            });
+          }
+        }, 5_000);
 
         try {
           delegationResult = await executeDelegation({
@@ -469,8 +502,9 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             context: call.context,
             contextScope: tool.contextScope,
             conversationHistory: [{ role: "user", content: userMessage }],
-            sessionId: `flow-delegation-${flowId}-${tool.targetNodeId}-${Date.now()}`,
+            sessionId: `flow-${flowId}-${tool.targetNodeId}-${user.id}-${conversationId || threadId}`,
             depth: 1,
+            userId: user.id,
           });
         } catch (err) {
           delegationError =
@@ -483,6 +517,8 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             },
             "Delegation failed",
           );
+        } finally {
+          clearInterval(heartbeat);
         }
 
         // Emit delegation end event
@@ -498,6 +534,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             creditsUsed: delegationResult?.creditsUsed ?? 0,
             error: delegationError,
             responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
+            uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
           },
         });
 
@@ -522,6 +559,22 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             messageId,
             delta: `**${roleName}:** ${delegationResult.response}\n\n`,
           });
+
+          // Forward UI blocks from delegated bot to the frontend
+          if (delegationResult.uiBlocks?.length) {
+            for (const block of delegationResult.uiBlocks) {
+              sendEvent(res, {
+                type: CUSTOM,
+                name: "jarble.flow.delegation.uiblock",
+                value: {
+                  delegationToolName: call.toolName,
+                  sourceDeploymentId: tool.targetDeploymentId,
+                  sourceRole: targetNode?.role || targetNode?.label || "Team member",
+                  block,
+                },
+              });
+            }
+          }
         } else if (delegationError) {
           sendEvent(res, {
             type: TEXT_MESSAGE_CONTENT,
@@ -531,10 +584,58 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         }
       }
 
-      // 10. Optionally, send the delegation results back to the entry bot
-      //     for it to synthesize a unified response.
-      //     For now, we present delegation results directly to the user.
-      //     A follow-up iteration can add a second entry-bot call for synthesis.
+      // 10. Send delegation results back to entry bot for synthesis
+      if (delegationTrace.length > 0 && !abortController.signal.aborted) {
+        const synthesisPrompt = delegationTrace
+          .filter((d) => d.success)
+          .map((d) => `**${d.toolName}** result:\n${d.responsePreview}`)
+          .join("\n\n");
+
+        if (synthesisPrompt) {
+          sendEvent(res, {
+            type: CUSTOM,
+            name: "jarble.flow.synthesis.start",
+            value: { delegationCount: delegationTrace.length },
+          });
+
+          const synthMessageId = nanoid();
+          sendEvent(res, { type: TEXT_MESSAGE_START, messageId: synthMessageId, role: "assistant" });
+
+          try {
+            const synthResult = await chatViaExec(
+              entryPodName,
+              sessionKey,
+              `[DELEGATION RESULTS]\n${synthesisPrompt}\n[/DELEGATION RESULTS]\n\nSynthesize these delegation results into a cohesive response for the user. Be concise — the raw results were already shown.`,
+              undefined,
+              undefined,
+              abortController.signal,
+            );
+
+            const synthText = synthResult.text
+              .replace(/<(think|reasoning)>[\s\S]*?<\/\1>/gi, "")
+              .replace(/\n{3,}/g, "\n\n")
+              .trim();
+
+            if (synthText) {
+              sendEvent(res, {
+                type: TEXT_MESSAGE_CONTENT,
+                messageId: synthMessageId,
+                delta: `\n\n---\n**Summary:** ${synthText}`,
+              });
+            }
+          } catch (err) {
+            log.warn({ flowId, err: err instanceof Error ? err.message : err }, "Synthesis call failed (non-fatal)");
+          }
+
+          sendEvent(res, { type: TEXT_MESSAGE_END, messageId: synthMessageId });
+
+          sendEvent(res, {
+            type: CUSTOM,
+            name: "jarble.flow.synthesis.end",
+            value: { delegationCount: delegationTrace.length },
+          });
+        }
+      }
 
     } else {
       // No delegation - stream the entry bot's response directly
@@ -575,6 +676,76 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         },
       });
     }
+
+    // Persist team chat messages to database (fire-and-forget)
+    void (async () => {
+      try {
+        const { nanoid: genId } = await import("nanoid");
+        const convId = conversationId || threadId;
+
+        // Ensure session exists (upsert pattern)
+        const existingSession = await db.query.flowChatSessions.findFirst({
+          where: and(
+            eq(tables.flowChatSessions.flowId, flowId),
+            eq(tables.flowChatSessions.userId, user!.id),
+            eq(tables.flowChatSessions.id, convId),
+          ),
+        });
+
+        if (!existingSession) {
+          await db.insert(tables.flowChatSessions).values({
+            id: convId,
+            flowId,
+            userId: user!.id,
+            title: `Team Chat`,
+          });
+        }
+
+        // Save user message
+        await db.insert(tables.flowChatMessages).values({
+          id: genId(),
+          sessionId: convId,
+          role: "user",
+          content: userMessage,
+        });
+
+        // Save assistant (entry bot) response
+        // Collect the full assistant text from the entry result
+        const fullAssistantText = entryResult.text
+          .replace(/<(think|reasoning)>[\s\S]*?<\/\1>/gi, "")
+          .replace(/```json\s*\n\s*\{[^}]*"tool"\s*:\s*"delegate_to_[^}]*\}\s*```/g, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+
+        if (fullAssistantText) {
+          await db.insert(tables.flowChatMessages).values({
+            id: genId(),
+            sessionId: convId,
+            role: "assistant",
+            content: fullAssistantText,
+            sourceNodeId: entryNode.id,
+            sourceDeploymentId: entryNode.deploymentId,
+          });
+        }
+
+        // Save delegation results
+        for (const d of delegationTrace) {
+          if (d.success && d.responsePreview) {
+            await db.insert(tables.flowChatMessages).values({
+              id: genId(),
+              sessionId: convId,
+              role: "delegation_result",
+              content: d.responsePreview,
+              sourceNodeId: d.targetNodeId,
+              sourceDeploymentId: d.targetDeploymentId,
+              delegationToolName: d.toolName,
+            });
+          }
+        }
+      } catch (err) {
+        log.warn({ flowId, err: err instanceof Error ? err.message : err }, "Failed to persist flow chat messages (non-fatal)");
+      }
+    })();
 
     // Finish
     sendEvent(res, { type: RUN_FINISHED, runId, threadId });

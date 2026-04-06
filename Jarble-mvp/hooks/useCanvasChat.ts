@@ -711,6 +711,27 @@ export function useCanvasChat(
           scheduleTypewriter();
         }
 
+        // Response timeout: if no SSE events arrive within 30 seconds, show an error.
+        // This catches cases where the bot pod is reachable but not generating (e.g., expired key).
+        const RESPONSE_TIMEOUT_MS = 30_000;
+        let responseTimeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+          if (eventCount === 0) {
+            console.error("[Jarble:Chat] Response timeout: no events received in 30s");
+            controller.abort();
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `${messageId}-timeout`,
+                role: "assistant",
+                content: "The bot didn't respond in time. It may be starting up or experiencing an issue. Please try again.",
+                createdAt: Date.now(),
+              },
+            ]);
+            setIsStreaming(false);
+            isStreamingRef.current = false;
+          }
+        }, RESPONSE_TIMEOUT_MS);
+
         // Labeled outer loop so RUN_FINISHED can break out of both loops cleanly
         outer: while (true) {
           const { done, value } = await reader.read();
@@ -727,6 +748,12 @@ export function useCanvasChat(
             try {
               const event = JSON.parse(trimmed.slice(6));
               eventCount++;
+              // Clear response timeout on first PARSED event (not raw bytes,
+              // since heartbeat comments like ": connected" don't count)
+              if (responseTimeoutId && eventCount === 1) {
+                clearTimeout(responseTimeoutId);
+                responseTimeoutId = null;
+              }
 
               if (event.type === "TEXT_MESSAGE_CONTENT" && event.delta) {
                 textContentCount++;
@@ -1033,6 +1060,9 @@ export function useCanvasChat(
             }
           }
         }
+
+        // Clear the response timeout since the stream completed
+        if (responseTimeoutId) { clearTimeout(responseTimeoutId); responseTimeoutId = null; }
 
         isDev && console.log(`[Jarble:Chat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
 

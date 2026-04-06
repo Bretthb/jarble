@@ -880,7 +880,7 @@ debugRouter.post("/deployment/:id/chat", async (req, res) => {
     const managedBy = ((deployment as any).managedBy ?? "legacy") as "legacy" | "operator";
 
     // Try gateway first, fall back to exec
-    const useExecOnly = !k8s || process.env.USE_SQLITE === "true";
+    const useExecOnly = !k8s;
 
     if (!useExecOnly && k8s) {
       try {

@@ -16,6 +16,7 @@ import { customAlphabet } from "nanoid";
 import { collectLlmCompletion, type LlmMessage } from "../../services/llmProxy.js";
 import { env } from "../../utils/env.js";
 import { WORKFLOW_AGENT_SYSTEM_PROMPT } from "../../prompts/workflowAgent.js";
+import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
 
 const logger = createModuleLogger("flows");
 
@@ -34,23 +35,26 @@ async function syncFlowMemberships(
   const fdm = (tables as any).flowDeploymentMemberships;
   if (!fdm) return; // Table may not exist on older schemas
 
-  // Delete existing memberships for this flow
-  await db.delete(fdm).where(eq(fdm.flowId, flowId));
+  // Wrap delete + inserts in a transaction for atomicity
+  await db.transaction(async (tx) => {
+    // Delete existing memberships for this flow
+    await tx.delete(fdm).where(eq(fdm.flowId, flowId));
 
-  // Insert new memberships from definition nodes
-  const nodes = definition.nodes || [];
-  for (const node of nodes) {
-    if (!node.deploymentId) continue;
-    await db.insert(fdm).values({
-      id: nanoid(),
-      flowId,
-      deploymentId: node.deploymentId,
-      nodeId: node.id,
-      role: node.role || node.label || null,
-      isEntryPoint: node.isEntryPoint ?? false,
-      createdAt: dbDate(),
-    });
-  }
+    // Insert new memberships from definition nodes
+    const nodes = definition.nodes || [];
+    for (const node of nodes) {
+      if (!node.deploymentId) continue;
+      await tx.insert(fdm).values({
+        id: nanoid(),
+        flowId,
+        deploymentId: node.deploymentId,
+        nodeId: node.id,
+        role: node.role || node.label || null,
+        isEntryPoint: node.isEntryPoint ?? (node.config as any)?.isEntryPoint ?? false,
+        createdAt: dbDate(),
+      });
+    }
+  });
 }
 
 const generateFlowId = () => `flw_${nanoid()}`;
@@ -175,7 +179,7 @@ export const flowsRouter = router({
   create: protectedProcedure
     .input(
       z.object({
-        name: z.string().min(1).max(255),
+        name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE),
         description: z.string().optional(),
         definition: FlowDefinitionSchema,
         status: z.enum(["draft", "published"]).default("draft"),
@@ -223,8 +227,8 @@ export const flowsRouter = router({
     .input(
       z.object({
         id: z.string(),
-        name: z.string().min(1).max(255).optional(),
-        description: z.string().nullable().optional(),
+        name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
+        description: z.string().max(5000).nullable().optional(),
         definition: FlowDefinitionSchema.optional(),
         status: z.enum(["draft", "published", "archived"]).optional(),
         isPublic: z.boolean().optional(),
@@ -340,7 +344,7 @@ export const flowsRouter = router({
     .input(
       z.object({
         sourceFlowId: z.string(),
-        name: z.string().min(1).max(255).optional(),
+        name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -486,8 +490,8 @@ export const flowsRouter = router({
 
       if (!apiKey) {
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "No LLM API key configured for flow generation",
+          code: "PRECONDITION_FAILED",
+          message: "Flow generation requires an LLM API key to be configured. Set AGENT_LLM_API_KEY or OPENROUTER_API_KEY.",
         });
       }
 

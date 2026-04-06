@@ -44,8 +44,7 @@ vi.mock("../../utils/openrouter.js", () => ({
 
 vi.mock("../../utils/env.js", () => ({
   env: {
-    USE_SQLITE: "true",
-    DB_PROVIDER: "sqlite",
+    DB_PROVIDER: "postgres",
     AUTH0_DOMAIN: "test.auth0.com",
     AUTH0_AUDIENCE: "https://api.jarble.ai",
     OPENROUTER_API_KEY: "sk-test",
@@ -56,6 +55,24 @@ vi.mock("../../utils/env.js", () => ({
     FRONTEND_URL: "http://localhost:3000",
   },
 }));
+// Mock db/index.js to prevent Postgres connection at import time.
+// Tests pass the in-memory SQLite db through the tRPC caller context.
+// The  export must carry real Drizzle column definitions so routers
+// can build  expressions.
+vi.mock("../../db/index.js", async () => {
+  const schema = await import("./testSchema.sqlite.js");
+  return {
+    db: {},
+    tables: schema,
+    dbDate: (date: Date = new Date()) => date.toISOString(),
+    getRowsAffected: (result: any) => {
+      if (result?.rowCount != null) return result.rowCount;
+      if (result?.rowsAffected != null) return result.rowsAffected;
+      if (result?.changes != null) return result.changes;
+      return 0;
+    },
+  };
+});
 
 const { db, raw, testUserId, testAuth0Id } = createTestDb();
 

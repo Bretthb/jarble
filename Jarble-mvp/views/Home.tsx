@@ -292,7 +292,7 @@ export default function Home() {
               <DollarSign className="w-8 h-8 text-primary mb-4" />
               <h3 className="text-lg font-semibold mb-2">Transparent pricing</h3>
               <p className="text-muted-foreground text-sm">
-                Hosting starts at $32/mo. AI model costs go straight to your provider with zero margin from us. No hidden fees, no usage surprises.
+                Hosting starts at $27/mo. AI model costs go straight to your provider with zero margin from us. No hidden fees, no usage surprises.
               </p>
             </div>
             <div className="p-6 rounded-xl bg-card/80 backdrop-blur-md border border-border shadow-sm animate-fade-in-up-fast">

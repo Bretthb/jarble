@@ -2,6 +2,7 @@
 
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc, API_URL } from "@/lib/trpc";
+import { vanillaClient } from "@/lib/trpc-vanilla";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -159,6 +160,12 @@ type FlowNodeData = DeploymentData & {
   executionSubsteps?: FlowStepStatus[];
   /** Callback for resuming paused nodes */
   onResumeInput?: (input: string) => void;
+  /** Capabilities: subagents and skills this deployment has */
+  capabilities?: {
+    supportsSubagents: boolean;
+    subagents: Array<{ slug: string; name: string; source: string }>;
+    skills: Array<{ name: string }>;
+  };
   [key: string]: unknown;
 };
 
@@ -1041,7 +1048,14 @@ function FlowDeploymentNode({
           {data.isEntryPoint && (
             <Star className="w-3.5 h-3.5 text-blue-400 fill-blue-400 shrink-0" />
           )}
-          <Bot className="w-4 h-4 text-muted-foreground shrink-0" />
+          {data.capabilities?.supportsSubagents && data.capabilities.subagents?.length > 0 ? (
+            <svg className="w-4 h-4 text-violet-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="8" r="3" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" />
+              <line x1="12" y1="11" x2="6" y2="15.5" /><line x1="12" y1="11" x2="18" y2="15.5" />
+            </svg>
+          ) : (
+            <Bot className="w-4 h-4 text-muted-foreground shrink-0" />
+          )}
           <span className="text-base font-semibold text-foreground truncate flex-1 leading-tight">
             {data.name}
           </span>
@@ -1102,6 +1116,30 @@ function FlowDeploymentNode({
             {contextScopeLabel(data.contextScope)}
           </span>
         </div>
+
+        {/* Row 6: Subagent cluster pills */}
+        {data.capabilities?.subagents && data.capabilities.subagents.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-[9px] text-muted-foreground mr-0.5">Agents:</span>
+            {data.capabilities.subagents.slice(0, 4).map((sa) => (
+              <span
+                key={sa.slug}
+                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-medium border ${
+                  sa.source === "platform"
+                    ? "bg-violet-500/10 text-violet-400 border-violet-500/20"
+                    : "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                }`}
+              >
+                {sa.name.replace(/ Agent$/, "")}
+              </span>
+            ))}
+            {data.capabilities.subagents.length > 4 && (
+              <span className="text-[8px] text-muted-foreground">
+                +{data.capabilities.subagents.length - 4}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Execution info row */}
         {(data.executionCredits != null && data.executionCredits > 0 || data.executionDurationMs != null) && (
@@ -2189,6 +2227,36 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     staleTime: 30_000,
   });
 
+  // Load subagent data for all deployments (for cluster/flat visual)
+  const [capabilitiesMap, setCapabilitiesMap] = useState<Map<string, { supportsSubagents: boolean; subagents: Array<{ slug: string; name: string; source: string }>; skills: Array<{ name: string }> }>>(new Map());
+
+  useEffect(() => {
+    if (deployments.length === 0) return;
+    const fetchCapabilities = async () => {
+      const map = new Map<string, { supportsSubagents: boolean; subagents: Array<{ slug: string; name: string; source: string }>; skills: Array<{ name: string }> }>();
+      const results = await Promise.allSettled(
+        deployments.map(async (d) => {
+          try {
+            const subagents = await vanillaClient.subagents.list.query({ deploymentId: d.id });
+            return { id: d.id, subagents: (subagents || []).filter((s: any) => s.enabled) };
+          } catch { return { id: d.id, subagents: [] as any[] }; }
+        })
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value) {
+          const { id, subagents } = r.value;
+          map.set(id, {
+            supportsSubagents: subagents.length > 0,
+            subagents: subagents.map((s: any) => ({ slug: s.slug, name: s.name, source: s.source || "custom" })),
+            skills: [],
+          });
+        }
+      }
+      setCapabilitiesMap(map);
+    };
+    fetchCapabilities();
+  }, [deployments]);
+
   const flows: FlowDefinition[] = useMemo(() => {
     if (!flowsQuery.data) return [];
     // Build a lookup map for enriching flow nodes with deployment data
@@ -2202,7 +2270,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
           const depId = (n as any).deploymentId || n.data?.id || n.id;
           const dep = depMap.get(depId);
           if (dep) {
-            return { ...n, data: { ...dep, ...n.data } as FlowNodeData };
+            const caps = capabilitiesMap.get(depId);
+            return { ...n, data: { ...dep, ...n.data, capabilities: caps } as FlowNodeData };
           }
           // Fallback: construct minimal data from stored fields
           return {
@@ -2216,7 +2285,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         });
         return flow;
       });
-  }, [flowsQuery.data, deployments]);
+  }, [flowsQuery.data, deployments, capabilitiesMap]);
 
   const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
 
@@ -2253,7 +2322,6 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
 
   const updateFlowMutation = trpc.flows.update.useMutation({
     onSuccess: () => {
-      utils.flows.list.invalidate();
       setIsSaved(true);
     },
   });
@@ -2361,8 +2429,11 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     } as typeof mutation.definition;
 
     updateFlowMutation.mutate(mutation, {
-      onSuccess: () => {
-        // Clear local overrides for this flow after successful save
+      onSuccess: async () => {
+        // Wait for the refetch to land in the cache before clearing local overrides.
+        // Without this await, there's a race: overrides clear → stale cache shown
+        // (with empty nodes) → refetch arrives too late → canvas appears empty.
+        await utils.flows.list.invalidate();
         setLocalOverrides((prev) => {
           const next = { ...prev };
           delete next[activeFlowId];
@@ -2453,7 +2524,18 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   // ── Chat with team ────────────────────────────────────────────────
   const { getAccessTokenSilently } = useAuth0();
   const [showFlowChat, setShowFlowChat] = useState(false);
-  const [flowChatMessages, setFlowChatMessages] = useState<Array<{ role: string; content: string }>>([]);
+  const [flowChatMessages, setFlowChatMessages] = useState<Array<{
+    role: string;
+    content: string;
+    delegations?: Array<{
+      toolName: string;
+      targetRole: string;
+      status: "running" | "completed" | "failed";
+      elapsedMs?: number;
+      uiBlockCount?: number;
+      error?: string;
+    }>;
+  }>>([]);
   const [flowChatInput, setFlowChatInput] = useState("");
   const [flowChatLoading, setFlowChatLoading] = useState(false);
 
@@ -2506,6 +2588,58 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                   }
                   return msgs;
                 });
+              } else if (data.type === "CUSTOM" || data.type === "custom") {
+                const name = data.name || data.value?.name;
+                const value = data.value || {};
+
+                if (name === "jarble.flow.delegation.start") {
+                  // Add delegation status indicator
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === "assistant") {
+                      const delegations = [...(last.delegations || []), {
+                        toolName: value.toolName,
+                        targetRole: value.targetRole || "Team member",
+                        status: "running" as const,
+                      }];
+                      return [...prev.slice(0, -1), { ...last, delegations }];
+                    }
+                    return prev;
+                  });
+                } else if (name === "jarble.flow.delegation.heartbeat") {
+                  // Update elapsed time on running delegation
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === "assistant" && last.delegations) {
+                      const delegations = last.delegations.map((d) =>
+                        d.toolName === value.toolName && d.status === "running"
+                          ? { ...d, elapsedMs: value.elapsedMs }
+                          : d
+                      );
+                      return [...prev.slice(0, -1), { ...last, delegations }];
+                    }
+                    return prev;
+                  });
+                } else if (name === "jarble.flow.delegation.end") {
+                  // Mark delegation as completed or failed
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === "assistant" && last.delegations) {
+                      const delegations = last.delegations.map((d) =>
+                        d.toolName === value.toolName
+                          ? {
+                              ...d,
+                              status: (value.success ? "completed" : "failed") as "completed" | "failed",
+                              uiBlockCount: value.uiBlockCount,
+                              error: value.error,
+                            }
+                          : d
+                      );
+                      return [...prev.slice(0, -1), { ...last, delegations }];
+                    }
+                    return prev;
+                  });
+                }
               }
             } catch {
               // skip non-JSON lines
@@ -2646,6 +2780,35 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                       msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary"
                     }`}>
                       {msg.content}
+                      {/* Delegation status indicators */}
+                      {msg.delegations && msg.delegations.length > 0 && (
+                        <div className="mt-2 space-y-1 border-t border-border/30 pt-2">
+                          {msg.delegations.map((d, di) => (
+                            <div key={di} className="flex items-center gap-2 text-[10px]">
+                              {d.status === "running" && (
+                                <span className="inline-flex items-center gap-1 text-blue-400">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                                  Delegating to {d.targetRole}...
+                                  {d.elapsedMs && <span className="text-muted-foreground">{Math.round(d.elapsedMs / 1000)}s</span>}
+                                </span>
+                              )}
+                              {d.status === "completed" && (
+                                <span className="inline-flex items-center gap-1 text-emerald-400">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                  {d.targetRole} responded
+                                  {d.uiBlockCount ? ` (${d.uiBlockCount} components)` : ""}
+                                </span>
+                              )}
+                              {d.status === "failed" && (
+                                <span className="inline-flex items-center gap-1 text-red-400">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                                  {d.targetRole} failed{d.error ? `: ${d.error}` : ""}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

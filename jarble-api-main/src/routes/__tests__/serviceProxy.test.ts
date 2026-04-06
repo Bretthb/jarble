@@ -35,8 +35,7 @@ vi.mock("../../services/auth.js", () => ({
 
 vi.mock("../../utils/env.js", () => ({
   env: {
-    USE_SQLITE: "true",
-    DB_PROVIDER: "sqlite",
+    DB_PROVIDER: "postgres",
     AUTH0_DOMAIN: "test.auth0.com",
     AUTH0_AUDIENCE: "https://api.test",
     STRIPE_SECRET_KEY: "",

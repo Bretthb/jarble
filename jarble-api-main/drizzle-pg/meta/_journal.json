@@ -50,6 +50,13 @@
       "when": 1774411200000,
       "tag": "0006_orchestration_flows",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1775498961717,
+      "tag": "0007_lyrical_callisto",
+      "breakpoints": true
     }
   ]
 }

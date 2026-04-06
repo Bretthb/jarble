@@ -61,6 +61,19 @@ vi.mock("../../db/index.js", () => ({
   dbDate: (d?: Date) => (d ?? new Date()).toISOString(),
 }));
 
+// Env mock - prevent Zod parse of process.env (DATABASE_URL is required)
+vi.mock("../../utils/env.js", () => ({
+  env: {
+    NODE_ENV: "test",
+    AUTH0_DOMAIN: "test.auth0.com",
+    AUTH0_AUDIENCE: "https://api.jarble.ai",
+    FRONTEND_URL: "http://localhost:3000",
+    DATABASE_URL: "postgres://test",
+    OPENROUTER_API_KEY: "sk-test",
+    ADMIN_USER_IDS: "",
+  },
+}));
+
 // K8s - not available in test mode
 vi.mock("../../k8s/client.js", () => {
   throw new Error("K8s not available");

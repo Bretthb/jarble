@@ -332,6 +332,27 @@ export const serviceCredentials = pgTable("package_credentials", {
   deploymentPackageCredIdx: uniqueIndex("uq_deployment_package_cred").on(table.deploymentId, table.packageId),
 }));
 
+// Flow chat persistence (team chat conversations)
+export const flowChatSessions = pgTable("flow_chat_sessions", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  flowId: varchar("flow_id", { length: 255 }).notNull(),
+  userId: varchar("user_id", { length: 255 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull().default("Team Chat"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const flowChatMessages = pgTable("flow_chat_messages", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  sessionId: varchar("session_id", { length: 255 }).notNull(),
+  role: varchar("role", { length: 50 }).notNull(), // 'user', 'assistant', 'delegation_result', 'synthesis'
+  content: text("content").notNull(),
+  sourceNodeId: varchar("source_node_id", { length: 255 }), // which flow node produced this
+  sourceDeploymentId: varchar("source_deployment_id", { length: 255 }), // which deployment
+  delegationToolName: varchar("delegation_tool_name", { length: 255 }), // e.g. "delegate_to_specialist"
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many, one }) => ({
   deployments: many(deployments),
@@ -924,4 +945,12 @@ export const orgMembersRelations = relations(orgMembers, ({ one }) => ({
 export const orgInvitesRelations = relations(orgInvites, ({ one }) => ({
   org: one(organizations, { fields: [orgInvites.orgId], references: [organizations.id] }),
   invitedByUser: one(users, { fields: [orgInvites.invitedBy], references: [users.id] }),
+}));
+
+export const flowChatSessionsRelations = relations(flowChatSessions, ({ many }) => ({
+  messages: many(flowChatMessages),
+}));
+
+export const flowChatMessagesRelations = relations(flowChatMessages, ({ one }) => ({
+  session: one(flowChatSessions, { fields: [flowChatMessages.sessionId], references: [flowChatSessions.id] }),
 }));
