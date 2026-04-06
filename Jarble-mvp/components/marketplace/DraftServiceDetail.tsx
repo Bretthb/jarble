@@ -58,7 +58,7 @@ const HOSTING_LABELS: Record<string, string> = {
 
 const STATUS_CONFIG: Record<string, { style: string; label: string; icon: typeof AlertCircle; description: string; variant?: "destructive" }> = {
   draft: {
-    style: "bg-gray-500/15 text-gray-700 dark:text-gray-400 border-gray-500/20",
+    style: "bg-secondary text-muted-foreground border-border",
     label: "Draft",
     icon: AlertCircle,
     description: "This service has not been submitted for review yet. Test it on a deployment, then submit when ready.",

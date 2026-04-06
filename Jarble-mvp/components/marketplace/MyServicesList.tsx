@@ -14,7 +14,7 @@ import { trpc } from "@/lib/trpc";
 import DeploymentPicker from "@/components/marketplace/DeploymentPicker";
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  draft: { label: "Draft", className: "bg-gray-500/15 text-gray-700 dark:text-gray-400 border-gray-500/20" },
+  draft: { label: "Draft", className: "bg-secondary text-muted-foreground border-border" },
   pending_review: { label: "Pending Review", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/20" },
   published: { label: "Published", className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" },
   rejected: { label: "Rejected", className: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/20" },

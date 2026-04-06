@@ -30,10 +30,9 @@ const tools: Array<{ tool: DrawingTool; icon: typeof MousePointer2; label: strin
 
 /** Human-readable color names for accessibility */
 const COLOR_NAMES: Record<string, string> = {
-  "#1a1a1a": "Black", "#dc2626": "Red", "#2563eb": "Blue",
-  "#16a34a": "Green", "#ea580c": "Orange", "#9333ea": "Purple",
-  "#e8e4df": "White", "#f87171": "Red", "#60a5fa": "Blue",
-  "#4ade80": "Green", "#fb923c": "Orange", "#c084fc": "Purple",
+  "#1a1a1a": "Black", "#c45050": "Red", "#6a8ab0": "Blue",
+  "#5a9a7a": "Green", "#a08cbe": "Violet", "#8a76a6": "Plum",
+  "#e8e6e2": "White",
 };
 
 function DrawingToolsInner({

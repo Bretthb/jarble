@@ -305,7 +305,7 @@ export default function SettingsView() {
                   }`}
                 >
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-white dark:bg-zinc-100 border border-border flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-full bg-card border border-border flex items-center justify-center">
                       <Sun className="w-4 h-4 text-amber-500" />
                     </div>
                     <span className="font-medium text-sm">Light</span>
@@ -321,7 +321,7 @@ export default function SettingsView() {
                   }`}
                 >
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-zinc-900 dark:bg-zinc-800 border border-border flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-full bg-foreground border border-border flex items-center justify-center">
                       <Moon className="w-4 h-4 text-blue-400" />
                     </div>
                     <span className="font-medium text-sm">Dark</span>

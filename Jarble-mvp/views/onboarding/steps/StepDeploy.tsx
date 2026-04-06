@@ -113,36 +113,36 @@ export default function StepDeploy({
     return {
       theme: isDark ? "night" : "stripe",
       variables: {
-        colorPrimary: isDark ? "#e4e4e7" : "#000000",
-        colorBackground: isDark ? "#111113" : "#ffffff",
-        colorText: isDark ? "#f4f4f5" : "#1a1a1a",
-        colorTextSecondary: isDark ? "#a1a1aa" : "#666666",
-        colorDanger: isDark ? "#ef4444" : "#dc2626",
+        colorPrimary: "#a08cbe",
+        colorBackground: isDark ? "#1a1a1a" : "#ffffff",
+        colorText: isDark ? "#e8e6e2" : "#1a1a1a",
+        colorTextSecondary: isDark ? "#8a8a8a" : "#807a88",
+        colorDanger: "#c45050",
         fontFamily: "'Inter', sans-serif",
         borderRadius: "0.5rem",
-        colorTextPlaceholder: isDark ? "#52525b" : "#a1a1aa",
+        colorTextPlaceholder: isDark ? "#5a5a5a" : "#a8a2b0",
       },
       rules: {
         ".Input": {
-          border: `1px solid ${isDark ? "#232326" : "#e4e4e7"}`,
-          backgroundColor: isDark ? "#09090b" : "#ffffff",
+          border: `1px solid ${isDark ? "rgba(160, 140, 190, 0.15)" : "#dad6e2"}`,
+          backgroundColor: isDark ? "#141414" : "#ffffff",
           boxShadow: "none",
         },
         ".Input:focus": {
-          border: `1px solid ${isDark ? "#a1a1aa" : "#000000"}`,
-          boxShadow: `0 0 0 1px ${isDark ? "#a1a1aa" : "#000000"}`,
+          border: "1px solid #a08cbe",
+          boxShadow: `0 0 0 1px ${isDark ? "rgba(160, 140, 190, 0.25)" : "#a08cbe"}`,
         },
         ".Label": {
-          color: isDark ? "#a1a1aa" : "#666666",
+          color: isDark ? "#8a8a8a" : "#807a88",
           fontSize: "0.8125rem",
         },
         ".Tab": {
-          border: `1px solid ${isDark ? "#232326" : "#e4e4e7"}`,
-          backgroundColor: isDark ? "#1c1c1f" : "#f4f4f5",
+          border: `1px solid ${isDark ? "rgba(160, 140, 190, 0.08)" : "#e4e1ea"}`,
+          backgroundColor: isDark ? "#202020" : "#f0eef3",
         },
         ".Tab--selected": {
-          border: `1px solid ${isDark ? "#e4e4e7" : "#000000"}`,
-          backgroundColor: isDark ? "#111113" : "#ffffff",
+          border: "1px solid #a08cbe",
+          backgroundColor: isDark ? "#1a1a1a" : "#ffffff",
         },
       },
     };
@@ -191,7 +191,7 @@ export default function StepDeploy({
               </p>
             </div>
             <div className="flex flex-col items-center gap-3">
-              <div className="bg-white p-4 rounded-xl shadow-sm dark:shadow-none inline-block">
+              <div className="bg-card p-4 rounded-xl shadow-sm dark:shadow-none inline-block">
                 <QRCode value={`https://t.me/${telegramBotUsername}`} size={160} level="M" />
               </div>
               <p className="text-xs text-muted-foreground">
@@ -209,7 +209,7 @@ export default function StepDeploy({
         <div className="py-8">
           <div className="bg-secondary/50 border border-border rounded-lg p-8 text-center space-y-6">
             <div className="flex flex-col items-center gap-3">
-              <div className="bg-white p-4 rounded-xl shadow-sm dark:shadow-none inline-block">
+              <div className="bg-card p-4 rounded-xl shadow-sm dark:shadow-none inline-block">
                 <QRCode value={`https://t.me/${telegramBotUsername}`} size={180} level="M" />
               </div>
               <p className="text-sm text-muted-foreground">
