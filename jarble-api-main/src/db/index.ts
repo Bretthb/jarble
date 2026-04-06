@@ -64,6 +64,8 @@ export const tables = {
   organizations: pgSchema.organizations,
   orgMembers: pgSchema.orgMembers,
   orgInvites: pgSchema.orgInvites,
+  flowChatSessions: pgSchema.flowChatSessions,
+  flowChatMessages: pgSchema.flowChatMessages,
 };
 
 /**
