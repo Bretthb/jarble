@@ -28,6 +28,7 @@ import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
 import { isAdmin } from "../../utils/admin.js";
 import { RESOURCE_TIERS } from "../../k8s/constants.js";
 import { validateThemeConfig, COMPONENT_MANIFEST } from "@jarble/component-manifest";
+import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
 
 const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations } = tables;
 
@@ -212,13 +213,17 @@ export const deploymentRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.query.deployments.findFirst({
+      const deployment = await ctx.db.query.deployments.findFirst({
         where: and(
           eq(deployments.id, input.id),
           eq(deployments.userId, ctx.user.id)
         ),
         with: { runtimeCatalogEntry: true },
       });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+      return deployment;
     }),
 
   // Get component catalog (built-in + default library + PVC custom) for a deployment
@@ -322,7 +327,7 @@ export const deploymentRouter = router({
   // Create deployment (DB record only, doesn't deploy)
   create: protectedProcedure
     .input(z.object({
-      name: z.string().min(1),
+      name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE),
       runtimeCatalogId: z.number(),
       platform: z.string().optional(),
       image: z.string().optional(),
@@ -330,7 +335,7 @@ export const deploymentRouter = router({
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).default("openrouter"),
       llmModel: z.string().optional(), // e.g. "openrouter/auto", "gpt-4o", "claude-sonnet-4-20250514"
       llmApiKey: z.string().optional(),
-      systemPrompt: z.string().optional(),
+      systemPrompt: z.string().max(50_000).optional(), // 50K chars max to prevent storage bloat
       creditLimitDollars: z.number().min(1).max(1000).optional(), // Monthly spending cap for "included" mode (default $5)
       linkToDeploymentId: z.string().optional(), // Link to an existing deployment's credit pool instead of provisioning a new key
       cpuLimit: z.string().optional(),    // e.g. "2.0" - overrides runtime catalog default
@@ -857,9 +862,9 @@ export const deploymentRouter = router({
   update: protectedProcedure
     .input(z.object({
       id: z.string(),
-      name: z.string().min(1).optional(),
-      description: z.string().optional(),
-      systemPrompt: z.string().optional(),
+      name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
+      description: z.string().max(5000).optional(),
+      systemPrompt: z.string().max(50_000).optional(),
       llmMode: z.enum(["included", "byok", "platform"]).optional(),
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).optional(),
       llmModel: z.string().optional(),
@@ -1748,7 +1753,7 @@ export const deploymentRouter = router({
   fork: protectedProcedure
     .input(z.object({
       sourceId: z.string(),
-      name: z.string().min(1),
+      name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE),
     }))
     .mutation(async ({ ctx, input }) => {
       // 1. Fetch source deployment - must be isPublic=true OR owned by user
@@ -1878,7 +1883,7 @@ export const deploymentRouter = router({
   platformFork: protectedProcedure
     .input(z.object({
       sourceId: z.string(),
-      name: z.string().min(1).optional(),
+      name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
       resourceTier: z.enum(["small", "medium", "large"]).default("small"),
       llmProvider: z.string().optional(),
       llmModel: z.string().optional(),

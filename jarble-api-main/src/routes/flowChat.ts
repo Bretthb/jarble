@@ -471,6 +471,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             conversationHistory: [{ role: "user", content: userMessage }],
             sessionId: `flow-delegation-${flowId}-${tool.targetNodeId}-${Date.now()}`,
             depth: 1,
+            userId: user.id,
           });
         } catch (err) {
           delegationError =

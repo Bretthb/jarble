@@ -610,7 +610,7 @@ function CanvasWorkspace({
         id: s.id,
         label: s.label,
         status: s.status,
-        agent: s.agentType as import("@/components/chat/OrchestrationSteps").OrchestrationStep["agent"],
+        agent: (s.agentType || "tool") as import("@/components/chat/OrchestrationSteps").OrchestrationStep["agent"],
         detail: s.detail,
         duration: s.duration,
         agentType: s.agentType,

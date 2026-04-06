@@ -1238,6 +1238,7 @@ tamboAgentRouter.post("/", async (req, res) => {
                 depth: 1,
                 sourceDeploymentId: deploymentId,
                 toolName: call.toolName,
+                userId: authenticatedUserId ?? undefined,
               });
 
               // Emit delegation end event

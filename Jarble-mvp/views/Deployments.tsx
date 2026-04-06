@@ -2253,7 +2253,6 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
 
   const updateFlowMutation = trpc.flows.update.useMutation({
     onSuccess: () => {
-      utils.flows.list.invalidate();
       setIsSaved(true);
     },
   });
@@ -2361,8 +2360,11 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     } as typeof mutation.definition;
 
     updateFlowMutation.mutate(mutation, {
-      onSuccess: () => {
-        // Clear local overrides for this flow after successful save
+      onSuccess: async () => {
+        // Wait for the refetch to land in the cache before clearing local overrides.
+        // Without this await, there's a race: overrides clear → stale cache shown
+        // (with empty nodes) → refetch arrives too late → canvas appears empty.
+        await utils.flows.list.invalidate();
         setLocalOverrides((prev) => {
           const next = { ...prev };
           delete next[activeFlowId];

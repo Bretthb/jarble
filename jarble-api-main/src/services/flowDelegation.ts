@@ -11,7 +11,7 @@
  */
 
 import { db, tables } from "../db/index.js";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
 import { emitOrchestrationStart, emitOrchestrationEnd } from "../utils/agentCallEvents.js";
 import { nanoid } from "nanoid";
@@ -200,6 +200,8 @@ export async function executeDelegation(params: {
   sourceDeploymentId?: string;
   /** Tool name for orchestration event (e.g. "delegate_to_cto") */
   toolName?: string;
+  /** User ID for ownership verification — prevents IDOR on delegation targets */
+  userId?: string;
 }): Promise<DelegationResult> {
   const depth = params.depth ?? 0;
   if (depth >= MAX_DELEGATION_DEPTH) {
@@ -211,9 +213,13 @@ export async function executeDelegation(params: {
 
   const startTime = Date.now();
 
-  // Look up the target deployment
+  // Look up the target deployment with ownership verification
+  const whereConditions = params.userId
+    ? and(eq(tables.deployments.id, params.targetDeploymentId), eq(tables.deployments.userId, params.userId))
+    : eq(tables.deployments.id, params.targetDeploymentId);
+
   const deployment = await db.query.deployments.findFirst({
-    where: eq(tables.deployments.id, params.targetDeploymentId),
+    where: whereConditions,
   });
 
   if (!deployment) {
