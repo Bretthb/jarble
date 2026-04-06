@@ -25,7 +25,7 @@ interface HostedServiceSummaryCardProps {
 
 const STATUS_STYLES: Record<string, string> = {
   published: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
-  draft: "bg-gray-500/15 text-gray-600 dark:text-gray-400 border-gray-500/20",
+  draft: "bg-secondary text-muted-foreground border-border",
   pending_review: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/20",
   suspended: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/20",
   rejected: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/20",
@@ -35,7 +35,7 @@ const HEALTH_DOT_STYLES: Record<string, string> = {
   healthy: "bg-emerald-500",
   degraded: "bg-amber-500",
   offline: "bg-red-500",
-  unknown: "bg-gray-400",
+  unknown: "bg-muted-foreground",
 };
 
 function formatCount(n: number): string {

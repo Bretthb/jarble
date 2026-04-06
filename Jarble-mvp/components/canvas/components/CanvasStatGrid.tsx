@@ -44,7 +44,7 @@ const BADGE_CLASSES: Record<string, string> = {
 const ICON_BG: Record<string, string> = {
   up: "bg-gradient-to-br from-emerald-100 to-emerald-50 dark:from-emerald-500/20 dark:to-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   down: "bg-gradient-to-br from-red-100 to-red-50 dark:from-red-500/20 dark:to-red-500/10 text-red-600 dark:text-red-400",
-  neutral: "bg-gradient-to-br from-zinc-100 to-zinc-50 dark:from-zinc-500/20 dark:to-zinc-500/10 text-zinc-600 dark:text-zinc-400",
+  neutral: "bg-gradient-to-br from-secondary to-muted text-muted-foreground",
 };
 
 /** Tile background tint by trend */

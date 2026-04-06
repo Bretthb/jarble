@@ -214,7 +214,7 @@ function FlowStatusBadge({
   > = {
     idle: {
       label: "Idle",
-      className: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
+      className: "bg-muted text-muted-foreground border-border",
     },
     running: {
       label: "Running",
