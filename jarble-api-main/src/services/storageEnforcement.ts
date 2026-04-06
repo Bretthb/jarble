@@ -1,4 +1,4 @@
-import { db, tables, USE_SQLITE } from "../db/index.js";
+import { db, tables } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import { getDeploymentStorageUsage, stopDeployment } from "../k8s/index.js";
 import { logger } from "../utils/logger.js";
@@ -14,7 +14,6 @@ const STORAGE_ERROR_PREFIX = "Storage limit exceeded";
  * - Below 100%: clear any previous storage error (user freed space and restarted).
  */
 export async function enforceStorageLimits(): Promise<void> {
-  if (USE_SQLITE) return;
 
   try {
     const running = await db.query.deployments.findMany({

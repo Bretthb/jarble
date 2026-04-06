@@ -1,4 +1,4 @@
-import { db, tables, DB_PROVIDER } from "../db/index.js";
+import { db, tables } from "../db/index.js";
 import { sql } from "drizzle-orm";
 import { logger } from "../utils/logger.js";
 import { safeFireAndForget } from "../utils/safeAsync.js";
@@ -27,7 +27,7 @@ export async function cleanupOldWebhookEvents(): Promise<number> {
       0;
 
     if (deletedRows > 0) {
-      logger.info({ deletedRows, threshold, provider: DB_PROVIDER }, "webhookCleanup: purged old webhook events");
+      logger.info({ deletedRows, threshold }, "webhookCleanup: purged old webhook events");
     } else {
       logger.debug("webhookCleanup: no old webhook events to purge");
     }

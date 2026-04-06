@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestDb, type TestDbContext } from "../helpers/testDb.js";
-import * as sqliteSchema from "../../db/schema.sqlite.js";
+import * as sqliteSchema from "../helpers/testSchema.sqlite.js";
 
 let ctx: TestDbContext;
 
@@ -27,8 +27,7 @@ vi.mock("../../utils/logger.js", () => ({
 
 vi.mock("../../utils/env.js", () => ({
   env: {
-    USE_SQLITE: "true",
-    DB_PROVIDER: "sqlite",
+    DB_PROVIDER: "postgres",
     AUTH0_DOMAIN: "test.auth0.com",
     AUTH0_AUDIENCE: "https://api.jarble.ai",
     OPENROUTER_API_KEY: "sk-test",

@@ -8,7 +8,7 @@
 
 import { db, tables, dbDate } from "../db/index.js";
 import { eq, and, sql, lt } from "drizzle-orm";
-import { generateMarketplaceId } from "../db/schema.js";
+import { generateMarketplaceId } from "../db/schema.pg.js";
 import type {
   StateStore,
   RateLimitWindow,

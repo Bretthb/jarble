@@ -1,3 +1,12 @@
+/**
+ * TEST-ONLY SQLite schema definitions.
+ *
+ * Production uses Postgres (schema.pg.ts). This file mirrors the same columns
+ * using SQLite types so that tests can use in-memory better-sqlite3 databases
+ * without requiring a running Postgres server.
+ *
+ * Keep this in sync with schema.pg.ts when adding new columns or tables.
+ */
 import { sqliteTable, text, integer, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 import { customAlphabet } from "nanoid";

@@ -35,7 +35,7 @@ interface StatusMismatch {
  */
 export async function reconcileStatuses(): Promise<void> {
   // Skip in local dev mode - no real K8s cluster to reconcile against
-  if (process.env.USE_SQLITE === "true") return;
+  if (process.env.NODE_ENV === "development") return;
 
   try {
     // Find deployments that might have drifted

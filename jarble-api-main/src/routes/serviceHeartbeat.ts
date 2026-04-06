@@ -16,7 +16,7 @@ import { eq } from "drizzle-orm";
 import { db, tables, dbDate } from "../db/index.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { serviceCardSchema } from "../services/serviceCard.js";
-import { generateMarketplaceId } from "../db/schema.js";
+import { generateMarketplaceId } from "../db/schema.pg.js";
 
 const log = createModuleLogger("service-heartbeat");
 

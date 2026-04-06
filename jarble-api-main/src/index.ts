@@ -217,10 +217,10 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 
 // Start server
 async function start() {
-  // Initialize database (creates tables for in-memory SQLite, optionally seeds)
+  // Initialize database (Postgres via Neon — schema managed by Drizzle migrations)
   await initDatabase();
 
-  // Start periodic enforcement services (K8s only, skips in mock/SQLite dev mode)
+  // Start periodic enforcement services
   startStorageEnforcement();
   // startSubscriptionEnforcement(); // Disabled until Stripe is fully configured
   startStatusReconciler();  // Syncs DB status with K8s reality (fixes "stuck at creating")
