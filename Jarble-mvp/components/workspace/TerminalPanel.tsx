@@ -47,10 +47,10 @@ export default function TerminalPanel({ deploymentId }: TerminalPanelProps) {
       fontSize: 12,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
       theme: {
-        background: "#0a0a0a",
-        foreground: "#e0e0e0",
-        cursor: "#e0e0e0",
-        selectionBackground: "#3a3a5a",
+        background: "#0e0e1a",
+        foreground: "#f0e6d2",
+        cursor: "#d4a574",
+        selectionBackground: "#1a1a28",
         black: "#1a1a2e",
         red: "#ff6b6b",
         green: "#69db7c",
@@ -135,7 +135,7 @@ export default function TerminalPanel({ deploymentId }: TerminalPanelProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Terminal toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30 bg-[#0a0a0a]">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30 bg-[#0e0e1a]">
         <div className="flex items-center gap-2">
           <div
             className={`w-2 h-2 rounded-full ${
@@ -152,7 +152,7 @@ export default function TerminalPanel({ deploymentId }: TerminalPanelProps) {
               variant="ghost"
               size="sm"
               onClick={connect}
-              className="h-6 px-2 text-[10px] text-neutral-400 hover:text-white hover:bg-white/10"
+              className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent"
             >
               <PlugZap className="w-3 h-3 mr-1" />
               Connect
@@ -163,7 +163,7 @@ export default function TerminalPanel({ deploymentId }: TerminalPanelProps) {
               variant="ghost"
               size="sm"
               onClick={disconnect}
-              className="h-6 px-2 text-[10px] text-neutral-400 hover:text-white hover:bg-white/10"
+              className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent"
             >
               <Unplug className="w-3 h-3 mr-1" />
               Disconnect
@@ -181,9 +181,9 @@ export default function TerminalPanel({ deploymentId }: TerminalPanelProps) {
       )}
 
       {/* Terminal container - extra wrapper creates inset so xterm doesn't touch edges */}
-      <div className="flex-1 relative min-h-0 overflow-hidden bg-[#0a0a0a]">
+      <div className="flex-1 relative min-h-0 overflow-hidden bg-[#0e0e1a]">
         {isConnecting && !initialized && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0a] z-10">
+          <div className="absolute inset-0 flex items-center justify-center bg-[#0e0e1a] z-10">
             <Loader2 className="w-5 h-5 animate-spin text-neutral-500" />
           </div>
         )}

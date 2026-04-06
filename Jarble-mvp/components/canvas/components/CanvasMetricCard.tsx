@@ -103,13 +103,13 @@ const TREND_BG: Record<string, string> = {
 const TREND_ICON_BG: Record<string, string> = {
   positive: "bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
   negative: "bg-red-100 dark:bg-red-500/15 text-red-600 dark:text-red-400",
-  neutral: "bg-zinc-100 dark:bg-zinc-500/15 text-zinc-600 dark:text-zinc-400",
+  neutral: "bg-secondary text-muted-foreground",
 };
 
 const TREND_BORDER: Record<string, string> = {
   positive: "border-l-emerald-500",
   negative: "border-l-red-500",
-  neutral: "border-l-zinc-400 dark:border-l-zinc-600",
+  neutral: "border-l-muted-foreground",
 };
 
 // ---------------------------------------------------------------------------

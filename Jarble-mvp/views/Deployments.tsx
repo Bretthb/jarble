@@ -273,12 +273,12 @@ function statusDotColor(status: string): string {
     case "stopping":
       return "bg-orange-400";
     case "stopped":
-      return "bg-gray-400";
+      return "bg-muted-foreground";
     case "failed":
       return "bg-red-500";
     case "pending":
     default:
-      return "bg-gray-400";
+      return "bg-muted-foreground";
   }
 }
 
@@ -924,7 +924,7 @@ function contextScopeColor(scope?: ContextScope): string {
   switch (scope) {
     case "full": return "bg-red-500/10 text-red-400 border-red-500/20";
     case "summary": return "bg-amber-500/10 text-amber-400 border-amber-500/20";
-    default: return "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
+    default: return "bg-muted text-muted-foreground border-border";
   }
 }
 
@@ -1080,7 +1080,7 @@ function FlowDeploymentNode({
             className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium border ${
               data.canDelegate !== false
                 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                : "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
+                : "bg-muted text-muted-foreground border-border"
             }`}
           >
             {data.canDelegate !== false ? (

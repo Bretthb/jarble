@@ -149,7 +149,7 @@ export function SecretsTab({ deploymentId }: SecretsTabProps) {
                         <Bot className="h-3 w-3" /> agent
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:text-gray-400">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                         <User className="h-3 w-3" /> user
                       </span>
                     )}
