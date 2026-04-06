@@ -47,6 +47,7 @@ export default function OnboardingWizard() {
   const [isNavigating, setIsNavigating] = useState(false);
 
   // Simulate deploy progress (no streaming progress from API, so we animate it)
+  // Includes a 5-minute timeout to prevent infinite spinner if provisioning hangs
   useEffect(() => {
     if (!isDeploying) {
       setDeployProgress(0);
@@ -63,13 +64,25 @@ export default function OnboardingWizard() {
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+
+    // Timeout: if deploy takes longer than 5 minutes, stop spinner and redirect
+    const timeout = setTimeout(() => {
+      setIsDeploying(false);
+      toast.error("Deployment is taking longer than expected. Check the dashboard for status.");
+      router.replace("/dashboard");
+    }, 5 * 60 * 1000);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timeout);
+    };
   }, [isDeploying]);
 
   // Form state
   const [deploymentName, setDeploymentName] = useState("");
   const [selectedRuntimeId, setSelectedRuntimeId] = useState<number | null>(null);
   const [selectedRuntimeSlug, setSelectedRuntimeSlug] = useState<string | null>(null);
+  const [systemPrompt, setSystemPrompt] = useState("");
   const [llmMode, setLlmMode] = useState<"included" | "byok">("byok");
   const [llmProvider, setLlmProvider] = useState<LLMProviderDef["id"]>("openrouter");
   const [llmModel, setLlmModel] = useState<string>(DEFAULT_INCLUDED_MODEL);
@@ -291,7 +304,7 @@ export default function OnboardingWizard() {
           cpuLimit: cpuLimit || undefined,
           memoryMb: memoryMb || undefined,
           storageMb: storageMb || undefined,
-          systemPrompt: undefined,
+          systemPrompt: systemPrompt.trim() || undefined,
           orgId: activeOrgId ?? undefined,
         });
       }
@@ -446,6 +459,25 @@ export default function OnboardingWizard() {
                   selectedId={selectedRuntimeId}
                   onSelect={handleRuntimeSelect}
                 />
+              )}
+              {currentStepId === "prompt" && (
+                <div className="space-y-4">
+                  <div>
+                    <h2 className="text-xl font-semibold mb-1">System Prompt</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Tell your bot how to behave. This sets its personality, knowledge, and capabilities.
+                    </p>
+                  </div>
+                  <textarea
+                    className="w-full min-h-[200px] rounded-lg border border-border bg-background p-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                    placeholder="You are a helpful assistant that..."
+                    value={systemPrompt}
+                    onChange={(e) => setSystemPrompt(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Optional — you can always change this later in the deployment config.
+                  </p>
+                </div>
               )}
               {currentStepId === "llm" && (
                 <StepLlmSetup

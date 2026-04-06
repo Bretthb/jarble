@@ -16,7 +16,7 @@ import { startStatusReconciler } from "./services/statusReconciler.js";
 import { startServiceHealthCheck } from "./services/serviceHealthCheck.js";
 import { startWebhookCleanup } from "./services/webhookCleanup.js";
 import helmet from "helmet";
-import { globalLimiter, authLimiter } from "./middleware/rateLimit.js";
+import { globalLimiter, authLimiter, mutationLimiter } from "./middleware/rateLimit.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { requestLoggingMiddleware } from "./middleware/requestLogging.js";
 import { trpcCacheMiddleware } from "./middleware/cache.js";
@@ -135,11 +135,33 @@ app.use("/api/beta-signup", betaRouter);
 app.use("/api/flows", authLimiter, flowExecutionRouter);
 app.use("/api/flows", authLimiter, flowChatRouter);
 
-// Debug endpoints - dev only
+// Debug endpoints - dev only, with JWT verification as defense-in-depth
 if (env.NODE_ENV === "development") {
-  app.use("/debug", debugRouter);
-  app.get("/debug-sentry", (_req, _res) => { throw new Error("Sentry test error!"); });
-  logger.info("Debug endpoints enabled: /debug/db, /debug/deployment/:id/status, /debug/seed-deployment, /debug/deployment/:id/sync-config");
+  app.use("/debug", async (req, res, next) => {
+    const { verifyToken } = await import("./services/auth.js");
+    // Defense-in-depth: require a VALID JWT even in development mode.
+    // Prevents accidental exposure if NODE_ENV is misconfigured in production.
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!token) {
+      res.status(401).json({ error: "Debug endpoints require authentication" });
+      return;
+    }
+    try {
+      await verifyToken(token);
+      next();
+    } catch {
+      res.status(401).json({ error: "Invalid or expired token" });
+    }
+  }, debugRouter);
+  // Sentry test route also under /debug prefix so it inherits the auth guard
+  app.get("/debug/sentry-test", (_req, _res) => { throw new Error("Sentry test error!"); });
+  logger.info("Debug endpoints enabled (JWT-gated): /debug/db, /debug/deployment/:id/status, /debug/seed-deployment, /debug/deployment/:id/sync-config");
+} else {
+  // Explicitly block debug routes in non-development environments
+  app.use("/debug", (_req, res) => {
+    res.status(404).json({ error: "Not found" });
+  });
 }
 
 // A2A agent card - public discovery endpoint
@@ -156,7 +178,8 @@ app.get("/", (_req, res) => {
 });
 
 // tRPC handler - cache middleware sets Cache-Control on read-heavy queries
-app.use("/trpc", trpcCacheMiddleware(), authLimiter, createExpressMiddleware({
+// mutationLimiter (30/min) only fires on POST; authLimiter (120/min) covers all
+app.use("/trpc", trpcCacheMiddleware(), authLimiter, mutationLimiter, createExpressMiddleware({
   router: appRouter,
   createContext,
   onError: ({ error, path, ctx }) => {

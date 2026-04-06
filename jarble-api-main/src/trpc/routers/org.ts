@@ -7,6 +7,7 @@ import { createModuleLogger } from "../../utils/logger.js";
 import { customAlphabet } from "nanoid";
 import { sendOrgInviteEmail } from "../../services/email.js";
 import { env } from "../../utils/env.js";
+import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
 
 const log = createModuleLogger("trpc:org");
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
@@ -56,7 +57,7 @@ export const orgRouter = router({
   // Create a new organization (caller becomes owner)
   create: protectedProcedure
     .input(z.object({
-      name: z.string().min(1).max(100),
+      name: z.string().min(1).max(100).refine(noHtmlTags, NO_HTML_MESSAGE),
       slug: z.string().min(2).max(50).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, "Slug must be lowercase alphanumeric with hyphens"),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -159,7 +160,7 @@ export const orgRouter = router({
   update: protectedProcedure
     .input(z.object({
       orgId: z.string(),
-      name: z.string().min(1).max(100).optional(),
+      name: z.string().min(1).max(100).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
       avatarUrl: z.string().url().nullish(),
     }))
     .mutation(async ({ ctx, input }) => {

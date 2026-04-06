@@ -415,7 +415,6 @@ export default function Pricing() {
           </h2>
           <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
             Deploy your first AI agent in minutes.
-            Deploy your first agent in minutes.
           </p>
           <Button
             size="lg"

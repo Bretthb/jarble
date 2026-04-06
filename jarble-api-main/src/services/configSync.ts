@@ -25,7 +25,7 @@
  */
 
 import { db, tables, dbDate, getRowsAffected } from "../db/index.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import {
   writeConfigsToPvc,
   readConfigsFromPvc,
@@ -182,10 +182,18 @@ async function buildDeploymentFields(
   const serviceSnippets: Array<{ packageName: string; snippet: string }> = [];
   const remoteSkillConfigs: Array<{ packageId: string; skillName: string; proxyUrl: string }> = [];
 
-  for (const svcInstall of svcInstallRows) {
-    const svc = await db.query.marketplaceServices.findFirst({
-      where: eq(marketplaceServices.id, svcInstall.packageId),
+  // Batch-fetch all services in one query instead of N+1 per install
+  const svcPackageIds = [...new Set(svcInstallRows.map((r) => r.packageId).filter(Boolean))];
+  const svcMap = new Map<string, any>();
+  if (svcPackageIds.length > 0) {
+    const svcRows = await db.query.marketplaceServices.findMany({
+      where: inArray(marketplaceServices.id, svcPackageIds),
     });
+    for (const s of svcRows) svcMap.set(s.id, s);
+  }
+
+  for (const svcInstall of svcInstallRows) {
+    const svc = svcMap.get(svcInstall.packageId);
     if (!svc) continue;
 
     if (svc.instructionSnippet) {
@@ -302,41 +310,53 @@ async function buildDeploymentFields(
         // Collect unique flow IDs
         const flowIds = [...new Set(myMemberships.map((m: any) => m.flowId))];
 
-        // For each flow, find other members (team mates)
-        const seenDeploymentIds = new Set<string>();
+        // Batch-fetch all teammates across all flows in one query
+        const allTeamMates: any[] = [];
         for (const flowId of flowIds) {
-          const teamMates = await db.query.flowDeploymentMemberships?.findMany?.({
+          const mates = await db.query.flowDeploymentMemberships?.findMany?.({
             where: eq(memberships.flowId, flowId),
           });
-          if (!teamMates) continue;
+          if (mates) allTeamMates.push(...mates);
+        }
 
-          for (const mate of teamMates) {
-            // Exclude self and duplicates
-            if (mate.deploymentId === deployment.id) continue;
-            if (seenDeploymentIds.has(mate.deploymentId)) continue;
-            seenDeploymentIds.add(mate.deploymentId);
+        // Collect unique teammate deployment IDs (excluding self)
+        const seenDeploymentIds = new Set<string>();
+        const uniqueMates: any[] = [];
+        for (const mate of allTeamMates) {
+          if (mate.deploymentId === deployment.id) continue;
+          if (seenDeploymentIds.has(mate.deploymentId)) continue;
+          seenDeploymentIds.add(mate.deploymentId);
+          uniqueMates.push(mate);
+        }
 
-            // Look up deployment name
-            const mateDeployment = await db.query.deployments.findFirst({
-              where: eq(tables.deployments.id, mate.deploymentId),
-              columns: { id: true, name: true },
-            });
-            if (!mateDeployment) continue;
+        // Batch-fetch all teammate deployment names in ONE query instead of N+1
+        const mateDeploymentIds = [...seenDeploymentIds];
+        const mateDeploymentMap = new Map<string, { id: string; name: string }>();
+        if (mateDeploymentIds.length > 0) {
+          const mateDeployments = await db
+            .select({ id: tables.deployments.id, name: tables.deployments.name })
+            .from(tables.deployments)
+            .where(inArray(tables.deployments.id, mateDeploymentIds));
+          for (const d of mateDeployments) mateDeploymentMap.set(d.id, d);
+        }
 
-            // Derive slug from role or name: lowercase, alphanumeric + hyphens
-            const slugSource = mate.role || mateDeployment.name;
-            const slug = slugSource
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, "_")
-              .replace(/^_|_$/g, "");
+        for (const mate of uniqueMates) {
+          const mateDeployment = mateDeploymentMap.get(mate.deploymentId);
+          if (!mateDeployment) continue;
 
-            teamMembers.push({
-              deploymentId: mate.deploymentId,
-              name: mateDeployment.name,
-              role: mate.role ?? null,
-              slug,
-            });
-          }
+          // Derive slug from role or name: lowercase, alphanumeric + hyphens
+          const slugSource = mate.role || mateDeployment.name;
+          const slug = slugSource
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_")
+            .replace(/^_|_$/g, "");
+
+          teamMembers.push({
+            deploymentId: mate.deploymentId,
+            name: mateDeployment.name,
+            role: mate.role ?? null,
+            slug,
+          });
         }
       }
     }
