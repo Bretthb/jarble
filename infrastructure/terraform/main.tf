@@ -195,6 +195,19 @@ resource "hcloud_server" "master" {
     kubectl patch storageclass longhorn -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
     kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
 
+    # Wait for Longhorn DaemonSets to exist before patching
+    until kubectl -n longhorn-system get daemonset longhorn-manager >/dev/null 2>&1; do sleep 3; done
+    until kubectl -n longhorn-system get daemonset longhorn-csi-plugin >/dev/null 2>&1; do sleep 3; done
+
+    # Patch Longhorn DaemonSets so they schedule onto jarble-auto-* nodes,
+    # which are tainted with jarble.ai/workload=agent:NoSchedule by nodeManager.ts.
+    # See docs/audits/qa-bot-teams-2026-04-07.md and docs/audits/autoscaler-csi-fix-plan.md
+    for DS in longhorn-manager longhorn-csi-plugin; do
+      kubectl -n longhorn-system patch daemonset "$DS" --type=json -p='[
+        {"op":"add","path":"/spec/template/spec/tolerations/-","value":{"key":"jarble.ai/workload","operator":"Equal","value":"agent","effect":"NoSchedule"}}
+      ]' || true
+    done
+
     # Install cert-manager for automatic TLS certificate provisioning
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.5/cert-manager.yaml
     kubectl rollout status deployment/cert-manager -n cert-manager --timeout=120s

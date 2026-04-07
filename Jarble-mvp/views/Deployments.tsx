@@ -2535,6 +2535,11 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
       uiBlockCount?: number;
       error?: string;
     }>;
+    skip?: {
+      reason: "no_tools_available" | "tool_call_not_emitted" | "mentioned_but_not_emitted";
+      availableToolCount: number;
+      availableTools: string[];
+    };
   }>>([]);
   const [flowChatInput, setFlowChatInput] = useState("");
   const [flowChatLoading, setFlowChatLoading] = useState(false);
@@ -2638,6 +2643,23 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                       return [...prev.slice(0, -1), { ...last, delegations }];
                     }
                     return prev;
+                  });
+                } else if (name === "jarble.flow.delegation.skipped") {
+                  // Surface WHY delegation didn't happen. See Fix #6 in
+                  // docs/audits/qa-bot-teams-2026-04-07.md — the key case is
+                  // `mentioned_but_not_emitted` where the bot claims to delegate
+                  // but never emits a valid tool_call JSON block.
+                  const skip = {
+                    reason: value.reason as "no_tools_available" | "tool_call_not_emitted" | "mentioned_but_not_emitted",
+                    availableToolCount: value.availableToolCount ?? 0,
+                    availableTools: Array.isArray(value.availableTools) ? value.availableTools : [],
+                  };
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === "assistant") {
+                      return [...prev.slice(0, -1), { ...last, skip }];
+                    }
+                    return [...prev, { role: "assistant", content: "", skip }];
                   });
                 }
               }
@@ -2807,6 +2829,23 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                               )}
                             </div>
                           ))}
+                        </div>
+                      )}
+                      {/* Delegation skipped indicator (Fix #6 — surface silent failure) */}
+                      {msg.skip && msg.skip.reason === "mentioned_but_not_emitted" && (
+                        <div className="mt-2 p-2 rounded border border-amber-400/30 bg-amber-500/5 text-[10px] text-amber-300">
+                          <div className="font-medium">Delegation didn't actually run</div>
+                          <div className="text-amber-300/80 mt-0.5">
+                            The entry bot claimed to delegate but never emitted a valid tool call.
+                            {msg.skip.availableTools.length > 0 && (
+                              <> Available: {msg.skip.availableTools.join(", ")}.</>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {msg.skip && msg.skip.reason === "tool_call_not_emitted" && msg.skip.availableToolCount > 0 && (
+                        <div className="mt-2 text-[10px] text-muted-foreground italic">
+                          Entry bot answered directly ({msg.skip.availableToolCount} team tool{msg.skip.availableToolCount === 1 ? "" : "s"} available, none used)
                         </div>
                       )}
                     </div>

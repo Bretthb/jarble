@@ -638,7 +638,58 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       }
 
     } else {
-      // No delegation - stream the entry bot's response directly
+      // Delegation was not performed. One of three cases:
+      //   1. no_tools_available       — entry bot has no outgoing "delegates" edges (normal)
+      //   2. tool_call_not_emitted    — tools were available, bot just answered directly
+      //   3. mentioned_but_not_emitted — bot said "I delegated to X" in natural language
+      //                                  but did not emit the ```json tool call block the
+      //                                  parser requires. This is a SILENT FAILURE MODE
+      //                                  that leaves users waiting for an answer that
+      //                                  never comes. See docs/audits/qa-bot-teams-2026-04-07.md
+      // Emit a diagnostic event so the frontend (and logs) can surface WHY no delegation
+      // happened instead of falling through silently to the bot's natural-language text.
+      const hasDelegationMention = /\b(delegat(e|ing|ed)|ask(ed|ing)?\s+the\s+(specialist|researcher|team|expert|coordinator)|pass(ed|ing)?\s+(this|it)\s+to|hand(ing|ed)?\s+off\s+to)\b/i.test(
+        entryResult.text ?? "",
+      );
+      let skipReason: "no_tools_available" | "tool_call_not_emitted" | "mentioned_but_not_emitted";
+      if (delegationTools.length === 0) {
+        skipReason = "no_tools_available";
+      } else if (hasDelegationMention) {
+        skipReason = "mentioned_but_not_emitted";
+        log.warn(
+          {
+            flowId,
+            entryNodeId: entryNode.id,
+            availableTools: delegationTools.map((t) => t.name),
+            rawTextPreview: entryResult.rawText.slice(0, 500),
+          },
+          "Bot mentioned delegation in natural language but did not emit a valid tool_call JSON block — silent delegation failure",
+        );
+      } else {
+        skipReason = "tool_call_not_emitted";
+        if (delegationTools.length > 0) {
+          log.info(
+            {
+              flowId,
+              entryNodeId: entryNode.id,
+              availableToolCount: delegationTools.length,
+            },
+            "Delegation tools available but entry bot answered directly without delegating",
+          );
+        }
+      }
+
+      sendEvent(res, {
+        type: CUSTOM,
+        name: "jarble.flow.delegation.skipped",
+        value: {
+          reason: skipReason,
+          availableToolCount: delegationTools.length,
+          availableTools: delegationTools.map((t) => t.name),
+        },
+      });
+
+      // Stream the entry bot's response directly
       // Strip reasoning tags for clean display
       const cleanText = entryResult.text
         .replace(/<(think|reasoning)>[\s\S]*?<\/\1>/gi, "")

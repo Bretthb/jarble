@@ -1194,7 +1194,38 @@ tamboAgentRouter.post("/", async (req, res) => {
       try {
         const delegationCalls = parseDelegationCalls(gatewayResult.rawText);
 
-        if (delegationCalls.length > 0) {
+        if (delegationCalls.length === 0) {
+          // Fix #6 — surface silent delegation failure.
+          // See docs/audits/qa-bot-teams-2026-04-07.md for root cause.
+          // When a deployment is part of a team, tools were built successfully, but
+          // the bot didn't emit a valid ```json tool_call block, flag it explicitly
+          // instead of falling through to "direct answer" mode without a trace.
+          const hasDelegationMention = /\b(delegat(e|ing|ed)|ask(ed|ing)?\s+the\s+(specialist|researcher|team|expert|coordinator)|pass(ed|ing)?\s+(this|it)\s+to|hand(ing|ed)?\s+off\s+to)\b/i.test(
+            gatewayResult.rawText ?? "",
+          );
+          const skipReason = hasDelegationMention
+            ? ("mentioned_but_not_emitted" as const)
+            : ("tool_call_not_emitted" as const);
+          if (hasDelegationMention) {
+            log.warn(
+              {
+                deploymentId,
+                availableTools: teamDelegationTools.map((t) => t.name),
+                rawTextPreview: gatewayResult.rawText.slice(0, 500),
+              },
+              "Bot mentioned delegation but did not emit a valid tool_call JSON block — silent delegation failure (tamboAgent path)",
+            );
+          }
+          safeSendEvent(res, {
+            type: CUSTOM,
+            name: "jarble.flow.delegation.skipped",
+            value: {
+              reason: skipReason,
+              availableToolCount: teamDelegationTools.length,
+              availableTools: teamDelegationTools.map((t) => t.name),
+            },
+          });
+        } else if (delegationCalls.length > 0) {
           log.info(
             { deploymentId, delegationCount: delegationCalls.length },
             "Chat: processing delegation calls from bot response",
