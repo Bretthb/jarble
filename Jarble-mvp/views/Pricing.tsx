@@ -1,72 +1,162 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
+import { useAuth0 } from "@auth0/auth0-react";
 import {
-  Zap,
-  HelpCircle,
+  Check,
   ArrowRight,
-  Building2,
-  MessageSquare,
   Cpu,
   HardDrive,
   MemoryStick,
   Key,
+  Zap,
+  HelpCircle,
+  Building2,
+  MessageSquare,
 } from "lucide-react";
-import { useAuth0 } from "@auth0/auth0-react";
+import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import MarketingNav from "@/components/marketing/MarketingNav";
 import MarketingFooter from "@/components/marketing/MarketingFooter";
 
-import { trpc } from "@/lib/trpc";
+/* ── Tier definitions ─────────────────────────────────────────────────── */
 
+interface Tier {
+  name: string;
+  price: number;
+  description: string;
+  specs: { cpu: string; ram: string; storage: string };
+  features: string[];
+  highlight?: boolean;
+  dedicated?: boolean;
+  cta: string;
+}
+
+const TIERS: Tier[] = [
+  {
+    name: "S",
+    price: 14,
+    description: "For testing and light workloads.",
+    specs: { cpu: "2 shared vCPU", ram: "2 GB", storage: "40 GB" },
+    features: [
+      "Web chat interface with canvas",
+      "30+ built-in components",
+      "Connect WhatsApp, Discord, Slack, Telegram",
+      "Bring your own LLM key or managed credits",
+      "Community support",
+    ],
+    cta: "Get Started",
+  },
+  {
+    name: "M",
+    price: 28,
+    description: "The recommended tier for production agents.",
+    specs: { cpu: "3 shared vCPU", ram: "4 GB", storage: "80 GB" },
+    features: [
+      "Everything in S",
+      "Handles concurrent traffic",
+      "MCP tool connections",
+      "Skills & component marketplace",
+      "Agent orchestration (flow engine)",
+      "Priority support",
+    ],
+    highlight: true,
+    cta: "Start Building",
+  },
+  {
+    name: "L",
+    price: 50,
+    description: "For high-throughput agents and heavier workloads.",
+    specs: { cpu: "4 shared vCPU", ram: "8 GB", storage: "160 GB" },
+    features: [
+      "Everything in M",
+      "2x the RAM for complex tasks",
+      "Subagent delegation",
+      "Publish to marketplace & earn",
+      "Dedicated support",
+    ],
+    cta: "Scale Up",
+  },
+  {
+    name: "XL",
+    price: 80,
+    description: "Dedicated CPU for maximum performance.",
+    specs: { cpu: "4 dedicated vCPU", ram: "16 GB", storage: "160 GB" },
+    dedicated: true,
+    features: [
+      "Everything in L",
+      "Dedicated CPU (not shared)",
+      "16 GB RAM for demanding workloads",
+      "Guaranteed compute — no noisy neighbors",
+      "Dedicated support + SLA",
+    ],
+    cta: "Go Dedicated",
+  },
+];
+
+const INCLUDED_EVERYWHERE = [
+  "Unlimited organizations (free)",
+  "Unlimited team members",
+  "Full canvas UI (30+ components)",
+  "Any LLM model via OpenRouter",
+  "Persistent storage across restarts",
+  "Real-time SSE streaming",
+  "Two-way config sync",
+];
 
 const FAQ = [
   {
-    question: "What is a deployment?",
-    answer: "A deployment is a running AI instance on our infrastructure. Each deployment gets its own persistent storage, configuration, and platform connections. Think of it as your own dedicated AI agent."
+    question: "What does 'per agent' mean?",
+    answer:
+      "Each deployment (agent) is its own isolated pod with dedicated CPU, RAM, and storage. You pay per agent you have running.",
   },
   {
-    question: "How is pricing calculated?",
-    answer: "Pricing is based on the runtime you choose. Each runtime has preset hardware specs (CPU, RAM, Storage) and a fixed monthly price. You only pay for what you deploy - no hidden fees."
+    question: "Do I pay for team members or organizations?",
+    answer:
+      "No. Organizations and team members are always free. You only pay for the agents you deploy.",
   },
   {
-    question: "Can I use my own API keys?",
-    answer: "Yes! You can bring your own OpenRouter API key (BYOK) for full control over model selection and costs. Or use our included credits for a simpler experience."
+    question: "Can I bring my own LLM API key?",
+    answer:
+      "Yes. Bring your own key from OpenAI, Anthropic, Google, or OpenRouter — we never mark up AI costs. Or use our managed credits if you prefer.",
+  },
+  {
+    question: "What happens when I stop an agent?",
+    answer:
+      "Stopped agents don't incur compute costs. Your data and config persist on storage — restart anytime and pick up where you left off.",
+  },
+  {
+    question: "Can I upgrade or downgrade?",
+    answer:
+      "Yes. Change your plan anytime. Upgrades take effect immediately, downgrades at the end of your billing period.",
   },
   {
     question: "What platforms can I connect?",
-    answer: "We support WhatsApp, Discord, Slack, and Telegram. Each deployment also gets a built-in web chat interface at its unique URL."
-  },
-  {
-    question: "Can I create multiple deployments?",
-    answer: "Absolutely! There are no deployment limits. Create as many deployments as you need - each is billed separately based on its runtime."
-  },
-  {
-    question: "How do I publish an agent to the marketplace?",
-    answer: "Once you have a deployment running, you can publish it to the marketplace from your dashboard. Set a monthly price, write a description, and submit for review. Once approved, businesses can deploy your agent with one click."
+    answer:
+      "WhatsApp, Discord, Slack, and Telegram. Each deployment also gets a built-in web chat interface at its unique URL.",
   },
   {
     question: "How do builders earn money?",
-    answer: "When a business deploys your marketplace agent, they pay a monthly subscription that includes your listing price. Jarble takes a platform fee and the rest is paid to you as the builder. You earn on every active deployment of your agent."
+    answer:
+      "Publish your agent to the marketplace and set a monthly price. When a business deploys it, you earn on every active subscription. Jarble takes a platform fee — you keep the rest.",
   },
   {
-    question: "What is the difference between building my own agent and deploying from the marketplace?",
-    answer: "Building your own agent gives you full control — you write the system prompt, choose the model, and configure everything from scratch. Deploying from the marketplace lets you start with a pre-built agent from another builder, which you can use as-is or fork and customize."
+    question: "Do you offer custom plans?",
+    answer:
+      "Need more compute, higher concurrency, or dedicated infrastructure? Contact us and we'll put together a plan that fits.",
   },
 ];
+
+/* ── Component ────────────────────────────────────────────────────────── */
 
 export default function Pricing() {
   const { isAuthenticated, loginWithRedirect } = useAuth0();
   const router = useRouter();
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
-  // Fetch runtimes from API
-  const runtimesQuery = trpc.runtimeCatalog.list.useQuery();
-
-  const handleGetStarted = () => {
+  const handleCta = () => {
     if (isAuthenticated) {
-      router.push("/onboarding/new");
+      router.push("/dashboard");
     } else {
       loginWithRedirect();
     }
@@ -76,308 +166,257 @@ export default function Pricing() {
     <div className="min-h-screen bg-background text-foreground relative">
       <MarketingNav />
 
-      {/* Hero */}
-      <section className="pt-32 pb-16 relative z-10">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center animate-fade-in-up">
-          <h1 className="text-5xl lg:text-6xl font-serif font-medium mb-6">
-            Simple, Pay-As-You-Go
-            <span className="block text-primary">Pricing</span>
+      {/* ── Header ──────────────────────────────────────────────────── */}
+      <section className="pt-32 pb-16 px-4">
+        <div className="max-w-4xl mx-auto text-center space-y-4 animate-fade-in-up">
+          <h1 className="text-5xl lg:text-6xl font-serif font-medium tracking-tight">
+            Simple, transparent
+            <span className="block text-primary">infrastructure pricing.</span>
           </h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-6">
-            Pick a runtime, deploy instantly. Pay only for what you use.
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            Pay for the compute your agents use. No seat fees, no AI markup, no
+            surprises. Organizations and team members are always free.
           </p>
         </div>
       </section>
 
-      {/* Compute Pricing - Runtime Cards */}
-      <section className="pb-20 relative z-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <div className="flex items-center justify-center gap-2 text-primary font-medium mb-4">
-              <Cpu className="w-5 h-5" />
-              Compute
-            </div>
-            <h2 className="text-3xl font-serif font-medium mb-2">Runtime Catalog</h2>
-            <p className="text-muted-foreground">Each runtime comes with preset hardware - choose what fits your needs</p>
-          </div>
+      {/* ── Tier cards ──────────────────────────────────────────────── */}
+      <section className="pb-24 px-4">
+        <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {TIERS.map((tier) => (
+            <div
+              key={tier.name}
+              className={`relative rounded-2xl border p-8 flex flex-col animate-fade-in-up-fast ${
+                tier.highlight
+                  ? "border-primary bg-primary/[0.03] shadow-lg shadow-primary/5"
+                  : "border-border bg-card"
+              }`}
+            >
+              {tier.highlight && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-primary text-primary-foreground text-xs font-medium">
+                  Recommended
+                </span>
+              )}
+              {tier.dedicated && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-foreground text-background text-xs font-medium">
+                  Dedicated CPU
+                </span>
+              )}
 
-          {runtimesQuery.isLoading ? (
-            <div className="flex justify-center py-12">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : runtimesQuery.isError ? (
-            <div className="flex flex-col items-center py-12 text-center">
-              <p className="text-muted-foreground mb-3">Failed to load runtimes</p>
-              <button onClick={() => runtimesQuery.refetch()} className="text-sm text-primary hover:underline">
-                Try again
-              </button>
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-2 gap-6">
-              {(runtimesQuery.data ?? []).map((runtime: {
-                id: number;
-                slug: string;
-                name: string;
-                description: string | null;
-                cpuLimit: string;
-                memoryMb: number;
-                storageMb: number;
-                monthlyPriceCents: number;
-              }) => (
-                <div
-                  key={runtime.id}
-                  className="relative rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border hover:border-primary/50 transition-all animate-fade-in-up-fast"
-                >
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${
-                      runtime.slug === "openclaw"
-                        ? "bg-gradient-to-br from-purple-500 to-blue-500"
-                        : "bg-gradient-to-br from-emerald-500 to-teal-500"
-                    }`}>
-                      <Cpu className="w-7 h-7 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-serif font-medium">{runtime.name}</h3>
-                      <p className="text-sm text-muted-foreground">{runtime.description}</p>
-                    </div>
-                  </div>
-
-                  {/* Hardware Specs */}
-                  <div className="grid grid-cols-3 gap-3 mb-6">
-                    <div className="flex flex-col items-center p-3 rounded-lg bg-secondary/50 border border-border">
-                      <Cpu className="w-4 h-4 text-primary mb-1" />
-                      <span className="text-sm font-semibold">{runtime.cpuLimit}</span>
-                      <span className="text-xs text-muted-foreground">vCPU</span>
-                    </div>
-                    <div className="flex flex-col items-center p-3 rounded-lg bg-secondary/50 border border-border">
-                      <MemoryStick className="w-4 h-4 text-primary mb-1" />
-                      <span className="text-sm font-semibold">{runtime.memoryMb}</span>
-                      <span className="text-xs text-muted-foreground">MB RAM</span>
-                    </div>
-                    <div className="flex flex-col items-center p-3 rounded-lg bg-secondary/50 border border-border">
-                      <HardDrive className="w-4 h-4 text-primary mb-1" />
-                      <span className="text-sm font-semibold">{runtime.storageMb}</span>
-                      <span className="text-xs text-muted-foreground">MB Storage</span>
-                    </div>
-                  </div>
-
-                  {/* Price */}
-                  <div className="text-center mb-6">
-                    {runtime.monthlyPriceCents > 0 ? (
-                      <div className="flex items-baseline justify-center gap-1">
-                        <span className="text-3xl font-bold">${(runtime.monthlyPriceCents / 100).toFixed(0)}</span>
-                        <span className="text-muted-foreground">/mo</span>
-                      </div>
-                    ) : (
-                      <span className="text-2xl font-bold text-muted-foreground">Pricing TBD</span>
-                    )}
-                  </div>
-
-                  <Button
-                    onClick={handleGetStarted}
-                    className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
-                  >
-                    Get Started
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
+              <div className="space-y-4 mb-8">
+                <h3 className="text-xl font-semibold">{tier.name}</h3>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-4xl font-bold">${tier.price}</span>
+                  <span className="text-muted-foreground">/mo per agent</span>
                 </div>
-              ))}
+                <p className="text-sm text-muted-foreground">
+                  {tier.description}
+                </p>
+              </div>
+
+              {/* Specs */}
+              <div className="flex gap-4 mb-6 pb-6 border-b border-border">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Cpu className="w-3.5 h-3.5" />
+                  {tier.specs.cpu}
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <MemoryStick className="w-3.5 h-3.5" />
+                  {tier.specs.ram}
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <HardDrive className="w-3.5 h-3.5" />
+                  {tier.specs.storage}
+                </div>
+              </div>
+
+              {/* Features */}
+              <ul className="space-y-3 mb-8 flex-1">
+                {tier.features.map((feature) => (
+                  <li key={feature} className="flex gap-2 text-sm">
+                    <Check className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                    <span>{feature}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <Button
+                onClick={handleCta}
+                className={`w-full rounded-full font-medium ${
+                  tier.highlight
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                }`}
+              >
+                {tier.cta}
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
             </div>
-          )}
+          ))}
         </div>
       </section>
 
-      {/* LLM Credits Pricing */}
-      <section className="py-20 relative z-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* ── Included everywhere ─────────────────────────────────────── */}
+      <section className="py-20 px-4 border-t border-border">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-2xl font-serif font-medium text-center mb-10">
+            Included with every plan
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {INCLUDED_EVERYWHERE.map((item) => (
+              <div key={item} className="flex gap-3 items-center">
+                <Check className="w-4 h-4 text-primary flex-shrink-0" />
+                <span className="text-sm text-muted-foreground">{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── LLM Credits ─────────────────────────────────────────────── */}
+      <section className="py-20 px-4 border-t border-border">
+        <div className="max-w-4xl mx-auto">
           <div className="text-center mb-12">
-            <div className="flex items-center justify-center gap-2 text-primary font-medium mb-4">
-              LLM Credits
-            </div>
-            <h2 className="text-3xl font-serif font-medium mb-2">AI Model Access</h2>
-            <p className="text-muted-foreground">Choose how your deployments access AI models</p>
+            <h2 className="text-2xl font-serif font-medium mb-2">
+              AI Model Access
+            </h2>
+            <p className="text-muted-foreground">
+              Choose how your agents access AI models
+            </p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-6">
             {/* BYOK */}
-            <div className="relative rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-primary shadow-lg animate-fade-in-up-fast">
+            <div className="rounded-2xl p-6 border border-primary bg-primary/[0.03] shadow-lg shadow-primary/5 animate-fade-in-up-fast">
               <div className="flex items-center gap-4 mb-4">
-                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-                  <Key className="w-7 h-7 text-white" />
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
+                  <Key className="w-6 h-6 text-white" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-xl font-serif font-medium">Bring Your Own Key</h3>
+                    <h3 className="text-lg font-semibold">
+                      Bring Your Own Key
+                    </h3>
                     <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
                       Recommended
                     </span>
                   </div>
-                  <p className="text-sm text-muted-foreground">Full control with your own OpenRouter API key</p>
+                  <p className="text-sm text-muted-foreground">
+                    Use your own OpenRouter, OpenAI, Anthropic, or Google key
+                  </p>
                 </div>
               </div>
 
-              <div className="text-center mb-6">
-                <span className="text-3xl font-bold">Free</span>
-                <p className="text-sm text-muted-foreground mt-1">You pay OpenRouter directly</p>
+              <div className="mb-4">
+                <span className="text-2xl font-bold">Free</span>
+                <span className="text-sm text-muted-foreground ml-2">
+                  — you pay your provider directly
+                </span>
               </div>
 
-              <ul className="space-y-3 mb-6">
-                <li className="flex items-start gap-2 text-sm">
-                  <span className="text-primary mt-0.5">&#10003;</span>
-                  <span>Access to all models (GPT-4, Claude, Llama, etc.)</span>
-                </li>
-                <li className="flex items-start gap-2 text-sm">
-                  <span className="text-primary mt-0.5">&#10003;</span>
-                  <span>Full control over model selection and costs</span>
-                </li>
-                <li className="flex items-start gap-2 text-sm">
-                  <span className="text-primary mt-0.5">&#10003;</span>
-                  <span>Pay only for what you use</span>
-                </li>
-                <li className="flex items-start gap-2 text-sm">
-                  <span className="text-primary mt-0.5">&#10003;</span>
-                  <span>No markup on API costs</span>
-                </li>
+              <ul className="space-y-2">
+                {[
+                  "Access to all models (GPT-4, Claude, Llama, Gemini)",
+                  "Full control over model selection and costs",
+                  "No markup on API costs — ever",
+                ].map((item) => (
+                  <li key={item} className="flex gap-2 text-sm">
+                    <Check className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                    <span>{item}</span>
+                  </li>
+                ))}
               </ul>
-
-              <Button
-                onClick={handleGetStarted}
-                className="w-full rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
-              >
-                Get Started with BYOK
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
             </div>
 
-            {/* Included Credits */}
-            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border animate-fade-in-up-fast">
+            {/* Managed Credits */}
+            <div className="rounded-2xl p-6 border border-border bg-card animate-fade-in-up-fast">
               <div className="flex items-center gap-4 mb-4">
-                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
-                  <Zap className="w-7 h-7 text-white" />
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+                  <Zap className="w-6 h-6 text-white" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-xl font-serif font-medium">Included Credits</h3>
+                    <h3 className="text-lg font-semibold">Managed Credits</h3>
                     <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
                       Coming Soon
                     </span>
                   </div>
-                  <p className="text-sm text-muted-foreground">We handle everything - just deploy and go</p>
+                  <p className="text-sm text-muted-foreground">
+                    We handle everything — just deploy and go
+                  </p>
                 </div>
               </div>
 
-              <div className="text-center mb-6">
-                <span className="text-2xl font-bold text-muted-foreground">Pricing TBD</span>
-                <p className="text-sm text-muted-foreground mt-1">Monthly credit packages</p>
+              <div className="mb-4">
+                <span className="text-2xl font-bold text-muted-foreground">
+                  TBD
+                </span>
+                <span className="text-sm text-muted-foreground ml-2">
+                  — monthly credit packages
+                </span>
               </div>
 
-              <ul className="space-y-3 mb-6">
-                <li className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
-                  <span>No API key needed</span>
-                </li>
-                <li className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
-                  <span>Pre-configured model selection</span>
-                </li>
-                <li className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
-                  <span>Simple monthly billing</span>
-                </li>
-                <li className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <span className="text-muted-foreground/50 mt-0.5">&#10003;</span>
-                  <span>Managed by Jarble via OpenRouter</span>
-                </li>
+              <ul className="space-y-2">
+                {[
+                  "No API key needed",
+                  "Pre-configured model selection",
+                  "Simple monthly billing via Jarble",
+                ].map((item) => (
+                  <li
+                    key={item}
+                    className="flex gap-2 text-sm text-muted-foreground"
+                  >
+                    <Check className="w-4 h-4 text-muted-foreground/50 mt-0.5 flex-shrink-0" />
+                    <span>{item}</span>
+                  </li>
+                ))}
               </ul>
-
-              <Button
-                disabled
-                className="w-full rounded-full opacity-50"
-              >
-                Coming Soon
-              </Button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Builder Economics */}
-      <section className="py-20 relative z-10 border-t border-border">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-serif font-medium mb-2">Builder Economics</h2>
-            <p className="text-muted-foreground">Publish agents to the marketplace and earn on every deployment</p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-6 mb-10">
-            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border text-center animate-fade-in-up-fast">
-              <div className="text-4xl font-bold text-primary mb-2">Publish</div>
-              <p className="text-foreground font-medium mb-2">List your agent</p>
-              <p className="text-sm text-muted-foreground">Set a monthly price. Your agent appears in the marketplace for businesses to discover and deploy.</p>
-            </div>
-            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-primary text-center animate-fade-in-up-fast shadow-lg">
-              <div className="text-4xl font-bold text-primary mb-2">Earn</div>
-              <p className="text-foreground font-medium mb-2">Per deployment</p>
-              <p className="text-sm text-muted-foreground">Every time a business deploys your agent, you earn. Revenue share on every active subscription.</p>
-            </div>
-            <div className="rounded-2xl p-6 border bg-card/80 backdrop-blur-md border-border text-center animate-fade-in-up-fast">
-              <div className="text-4xl font-bold text-primary mb-2">Fork</div>
-              <p className="text-foreground font-medium mb-2">Build on what works</p>
-              <p className="text-sm text-muted-foreground">Fork any public marketplace agent, customize it with your own prompt and tools, republish as a new listing.</p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl p-6 border bg-secondary/20 border-border animate-fade-in-up-fast">
-            <div className="flex items-center gap-3 mb-3">
-              <Building2 className="w-5 h-5 text-primary flex-shrink-0" />
-              <p className="font-medium">How the marketplace works</p>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Businesses pay the agent&apos;s monthly listing price when they deploy. Jarble takes a platform fee; the rest goes to the builder. Infrastructure costs (hosting, compute) are separate and billed to the business directly. You keep what you earn.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Enterprise Section */}
-      <section className="py-16 relative z-10">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="bg-card/80 backdrop-blur-md border border-border rounded-2xl p-8 md:p-12 text-center shadow-sm">
+      {/* ── Enterprise CTA ──────────────────────────────────────────── */}
+      <section className="py-16 px-4 border-t border-border">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-card border border-border rounded-2xl p-8 md:p-12 text-center">
             <div className="flex justify-center mb-6">
-              <div className="w-16 h-16 rounded-2xl bg-secondary/80 flex items-center justify-center">
+              <div className="w-16 h-16 rounded-2xl bg-secondary flex items-center justify-center">
                 <Building2 className="w-8 h-8 text-primary" />
               </div>
             </div>
-            <h2 className="text-3xl font-serif font-medium mb-4">Need More?</h2>
+            <h2 className="text-3xl font-serif font-medium mb-4">
+              Need More?
+            </h2>
             <p className="text-lg text-muted-foreground mb-8 max-w-xl mx-auto">
-              For teams with custom requirements, dedicated infrastructure,
-              or enterprise security needs.
+              Custom compute, dedicated infrastructure, SSO, audit logs, or SLAs
+              — let&apos;s talk.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={() => window.location.href = "mailto:hello@jarble.ai"}
-                className="rounded-full border-input bg-background/50 backdrop-blur-sm hover:bg-secondary/50"
-              >
-                <MessageSquare className="w-5 h-5 mr-2" />
-                Contact Us
-              </Button>
-            </div>
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={() =>
+                (window.location.href = "mailto:hello@jarble.ai")
+              }
+              className="rounded-full"
+            >
+              <MessageSquare className="w-5 h-5 mr-2" />
+              Contact Us
+            </Button>
           </div>
         </div>
       </section>
 
-      {/* FAQ Section */}
-      <section className="py-20 relative z-10">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12 animate-fade-in-up">
+      {/* ── FAQ ─────────────────────────────────────────────────────── */}
+      <section className="py-20 px-4 border-t border-border">
+        <div className="max-w-3xl mx-auto">
+          <div className="text-center mb-12">
             <div className="flex items-center justify-center gap-2 text-primary font-medium mb-4">
               <HelpCircle className="w-5 h-5" />
               FAQ
             </div>
             <h2 className="text-3xl font-serif font-medium">
-              Frequently Asked Questions
+              Common Questions
             </h2>
           </div>
 
@@ -385,19 +424,23 @@ export default function Pricing() {
             {FAQ.map((item, i) => (
               <div
                 key={item.question}
-                className="bg-card/80 backdrop-blur-md border border-border rounded-xl overflow-hidden animate-fade-in-up-fast"
+                className="bg-card border border-border rounded-xl overflow-hidden"
               >
                 <button
                   onClick={() => setOpenFaq(openFaq === i ? null : i)}
                   className="w-full px-6 py-4 text-left flex items-center justify-between hover:bg-secondary/30 transition-colors"
                 >
                   <span className="font-medium">{item.question}</span>
-                  <span className={`transform transition-transform ${openFaq === i ? "rotate-180" : ""}`}>
+                  <span
+                    className={`transform transition-transform text-muted-foreground ${
+                      openFaq === i ? "rotate-180" : ""
+                    }`}
+                  >
                     &#x25BC;
                   </span>
                 </button>
                 {openFaq === i && (
-                  <div className="px-6 pb-4 text-muted-foreground">
+                  <div className="px-6 pb-4 text-sm text-muted-foreground">
                     {item.answer}
                   </div>
                 )}
@@ -407,22 +450,22 @@ export default function Pricing() {
         </div>
       </section>
 
-      {/* Final CTA */}
-      <section className="py-20 relative z-10">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-4xl font-serif font-medium mb-6">
-            Ready to Get Started?
+      {/* ── Final CTA ───────────────────────────────────────────────── */}
+      <section className="py-20 px-4 border-t border-border">
+        <div className="max-w-2xl mx-auto text-center space-y-6">
+          <h2 className="text-3xl font-serif font-medium">
+            Ready to deploy your first agent?
           </h2>
-          <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
-            Deploy your first AI agent in minutes.
+          <p className="text-muted-foreground">
+            Get started in minutes. No credit card required to explore.
           </p>
           <Button
             size="lg"
-            onClick={handleGetStarted}
-            className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 font-medium"
+            onClick={handleCta}
+            className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-8 font-medium"
           >
-            <Zap className="w-5 h-5 mr-2" />
             Start Building
+            <ArrowRight className="w-5 h-5 ml-2" />
           </Button>
         </div>
       </section>
