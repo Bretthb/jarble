@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../middleware.js";
 import { db, tables, dbDate } from "../../db/index.js";
-import { eq, ne, desc, asc, and, sql } from "drizzle-orm";
+import { eq, ne, desc, asc, and, or, sql, inArray, lt } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createModuleLogger } from "../../utils/logger.js";
 import { customAlphabet } from "nanoid";
@@ -69,13 +69,12 @@ const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
 // Production hypothesis (2026-04-07): the table was empty against 29 flows.
 // The most likely cause is FK violations on stale `deploymentId` references
 // (a flow node references a deployment that was deleted, never existed, or
-// belongs to a different org). Each insert is independent (no transaction),
-// so the first FK violation throws and the catch block at the call site used
-// to silently swallow the error at WARN level. Upgraded to ERROR + offending
-// node detail so the next occurrence is diagnosable. The trigger chain below
-// also fires `syncConfigsToPvc` for both OLD and NEW affected deployments so
-// even if memberships sync partially fails, the surviving bots get fresh
-// soul.md.
+// belongs to a different org). Strategy D (validator below) prevents NEW
+// orphans. Strategy E (deployment.delete flow rewrite) clears EXISTING ones.
+// The silent catch was upgraded to ERROR + offending node detail, and the
+// trigger chain fires `syncConfigsToPvc` for both OLD and NEW affected
+// deployments so even if memberships sync partially fails, the surviving
+// bots get fresh soul.md.
 
 /**
  * Read the current deploymentIds bound to a flow. Used to compute the OLD
@@ -98,13 +97,29 @@ async function getCurrentMembershipDeploymentIds(flowId: string): Promise<Set<st
 }
 
 /**
- * Extract deploymentIds from a flow definition's nodes. Used for the NEW side
- * of the OLD ∪ NEW union, and also as the source for syncFlowMemberships inserts.
+ * Collect every deploymentId referenced anywhere inside a flow definition.
+ *
+ * Reads both the canonical top-level `node.deploymentId` field and the
+ * defensive nested `node.config.deploymentId` (used by some node types like
+ * `subflow` and `waitForInput` that pass per-node config through). The
+ * returned Set is naturally deduplicated.
  */
-function getDefinitionDeploymentIds(definition: { nodes?: any[] }): Set<string> {
+export function getDefinitionDeploymentIds(
+  definition: { nodes?: any[] } | null | undefined,
+): Set<string> {
   const ids = new Set<string>();
   for (const node of definition?.nodes ?? []) {
-    if (node?.deploymentId) ids.add(node.deploymentId);
+    // Top-level (most common path used by the canvas UI)
+    if (node?.deploymentId && typeof node.deploymentId === "string") {
+      ids.add(node.deploymentId);
+    }
+    // Nested in config (rarer but possible — defensive read)
+    if (
+      node?.config?.deploymentId &&
+      typeof node.config.deploymentId === "string"
+    ) {
+      ids.add(node.config.deploymentId);
+    }
   }
   return ids;
 }
@@ -125,6 +140,71 @@ function fanoutSyncConfigs(deploymentIds: Iterable<string>, reason: string) {
     });
   }
 }
+
+/**
+ * Verify every deploymentId in a flow definition exists AND is owned by the
+ * caller (or by an org the caller is a member of).
+ *
+ * This prevents NEW orphans from landing via the canvas path. Existing
+ * orphans must be cleaned up separately (Strategy A).
+ *
+ * Returns `{ ok: true }` when all references are valid, otherwise
+ * `{ ok: false, message }` describing which ids are missing or
+ * cross-owner.
+ */
+export async function validateDeploymentReferences(
+  definition: { nodes?: any[] } | null | undefined,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const ids = Array.from(getDefinitionDeploymentIds(definition));
+  if (ids.length === 0) return { ok: true };
+
+  // Determine which orgs the user belongs to (so we accept org-owned deployments).
+  const orgMembersTable = (tables as any).orgMembers;
+  let orgIds: string[] = [];
+  if (orgMembersTable) {
+    try {
+      const memberships = await db
+        .select({ orgId: orgMembersTable.orgId })
+        .from(orgMembersTable)
+        .where(eq(orgMembersTable.userId, userId));
+      orgIds = memberships.map((m: any) => m.orgId).filter(Boolean);
+    } catch {
+      // If org_members doesn't exist on this DB (older schema), fall back to
+      // user-only ownership. The existing schema migrations make this
+      // unreachable in production, but it keeps tests resilient.
+      orgIds = [];
+    }
+  }
+
+  const deploymentsTable = (tables as any).deployments;
+  const hasOrgIdColumn = !!deploymentsTable?.orgId;
+  const ownershipFilter =
+    orgIds.length > 0 && hasOrgIdColumn
+      ? or(
+          eq(deploymentsTable.userId, userId),
+          inArray(deploymentsTable.orgId, orgIds),
+        )
+      : eq(deploymentsTable.userId, userId);
+
+  const rows = await db
+    .select({ id: deploymentsTable.id })
+    .from(deploymentsTable)
+    .where(and(inArray(deploymentsTable.id, ids), ownershipFilter));
+
+  const foundIds = new Set(rows.map((r: any) => r.id));
+  const missing = ids.filter((id) => !foundIds.has(id));
+  if (missing.length === 0) return { ok: true };
+
+  return {
+    ok: false,
+    message: `Flow references deployment(s) that do not exist or are not owned by you: ${missing.join(", ")}`,
+  };
+}
+
+// ── Sync flow_deployment_memberships join table ─────────────────────────────
+// Parses the flow definition to find nodes with deploymentId fields and
+// writes them to the join table so individual bots can discover their teams.
 
 async function syncFlowMemberships(
   flowId: string,
@@ -287,6 +367,20 @@ export const flowsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.user.id;
+
+      // Strategy D: reject orphan deploymentId references before insert.
+      // See docs/audits/stale-flow-deployment-ids.md.
+      const validation = await validateDeploymentReferences(
+        input.definition,
+        userId,
+      );
+      if (!validation.ok) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: validation.message,
+        });
+      }
+
       const id = generateFlowId();
       const now = dbDate();
 
@@ -370,6 +464,22 @@ export const flowsRouter = router({
           code: "NOT_FOUND",
           message: "Flow not found",
         });
+      }
+
+      // Strategy D: validate any new deploymentId references in the
+      // definition before persisting. Only runs when definition is supplied
+      // (update is partial).
+      if (input.definition !== undefined) {
+        const validation = await validateDeploymentReferences(
+          input.definition,
+          userId,
+        );
+        if (!validation.ok) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: validation.message,
+          });
+        }
       }
 
       const updates: Record<string, unknown> = { updatedAt: dbDate() };
@@ -539,12 +649,118 @@ export const flowsRouter = router({
       const newId = generateFlowId();
       const now = dbDate();
 
+      // Strategy D: strip stale deploymentId references during duplication.
+      // Source flow may already contain dead references (older orphans). We
+      // strip them so the new flow is clean rather than rejecting the
+      // duplicate outright — see docs/audits/stale-flow-deployment-ids.md.
+      let definitionToWrite: string | unknown = sourceFlow.definition;
+      try {
+        const defParsed: { nodes?: any[]; edges?: any[] } | null =
+          typeof sourceFlow.definition === "string"
+            ? JSON.parse(sourceFlow.definition)
+            : (sourceFlow.definition as any);
+
+        if (defParsed && Array.isArray(defParsed.nodes)) {
+          const referencedIds = Array.from(
+            getDefinitionDeploymentIds(defParsed),
+          );
+          if (referencedIds.length > 0) {
+            const validation = await validateDeploymentReferences(
+              defParsed,
+              userId,
+            );
+            if (!validation.ok) {
+              // Compute the set of stale ids and rewrite the definition.
+              // We re-query to know which ids are valid for the caller.
+              const deploymentsTable = (tables as any).deployments;
+              const orgMembersTable = (tables as any).orgMembers;
+              let validIds = new Set<string>();
+              try {
+                let orgIds: string[] = [];
+                if (orgMembersTable) {
+                  const memberships = await db
+                    .select({ orgId: orgMembersTable.orgId })
+                    .from(orgMembersTable)
+                    .where(eq(orgMembersTable.userId, userId));
+                  orgIds = memberships
+                    .map((m: any) => m.orgId)
+                    .filter(Boolean);
+                }
+                const hasOrgIdColumn = !!deploymentsTable?.orgId;
+                const ownershipFilter =
+                  orgIds.length > 0 && hasOrgIdColumn
+                    ? or(
+                        eq(deploymentsTable.userId, userId),
+                        inArray(deploymentsTable.orgId, orgIds),
+                      )
+                    : eq(deploymentsTable.userId, userId);
+                const rows = await db
+                  .select({ id: deploymentsTable.id })
+                  .from(deploymentsTable)
+                  .where(
+                    and(
+                      inArray(deploymentsTable.id, referencedIds),
+                      ownershipFilter,
+                    ),
+                  );
+                validIds = new Set(rows.map((r: any) => r.id));
+              } catch {
+                validIds = new Set();
+              }
+
+              const isStale = (id: string | undefined | null) =>
+                !!id && !validIds.has(id);
+
+              const removedNodeIds = new Set<string>();
+              const keptNodes = (defParsed.nodes ?? []).filter((n: any) => {
+                const stale =
+                  isStale(n?.deploymentId) || isStale(n?.config?.deploymentId);
+                if (stale) removedNodeIds.add(n.id);
+                return !stale;
+              });
+              const keptEdges = (defParsed.edges ?? []).filter(
+                (e: any) =>
+                  !removedNodeIds.has(e.source) && !removedNodeIds.has(e.target),
+              );
+
+              const rewritten = {
+                ...defParsed,
+                nodes: keptNodes,
+                edges: keptEdges,
+              };
+              definitionToWrite = JSON.stringify(rewritten);
+
+              logger.warn(
+                {
+                  sourceFlowId: input.sourceFlowId,
+                  newFlowId: newId,
+                  userId,
+                  staleNodeCount: removedNodeIds.size,
+                  staleNodeIds: Array.from(removedNodeIds),
+                },
+                "duplicate: stripped stale deployment references during fork",
+              );
+            }
+          }
+        }
+      } catch (err) {
+        // If parsing fails entirely we copy the source as-is and leave the
+        // sync step to handle/log the error.
+        logger.warn(
+          {
+            sourceFlowId: input.sourceFlowId,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          "duplicate: could not parse source definition for stale-ref sweep",
+        );
+      }
+
       await db.insert(orchestrationFlows).values({
         id: newId,
         userId,
         name: input.name ?? `${sourceFlow.name} (copy)`,
         description: sourceFlow.description,
-        definition: sourceFlow.definition,
+        definition: definitionToWrite as any,
         status: "draft",
         isPublic: false,
         forkCount: 0,
@@ -566,11 +782,14 @@ export const flowsRouter = router({
       // Sync join table for the duplicated flow + fan-out configSync for the
       // newly bound deployments. The source flow is untouched (no OLD set to
       // worry about — only the new fork's bots need fresh soul.md).
-      let parsedDefinition: { nodes?: any[] } | null = null;
+      let parsedDefinition: { nodes?: any[]; edges?: any[] } | null = null;
       try {
-        parsedDefinition = typeof sourceFlow.definition === "string"
-          ? JSON.parse(sourceFlow.definition)
-          : sourceFlow.definition;
+        // Parse the STRIPPED definition (definitionToWrite) — Wave 2B's
+        // duplicate mutation strips stale deployment refs before insert,
+        // so this is what was actually stored in the new flow row.
+        parsedDefinition = typeof definitionToWrite === "string"
+          ? JSON.parse(definitionToWrite)
+          : (definitionToWrite as { nodes?: any[]; edges?: any[] });
         if (parsedDefinition && parsedDefinition.nodes) {
           await syncFlowMemberships(newId, parsedDefinition as { nodes: any[]; edges?: any[] });
         }
@@ -952,6 +1171,14 @@ export const flowsRouter = router({
       z.object({
         sessionId: z.string(),
         limit: z.number().int().min(1).max(500).default(200),
+        // Cursor for "load older" pagination. When provided, returns the
+        // `limit` messages immediately preceding (older than) the message
+        // with this id. The cursor message itself is NOT included in the
+        // result. Ownership of the cursor is enforced via the same JOIN
+        // posture as the data query — a forged id from another user
+        // simply yields []. The result is always ordered ASC regardless
+        // of pagination direction so the client can prepend it directly.
+        beforeId: z.string().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -968,8 +1195,60 @@ export const flowsRouter = router({
       }
 
       try {
+        // ── Pagination cursor resolution ─────────────────────────────
+        // When `beforeId` is set, look up its createdAt timestamp inside
+        // the same INNER JOIN-ownership envelope so that:
+        //   1. A forged cursor from another user yields [] (no leak)
+        //   2. A cursor for a different session yields [] (no leak)
+        //   3. A non-existent cursor yields [] (no crash)
+        // We resolve to a `createdAt` value rather than relying on row id
+        // ordering so that messages inserted out-of-order (e.g. delegated
+        // bot replies that arrive late) still paginate consistently.
+        let cursorCreatedAt: Date | string | number | null = null;
+        if (input.beforeId) {
+          const cursorRows = await db
+            .select({ createdAt: flowChatMessages.createdAt })
+            .from(flowChatMessages)
+            .innerJoin(
+              flowChatSessions,
+              eq(flowChatMessages.sessionId, flowChatSessions.id)
+            )
+            .where(
+              and(
+                eq(flowChatMessages.id, input.beforeId),
+                eq(flowChatMessages.sessionId, input.sessionId),
+                eq(flowChatSessions.userId, userId)
+              )
+            )
+            .limit(1);
+
+          if (cursorRows.length === 0) {
+            // Cursor not found (forged, deleted, or wrong session) —
+            // return empty rather than 404 so the client just shows
+            // "no older messages" without breaking the panel.
+            return [];
+          }
+          cursorCreatedAt = cursorRows[0].createdAt as
+            | Date
+            | string
+            | number
+            | null;
+        }
+
         // INNER JOIN enforces ownership — if the session belongs to a
         // different user, the join produces zero rows and we return [].
+        // When paginating with a cursor we order DESC + slice + reverse
+        // so the result is always ASC for the client.
+        const baseConditions = [
+          eq(flowChatMessages.sessionId, input.sessionId),
+          eq(flowChatSessions.userId, userId),
+        ];
+        if (cursorCreatedAt !== null) {
+          baseConditions.push(
+            lt(flowChatMessages.createdAt, cursorCreatedAt as any)
+          );
+        }
+
         const rows = await db
           .select({
             id: flowChatMessages.id,
@@ -986,15 +1265,19 @@ export const flowsRouter = router({
             flowChatSessions,
             eq(flowChatMessages.sessionId, flowChatSessions.id)
           )
-          .where(
-            and(
-              eq(flowChatMessages.sessionId, input.sessionId),
-              eq(flowChatSessions.userId, userId)
-            )
+          .where(and(...baseConditions))
+          .orderBy(
+            cursorCreatedAt !== null
+              ? desc(flowChatMessages.createdAt)
+              : asc(flowChatMessages.createdAt)
           )
-          .orderBy(asc(flowChatMessages.createdAt))
           .limit(input.limit);
 
+        // Cursor branch: we slurped DESC (newest of the older window
+        // first) — reverse to restore the ASC contract.
+        if (cursorCreatedAt !== null) {
+          return rows.slice().reverse();
+        }
         return rows;
       } catch (err) {
         if (isMissingTableError(err)) {

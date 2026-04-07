@@ -174,6 +174,7 @@ vi.mock("drizzle-orm", () => ({
   inArray: (a: any, b: any) => ({ op: "inArray", a, b }),
   desc: (col: any) => ({ op: "desc", col }),
   asc: (col: any) => ({ op: "asc", col }),
+  lt: (a: any, b: any) => ({ op: "lt", a, b }),
   sql: () => ({ op: "sql" }),
   relations: () => ({}),
 }));
@@ -433,5 +434,113 @@ describe("flows.getChatMessages", () => {
     await expect(
       caller.getChatMessages({ sessionId: "fcs_1", limit: 501 }),
     ).rejects.toThrow();
+  });
+
+  // ── beforeId cursor pagination ─────────────────────────────────────
+  // The cursor branch fires two queries:
+  //   1. cursor lookup (id → createdAt, JOIN-protected)
+  //   2. data fetch with `createdAt < cursor` filter, DESC + reverse
+  // We queue both in order and assert the recorded query state.
+
+  it("returns [] when beforeId cursor isn't found / not owned (no leak)", async () => {
+    queueResults([]); // cursor lookup: zero rows
+
+    const caller = flowsRouter.createCaller(makeCtx("auth0|alice"));
+    const result = await caller.getChatMessages({
+      sessionId: "fcs_1",
+      beforeId: "fcm_forged",
+    });
+
+    expect(result).toEqual([]);
+  });
+
+  it("paginates with beforeId cursor: orders DESC, applies lt filter, then reverses", async () => {
+    // Cursor lookup returns the cursor's createdAt.
+    const cursorCreatedAt = new Date("2026-04-01T10:00:10Z");
+    // Data fetch returns 2 messages in DESC order (newest of older window
+    // first); the procedure must reverse them to ASC before returning.
+    const desc2 = [
+      {
+        id: "fcm_2",
+        sessionId: "fcs_1",
+        role: "assistant",
+        content: "second-oldest",
+        sourceNodeId: null,
+        sourceDeploymentId: null,
+        delegationToolName: null,
+        createdAt: new Date("2026-04-01T10:00:08Z"),
+      },
+      {
+        id: "fcm_1",
+        sessionId: "fcs_1",
+        role: "user",
+        content: "oldest",
+        sourceNodeId: null,
+        sourceDeploymentId: null,
+        delegationToolName: null,
+        createdAt: new Date("2026-04-01T10:00:05Z"),
+      },
+    ];
+
+    queueResults([{ createdAt: cursorCreatedAt }], desc2);
+
+    const caller = flowsRouter.createCaller(makeCtx("auth0|alice"));
+    const result = await caller.getChatMessages({
+      sessionId: "fcs_1",
+      beforeId: "fcm_3",
+      limit: 50,
+    });
+
+    // Reversed to ASC (oldest first) for the client.
+    expect(result).toEqual([desc2[1], desc2[0]]);
+
+    // Inspect the LAST recorded query — that's the data fetch.
+    const dataQuery = lastQuery.current;
+    expect(dataQuery?._limit).toBe(50);
+
+    // The cursor branch must order DESC, not ASC.
+    const orderStr = JSON.stringify(dataQuery?._orderBy);
+    expect(orderStr).toContain("desc");
+    expect(orderStr).toContain("createdAt");
+
+    // The WHERE must include the lt(createdAt, cursor) condition AND the
+    // session/user filters from the no-cursor case.
+    const whereStr = JSON.stringify(dataQuery?._where);
+    expect(whereStr).toContain("lt");
+    expect(whereStr).toContain("userId");
+    expect(whereStr).toContain("auth0|alice");
+  });
+
+  it("does not include the cursor message itself in the page (lt is exclusive)", async () => {
+    // Two distinct DB calls; we only need to verify the data query uses
+    // `lt` (exclusive) not `lte` (inclusive). The result content doesn't
+    // matter — the assertion is on the recorded operator.
+    queueResults(
+      [{ createdAt: new Date("2026-04-01T10:00:10Z") }],
+      [],
+    );
+
+    const caller = flowsRouter.createCaller(makeCtx("auth0|alice"));
+    await caller.getChatMessages({
+      sessionId: "fcs_1",
+      beforeId: "fcm_3",
+    });
+
+    const whereStr = JSON.stringify(lastQuery.current?._where);
+    // lt = exclusive less-than. lte/le would mean the cursor is included,
+    // which causes a duplicate when prepending on the client.
+    expect(whereStr).toContain('"op":"lt"');
+    expect(whereStr).not.toContain('"op":"lte"');
+  });
+
+  it("without beforeId cursor still uses ASC ordering (no regression)", async () => {
+    queueResults([]);
+
+    const caller = flowsRouter.createCaller(makeCtx("auth0|alice"));
+    await caller.getChatMessages({ sessionId: "fcs_1" });
+
+    const orderStr = JSON.stringify(lastQuery.current?._orderBy);
+    expect(orderStr).toContain("asc");
+    expect(orderStr).not.toContain("desc");
   });
 });

@@ -1717,6 +1717,118 @@ export const deploymentRouter = router({
         }
       }
 
+      // ── Strategy E: rewrite affected flow definitions ─────────────────────
+      // The FK on flow_deployment_memberships.deployment_id cascades on
+      // delete, so the join table cleans itself. But
+      // orchestration_flows.definition is a text JSON blob with no
+      // schema-aware FK — deleting a deployment leaves dead deploymentId
+      // references in those flow definitions. This block finds affected
+      // flows and rewrites them to strip the dead nodes (and any edges that
+      // reference those nodes). We run this BEFORE the deployment row is
+      // removed so a failure here doesn't orphan the deployment — the
+      // user can retry.
+      //
+      // See docs/audits/stale-flow-deployment-ids.md Strategy E.
+      try {
+        const deploymentId = input.id;
+        // PG/MySQL/SQLite all support LIKE on text columns. We quote the id
+        // to avoid matching substrings, then re-verify in JS after parsing
+        // so a coincidental string match doesn't cause a spurious rewrite.
+        const idNeedle = `%"${deploymentId}"%`;
+        const affectedFlows = await ctx.db
+          .select({
+            id: orchestrationFlows.id,
+            definition: orchestrationFlows.definition,
+          })
+          .from(orchestrationFlows)
+          .where(sql`${orchestrationFlows.definition} LIKE ${idNeedle}`);
+
+        if (affectedFlows.length > 0) {
+          logger.debug(
+            { deploymentId, candidateCount: affectedFlows.length },
+            "delete: candidate flows for stale-ref rewrite",
+          );
+        }
+
+        for (const flow of affectedFlows) {
+          let definition: { nodes?: any[]; edges?: any[] };
+          try {
+            definition =
+              typeof flow.definition === "string"
+                ? JSON.parse(flow.definition)
+                : (flow.definition as any);
+          } catch {
+            logger.warn(
+              { flowId: flow.id, deploymentId },
+              "delete: flow definition is not valid JSON, skipping rewrite",
+            );
+            continue;
+          }
+
+          const sourceNodes = Array.isArray(definition?.nodes)
+            ? definition.nodes
+            : [];
+          const sourceEdges = Array.isArray(definition?.edges)
+            ? definition.edges
+            : [];
+
+          const removedNodeIds = new Set<string>();
+          const keptNodes = sourceNodes.filter((n: any) => {
+            const matches =
+              n?.deploymentId === deploymentId ||
+              n?.config?.deploymentId === deploymentId;
+            if (matches && n?.id) removedNodeIds.add(n.id);
+            return !matches;
+          });
+
+          // Re-verify: if no nodes were actually removed, the LIKE matched
+          // a coincidental substring (e.g. an id appearing in a label).
+          // Skip the write so we don't churn the updatedAt timestamp.
+          if (removedNodeIds.size === 0) continue;
+
+          const keptEdges = sourceEdges.filter(
+            (e: any) =>
+              !removedNodeIds.has(e?.source) && !removedNodeIds.has(e?.target),
+          );
+
+          const newDefinition = {
+            ...definition,
+            nodes: keptNodes,
+            edges: keptEdges,
+          };
+
+          await ctx.db
+            .update(orchestrationFlows)
+            .set({
+              definition: JSON.stringify(newDefinition),
+              updatedAt: dbDate(),
+            })
+            .where(eq(orchestrationFlows.id, flow.id));
+
+          logger.info(
+            {
+              flowId: flow.id,
+              deploymentId,
+              nodesRemoved: sourceNodes.length - keptNodes.length,
+              edgesRemoved: sourceEdges.length - keptEdges.length,
+            },
+            "delete: rewrote affected flow definition",
+          );
+        }
+      } catch (err) {
+        // Non-fatal — deployment delete proceeds even if flow rewrite fails.
+        // The cascading FK on flow_deployment_memberships still cleans the
+        // join table, and any leftover orphans will be caught by the
+        // periodic sweep (Strategy A).
+        logger.error(
+          {
+            deploymentId: input.id,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          "delete: failed to rewrite affected flow definitions (non-fatal)",
+        );
+      }
+
       // Delete K8s resources first - if this throws, we abort and leave the DB record intact
       // so the user can retry. Step-by-step logs are inside deleteDeployment.
       const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;

@@ -48,6 +48,7 @@ import {
   MessageSquare,
   Users,
   ChevronDown,
+  ChevronUp,
   Network,
   Zap,
   Shield,
@@ -2549,6 +2550,35 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   // every time React re-runs it.
   const seededChatKeyRef = useRef<string | null>(null);
 
+  // ── Session picker / new conversation / pagination state ─────────
+  // `activeSessionId` is the session the user is currently looking at.
+  //   - null while sessions are loading or after "New conversation"
+  //   - set to the latest session when sessions first arrive (default
+  //     behavior matches the prior single-session wire-up)
+  // `pendingNewSessionId` is set when the user clicks "New conversation"
+  // — it's the client-side id we'll pass to the write path so the next
+  // sent message creates a fresh DB row. It's separate from
+  // activeSessionId so that the seed effect doesn't try to fetch a
+  // session that doesn't exist yet on the server.
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isSessionPickerOpen, setIsSessionPickerOpen] = useState(false);
+  const [pendingNewSessionId, setPendingNewSessionId] = useState<string | null>(
+    null
+  );
+
+  // Pagination state for "Load older messages". `hasMoreOlder` is true
+  // when the most recent fetch returned exactly `limit` rows — meaning
+  // there might be more older history we haven't seen yet.
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+
+  // Aborts an in-flight chat stream when the user switches sessions or
+  // starts a new conversation mid-generation. Without this, the prior
+  // stream would keep mutating `flowChatMessages` after the user has
+  // already moved on.
+  const chatStreamAbortRef = useRef<AbortController | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+
   // Load persisted chat sessions for the active flow. Gated on
   // showFlowChat so we don't fire the query when the panel isn't
   // open (avoids wasted requests when the user is just editing the
@@ -2565,19 +2595,38 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     }
   );
 
-  // Sessions are ordered DESC by updatedAt, so [0] is the most recent.
-  // We treat the single-pane Bot Teams chat as "continue the latest
-  // session for this flow" — a future UI could let users switch.
-  const latestSessionId = chatSessionsQuery.data?.[0]?.id ?? null;
-
+  // The current effective session id we're loading messages for. When
+  // the user has clicked "New conversation" we deliberately don't fetch
+  // (the session doesn't exist yet) — `pendingNewSessionId` becomes the
+  // sessionId on the first message via the write path's
+  // `conversationId || threadId` fallback.
   const chatMessagesQuery = trpc.flows.getChatMessages.useQuery(
-    { sessionId: latestSessionId ?? "" },
+    { sessionId: activeSessionId ?? "" },
     {
-      enabled: !!latestSessionId && showFlowChat,
+      enabled: !!activeSessionId && showFlowChat,
       staleTime: 30_000,
       retry: false,
     }
   );
+
+  // Initialize activeSessionId to the most recent session when sessions
+  // first load for a flow. Sessions are already ordered DESC by
+  // updatedAt, so [0] is the latest. This preserves the prior
+  // single-session "continue latest" default behavior so anyone opening
+  // the panel still sees their last conversation.
+  useEffect(() => {
+    if (!showFlowChat) return;
+    if (activeSessionId !== null) return; // user already picked one
+    if (pendingNewSessionId !== null) return; // user explicitly started new
+    const sessions = chatSessionsQuery.data;
+    if (!sessions || sessions.length === 0) return;
+    setActiveSessionId(sessions[0].id);
+  }, [
+    showFlowChat,
+    activeSessionId,
+    pendingNewSessionId,
+    chatSessionsQuery.data,
+  ]);
 
   // Seed the local flowChatMessages state from persistence the first
   // time we have data for a given (flowId, sessionId) combination.
@@ -2593,7 +2642,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     // Nothing to seed with yet.
     if (chatSessionsQuery.isLoading || chatMessagesQuery.isLoading) return;
 
-    const key = `${activeFlowId}::${latestSessionId ?? "none"}`;
+    const key = `${activeFlowId}::${activeSessionId ?? "none"}`;
     if (seededChatKeyRef.current === key) return;
 
     const historyRows = chatMessagesQuery.data ?? [];
@@ -2607,17 +2656,25 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         content: row.content,
       }));
       setFlowChatMessages(mapped);
-    } else if (latestSessionId === null) {
+      // If the initial fetch came back full (200), more history may
+      // exist — show the "Load older" button.
+      setHasMoreOlder(historyRows.length >= 200);
+    } else if (activeSessionId === null) {
       // No sessions at all for this flow — start with a clean slate.
       // Only clear if the current messages don't include any freshly
       // typed but unpersisted content (we use the ref to track that).
       setFlowChatMessages([]);
+      setHasMoreOlder(false);
+    } else {
+      // Session is selected but came back empty — also clear.
+      setFlowChatMessages([]);
+      setHasMoreOlder(false);
     }
     seededChatKeyRef.current = key;
   }, [
     showFlowChat,
     activeFlowId,
-    latestSessionId,
+    activeSessionId,
     chatSessionsQuery.isLoading,
     chatMessagesQuery.isLoading,
     chatMessagesQuery.data,
@@ -2625,16 +2682,152 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
 
   // When the user switches flows, clear the chat pane and force a
   // re-seed on the next open. Without this, opening a second flow
-  // would briefly show the previous flow's messages.
+  // would briefly show the previous flow's messages. We also clear
+  // the picker selection so the init effect picks the new flow's
+  // latest session.
   useEffect(() => {
     setFlowChatMessages([]);
+    setActiveSessionId(null);
+    setPendingNewSessionId(null);
+    setHasMoreOlder(false);
     seededChatKeyRef.current = null;
+    // Abort any in-flight stream from the previous flow.
+    chatStreamAbortRef.current?.abort();
+    chatStreamAbortRef.current = null;
   }, [activeFlowId]);
 
   const handleChatWithTeam = useCallback(() => {
     if (!activeFlowId) return;
     setShowFlowChat(true);
   }, [activeFlowId]);
+
+  // ── Session picker actions ──────────────────────────────────────
+  // Switching to a different session aborts any in-flight stream
+  // (otherwise the streaming reply would keep mutating state under
+  // the new session's seeded history) and resets the seeding key so
+  // the seed effect re-runs against the new session.
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      if (sessionId === activeSessionId) {
+        setIsSessionPickerOpen(false);
+        return;
+      }
+      chatStreamAbortRef.current?.abort();
+      chatStreamAbortRef.current = null;
+      setFlowChatLoading(false);
+      setFlowChatMessages([]);
+      setHasMoreOlder(false);
+      setPendingNewSessionId(null);
+      setActiveSessionId(sessionId);
+      seededChatKeyRef.current = null;
+      setIsSessionPickerOpen(false);
+    },
+    [activeSessionId]
+  );
+
+  // "New conversation" — clears local state and assigns a fresh client
+  // -side session id which the next sent message will use as the
+  // sessionId on the write path. We do NOT create a DB row here; the
+  // write path's `convId = conversationId || threadId` upsert handles
+  // that on first send.
+  const handleNewConversation = useCallback(() => {
+    chatStreamAbortRef.current?.abort();
+    chatStreamAbortRef.current = null;
+    setFlowChatLoading(false);
+    setFlowChatMessages([]);
+    setHasMoreOlder(false);
+    setActiveSessionId(null);
+    // Mint a fresh client-side session id. The server upsert at
+    // routes/flowChat.ts uses `conversationId || threadId` as the row
+    // id so this becomes the persisted session id on first send.
+    const newId = `fcs_${Math.random().toString(36).slice(2, 14)}`;
+    setPendingNewSessionId(newId);
+    seededChatKeyRef.current = `${activeFlowId}::${newId}`;
+    setIsSessionPickerOpen(false);
+  }, [activeFlowId]);
+
+  // ── Load older messages (cursor-based) ──────────────────────────
+  // Fires only when we have a session id and at least one message in
+  // local state (so we have a cursor). Calls the tRPC procedure
+  // directly via the vanilla client to avoid creating a separate query
+  // — this is a fire-and-forget read whose result we prepend manually
+  // to preserve scroll position.
+  const handleLoadOlder = useCallback(async () => {
+    if (!activeSessionId || loadingOlder || flowChatMessages.length === 0)
+      return;
+    // We need a stable cursor — the oldest currently-loaded message id.
+    // The seed effect maps DB rows into local shape losing the id, so
+    // we have to look it up from the chatMessagesQuery cache.
+    const dbRows = chatMessagesQuery.data ?? [];
+    if (dbRows.length === 0) {
+      setHasMoreOlder(false);
+      return;
+    }
+    const oldestId = dbRows[0].id;
+    if (!oldestId) {
+      setHasMoreOlder(false);
+      return;
+    }
+
+    setLoadingOlder(true);
+    // Snapshot scroll metrics so we can restore position after prepend.
+    const list = messageListRef.current;
+    const prevScrollHeight = list?.scrollHeight ?? 0;
+    const prevScrollTop = list?.scrollTop ?? 0;
+
+    try {
+      const olderRows = await vanillaClient.flows.getChatMessages.query({
+        sessionId: activeSessionId,
+        limit: 200,
+        beforeId: oldestId,
+      });
+
+      if (olderRows.length === 0) {
+        setHasMoreOlder(false);
+        return;
+      }
+
+      // Prepend to BOTH the cache-shaped list (for future cursor
+      // lookups via the React-Query cache) and the local UI state.
+      const mappedOlder = olderRows.map((row) => ({
+        role: row.role,
+        content: row.content,
+      }));
+      setFlowChatMessages((prev) => [...mappedOlder, ...prev]);
+      setHasMoreOlder(olderRows.length >= 200);
+
+      // Mutate the React-Query cache so subsequent "load older" clicks
+      // use the new oldest id as their cursor. Without this, we'd
+      // re-paginate from the same anchor and create duplicates.
+      utils.flows.getChatMessages.setData(
+        { sessionId: activeSessionId },
+        (existing) => {
+          if (!existing) return olderRows as any;
+          return [...olderRows, ...existing] as any;
+        }
+      );
+
+      // Restore scroll: keep the user's viewport anchored to the same
+      // message they were looking at, not jumping to the top.
+      requestAnimationFrame(() => {
+        const next = messageListRef.current;
+        if (!next) return;
+        const newScrollHeight = next.scrollHeight;
+        next.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+      });
+    } catch (err) {
+      // Soft fail — just log and let the user retry. The button stays
+      // visible so they can try again.
+      console.warn("[flow-chat] load older failed", err);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [
+    activeSessionId,
+    loadingOlder,
+    flowChatMessages.length,
+    chatMessagesQuery.data,
+  ]);
 
   const handleFlowChatSend = useCallback(async () => {
     if (!flowChatInput.trim() || !activeFlowId || flowChatLoading) return;
@@ -2643,12 +2836,36 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     setFlowChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
     setFlowChatLoading(true);
 
+    // Determine which session this message should bind to. Priority:
+    //   1. activeSessionId (user is continuing an existing session)
+    //   2. pendingNewSessionId (user clicked "New conversation")
+    //   3. mint a fresh id (first-ever message for this flow, or user
+    //      reopened the panel after a flow switch)
+    // The server uses `conversationId || threadId` as the persisted
+    // session row id, so passing conversationId is what locks the
+    // write path to a single session row across multiple sends.
+    const sessionIdForSend =
+      activeSessionId ??
+      pendingNewSessionId ??
+      `fcs_${Math.random().toString(36).slice(2, 14)}`;
+    const wasNewSession = activeSessionId === null;
+
+    // Wire up an AbortController so session-switch / new-conversation /
+    // panel-close can interrupt the stream.
+    const abortController = new AbortController();
+    chatStreamAbortRef.current?.abort();
+    chatStreamAbortRef.current = abortController;
+
     try {
       const token = await getAccessTokenSilently();
       const res = await fetch(`${API_URL}/api/flows/${activeFlowId}/chat`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg }),
+        body: JSON.stringify({
+          message: userMsg,
+          conversationId: sessionIdForSend,
+        }),
+        signal: abortController.signal,
       });
 
       if (!res.ok) {
@@ -2760,12 +2977,49 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
           setFlowChatMessages((prev) => [...prev, { role: "assistant", content: "(No response)" }]);
         }
       }
+
+      // ── Post-success bookkeeping ────────────────────────────────
+      // If this was a new session (either a fresh "New conversation"
+      // or first message ever), the server has now created the row
+      // with id = sessionIdForSend. Bind activeSessionId so future
+      // sends + the messages query target the right row, then
+      // refetch the session list so it shows up in the picker.
+      if (wasNewSession) {
+        setActiveSessionId(sessionIdForSend);
+        setPendingNewSessionId(null);
+        // Mark as already-seeded so the seed effect doesn't try to
+        // wipe the just-streamed messages with whatever the new
+        // chatMessagesQuery returns.
+        seededChatKeyRef.current = `${activeFlowId}::${sessionIdForSend}`;
+      }
+      // Refresh the sidebar/picker — the session's updatedAt and
+      // possibly its title may have changed.
+      void chatSessionsQuery.refetch();
     } catch (err: any) {
+      // Aborted streams (session switch / new conversation / unmount)
+      // are intentional — don't surface as an error message.
+      if (err?.name === "AbortError") {
+        return;
+      }
       setFlowChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${err.message}` }]);
     } finally {
-      setFlowChatLoading(false);
+      // Only clear loading + the abort ref if WE are still the
+      // current stream — a session switch may have already started
+      // a new send and we don't want to clobber its state.
+      if (chatStreamAbortRef.current === abortController) {
+        chatStreamAbortRef.current = null;
+        setFlowChatLoading(false);
+      }
     }
-  }, [flowChatInput, activeFlowId, flowChatLoading, getAccessTokenSilently]);
+  }, [
+    flowChatInput,
+    activeFlowId,
+    flowChatLoading,
+    getAccessTokenSilently,
+    activeSessionId,
+    pendingNewSessionId,
+    chatSessionsQuery,
+  ]);
 
   // ── Derived state ──────────────────────────────────────────────────
   const entryNode = activeFlow?.nodes.find((n) => n.data?.isEntryPoint);
@@ -2866,12 +3120,135 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
           {showFlowChat && (
             <div className="absolute right-0 top-0 bottom-0 w-96 bg-card border-l border-border z-50 flex flex-col">
               <div className="flex items-center justify-between p-3 border-b border-border">
-                <h3 className="text-sm font-semibold">Chat with Team</h3>
-                <button onClick={() => setShowFlowChat(false)} className="p-1 rounded hover:bg-secondary">
+                {/* Session picker — replaces the static "Chat with Team"
+                    title with a dropdown that lists persisted sessions
+                    for this flow. The dropdown is rendered absolutely
+                    so it doesn't push the chat panel layout around. */}
+                <div className="relative flex-1 min-w-0 mr-2">
+                  {chatSessionsQuery.data && chatSessionsQuery.data.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsSessionPickerOpen((v) => !v)}
+                      className="flex items-center gap-1.5 text-sm font-semibold hover:text-foreground/80 transition-colors min-w-0 max-w-full"
+                      title="Switch conversation"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">
+                        {(() => {
+                          const sessions = chatSessionsQuery.data;
+                          const active =
+                            sessions.find((s) => s.id === activeSessionId) ??
+                            sessions[0];
+                          return active?.title || "Team Chat";
+                        })()}
+                      </span>
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 shrink-0 text-muted-foreground transition-transform ${isSessionPickerOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                  ) : (
+                    <h3 className="text-sm font-semibold flex items-center gap-1.5 truncate">
+                      <MessageSquare className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">
+                        {chatSessionsQuery.isLoading
+                          ? "Loading…"
+                          : "Start your first conversation"}
+                      </span>
+                    </h3>
+                  )}
+
+                  {isSessionPickerOpen &&
+                    chatSessionsQuery.data &&
+                    chatSessionsQuery.data.length > 0 && (
+                      <>
+                        {/* Click-outside backdrop */}
+                        <div
+                          className="fixed inset-0 z-[60]"
+                          onClick={() => setIsSessionPickerOpen(false)}
+                        />
+                        <div className="absolute left-0 top-full mt-1 w-72 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg z-[61]">
+                          <button
+                            type="button"
+                            onClick={handleNewConversation}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-secondary transition-colors border-b border-border"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>New conversation</span>
+                          </button>
+                          {chatSessionsQuery.data.map((session) => {
+                            const isActive = session.id === activeSessionId;
+                            // Inline relative-time formatter — no
+                            // dependency on date-fns, kept tiny.
+                            const ts = session.updatedAt
+                              ? new Date(session.updatedAt as any).getTime()
+                              : 0;
+                            const diffMs = ts ? Date.now() - ts : 0;
+                            const diffMin = Math.floor(diffMs / 60_000);
+                            const diffHr = Math.floor(diffMin / 60);
+                            const diffDay = Math.floor(diffHr / 24);
+                            let rel = "";
+                            if (!ts) rel = "";
+                            else if (diffMin < 1) rel = "just now";
+                            else if (diffMin < 60) rel = `${diffMin}m ago`;
+                            else if (diffHr < 24) rel = `${diffHr}h ago`;
+                            else if (diffDay === 1) rel = "yesterday";
+                            else if (diffDay < 7) rel = `${diffDay}d ago`;
+                            else
+                              rel = new Date(
+                                session.updatedAt as any
+                              ).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                              });
+                            return (
+                              <button
+                                key={session.id}
+                                type="button"
+                                onClick={() => handleSelectSession(session.id)}
+                                className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-xs text-left hover:bg-secondary transition-colors ${
+                                  isActive
+                                    ? "bg-primary/10 text-foreground"
+                                    : "text-muted-foreground"
+                                }`}
+                              >
+                                <span className="truncate flex-1">
+                                  {session.title || "Team Chat"}
+                                </span>
+                                <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                                  {rel}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                </div>
+                <button onClick={() => setShowFlowChat(false)} className="p-1 rounded hover:bg-secondary shrink-0">
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              <div ref={messageListRef} className="flex-1 overflow-y-auto p-3 space-y-3">
+                {/* Load older messages — visible only when there's a
+                    session selected, at least one message loaded, and
+                    the most recent fetch hinted at more history. */}
+                {hasMoreOlder && flowChatMessages.length > 0 && (
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      onClick={handleLoadOlder}
+                      disabled={loadingOlder}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-50 border border-border/60"
+                    >
+                      {loadingOlder ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <ChevronUp className="w-3 h-3" />
+                      )}
+                      {loadingOlder ? "Loading…" : "Load older messages"}
+                    </button>
+                  </div>
+                )}
                 {flowChatMessages.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <MessageSquare className="w-8 h-8 text-muted-foreground/30 mb-3" />
