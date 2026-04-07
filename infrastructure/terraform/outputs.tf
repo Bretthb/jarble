@@ -39,6 +39,18 @@ output "dns_records" {
   }
 }
 
+# ─── Firewall IDs (for nodeManager.ts auto-scaling) ─────────────────────────
+
+output "agent_egress_firewall_id" {
+  description = "ID of the agent_egress firewall — set as HETZNER_AGENT_EGRESS_FIREWALL_ID env var on the API deployment so nodeManager.ts attaches it to auto-scaled agent VPSes."
+  value       = hcloud_firewall.agent_egress.id
+}
+
+output "cluster_firewall_id" {
+  description = "ID of the shared cluster firewall — set as HETZNER_FIREWALL_ID env var on the API deployment."
+  value       = hcloud_firewall.cluster.id
+}
+
 
 # ─── Coolify (Frontend Hosting) ─────────────────────────────────────────────
 

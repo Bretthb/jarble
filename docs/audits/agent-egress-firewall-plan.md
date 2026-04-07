@@ -1,200 +1,276 @@
-# Agent Egress Firewall — Hardening Plan
+# Agent VPS Egress Firewall — Network Hardening Plan
 
-**Created**: 2026-04-07 as Phase 5 follow-up to Bot Teams rescue
-**Status**: NOT APPLIED — waiting for user decision
-**Related**: `docs/audits/qa-bot-teams-2026-04-07.md`, PHASE 5 commit
+**Date:** 2026-04-07
+**Status:** APPLIED (code changes landed; awaits `terraform apply` + Kubero env var)
+**Related:** Phase 5 of Bot Teams rescue (commit `bc8735b`) — enforced 1:1 VPS-per-agent isolation
+**Owner:** Infrastructure / Platform Security
 
-## Context
+---
 
-Phase 5 of the Bot Teams rescue enforced hard 1:1 VPS-per-agent isolation
-via required nodeAffinity + podAntiAffinity. That makes the "my deployment
-= my VPS = my agent = my data" model physically enforced: each bot gets
-its own Hetzner Cloud VPS (a KVM VM), and the hypervisor boundary walls
-off cross-tenant access.
+## Problem
 
-**But container escape on the VPS is still a concern.** A bot with shell
-execution (which OpenClaw gives it by design) could theoretically exploit
-a kernel CVE to escape the container and gain root on the Linux guest OS.
-Once rooted on the VPS, the attacker's blast radius is limited by whatever
-egress and lateral access the VPS has.
+After Phase 5 of the Bot Teams rescue, every bot pod runs on its own dedicated
+Hetzner Cloud VPS via K8s scheduling constraints. This walls off **cross-tenant
+compute** at the hypervisor (KVM) boundary. But the **network egress story is
+wide open**:
 
-Today, that blast radius is **larger than it needs to be** because the
-Hetzner Cloud firewall (`infrastructure/terraform/main.tf:61`) has zero
-egress rules. Hetzner firewalls default to "outbound: allow all" unless
-explicit egress rules say otherwise. So a compromised agent VPS can:
+1. The shared `hcloud_firewall.cluster` (`infrastructure/terraform/main.tf:61`)
+   only declares INGRESS rules. Hetzner Cloud firewalls default to
+   "outbound: allow all" until at least one egress rule is declared.
+2. A compromised bot can therefore:
+   - Query the Hetzner metadata service at `169.254.169.254` (SSRF) and read
+     `cloud-init` user-data — which embeds `K3S_JOIN_TOKEN`. Joining the cluster
+     as a rogue agent becomes trivial after that.
+   - Scan the private network `10.0.0.0/16` and probe other agent VPSes' kubelet
+     (`:10250`) and K3s API (`:6443`) ports.
+   - Run crypto-mining stratum traffic, DDoS external targets, or exfiltrate
+     data over HTTPS.
+3. The cluster firewall is also attached to **master** (`main.tf:142`) and
+   **Coolify** (`coolify.tf:22`). Tightening it directly would break
+   cert-manager → Let's Encrypt, GHCR pulls, and apt updates on those nodes.
 
-1. Scan the entire Hetzner private network (10.0.0.0/16) for other VPSes
-2. Exploit kubelet on port 10250 of other nodes (if not separately locked down)
-3. Reach the K3s API server on master:6443 (auth-protected but one more
-   layer to get through)
-4. Query the Hetzner metadata service at `169.254.169.254` (SSRF vector —
-   could leak cloud credentials if the VPS has any)
-5. Run crypto-mining against any pool on the internet
-6. Launch DDoS attacks against external targets
-7. Exfiltrate data to attacker-controlled endpoints
+The right fix: a **separate** Hetzner firewall for agent workers, attached
+**only** to auto-scaled VPSes by `nodeManager.ts`, plus a defense-in-depth
+iptables rule baked into cloud-init that blocks the metadata service before
+K3s even joins.
 
-## Why the current firewall can't just be tightened
+---
 
-`hcloud_firewall.cluster` (main.tf:61-119) is applied to **both** master
-(`main.tf:142`) **and** Coolify (`coolify.tf:22`). If we add egress rules
-to it, they apply to everything — which breaks master's ability to pull
-container images, cert-manager fetching from Let's Encrypt, Kubero
-pulling from GHCR, etc.
+## Phase A — iptables metadata block in cloud-init [APPLIED]
 
-Master needs permissive egress. **Agent workers need restrictive egress.**
-These are different roles that deserve different firewalls.
+**File:** `jarble-api-main/src/k8s/nodeManager.ts` (in `buildCloudInit`,
+around lines 141–185)
 
-## Recommended fix — separate agent-egress firewall
-
-### 1. Add a new Terraform resource
-
-File: `infrastructure/terraform/main.tf` (append after line 119)
-
-```hcl
-# ─── Agent Worker Egress Firewall ──────────────────────────────────────────
-# Applied to auto-scaled agent VPSes in addition to the cluster firewall.
-# Blocks lateral cluster moves and metadata-service SSRF while allowing
-# outbound HTTPS for LLM providers and web browsing (which bots need).
-resource "hcloud_firewall" "agent_egress" {
-  name = "${var.cluster_name}-agent-egress"
-
-  # ── INGRESS ─────────────────────────────────────────────────────────────
-  # Same as cluster firewall — bots don't need any extra inbound ports
-  # beyond what the cluster firewall already allows (10250, 8472, 2379-2380
-  # on the private network).
-
-  # ── EGRESS ──────────────────────────────────────────────────────────────
-  # BLOCK metadata service SSRF vector (most critical)
-  # Hetzner's cloud-init metadata lives at 169.254.169.254. A bot with
-  # SSRF or shell access could query this to leak VPS-level credentials.
-  # There is no legitimate reason for an agent bot to reach this endpoint
-  # at runtime (cloud-init already ran at boot time).
-  rule {
-    direction       = "out"
-    protocol        = "tcp"
-    port            = "any"
-    destination_ips = ["169.254.169.254/32"]
-    # NOTE: Hetzner firewall rules are implicit-allow. To BLOCK, we need
-    # to use a different mechanism — iptables on the VPS itself, or NOT
-    # list 169.254.169.254 in an allowlist and rely on default-deny.
-    # See "Approach comparison" below.
-  }
-
-  # If using allowlist approach (recommended):
-  #
-  # Allow DNS (TCP/UDP 53)
-  # Allow HTTPS (TCP 443) to the internet — bots need to reach LLM providers
-  #   and arbitrary websites for browsing tools
-  # Allow HTTP (TCP 80) to the internet — for non-TLS endpoints bots might hit
-  # Allow private K3s traffic (10.0.0.0/16 on 10250, 8472, 6443)
-  # Deny everything else including 169.254.0.0/16 (link-local)
-
-  # Actual rules TBD after verifying Hetzner firewall semantics for egress.
-}
-```
-
-### 2. Wire the new firewall into `nodeManager.ts`
-
-File: `jarble-api-main/src/k8s/nodeManager.ts:234`
-
-Current:
-```ts
-firewalls: [{ firewall: firewallId }],
-```
-
-New:
-```ts
-const agentEgressFirewallId = parseInt(process.env.HETZNER_AGENT_EGRESS_FIREWALL_ID || "0");
-// ...
-firewalls: [
-  { firewall: firewallId },
-  ...(agentEgressFirewallId ? [{ firewall: agentEgressFirewallId }] : []),
-],
-```
-
-Then set `HETZNER_AGENT_EGRESS_FIREWALL_ID` in the API env from the new
-Terraform output.
-
-### 3. Master stays on cluster firewall only
-
-Master (`main.tf:142`) still only has `hcloud_firewall.cluster.id`. No
-change. Master keeps permissive egress because it needs it.
-
-## Approach comparison: allowlist vs denylist
-
-Hetzner Cloud firewall rules are implicit-allow within a direction: if you
-add any `out` rule, only those destinations are allowed; everything else
-is denied. This is the default behavior for `direction = "out"` rules.
-
-**Approach A — Allowlist** (recommended):
-- Allow: 0.0.0.0/0 tcp/443 (HTTPS anywhere, for LLM APIs + web browsing)
-- Allow: 0.0.0.0/0 tcp/80 (HTTP anywhere, for websites bots might browse)
-- Allow: 0.0.0.0/0 tcp/udp/53 (DNS)
-- Allow: 10.0.0.0/16 tcp/10250, tcp/6443, udp/8472 (internal K3s)
-- **Deny (implicit): everything else, including 169.254.169.254**
-
-✅ Pros: simple, explicitly blocks metadata service + lateral private-network moves
-❌ Cons: bots can still exfiltrate data via HTTPS POST to any internet endpoint
-
-**Approach B — Denylist via host-level iptables** (defense in depth):
-- Apply via cloud-init: `iptables -A OUTPUT -d 169.254.169.254 -j DROP`
-- Keeps Hetzner firewall permissive but blocks the one critical IP at the node level
-- Can be combined with Approach A for belt-and-suspenders
-
-**Approach C — Egress proxy (HTTP/HTTPS proxy with allowlist)**:
-- Deploy a forward proxy (Squid, Privoxy) on master
-- Configure bot VPSes to route all outbound HTTP/HTTPS through the proxy
-- Proxy enforces per-domain allowlist
-- Bots can only reach allowlisted LLM providers + allowlisted search engines
-
-✅ Pros: strongest control, blocks data exfil to unknown domains
-❌ Cons: biggest operational surface, breaks web browsing to new sites, needs proxy maintenance
-
-## Immediate mitigation (NO terraform change needed)
-
-If the user wants some protection before the full firewall overhaul, the
-easiest win is iptables on each new worker via cloud-init:
-
-File: `jarble-api-main/src/k8s/nodeManager.ts:buildCloudInit()` (append to
-the shell script that runs at worker boot)
+Added before the K3s install/join step:
 
 ```bash
-# Block Hetzner metadata service (SSRF vector)
-iptables -A OUTPUT -d 169.254.169.254/32 -j DROP
-ip6tables -A OUTPUT -d fe80::/10 -j DROP
-# Block lateral moves to other K3s nodes' kubelet ports
-# (uncomment if you want to prevent bot-to-bot scanning — note this may
-# break Longhorn replica sync if Longhorn uses kubelet exec, verify first)
-# iptables -A OUTPUT -d 10.0.0.0/16 -p tcp --dport 10250 -j DROP
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y -qq open-iscsi nfs-common curl iptables iptables-persistent
+
+iptables -I OUTPUT -d 169.254.169.254/32 -j DROP
+if command -v ip6tables >/dev/null 2>&1; then
+  ip6tables -I OUTPUT -d fe80::/10 -j DROP || true
+fi
+
+mkdir -p /etc/iptables
+iptables-save > /etc/iptables/rules.v4
+if command -v ip6tables-save >/dev/null 2>&1; then
+  ip6tables-save > /etc/iptables/rules.v6 || true
+fi
+systemctl enable netfilter-persistent || true
 ```
 
-This gives you the most critical defense (metadata service) without
-touching Terraform or the Hetzner Cloud API.
+- `iptables-persistent` is installed so the rule survives reboots via
+  `netfilter-persistent.service`.
+- `DEBIAN_FRONTEND=noninteractive` prevents `iptables-persistent` from prompting
+  about saving current rules (which would hang cloud-init).
+- The rule is inserted with `-I` (prepend) so it takes effect even if K3s/CNI
+  later add OUTPUT chain rules.
+- Takes effect on every NEW auto-scaled worker. Existing workers are unaffected
+  until they roll over.
 
-## What I'd ship next
+**Why this is layer 1 even though Hetzner firewall covers it:** the iptables
+drop runs *during* cloud-init, before the Hetzner firewall ID is even attached
+to the server. There's a small window where a compromised image could query
+metadata; closing it locally eliminates that window. Belt and suspenders.
 
-**Pick one:**
+---
 
-1. **Minimum viable hardening** (30 min): iptables rule in cloud-init to
-   block `169.254.169.254`. No Terraform, no firewall change. Applied to
-   all future auto-workers automatically. Existing master + existing
-   workers unaffected.
+## Phase B — `hcloud_firewall.agent_egress` resource [APPLIED]
 
-2. **Full separate firewall** (2-4 hours): new Terraform resource,
-   `nodeManager.ts` change, new env var, new terraform apply, test on a
-   fresh bot deployment, verify LLM calls still work, verify bot web
-   browsing still works.
+**File:** `infrastructure/terraform/main.tf` (new resource added immediately
+after `hcloud_firewall.cluster`, around line 120)
 
-3. **Egress proxy** (1-2 days): deploy Squid on master, configure bots
-   to route through it, per-domain allowlist, monitoring for blocked
-   requests.
+Added a brand-new `hcloud_firewall.agent_egress` resource with **only egress
+rules** (no ingress — it inherits ingress allowances from the cluster firewall
+which is also attached). Allowlist:
 
-**My vote**: #1 now as a quick win, #2 scheduled for the next ops window,
-skip #3 unless you're serving high-risk tenants.
+| Direction | Protocol | Port  | Destination       | Purpose                            |
+|-----------|----------|-------|-------------------|------------------------------------|
+| out       | udp      | 53    | 0.0.0.0/0, ::/0   | DNS                                |
+| out       | tcp      | 53    | 0.0.0.0/0, ::/0   | DNS over TCP                       |
+| out       | tcp      | 443   | 0.0.0.0/0, ::/0   | HTTPS — LLM APIs, GHCR, MCPs       |
+| out       | tcp      | 80    | 0.0.0.0/0, ::/0   | HTTP — apt, K3s installer redirect |
+| out       | tcp      | 10250 | 10.0.0.0/16       | K3s kubelet (private network)      |
+| out       | tcp      | 6443  | 10.0.0.0/16       | K3s API server (private network)   |
+| out       | udp      | 8472  | 10.0.0.0/16       | Flannel VXLAN (private network)    |
+| out       | udp      | 123   | 0.0.0.0/0, ::/0   | NTP time sync                      |
 
-## Files referenced
+**Critical Hetzner semantic:** Hetzner Cloud firewalls default to *allow-all*
+egress, but the moment **any** rule with `direction = "out"` is declared, the
+default flips to *deny-all* egress. Everything not in the allowlist above is
+dropped at the Hetzner network layer:
 
-- `C:\Users\brett\jarble\infrastructure\terraform\main.tf` — current firewall def
-- `C:\Users\brett\jarble\infrastructure\terraform\coolify.tf` — firewall reuse
-- `C:\Users\brett\jarble\jarble-api-main\src\k8s\nodeManager.ts:167-290` — provisioning + firewall attach + cloud-init
-- `C:\Users\brett\jarble\.claude\rules\autoscaling.md` — autoscaling context
+- 169.254.169.254 (Hetzner metadata SSRF — also blocked by iptables)
+- Arbitrary high TCP ports (port scanning, exploit shells, crypto-mining stratum)
+- SMB/CIFS (445), outbound SSH (22), IRC, etc.
+- 10.0.0.0/16 traffic outside the kubelet/API/VXLAN allowlist (cuts lateral moves
+  between agent VPSes)
+
+**Multi-firewall composition:** When both `hcloud_firewall.cluster` and
+`hcloud_firewall.agent_egress` are attached to the same server, Hetzner combines
+them additively — ingress is the union of allowed sources, egress is the
+intersection of allowed destinations. So existing inbound K3s traffic still
+works, and outbound is now restricted to the agent_egress allowlist.
+
+A new output `agent_egress_firewall_id` was added to `outputs.tf` so the user
+can pipe the value into Kubero env vars after `terraform apply`.
+
+---
+
+## Phase C — Wire `agent_egress` into nodeManager.ts [APPLIED]
+
+**File:** `jarble-api-main/src/k8s/nodeManager.ts`
+
+Two changes inside `provisionNode()`:
+
+1. Read a new env var alongside the existing `HETZNER_FIREWALL_ID`:
+   ```ts
+   const agentEgressFirewallId = parseInt(
+     process.env.HETZNER_AGENT_EGRESS_FIREWALL_ID || "0"
+   );
+   ```
+
+2. Build the firewalls array dynamically and pass to the Hetzner POST `/servers`
+   call:
+   ```ts
+   const firewallsToAttach: Array<{ firewall: number }> = [
+     { firewall: firewallId },
+     ...(agentEgressFirewallId ? [{ firewall: agentEgressFirewallId }] : []),
+   ];
+   ```
+
+3. The success log line now reports whether the egress firewall was attached,
+   and emits a WARNING if `HETZNER_AGENT_EGRESS_FIREWALL_ID` is missing.
+
+**Backwards compatibility:** if the env var is unset (or `0`), the new firewall
+is silently skipped and behavior is identical to today. The code is safe to
+deploy before `terraform apply` runs.
+
+---
+
+## Phase D — Documentation [APPLIED]
+
+This file. Status of all phases marked APPLIED above.
+
+---
+
+## How to deploy
+
+The code changes have already landed in the worktree. To complete the rollout:
+
+### 1. Apply the Terraform change
+
+```bash
+cd infrastructure/terraform
+terraform plan   # review the new hcloud_firewall.agent_egress resource
+terraform apply  # creates the firewall in Hetzner Cloud
+```
+
+After `terraform apply`, capture the new firewall ID:
+
+```bash
+terraform output -raw agent_egress_firewall_id
+# → e.g. 1234567
+```
+
+### 2. Set the env var on the API deployment in Kubero
+
+Open the Kubero dashboard at `kubero.jarble.ai`, edit the
+`jarble-api-kuberoapp-web` deployment in the `jarble-production` namespace, and
+add:
+
+```
+HETZNER_AGENT_EGRESS_FIREWALL_ID=1234567
+```
+
+(The value from step 1 above.)
+
+Save & roll the deployment. The next time `nodeManager.ts` provisions an
+auto-scaled VPS, it will attach **both** the cluster firewall and the new
+egress firewall.
+
+### 3. Verify on a fresh worker
+
+After the first new auto-scaled worker comes up:
+
+```bash
+ssh root@<worker-ip>
+
+# 1. iptables rule is active and persisted
+iptables -L OUTPUT -n -v | grep 169.254.169.254
+# → DROP rule visible at top of OUTPUT chain
+
+cat /etc/iptables/rules.v4 | grep 169.254
+# → -A OUTPUT -d 169.254.169.254/32 -j DROP
+
+# 2. Metadata service is unreachable
+curl --max-time 5 http://169.254.169.254/hetzner/v1/metadata/public-ipv4
+# → curl: (28) Connection timed out
+
+# 3. Outbound HTTPS still works
+curl -sI https://api.openrouter.ai/api/v1/auth/key | head -1
+# → HTTP/2 401 (or 200) — connection succeeds
+
+# 4. Outbound on a non-allowlisted port is blocked
+curl --max-time 5 https://example.com:8443
+# → curl: (28) Connection timed out
+```
+
+### 4. Existing workers
+
+Existing auto-scaled VPSes provisioned BEFORE this change remain unrestricted.
+To force them onto the new posture, either:
+
+- Drain & delete each one (the watcher will reprovision them with the new
+  cloud-init + firewall on the next pending pod), or
+- Use the Hetzner Cloud console / API to attach `agent_egress` to existing
+  servers manually.
+
+---
+
+## Risk assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Egress allowlist blocks legitimate bot traffic | Low | Medium | All major LLM APIs (Anthropic, OpenAI, OpenRouter, Google) and MCP servers use HTTPS:443. WebSockets ride on 443 too. NTP/DNS/HTTP covered. Worst case: temporarily detach the firewall via Hetzner console. |
+| iptables-persistent install hangs cloud-init | Low | High (worker fails to join) | `DEBIAN_FRONTEND=noninteractive` prevents the prompt. |
+| Existing workers unprotected | Certain | Medium | Documented in "Existing workers" section. Drain-and-replace recommended. |
+| Master/Coolify accidentally affected | Very Low | High | New firewall is ONLY referenced from `nodeManager.ts`. Terraform never attaches it to master or coolify. |
+
+---
+
+## Rollback
+
+If something breaks:
+
+1. **Code rollback:** `git revert` the commits and redeploy the API.
+2. **Firewall detach (without code rollback):** unset
+   `HETZNER_AGENT_EGRESS_FIREWALL_ID` in Kubero and roll the deployment.
+   Existing workers keep the firewall until they're recycled, but new ones
+   won't get it.
+3. **Nuclear option (immediate, all workers):** in the Hetzner Cloud console,
+   delete the `jarble-cluster-agent-egress` firewall. Hetzner will detach it
+   from every server it's attached to. The iptables rule still blocks
+   metadata, but everything else returns to default-allow.
+4. **iptables rollback per-worker:** `iptables -D OUTPUT -d 169.254.169.254/32 -j DROP &&
+   iptables-save > /etc/iptables/rules.v4`.
+
+---
+
+## What's NOT covered (future work)
+
+- **Egress filtering by destination FQDN/CIDR** — Hetzner firewalls only filter
+  by IP/CIDR + port, not by hostname. A determined attacker could still
+  exfiltrate data over HTTPS:443 to any IP that resolves. Mitigating this
+  requires a forward proxy (Squid, mitmproxy, or Cloudflare Gateway) with an
+  allowlist of LLM provider hostnames.
+- **DNS filtering** — Bots can still issue arbitrary DNS queries. Pointing
+  resolv.conf at a filtered DNS server (e.g., NextDNS, AdGuard, or a
+  self-hosted Pi-hole) would close DNS-based exfil.
+- **Egress NetworkPolicy at the K8s layer** — Calico/Cilium NetworkPolicies
+  could enforce this per-pod instead of per-VPS. With 1:1 VPS-per-agent
+  scheduling that's redundant, but worth revisiting if we ever revert to
+  multi-tenant nodes.
+- **Hetzner Cloud Load Balancer egress** — out of scope; LBs only forward
+  traffic, they don't initiate it.

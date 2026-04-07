@@ -293,7 +293,7 @@ async function createDeploymentLegacy(
     metadata: { name: `pvc-${deploymentId}` },
     spec: {
       accessModes: ["ReadWriteOnce"],
-      storageClassName: "longhorn",
+      storageClassName: "longhorn-isolated",
       resources: { requests: { storage: storageGi } },
     },
   });

@@ -168,11 +168,15 @@ describe("createDeployment (legacy)", () => {
     expect(pvcSpec.spec?.resources?.requests?.storage).toBe("50Gi");
   });
 
-  it("sets correct storage class", async () => {
+  it("sets correct storage class (longhorn-isolated for tenant isolation)", async () => {
+    // Bot PVCs MUST use longhorn-isolated (numberOfReplicas=1, dataLocality=strict-local)
+    // so that each bot's data lives only on its own VPS. Using the default `longhorn`
+    // class would spread replicas across other tenant VPSes, breaking the
+    // 1:1 VPS-per-agent isolation enforced by required nodeAffinity in commit bc8735b.
     await createDeployment("dep-1", "user-1", baseConfig);
 
     const pvcSpec = mockCoreApi.createNamespacedPersistentVolumeClaim.mock.calls[0][1];
-    expect(pvcSpec.spec?.storageClassName).toBe("longhorn");
+    expect(pvcSpec.spec?.storageClassName).toBe("longhorn-isolated");
   });
 
   it("includes base secret entries", async () => {

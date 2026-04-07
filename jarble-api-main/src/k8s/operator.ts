@@ -72,7 +72,7 @@ export function buildCRSpec(
   // Storage config: new PVC or existing claim
   const storageSpec: Record<string, unknown> = existingPvc
     ? { persistence: { enabled: true, existingClaim: existingPvc } }
-    : { persistence: { enabled: true, size: storageGi, storageClass: "longhorn" } };
+    : { persistence: { enabled: true, size: storageGi, storageClass: "longhorn-isolated" } };
 
   return {
     apiVersion: `${CRD_GROUP}/${CRD_VERSION}`,

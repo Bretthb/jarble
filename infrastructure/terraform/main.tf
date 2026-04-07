@@ -118,6 +118,109 @@ resource "hcloud_firewall" "cluster" {
   }
 }
 
+# ─── Agent Egress Firewall ──────────────────────────────────────────────────
+#
+# Tightens OUTBOUND traffic for auto-scaled agent VPSes (provisioned by
+# nodeManager.ts). Attached IN ADDITION to hcloud_firewall.cluster — the
+# cluster firewall handles inbound K3s traffic (ports 22/80/443/6443/10250/8472/2379-2380),
+# and this firewall layers on an egress allowlist.
+#
+# Hetzner Cloud firewall semantics:
+#   - Ingress is default-DENY (only listed rules allowed).
+#   - Egress is default-ALLOW UNTIL the first egress rule exists, then it
+#     flips to default-DENY (only listed rules allowed). So the moment we
+#     add ANY rule with direction="out", everything not in the allowlist
+#     below is dropped at the Hetzner network layer — including:
+#       * 169.254.169.254 (Hetzner metadata SSRF — also blocked at iptables layer)
+#       * Lateral scans into the private network outside our allowlist
+#       * Crypto-mining stratum/SSH outbound exfil/SMB
+#
+# Multiple firewalls combine additively: this firewall provides ONLY egress
+# rules, no ingress, so it inherits all ingress allowances from cluster firewall.
+#
+# DO NOT attach this to master or coolify — they need broader egress for
+# cert-manager, Let's Encrypt, GHCR pulls, apt repos, etc.
+resource "hcloud_firewall" "agent_egress" {
+  name = "${var.cluster_name}-agent-egress"
+
+  # ─── Outbound: DNS (UDP + TCP for large responses / DoT later) ───────────
+  rule {
+    direction        = "out"
+    protocol         = "udp"
+    port             = "53"
+    destination_ips  = ["0.0.0.0/0", "::/0"]
+    description      = "DNS resolution"
+  }
+  rule {
+    direction        = "out"
+    protocol         = "tcp"
+    port             = "53"
+    destination_ips  = ["0.0.0.0/0", "::/0"]
+    description      = "DNS resolution (TCP)"
+  }
+
+  # ─── Outbound: HTTPS (LLM APIs, GHCR, npm registry, MCP servers) ─────────
+  rule {
+    direction        = "out"
+    protocol         = "tcp"
+    port             = "443"
+    destination_ips  = ["0.0.0.0/0", "::/0"]
+    description      = "HTTPS — LLM providers, container registries, MCPs"
+  }
+
+  # ─── Outbound: HTTP (apt mirrors, get.k3s.io redirects) ──────────────────
+  rule {
+    direction        = "out"
+    protocol         = "tcp"
+    port             = "80"
+    destination_ips  = ["0.0.0.0/0", "::/0"]
+    description      = "HTTP — apt repos, K3s installer redirects"
+  }
+
+  # ─── Outbound: K3s kubelet (private network only) ────────────────────────
+  rule {
+    direction        = "out"
+    protocol         = "tcp"
+    port             = "10250"
+    destination_ips  = ["10.0.0.0/16"]
+    description      = "K3s kubelet — private network only"
+  }
+
+  # ─── Outbound: K3s API server (private network only) ─────────────────────
+  rule {
+    direction        = "out"
+    protocol         = "tcp"
+    port             = "6443"
+    destination_ips  = ["10.0.0.0/16"]
+    description      = "K3s API server — private network only"
+  }
+
+  # ─── Outbound: Flannel VXLAN (private network only) ──────────────────────
+  rule {
+    direction        = "out"
+    protocol         = "udp"
+    port             = "8472"
+    destination_ips  = ["10.0.0.0/16"]
+    description      = "Flannel VXLAN overlay — private network only"
+  }
+
+  # ─── Outbound: NTP (time sync) ───────────────────────────────────────────
+  rule {
+    direction        = "out"
+    protocol         = "udp"
+    port             = "123"
+    destination_ips  = ["0.0.0.0/0", "::/0"]
+    description      = "NTP time sync"
+  }
+
+  # NOTE: All other outbound traffic is implicitly DENIED, including:
+  #   - 169.254.169.254 (Hetzner metadata — SSRF vector, also blocked by iptables)
+  #   - Arbitrary high TCP ports (port scanning, exploit shells, mining stratum)
+  #   - SMB/CIFS (445), SSH outbound (22), IRC, etc.
+  #   - 10.0.0.0/16 traffic outside the explicit kubelet/API/VXLAN allowlist
+  #     (cuts off lateral kubelet→kubelet probes between agent VPSes).
+}
+
 # ─── K3s Token ──────────────────────────────────────────────────────────────
 
 resource "random_password" "k3s_token" {

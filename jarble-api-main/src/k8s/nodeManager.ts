@@ -142,10 +142,37 @@ done
 set -euo pipefail
 sleep 5
 
-# Install Longhorn prerequisites
+# Install Longhorn prerequisites + iptables persistence
+# DEBIAN_FRONTEND=noninteractive prevents iptables-persistent install prompts
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq open-iscsi nfs-common curl
+apt-get install -y -qq open-iscsi nfs-common curl iptables iptables-persistent
 systemctl enable iscsid && systemctl start iscsid
+
+# ─── Network egress hardening (belt-and-suspenders alongside hcloud_firewall.agent_egress) ───
+#
+# Block the Hetzner Cloud metadata service at 169.254.169.254. A compromised bot
+# pod could otherwise issue an SSRF call to this address and read instance metadata
+# (cloud-init user-data, network config, region info). The Hetzner metadata service
+# does not expose IAM credentials like AWS, but it does leak the K3S_JOIN_TOKEN
+# baked into our cloud-init user-data — which would let an attacker join arbitrary
+# nodes to the cluster. Drop ALL traffic to that address from this host outright.
+#
+# This runs BEFORE K3s joins so the rules are active for the entire pod lifetime.
+iptables -I OUTPUT -d 169.254.169.254/32 -j DROP
+# IPv6 link-local equivalent (Hetzner does not currently expose metadata over v6,
+# but block link-local destinations defensively in case that changes).
+if command -v ip6tables >/dev/null 2>&1; then
+  ip6tables -I OUTPUT -d fe80::/10 -j DROP || true
+fi
+
+# Persist rules across reboots via iptables-persistent (netfilter-persistent service)
+mkdir -p /etc/iptables
+iptables-save > /etc/iptables/rules.v4
+if command -v ip6tables-save >/dev/null 2>&1; then
+  ip6tables-save > /etc/iptables/rules.v6 || true
+fi
+systemctl enable netfilter-persistent || true
 ${volumeMount}
 # Join K3s cluster
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - agent \\
@@ -202,6 +229,11 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
   try {
     const networkId = parseInt(process.env.HETZNER_NETWORK_ID || "0");
     const firewallId = parseInt(process.env.HETZNER_FIREWALL_ID || "0");
+    // Optional second firewall locking down outbound traffic for agent VPSes only.
+    // Created by infrastructure/terraform/main.tf as `hcloud_firewall.agent_egress`.
+    // Attached ONLY to auto-scaled workers — never to master or Coolify (they need
+    // unrestricted egress for cert-manager, Let's Encrypt, GHCR, etc).
+    const agentEgressFirewallId = parseInt(process.env.HETZNER_AGENT_EGRESS_FIREWALL_ID || "0");
     const sshKeyId = parseInt(process.env.HETZNER_SSH_KEY_ID || "0");
     const hasVolume = podStorageGb > 0;
 
@@ -225,13 +257,23 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
     }
 
     // 2. Create server with network + volume attached (so cloud-init can mount it at boot)
+    // Hetzner Cloud firewalls combine additively when multiple are attached: ingress
+    // is the UNION of allow rules across all attached firewalls, and egress is the
+    // INTERSECTION (restrictions stack). So attaching agent_egress alongside the
+    // shared cluster firewall keeps existing inbound K3s traffic working while
+    // tightening outbound traffic to a small allowlist.
+    const firewallsToAttach: Array<{ firewall: number }> = [
+      { firewall: firewallId },
+      ...(agentEgressFirewallId ? [{ firewall: agentEgressFirewallId }] : []),
+    ];
+
     const serverRes = await hetznerRequest<any>("POST", "/servers", {
       name: nodeName,
       server_type: serverType.name,
       image: OS_IMAGE,
       location: LOCATION,
       ssh_keys: [sshKeyId],
-      firewalls: [{ firewall: firewallId }],
+      firewalls: firewallsToAttach,
       networks: [networkId],
       user_data: buildCloudInit(nodeIp, hasVolume),
       labels: { cluster: "jarble", role: "agent", managed: "true" },
@@ -239,7 +281,14 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
       ...(volumeId ? { volumes: [volumeId] } : {}),
     });
     const serverId = serverRes.server.id;
-    logger.info({ nodeName, serverId, volumeId: volumeId || "none" }, "Hetzner server created");
+    logger.info({
+      nodeName,
+      serverId,
+      volumeId: volumeId || "none",
+      egressFirewallAttached: agentEgressFirewallId > 0,
+    }, agentEgressFirewallId > 0
+      ? "Hetzner server created with cluster + agent_egress firewalls"
+      : "Hetzner server created (WARNING: HETZNER_AGENT_EGRESS_FIREWALL_ID not set — egress lockdown disabled)");
 
     await db.update(managedNodes)
       .set({ hetznerServerId: serverId })
