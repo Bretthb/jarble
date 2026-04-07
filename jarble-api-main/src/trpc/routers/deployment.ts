@@ -1633,7 +1633,7 @@ export const deploymentRouter = router({
   setTheme: protectedProcedure
     .input(z.object({
       id: z.string(),
-      themeConfig: z.record(z.unknown()),
+      themeConfig: z.record(z.string(), z.unknown()),
     }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({

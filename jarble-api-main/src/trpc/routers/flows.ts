@@ -254,7 +254,7 @@ const FlowNodeSchema = z.object({
   contextScope: z.enum(["task", "summary", "full"]).optional(),
   modelOverride: z.string().optional(),
   isEntryPoint: z.boolean().optional(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
   position: z.object({ x: z.number(), y: z.number() }),
   maxIterations: z.number().int().min(1).max(100).optional(),
 });
