@@ -59,18 +59,18 @@ pnpm run check:manifest   # Verify manifest ↔ component sync
 
 ### API (jarble-api-main/) — uses npm
 ```bash
-npm run dev          # Start with file watching (tsx watch)
-npm run dev:test     # Start with SQLite (USE_SQLITE=true) for local dev
+npm run dev          # Start with file watching (tsx watch src/index.ts)
 npm run typecheck    # TypeScript type-check
 npm run test         # Run Vitest unit tests (87 test files)
-npm run db:push      # Push schema to database
+npm run db:push      # Push schema to Neon Postgres (requires DATABASE_URL)
 npm run db:studio    # Open Drizzle Studio
+npm run db:migrate   # Run Drizzle migrations against Neon Postgres
 ```
 
 ### Running Both Services
 ```bash
-# Terminal 1 - API on :3001
-cd jarble-api-main && npm run dev:test
+# Terminal 1 - API on :3001 (requires DATABASE_URL pointing at a Neon branch)
+cd jarble-api-main && npm run dev
 # Terminal 2 - Frontend on :3000
 cd Jarble-mvp && pnpm run dev
 ```
@@ -79,7 +79,7 @@ cd Jarble-mvp && pnpm run dev
 - **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind v4, shadcn/ui, pnpm
 - **API**: Express, tRPC, SuperJSON, Drizzle ORM, npm
 - **MCP**: Custom stdio MCP server (`jarble-ui-server.js`) — `render_ui`, `define_component`, `list_components`, `component_reference`, `skill_reference`
-- **Database**: PostgreSQL via Neon (prod), SQLite (dev with USE_SQLITE=true)
+- **Database**: PostgreSQL via Neon (prod and local dev via a Neon branch)
 - **Auth**: Auth0 (JWT + JWKS), **Payments**: Stripe, **Email**: Resend (transactional, from `noreply@noreply.jarble.ai`)
 - **Infra**: Hetzner Cloud, Terraform, K3s, Longhorn
 
@@ -189,20 +189,31 @@ Wizard steps and config tabs driven by `Jarble-mvp/views/onboarding/wizardStepCo
 
 Background watcher polls for Pending pods, provisions right-sized Hetzner servers (cpx11-cpx51), joins K3s via cloud-init. Empty workers deprovisioned after 5 min. Controlled by `AUTOSCALE_ENABLED=true`.
 
-## Database Schema (3 Providers)
-Schema is defined in 3 files that must stay in sync:
-- `jarble-api-main/src/db/schema.ts` (MySQL)
-- `jarble-api-main/src/db/schema.pg.ts` (PostgreSQL — production via Neon)
-- `jarble-api-main/src/db/schema.sqlite.ts` (SQLite — local dev)
+## Database Schema (Postgres only)
 
-When adding tables or columns, update ALL THREE files plus `db/init.ts` (SQLite CREATE TABLE + migrations) and `db/index.ts` (ActiveTables type + getActiveTables()).
+MySQL and SQLite providers were removed in commit `388018b "Remove MySQL, SQLite, and GH Actions — consolidate to Postgres/Neon only"`. The only production schema file is:
+
+- `jarble-api-main/src/db/schema.pg.ts` — the single source of truth for all tables
+
+The `src/db/` directory now contains: `index.ts`, `init.ts`, `migrate.pg.ts`, `schema.pg.ts`, `seed.pg.ts`.
+
+`db/init.ts` is now a no-op stub kept for backward compatibility with the startup sequence. Schema changes are applied via `npm run db:migrate` (Drizzle migrations against Neon Postgres).
+
+When adding tables or columns:
+1. Edit `schema.pg.ts`
+2. Run `npm run db:generate:pg` to generate the migration
+3. Run `npm run db:migrate:pg` to apply it
+4. Update `db/index.ts` `tables` export if the new table needs to be accessible via the `tables` helper
+
+### Unit test mirror (NOT a production provider)
+`jarble-api-main/src/__tests__/helpers/testSchema.sqlite.ts` is an in-memory SQLite mirror of the Postgres schema used exclusively by Vitest tests via `better-sqlite3`. It does not need to stay in sync automatically, but it should mirror any new tables added to `schema.pg.ts` so tests can cover the new paths.
 
 ## Environment Variables
 > Full details in `.claude/rules/env-config.md` (auto-loads when working in .env/infrastructure files)
 
 - **API**: `jarble-api-main/.env` — DATABASE_URL, AUTH0_*, STRIPE_*, ENCRYPTION_KEY, ALLOWED_ORIGINS
 - **Frontend**: `Jarble-mvp/.env.local` — NEXT_PUBLIC_API_URL, NEXT_PUBLIC_AUTH0_*
-- **Local dev**: `USE_SQLITE=true` for file-based SQLite at `local.db`
+- **Local dev**: Set `DATABASE_URL` to a Neon dev-branch connection string. No SQLite provider exists in the API at runtime.
 - **CORS**: `ALLOWED_ORIGINS` env var (comma-separated) for additional origins beyond FRONTEND_URL
 - **Debug endpoints**: `/debug/db`, `/debug/deployment/:id/status`, `/debug/deployment/:id/pod-status` (dev only, gated by NODE_ENV)
 
@@ -212,7 +223,7 @@ When adding tables or columns, update ALL THREE files plus `db/init.ts` (SQLite 
 |-------|------|--------|-------|
 | **Frontend** | Coolify | `dev.jarble.ai` (dev), `jarble.ai` (prod) | Next.js deployed via Coolify on K3s |
 | **API** | Kubero | `api.jarble.ai` | Express + tRPC, namespace `jarble-production` |
-| **Database** | Neon Postgres | — | Production DB (SQLite for local dev) |
+| **Database** | Neon Postgres | — | Production DB and local dev (via a Neon branch) |
 | **Cluster** | K3s on Hetzner | master: `178.156.230.13` | Traefik ingress, Longhorn storage, cert-manager |
 | **Email** | Resend | — | Transactional email (org invites, beta welcome) |
 
@@ -246,7 +257,7 @@ kubectl -n jarble-production exec deployment/jarble-api-kuberoapp-web -- env  # 
 |------|-----------|---------|
 | `flows.md` | Working in `flowEngine*`, `flows.*`, `flowExecution*`, `flowChat*`, `Deployments*` | Flow engine, CRUD, execution, SSE events, canvas |
 | `chat-ux.md` | Working in `useCanvasChat*`, `assistantRuntime*`, `conversationStorage*`, `chat/`, `canvas/` | Chat streaming, typewriter, reasoning, edit sync, canvas controls |
-| `env-config.md` | Working in `.env*`, `docker*`, `db/init*`, `infrastructure/` | Environment variables, debug endpoints, SQLite dev DB |
+| `env-config.md` | Working in `.env*`, `docker*`, `db/init*`, `infrastructure/` | Environment variables, debug endpoints, Neon Postgres dev setup |
 | `autoscaling.md` | Working in `nodeManager*`, `cluster-autoscaler*` | Hetzner auto-scaling, server type mapping |
 
 ## Custom Skills

@@ -153,3 +153,123 @@ Full audit: `docs/audits/qa-bot-teams-2026-04-07.md`
 - 3 pods stuck for 45+ min with no alert
 - Add monitoring on `status: creating` duration — anything over 5 min should page ops
 - Add monitoring on `FailedAttachVolume` events in the jarble namespace
+
+---
+
+## QA findings — 2026-04-07 Bot Teams retest (qa-explorer-ui agent)
+
+The following 4 tickets were found and filed in the same session. Each is cross-referenced with the parallel agent that is actively fixing it.
+
+### JAR-XX — P2: Session picker row missing message-count badge
+
+**Status**: open (being fixed in parallel by agent `fix-session-picker-badge`)
+**Priority**: P2
+**Labels**: `bug`, `bot-teams`
+
+#### Scope
+`Jarble-mvp/views/Deployments.tsx` — the session picker row renders each session's `lastActivity` timestamp and label, but never renders the `messageCount` field that Wave 3 delta added to the backend response. The badge column is absent from the row JSX.
+
+#### Context
+Wave 3 delta (`62b2230`) added `messageCount` to the `flow_chat_sessions` backend response and the `ChatSession` TypeScript type. The frontend was not updated to display it. Every session therefore shows no indication of how active it is, making it impossible for a coordinator to pick the right specialist session at a glance.
+
+#### Acceptance Criteria
+- [ ] Each session picker row displays a badge showing the message count (e.g., "14 msgs")
+- [ ] The badge renders 0 correctly without crashing
+- [ ] The badge is visually distinct from the timestamp (different color or weight)
+- [ ] Existing session picker snapshot tests pass or are updated
+
+#### References
+- `Jarble-mvp/views/Deployments.tsx` — session picker row component
+- `jarble-api-main/src/trpc/routers/flows.ts` — `listChatSessions` procedure (returns `messageCount`)
+- Parallel fix agent: `fix-session-picker-badge`
+
+#### Dependencies
+- None (self-contained frontend change)
+
+---
+
+### JAR-XX — P3: Casual delegation prompts bypass specialist routing
+
+**Status**: open (being fixed in parallel by agent `fix-bot-teams-prompts`)
+**Priority**: P3
+**Labels**: `bug`, `bot-teams`
+
+#### Scope
+`jarble-api-main/src/routes/flowChat.ts` — the coordinator delegation heuristic only triggers when the user uses strong language ("MUST delegate", "YOU MUST"). Casual prompts such as "have your specialist handle this" cause the coordinator to answer directly, silently skipping delegation.
+
+#### Context
+The delegation skip heuristic was introduced in Wave 3 to avoid unnecessary round-trips. It over-fires: it treats any user message without explicit "MUST" wording as a direct-answer candidate, regardless of the coordinator's role. This breaks the core Bot Teams contract for users who phrase requests naturally.
+
+#### Acceptance Criteria
+- [ ] Coordinator routes to a specialist when the user says "have your specialist handle X" (no "MUST" required)
+- [ ] Coordinator only answers directly when the task is clearly within its own scope (no specialist needed)
+- [ ] The delegation skip heuristic is narrowed to apply only when the user's topic matches the coordinator's own knowledge domain
+- [ ] A regression test covers the "casual delegation prompt" case
+
+#### References
+- `jarble-api-main/src/routes/flowChat.ts` — coordinator prompt and delegation heuristic
+- `jarble-api-main/src/services/flowDelegation.test.ts` — existing regression tests
+- Parallel fix agent: `fix-bot-teams-prompts`
+
+#### Dependencies
+- None (prompt engineering change in flowChat.ts)
+
+---
+
+### JAR-XX — P3: Coordinator wrap-up falsely claims specialist response was truncated
+
+**Status**: open (being fixed in parallel by agent `fix-bot-teams-prompts`)
+**Priority**: P3
+**Labels**: `bug`, `bot-teams`
+
+#### Scope
+`jarble-api-main/src/routes/flowChat.ts` — after a successful delegation round-trip, the coordinator's wrap-up message includes the phrase "the result was truncated" even when the specialist returned a complete, untruncated response.
+
+#### Context
+The re-summarization template in `flowChat.ts` was written to handle the case where the specialist response exceeds a token limit. The truncation phrase is emitted unconditionally from the template rather than conditionally based on whether the response was actually cut. Users see this as a hallucination and lose trust in the coordinator's accuracy.
+
+#### Acceptance Criteria
+- [ ] The wrap-up message omits any mention of truncation when the specialist response was not truncated
+- [ ] When the specialist response IS truncated (over the limit), the wrap-up correctly says so
+- [ ] A regression test distinguishes the two cases
+
+#### References
+- `jarble-api-main/src/routes/flowChat.ts` — re-summarization template
+- Parallel fix agent: `fix-bot-teams-prompts`
+
+#### Dependencies
+- Shares the same file as JAR-XX (casual delegation fix above) — coordinate to avoid merge conflicts
+
+---
+
+### JAR-XX — P3: Tool name inconsistency between docs and runtime
+
+**Status**: open (being fixed in parallel by agent `fix-bot-teams-prompts`)
+**Priority**: P3
+**Labels**: `bug`, `bot-teams`, `docs`
+
+#### Scope
+Two places describe the delegation tool name differently:
+
+- Docs and internal comments say `jarble_delegate` (generic, single tool)
+- The runtime (`jarble-ui-server.js`) registers per-specialist tools as `delegate_to_<name>` (one tool per team member)
+
+This inconsistency causes confusion when reading logs, writing tests, or writing the coordinator system prompt, because neither name matches what developers expect to see.
+
+#### Context
+Per-specialist tool naming (`delegate_to_<name>`) was chosen so the coordinator LLM can see explicit targets in its tool list rather than having to pass a `target` argument. The generic name `jarble_delegate` was used in earlier design docs and was never updated. Both names appear in different places in the codebase and docs, creating drift.
+
+#### Acceptance Criteria
+- [ ] A single canonical tool-name convention is chosen and documented in `CLAUDE.md` under the Bot Teams / Flow section
+- [ ] All references in docs, comments, and the coordinator system prompt use the canonical name
+- [ ] The MCP server registration in `jarble-ui-server.js` matches the canonical name
+- [ ] A note in `docs/audits/bot-teams-rescue-tickets-draft.md` records the decision
+
+#### References
+- `runtimes/openclaw/jarble-ui-server.js` — per-specialist tool registration
+- `jarble-api-main/src/routes/flowChat.ts` — coordinator system prompt mentions tool name
+- `CLAUDE.md` — any existing mention of `jarble_delegate`
+- Parallel fix agent: `fix-bot-teams-prompts`
+
+#### Dependencies
+- Should land after the casual delegation fix (same file) to avoid conflicts
