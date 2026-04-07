@@ -3,15 +3,24 @@
  *
  * POST /api/flows/:flowId/chat - Send a message to the flow's entry bot.
  *
- * The entry bot can delegate to connected bots via auto-generated delegation
- * tools. Delegation happens transparently: the user talks to one bot, and the
- * bot team coordinates behind the scenes.
+ * The entry bot can delegate to connected bots by emitting a single canonical
+ * `jarble_delegate` fenced code block. There is NO per-member tool exposed
+ * to the LLM (e.g. no `delegate_to_<name>`); the one tool the bot uses is the
+ * `jarble_delegate` fence, and the `to` field of its JSON body picks the
+ * target by bare slug. Delegation happens transparently: the user talks to
+ * one bot, and the bot team coordinates behind the scenes.
+ *
+ * The internal `DelegationTool.name` (e.g. `delegate_to_t1`) is kept purely
+ * as a routing key inside the parser — it never reaches the LLM and is no
+ * longer surfaced on user-facing diagnostics. The skipped/banner SSE events
+ * ship bare slugs to match the `jarble_delegate` contract.
  *
  * Response streams via SSE using the same AG-UI event protocol as tamboAgent.ts.
  * Additional flow-specific events:
  *   - jarble.flow.delegation.start  - delegation to a team member began
  *   - jarble.flow.delegation.end    - delegation finished (includes result summary)
  *   - jarble.flow.chat.trace        - full delegation trace at end of response
+ *   - jarble.flow.delegation.skipped - diagnostic when no delegation happened
  *
  * Auth: Bearer JWT (same as tamboAgent.ts and flowExecution.ts)
  */
@@ -139,7 +148,15 @@ interface DelegationTraceEntry {
   targetNodeId: string;
   targetDeploymentId: string;
   task: string;
+  /** First 300 chars — wire-format preview shipped on the SSE trace event. */
   responsePreview: string;
+  /**
+   * The COMPLETE specialist reply. Kept server-side only and used to feed the
+   * coordinator's wrap-up synthesis turn so it sees the full text instead of
+   * the truncated preview (preview-only caused "result was truncated"
+   * hallucinations — qa-bot-teams 2026-04-07 P3 #2).
+   */
+  fullResponse: string;
   durationMs: number;
   creditsUsed: number;
   success: boolean;
@@ -545,13 +562,16 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           },
         });
 
-        // Record in trace
+        // Record in trace. responsePreview is the wire-format slice (300 chars)
+        // shipped on the SSE event; fullResponse is kept server-side and fed
+        // into the coordinator's synthesis turn so it sees the full reply.
         delegationTrace.push({
           toolName: call.toolName,
           targetNodeId: tool.targetNodeId,
           targetDeploymentId: tool.targetDeploymentId,
           task: call.task,
           responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
+          fullResponse: delegationResult?.response ?? "",
           durationMs: delegationResult?.durationMs ?? 0,
           creditsUsed: delegationResult?.creditsUsed ?? 0,
           success: !!delegationResult,
@@ -591,11 +611,20 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         }
       }
 
-      // 10. Send delegation results back to entry bot for synthesis
+      // 10. Send delegation results back to entry bot for synthesis.
+      // The coordinator gets the FULL specialist replies (not the 300-char
+      // wire-format previews) wrapped in explicit BEGIN/END markers so it
+      // cannot mistake them for previews. Previously this used responsePreview
+      // and the coordinator routinely hallucinated "the result was truncated"
+      // because the preview cut off mid-sentence — see qa-bot-teams
+      // 2026-04-07 P3 finding #2.
       if (delegationTrace.length > 0 && !abortController.signal.aborted) {
         const synthesisPrompt = delegationTrace
           .filter((d) => d.success)
-          .map((d) => `**${d.toolName}** result:\n${d.responsePreview}`)
+          .map((d) => {
+            const slug = d.toolName.replace(/^delegate_to_/, "");
+            return `[BEGIN ${slug} FULL REPLY]\n${d.fullResponse}\n[END ${slug} FULL REPLY]`;
+          })
           .join("\n\n");
 
         if (synthesisPrompt) {
@@ -612,7 +641,16 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             const synthResult = await chatViaExec(
               entryPodName,
               sessionKey,
-              `[DELEGATION RESULTS]\n${synthesisPrompt}\n[/DELEGATION RESULTS]\n\nSynthesize these delegation results into a cohesive response for the user. Be concise — the raw results were already shown.`,
+              `[DELEGATION RESULTS]\n${synthesisPrompt}\n[/DELEGATION RESULTS]\n\n` +
+                `Each block above contains the COMPLETE, untruncated reply from one team member, ` +
+                `bounded by [BEGIN ... FULL REPLY] / [END ... FULL REPLY] markers. The full reply ` +
+                `is everything between those markers — there is no hidden continuation. Do NOT ` +
+                `claim any reply was "truncated", "cut off", "shortened", "incomplete", or that ` +
+                `you "only saw a preview". If a reply ends mid-thought it is because the team ` +
+                `member chose to stop there, not because it was truncated by the system.\n\n` +
+                `Briefly weave these replies into a cohesive response for the user. Be concise — ` +
+                `the raw replies were already streamed to the user above, so your job is just to ` +
+                `add a short framing summary, not to repeat the contents.`,
               undefined,
               undefined,
               abortController.signal,
@@ -686,13 +724,22 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         }
       }
 
+      // Surface the bare slugs (e.g. "t1", "researcher") instead of the
+      // internal `delegate_to_<slug>` tool names. The user-facing contract
+      // exposed in the system prompt teaches bots to emit
+      // `jarble_delegate { "to": "<bare-slug>" }`, so the banner copy and
+      // skipped-diagnostic should match that vocabulary. The internal
+      // DelegationTool.name field stays as `delegate_to_<slug>` purely as a
+      // routing key for the parser — see qa-bot-teams 2026-04-07 P3 #3.
       sendEvent(res, {
         type: CUSTOM,
         name: "jarble.flow.delegation.skipped",
         value: {
           reason: skipReason,
           availableToolCount: delegationTools.length,
-          availableTools: delegationTools.map((t) => t.name),
+          availableTools: delegationTools.map((t) =>
+            t.name.replace(/^delegate_to_/, ""),
+          ),
         },
       });
 

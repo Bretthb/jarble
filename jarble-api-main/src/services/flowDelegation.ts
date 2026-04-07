@@ -152,15 +152,37 @@ export function buildFlowSystemPrompt(
     parts.push(
       "\n\n## How to Delegate — REQUIRED FORMAT\n" +
       "To delegate, emit a fenced code block tagged `jarble_delegate` containing a " +
-      "JSON object. The block is the ONLY way to delegate — no other format works.\n" +
+      "JSON object. The block is the ONLY way to delegate — no other format works. " +
+      "There is no per-member tool (like `delegate_to_<name>`); the single canonical " +
+      "delegation tool is the `jarble_delegate` fenced block, and the `to` field picks " +
+      "the target by bare slug.\n" +
       "\nFields:\n" +
-      "- `to`      — REQUIRED string, the slug of the team member (from the list above)\n" +
+      "- `to`      — REQUIRED string, the bare slug of the team member (from the list above — NOT prefixed with `delegate_to_`)\n" +
       "- `task`    — REQUIRED string, the task to delegate\n" +
       "- `context` — OPTIONAL string, additional context to pass with the task\n" +
       "\nExample (one-shot):\n" +
       "```jarble_delegate\n" +
       `{ "to": "${sampleSlug}", "task": "Describe primary colors", "context": "" }\n` +
       "```\n" +
+      "\n## When You MUST Delegate — Strong Triggers\n" +
+      "If the user's message contains ANY of the following, you MUST emit a " +
+      "`jarble_delegate` block instead of answering yourself, even if you are capable " +
+      "of answering directly. The user is explicitly invoking the team structure — " +
+      "answering yourself defeats the purpose of having teammates.\n" +
+      "\n" +
+      "- The user names a team member by slug, role, or label (e.g. \"ask " +
+      `${sampleSlug}\", \"have ${sampleSlug} do X\", \"what does ${sampleSlug} say\")\n` +
+      "- The user references your team in the abstract (e.g. \"your specialist\", " +
+      "\"your team\", \"your researcher\", \"your expert\", \"have one of your bots\", " +
+      "\"a team member\")\n" +
+      "- The user uses delegation verbs targeted at your team (\"delegate this\", " +
+      "\"hand this off to\", \"pass this to\", \"forward this to\")\n" +
+      "\n" +
+      "Choose the team member whose role best matches the request. When in doubt " +
+      "between two members, pick the one whose listed description most directly " +
+      "covers the user's task. Do NOT delegate every casual question — only when the " +
+      "user references the team OR when the request clearly matches a member's listed " +
+      "specialty better than your own coordinator role.\n" +
       "\n## Hard Rules — READ CAREFULLY\n" +
       "1. Emit ONLY the fenced `jarble_delegate` block. Do NOT describe what you are " +
       "doing in prose first. The user does not see the block — they see only the final " +
@@ -171,10 +193,11 @@ export function buildFlowSystemPrompt(
       "3. To broadcast to multiple members, emit multiple `jarble_delegate` blocks in " +
       "the same response.\n" +
       "4. After delegations complete, you will be called again with their results " +
-      "to integrate into a final synthesis. Do not pre-write the synthesis on the " +
-      "delegating turn.\n" +
-      "5. If you can handle the request yourself, respond directly without emitting " +
-      "any `jarble_delegate` block.",
+      "to integrate into a final synthesis. The full reply from each member will be " +
+      "included verbatim — do NOT claim it was truncated.\n" +
+      "5. If you can handle the request yourself AND the user has not invoked any of " +
+      "the strong triggers above, respond directly without emitting any " +
+      "`jarble_delegate` block.",
     );
   }
 

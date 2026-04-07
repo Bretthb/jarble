@@ -308,6 +308,46 @@ describe("buildFlowSystemPrompt — jarble_delegate format", () => {
     const prompt = buildFlowSystemPrompt(node, [], "Base prompt.");
     expect(prompt).not.toContain("jarble_delegate");
   });
+
+  // ── Stronger delegation bias (qa-bot-teams 2026-04-07 P3 #1) ──────────────
+  // When the user explicitly references a team member by slug, role, or the
+  // abstract phrase "your specialist / your team", the coordinator MUST
+  // delegate instead of answering directly. The prompt surfaces this as an
+  // explicit "Strong Triggers" section with concrete example phrasings.
+  it("includes a Strong Triggers section listing casual delegation phrasings", async () => {
+    const { buildFlowSystemPrompt } = await import("./flowDelegation.js");
+    const prompt = buildFlowSystemPrompt(node, [tool], "Base prompt.");
+    expect(prompt).toContain("Strong Triggers");
+    // The three phrasing buckets the QA finding flagged:
+    expect(prompt).toMatch(/your specialist/i);
+    expect(prompt).toMatch(/your team/i);
+    // "ask <name>" should appear as an example of naming a member directly
+    expect(prompt).toMatch(/ask\s+specialist/i);
+    // Delegation verbs
+    expect(prompt).toMatch(/hand this off|pass this to/i);
+  });
+
+  it("instructs the coordinator that replies are verbatim, not truncated", async () => {
+    // qa-bot-teams 2026-04-07 P3 #2: after successful delegation the
+    // coordinator was hallucinating "the result was truncated" in its
+    // wrap-up summary. The prompt now explicitly tells it that the specialist
+    // reply shown on the synthesis turn is complete.
+    const { buildFlowSystemPrompt } = await import("./flowDelegation.js");
+    const prompt = buildFlowSystemPrompt(node, [tool], "Base prompt.");
+    expect(prompt).toMatch(/do not claim it was truncated|verbatim/i);
+  });
+
+  it("documents the single canonical delegation tool (no per-member tool drift)", async () => {
+    // qa-bot-teams 2026-04-07 P3 #3: the prompt previously invited confusion
+    // between `jarble_delegate` (fenced block, canonical) and
+    // `delegate_to_<name>` (internal routing key). The prompt now explicitly
+    // tells the bot there is no per-member tool and `jarble_delegate` is the
+    // single canonical delegation mechanism.
+    const { buildFlowSystemPrompt } = await import("./flowDelegation.js");
+    const prompt = buildFlowSystemPrompt(node, [tool], "Base prompt.");
+    expect(prompt).toMatch(/no per-member tool/i);
+    expect(prompt).toMatch(/bare slug/i);
+  });
 });
 
 describe("flowChat delegation-mention heuristic (Fix #6)", () => {
