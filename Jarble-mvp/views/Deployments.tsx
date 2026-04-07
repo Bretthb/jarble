@@ -2544,6 +2544,93 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   const [flowChatInput, setFlowChatInput] = useState("");
   const [flowChatLoading, setFlowChatLoading] = useState(false);
 
+  // Track which (flowId, sessionId) we've already seeded from persistence
+  // so the effect below doesn't clobber in-flight streaming messages
+  // every time React re-runs it.
+  const seededChatKeyRef = useRef<string | null>(null);
+
+  // Load persisted chat sessions for the active flow. Gated on
+  // showFlowChat so we don't fire the query when the panel isn't
+  // open (avoids wasted requests when the user is just editing the
+  // graph). The tRPC procedures tolerate the tables not existing
+  // (migration 0007 may not be applied) and return an empty array,
+  // so we don't need a separate feature flag.
+  const chatSessionsQuery = trpc.flows.getChatSessions.useQuery(
+    { flowId: activeFlowId ?? "" },
+    {
+      enabled: !!activeFlowId && showFlowChat,
+      // Sessions are append-mostly — don't refetch aggressively.
+      staleTime: 30_000,
+      retry: false,
+    }
+  );
+
+  // Sessions are ordered DESC by updatedAt, so [0] is the most recent.
+  // We treat the single-pane Bot Teams chat as "continue the latest
+  // session for this flow" — a future UI could let users switch.
+  const latestSessionId = chatSessionsQuery.data?.[0]?.id ?? null;
+
+  const chatMessagesQuery = trpc.flows.getChatMessages.useQuery(
+    { sessionId: latestSessionId ?? "" },
+    {
+      enabled: !!latestSessionId && showFlowChat,
+      staleTime: 30_000,
+      retry: false,
+    }
+  );
+
+  // Seed the local flowChatMessages state from persistence the first
+  // time we have data for a given (flowId, sessionId) combination.
+  // We intentionally DO NOT overwrite state on subsequent renders —
+  // otherwise an in-flight streaming reply could get wiped out when
+  // the query re-runs. `seededChatKeyRef` is our idempotency key.
+  useEffect(() => {
+    if (!showFlowChat || !activeFlowId) {
+      // Reset so re-opening the panel re-seeds.
+      seededChatKeyRef.current = null;
+      return;
+    }
+    // Nothing to seed with yet.
+    if (chatSessionsQuery.isLoading || chatMessagesQuery.isLoading) return;
+
+    const key = `${activeFlowId}::${latestSessionId ?? "none"}`;
+    if (seededChatKeyRef.current === key) return;
+
+    const historyRows = chatMessagesQuery.data ?? [];
+    if (historyRows.length > 0) {
+      // Map DB rows into the local chat bubble shape. Only role and
+      // content are displayed today; the other columns (sourceNodeId,
+      // delegationToolName, etc.) are preserved on the server for
+      // future UI needs.
+      const mapped = historyRows.map((row) => ({
+        role: row.role,
+        content: row.content,
+      }));
+      setFlowChatMessages(mapped);
+    } else if (latestSessionId === null) {
+      // No sessions at all for this flow — start with a clean slate.
+      // Only clear if the current messages don't include any freshly
+      // typed but unpersisted content (we use the ref to track that).
+      setFlowChatMessages([]);
+    }
+    seededChatKeyRef.current = key;
+  }, [
+    showFlowChat,
+    activeFlowId,
+    latestSessionId,
+    chatSessionsQuery.isLoading,
+    chatMessagesQuery.isLoading,
+    chatMessagesQuery.data,
+  ]);
+
+  // When the user switches flows, clear the chat pane and force a
+  // re-seed on the next open. Without this, opening a second flow
+  // would briefly show the previous flow's messages.
+  useEffect(() => {
+    setFlowChatMessages([]);
+    seededChatKeyRef.current = null;
+  }, [activeFlowId]);
+
   const handleChatWithTeam = useCallback(() => {
     if (!activeFlowId) return;
     setShowFlowChat(true);

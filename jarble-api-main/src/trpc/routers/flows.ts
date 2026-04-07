@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../middleware.js";
 import { db, tables, dbDate } from "../../db/index.js";
-import { eq, ne, desc, and, sql } from "drizzle-orm";
+import { eq, ne, desc, asc, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createModuleLogger } from "../../utils/logger.js";
 import { customAlphabet } from "nanoid";
@@ -22,6 +22,41 @@ import { syncConfigsToPvc } from "../../services/configSync.js";
 const logger = createModuleLogger("flows");
 
 const { orchestrationFlows, flowExecutions } = tables;
+
+// ── Flow chat persistence helpers ────────────────────────────────────────
+// flowChatSessions / flowChatMessages were introduced in migration
+// 0007_lyrical_callisto.sql which has not yet been applied to all
+// environments. We access them dynamically and gracefully degrade to
+// empty results if either the table is missing from the schema bundle
+// (legacy build) or the underlying SQL relation doesn't exist yet.
+
+function getFlowChatTables(): {
+  sessions: any | null;
+  messages: any | null;
+} {
+  const t = tables as any;
+  return {
+    sessions: t.flowChatSessions ?? null,
+    messages: t.flowChatMessages ?? null,
+  };
+}
+
+/**
+ * Detect Postgres "relation does not exist" / SQLite "no such table"
+ * style errors so we can return an empty result instead of crashing the
+ * whole procedure when the migration hasn't been applied yet.
+ */
+function isMissingTableError(err: unknown): boolean {
+  if (!err) return false;
+  const e = err as { code?: unknown; message?: unknown };
+  if (typeof e.code === "string" && e.code === "42P01") return true;
+  const msg = typeof e.message === "string" ? e.message.toLowerCase() : "";
+  return (
+    msg.includes("does not exist") ||
+    msg.includes("no such table") ||
+    msg.includes("relation") && msg.includes("does not exist")
+  );
+}
 
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
 
@@ -811,4 +846,176 @@ export const flowsRouter = router({
         });
       }
     }),
+
+  /**
+   * List the persisted bot-team chat sessions for a flow owned by the
+   * caller. Each session corresponds to a single conversation thread; the
+   * write path is in `routes/flowChat.ts`.
+   *
+   * Gracefully returns an empty array if migration 0007_lyrical_callisto
+   * has not yet been applied (the underlying tables don't exist).
+   */
+  getChatSessions: protectedProcedure
+    .input(z.object({ flowId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.user.id;
+
+      // 1. Verify flow ownership — same pattern as getById / listExecutions.
+      const flow = await db
+        .select({ id: orchestrationFlows.id })
+        .from(orchestrationFlows)
+        .where(
+          and(
+            eq(orchestrationFlows.id, input.flowId),
+            eq(orchestrationFlows.userId, userId)
+          )
+        )
+        .limit(1);
+
+      if (flow.length === 0) {
+        // Don't reveal whether the flow exists for another user — return
+        // an empty list rather than 404. This matches the "no sessions"
+        // case from the caller's perspective and avoids leaking ownership.
+        logger.warn(
+          { flowId: input.flowId, userId },
+          "getChatSessions: flow not owned by caller"
+        );
+        return [] as Array<{
+          id: string;
+          flowId: string;
+          title: string | null;
+          createdAt: Date | string | null;
+          updatedAt: Date | string | null;
+        }>;
+      }
+
+      const { sessions: flowChatSessions } = getFlowChatTables();
+      if (!flowChatSessions) {
+        logger.warn(
+          { flowId: input.flowId },
+          "getChatSessions: flowChatSessions table not registered in schema bundle — returning []"
+        );
+        return [];
+      }
+
+      try {
+        const rows = await db
+          .select({
+            id: flowChatSessions.id,
+            flowId: flowChatSessions.flowId,
+            title: flowChatSessions.title,
+            createdAt: flowChatSessions.createdAt,
+            updatedAt: flowChatSessions.updatedAt,
+          })
+          .from(flowChatSessions)
+          .where(
+            and(
+              eq(flowChatSessions.flowId, input.flowId),
+              eq(flowChatSessions.userId, userId)
+            )
+          )
+          .orderBy(desc(flowChatSessions.updatedAt))
+          .limit(50);
+
+        return rows;
+      } catch (err) {
+        if (isMissingTableError(err)) {
+          logger.warn(
+            { flowId: input.flowId, err: err instanceof Error ? err.message : String(err) },
+            "getChatSessions: underlying table missing (migration 0007 not applied?) — returning []"
+          );
+          return [];
+        }
+        // Any other DB hiccup: log and degrade rather than crashing the
+        // whole chat panel — chat history is non-critical.
+        logger.error(
+          { flowId: input.flowId, err: err instanceof Error ? err.message : String(err) },
+          "getChatSessions: unexpected DB error — returning []"
+        );
+        return [];
+      }
+    }),
+
+  /**
+   * List persisted chat messages for a single session.
+   *
+   * Ownership is enforced via an INNER JOIN against `flow_chat_sessions`
+   * filtered by `userId`. This means a malicious caller cannot read
+   * messages even if they guess a sessionId — the join will return zero
+   * rows when the session doesn't belong to them.
+   *
+   * Gracefully returns an empty array if migration 0007 hasn't been
+   * applied yet.
+   */
+  getChatMessages: protectedProcedure
+    .input(
+      z.object({
+        sessionId: z.string(),
+        limit: z.number().int().min(1).max(500).default(200),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.user.id;
+
+      const { sessions: flowChatSessions, messages: flowChatMessages } =
+        getFlowChatTables();
+      if (!flowChatSessions || !flowChatMessages) {
+        logger.warn(
+          { sessionId: input.sessionId },
+          "getChatMessages: flow chat tables not registered in schema bundle — returning []"
+        );
+        return [];
+      }
+
+      try {
+        // INNER JOIN enforces ownership — if the session belongs to a
+        // different user, the join produces zero rows and we return [].
+        const rows = await db
+          .select({
+            id: flowChatMessages.id,
+            sessionId: flowChatMessages.sessionId,
+            role: flowChatMessages.role,
+            content: flowChatMessages.content,
+            sourceNodeId: flowChatMessages.sourceNodeId,
+            sourceDeploymentId: flowChatMessages.sourceDeploymentId,
+            delegationToolName: flowChatMessages.delegationToolName,
+            createdAt: flowChatMessages.createdAt,
+          })
+          .from(flowChatMessages)
+          .innerJoin(
+            flowChatSessions,
+            eq(flowChatMessages.sessionId, flowChatSessions.id)
+          )
+          .where(
+            and(
+              eq(flowChatMessages.sessionId, input.sessionId),
+              eq(flowChatSessions.userId, userId)
+            )
+          )
+          .orderBy(asc(flowChatMessages.createdAt))
+          .limit(input.limit);
+
+        return rows;
+      } catch (err) {
+        if (isMissingTableError(err)) {
+          logger.warn(
+            { sessionId: input.sessionId, err: err instanceof Error ? err.message : String(err) },
+            "getChatMessages: underlying table missing (migration 0007 not applied?) — returning []"
+          );
+          return [];
+        }
+        logger.error(
+          { sessionId: input.sessionId, err: err instanceof Error ? err.message : String(err) },
+          "getChatMessages: unexpected DB error — returning []"
+        );
+        return [];
+      }
+    }),
 });
+
+// Export internal helpers for testability. These are intentionally
+// excluded from the tRPC router surface.
+export const __testables = {
+  getFlowChatTables,
+  isMissingTableError,
+};
