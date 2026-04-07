@@ -302,14 +302,37 @@ resource "hcloud_server" "master" {
     until kubectl -n longhorn-system get daemonset longhorn-manager >/dev/null 2>&1; do sleep 3; done
     until kubectl -n longhorn-system get daemonset longhorn-csi-plugin >/dev/null 2>&1; do sleep 3; done
 
+    # Also wait for the engine-image DaemonSet (name has a Longhorn version
+    # hash suffix, e.g. engine-image-ei-acb7590c). Discover dynamically by label.
+    until [ -n "$(kubectl -n longhorn-system get daemonset -l longhorn.io/component=engine-image -o name 2>/dev/null)" ]; do sleep 3; done
+
     # Patch Longhorn DaemonSets so they schedule onto jarble-auto-* nodes,
     # which are tainted with jarble.ai/workload=agent:NoSchedule by nodeManager.ts.
-    # See docs/audits/qa-bot-teams-2026-04-07.md and docs/audits/autoscaler-csi-fix-plan.md
-    for DS in longhorn-manager longhorn-csi-plugin; do
-      kubectl -n longhorn-system patch daemonset "$DS" --type=json -p='[
-        {"op":"add","path":"/spec/template/spec/tolerations/-","value":{"key":"jarble.ai/workload","operator":"Equal","value":"agent","effect":"NoSchedule"}}
-      ]' || true
+    # Without this, auto-workers cannot run longhorn-manager / longhorn-csi-plugin
+    # / engine-image pods, and bot PVCs fail to attach with errors like
+    # "the data engine image longhornio/longhorn-engine:v1.6.0 is not deployed
+    # on at least one of the replicas' nodes".
+    #
+    # See docs/audits/qa-bot-teams-2026-04-07.md (Workstream A original CSI fix)
+    # and docs/audits/longhorn-hardening-findings.md L-04 (engine-image gap).
+    #
+    # Strategic merge is used (not JSON-patch /-/append) because:
+    #   - It handles "create tolerations if missing" and "merge by key if present"
+    #     uniformly — engine-image ships with NO tolerations field at all.
+    #   - It does not clobber upstream tolerations Longhorn may add later.
+    #   - It is idempotent — re-running on rebuild is a no-op.
+    #
+    # Belt-and-suspenders: also set the Longhorn global taint-toleration setting.
+    # Longhorn's setting_controller propagates this to all operator-managed
+    # DaemonSets (engine-image, instance-manager) on its next reconcile, but
+    # only when no volumes are attached. The direct DS patch above covers the
+    # bootstrap case where reconciliation is blocked by an attached volume.
+    STATIC_DS="longhorn-manager longhorn-csi-plugin"
+    ENGINE_DS=$(kubectl -n longhorn-system get daemonset -l longhorn.io/component=engine-image -o jsonpath='{range .items[*]}{.metadata.name}{" "}{end}')
+    for DS in $STATIC_DS $ENGINE_DS; do
+      kubectl -n longhorn-system patch daemonset "$DS" --type=strategic --patch '{"spec":{"template":{"spec":{"tolerations":[{"key":"jarble.ai/workload","operator":"Equal","value":"agent","effect":"NoSchedule"}]}}}}' || true
     done
+    kubectl -n longhorn-system patch setting taint-toleration --type=merge -p '{"value":"jarble.ai/workload=agent:NoSchedule"}' || true
 
     # Install cert-manager for automatic TLS certificate provisioning
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.5/cert-manager.yaml
