@@ -1,0 +1,187 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Build & Publish Runtime Container Images to GHCR
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Triggers:
+#   - Push to main when runtimes/ files change
+#   - Push to main when the canonical jarble-ui-server.js changes
+#     (it gets copied into the openclaw build context)
+#   - Manual dispatch (workflow_dispatch) with runtime selection
+#
+# Publishes to:
+#   ghcr.io/jarble-ai/openclaw:latest  (+ :sha-XXXXXXX tag)
+#   ghcr.io/jarble-ai/zeroclaw:latest  (+ :sha-XXXXXXX tag)
+#
+# Runtime images are pulled by the autoscaler when bot pods spin up.
+# The :latest tag is what new pods get; bumping it requires no K8s changes.
+#
+# Why we copy jarble-ui-server.js fresh on every build:
+#   The MCP server lives in jarble-api-main/src/mcp/jarble-ui-server.js
+#   (the canonical source). The openclaw image bakes a copy at
+#   /opt/jarble/mcp/jarble-ui-server.js. Without this copy step the bot
+#   would run a stale snapshot and the Jarble UI tools would fail to
+#   register. See docs/audits/qa-bot-teams-2026-04-07.md.
+# ═══════════════════════════════════════════════════════════════════════
+
+name: Build Runtime Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "runtimes/**"
+      - "jarble-api-main/src/mcp/jarble-ui-server.js"
+  workflow_dispatch:
+    inputs:
+      runtime:
+        description: "Which runtime to build"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - openclaw
+          - zeroclaw
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/jarble-ai
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ── Detect which runtimes need rebuilding ────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      openclaw: ${{ steps.decide.outputs.openclaw }}
+      zeroclaw: ${{ steps.decide.outputs.zeroclaw }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'push'
+        with:
+          filters: |
+            openclaw:
+              - 'runtimes/openclaw/**'
+              - 'jarble-api-main/src/mcp/jarble-ui-server.js'
+            zeroclaw:
+              - 'runtimes/zeroclaw/**'
+
+      - name: Decide which runtimes to build
+        id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SELECTED="${{ inputs.runtime }}"
+            if [ "$SELECTED" = "all" ] || [ "$SELECTED" = "openclaw" ]; then
+              echo "openclaw=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "openclaw=false" >> "$GITHUB_OUTPUT"
+            fi
+            if [ "$SELECTED" = "all" ] || [ "$SELECTED" = "zeroclaw" ]; then
+              echo "zeroclaw=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "zeroclaw=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "openclaw=${{ steps.filter.outputs.openclaw || 'false' }}" >> "$GITHUB_OUTPUT"
+            echo "zeroclaw=${{ steps.filter.outputs.zeroclaw || 'false' }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Build & Push runtime images (matrix) ─────────────────────────────
+  # Matrix entries run in parallel. To add a new runtime:
+  #   1. Drop a new directory under runtimes/<name>/ with a Dockerfile
+  #   2. Add <name> to the matrix below + a filter in the changes job
+  build:
+    needs: changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [openclaw, zeroclaw]
+    # Limit one in-flight build per runtime to avoid cache thrash + tag races
+    concurrency:
+      group: deploy-runtimes-${{ matrix.runtime }}
+      cancel-in-progress: false
+    if: |
+      (matrix.runtime == 'openclaw' && needs.changes.outputs.openclaw == 'true') ||
+      (matrix.runtime == 'zeroclaw' && needs.changes.outputs.zeroclaw == 'true')
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Bring the canonical Jarble UI MCP server into the build ──
+      # Only openclaw uses it; zeroclaw skips this step.
+      # This guarantees the image always bundles the latest MCP server
+      # rather than relying on a stale committed copy.
+      - name: Copy canonical jarble-ui-server.js into openclaw context
+        if: matrix.runtime == 'openclaw'
+        run: |
+          set -euo pipefail
+          SRC="jarble-api-main/src/mcp/jarble-ui-server.js"
+          DEST="runtimes/openclaw/jarble-ui-server.js"
+          if [ ! -f "$SRC" ]; then
+            echo "::error::Canonical MCP server not found at $SRC"
+            exit 1
+          fi
+          cp "$SRC" "$DEST"
+          BYTES=$(wc -c < "$DEST")
+          echo "Copied $SRC -> $DEST ($BYTES bytes)"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.runtime }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=sha-${{ steps.sha.outputs.short }}
+
+      - name: Build and push ${{ matrix.runtime }}
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./runtimes/${{ matrix.runtime }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=runtime-${{ matrix.runtime }}
+          cache-to: type=gha,mode=max,scope=runtime-${{ matrix.runtime }}
+
+      - name: Job summary
+        run: |
+          {
+            echo "## Built ${{ matrix.runtime }}"
+            echo ""
+            echo "**Image**: \`${{ env.IMAGE_PREFIX }}/${{ matrix.runtime }}\`"
+            echo ""
+            echo "**Tags pushed**:"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo ""
+            echo "**Digest**: \`${{ steps.build.outputs.digest }}\`"
+            echo ""
+            echo "**Commit**: \`${{ github.sha }}\`"
+            if [ "${{ matrix.runtime }}" = "openclaw" ]; then
+              echo ""
+              echo "Bundled \`jarble-ui-server.js\` from \`jarble-api-main/src/mcp/\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

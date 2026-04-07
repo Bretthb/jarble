@@ -236,8 +236,9 @@ kubectl -n jarble-production exec deployment/jarble-api-kuberoapp-web -- env  # 
 | Workflow | Triggers | What it does |
 |----------|----------|-------------|
 | `deploy-api.yml` | Push to main or develop (API/shared changes), manual dispatch | Build + push Docker image to `ghcr.io/jarble-ai/api` with `latest` and `sha-{commit}` tags |
+| `deploy-runtimes.yml` | Push to main when `runtimes/**` or `jarble-api-main/src/mcp/jarble-ui-server.js` changes; manual dispatch | Matrix build + push of runtime images (openclaw, zeroclaw) to GHCR. Tags `:latest` and `:sha-XXXXXXX`. Copies the canonical `jarble-ui-server.js` from `jarble-api-main/src/mcp/` into the openclaw build context fresh on each build so the image always bundles the latest MCP server. |
 
-**Note**: CI checks (typecheck, tests, build), frontend deploys, runtime builds, and Terraform apply are not yet automated via GitHub Actions. See JAR-34 for the planned CI/CD pipeline expansion. Frontend deploys via Coolify. API deploys via Kubero on K3s.
+**Note**: CI checks (typecheck, tests, build), frontend deploys, and Terraform apply are not yet automated via GitHub Actions. See JAR-34 for the planned CI/CD pipeline expansion. Frontend deploys via Coolify. API deploys via Kubero on K3s. Runtime images now auto-build via `deploy-runtimes.yml` on changes to `runtimes/**` or the canonical MCP server.
 
 ## Rules Index (`.claude/rules/`)
 
