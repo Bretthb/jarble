@@ -235,14 +235,9 @@ kubectl -n jarble-production exec deployment/jarble-api-kuberoapp-web -- env  # 
 
 | Workflow | Triggers | What it does |
 |----------|----------|-------------|
-| `ci.yml` | PRs + push to develop/main | 7 jobs: API/Frontend typecheck, tests, build, manifest sync, PR labels |
-| `deploy-api.yml` | Push to main (API changes) | Build + push Docker image to GHCR |
-| `deploy-frontend.yml` | Push to main (frontend changes) | Build + push frontend Docker image to GHCR |
-| `deploy-runtimes.yml` | Push to main (runtime changes) | Build runtime images (openclaw, zeroclaw) |
-| `terraform.yml` | Push to main (infra changes) | Plan + apply Hetzner/K3s infrastructure |
-| `nightly-qa.yml` | Manual dispatch only | Agentic QA (Claude Code) |
+| `deploy-api.yml` | Push to main or develop (API/shared changes), manual dispatch | Build + push Docker image to `ghcr.io/jarble-ai/api` with `latest` and `sha-{commit}` tags |
 
-**Frontend CI uses pnpm**, API CI uses npm. Frontend deploys via Coolify (replaced Vercel). API deploys via Kubero on K3s.
+**Note**: CI checks (typecheck, tests, build), frontend deploys, runtime builds, and Terraform apply are not yet automated via GitHub Actions. See JAR-34 for the planned CI/CD pipeline expansion. Frontend deploys via Coolify. API deploys via Kubero on K3s.
 
 ## Rules Index (`.claude/rules/`)
 
