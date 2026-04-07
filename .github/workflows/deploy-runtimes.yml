@@ -185,3 +185,94 @@ jobs:
               echo "Bundled \`jarble-ui-server.js\` from \`jarble-api-main/src/mcp/\`."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Optional: notify cluster of new image ─────────────────────
+      #
+      # DESIGN DECISION: We do NOT automatically `kubectl rollout restart`
+      # user bot pods. Each bot is a separate Deployment and may be
+      # mid-conversation — restarting them would drop streaming SSE
+      # responses and kill in-flight tool calls for every user.
+      #
+      # Instead, this step writes the new image digest to a sentinel
+      # ConfigMap (`runtime-image-tracker`) in the `jarble` namespace.
+      # Ops can query this ConfigMap to see the latest available image
+      # and manually trigger rollouts for individual deployments when
+      # convenient (e.g. during off-hours, or one-at-a-time via the
+      # `forceRefresh` admin tRPC procedure).
+      #
+      # The step is gated on the `KUBE_CONFIG` repo secret being set —
+      # if not configured, the workflow still completes successfully and
+      # just prints a notice to the job summary.
+      #
+      # The kubeconfig user only needs `get/create/patch` on the single
+      # `configmaps/runtime-image-tracker` resource in the `jarble`
+      # namespace. See docs/audits/ci-hardening.md for the sample Role.
+      - name: Check if KUBE_CONFIG is configured
+        id: check_kubeconfig
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          if [ -n "$KUBE_CONFIG" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure kubectl
+        if: steps.check_kubeconfig.outputs.configured == 'true'
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          mkdir -p "$HOME/.kube"
+          printf '%s' "$KUBE_CONFIG" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Annotate runtime image tracker ConfigMap
+        if: steps.check_kubeconfig.outputs.configured == 'true'
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_PREFIX }}/${{ matrix.runtime }}@${{ steps.build.outputs.digest }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          set -euo pipefail
+          # Create the tracker ConfigMap if it doesn't exist (idempotent).
+          kubectl -n jarble create configmap runtime-image-tracker \
+            --dry-run=client -o yaml | kubectl apply -f -
+          # Stamp the new image digest + commit onto the ConfigMap so ops
+          # can see the latest available image without touching user pods.
+          kubectl -n jarble annotate configmap runtime-image-tracker \
+            --overwrite \
+            "jarble.ai/${RUNTIME}-image=${IMAGE_TAG}" \
+            "jarble.ai/${RUNTIME}-commit=${COMMIT_SHA}" \
+            "jarble.ai/${RUNTIME}-updated-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            echo ""
+            echo "### ${RUNTIME} runtime image tracked in cluster"
+            echo ""
+            echo "- Image: \`${IMAGE_TAG}\`"
+            echo "- Commit: \`${COMMIT_SHA}\`"
+            echo ""
+            echo "Annotated \`configmap/runtime-image-tracker\` in namespace \`jarble\`."
+            echo "Existing bot pods will keep running the old image until"
+            echo "manually rolled over via the admin \`forceRefresh\` procedure."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notice when KUBE_CONFIG not configured
+        if: steps.check_kubeconfig.outputs.configured != 'true'
+        run: |
+          {
+            echo ""
+            echo "### ${{ matrix.runtime }} runtime published (no cluster notify)"
+            echo ""
+            echo "\`KUBE_CONFIG\` repo secret is not configured, so the"
+            echo "cluster-side image tracker ConfigMap was not updated."
+            echo "Existing bot pods will continue running the previous"
+            echo "image until they restart."
+            echo ""
+            echo "To enable auto-annotation, add a base64-encoded"
+            echo "kubeconfig to the \`KUBE_CONFIG\` repo secret. The"
+            echo "kubeconfig user only needs \`get/create/patch\` on"
+            echo "\`configmaps/runtime-image-tracker\` in the \`jarble\`"
+            echo "namespace — no pod or deployment permissions required."
+            echo "See docs/audits/ci-hardening.md for the sample Role."
+          } >> "$GITHUB_STEP_SUMMARY"
