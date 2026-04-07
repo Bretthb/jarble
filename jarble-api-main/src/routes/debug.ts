@@ -44,7 +44,17 @@ debugRouter.post("/deployment/:id/status", async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    if (!status || !["creating", "running", "stopped", "failed", "restarting"].includes(status)) {
+    if (!status || ![
+      "creating",
+      "provisioning_node",
+      "waiting_volume",
+      "pulling_image",
+      "initializing",
+      "running",
+      "stopped",
+      "failed",
+      "restarting",
+    ].includes(status)) {
       res.status(400).json({ error: "Invalid status" });
       return;
     }

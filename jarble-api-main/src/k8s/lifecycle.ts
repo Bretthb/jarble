@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { eq } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("k8s:lifecycle");
@@ -11,6 +12,25 @@ import {
   createOpenClawInstance,
   deleteOpenClawInstance,
 } from "./operator.js";
+import { db, tables } from "../db/index.js";
+
+// ── Per-step status writes (Wave 4 Layer B) ─────────────────────────────
+//
+// Granular per-step lifecycle statuses replace the opaque "creating" so
+// users (and stuckDeploymentMonitor) can see EXACTLY which step is hung.
+// Writes are best-effort: a DB hiccup must NOT abort the K8s create flow.
+async function setDeploymentStatus(deploymentId: string, status: string): Promise<void> {
+  try {
+    await db
+      .update(tables.deployments)
+      .set({ status })
+      .where(eq(tables.deployments.id, deploymentId));
+    log.debug({ deploymentId, status }, "K8s: status transition");
+  } catch (err) {
+    // Don't let a status-write failure break the actual deployment work.
+    log.warn({ deploymentId, status, err }, "K8s: failed to write transitional status");
+  }
+}
 
 // ── Security Context Builder ─────────────────────────────────────────────
 
@@ -202,6 +222,11 @@ async function createDeploymentOperator(
   let configMapCreated = false;
 
   try {
+    // Operator mode: PVC is created by the operator's controller from the CR
+    // spec, so "waiting_volume" tracks both the secret/configmap setup and
+    // the operator's volume provisioning step.
+    await setDeploymentStatus(deploymentId, "waiting_volume");
+
     // 1. Create Secret (with `token` key for operator's gateway discovery)
     const baseSecretData: Record<string, string> = {
       DEPLOYMENT_ID: deploymentId,
@@ -236,8 +261,14 @@ async function createDeploymentOperator(
       log.info({ deploymentId, fileCount: config.initialConfigs.length }, "K8s: created ConfigMap (operator)");
     }
 
-    // 3. Create OpenClawInstance CR
+    // 3. Create OpenClawInstance CR — operator will pull the image and
+    //    schedule the pod. We can't observe pull progress from here, so
+    //    "pulling_image" is the closest milestone we can mark.
+    await setDeploymentStatus(deploymentId, "pulling_image");
     await createOpenClawInstance(deploymentId, userId, config);
+
+    // CR created — pod is scheduling and the runtime is initializing.
+    await setDeploymentStatus(deploymentId, "initializing");
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -288,6 +319,12 @@ async function createDeploymentLegacy(
   let configMapCreated = false;
 
   try {
+  // Status: waiting on Longhorn to provision the underlying volume.
+  // Hetzner provisioning (provisioning_node) is set by the caller in the
+  // router BEFORE ensureCapacityForDeployment runs, since that lives in
+  // nodeManager.ts and completes before we get here.
+  await setDeploymentStatus(deploymentId, "waiting_volume");
+
   // 1. Create PVC for deployment storage
   await coreApi.createNamespacedPersistentVolumeClaim(NAMESPACE, {
     metadata: { name: `pvc-${deploymentId}` },
@@ -401,6 +438,11 @@ async function createDeploymentLegacy(
   const affinity = buildAffinityForType(deploymentType);
   const tolerations = buildTolerationsForType(deploymentType);
 
+  // Status: K8s Deployment is being applied. Once the pod schedules, the
+  // kubelet pulls the image — we can't observe pull progress directly from
+  // the API, so this status covers both the apply and the image pull.
+  await setDeploymentStatus(deploymentId, "pulling_image");
+
   await appsApi.createNamespacedDeployment(NAMESPACE, {
     metadata: {
       name: `dep-${deploymentId}`,
@@ -500,6 +542,12 @@ async function createDeploymentLegacy(
       },
     },
   });
+
+  // Status: K8s Deployment created. Pod is now being scheduled and the
+  // init container (config-init) will copy ConfigMap files into the PVC
+  // before the runtime container starts. The readiness poll loop in the
+  // caller (deployment.ts) takes over from here and flips to "running".
+  await setDeploymentStatus(deploymentId, "initializing");
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);

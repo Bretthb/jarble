@@ -326,9 +326,19 @@ describe("deployment.deploy", () => {
     expect(result.success).toBe(true);
 
     // K8s runs as fire-and-forget - with mocks it resolves instantly,
-    // so status may already be "running". Either "creating" or "running" is valid.
+    // so status may already be "running". Wave 4 Layer B adds granular
+    // per-step transitional statuses, any of which are also valid here
+    // depending on where the fire-and-forget block parked when the
+    // assertion ran.
     const dep = ctx.raw.prepare("SELECT status FROM deployments WHERE id = ?").get("dep-deploy") as any;
-    expect(["creating", "running"]).toContain(dep.status);
+    expect([
+      "creating",
+      "provisioning_node",
+      "waiting_volume",
+      "pulling_image",
+      "initializing",
+      "running",
+    ]).toContain(dep.status);
   });
 
   it("rejects deploying an already running deployment", async () => {

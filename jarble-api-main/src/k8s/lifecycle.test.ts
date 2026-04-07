@@ -1,6 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────
+// lifecycle.ts imports `db` from ../db/index.js at module load time to
+// write granular per-step statuses (Wave 4 Layer B). The real db/index.js
+// throws when DATABASE_URL is unset, so we replace it with a no-op fake
+// here. setDeploymentStatus() in lifecycle.ts already swallows DB errors,
+// so we just need the module to load — the update() builder chain below
+// returns a thenable so `await db.update(...).set(...).where(...)` resolves.
+vi.mock("../db/index.js", () => {
+  const chain: any = {
+    set: () => chain,
+    where: () => Promise.resolve({ rowCount: 1 }),
+  };
+  return {
+    db: { update: () => chain },
+    tables: { deployments: { id: "id", status: "status" } },
+    dbDate: () => new Date(),
+  };
+});
+
 vi.mock("./client.js", () => ({
   coreApi: {
     createNamespacedPersistentVolumeClaim: vi.fn(),

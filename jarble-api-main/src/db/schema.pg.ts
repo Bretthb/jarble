@@ -47,6 +47,11 @@ export const deployments = pgTable("deployments", {
   stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }), // Links deployment to Stripe subscription
   cancelledAt: timestamp("cancelled_at"),          // When user initiated cancellation
   cancelAtPeriodEnd: timestamp("cancel_at_period_end"), // Billing period end (when deployment auto-stops)
+  // Status enum (Wave 4 Layer B — granular per-step lifecycle):
+  //   pending | creating | provisioning_node | waiting_volume | pulling_image |
+  //   initializing | running | restarting | reloading | stopping | stopped | failed
+  // Validated by Zod at the router layer (admin.ts deploymentStatusEnum). Plain
+  // varchar(50) here so we can add new transitional values without a migration.
   status: varchar("status", { length: 50 }).notNull().default("creating"),
   error: text("error"),
   messagingOnly: boolean("messaging_only").notNull().default(false),

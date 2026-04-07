@@ -58,6 +58,9 @@ export const deployments = sqliteTable("deployments", {
   stripeSubscriptionId: text("stripe_subscription_id"), // Links deployment to Stripe subscription
   cancelledAt: text("cancelled_at"),          // When user initiated cancellation (ISO string)
   cancelAtPeriodEnd: text("cancel_at_period_end"), // Billing period end (when deployment auto-stops, ISO string)
+  // Status enum (Wave 4 Layer B — granular per-step lifecycle):
+  //   pending | creating | provisioning_node | waiting_volume | pulling_image |
+  //   initializing | running | restarting | reloading | stopping | stopped | failed
   status: text("status").notNull().default("creating"),
   error: text("error"),
   messagingOnly: integer("messaging_only", { mode: "boolean" }).notNull().default(false),

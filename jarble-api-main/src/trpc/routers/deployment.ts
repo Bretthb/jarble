@@ -741,6 +741,14 @@ export const deploymentRouter = router({
       // Resolve deployment type for scheduling decisions
       const deploymentType = (deployment as any).deploymentType || "agent";
 
+      // Wave 4 Layer B: granular status. Mark "provisioning_node" before
+      // ensureCapacityForDeployment so the user can see if Hetzner is the
+      // bottleneck. nodeManager.ts (Layer D) doesn't write status itself,
+      // so the call site has to do it.
+      await ctx.db.update(deployments)
+        .set({ status: "provisioning_node" })
+        .where(eq(deployments.id, deploymentId));
+
       let targetNode: string | undefined;
       try {
         targetNode = await ensureCapacityForDeployment(
@@ -806,16 +814,37 @@ export const deploymentRouter = router({
             await new Promise((r) => setTimeout(r, 2000));
           }
 
-          // Only update if still in transitional state (don't overwrite enforcement actions)
+          // Only update if still in transitional state (don't overwrite enforcement actions).
+          // Wave 4 Layer B: includes the granular per-step statuses written by
+          // lifecycle.ts (waiting_volume, pulling_image, initializing) and the
+          // call-site write above (provisioning_node).
           await ctx.db.update(deployments)
             .set({ status: ready ? "running" : "failed", ...(ready ? { error: null } : { error: "Pod did not become ready" }) })
-            .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
+            .where(and(
+              eq(deployments.id, deploymentId),
+              inArray(deployments.status, [
+                "creating",
+                "provisioning_node",
+                "waiting_volume",
+                "pulling_image",
+                "initializing",
+              ]),
+            ));
           logger.info({ deploymentId, ready }, "Deployment create completed");
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Unknown deployment error";
           await ctx.db.update(deployments)
             .set({ status: "failed", error: message })
-            .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
+            .where(and(
+              eq(deployments.id, deploymentId),
+              inArray(deployments.status, [
+                "creating",
+                "provisioning_node",
+                "waiting_volume",
+                "pulling_image",
+                "initializing",
+              ]),
+            ));
           logger.error({ deploymentId, err }, "Deployment failed");
         }
       })();
