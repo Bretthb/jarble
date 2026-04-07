@@ -1,7 +1,7 @@
 # Jarble API Endpoints Reference
 
-> Complete reference for every API endpoint in the Jarble platform. Covers all 174 tRPC procedures and 34 REST endpoints.
-> Last updated: March 23, 2026 (Session 20)
+> Complete reference for every API endpoint in the Jarble platform.
+> Last updated: April 6, 2026
 
 ---
 
@@ -21,11 +21,12 @@
    - [Skills Router](#skills-router-4-procedures)
    - [Marketplace Router](#marketplace-router-23-procedures)
    - [Services Router](#services-router-26-procedures)
-   - [Benchmarks Router](#benchmarks-router-14-procedures)
    - [Flows Router](#flows-router-8-procedures)
    - [Admin Router](#admin-router-19-procedures)
-   - [Agent Credits Router](#agent-credits-router-4-procedures)
    - [API Keys Router](#api-keys-router-4-procedures)
+   - [Deployment Secrets Router](#deployment-secrets-router-3-procedures)
+   - [Subagents Router](#subagents-router-9-procedures)
+   - [Org Router](#org-router-12-procedures)
 5. [REST Endpoints](#5-rest-endpoints)
    - [Webhooks](#webhooks)
    - [Payment Routes](#payment-routes)
@@ -163,27 +164,29 @@ All tRPC endpoints are at `/trpc/<router>.<procedure>`. Types flow automatically
 graph TD
     CLIENT["Frontend<br/>trpc.router.procedure.useQuery()"] -->|"HTTP POST/GET"| TRPC["/trpc endpoint"]
 
+    TRPC --> USER["user<br/>6 procedures"]
     TRPC --> DEPLOYMENT["deployment<br/>37 procedures"]
     TRPC --> OPENROUTER["openrouter<br/>10 procedures"]
-    TRPC --> USER["user<br/>6 procedures"]
     TRPC --> BILLING["billing<br/>4 procedures"]
     TRPC --> PLATCREDS["platformCredentials<br/>7 procedures"]
+    TRPC --> DEPSECRETS["deploymentSecrets<br/>3 procedures"]
     TRPC --> RUNTIME_CAT["runtimeCatalog<br/>4 procedures"]
     TRPC --> TEMPLATE["template<br/>4 procedures"]
     TRPC --> SKILLS["skills<br/>4 procedures"]
     TRPC --> MARKETPLACE["marketplace<br/>23 procedures"]
     TRPC --> SERVICES["services<br/>26 procedures"]
-    TRPC --> BENCHMARKS["benchmarks<br/>14 procedures"]
     TRPC --> FLOWS["flows<br/>8 procedures"]
     TRPC --> ADMIN["admin<br/>19 procedures"]
-    TRPC --> AGENTCREDITS["agentCredits<br/>4 procedures"]
     TRPC --> APIKEYS["apiKeys<br/>4 procedures"]
+    TRPC --> SUBAGENTS["subagents<br/>9 procedures"]
+    TRPC --> ORG["org<br/>12 procedures"]
 
     DEPLOYMENT --> DB[("Database")]
     DEPLOYMENT --> K8S["K8s Cluster"]
     OPENROUTER --> OR_API["OpenRouter API"]
     BILLING --> STRIPE_API["Stripe API"]
     PLATCREDS --> DB
+    DEPSECRETS --> DB
     USER --> DB
     RUNTIME_CAT --> DB
     SKILLS --> DB
@@ -196,8 +199,10 @@ graph TD
     ADMIN --> DB
     ADMIN --> K8S
     ADMIN --> PROMETHEUS["Prometheus API"]
-    AGENTCREDITS --> DB
     APIKEYS --> DB
+    SUBAGENTS --> DB
+    ORG --> DB
+    ORG --> EMAIL["Resend Email API"]
 ```
 
 ---
@@ -657,63 +662,6 @@ Buyer pods never call creator APIs directly — all requests go through `POST /a
 
 ---
 
-### Benchmarks Router (14 procedures)
-
-The benchmarks router implements the Agent Forking Flywheel discovery layer: a hierarchical domain taxonomy, per-deployment multi-axis ratings, leaderboards, service performance metrics, and admin curation tools.
-
-```mermaid
-graph TD
-    subgraph Domains["Domain Taxonomy (mixed)"]
-        BM1["listDomains<br/>query | public"]
-        BM2["createDomain<br/>mutation | protected"]
-    end
-
-    subgraph Ratings["Deployment Ratings (mixed)"]
-        BM3["rateDeployment<br/>mutation | protected"]
-        BM4["getDeploymentRatings<br/>query | public"]
-        BM5["setSpecialties<br/>mutation | protected"]
-        BM6["getPublicProfile<br/>query | public"]
-        BM7["leaderboard<br/>query | public"]
-    end
-
-    subgraph ServiceMetrics["Service Metrics (public)"]
-        BM8["getServiceMetrics<br/>query | public"]
-        BM9["serviceLeaderboard<br/>query | public"]
-    end
-
-    subgraph ServiceReviews["Service Reviews (mixed)"]
-        BM10["getServiceReviews<br/>query | public"]
-        BM11["createServiceReview<br/>mutation | protected"]
-        BM12["respondToServiceReview<br/>mutation | protected"]
-    end
-
-    subgraph Admin["Admin Curation (protected + admin role)"]
-        BM13["adminFeature<br/>mutation | sets featuredAt timestamp"]
-        BM14["adminUnfeature<br/>mutation | clears featuredAt"]
-    end
-
-    BM3 -->|"recomputes"| SCORES["deploymentDomainScores"]
-    BM7 --> DB[("Database")]
-    BM9 --> DB
-```
-
-| Procedure | Type | Auth | Input | Description |
-|---|---|---|---|---|
-| `benchmarks.listDomains` | query | public | `{ parentId? }` | List root domains (parentId omitted) or children of a parent |
-| `benchmarks.createDomain` | mutation | protected | `{ name (kebab-case slug), displayName, description?, parentId?, icon? }` | Create a new domain. Name must be unique kebab-case |
-| `benchmarks.rateDeployment` | mutation | protected | `{ deploymentId, domainId, accuracy, helpfulness, creativity: 1-5, comment? }` | Upsert a rating for a deployment in a domain. Recomputes `deploymentDomainScores` aggregates (avg * 100 scale, confidence: low/medium/high) |
-| `benchmarks.getDeploymentRatings` | query | public | `{ deploymentId }` | All ratings for a deployment with domain names |
-| `benchmarks.setSpecialties` | mutation | protected | `{ deploymentId, specialties: string[], bio?, showcasePrompts? }` | Set public profile fields. Ownership verified |
-| `benchmarks.getPublicProfile` | query | public | `{ deploymentId }` | Full public profile: name, specialties, bio, showcase prompts, domain scores, installed services, fork stats. Requires `isPublic: true` |
-| `benchmarks.leaderboard` | query | public | `{ domainSlug, metric: overall\|accuracy\|helpfulness\|creativity, limit: 1-100 }` | Domain leaderboard. Filters public deployments with >= 3 ratings |
-| `benchmarks.getServiceMetrics` | query | public | `{ serviceId, period: 24h\|7d\|30d }` | Service benchmark aggregates (latency, uptime, error rate) for a time period |
-| `benchmarks.serviceLeaderboard` | query | public | `{ metric: reliability\|speed\|popularity, limit: 1-100 }` | Service leaderboard by reliability (uptime), speed (p50 latency), or popularity (install count) |
-| `benchmarks.getServiceReviews` | query | public | `{ serviceId, limit, offset }` | Paginated service reviews with creator responses and user names |
-| `benchmarks.createServiceReview` | mutation | protected | `{ serviceId, rating: 1-5, title?, body? }` | Submit a service review. One review per user per service. Recomputes `avgRating` on `marketplaceServices` |
-| `benchmarks.respondToServiceReview` | mutation | protected | `{ reviewId, response }` | Service creator responds to a review. Ownership verified via `creatorProfiles` |
-| `benchmarks.adminFeature` | mutation | protected (admin) | `{ deploymentId }` | Set `featuredAt` timestamp on a public deployment. Adds +10 pts to forkability score |
-| `benchmarks.adminUnfeature` | mutation | protected (admin) | `{ deploymentId }` | Clear `featuredAt` timestamp |
-
 ---
 
 ### Flows Router (8 procedures)
@@ -842,17 +790,6 @@ graph TD
 
 ---
 
-### Agent Credits Router (4 procedures)
-
-| Procedure | Type | Auth | Input | Description |
-|---|---|---|---|---|
-| `agentCredits.getBalance` | query | protected | -- | Current credit balance for the authenticated user |
-| `agentCredits.getHistory` | query | protected | `{ limit?, offset? }` | Paginated credit transaction history |
-| `agentCredits.purchase` | mutation | protected | `{ credits: number }` | Initiate a credit purchase via Stripe checkout |
-| `agentCredits.getCallHistory` | query | protected | `{ limit?, offset? }` | History of agent-to-agent calls made by the user with credits charged |
-
----
-
 ### API Keys Router (4 procedures)
 
 | Procedure | Type | Auth | Input | Description |
@@ -861,6 +798,55 @@ graph TD
 | `apiKeys.create` | mutation | protected | `{ name, scopes }` | Create a new API key (`jrbl_...` prefix, SHA-256 hashed). Returns the plaintext key once only |
 | `apiKeys.revoke` | mutation | protected | `{ keyId }` | Permanently revoke an API key |
 | `apiKeys.getUsage` | query | protected | `{ keyId }` | Request counts and last-used timestamp for a key |
+
+---
+
+### Deployment Secrets Router (3 procedures)
+
+| Procedure | Type | Auth | Input | Description |
+|---|---|---|---|---|
+| `deploymentSecrets.getByDeployment` | query | protected | `{ deploymentId }` | List secrets for a deployment (values masked) |
+| `deploymentSecrets.save` | mutation | protected | `{ deploymentId, key, value }` | Create or update an encrypted secret. Syncs to pod if running |
+| `deploymentSecrets.delete` | mutation | protected | `{ deploymentId, key }` | Delete a secret. Syncs to pod if running |
+
+---
+
+### Subagents Router (9 procedures)
+
+Subagents are child agents attached to a deployment. They can be reordered, forked from public agents, and toggled between public/private visibility.
+
+| Procedure | Type | Auth | Input | Description |
+|---|---|---|---|---|
+| `subagents.list` | query | protected | `{ deploymentId }` | List all subagents for a deployment, ordered by position |
+| `subagents.getById` | query | protected | `{ id }` | Single subagent with ownership check |
+| `subagents.create` | mutation | protected | `{ deploymentId, name, description?, systemPrompt?, ... }` | Create a new subagent attached to a deployment |
+| `subagents.update` | mutation | protected | `{ id, name?, description?, systemPrompt?, ... }` | Update subagent configuration |
+| `subagents.delete` | mutation | protected | `{ id }` | Delete a subagent |
+| `subagents.reorder` | mutation | protected | `{ deploymentId, orderedIds: string[] }` | Reorder subagents by setting position |
+| `subagents.fork` | mutation | protected | `{ sourceId, deploymentId }` | Fork a public subagent to a deployment |
+| `subagents.togglePublic` | mutation | protected | `{ id }` | Toggle public visibility of a subagent |
+| `subagents.listPublic` | query | protected | -- | List all publicly visible subagents across the platform |
+
+---
+
+### Org Router (12 procedures)
+
+Organizations enable team collaboration. Individual-first model: users sign up as individuals, then create/join orgs. Deployments have an optional `orgId` — null means personal mode.
+
+| Procedure | Type | Auth | Input | Description |
+|---|---|---|---|---|
+| `org.create` | mutation | protected | `{ name, slug? }` | Create a new organization. Creator becomes owner |
+| `org.list` | query | protected | -- | List all organizations the user belongs to |
+| `org.getById` | query | protected | `{ id }` | Single org with members, invites. Membership required |
+| `org.update` | mutation | protected | `{ id, name?, slug? }` | Update org settings. Owner/admin only |
+| `org.delete` | mutation | protected | `{ id }` | Delete org and all memberships. Owner only |
+| `org.invite` | mutation | protected | `{ orgId, email, role? }` | Send email invite via Resend. Owner/admin only |
+| `org.acceptInvite` | mutation | protected | `{ token }` | Accept an invite by token. Validates email match |
+| `org.listInvites` | query | protected | `{ orgId }` | List pending invites for an org |
+| `org.cancelInvite` | mutation | protected | `{ inviteId }` | Cancel a pending invite. Owner/admin only |
+| `org.removeMember` | mutation | protected | `{ orgId, userId }` | Remove a member. Owner/admin only. Cannot remove owner |
+| `org.updateMemberRole` | mutation | protected | `{ orgId, userId, role }` | Change member role. Owner only |
+| `org.leave` | mutation | protected | `{ orgId }` | Leave an organization. Owner cannot leave (must transfer or delete) |
 
 ---
 
@@ -1153,24 +1139,23 @@ Unauthenticated endpoints for the Agent Forking Flywheel discovery layer. Intend
 
 | Router | Queries | Mutations | Total |
 |--------|---------|-----------|-------|
+| `user` | 2 | 4 | 6 |
 | `deployment` | 14 | 23 | 37 |
 | `openrouter` | 3 | 7 | 10 |
-| `user` | 2 | 4 | 6 |
-| `runtimeCatalog` | 4 | 0 | 4 |
 | `billing` | 4 | 0 | 4 |
 | `platformCredentials` | 2 | 5 | 7 |
+| `deploymentSecrets` | 1 | 2 | 3 |
+| `runtimeCatalog` | 4 | 0 | 4 |
 | `template` | 4 | 0 | 4 |
 | `skills` | 2 | 2 | 4 |
 | `marketplace` | 12 | 11 | 23 |
 | `services` | 14 | 12 | 26 |
-| `benchmarks` | 7 | 7 | 14 |
 | `flows` | 3 | 5 | 8 |
 | `admin` | 12 | 7 | 19 |
-| `agentCredits` | 3 | 1 | 4 |
 | `apiKeys` | 2 | 2 | 4 |
-| **tRPC Total** | **88** | **86** | **174** |
-| REST endpoints | -- | -- | **34** |
-| **Grand Total** | -- | -- | **208** |
+| `subagents` | 3 | 6 | 9 |
+| `org` | 3 | 9 | 12 |
+| **tRPC Total** | **85** | **95** | **180** |
 
 ### Key Files
 
@@ -1182,7 +1167,7 @@ Unauthenticated endpoints for the Agent Forking Flywheel discovery layer. Intend
 | `jarble-api-main/src/routes/canvasFiles.ts` | POST /api/deployments/:id/mcp/invoke proxy |
 | `jarble-api-main/src/routes/mcp.ts` | MCP Streamable HTTP (POST/GET/DELETE) |
 | `jarble-api-main/src/routes/diagnose.ts` | GET /api/deployments/:id/diagnose |
-| `jarble-api-main/src/trpc/index.ts` | tRPC router composition (15 routers) |
+| `jarble-api-main/src/trpc/index.ts` | tRPC router composition (16 routers) |
 | `jarble-api-main/src/trpc/middleware.ts` | `publicProcedure`, `protectedProcedure`, `adminProcedure` definitions |
 | `jarble-api-main/src/middleware/rateLimit.ts` | Three-tier rate limiting configuration |
 | `jarble-api-main/src/services/auth.ts` | Auth0 JWT verification + user provisioning |
@@ -1207,8 +1192,10 @@ Unauthenticated endpoints for the Agent Forking Flywheel discovery layer. Intend
 | `jarble-api-main/src/trpc/routers/template.ts` | 4 procedures (persona templates) |
 | `jarble-api-main/src/trpc/routers/flows.ts` | 8 procedures (flow CRUD, executions, LLM-based generation) |
 | `jarble-api-main/src/trpc/routers/admin.ts` | 19 procedures (user mgmt, deployment control, Prometheus metrics, audit logs, beta signups) |
-| `jarble-api-main/src/trpc/routers/agentCredits.ts` | 4 procedures (credit balance, history, purchase) |
 | `jarble-api-main/src/trpc/routers/apiKeys.ts` | 4 procedures (CRUD for developer API keys) |
+| `jarble-api-main/src/trpc/routers/deploymentSecrets.ts` | 3 procedures (encrypted secret CRUD per deployment) |
+| `jarble-api-main/src/trpc/routers/subagents.ts` | 9 procedures (child agents: CRUD, reorder, fork, public toggle) |
+| `jarble-api-main/src/trpc/routers/org.ts` | 12 procedures (organizations: CRUD, invites, members, roles) |
 | `jarble-api-main/src/routes/artifact.ts` | GET/POST/DELETE /api/deployments/:id/artifact/* (workspace artifact sync) |
 | `jarble-api-main/src/routes/flowExecution.ts` | POST /execute, GET /stream, POST /resume (flow execution SSE) |
 | `jarble-api-main/src/routes/beta.ts` | POST /api/beta-signup (public beta waitlist) |
@@ -1227,8 +1214,4 @@ Unauthenticated endpoints for the Agent Forking Flywheel discovery layer. Intend
 | `jarble-api-main/src/middleware/serviceRateLimit.ts` | Per-deployment+service rate limiter (from ServiceCard limits) |
 | `shared/component-manifest/index.ts` | COMPONENT_MANIFEST + derived exports — consumed by all layers |
 | `scripts/check-manifest.ts` | CI check verifying manifest ↔ registry sync |
-| `jarble-api-main/src/trpc/routers/benchmarks.ts` | 14 procedures (domain taxonomy, ratings, leaderboard, service metrics, service reviews, admin curation) |
-| `jarble-api-main/src/routes/publicApi.ts` | GET /api/public/leaderboard/:domainSlug and GET /api/public/agents/:deploymentId/profile |
 | `jarble-api-main/src/routes/compose.ts` | POST /api/pod/compose — parallel dashboard composition (fan-out to component agent) |
-| `jarble-api-main/src/utils/forkability.ts` | computeForkabilityScore() — 0-100 score from 7 criteria |
-| `jarble-api-main/src/k8s/constants.ts` | RESOURCE_TIERS — small/medium/large resource presets for platform agents |
