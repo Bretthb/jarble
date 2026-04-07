@@ -751,6 +751,9 @@ export const deploymentRouter = router({
           deployment.memoryMb || 3072,
           deploymentType,
           deploymentId,
+          // storageMb is historically named — the value is GiB. Pass it through
+          // so the autoscaler picks a tier whose root disk fits this PVC.
+          deployment.storageMb || undefined,
         );
         if (targetNode) logger.info({ deploymentId, targetNode }, "Node capacity confirmed");
       } catch (capacityErr) {
@@ -1130,6 +1133,9 @@ export const deploymentRouter = router({
           deployment.memoryMb || 3072,
           startDeploymentType,
           input.id,
+          // storageMb is historically named — the value is GiB. Pass it through
+          // so the autoscaler picks a tier whose root disk fits this PVC.
+          deployment.storageMb || undefined,
         );
         if (targetNode) logger.info({ deploymentId: input.id, targetNode }, "Node capacity confirmed for start");
       } catch (capacityErr) {

@@ -39,26 +39,97 @@ const NODE_JOIN_TIMEOUT_MS = 240_000; // 4 min
 const POLL_INTERVAL_MS = 15_000;
 const SCALE_DOWN_GRACE_MS = 5 * 60 * 1000; // 5 min
 
+// Disk overhead per worker that is NOT available to Longhorn replicas:
+//   ~3 GiB Ubuntu base + kubelet/containerd images
+//   ~2 GiB OpenClaw runtime image cache
+//   ~1 GiB Longhorn DaemonSet binaries + engine images
+//   ~5 GiB Longhorn 25% safety reservation (cushion against running OOD)
+// Empirically a fresh cpx11 reports ~31.5 GiB total to Longhorn / ~29.4 GiB free
+// out of a 40 GiB root disk, which lines up with ~11 GiB unavailable.
+//
+// Layer A may import this constant for pre-flight validation in deployment.ts.
+export const LONGHORN_DISK_OVERHEAD_GB = 11;
+
 // Hetzner server types mapped to deployment resources.
-// Pick the smallest server that fits the pod's CPU + RAM requirements.
-// Each entry: { vCPU, memoryGb, diskGb, monthlyCents }
-const SERVER_TYPES = [
-  { name: "cpx11", cores: 2, memGb: 2,  diskGb: 40,  monthlyCents: 499 },
-  { name: "cpx21", cores: 3, memGb: 4,  diskGb: 80,  monthlyCents: 999 },
-  { name: "cpx31", cores: 4, memGb: 8,  diskGb: 160, monthlyCents: 1799 },
-  { name: "cpx41", cores: 8, memGb: 16, diskGb: 240, monthlyCents: 3349 },
-  { name: "cpx51", cores: 16, memGb: 32, diskGb: 360, monthlyCents: 6699 },
+// Pick the smallest server that fits the pod's CPU + RAM + PVC disk requirements.
+// `usableLonghornGb` is what remains for the bot's PVC after subtracting overhead.
+// Each entry: { name, vCPU, memoryGb, diskGb, usableLonghornGb, monthlyCents }
+//
+// Exported so test code (and Layer A's deployment-router validation) can import
+// the canonical tier table. Do NOT mutate at runtime — treat as readonly data.
+export const SERVER_TYPES = [
+  { name: "cpx11", cores: 2,  memGb: 2,  diskGb: 40,  usableLonghornGb: 40  - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 499 },
+  { name: "cpx21", cores: 3,  memGb: 4,  diskGb: 80,  usableLonghornGb: 80  - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 999 },
+  { name: "cpx31", cores: 4,  memGb: 8,  diskGb: 160, usableLonghornGb: 160 - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 1799 },
+  { name: "cpx41", cores: 8,  memGb: 16, diskGb: 240, usableLonghornGb: 240 - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 3349 },
+  { name: "cpx51", cores: 16, memGb: 32, diskGb: 360, usableLonghornGb: 360 - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 6699 },
 ] as const;
 
-function pickServerType(cpuCores: number, memGb: number): typeof SERVER_TYPES[number] {
+export type ServerType = typeof SERVER_TYPES[number];
+
+/**
+ * Pick the smallest Hetzner server type that fits the pod's CPU, RAM, and PVC.
+ *
+ * The PVC dimension is critical: a 30 GiB PVC on a cpx11 (40 GiB root, ~29 GiB
+ * usable for Longhorn after overhead) would leave the volume unschedulable
+ * forever. Filtering by `pvcGb <= usableLonghornGb` prevents that.
+ *
+ * @param cpuCores Required vCPU (e.g. 2.0)
+ * @param memGb    Required RAM in GiB (e.g. 3.0)
+ * @param pvcGb    Required PVC size in GiB (defaults to 20 if undefined)
+ * @param tierOverride Optional explicit tier name (e.g. "cpx31"). If supplied,
+ *                     validates the tier exists AND fits the PVC; throws otherwise.
+ *
+ * @throws Error if no tier in the table is large enough for the requested PVC,
+ *               or if `tierOverride` is supplied and doesn't fit.
+ */
+export function pickServerType(
+  cpuCores: number,
+  memGb: number,
+  pvcGb: number = 20,
+  tierOverride?: string,
+): ServerType {
+  // Phase 3: honor explicit override but validate it fits the PVC
+  if (tierOverride) {
+    const override = SERVER_TYPES.find((t) => t.name === tierOverride);
+    if (!override) {
+      throw new Error(
+        `Unknown Hetzner server type override "${tierOverride}". ` +
+        `Valid tiers: ${SERVER_TYPES.map((t) => t.name).join(", ")}.`,
+      );
+    }
+    if (pvcGb > override.usableLonghornGb) {
+      throw new Error(
+        `Hetzner tier override "${tierOverride}" only has ` +
+        `${override.usableLonghornGb} GiB usable for Longhorn, but the bot's ` +
+        `PVC requests ${pvcGb} GiB. Pick a larger tier or shrink the PVC.`,
+      );
+    }
+    return override;
+  }
+
   for (const st of SERVER_TYPES) {
-    // Server needs headroom for K3s agent + system (~0.5 vCPU, ~0.5GB RAM)
-    if (st.cores >= cpuCores + 0.5 && st.memGb >= memGb + 0.5) {
+    // Server needs headroom for K3s agent + system (~0.5 vCPU, ~0.5GB RAM).
+    // PVC must fit within the tier's Longhorn-usable disk.
+    if (
+      st.cores >= cpuCores + 0.5 &&
+      st.memGb >= memGb + 0.5 &&
+      pvcGb <= st.usableLonghornGb
+    ) {
       return st;
     }
   }
-  // Fall back to largest
-  return SERVER_TYPES[SERVER_TYPES.length - 1];
+
+  // Nothing in the table fits — surface a clear error rather than silently
+  // falling back to the largest tier (which would still fail for huge PVCs
+  // and waste a cpx51 on a small bot whose PVC happens to be enormous).
+  const largest = SERVER_TYPES[SERVER_TYPES.length - 1];
+  throw new Error(
+    `No Hetzner server type fits the requested resources: ` +
+    `${cpuCores} vCPU, ${memGb} GiB RAM, ${pvcGb} GiB PVC. ` +
+    `Largest available is ${largest.name} ` +
+    `(${largest.cores} vCPU, ${largest.memGb} GiB RAM, ${largest.usableLonghornGb} GiB usable disk).`,
+  );
 }
 
 function getHetznerToken(): string {
@@ -191,10 +262,26 @@ let provisioning = false;
 let lastFailureTime = 0;
 const FAILURE_COOLDOWN_MS = 5 * 60 * 1000; // 5 min cooldown after a failure
 
-async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb: number, deploymentId?: string): Promise<string> {
+async function provisionNode(
+  podCpuCores: number,
+  podMemGb: number,
+  podStorageGb: number,
+  deploymentId?: string,
+  tierOverride?: string,
+): Promise<string> {
   provisioning = true;
 
-  const serverType = pickServerType(podCpuCores, podMemGb);
+  // pickServerType now also filters by usable Longhorn disk so a 30 GiB PVC
+  // never lands on a cpx11 (which only has ~29 GiB usable). May throw if no
+  // tier fits — propagate that out so the deploy fails fast instead of
+  // silently provisioning a server that will leave the PVC unschedulable.
+  let serverType: ServerType;
+  try {
+    serverType = pickServerType(podCpuCores, podMemGb, podStorageGb, tierOverride);
+  } catch (err) {
+    provisioning = false;
+    throw err;
+  }
   const nodeName = deploymentId
     ? `${NODE_NAME_PREFIX}-${deploymentId.slice(0, 12)}`
     : `${NODE_NAME_PREFIX}-${nanoid()}`;
@@ -682,7 +769,11 @@ function releaseProvisionSlot(): void {
  * Throws CapacityError if at the managed server limit.
  */
 async function checkCapacityAndProvision(
-  requiredCpuMillis: number, requiredMemMi: number, deploymentId?: string
+  requiredCpuMillis: number,
+  requiredMemMi: number,
+  deploymentId?: string,
+  requiredStorageGb: number = 20,
+  tierOverride?: string,
 ): Promise<string | undefined> {
   // 1. Get all nodes and their allocatable resources
   const { body: nodeList } = await coreApi.listNode();
@@ -778,7 +869,13 @@ async function checkCapacityAndProvision(
 
   const cpuCores = requiredCpuMillis / 1000;
   const memGb = requiredMemMi / 1024;
-  const nodeName = await provisionNode(cpuCores, memGb, 30, deploymentId);
+  const nodeName = await provisionNode(
+    cpuCores,
+    memGb,
+    requiredStorageGb,
+    deploymentId,
+    tierOverride,
+  );
   return nodeName;
 }
 
@@ -802,7 +899,13 @@ async function checkCapacityAndProvision(
  * rejection and other errors for transient failures.
  */
 export async function ensureCapacityForDeployment(
-  _db: any, cpuLimit?: string, memoryMb?: number, deploymentType?: string, deploymentId?: string
+  _db: any,
+  cpuLimit?: string,
+  memoryMb?: number,
+  deploymentType?: string,
+  deploymentId?: string,
+  storageGb?: number,
+  tierOverride?: string,
 ): Promise<string | undefined> {
   // Container/website types share existing pool nodes - no VPS provisioning needed.
   if (deploymentType === "container" || deploymentType === "website") {
@@ -817,10 +920,13 @@ export async function ensureCapacityForDeployment(
 
   const requiredCpuMillis = cpuLimit ? parseCpuMillis(cpuLimit) : 2000;   // default 2 cores
   const requiredMemMi = memoryMb ?? 3072;                                  // default 3Gi
+  const requiredStorageGb = storageGb ?? 20;                               // default 20 GiB PVC
 
   logger.info({
     requiredCpu: `${requiredCpuMillis}m`,
     requiredMem: `${requiredMemMi}Mi`,
+    requiredStorageGb,
+    tierOverride: tierOverride ?? "(none)",
     activeProvisions,
     maxConcurrent: MAX_CONCURRENT_PROVISIONS,
   }, "Acquiring provision slot before checking cluster capacity");
@@ -829,7 +935,13 @@ export async function ensureCapacityForDeployment(
   await acquireProvisionSlot();
 
   try {
-    return await checkCapacityAndProvision(requiredCpuMillis, requiredMemMi, deploymentId);
+    return await checkCapacityAndProvision(
+      requiredCpuMillis,
+      requiredMemMi,
+      deploymentId,
+      requiredStorageGb,
+      tierOverride,
+    );
   } finally {
     releaseProvisionSlot();
   }
