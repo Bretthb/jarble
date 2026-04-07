@@ -261,7 +261,21 @@ kubectl -n jarble-production exec deployment/jarble-api-kuberoapp-web -- env  # 
 ## Claude Agents
 
 Pre-configured agents in `.claude/agents/`:
-`accessibility-auditor`, `code-reviewer`, `docs-updater`, `auth0-debugger`, `canvas-component-builder`, `design-system-reviewer`, `drizzle-db-schema`, `jarble-api-debugger`, `k8s-pod-lifecycle-debugger`, `mcp-server`, `nextjs-frontend-debugger`, `performance-bundle-analyzer`, `runtime-handler`, `sse-stream-debugger`, `stripe-webhook-debugger`, `tambo-integration-reviewer`, `terraform-infra`, `test-writer`
+
+| Agent | Purpose |
+|-------|---------|
+| `code-reviewer` | Review diffs for correctness, security, consistency |
+| `jarble-api-debugger` | Trace errors through tRPC, services, K8s, Stripe |
+| `nextjs-frontend-debugger` | Hydration, React Query cache, Auth0 redirects, SSE |
+| `drizzle-db-schema` | Schema changes across 3 DB providers, migrations |
+| `test-writer` | Unit/integration/E2E tests, test infra |
+| `k8s-pod-lifecycle-debugger` | PVC mounts, image pulls, crash loops, storage |
+| `stripe-webhook-debugger` | Webhook signatures, subscription lifecycle |
+| `terraform-infra` | Hetzner Cloud, K3s, Auth0 Terraform |
+| `docs-updater` | Update API-ENDPOINTS.md, DEVELOPER-GUIDE.md, OVERVIEW.md |
+| `runtime-handler` | Runtime configs, secret mapping, platform env vars |
+| `openclaw-diagnostics` | Gateway timeouts, chat failures, config sync |
+| `canvas-component-builder` | Scaffold canvas components (5-step pattern) |
 
 ### Agentic Overnight QA System
 
