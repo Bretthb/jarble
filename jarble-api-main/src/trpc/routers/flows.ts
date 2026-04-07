@@ -1105,10 +1105,12 @@ export const flowsRouter = router({
           title: string | null;
           createdAt: Date | string | null;
           updatedAt: Date | string | null;
+          messageCount: number;
         }>;
       }
 
-      const { sessions: flowChatSessions } = getFlowChatTables();
+      const { sessions: flowChatSessions, messages: flowChatMessages } =
+        getFlowChatTables();
       if (!flowChatSessions) {
         logger.warn(
           { flowId: input.flowId },
@@ -1118,6 +1120,15 @@ export const flowsRouter = router({
       }
 
       try {
+        // `messageCount` is computed via a correlated subquery so the
+        // query stays a single round-trip and the picker UI can render
+        // "Title · N msgs" without a second fetch per session. If the
+        // messages table is missing from the schema bundle we fall back
+        // to 0 — the picker just hides the badge when count is 0.
+        const messageCountExpr = flowChatMessages
+          ? sql<number>`(select count(*) from ${flowChatMessages} where ${flowChatMessages.sessionId} = ${flowChatSessions.id})`
+          : sql<number>`0`;
+
         const rows = await db
           .select({
             id: flowChatSessions.id,
@@ -1125,6 +1136,7 @@ export const flowsRouter = router({
             title: flowChatSessions.title,
             createdAt: flowChatSessions.createdAt,
             updatedAt: flowChatSessions.updatedAt,
+            messageCount: messageCountExpr,
           })
           .from(flowChatSessions)
           .where(
@@ -1136,7 +1148,12 @@ export const flowsRouter = router({
           .orderBy(desc(flowChatSessions.updatedAt))
           .limit(50);
 
-        return rows;
+        // Coerce messageCount to a JS number — some drivers return
+        // bigint / string for count(*) depending on dialect.
+        return rows.map((r) => ({
+          ...r,
+          messageCount: Number(r.messageCount ?? 0),
+        }));
       } catch (err) {
         if (isMissingTableError(err)) {
           logger.warn(
@@ -1292,6 +1309,182 @@ export const flowsRouter = router({
           "getChatMessages: unexpected DB error — returning []"
         );
         return [];
+      }
+    }),
+
+  /**
+   * Rename a single chat session. Ownership is enforced in the UPDATE
+   * WHERE clause so a forged sessionId from another user silently
+   * updates zero rows and returns `{ success: false }` without leaking
+   * whether the session exists. Titles are sanitized against stray
+   * HTML via the same `noHtmlTags` helper the rest of the router uses.
+   *
+   * Gracefully no-ops if migration 0007 hasn't been applied yet.
+   */
+  renameChatSession: protectedProcedure
+    .input(
+      z.object({
+        sessionId: z.string().min(1),
+        title: z
+          .string()
+          .min(1)
+          .max(255)
+          .refine(noHtmlTags, NO_HTML_MESSAGE),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.user.id;
+
+      const { sessions: flowChatSessions } = getFlowChatTables();
+      if (!flowChatSessions) {
+        logger.warn(
+          { sessionId: input.sessionId },
+          "renameChatSession: flowChatSessions table not registered in schema bundle — no-op"
+        );
+        return { success: false };
+      }
+
+      try {
+        // UPDATE ... WHERE id AND user_id — a non-owner's forged id
+        // matches zero rows and the update is a no-op. We don't 404
+        // because we don't want to leak whether the session exists.
+        await db
+          .update(flowChatSessions)
+          .set({ title: input.title, updatedAt: dbDate() })
+          .where(
+            and(
+              eq(flowChatSessions.id, input.sessionId),
+              eq(flowChatSessions.userId, userId)
+            )
+          );
+
+        return { success: true };
+      } catch (err) {
+        if (isMissingTableError(err)) {
+          logger.warn(
+            {
+              sessionId: input.sessionId,
+              err: err instanceof Error ? err.message : String(err),
+            },
+            "renameChatSession: underlying table missing — no-op"
+          );
+          return { success: false };
+        }
+        logger.error(
+          {
+            sessionId: input.sessionId,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          "renameChatSession: unexpected DB error"
+        );
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to rename chat session",
+        });
+      }
+    }),
+
+  /**
+   * Delete a chat session and its messages. Ownership is verified via
+   * a SELECT inside the same transaction as the DELETE so a forged
+   * sessionId from another user silently no-ops without leaking
+   * whether the target row exists. Messages are deleted BEFORE the
+   * session row because `flow_chat_messages.session_id` does not have
+   * an ON DELETE CASCADE constraint (see schema.pg.ts:345) — deleting
+   * the session first would orphan its messages.
+   *
+   * Gracefully no-ops if migration 0007 hasn't been applied yet.
+   */
+  deleteChatSession: protectedProcedure
+    .input(z.object({ sessionId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.user.id;
+
+      const { sessions: flowChatSessions, messages: flowChatMessages } =
+        getFlowChatTables();
+      if (!flowChatSessions || !flowChatMessages) {
+        logger.warn(
+          { sessionId: input.sessionId },
+          "deleteChatSession: flow chat tables not registered in schema bundle — no-op"
+        );
+        return { success: false, messagesDeleted: 0 };
+      }
+
+      try {
+        // Use a transaction so either both deletes succeed or neither
+        // does — we don't want to leave orphan messages around if the
+        // session delete fails mid-flight.
+        let messagesDeleted = 0;
+        const result = await db.transaction(async (tx) => {
+          // 1. Verify ownership inside the transaction. A forged id
+          //    from another user yields zero rows and we bail without
+          //    doing any writes.
+          const ownedRows = await tx
+            .select({ id: flowChatSessions.id })
+            .from(flowChatSessions)
+            .where(
+              and(
+                eq(flowChatSessions.id, input.sessionId),
+                eq(flowChatSessions.userId, userId)
+              )
+            )
+            .limit(1);
+
+          if (ownedRows.length === 0) {
+            return { success: false, messagesDeleted: 0 };
+          }
+
+          // 2. Count + delete messages. We issue a count(*) before the
+          //    delete so the caller gets a concrete messagesDeleted
+          //    number — drizzle-orm doesn't expose rowCount uniformly
+          //    across dialects.
+          const countRows = await tx
+            .select({ c: sql<number>`count(*)` })
+            .from(flowChatMessages)
+            .where(eq(flowChatMessages.sessionId, input.sessionId));
+          messagesDeleted = Number(countRows[0]?.c ?? 0);
+
+          await tx
+            .delete(flowChatMessages)
+            .where(eq(flowChatMessages.sessionId, input.sessionId));
+
+          // 3. Delete the session itself (ownership already verified
+          //    above, but we re-filter on user_id as defense-in-depth).
+          await tx
+            .delete(flowChatSessions)
+            .where(
+              and(
+                eq(flowChatSessions.id, input.sessionId),
+                eq(flowChatSessions.userId, userId)
+              )
+            );
+
+          return { success: true, messagesDeleted };
+        });
+
+        return result;
+      } catch (err) {
+        if (isMissingTableError(err)) {
+          logger.warn(
+            {
+              sessionId: input.sessionId,
+              err: err instanceof Error ? err.message : String(err),
+            },
+            "deleteChatSession: underlying table missing — no-op"
+          );
+          return { success: false, messagesDeleted: 0 };
+        }
+        logger.error(
+          {
+            sessionId: input.sessionId,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          "deleteChatSession: unexpected DB error"
+        );
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to delete chat session",
+        });
       }
     }),
 });

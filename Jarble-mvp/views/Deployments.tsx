@@ -2566,6 +2566,24 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     null
   );
 
+  // ── Session picker a11y + rename/delete state ────────────────────
+  // `focusedSessionIdx` tracks the keyboard-focused row inside the
+  // picker dropdown. -1 means "no row focused" (the picker just
+  // opened, nothing highlighted yet). We use a separate state from
+  // activeSessionId so arrow-key browsing doesn't mutate the session
+  // the user is actually looking at.
+  const [focusedSessionIdx, setFocusedSessionIdx] = useState<number>(-1);
+  // Inline rename state — which session id is currently being renamed
+  // and the draft title the user is typing. `null` = not renaming.
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
+    null
+  );
+  const [renameDraft, setRenameDraft] = useState("");
+  // Refs used by keyboard nav to keep the focused row visible in a
+  // scrollable list and by the inline rename input for auto-focus.
+  const sessionRowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
   // Pagination state for "Load older messages". `hasMoreOlder` is true
   // when the most recent fetch returned exactly `limit` rows — meaning
   // there might be more older history we haven't seen yet.
@@ -2745,6 +2763,201 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     seededChatKeyRef.current = `${activeFlowId}::${newId}`;
     setIsSessionPickerOpen(false);
   }, [activeFlowId]);
+
+  // ── Rename / delete mutations ───────────────────────────────────
+  // Both mutations `refetch()` the sessions query on success so the
+  // picker reflects the new title / the removed row immediately.
+  // renameChatSession also keeps the inline edit UI in sync.
+  const renameSessionMutation = trpc.flows.renameChatSession.useMutation({
+    onSuccess: () => {
+      void chatSessionsQuery.refetch();
+      setRenamingSessionId(null);
+      setRenameDraft("");
+    },
+  });
+  const deleteSessionMutation = trpc.flows.deleteChatSession.useMutation({
+    onSuccess: () => {
+      void chatSessionsQuery.refetch();
+    },
+  });
+
+  const commitRename = useCallback(
+    (sessionId: string) => {
+      const trimmed = renameDraft.trim();
+      if (!trimmed) {
+        // Empty title — cancel instead of firing a validation error.
+        setRenamingSessionId(null);
+        setRenameDraft("");
+        return;
+      }
+      renameSessionMutation.mutate({ sessionId, title: trimmed.slice(0, 255) });
+    },
+    [renameDraft, renameSessionMutation]
+  );
+
+  const cancelRename = useCallback(() => {
+    setRenamingSessionId(null);
+    setRenameDraft("");
+  }, []);
+
+  const startRename = useCallback(
+    (sessionId: string, currentTitle: string | null) => {
+      setRenamingSessionId(sessionId);
+      setRenameDraft(currentTitle ?? "Team Chat");
+      // Focus the input on the next frame so it's actually in the DOM.
+      requestAnimationFrame(() => {
+        renameInputRef.current?.focus();
+        renameInputRef.current?.select();
+      });
+    },
+    []
+  );
+
+  // Deletes a session. If the deleted session was the one the user is
+  // currently viewing, we switch to the next newest remaining session
+  // (or fall back to a "new conversation" empty state if this was the
+  // only one). The sessions query is refetched in the mutation's
+  // onSuccess handler above.
+  const handleDeleteSession = useCallback(
+    (sessionId: string) => {
+      // Simple modal-free confirm — picker is a small dropdown so a
+      // heavyweight AlertDialog would be visually overkill.
+      if (
+        !window.confirm(
+          "Delete this conversation? This cannot be undone."
+        )
+      ) {
+        return;
+      }
+
+      const sessions = chatSessionsQuery.data ?? [];
+      const wasActive = sessionId === activeSessionId;
+
+      deleteSessionMutation.mutate({ sessionId });
+
+      if (wasActive) {
+        // Find the next newest session other than the one being
+        // deleted. Sessions are already ordered DESC by updatedAt.
+        const remaining = sessions.filter((s) => s.id !== sessionId);
+        // Abort any in-flight stream bound to the deleted session so
+        // its result doesn't bleed into whatever we switch to.
+        chatStreamAbortRef.current?.abort();
+        chatStreamAbortRef.current = null;
+        setFlowChatLoading(false);
+        setFlowChatMessages([]);
+        setHasMoreOlder(false);
+        seededChatKeyRef.current = null;
+
+        if (remaining.length > 0) {
+          setActiveSessionId(remaining[0].id);
+          setPendingNewSessionId(null);
+        } else {
+          // Last session — fall back to the new-conversation state.
+          setActiveSessionId(null);
+          const newId = `fcs_${Math.random().toString(36).slice(2, 14)}`;
+          setPendingNewSessionId(newId);
+          seededChatKeyRef.current = `${activeFlowId}::${newId}`;
+        }
+      }
+    },
+    [
+      activeFlowId,
+      activeSessionId,
+      chatSessionsQuery.data,
+      deleteSessionMutation,
+    ]
+  );
+
+  // Keep `focusedSessionIdx` within bounds when sessions change
+  // (e.g. after a delete). -1 means "no row focused".
+  useEffect(() => {
+    const count = chatSessionsQuery.data?.length ?? 0;
+    if (count === 0) {
+      setFocusedSessionIdx(-1);
+      return;
+    }
+    setFocusedSessionIdx((idx) => (idx >= count ? count - 1 : idx));
+  }, [chatSessionsQuery.data]);
+
+  // Reset the focused idx whenever the picker opens — start with no
+  // highlighted row so the first ArrowDown lands on idx 0.
+  useEffect(() => {
+    if (!isSessionPickerOpen) {
+      setFocusedSessionIdx(-1);
+    }
+  }, [isSessionPickerOpen]);
+
+  // Scroll the focused row into view when it changes via keyboard nav.
+  useEffect(() => {
+    if (focusedSessionIdx < 0) return;
+    const sessions = chatSessionsQuery.data ?? [];
+    const session = sessions[focusedSessionIdx];
+    if (!session) return;
+    const el = sessionRowRefs.current[session.id];
+    el?.scrollIntoView({ block: "nearest" });
+  }, [focusedSessionIdx, chatSessionsQuery.data]);
+
+  // Keyboard handler wired to the listbox container. The branching
+  // order matters: Escape always closes, Enter/ArrowUp/ArrowDown only
+  // fire when not in rename mode (so typing into the rename input
+  // doesn't get hijacked), and Delete/Backspace need a modifier so a
+  // stray keypress doesn't nuke a session without confirmation.
+  const handleSessionPickerKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (renamingSessionId !== null) {
+        // Renaming — let the input's own handler take over.
+        return;
+      }
+      const sessions = chatSessionsQuery.data ?? [];
+      const count = sessions.length;
+      if (count === 0) return;
+
+      switch (event.key) {
+        case "ArrowDown": {
+          event.preventDefault();
+          setFocusedSessionIdx((idx) => (idx + 1) % count);
+          break;
+        }
+        case "ArrowUp": {
+          event.preventDefault();
+          setFocusedSessionIdx((idx) =>
+            idx <= 0 ? count - 1 : idx - 1
+          );
+          break;
+        }
+        case "Enter": {
+          if (focusedSessionIdx >= 0 && focusedSessionIdx < count) {
+            event.preventDefault();
+            handleSelectSession(sessions[focusedSessionIdx].id);
+          }
+          break;
+        }
+        case "Escape": {
+          event.preventDefault();
+          setIsSessionPickerOpen(false);
+          break;
+        }
+        case "Delete":
+        case "Backspace": {
+          // Require a modifier so a stray keypress can't delete a
+          // session. Shift+Delete is the canonical "destructive
+          // shortcut" idiom in most desktop UIs.
+          if (!(event.shiftKey || event.metaKey || event.ctrlKey)) return;
+          if (focusedSessionIdx < 0 || focusedSessionIdx >= count) return;
+          event.preventDefault();
+          handleDeleteSession(sessions[focusedSessionIdx].id);
+          break;
+        }
+      }
+    },
+    [
+      chatSessionsQuery.data,
+      focusedSessionIdx,
+      handleSelectSession,
+      handleDeleteSession,
+      renamingSessionId,
+    ]
+  );
 
   // ── Load older messages (cursor-based) ──────────────────────────
   // Fires only when we have a session id and at least one message in
@@ -3166,7 +3379,25 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                           className="fixed inset-0 z-[60]"
                           onClick={() => setIsSessionPickerOpen(false)}
                         />
-                        <div className="absolute left-0 top-full mt-1 w-72 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg z-[61]">
+                        <div
+                          role="listbox"
+                          aria-label="Chat sessions"
+                          tabIndex={0}
+                          onKeyDown={handleSessionPickerKeyDown}
+                          // Autofocus the listbox on open so keyboard nav
+                          // works without the user having to click inside
+                          // it first.
+                          ref={(el) => {
+                            if (el && isSessionPickerOpen) {
+                              // Only focus if no child (e.g. rename input)
+                              // is already focused.
+                              if (!el.contains(document.activeElement)) {
+                                el.focus();
+                              }
+                            }
+                          }}
+                          className="absolute left-0 top-full mt-1 w-72 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg z-[61] outline-none focus:ring-1 focus:ring-ring/40"
+                        >
                           <button
                             type="button"
                             onClick={handleNewConversation}
@@ -3175,8 +3406,10 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                             <Plus className="w-3.5 h-3.5" />
                             <span>New conversation</span>
                           </button>
-                          {chatSessionsQuery.data.map((session) => {
+                          {chatSessionsQuery.data.map((session, idx) => {
                             const isActive = session.id === activeSessionId;
+                            const isFocused = idx === focusedSessionIdx;
+                            const isRenaming = renamingSessionId === session.id;
                             // Inline relative-time formatter — no
                             // dependency on date-fns, kept tiny.
                             const ts = session.updatedAt
@@ -3200,24 +3433,119 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                                 month: "short",
                                 day: "numeric",
                               });
+                            const msgCount = (session as any).messageCount ?? 0;
                             return (
-                              <button
+                              <div
                                 key={session.id}
-                                type="button"
-                                onClick={() => handleSelectSession(session.id)}
-                                className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-xs text-left hover:bg-secondary transition-colors ${
+                                role="option"
+                                aria-selected={isActive}
+                                className={`group relative flex items-center justify-between gap-2 px-3 py-2 text-xs text-left transition-colors ${
                                   isActive
                                     ? "bg-primary/10 text-foreground"
-                                    : "text-muted-foreground"
+                                    : isFocused
+                                      ? "bg-secondary text-foreground"
+                                      : "text-muted-foreground hover:bg-secondary"
                                 }`}
                               >
-                                <span className="truncate flex-1">
-                                  {session.title || "Team Chat"}
-                                </span>
-                                <span className="shrink-0 text-[10px] text-muted-foreground/70">
-                                  {rel}
-                                </span>
-                              </button>
+                                {isRenaming ? (
+                                  <input
+                                    ref={renameInputRef}
+                                    value={renameDraft}
+                                    onChange={(e) =>
+                                      setRenameDraft(e.target.value)
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        commitRename(session.id);
+                                      } else if (e.key === "Escape") {
+                                        e.preventDefault();
+                                        cancelRename();
+                                      }
+                                      // Stop the listbox's keyboard handler
+                                      // from hijacking these keys.
+                                      e.stopPropagation();
+                                    }}
+                                    onBlur={() => commitRename(session.id)}
+                                    maxLength={255}
+                                    className="flex-1 min-w-0 bg-background border border-border rounded px-1.5 py-0.5 text-xs outline-none focus:ring-1 focus:ring-ring"
+                                  />
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      ref={(el) => {
+                                        sessionRowRefs.current[session.id] =
+                                          el;
+                                      }}
+                                      onClick={() =>
+                                        handleSelectSession(session.id)
+                                      }
+                                      onMouseEnter={() =>
+                                        setFocusedSessionIdx(idx)
+                                      }
+                                      className="truncate flex-1 text-left min-w-0"
+                                    >
+                                      <span className="truncate block">
+                                        {session.title || "Team Chat"}
+                                      </span>
+                                    </button>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <span className="text-[10px] text-muted-foreground/70">
+                                        {rel}
+                                        {msgCount > 0 && (
+                                          <>
+                                            {" "}
+                                            <span className="text-muted-foreground/50">
+                                              · {msgCount} msg
+                                              {msgCount === 1 ? "" : "s"}
+                                            </span>
+                                          </>
+                                        )}
+                                      </span>
+                                      {/* Rename + delete icons — visible
+                                          on hover or when the row is
+                                          keyboard-focused. Kept small so
+                                          they don't dominate the row. */}
+                                      <div
+                                        className={`flex items-center gap-0.5 transition-opacity ${
+                                          isFocused
+                                            ? "opacity-100"
+                                            : "opacity-0 group-hover:opacity-100"
+                                        }`}
+                                      >
+                                        <button
+                                          type="button"
+                                          aria-label="Rename conversation"
+                                          title="Rename"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            startRename(
+                                              session.id,
+                                              session.title
+                                            );
+                                          }}
+                                          className="p-1 rounded hover:bg-foreground/10 text-muted-foreground hover:text-foreground"
+                                        >
+                                          <Pencil className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          aria-label="Delete conversation"
+                                          title="Delete"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteSession(session.id);
+                                          }}
+                                          className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
                             );
                           })}
                         </div>

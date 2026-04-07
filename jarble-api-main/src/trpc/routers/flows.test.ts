@@ -98,14 +98,44 @@ const { mockTablesRef, makeChainRef } = vi.hoisted(() => {
   const queue: Array<any[] | Error> = [];
   const last: { current: any } = { current: null };
 
+  // Track every write recorded during a test so assertions can inspect
+  // which ops fired in what order (e.g. deleteChatSession must delete
+  // messages BEFORE the session row).
+  const writeLog: Array<{
+    op: "update" | "delete" | "insert";
+    table: any;
+    set?: any;
+    values?: any;
+    where?: any;
+  }> = [];
+
   const makeChain = (initial: Record<string, unknown> = {}): any => {
     const chain: any = { _tag: "chain", ...initial };
     chain.from = (table: any) => {
       chain._from = table;
       return chain;
     };
+    chain.set = (values: any) => {
+      chain._set = values;
+      return chain;
+    };
+    chain.values = (values: any) => {
+      chain._values = values;
+      return chain;
+    };
     chain.where = (cond: any) => {
       chain._where = cond;
+      // For write chains (update/delete/insert) .where() is the terminal
+      // builder step so we record the op at that point. For reads the
+      // .then() handler records the query instead.
+      if (chain._op === "update" || chain._op === "delete") {
+        writeLog.push({
+          op: chain._op,
+          table: chain._target,
+          set: chain._set,
+          where: cond,
+        });
+      }
       return chain;
     };
     chain.orderBy = (order: any) => {
@@ -131,7 +161,7 @@ const { mockTablesRef, makeChainRef } = vi.hoisted(() => {
 
   return {
     mockTablesRef: tableState,
-    makeChainRef: { make: makeChain, queue, last },
+    makeChainRef: { make: makeChain, queue, last, writeLog },
   };
 });
 
@@ -141,20 +171,34 @@ const flowChatSessionsToken = mockTablesRef._flowChatSessionsToken;
 const flowChatMessagesToken = mockTablesRef._flowChatMessagesToken;
 const resultQueueShared = makeChainRef.queue;
 const lastQueryShared = makeChainRef.last;
+const writeLogShared = makeChainRef.writeLog;
 const lastQuery: { current: any } = lastQueryShared;
 
 function queueResults(...items: Array<any[] | Error>) {
   resultQueueShared.push(...items);
 }
 
-vi.mock("../../db/index.js", () => ({
-  db: {
+// Build a fake db object that records writes and supports a
+// `transaction(fn)` entry point — `fn` receives the same db shape as
+// `tx` so procedures can uniformly call `tx.select/insert/update/delete`
+// inside the callback.
+function buildMockDb() {
+  const api: any = {
     select: (cols?: any) => makeChainRef.make({ _columns: cols }),
-    insert: () => makeChainRef.make(),
-    update: () => makeChainRef.make(),
-    delete: () => makeChainRef.make(),
+    insert: (table?: any) =>
+      makeChainRef.make({ _op: "insert", _target: table }),
+    update: (table?: any) =>
+      makeChainRef.make({ _op: "update", _target: table }),
+    delete: (table?: any) =>
+      makeChainRef.make({ _op: "delete", _target: table }),
     query: {},
-  },
+    transaction: async (fn: (tx: any) => any) => fn(api),
+  };
+  return api;
+}
+
+vi.mock("../../db/index.js", () => ({
+  db: buildMockDb(),
   get tables() {
     return mockTablesRef;
   },
@@ -204,6 +248,7 @@ function makeCtx(userId = "auth0|alice"): any {
 beforeEach(() => {
   resultQueueShared.length = 0;
   lastQueryShared.current = null;
+  writeLogShared.length = 0;
   // Reset the tables object to the "fully populated" world.
   mockTables.flowChatSessions = flowChatSessionsToken;
   mockTables.flowChatMessages = flowChatMessagesToken;
@@ -235,6 +280,7 @@ describe("flows.getChatSessions", () => {
         title: "Q1 planning",
         createdAt: new Date("2026-04-01"),
         updatedAt: new Date("2026-04-05"),
+        messageCount: 12,
       },
       {
         id: "fcs_2",
@@ -242,6 +288,7 @@ describe("flows.getChatSessions", () => {
         title: null,
         createdAt: new Date("2026-04-02"),
         updatedAt: new Date("2026-04-06"),
+        messageCount: 0,
       },
     ];
 
@@ -250,6 +297,8 @@ describe("flows.getChatSessions", () => {
     const caller = flowsRouter.createCaller(makeCtx("auth0|alice"));
     const result = await caller.getChatSessions({ flowId: "flw_1" });
 
+    // The procedure coerces messageCount through Number(...) defensively
+    // so the shape matches 1:1 when the mock already returns numbers.
     expect(result).toEqual(aliceSessions);
     // The recorded WHERE must reference userId — i.e. the procedure
     // didn't accidentally drop the ownership filter on the data query.
@@ -542,5 +591,147 @@ describe("flows.getChatMessages", () => {
     const orderStr = JSON.stringify(lastQuery.current?._orderBy);
     expect(orderStr).toContain("asc");
     expect(orderStr).not.toContain("desc");
+  });
+});
+
+// ─── renameChatSession ────────────────────────────────────────────────
+
+describe("flows.renameChatSession", () => {
+  it("issues an UPDATE filtered by sessionId AND userId when the caller owns the session", async () => {
+    // The update itself has no meaningful return value — the mock just
+    // needs an entry in the queue so the awaited chain resolves.
+    queueResults([]);
+
+    const caller = flowsRouter.createCaller(makeCtx("auth0|alice"));
+    const result = await caller.renameChatSession({
+      sessionId: "fcs_1",
+      title: "Q2 strategy",
+    });
+
+    expect(result).toEqual({ success: true });
+
+    // Verify the UPDATE was recorded with the correct shape:
+    //   - targets flowChatSessions
+    //   - sets { title, updatedAt }
+    //   - WHERE includes userId (ownership defense)
+    const upd = writeLogShared.find((w) => w.op === "update");
+    expect(upd).toBeTruthy();
+    expect(upd?.table).toBe(flowChatSessionsToken);
+    expect(upd?.set?.title).toBe("Q2 strategy");
+    expect(upd?.set?.updatedAt).toBeTruthy();
+    const whereStr = JSON.stringify(upd?.where);
+    expect(whereStr).toContain("userId");
+    expect(whereStr).toContain("auth0|alice");
+    expect(whereStr).toContain("fcs_1");
+  });
+
+  it("scopes the UPDATE WHERE by the caller's userId so a cross-user sessionId is a no-op on the real DB", async () => {
+    // The mock can't simulate a real zero-rows-affected UPDATE, so we
+    // assert the thing that MATTERS for ownership enforcement: the
+    // WHERE clause filters by the *caller's* userId. A real UPDATE
+    // with that filter against a session owned by another user would
+    // affect zero rows — no ownership leak, no permission escalation.
+    queueResults([]);
+
+    const caller = flowsRouter.createCaller(makeCtx("auth0|mallory"));
+    await caller.renameChatSession({
+      sessionId: "fcs_owned_by_alice",
+      title: "pwned",
+    });
+
+    const upd = writeLogShared.find((w) => w.op === "update");
+    const whereStr = JSON.stringify(upd?.where);
+    expect(whereStr).toContain("auth0|mallory");
+    expect(whereStr).not.toContain("auth0|alice");
+  });
+
+  it("rejects HTML-tag-bearing titles via Zod refine", async () => {
+    const caller = flowsRouter.createCaller(makeCtx("auth0|alice"));
+    await expect(
+      caller.renameChatSession({
+        sessionId: "fcs_1",
+        title: "<script>alert(1)</script>",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("returns success:false when flowChatSessions isn't in the schema bundle", async () => {
+    mockTables.flowChatSessions = undefined;
+
+    const caller = flowsRouter.createCaller(makeCtx("auth0|alice"));
+    const result = await caller.renameChatSession({
+      sessionId: "fcs_1",
+      title: "anything",
+    });
+
+    expect(result).toEqual({ success: false });
+  });
+});
+
+// ─── deleteChatSession ────────────────────────────────────────────────
+
+describe("flows.deleteChatSession", () => {
+  it("deletes messages BEFORE the session row in a single transaction", async () => {
+    // Queue order must match the procedure's query order:
+    //   1. ownership check (SELECT from flow_chat_sessions) -> [{ id }]
+    //   2. count query (SELECT count(*) from flow_chat_messages) -> [{ c: 3 }]
+    //   3. delete messages (await) -> []
+    //   4. delete session (await) -> []
+    queueResults(
+      [{ id: "fcs_1" }], // ownership check
+      [{ c: 3 }], // count(*)
+      [], // delete messages
+      [], // delete session
+    );
+
+    const caller = flowsRouter.createCaller(makeCtx("auth0|alice"));
+    const result = await caller.deleteChatSession({ sessionId: "fcs_1" });
+
+    expect(result).toEqual({ success: true, messagesDeleted: 3 });
+
+    // Verify the delete ORDER: messages must come before session. If
+    // the session row were deleted first and the messages delete then
+    // failed, we'd leave orphaned messages (no FK cascade on this
+    // table). The write log preserves insertion order.
+    const deletes = writeLogShared.filter((w) => w.op === "delete");
+    expect(deletes.length).toBe(2);
+    expect(deletes[0].table).toBe(flowChatMessagesToken);
+    expect(deletes[1].table).toBe(flowChatSessionsToken);
+
+    // Both deletes must filter by sessionId. The session delete must
+    // ALSO filter by userId (defense-in-depth).
+    const msgWhereStr = JSON.stringify(deletes[0].where);
+    expect(msgWhereStr).toContain("fcs_1");
+    const sessWhereStr = JSON.stringify(deletes[1].where);
+    expect(sessWhereStr).toContain("fcs_1");
+    expect(sessWhereStr).toContain("userId");
+    expect(sessWhereStr).toContain("auth0|alice");
+  });
+
+  it("silently no-ops for a fabricated sessionId (no leak, no writes)", async () => {
+    // Ownership check returns empty -> procedure bails without issuing
+    // any deletes or touching messages at all.
+    queueResults([]);
+
+    const caller = flowsRouter.createCaller(makeCtx("auth0|mallory"));
+    const result = await caller.deleteChatSession({
+      sessionId: "fcs_forged",
+    });
+
+    expect(result).toEqual({ success: false, messagesDeleted: 0 });
+
+    // No deletes must have been recorded — a forged id should NEVER
+    // cause any write, even a filtered no-op one.
+    const deletes = writeLogShared.filter((w) => w.op === "delete");
+    expect(deletes.length).toBe(0);
+  });
+
+  it("returns success:false when flow chat tables aren't in the schema bundle", async () => {
+    mockTables.flowChatMessages = undefined;
+
+    const caller = flowsRouter.createCaller(makeCtx("auth0|alice"));
+    const result = await caller.deleteChatSession({ sessionId: "fcs_1" });
+
+    expect(result).toEqual({ success: false, messagesDeleted: 0 });
   });
 });
