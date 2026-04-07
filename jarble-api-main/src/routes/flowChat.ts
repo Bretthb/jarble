@@ -365,11 +365,15 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     );
 
     // Build the message to send to the entry bot.
-    // We prefix with the augmented system context as a "system" instruction,
-    // since chatViaExec sends a single message string to the pod.
+    // chatViaExec has no system-prompt channel today (see follow-up Phase B1b),
+    // so we inject the augmented prompt into the user turn with an authoritative
+    // header that frames it as system-level instructions the model must follow.
+    // The strong header tag is a band-aid until chatViaExec gains a real system
+    // prompt channel — without it the bot tends to treat the prompt as
+    // conversational context and ignore the delegation contract.
     const entryMessage =
       delegationTools.length > 0
-        ? `[FLOW CONTEXT]\n${augmentedPrompt}\n[/FLOW CONTEXT]\n\n${userMessage}`
+        ? `[FLOW SYSTEM INSTRUCTIONS — AUTHORITATIVE]\n${augmentedPrompt}\n[/FLOW SYSTEM INSTRUCTIONS]\n\nUser message:\n${userMessage}`
         : userMessage;
 
     // 8. Send message to entry bot
@@ -432,8 +436,11 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     const delegationTrace: DelegationTraceEntry[] = [];
 
     if (delegationCalls.length > 0 && delegationTools.length > 0) {
-      // Strip delegation JSON blocks from the visible text
+      // Strip delegation tool-call blocks from the visible text so the user
+      // doesn't see the raw fenced block. Strip BOTH the new jarble_delegate
+      // format AND the legacy json format (during the rollout window).
       let visibleText = entryResult.text
+        .replace(/```jarble_delegate\s*\n[\s\S]*?```/g, "")
         .replace(/```json\s*\n\s*\{[^}]*"tool"\s*:\s*"delegate_to_[^}]*\}\s*```/g, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();

@@ -52,38 +52,22 @@ const { deployments, platformCredentials, deploymentSecrets, deploymentSkills, s
 // deploymentSubagents may not exist yet (schema created by separate agent)
 const deploymentSubagents = (tables as any).deploymentSubagents;
 
-/**
- * Re-register the MCP server on the pod to point at the PVC-deployed version.
- * The baked-in Docker image may have a stale jarble-ui-server.js; configSync
- * deploys the current version to /data/config/mcp/. This exec re-registers
- * mcporter so OpenClaw discovers the updated tool list (including set_theme, etc.).
- */
-async function reRegisterMcpServer(
-  deploymentId: string,
-  managedBy: ManagedBy,
-): Promise<void> {
-  try {
-    const podName = await findPodForDeployment(deploymentId, { managedBy });
-    if (!podName) return;
-
-    const containerName = getContainerName(managedBy);
-    const pvcMount = getPvcMountPath(managedBy);
-    const mcpPath = `${pvcMount}/config/mcp/jarble-ui-server.js`;
-
-    // Re-register mcporter to use the PVC version
-    await execInPod(podName, [
-      "sh", "-c",
-      `/opt/openclaw/node_modules/.bin/mcporter config remove jarble-ui 2>/dev/null; ` +
-      `/opt/openclaw/node_modules/.bin/mcporter config add jarble-ui ` +
-      `--command node --arg "${mcpPath}" ` +
-      `--description "Jarble UI canvas components" --scope home 2>&1 || true`,
-    ], containerName);
-
-    log.info({ deploymentId }, "configSync: re-registered MCP server with PVC version");
-  } catch (err) {
-    log.warn({ deploymentId, err }, "configSync: MCP re-registration failed (non-fatal)");
-  }
-}
+// ── MCP server registration: intentionally no-op ──────────────────────────────
+// OpenClaw 2026.x has no first-class MCP server registration — verified live in
+// docs/audits/qa-bot-teams-2026-04-07.md. The previous reRegisterMcpServer()
+// helper exec'd `mcporter config add jarble-ui` inside the pod, but mcporter is
+// only consumed by OpenClaw as a *skill* (and reports `✗ missing` on the live
+// pod), not as a first-class tool source. The bot's tool list never contained
+// any Jarble tools.
+//
+// The PVC copy of jarble-ui-server.js IS still used — but via the Jarble API's
+// proxy path (POST /api/deployments/:id/mcp/invoke at canvasFiles.ts), which
+// `kubectl exec`s `node -e require('/data/config/mcp/jarble-ui-server.js')`
+// directly inside the pod. No mcporter, no OpenClaw involvement, no MCP stdio.
+//
+// stageMcpServer / syncMcpServer / syncMcpServerToAllRunning still update the
+// PVC copy on a schedule so the proxy reads the newest tools — but they no
+// longer pretend to "register" anything with OpenClaw.
 
 /**
  * Retry a function once after a delay for transient failures.
@@ -295,73 +279,115 @@ async function buildDeploymentFields(
     }
   }
 
-  // Load team members from flow_deployment_memberships
-  // Finds other deployments that share Bot Teams flows with this deployment
-  const teamMembers: Array<{ deploymentId: string; name: string; role: string | null; slug: string }> = [];
+  // Load team context from flow_deployment_memberships.
+  // Finds the flow this deployment participates in, captures self's role +
+  // entry-point status, and lists the other deployments in the same flow as teammates.
+  //
+  // Populates `teamContext` (the new authoritative shape) plus `teamMembers`
+  // (deprecated back-compat shim). Both exit `undefined` if there are no
+  // memberships, so the openclaw handler can cleanly skip rendering the
+  // Team Context section for solo deployments.
+  //
+  // v1 picks the FIRST flow if a deployment participates in multiple — this is
+  // deterministic by insertion order. Multi-team rendering is a follow-up.
+  let teamContext: DeploymentFields["teamContext"] | undefined;
+  const teamMembersBackCompat: Array<{ deploymentId: string; name: string; role: string | null; slug: string }> = [];
   try {
     const memberships = tables.flowDeploymentMemberships;
+    const orchestrationFlowsTable = (tables as any).orchestrationFlows;
+
     if (memberships) {
-      // Find flows this deployment participates in
+      // Step 1: Find ALL memberships for this deployment (it may be in multiple flows).
       const myMemberships = await db.query.flowDeploymentMemberships?.findMany?.({
         where: eq(memberships.deploymentId, deployment.id),
       });
 
       if (myMemberships?.length) {
-        // Collect unique flow IDs
-        const flowIds = [...new Set(myMemberships.map((m: any) => m.flowId))];
-
-        // Batch-fetch all teammates across all flows in one query
-        const allTeamMates: any[] = [];
-        for (const flowId of flowIds) {
-          const mates = await db.query.flowDeploymentMemberships?.findMany?.({
-            where: eq(memberships.flowId, flowId),
-          });
-          if (mates) allTeamMates.push(...mates);
+        // Step 2: Pick the first flow deterministically (by row insertion order).
+        // If multiple flows are present, log so support can diagnose user confusion.
+        const primary = myMemberships[0];
+        if (myMemberships.length > 1) {
+          const allFlowIds = [...new Set(myMemberships.map((m: any) => m.flowId))];
+          if (allFlowIds.length > 1) {
+            log.info(
+              { deploymentId: deployment.id, flowIds: allFlowIds, picked: primary.flowId },
+              "configSync: deployment is in multiple flows — rendering only the first"
+            );
+          }
         }
 
-        // Collect unique teammate deployment IDs (excluding self)
+        // Step 3: Look up the flow's display name. Falls back to "Bot Team" on error.
+        let flowName = "Bot Team";
+        if (orchestrationFlowsTable) {
+          try {
+            const flowRow = await db.query.orchestrationFlows?.findFirst?.({
+              where: eq(orchestrationFlowsTable.id, primary.flowId),
+              columns: { id: true, name: true },
+            });
+            if (flowRow?.name) flowName = flowRow.name;
+          } catch (err) {
+            log.debug({ flowId: primary.flowId, err }, "configSync: failed to load flow name (non-fatal)");
+          }
+        }
+
+        // Step 4: Load all members of the primary flow and exclude self / dedupe.
+        const teamMates = await db.query.flowDeploymentMemberships?.findMany?.({
+          where: eq(memberships.flowId, primary.flowId),
+        });
+
+        const teammates: NonNullable<DeploymentFields["teamContext"]>["teammates"] = [];
         const seenDeploymentIds = new Set<string>();
-        const uniqueMates: any[] = [];
-        for (const mate of allTeamMates) {
-          if (mate.deploymentId === deployment.id) continue;
-          if (seenDeploymentIds.has(mate.deploymentId)) continue;
-          seenDeploymentIds.add(mate.deploymentId);
-          uniqueMates.push(mate);
+        if (teamMates) {
+          for (const mate of teamMates) {
+            if (mate.deploymentId === deployment.id) continue;
+            if (seenDeploymentIds.has(mate.deploymentId)) continue;
+            seenDeploymentIds.add(mate.deploymentId);
+
+            // Look up the teammate's display name (skip if deleted — FK cascade should
+            // prevent orphan rows but we defend against race conditions anyway).
+            const mateDeployment = await db.query.deployments.findFirst({
+              where: eq(tables.deployments.id, mate.deploymentId),
+              columns: { id: true, name: true },
+            });
+            if (!mateDeployment) continue;
+
+            // Derive slug from role > name: lowercase, alphanumeric + underscores.
+            // The bot uses this slug as the `to` field in `jarble_delegate` blocks,
+            // so it must be stable and human-readable.
+            const slugSource = mate.role || mateDeployment.name;
+            const slug = slugSource
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "_")
+              .replace(/^_|_$/g, "");
+
+            const teammate = {
+              deploymentId: mate.deploymentId,
+              name: mateDeployment.name,
+              role: mate.role ?? null,
+              slug,
+            };
+            teammates.push(teammate);
+            teamMembersBackCompat.push(teammate);
+          }
         }
 
-        // Batch-fetch all teammate deployment names in ONE query instead of N+1
-        const mateDeploymentIds = [...seenDeploymentIds];
-        const mateDeploymentMap = new Map<string, { id: string; name: string }>();
-        if (mateDeploymentIds.length > 0) {
-          const mateDeployments = await db
-            .select({ id: tables.deployments.id, name: tables.deployments.name })
-            .from(tables.deployments)
-            .where(inArray(tables.deployments.id, mateDeploymentIds));
-          for (const d of mateDeployments) mateDeploymentMap.set(d.id, d);
-        }
-
-        for (const mate of uniqueMates) {
-          const mateDeployment = mateDeploymentMap.get(mate.deploymentId);
-          if (!mateDeployment) continue;
-
-          // Derive slug from role or name: lowercase, alphanumeric + hyphens
-          const slugSource = mate.role || mateDeployment.name;
-          const slug = slugSource
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "_")
-            .replace(/^_|_$/g, "");
-
-          teamMembers.push({
-            deploymentId: mate.deploymentId,
-            name: mateDeployment.name,
-            role: mate.role ?? null,
-            slug,
-          });
-        }
+        // Build the authoritative teamContext object. We always populate this
+        // when self has a membership row, even if there are zero teammates —
+        // a solo bot in a one-node flow still has a "role" + "entry point"
+        // identity worth surfacing in soul.md.
+        teamContext = {
+          flowId: primary.flowId,
+          flowName,
+          selfRole: primary.role ?? null,
+          isEntryPoint: primary.isEntryPoint ?? false,
+          teammates,
+        };
       }
     }
   } catch (err) {
-    log.debug({ deploymentId: deployment.id, err }, "configSync: failed to load team members");
+    // Log at WARN (not DEBUG) so we can actually diagnose silent failures in prod.
+    // The most likely cause is a schema/migration issue or a Drizzle relation gap.
+    log.warn({ deploymentId: deployment.id, err: err instanceof Error ? err.message : String(err) }, "configSync: failed to load team context (non-fatal)");
   }
 
   return {
@@ -384,7 +410,8 @@ async function buildDeploymentFields(
     installedComponents: installedComponents.length > 0 ? installedComponents : undefined,
     deploymentSecrets: Object.keys(deploymentSecretsMap).length > 0 ? deploymentSecretsMap : undefined,
     subagents: subagents.length > 0 ? subagents : undefined,
-    teamMembers: teamMembers.length > 0 ? teamMembers : undefined,
+    teamContext,
+    teamMembers: teamMembersBackCompat.length > 0 ? teamMembersBackCompat : undefined,
   };
 }
 
@@ -617,10 +644,10 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
           log.debug({ deploymentId, filePath: f.path, contentLength: f.content.length }, "ConfigSync: writing file to PVC");
         }
 
-        // If the MCP server script was deployed, re-register mcporter to use the PVC version
-        if (configFiles.some((f) => f.path.includes("jarble-ui-server"))) {
-          await reRegisterMcpServer(deploymentId, managedBy);
-        }
+        // (Removed: reRegisterMcpServer call — see comment near top of file.
+        // The PVC copy is updated above; OpenClaw does not need any
+        // re-registration step because it never consumed the MCP server
+        // through mcporter in the first place.)
 
         const durationMs = Date.now() - syncStartMs;
         log.info(
@@ -1181,8 +1208,9 @@ export async function syncMcpServer(
     return { updated: false, fromHash: stageResult.fromHash, toHash: stageResult.toHash };
   }
 
-  // Re-register mcporter
-  await reRegisterMcpServer(deploymentId, managedBy);
+  // (Removed: reRegisterMcpServer call — see comment near top of file.
+  // OpenClaw never consumed jarble-ui through mcporter; the PVC copy
+  // updated by stageMcpServer above is read directly by canvasFiles.ts.)
 
   // Restart gateway so it re-reads the tool list
   const podName = await findPodForDeployment(deploymentId, { managedBy });

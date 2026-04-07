@@ -97,7 +97,40 @@ export interface DeploymentFields {
   }>;
   /** User/agent-defined deployment secrets: { envVarName: decryptedValue } — injected as pod env vars */
   deploymentSecrets?: Record<string, string>;
-  /** Team members from Bot Teams flows - other deployments linked via flow_deployment_memberships */
+  /**
+   * Team context from Bot Teams flows.
+   * Presence of this field enables the "Team Context" section in soul.md
+   * (rendered by openclaw.ts:renderConfigs). It captures the deployment's role
+   * in a flow plus its teammates so the bot can delegate intelligently.
+   *
+   * Populated by configSync.ts:buildDeploymentFields() from
+   * flow_deployment_memberships + orchestration_flows. Undefined when the
+   * deployment is not part of any flow.
+   *
+   * v1: A deployment in multiple flows uses the first one (deterministic) —
+   * multi-team rendering is a follow-up.
+   */
+  teamContext?: {
+    /** The flow this deployment belongs to (used for logging / debug) */
+    flowId: string;
+    /** Human-readable flow name shown in soul.md */
+    flowName: string;
+    /** This deployment's role in the flow (e.g. "Pricing Specialist"). Null if no role set. */
+    selfRole: string | null;
+    /** True if this deployment is the entry point for the flow */
+    isEntryPoint: boolean;
+    /** Other deployments in the same flow (excluding self), deduplicated by deploymentId */
+    teammates: Array<{
+      deploymentId: string;
+      name: string;
+      role: string | null;
+      slug: string;
+    }>;
+  };
+  /**
+   * @deprecated Use `teamContext.teammates` instead. Kept as a back-compat shim
+   * for callers that have not been migrated; remove after configSync sweep.
+   */
   teamMembers?: Array<{
     deploymentId: string;
     name: string;

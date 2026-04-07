@@ -218,21 +218,42 @@ async function applyStatusFix(mismatch: StatusMismatch): Promise<void> {
  * Start the periodic status reconciliation.
  * Runs immediately on startup, then every `intervalMs` (default 30 seconds).
  *
- * Also starts a slower MCP server auto-sync (every 5 minutes) that pushes
+ * Also starts a slower MCP server auto-sync (every 15 minutes) that pushes
  * the latest MCP server to any running pods that have an outdated version.
  * This ensures users get new tools (set_theme, etc.) without needing to
  * restart their deployment after an API update.
+ *
+ * The MCP loop is gated on a top-level hash check: if the in-memory MCP
+ * server file hasn't changed since the last sync, we skip the per-pod loop
+ * entirely. This avoids paying ~N kubectl-exec round trips per cycle when
+ * nothing has actually changed (the common case between API deploys).
  */
 export function startStatusReconciler(intervalMs: number = 30 * 1000): NodeJS.Timeout {
   logger.info({ intervalMs }, "statusReconciler: starting periodic status reconciliation");
   safeFireAndForget(reconcileStatuses(), { operation: "reconcileStatuses" });
 
-  // MCP server auto-sync - runs every 5 minutes, pushes latest MCP server to outdated pods
-  const mcpSyncIntervalMs = 5 * 60 * 1000;
+  // MCP server auto-sync - runs every 15 minutes, pushes latest MCP server to outdated pods
+  const mcpSyncIntervalMs = 15 * 60 * 1000;
+  // Track the last hash we synced so we can skip the per-pod loop entirely
+  // when the API source hasn't changed since the previous tick.
+  let lastSyncedMcpHash: string | null = null;
   setInterval(async () => {
     try {
+      // Top-level hash gate: read the current API hash and skip the
+      // per-pod fan-out if it matches what we synced last time.
+      const { getMcpServerInfo } = await import("../runtimes/handlers/openclaw.js");
+      const { hash: currentHash } = getMcpServerInfo();
+      if (currentHash && currentHash === lastSyncedMcpHash) {
+        logger.debug(
+          { hash: currentHash },
+          "statusReconciler: MCP auto-sync skipped (API hash unchanged since last run)",
+        );
+        return;
+      }
+
       const { syncMcpServerToAllRunning } = await import("./configSync.js");
       await syncMcpServerToAllRunning();
+      lastSyncedMcpHash = currentHash || lastSyncedMcpHash;
     } catch (err) {
       logger.warn({ err }, "statusReconciler: MCP auto-sync failed (non-fatal)");
     }

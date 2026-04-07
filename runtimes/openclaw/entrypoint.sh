@@ -34,16 +34,18 @@ CONFIG_DIR="/data/config"
 OPENCLAW_HOME="/data/.openclaw"
 OPENCLAW_STATE="/data/.openclaw/.openclaw"
 LOG_DIR="/data/logs"
-# Prefer PVC-deployed version (updated by configSync) over baked-in image version
-JARBLE_MCP_PVC="/data/config/mcp/jarble-ui-server.js"
-JARBLE_MCP_BAKED="/opt/jarble/mcp/jarble-ui-server.js"
-if [ -f "$JARBLE_MCP_PVC" ]; then
-  JARBLE_MCP="$JARBLE_MCP_PVC"
-  echo "[entrypoint] Using PVC-deployed MCP server"
-else
-  JARBLE_MCP="$JARBLE_MCP_BAKED"
-  echo "[entrypoint] Using baked-in MCP server (PVC version not found)"
-fi
+
+# ── No-op MCP path detection ──────────────────────────────────────────
+# OpenClaw 2026.x has no first-class MCP integration — verified live in
+# docs/audits/qa-bot-teams-2026-04-07.md. We previously selected between
+# a PVC-deployed and a baked-in jarble-ui-server.js path here and exported
+# JARBLE_MCP for the mcporter registration block below — but neither
+# OpenClaw nor mcporter actually consumes the result at agent-turn time.
+# The PVC copy at /data/config/mcp/jarble-ui-server.js IS still authoritative,
+# but it is consumed by the Jarble API's proxy path:
+#   POST /api/deployments/:id/mcp/invoke  →  canvasFiles.ts  →
+#     kubectl exec node -e "require('/data/config/mcp/jarble-ui-server.js').executeTool(...)"
+# No registration needed inside the pod.
 
 # Track background process PIDs for cleanup
 WATCHER_PID=""
@@ -163,20 +165,19 @@ else
   echo "[entrypoint] Deployment: ${DEPLOYMENT_NAME:-unknown} (${DEPLOYMENT_ID:-unknown})"
 fi
 
-# ── Register Jarble UI MCP server ─────────────────────────────────────
-# mcporter bridges the jarble-ui-server.js (stdio MCP) to OpenClaw's
-# skill system, giving the bot render_ui, define_component, etc. tools.
-# Re-registers on every start to pick up PVC-deployed updates from configSync.
-if [ -f "$JARBLE_MCP" ]; then
-  echo "[entrypoint] Registering jarble-ui MCP server ($JARBLE_MCP)..."
-  # Remove stale registration if present, then re-add with current path
-  /opt/openclaw/node_modules/.bin/mcporter config remove jarble-ui 2>/dev/null || true
-  /opt/openclaw/node_modules/.bin/mcporter config add jarble-ui \
-    --command node --arg "$JARBLE_MCP" \
-    --description "Jarble UI canvas components" \
-    --scope home 2>&1 || echo "[entrypoint] Warning: mcporter registration failed (non-fatal)"
-  echo "[entrypoint] jarble-ui MCP server registered"
-fi
+# ── jarble-ui tools: no in-pod registration ───────────────────────────
+# OpenClaw has no first-class MCP integration. The previous block here ran
+# `mcporter config add jarble-ui ...` but mcporter is treated by OpenClaw
+# as a *skill* (an external CLI it could shell out to via `exec`), not as
+# a first-class tool source. On the live pod mcporter even reports
+# `✗ missing` because OpenClaw's skill detection can't find the binary,
+# and even if it could, OpenClaw's tool list at agent-turn time is hard-
+# coded — adding a server with mcporter changes nothing.
+#
+# jarble-ui tools are exposed through the Jarble API's canvasFiles proxy
+# instead — see kubectl-exec node -e "require('/data/config/mcp/jarble-ui-server.js')"
+# in jarble-api-main/src/routes/canvasFiles.ts. Full audit:
+# docs/audits/qa-bot-teams-2026-04-07.md.
 
 # ── Start file watcher (background) ──────────────────────────────────
 if command -v inotifywait >/dev/null 2>&1; then

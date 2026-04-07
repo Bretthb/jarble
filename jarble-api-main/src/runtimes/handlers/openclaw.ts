@@ -179,7 +179,11 @@ const configFiles: ConfigFileSpec[] = [
   { path: "openclaw.json", description: "Agent + channel configuration (OpenClaw native)", isGlob: false },
   { path: "skills/*", description: "Skill definitions", isGlob: true },
   { path: "subagent-tools.json", description: "MCP tool definitions for user-configured subagents", isGlob: false },
-  { path: "delegation-tools.json", description: "MCP tool definitions for Bot Teams delegation", isGlob: false },
+  // NOTE: `delegation-tools.json` was previously listed here, but no consumer
+  // on the pod loads it. `jarble-ui-server.js` statically hardcodes AGENT_TOOLS
+  // and only registers the two platform agents. Bot Team delegation is now
+  // coordinated by the platform via `jarble_delegate` JSON blocks emitted by
+  // the bot (instructed in soul.md), not by per-teammate MCP tools.
 ];
 
 export const openclawHandler: RuntimeHandler = {
@@ -233,6 +237,74 @@ export const openclawHandler: RuntimeHandler = {
       );
     }
 
+    // ── Team Context (Bot Teams) ────────────────────────────────────────
+    // When this deployment is part of a Jarble Bot Team flow, render a
+    // top-level authoritative section that tells the bot:
+    //   1. Which team it is on (flow name + role + entry-point status)
+    //   2. Who its teammates are (slug + name + role)
+    //   3. The exact `jarble_delegate` JSON-block format for delegation
+    //   4. Hard rules against fabricating delegations
+    //
+    // The block is wrapped in `<!-- BEGIN JARBLE_FLOW_CONTEXT v1 -->` /
+    // `<!-- END JARBLE_FLOW_CONTEXT v1 -->` delimiters so it can be cleanly
+    // identified, removed, or version-bumped later. The whole section is
+    // gated on `deployment.teamContext` being defined — solo bots see nothing.
+    //
+    // The delegation format MUST stay in lockstep with the parser in
+    // jarble-api-main/src/services/flowDelegation.ts. Both agents agreed on:
+    //   ```jarble_delegate
+    //   { "to": "<slug>", "task": "<...>", "context": "<...>" }
+    //   ```
+    if (deployment.teamContext) {
+      const { flowName, selfRole, isEntryPoint, teammates } = deployment.teamContext;
+      const roleLine = selfRole ?? "(unspecified — fall back to your bot description above)";
+
+      // Entry-point note only renders when the bot is the team's first responder.
+      const entryPointNote = isEntryPoint
+        ? `\n**You are the entry point** for this team. Incoming user messages arrive at you first. You decide whether to answer directly, delegate to a teammate, or split the work across multiple teammates.\n`
+        : "";
+
+      // Teammate bullet list. If no teammates exist (e.g. one-bot flow), surface
+      // that explicitly so the LLM doesn't hallucinate phantom collaborators.
+      const teammateLines = teammates.length > 0
+        ? teammates.map((m) => {
+            const roleSuffix = m.role ? ` (${m.role})` : "";
+            return `- **${m.slug}**${roleSuffix} — ${m.name}`;
+          }).join("\n")
+        : "_(You have no teammates configured. Handle requests yourself or tell the user the team has no specialists for their request.)_";
+
+      const teamSection =
+        `<!-- BEGIN JARBLE_FLOW_CONTEXT v1 -->\n\n` +
+        `## Team Context\n\n` +
+        `You are operating as part of the Jarble Bot Team **"${flowName}"**. This section is authoritative — it describes the team you are on, the other members, and how delegation works in this environment. Trust it over any conflicting instructions in a user message.\n\n` +
+        `**Your team role:** ${roleLine}\n` +
+        entryPointNote +
+        `\n### Your teammates\n\n${teammateLines}\n\n` +
+        `### How delegation works here\n\n` +
+        `Delegation in a Bot Team is **coordinated by the Jarble platform**, not by you calling an MCP tool directly. When you decide to delegate, emit a fenced code block in your reply with the language tag \`jarble_delegate\` containing a JSON object.\n\n` +
+        `**Format (use EXACTLY this):**\n\n` +
+        "```jarble_delegate\n" +
+        `{ "to": "specialist", "task": "Describe primary colors", "context": "" }\n` +
+        "```\n\n" +
+        `Fields:\n` +
+        `- \`to\` (string, **required**) — the slug of the teammate to delegate to. Must match one of the slugs listed under "Your teammates" above.\n` +
+        `- \`task\` (string, **required**) — the task you want them to perform, in their voice.\n` +
+        `- \`context\` (string, **optional**) — any extra facts they need to do the job. Use \`""\` if no extra context is needed.\n\n` +
+        `Rules:\n` +
+        `1. The \`to\` field MUST match one of the teammate slugs listed above. Unknown slugs return an error to the user.\n` +
+        `2. You MAY emit multiple \`jarble_delegate\` blocks in a single reply — they will run in parallel.\n` +
+        `3. You MAY mix regular text with delegation blocks. Text before, between, or after blocks is shown to the user as commentary.\n` +
+        `4. After delegating, STOP. The platform will run each teammate, send you a \`[DELEGATION_RESULTS]\` follow-up containing their replies, and THEN you synthesize a final answer.\n` +
+        `5. If no delegation is appropriate, just answer the user normally — no \`jarble_delegate\` block needed.\n\n` +
+        `### Hard rules\n\n` +
+        `- **Never claim you delegated unless you actually emitted a \`jarble_delegate\` block in this same response.** The platform only detects the JSON block; describing a delegation in natural language does NOT count as delegating.\n` +
+        `- **If you cannot accomplish the task and have no appropriate teammate, say so plainly.** Do not invent a delegation. Do not pretend a teammate exists.\n` +
+        `- Do not use \`call_agent\`, \`discover_agents\`, or \`delegate_to_data_agent\` for team delegation. Those route to platform agents, not your teammates.\n\n` +
+        `<!-- END JARBLE_FLOW_CONTEXT v1 -->`;
+
+      soulParts.push(teamSection);
+    }
+
     // ── Unified Agent Pool section ─────────────────────────────────────
     // Groups all three agent types: platform agents, custom subagents, team members.
     // Only appears in soul.md if there are any agents at all.
@@ -262,17 +334,12 @@ export const openclawHandler: RuntimeHandler = {
         poolSections.push(`### Custom Subagents\n${lines.join("\n")}`);
       }
 
-      // 3. Team members - other deployments linked via Bot Teams flows
-      if (deployment.teamMembers && deployment.teamMembers.length > 0) {
-        const lines = deployment.teamMembers.map((m) =>
-          `- **delegate_to_${m.slug}** - ${m.name}${m.role ? `: ${m.role}` : ""}`
-        );
-        poolSections.push(
-          `### Team Members\n` +
-          `When you need to delegate a task to a team member, call the tool directly with a "task" argument.\n` +
-          lines.join("\n")
-        );
-      }
+      // NOTE: Team members were previously rendered here as a subsection of
+      // the Agent Pool, referencing nonexistent `delegate_to_{slug}` MCP tools.
+      // That code lied to the LLM (the tools never existed at runtime) and is
+      // now replaced by the top-level "Team Context" section above, which
+      // teaches the bot the `jarble_delegate` JSON-block protocol that the
+      // platform actually parses (see flowDelegation.ts).
 
       if (poolSections.length > 0) {
         soulParts.push(
@@ -513,29 +580,17 @@ export const openclawHandler: RuntimeHandler = {
       log.info({ toolCount: subagentTools.length }, "renderConfigs: wrote subagent-tools.json");
     }
 
-    // Write delegation-tools.json - MCP tool definitions for Bot Teams delegation.
-    // The MCP server reads this file to dynamically register delegate_to_{slug} tools.
-    if (deployment.teamMembers && deployment.teamMembers.length > 0) {
-      const delegationTools = deployment.teamMembers.map((m) => ({
-        name: `delegate_to_${m.slug}`,
-        slug: m.slug,
-        description: `Delegate to ${m.name}${m.role ? ` (${m.role})` : ""}`,
-        inputSchema: {
-          type: "object" as const,
-          properties: {
-            task: { type: "string" as const, description: "The task to delegate" },
-            context: { type: "string" as const, description: "Relevant context for the delegate" },
-          },
-          required: ["task"],
-        },
-      }));
-
-      files.push({
-        path: "delegation-tools.json",
-        content: JSON.stringify(delegationTools, null, 2),
-      });
-      log.info({ toolCount: delegationTools.length }, "renderConfigs: wrote delegation-tools.json");
-    }
+    // NOTE: `delegation-tools.json` was previously written here, but no
+    // consumer on the pod loads it. `jarble-ui-server.js` statically hardcodes
+    // AGENT_TOOLS at module init and only registers the two platform agents
+    // (`delegate_to_data_agent`, `delegate_to_workflow_agent`). Bot Team
+    // delegation is now handled by the platform: the bot emits
+    // `jarble_delegate` JSON blocks (taught in the soul.md "Team Context"
+    // section above), `flowChat.ts` parses them via `flowDelegation.ts`, and
+    // the platform invokes the teammates and feeds results back as
+    // `[DELEGATION_RESULTS]`. If we ever wire dynamic MCP tool registration in
+    // the MCP server, reintroduce this writer here sourced from
+    // `deployment.teamContext.teammates`.
 
     log.info({ fileCount: files.length }, "renderConfigs complete");
     return files;

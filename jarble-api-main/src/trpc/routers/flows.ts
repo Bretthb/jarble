@@ -17,6 +17,7 @@ import { collectLlmCompletion, type LlmMessage } from "../../services/llmProxy.j
 import { env } from "../../utils/env.js";
 import { WORKFLOW_AGENT_SYSTEM_PROMPT } from "../../prompts/workflowAgent.js";
 import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
+import { syncConfigsToPvc } from "../../services/configSync.js";
 
 const logger = createModuleLogger("flows");
 
@@ -24,9 +25,71 @@ const { orchestrationFlows, flowExecutions } = tables;
 
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
 
-// ── Sync flow_deployment_memberships join table ─────────────────────────────
-// Parses the flow definition to find nodes with deploymentId fields and
-// writes them to the join table so individual bots can discover their teams.
+// ── Helpers: flow_deployment_memberships join table ─────────────────────────
+// The join table tells individual bot pods which Bot Team they belong to. It
+// is read by configSync.buildDeploymentFields to populate
+// `DeploymentFields.teamContext`, which the openclaw runtime handler renders
+// into the bot's soul.md Team Context section.
+//
+// Production hypothesis (2026-04-07): the table was empty against 29 flows.
+// The most likely cause is FK violations on stale `deploymentId` references
+// (a flow node references a deployment that was deleted, never existed, or
+// belongs to a different org). Each insert is independent (no transaction),
+// so the first FK violation throws and the catch block at the call site used
+// to silently swallow the error at WARN level. Upgraded to ERROR + offending
+// node detail so the next occurrence is diagnosable. The trigger chain below
+// also fires `syncConfigsToPvc` for both OLD and NEW affected deployments so
+// even if memberships sync partially fails, the surviving bots get fresh
+// soul.md.
+
+/**
+ * Read the current deploymentIds bound to a flow. Used to compute the OLD
+ * side of the OLD ∪ NEW union for fan-out config sync.
+ */
+async function getCurrentMembershipDeploymentIds(flowId: string): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const fdm = (tables as any).flowDeploymentMemberships;
+  if (!fdm) return ids;
+  try {
+    const rows = await db.select({ deploymentId: fdm.deploymentId }).from(fdm).where(eq(fdm.flowId, flowId));
+    for (const r of rows) if (r.deploymentId) ids.add(r.deploymentId);
+  } catch (err) {
+    logger.warn(
+      { flowId, err: err instanceof Error ? err.message : String(err) },
+      "getCurrentMembershipDeploymentIds: failed to read prior memberships (non-fatal — fan-out will only cover NEW set)"
+    );
+  }
+  return ids;
+}
+
+/**
+ * Extract deploymentIds from a flow definition's nodes. Used for the NEW side
+ * of the OLD ∪ NEW union, and also as the source for syncFlowMemberships inserts.
+ */
+function getDefinitionDeploymentIds(definition: { nodes?: any[] }): Set<string> {
+  const ids = new Set<string>();
+  for (const node of definition?.nodes ?? []) {
+    if (node?.deploymentId) ids.add(node.deploymentId);
+  }
+  return ids;
+}
+
+/**
+ * Fire `syncConfigsToPvc` for every affected deployment without awaiting. The
+ * service has its own per-deployment mutex so concurrent flow edits serialize
+ * cleanly. Each sync handles its own errors internally; we log here only so
+ * we can correlate "sync started" events with later success/failure logs.
+ */
+function fanoutSyncConfigs(deploymentIds: Iterable<string>, reason: string) {
+  for (const id of deploymentIds) {
+    void syncConfigsToPvc(id).catch((err: unknown) => {
+      logger.error(
+        { deploymentId: id, reason, err: err instanceof Error ? err.message : String(err) },
+        "flows: syncConfigsToPvc fan-out failed (non-fatal — bot will receive update on next sync)"
+      );
+    });
+  }
+}
 
 async function syncFlowMemberships(
   flowId: string,
@@ -210,12 +273,28 @@ export const flowsRouter = router({
 
       logger.info({ flowId: id, userId }, "Flow created");
 
-      // Sync join table so individual bots can discover their team memberships
+      // Sync join table so individual bots can discover their team memberships.
+      // On failure, log at ERROR (not WARN) and include the affected deploymentIds
+      // so silent FK violations stop hiding from operators in production.
       try {
         await syncFlowMemberships(id, input.definition);
       } catch (err) {
-        logger.warn({ flowId: id, err: err instanceof Error ? err.message : String(err) }, "Failed to sync flow memberships (non-fatal)");
+        const newIds = [...getDefinitionDeploymentIds(input.definition)];
+        logger.error(
+          {
+            flowId: id,
+            deploymentIds: newIds,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          "flows.create: syncFlowMemberships failed — bots will not discover their team membership until the underlying error is fixed (likely an FK violation against deployments.id)"
+        );
       }
+
+      // Fire-and-forget configSync for every deployment newly attached to this
+      // flow so each bot's soul.md immediately picks up the Team Context section.
+      // Fresh creates have no OLD set — only NEW deploymentIds matter.
+      const newDeploymentIds = getDefinitionDeploymentIds(input.definition);
+      fanoutSyncConfigs(newDeploymentIds, `flow.create:${id}`);
 
       return { id };
     }),
@@ -267,6 +346,13 @@ export const flowsRouter = router({
       if (input.entryNodeId !== undefined) updates.entryNodeId = input.entryNodeId;
       if (input.teamType !== undefined) updates.teamType = input.teamType;
 
+      // Snapshot the OLD set of deployments BEFORE re-syncing memberships,
+      // so removed teammates also get their soul.md re-rendered (their Team
+      // Context block must come off when they leave the team).
+      const oldDeploymentIds = input.definition
+        ? await getCurrentMembershipDeploymentIds(input.id)
+        : new Set<string>();
+
       await db
         .update(orchestrationFlows)
         .set(updates)
@@ -279,8 +365,22 @@ export const flowsRouter = router({
         try {
           await syncFlowMemberships(input.id, input.definition);
         } catch (err) {
-          logger.warn({ flowId: input.id, err: err instanceof Error ? err.message : String(err) }, "Failed to sync flow memberships (non-fatal)");
+          const newIds = [...getDefinitionDeploymentIds(input.definition)];
+          logger.error(
+            {
+              flowId: input.id,
+              deploymentIds: newIds,
+              err: err instanceof Error ? err.message : String(err),
+            },
+            "flows.update: syncFlowMemberships failed — bots will not discover their team membership until the underlying error is fixed (likely an FK violation against deployments.id)"
+          );
         }
+
+        // Fire-and-forget configSync for the union of OLD ∪ NEW deployments
+        // so leaving bots lose the Team Context block AND joining bots gain it.
+        const newDeploymentIds = getDefinitionDeploymentIds(input.definition);
+        const union = new Set<string>([...oldDeploymentIds, ...newDeploymentIds]);
+        fanoutSyncConfigs(union, `flow.update:${input.id}`);
       }
 
       return { success: true };
@@ -318,20 +418,47 @@ export const flowsRouter = router({
         });
       }
 
+      // Snapshot which deployments belonged to this flow BEFORE delete/archive,
+      // so each former teammate's soul.md gets the Team Context block removed.
+      // For hard deletes, FK cascade will wipe the join table and a later
+      // configSync would see no memberships and skip the Team Context block.
+      // For soft deletes (archive), we don't strip memberships, so the bots
+      // would still see a stale "you're on Team X" block — the explicit
+      // fan-out below clears that case too.
+      const formerDeploymentIds = await getCurrentMembershipDeploymentIds(input.id);
+
       if (input.hard) {
-        // Hard delete - cascade deletes executions via FK
+        // Hard delete - cascade deletes executions + memberships via FK
         await db
           .delete(orchestrationFlows)
           .where(eq(orchestrationFlows.id, input.id));
         logger.info({ flowId: input.id, userId }, "Flow hard-deleted");
       } else {
-        // Soft delete - archive
+        // Soft delete - archive. Also strip memberships so the deployments
+        // stop reporting themselves as part of an archived team. Without
+        // this, configSync would still surface the archived team in soul.md
+        // until the user takes another action.
+        const fdm = (tables as any).flowDeploymentMemberships;
+        if (fdm) {
+          try {
+            await db.delete(fdm).where(eq(fdm.flowId, input.id));
+          } catch (err) {
+            logger.error(
+              { flowId: input.id, err: err instanceof Error ? err.message : String(err) },
+              "flows.delete: failed to clear memberships during archive (non-fatal — affected bots will keep stale Team Context until manually re-synced)"
+            );
+          }
+        }
         await db
           .update(orchestrationFlows)
           .set({ status: "archived", updatedAt: dbDate() })
           .where(eq(orchestrationFlows.id, input.id));
         logger.info({ flowId: input.id, userId }, "Flow archived");
       }
+
+      // Fire-and-forget configSync so each former teammate immediately drops
+      // the Team Context section from their soul.md.
+      fanoutSyncConfigs(formerDeploymentIds, `flow.delete:${input.id}`);
 
       return { success: true };
     }),
@@ -401,16 +528,32 @@ export const flowsRouter = router({
 
       logger.info({ newFlowId: newId, sourceFlowId: input.sourceFlowId, userId }, "Flow forked");
 
-      // Sync join table for the duplicated flow
+      // Sync join table for the duplicated flow + fan-out configSync for the
+      // newly bound deployments. The source flow is untouched (no OLD set to
+      // worry about — only the new fork's bots need fresh soul.md).
+      let parsedDefinition: { nodes?: any[] } | null = null;
       try {
-        const defParsed = typeof sourceFlow.definition === "string"
+        parsedDefinition = typeof sourceFlow.definition === "string"
           ? JSON.parse(sourceFlow.definition)
           : sourceFlow.definition;
-        if (defParsed && defParsed.nodes) {
-          await syncFlowMemberships(newId, defParsed);
+        if (parsedDefinition && parsedDefinition.nodes) {
+          await syncFlowMemberships(newId, parsedDefinition as { nodes: any[]; edges?: any[] });
         }
       } catch (err) {
-        logger.warn({ flowId: newId, err: err instanceof Error ? err.message : String(err) }, "Failed to sync flow memberships for fork (non-fatal)");
+        const newIds = parsedDefinition ? [...getDefinitionDeploymentIds(parsedDefinition)] : [];
+        logger.error(
+          {
+            flowId: newId,
+            sourceFlowId: input.sourceFlowId,
+            deploymentIds: newIds,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          "flows.duplicate: syncFlowMemberships failed for fork — bots will not discover their team membership until the underlying error is fixed"
+        );
+      }
+
+      if (parsedDefinition) {
+        fanoutSyncConfigs(getDefinitionDeploymentIds(parsedDefinition), `flow.duplicate:${newId}`);
       }
 
       return { id: newId };

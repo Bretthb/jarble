@@ -127,21 +127,54 @@ export function buildFlowSystemPrompt(
   }
 
   if (delegationTools.length > 0 && node.canDelegate !== false) {
-    parts.push("\n\n## Delegation");
-    parts.push("You can delegate tasks to these team members. Each member is a full agent that may have its own internal specialists:");
-    for (const tool of delegationTools) {
-      parts.push(`- **${tool.name}**: ${tool.description}`);
-    }
+    // Build the slug roster (the "to" field of the fenced block uses the
+    // bare slug — without the "delegate_to_" prefix — so the LLM never has
+    // to type a tool prefix it might mangle).
+    const memberLines = delegationTools
+      .map((tool) => {
+        const slug = tool.name.replace(/^delegate_to_/, "");
+        return `- **${slug}**: ${tool.description}`;
+      })
+      .join("\n");
+
+    // Pick a sample slug for the one-shot example.
+    const sampleSlug =
+      delegationTools[0].name.replace(/^delegate_to_/, "") || "specialist";
+
+    parts.push("\n\n## Team Members You Can Delegate To");
     parts.push(
-      "\nDelegate when a task matches a team member's capabilities or when a specialist " +
-      "would produce better results. The team member will use their own internal agents " +
-      "to process the request and return a complete result." +
-      "\nTo delegate, respond with a JSON tool call block:\n" +
-      "```json\n" +
-      '{ "tool": "delegate_to_<name>", "task": "the task description", "context": "optional context" }\n' +
+      "You are part of a team. Each member below is a full agent that may have " +
+      "its own internal specialists. When a task matches a member's capabilities, " +
+      "delegate to them instead of attempting it yourself.",
+    );
+    parts.push("\n" + memberLines);
+
+    parts.push(
+      "\n\n## How to Delegate — REQUIRED FORMAT\n" +
+      "To delegate, emit a fenced code block tagged `jarble_delegate` containing a " +
+      "JSON object. The block is the ONLY way to delegate — no other format works.\n" +
+      "\nFields:\n" +
+      "- `to`      — REQUIRED string, the slug of the team member (from the list above)\n" +
+      "- `task`    — REQUIRED string, the task to delegate\n" +
+      "- `context` — OPTIONAL string, additional context to pass with the task\n" +
+      "\nExample (one-shot):\n" +
+      "```jarble_delegate\n" +
+      `{ "to": "${sampleSlug}", "task": "Describe primary colors", "context": "" }\n` +
       "```\n" +
-      "Always integrate delegation results into your final response to the user. " +
-      "If you can handle the request yourself, respond directly without delegating.",
+      "\n## Hard Rules — READ CAREFULLY\n" +
+      "1. Emit ONLY the fenced `jarble_delegate` block. Do NOT describe what you are " +
+      "doing in prose first. The user does not see the block — they see only the final " +
+      "synthesized response after the delegation completes.\n" +
+      "2. Never claim you delegated unless you actually emitted a `jarble_delegate` block " +
+      "in this same response. Saying \"I've delegated this\" without the block is a " +
+      "silent failure that leaves the user waiting forever.\n" +
+      "3. To broadcast to multiple members, emit multiple `jarble_delegate` blocks in " +
+      "the same response.\n" +
+      "4. After delegations complete, you will be called again with their results " +
+      "to integrate into a final synthesis. Do not pre-write the synthesis on the " +
+      "delegating turn.\n" +
+      "5. If you can handle the request yourself, respond directly without emitting " +
+      "any `jarble_delegate` block.",
     );
   }
 
@@ -157,21 +190,72 @@ interface ParsedDelegationCall {
 }
 
 /**
- * Parse delegation tool call JSON blocks from bot response text.
+ * Parse delegation tool call blocks from bot response text.
  *
- * Looks for ```json blocks containing { "tool": "delegate_to_...", "task": "..." }
- * Returns all found delegation calls (there may be multiple for broadcast delegation).
+ * Two formats are supported:
+ *
+ *  1. NEW (preferred) — fenced ```jarble_delegate``` block with shape:
+ *       { "to": "<slug>", "task": "...", "context": "..." }
+ *     The `to` slug is converted to a `delegate_to_<slug>` toolName so the
+ *     downstream lookup against DelegationTool.name still works.
+ *
+ *  2. LEGACY (DEPRECATED, will be removed in a follow-up PR) — fenced
+ *     ```json``` block with shape:
+ *       { "tool": "delegate_to_<slug>", "task": "...", "context": "..." }
+ *
+ * Returns all found delegation calls (there may be multiple for broadcast).
+ * Both formats may appear in the same response during the rollout window —
+ * we accept both and de-duplicate by (toolName, task).
  */
 export function parseDelegationCalls(text: string): ParsedDelegationCall[] {
   const calls: ParsedDelegationCall[] = [];
 
-  // Match ```json blocks
-  const jsonBlockRegex = /```json\s*\n([\s\S]*?)```/g;
-  let match;
-  while ((match = jsonBlockRegex.exec(text)) !== null) {
+  // ── NEW FORMAT: ```jarble_delegate``` blocks ──────────────────────────
+  // Spec: code fence with language tag `jarble_delegate`. Body is a JSON
+  // object with "to" (REQUIRED), "task" (REQUIRED), "context" (OPTIONAL).
+  const delegateBlockRegex = /```jarble_delegate\s*\n([\s\S]*?)```/g;
+  let dm: RegExpExecArray | null;
+  while ((dm = delegateBlockRegex.exec(text)) !== null) {
     try {
-      const parsed = JSON.parse(match[1].trim());
+      const parsed = JSON.parse(dm[1].trim());
       if (
+        parsed &&
+        typeof parsed === "object" &&
+        parsed.to &&
+        typeof parsed.to === "string" &&
+        parsed.task &&
+        typeof parsed.task === "string"
+      ) {
+        // Strip any accidental "delegate_to_" prefix the LLM may add by
+        // mistake (the spec says "to" should be the bare slug).
+        const slug = parsed.to.replace(/^delegate_to_/, "");
+        calls.push({
+          toolName: `delegate_to_${slug}`,
+          task: parsed.task,
+          context:
+            typeof parsed.context === "string" && parsed.context.length > 0
+              ? parsed.context
+              : undefined,
+        });
+      }
+    } catch {
+      // Not valid JSON in the jarble_delegate block — skip silently.
+      // The skipReason heuristic in flowChat.ts will surface the failure.
+    }
+  }
+
+  // ── DEPRECATED: legacy delegation format, will be removed in a follow-up PR ──
+  // Backward compat for bots still on the old soul.md prompt that says to
+  // emit ```json { "tool": "delegate_to_..." }```. New prompt no longer
+  // teaches this format. Remove once all running pods have re-synced.
+  const jsonBlockRegex = /```json\s*\n([\s\S]*?)```/g;
+  let lm: RegExpExecArray | null;
+  while ((lm = jsonBlockRegex.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(lm[1].trim());
+      if (
+        parsed &&
+        typeof parsed === "object" &&
         parsed.tool &&
         typeof parsed.tool === "string" &&
         parsed.tool.startsWith("delegate_to_") &&
@@ -181,7 +265,10 @@ export function parseDelegationCalls(text: string): ParsedDelegationCall[] {
         calls.push({
           toolName: parsed.tool,
           task: parsed.task,
-          context: parsed.context,
+          context:
+            typeof parsed.context === "string" && parsed.context.length > 0
+              ? parsed.context
+              : undefined,
         });
       }
     } catch {
@@ -189,7 +276,18 @@ export function parseDelegationCalls(text: string): ParsedDelegationCall[] {
     }
   }
 
-  return calls;
+  // De-dupe by (toolName, task) so a bot that emits BOTH a jarble_delegate
+  // block AND the legacy json block for the same delegation only triggers once.
+  const seen = new Set<string>();
+  const deduped: ParsedDelegationCall[] = [];
+  for (const c of calls) {
+    const key = `${c.toolName}::${c.task}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(c);
+  }
+
+  return deduped;
 }
 
 // ── Execute delegation ───────────────────────────────────────────────────────
