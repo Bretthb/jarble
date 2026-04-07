@@ -19,96 +19,46 @@ import { useState } from "react";
 import MarketingNav from "@/components/marketing/MarketingNav";
 import MarketingFooter from "@/components/marketing/MarketingFooter";
 
-/* ── Tier definitions ─────────────────────────────────────────────────── */
+/* ── Beta default tier ────────────────────────────────────────────────── */
 
-interface Tier {
-  name: string;
-  price: number;
-  description: string;
-  specs: { cpu: string; ram: string; storage: string };
-  features: string[];
-  highlight?: boolean;
-  dedicated?: boolean;
-  cta: string;
-}
+const BETA_TIER = {
+  price: 13.99,
+  specs: { cpu: "3 shared vCPU", ram: "4 GB", storage: "80 GB" },
+  server: "cpx21",
+};
 
-const TIERS: Tier[] = [
-  {
-    name: "S",
-    price: 14,
-    description: "For testing and light workloads.",
-    specs: { cpu: "2 shared vCPU", ram: "2 GB", storage: "40 GB" },
-    features: [
-      "Web chat interface with canvas",
-      "30+ built-in components",
-      "Connect WhatsApp, Discord, Slack, Telegram",
-      "Bring your own LLM key or managed credits",
-      "Community support",
-    ],
-    cta: "Get Started",
-  },
-  {
-    name: "M",
-    price: 28,
-    description: "The recommended tier for production agents.",
-    specs: { cpu: "3 shared vCPU", ram: "4 GB", storage: "80 GB" },
-    features: [
-      "Everything in S",
-      "Handles concurrent traffic",
-      "MCP tool connections",
-      "Skills & component marketplace",
-      "Agent orchestration (flow engine)",
-      "Priority support",
-    ],
-    highlight: true,
-    cta: "Start Building",
-  },
-  {
-    name: "L",
-    price: 50,
-    description: "For high-throughput agents and heavier workloads.",
-    specs: { cpu: "4 shared vCPU", ram: "8 GB", storage: "160 GB" },
-    features: [
-      "Everything in M",
-      "2x the RAM for complex tasks",
-      "Subagent delegation",
-      "Publish to marketplace & earn",
-      "Dedicated support",
-    ],
-    cta: "Scale Up",
-  },
-  {
-    name: "XL",
-    price: 80,
-    description: "Dedicated CPU for maximum performance.",
-    specs: { cpu: "4 dedicated vCPU", ram: "16 GB", storage: "160 GB" },
-    dedicated: true,
-    features: [
-      "Everything in L",
-      "Dedicated CPU (not shared)",
-      "16 GB RAM for demanding workloads",
-      "Guaranteed compute — no noisy neighbors",
-      "Dedicated support + SLA",
-    ],
-    cta: "Go Dedicated",
-  },
-];
-
-const INCLUDED_EVERYWHERE = [
-  "Unlimited organizations (free)",
-  "Unlimited team members",
-  "Full canvas UI (30+ components)",
-  "Any LLM model via OpenRouter",
+const FEATURES = [
+  "Isolated pod with dedicated resources",
+  "Web chat interface with full canvas",
+  "30+ built-in components (charts, tables, code, 3D)",
+  "Connect WhatsApp, Discord, Slack, Telegram",
+  "MCP tool connections",
+  "Skills & component marketplace",
+  "Agent orchestration (flow engine)",
+  "Subagent delegation",
   "Persistent storage across restarts",
   "Real-time SSE streaming",
   "Two-way config sync",
 ];
 
+const ALWAYS_FREE = [
+  "Sign up and explore the platform",
+  "Create unlimited organizations",
+  "Invite unlimited team members",
+  "Browse the marketplace",
+  "Access any LLM model via OpenRouter",
+];
+
 const FAQ = [
+  {
+    question: "Why is the price so low?",
+    answer:
+      "During beta, we charge exactly what the compute costs us — no margin. We want you building and deploying, not worrying about bills. This is the raw Hetzner server cost passed through directly.",
+  },
   {
     question: "What does 'per agent' mean?",
     answer:
-      "Each deployment (agent) is its own isolated pod with dedicated CPU, RAM, and storage. You pay per agent you have running.",
+      "Each deployment (agent) is its own isolated pod with dedicated CPU, RAM, and storage. You pay per agent you have running. Stop an agent and you stop paying for it.",
   },
   {
     question: "Do I pay for team members or organizations?",
@@ -116,9 +66,9 @@ const FAQ = [
       "No. Organizations and team members are always free. You only pay for the agents you deploy.",
   },
   {
-    question: "Can I bring my own LLM API key?",
+    question: "How do I pay for LLM usage?",
     answer:
-      "Yes. Bring your own key from OpenAI, Anthropic, Google, or OpenRouter — we never mark up AI costs. Or use our managed credits if you prefer.",
+      "Bring your own API key from OpenAI, Anthropic, Google, or OpenRouter — you pay your provider directly, and we never mark up AI costs. If you don't want to manage your own key, optional managed credits are available.",
   },
   {
     question: "What happens when I stop an agent?",
@@ -126,24 +76,19 @@ const FAQ = [
       "Stopped agents don't incur compute costs. Your data and config persist on storage — restart anytime and pick up where you left off.",
   },
   {
-    question: "Can I upgrade or downgrade?",
-    answer:
-      "Yes. Change your plan anytime. Upgrades take effect immediately, downgrades at the end of your billing period.",
-  },
-  {
     question: "What platforms can I connect?",
     answer:
       "WhatsApp, Discord, Slack, and Telegram. Each deployment also gets a built-in web chat interface at its unique URL.",
   },
   {
-    question: "How do builders earn money?",
+    question: "Do you have promo codes?",
     answer:
-      "Publish your agent to the marketplace and set a monthly price. When a business deploys it, you earn on every active subscription. Jarble takes a platform fee — you keep the rest.",
+      "Yes. During beta we offer promo codes that can discount or fully waive the compute cost. Ask us for a code if you're an early tester.",
   },
   {
-    question: "Do you offer custom plans?",
+    question: "Will pricing change after beta?",
     answer:
-      "Need more compute, higher concurrency, or dedicated infrastructure? Contact us and we'll put together a plan that fits.",
+      "After beta, we'll introduce multiple tiers with additional resource options. Beta users will be notified well in advance of any pricing changes.",
   },
 ];
 
@@ -169,101 +114,87 @@ export default function Pricing() {
       {/* ── Header ──────────────────────────────────────────────────── */}
       <section className="pt-32 pb-16 px-4">
         <div className="max-w-4xl mx-auto text-center space-y-4 animate-fade-in-up">
+          <span className="inline-flex items-center px-3 py-1 rounded-full bg-primary/10 text-xs font-medium text-primary border border-primary/20">
+            Beta Pricing — Cost Recovery Only
+          </span>
           <h1 className="text-5xl lg:text-6xl font-serif font-medium tracking-tight">
-            Simple, transparent
-            <span className="block text-primary">infrastructure pricing.</span>
+            Pay for compute.
+            <span className="block text-primary">Nothing else.</span>
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Pay for the compute your agents use. No seat fees, no AI markup, no
-            surprises. Organizations and team members are always free.
+            During beta, you pay exactly what the server costs us — no markup, no
+            seat fees, no AI charges. Organizations and team members are always
+            free.
           </p>
         </div>
       </section>
 
-      {/* ── Tier cards ──────────────────────────────────────────────── */}
+      {/* ── Single tier card ────────────────────────────────────────── */}
       <section className="pb-24 px-4">
-        <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {TIERS.map((tier) => (
-            <div
-              key={tier.name}
-              className={`relative rounded-2xl border p-8 flex flex-col animate-fade-in-up-fast ${
-                tier.highlight
-                  ? "border-primary bg-primary/[0.03] shadow-lg shadow-primary/5"
-                  : "border-border bg-card"
-              }`}
-            >
-              {tier.highlight && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-primary text-primary-foreground text-xs font-medium">
-                  Recommended
+        <div className="max-w-lg mx-auto">
+          <div className="relative rounded-2xl border border-primary bg-primary/[0.03] shadow-lg shadow-primary/5 p-8 animate-fade-in-up-fast">
+            <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-primary text-primary-foreground text-xs font-medium">
+              Beta
+            </span>
+
+            <div className="text-center mb-8">
+              <div className="flex items-baseline justify-center gap-1 mb-2">
+                <span className="text-5xl font-bold">
+                  ${BETA_TIER.price.toFixed(2)}
                 </span>
-              )}
-              {tier.dedicated && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-foreground text-background text-xs font-medium">
-                  Dedicated CPU
-                </span>
-              )}
-
-              <div className="space-y-4 mb-8">
-                <h3 className="text-xl font-semibold">{tier.name}</h3>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-bold">${tier.price}</span>
-                  <span className="text-muted-foreground">/mo per agent</span>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {tier.description}
-                </p>
+                <span className="text-muted-foreground text-lg">/mo per agent</span>
               </div>
-
-              {/* Specs */}
-              <div className="flex gap-4 mb-6 pb-6 border-b border-border">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Cpu className="w-3.5 h-3.5" />
-                  {tier.specs.cpu}
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <MemoryStick className="w-3.5 h-3.5" />
-                  {tier.specs.ram}
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <HardDrive className="w-3.5 h-3.5" />
-                  {tier.specs.storage}
-                </div>
-              </div>
-
-              {/* Features */}
-              <ul className="space-y-3 mb-8 flex-1">
-                {tier.features.map((feature) => (
-                  <li key={feature} className="flex gap-2 text-sm">
-                    <Check className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                    <span>{feature}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <Button
-                onClick={handleCta}
-                className={`w-full rounded-full font-medium ${
-                  tier.highlight
-                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                }`}
-              >
-                {tier.cta}
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
+              <p className="text-sm text-muted-foreground">
+                Raw compute cost — $0 Jarble margin
+              </p>
             </div>
-          ))}
+
+            {/* Specs */}
+            <div className="flex justify-center gap-6 mb-8 pb-8 border-b border-border">
+              <div className="flex flex-col items-center gap-1">
+                <Cpu className="w-5 h-5 text-primary" />
+                <span className="text-sm font-semibold">{BETA_TIER.specs.cpu}</span>
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <MemoryStick className="w-5 h-5 text-primary" />
+                <span className="text-sm font-semibold">{BETA_TIER.specs.ram}</span>
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <HardDrive className="w-5 h-5 text-primary" />
+                <span className="text-sm font-semibold">{BETA_TIER.specs.storage}</span>
+              </div>
+            </div>
+
+            {/* Features */}
+            <ul className="space-y-3 mb-8">
+              {FEATURES.map((feature) => (
+                <li key={feature} className="flex gap-2 text-sm">
+                  <Check className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                  <span>{feature}</span>
+                </li>
+              ))}
+            </ul>
+
+            <Button
+              onClick={handleCta}
+              size="lg"
+              className="w-full rounded-full bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
+            >
+              Deploy Your First Agent
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </div>
         </div>
       </section>
 
-      {/* ── Included everywhere ─────────────────────────────────────── */}
+      {/* ── Always free ─────────────────────────────────────────────── */}
       <section className="py-20 px-4 border-t border-border">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-3xl mx-auto">
           <h2 className="text-2xl font-serif font-medium text-center mb-10">
-            Included with every plan
+            Always free
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {INCLUDED_EVERYWHERE.map((item) => (
+            {ALWAYS_FREE.map((item) => (
               <div key={item} className="flex gap-3 items-center">
                 <Check className="w-4 h-4 text-primary flex-shrink-0" />
                 <span className="text-sm text-muted-foreground">{item}</span>
@@ -281,7 +212,7 @@ export default function Pricing() {
               AI Model Access
             </h2>
             <p className="text-muted-foreground">
-              Choose how your agents access AI models
+              Compute and AI are billed separately — you control both
             </p>
           </div>
 
@@ -338,35 +269,30 @@ export default function Pricing() {
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-semibold">Managed Credits</h3>
                     <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs font-medium">
-                      Coming Soon
+                      Optional
                     </span>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    We handle everything — just deploy and go
+                    We handle the LLM key — just deploy and go
                   </p>
                 </div>
               </div>
 
               <div className="mb-4">
-                <span className="text-2xl font-bold text-muted-foreground">
-                  TBD
-                </span>
+                <span className="text-2xl font-bold">$5 – $100</span>
                 <span className="text-sm text-muted-foreground ml-2">
-                  — monthly credit packages
+                  /mo credit cap
                 </span>
               </div>
 
               <ul className="space-y-2">
                 {[
-                  "No API key needed",
-                  "Pre-configured model selection",
-                  "Simple monthly billing via Jarble",
+                  "No API key needed — we provision one for you",
+                  "Set a monthly spending cap ($5 – $100)",
+                  "Same models, managed by Jarble via OpenRouter",
                 ].map((item) => (
-                  <li
-                    key={item}
-                    className="flex gap-2 text-sm text-muted-foreground"
-                  >
-                    <Check className="w-4 h-4 text-muted-foreground/50 mt-0.5 flex-shrink-0" />
+                  <li key={item} className="flex gap-2 text-sm">
+                    <Check className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                     <span>{item}</span>
                   </li>
                 ))}
@@ -386,10 +312,10 @@ export default function Pricing() {
               </div>
             </div>
             <h2 className="text-3xl font-serif font-medium mb-4">
-              Need More?
+              Need dedicated infrastructure?
             </h2>
             <p className="text-lg text-muted-foreground mb-8 max-w-xl mx-auto">
-              Custom compute, dedicated infrastructure, SSO, audit logs, or SLAs
+              Custom compute, dedicated CPU, SSO, audit logs, or SLAs
               — let&apos;s talk.
             </p>
             <Button
