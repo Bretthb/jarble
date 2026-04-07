@@ -576,3 +576,129 @@ describe("deleteDeployment (operator)", () => {
     expect(mockGetPodStatus).toHaveBeenCalledTimes(2);
   });
 });
+
+// ── Scheduling Affinity Tests (Phase 5 hardening) ───────────────────────────
+// These tests lock down the "my deployment = my VPS = my agent = my data"
+// model. An agent bot MUST require an auto-scaled VPS (hard nodeAffinity)
+// AND MUST require hard anti-affinity with other bots. If either of these
+// regresses to `preferredDuringSchedulingIgnoredDuringExecution`, tenant
+// isolation breaks and bots can share VPSes or land on master.
+// See docs/audits/qa-bot-teams-2026-04-07.md for the full security rationale.
+
+import { buildAffinityForType, buildTolerationsForType } from "./lifecycle.js";
+
+describe("buildAffinityForType — agent isolation contract", () => {
+  describe('agent type: "my VPS, my agent, my data" hard isolation', () => {
+    const affinity = buildAffinityForType("agent");
+
+    it("REQUIRES an auto-scaled node (not preferred)", () => {
+      // If this assertion fails and you see "preferredDuringScheduling" instead,
+      // someone softened the isolation contract. DO NOT MERGE without security review.
+      expect(affinity.nodeAffinity).toHaveProperty(
+        "requiredDuringSchedulingIgnoredDuringExecution",
+      );
+      expect(affinity.nodeAffinity).not.toHaveProperty(
+        "preferredDuringSchedulingIgnoredDuringExecution",
+      );
+    });
+
+    it("matches only nodes with jarble.ai/auto-scaled=true", () => {
+      const terms = (affinity.nodeAffinity as any)
+        .requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms;
+      expect(terms).toHaveLength(1);
+      const exprs = terms[0].matchExpressions;
+      expect(exprs).toContainEqual({
+        key: "jarble.ai/auto-scaled",
+        operator: "In",
+        values: ["true"],
+      });
+    });
+
+    it("REQUIRES hard anti-affinity with other bots (not preferred)", () => {
+      // Same regression guard — a preferred anti-affinity lets multiple bots
+      // pack onto one VPS under resource pressure, breaking 1:1 isolation.
+      expect(affinity).toHaveProperty("podAntiAffinity");
+      expect(affinity.podAntiAffinity).toHaveProperty(
+        "requiredDuringSchedulingIgnoredDuringExecution",
+      );
+      expect(affinity.podAntiAffinity).not.toHaveProperty(
+        "preferredDuringSchedulingIgnoredDuringExecution",
+      );
+    });
+
+    it("anti-affinity targets jarble.ai/type=bot at hostname topology", () => {
+      const terms = (affinity.podAntiAffinity as any)
+        .requiredDuringSchedulingIgnoredDuringExecution;
+      expect(terms).toHaveLength(1);
+      expect(terms[0].topologyKey).toBe("kubernetes.io/hostname");
+      expect(terms[0].labelSelector.matchLabels).toEqual({
+        "jarble.ai/type": "bot",
+      });
+    });
+
+    it("physically cannot schedule on master (master lacks auto-scaled label)", () => {
+      // Sanity: the nodeAffinity terms are satisfied ONLY by nodes carrying
+      // the `jarble.ai/auto-scaled=true` label. Master has no such label, so
+      // it CANNOT match. This is the defense against bots landing on the
+      // K3s control plane.
+      const terms = (affinity.nodeAffinity as any)
+        .requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms;
+      const masterLabels = { "kubernetes.io/hostname": "jarble-master" };
+      const matchesMaster = terms.some((term: any) =>
+        term.matchExpressions.every((expr: any) =>
+          expr.operator === "In"
+            ? (masterLabels as any)[expr.key] &&
+              expr.values.includes((masterLabels as any)[expr.key])
+            : false,
+        ),
+      );
+      expect(matchesMaster).toBe(false);
+    });
+  });
+
+  describe("container type: shared pool, soft preference", () => {
+    const affinity = buildAffinityForType("container");
+
+    it("prefers (not requires) container-pool nodes", () => {
+      expect(affinity.nodeAffinity).toHaveProperty(
+        "preferredDuringSchedulingIgnoredDuringExecution",
+      );
+      expect(affinity.nodeAffinity).not.toHaveProperty(
+        "requiredDuringSchedulingIgnoredDuringExecution",
+      );
+    });
+
+    it("has NO podAntiAffinity (containers share nodes by design)", () => {
+      expect(affinity).not.toHaveProperty("podAntiAffinity");
+    });
+  });
+
+  describe("website type: same shape as container", () => {
+    it("matches container semantics", () => {
+      const containerAffinity = buildAffinityForType("container");
+      const websiteAffinity = buildAffinityForType("website");
+      expect(websiteAffinity).toEqual(containerAffinity);
+    });
+  });
+});
+
+describe("buildTolerationsForType", () => {
+  it("agent tolerates jarble.ai/workload=agent:NoSchedule", () => {
+    const tolerations = buildTolerationsForType("agent");
+    expect(tolerations).toHaveLength(1);
+    expect(tolerations[0]).toEqual({
+      key: "jarble.ai/workload",
+      operator: "Equal",
+      value: "agent",
+      effect: "NoSchedule",
+    });
+  });
+
+  it("container type has NO tolerations (blocks landing on agent VPS)", () => {
+    expect(buildTolerationsForType("container")).toEqual([]);
+  });
+
+  it("website type has NO tolerations (blocks landing on agent VPS)", () => {
+    expect(buildTolerationsForType("website")).toEqual([]);
+  });
+});

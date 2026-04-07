@@ -68,14 +68,35 @@ export function buildSecurityContext(isolationLevel: IsolationLevel = "standard"
 /**
  * Build K8s affinity rules based on deployment type.
  *
- * - "agent": Prefers auto-scaled VPS nodes (`jarble.ai/auto-scaled=true`),
- *   with pod anti-affinity to spread agents across nodes (1 per VPS).
+ * - "agent": REQUIRES an auto-scaled VPS node (`jarble.ai/auto-scaled=true`)
+ *   AND REQUIRES hard pod anti-affinity so each agent is the only bot on its
+ *   VPS. This is the "my deployment = my VPS = my agent = my data" model —
+ *   the `nodeManager.ts` autoscaler even names each VPS after its deployment
+ *   (`jarble-auto-{deploymentId}`), which reflects that 1:1 intent. If no
+ *   auto-worker is available, the pod stays Pending until the autoscaler
+ *   provisions one — agents must NEVER fall back to the control plane or
+ *   share a VPS with another bot under resource pressure.
+ *
+ *   Why REQUIRED instead of PREFERRED:
+ *   1. Tenant isolation — a bot's data lives on its VPS's Longhorn backing
+ *      storage; sharing a VPS would co-locate two tenants' replica files on
+ *      the same node filesystem. Container escape → cross-tenant data
+ *      exposure. Hard anti-affinity eliminates this vector.
+ *   2. Hetzner is a hypervisor (KVM), so each VPS IS a VM. With 1 bot per
+ *      VPS, the hypervisor boundary walls off tenants even if a bot escapes
+ *      its container. Nested virtualization is disabled on Hetzner Cloud, so
+ *      gVisor/Kata would be a redundant 3rd layer; the VPS boundary is the
+ *      primary sandbox.
+ *   3. Bots must never land on master (the K3s control plane). Since master
+ *      lacks the `jarble.ai/auto-scaled=true` label, a hard node-affinity
+ *      requirement makes this physically impossible.
+ *
  * - "container"/"website": Prefers shared container-pool nodes
  *   (`jarble.ai/role=container-pool`). Uses `preferredDuringScheduling` so
  *   pods can still schedule on any node while the pool is being built out.
- *   No pod anti-affinity - multiple containers can share a node.
+ *   No pod anti-affinity - multiple containers can share a node by design.
  */
-function buildAffinityForType(deploymentType: DeploymentType) {
+export function buildAffinityForType(deploymentType: DeploymentType) {
   if (deploymentType === "container" || deploymentType === "website") {
     return {
       nodeAffinity: {
@@ -98,13 +119,13 @@ function buildAffinityForType(deploymentType: DeploymentType) {
     };
   }
 
-  // Agent type: dedicated VPS nodes with anti-affinity
+  // Agent type: HARD isolation — required auto-scaled node + required
+  // anti-affinity against other bots. See function doc for rationale.
   return {
     nodeAffinity: {
-      preferredDuringSchedulingIgnoredDuringExecution: [
-        {
-          weight: 80,
-          preference: {
+      requiredDuringSchedulingIgnoredDuringExecution: {
+        nodeSelectorTerms: [
+          {
             matchExpressions: [
               {
                 key: "jarble.ai/auto-scaled",
@@ -113,19 +134,16 @@ function buildAffinityForType(deploymentType: DeploymentType) {
               },
             ],
           },
-        },
-      ],
+        ],
+      },
     },
     podAntiAffinity: {
-      preferredDuringSchedulingIgnoredDuringExecution: [
+      requiredDuringSchedulingIgnoredDuringExecution: [
         {
-          weight: 50,
-          podAffinityTerm: {
-            labelSelector: {
-              matchLabels: { "jarble.ai/type": "bot" },
-            },
-            topologyKey: "kubernetes.io/hostname",
+          labelSelector: {
+            matchLabels: { "jarble.ai/type": "bot" },
           },
+          topologyKey: "kubernetes.io/hostname",
         },
       ],
     },
@@ -141,7 +159,7 @@ function buildAffinityForType(deploymentType: DeploymentType) {
  * - "container"/"website": No toleration for the agent taint - they will
  *   never be placed on agent VPS nodes.
  */
-function buildTolerationsForType(deploymentType: DeploymentType) {
+export function buildTolerationsForType(deploymentType: DeploymentType) {
   if (deploymentType === "agent") {
     return [
       {
