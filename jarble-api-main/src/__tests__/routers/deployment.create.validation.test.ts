@@ -103,9 +103,11 @@ function authedCaller() {
   });
 }
 
-// Must stay in sync with LARGEST_TIER_USABLE_GB in src/trpc/routers/deployment.ts
-// which currently mirrors the cpx51 entry in src/k8s/nodeManager.ts SERVER_TYPES.
-const LARGEST_TIER_USABLE_GB = 345;
+// Pulled from SERVER_TYPES so this stays in sync with the tier table
+// (deployment.ts now imports SERVER_TYPES.at(-1)!.usableLonghornGb instead
+// of hardcoding the number — this test mirrors that approach).
+import { SERVER_TYPES } from "../../k8s/nodeManager.js";
+const LARGEST_TIER_USABLE_GB = SERVER_TYPES[SERVER_TYPES.length - 1]!.usableLonghornGb;
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 

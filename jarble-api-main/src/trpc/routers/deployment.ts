@@ -4,7 +4,7 @@ import { router, protectedProcedure, publicProcedure } from "../middleware.js";
 import { tables, dbDate, type DbClient } from "../../db/index.js";
 import { eq, and, or, isNull, sql, inArray } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod, appsApi, NAMESPACE } from "../../k8s/index.js";
-import { ensureCapacityForDeployment, checkScaleDown, getCapacityStatus, CapacityError } from "../../k8s/nodeManager.js";
+import { ensureCapacityForDeployment, checkScaleDown, getCapacityStatus, CapacityError, SERVER_TYPES } from "../../k8s/nodeManager.js";
 import type { ManagedBy, IsolationLevel } from "../../k8s/constants.js";
 import { getPvcMountPath, getContainerName, getContainerHome } from "../../k8s/constants.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
@@ -359,15 +359,13 @@ export const deploymentRouter = router({
       // Disk math: each Hetzner tier's root disk minus ~11 GiB of
       // overhead (OS + kubelet + containerd + Longhorn DS + safety
       // margin) is what Longhorn actually advertises as schedulable.
-      // The largest tier today is cpx51 (360 GiB root → ~345 GiB
-      // usable). Keep LARGEST_TIER_USABLE_GB in sync with the
-      // SERVER_TYPES table in src/k8s/nodeManager.ts — if a bigger
-      // server type is added there, bump this constant too.
+      // We import SERVER_TYPES from nodeManager.ts so this stays in
+      // sync automatically when a new tier is added.
       //
       // DO NOT REMOVE this block: storageMb is historically named in
       // GiB, and the slider in the wizard goes higher than what any
       // currently-provisioned tier can host.
-      const LARGEST_TIER_USABLE_GB = 345; // cpx51: 360 GiB - 11 GiB overhead
+      const LARGEST_TIER_USABLE_GB = SERVER_TYPES[SERVER_TYPES.length - 1]!.usableLonghornGb;
       const requestedStorageGb = input.storageMb ?? 20; // historical: storageMb is GiB
       if (requestedStorageGb > LARGEST_TIER_USABLE_GB) {
         throw new TRPCError({
