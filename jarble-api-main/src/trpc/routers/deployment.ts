@@ -348,6 +348,34 @@ export const deploymentRouter = router({
       orgId: z.string().nullish(), // Assign to org on creation (optional)
     }))
     .mutation(async ({ ctx, input }) => {
+      // ── Wave 4 Layer A — pre-flight PVC size validation ─────────────
+      // PVC size larger than the largest autoscaler tier's available
+      // disk would otherwise hang at Longhorn replica scheduling
+      // forever (LocalReplicaSchedulingFailure: insufficient storage),
+      // because the volume stays detached and the pod stays Init:0/1
+      // until the create-poll times out and flips the deployment to
+      // "failed" with no actionable error. Reject early instead.
+      //
+      // Disk math: each Hetzner tier's root disk minus ~11 GiB of
+      // overhead (OS + kubelet + containerd + Longhorn DS + safety
+      // margin) is what Longhorn actually advertises as schedulable.
+      // The largest tier today is cpx51 (360 GiB root → ~345 GiB
+      // usable). Keep LARGEST_TIER_USABLE_GB in sync with the
+      // SERVER_TYPES table in src/k8s/nodeManager.ts — if a bigger
+      // server type is added there, bump this constant too.
+      //
+      // DO NOT REMOVE this block: storageMb is historically named in
+      // GiB, and the slider in the wizard goes higher than what any
+      // currently-provisioned tier can host.
+      const LARGEST_TIER_USABLE_GB = 345; // cpx51: 360 GiB - 11 GiB overhead
+      const requestedStorageGb = input.storageMb ?? 20; // historical: storageMb is GiB
+      if (requestedStorageGb > LARGEST_TIER_USABLE_GB) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Storage size ${requestedStorageGb} GiB exceeds the maximum available on any auto-scaled worker tier (${LARGEST_TIER_USABLE_GB} GiB). Reduce the storage slider or contact support to request a larger node tier.`,
+        });
+      }
+
       // Verify org membership if orgId provided
       if (input.orgId) {
         const membership = await ctx.db.query.orgMembers.findFirst({
