@@ -124,6 +124,10 @@ DAG-based pipeline executor with 6 node types, cycle support, HITL (`waitForInpu
 - `@jarble/component-manifest` → `shared/component-manifest/index.ts` (both)
 - `@jarble/component-manifest` must be in `next.config.ts:transpilePackages` (raw TypeScript, no build step)
 
+## Writing Rules
+
+- **Never use em dashes (—) in user-facing frontend text.** Use commas, periods, or rewrite the sentence instead.
+
 ## Key Patterns
 
 ### Adding a New Runtime
