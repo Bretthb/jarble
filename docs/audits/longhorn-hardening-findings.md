@@ -39,12 +39,12 @@ are documented but **not** applied in this PR.
 | L-02 | **CRITICAL** | Longhorn cluster setting `default-replica-count: 3` mirrors the StorageClass default. Any future StorageClass that omits `numberOfReplicas` inherits 3-way replication. | `kubectl -n longhorn-system get settings.longhorn.io default-replica-count` |
 | L-03 | **CRITICAL** | t1's existing volume `pvc-2a6500ee-...` had `numberOfReplicas: 3` with 2 stopped replicas waiting to schedule onto a 2nd node. Robustness was `degraded`. The first auto-worker would have triggered an immediate cross-tenant replica build. | `kubectl -n longhorn-system get volumes.longhorn.io` (before patch) |
 | L-04 | ✅ **FIXED** (Wave 2A) | ~~`engine-image-ei-acb7590c` DaemonSet has **NO** tolerations for `jarble.ai/workload=agent:NoSchedule`~~. Fixed: live kubectl strategic-merge patch applied; Terraform master `user_data` extended to patch all 3 Longhorn DaemonSets (manager, csi-plugin, engine-image) with dynamic engine-image discovery by label `longhorn.io/component=engine-image`, plus the global `taint-toleration` setting as belt-and-suspenders. Longhorn's own setting-propagation was blocked by an attached-volume webhook guard, which is why the global setting alone wasn't enough — the direct DS patch covers bootstrap. | `kubectl -n longhorn-system get daemonset engine-image-ei-acb7590c -o jsonpath='{.spec.template.spec.tolerations}'` now returns the jarble.ai/workload toleration |
-| L-05 | **HIGH** | TWO StorageClasses are marked default: both `local-path` (k3s-managed) and `longhorn` carry `storageclass.kubernetes.io/is-default-class: "true"`. Kubernetes picks ONE non-deterministically — any PVC that omits `storageClassName` could land on either. | `kubectl get storageclass` shows `local-path (default)` and `longhorn (default)` |
+| L-05 | ✅ **FIXED** (Wave 2C) | ~~TWO StorageClasses are marked default: both `local-path` (k3s-managed) and `longhorn` carry `storageclass.kubernetes.io/is-default-class: "true"`~~. Fixed: annotation removed from `longhorn` live (verified safe — only 2 PVCs cluster-wide, both explicit; Coolify gone per commit `bc4ccad`) and in Terraform master user_data. `local-path` is now the sole default. See `longhorn-backup-setup.md`. | `kubectl get storageclass` now shows only `local-path (default)` |
 | L-06 | **HIGH** | `/var/lib/longhorn/` on master is **not** a dedicated block device — it lives on the root `/dev/sda1` (75 GB total, 17 GB used, 55 GB free). Filling the bot data directory will fill the OS disk and brick the cluster control plane. | `df -h /var/lib/longhorn/` |
 | L-07 | **HIGH** | `replica-soft-anti-affinity: false` (and `replica-zone-soft-anti-affinity: true`) means Longhorn will refuse to place multiple replicas of the same volume on the same node. Combined with `numberOfReplicas: 3` on a 1-node cluster, that's why t1's two extra replicas were stuck in `stopped` state instead of scheduling. **Hides L-01 today; unmasks the moment node count > 1.** | `kubectl -n longhorn-system get settings.longhorn.io replica-soft-anti-affinity` |
 | L-08 | **MEDIUM** | Longhorn v1.6.0 is **two minor versions behind stable** (v1.6.4 patch / v1.11.0 latest). v1.6.x has known disk-rebuild and CSI race fixes shipped in v1.6.2, v1.6.3, v1.6.4. | `kubectl -n longhorn-system get deployment longhorn-ui -o jsonpath='{.spec.template.spec.containers[0].image}'` |
-| L-09 | **MEDIUM** | No `recurringjobs.longhorn.io` exist. **Zero snapshot or backup cadence.** Bot PVC data has no point-in-time recovery — a single bad write or accidental delete is permanent. | `kubectl -n longhorn-system get recurringjobs` |
-| L-10 | **MEDIUM** | `backup-target` setting is empty. Even if recurring backup jobs existed, there's nowhere to ship them. No S3, no NFS, no off-cluster destination. | `kubectl -n longhorn-system get settings.longhorn.io backup-target` |
+| L-09 | **MEDIUM** | No `recurringjobs.longhorn.io` exist. **Zero snapshot or backup cadence.** Bot PVC data has no point-in-time recovery — a single bad write or accidental delete is permanent. **STATUS: IMPLEMENTED 2026-04-07** — `daily-snapshot` (3am UTC, retain 7) + `weekly-backup` (Sun 4am UTC, retain 4) `RecurringJob` CRs added in `infrastructure/longhorn/recurring-jobs.yaml` and inlined into the master user_data heredoc so they reinstall on cluster rebuild. Both target `groups: ["default"]` — Longhorn auto-labels every new volume into the `default` group, verified live. See `longhorn-backup-setup.md`. | `kubectl -n longhorn-system get recurringjobs` |
+| L-10 | **MEDIUM** | `backup-target` setting is empty. Even if recurring backup jobs existed, there's nowhere to ship them. No S3, no NFS, no off-cluster destination. **STATUS: IMPLEMENTED IN CODE / PENDING BUCKET 2026-04-07** — Terraform variables `longhorn_backup_target` + `longhorn_backup_secret_name` added; master user_data heredoc patches both Longhorn settings on apply when the target is non-empty. **The Hetzner Object Storage bucket and the credentials Secret must still be created manually** because `hetznercloud/hcloud ~> 1.45` does not support Hetzner Object Storage S3 buckets yet. Step-by-step setup in `longhorn-backup-setup.md`. The weekly-backup recurring job will log an error and move on until the bucket is wired up — it does NOT block volume operations. | `kubectl -n longhorn-system get settings.longhorn.io backup-target` |
 | L-11 | **MEDIUM** | Longhorn UI is running (2 replicas) but **no Ingress exists**. UI is unreachable from outside the cluster — only via `kubectl port-forward`. Ops cannot inspect cluster state without SSH. | `kubectl -n longhorn-system get ingress` |
 | L-12 | **MEDIUM** | High restart counts on Longhorn control-plane Deployments: `csi-attacher` x15, `csi-provisioner` x13, `csi-snapshotter` x9 — most clustered ~3h ago when the CSI fix was patched. Suggests rolling-restart instability or some lingering crash loop earlier today. Worth grepping the logs. | `kubectl -n longhorn-system get pods` |
 | L-13 | **LOW** | t1 deployment `dep-nljs8499aj7o` only carries `preferredDuringScheduling` affinity, not the `required` rule from commit `bc8735b`. The required affinity will not apply until t1 is recreated. Existing bots are still spreadable. | `kubectl -n jarble get deployment dep-nljs8499aj7o -o yaml` |
@@ -58,13 +58,99 @@ are documented but **not** applied in this PR.
 
 ---
 
-## Top 5 prioritized follow-ups (deferred — not in this PR)
+## Top 5 prioritized follow-ups
 
-1. **L-04 — Patch `engine-image` DaemonSet tolerations.** Immediate, ~1 minute. Without this, the previous CSI fix is incomplete: auto-workers will register the CSI driver but bot PVC attaches will fail because the engine-image binary never lands on the node. One-line `kubectl patch daemonset` mirroring the existing patch on `longhorn-manager` and `longhorn-csi-plugin`. Also bake into Terraform `master user_data` so it survives master rebuild.
-2. **L-05 — Fix dual-default StorageClass.** Choose one. Recommended: drop the default annotation from `longhorn` (since Coolify/Kubero presumably already specify storageClassName explicitly, and bot PVCs now use `longhorn-isolated` explicitly). Leaves `local-path` as the sole default for system workloads. Single-line patch, but verify no existing tenant relies on default-class fall-through first.
-3. **L-06 — Mount a dedicated block device at `/var/lib/longhorn/`.** On master and on every auto-worker. The cluster cannot survive bot data filling root. nodeManager.ts already provisions a Hetzner volume on auto-workers and conditionally mounts it; verify the master is doing the same and add fstab entry if not. Master rebuild risk is non-zero (`prevent_destroy = true`), so probably needs to be done as a live `mkfs` + `rsync` migration, not a Terraform change.
-4. **L-09 + L-10 — Stand up a snapshot cadence and an off-cluster backup target.** Without these, bot data is single-point-of-failure on a single VPS disk. Recommend Hetzner Object Storage (S3-compatible) as backup-target, then a `RecurringJob` for daily snapshots with 7-day retention and weekly backups with 4-week retention. Cost: pennies per bot per month.
-5. **L-08 — Upgrade Longhorn to v1.6.4.** Patch-level upgrade only, well-supported in-place via the upstream `kubectl apply -f https://.../v1.6.4/longhorn.yaml` flow. Picks up bug fixes for replica rebuild races and CSI socket leaks. v1.7+ requires more diligence — defer until backups exist (item 4).
+> **Update 2026-04-07**: Items 2 (L-05) and 4 (L-09 + L-10) are now implemented.
+> See "Implementation log — 2026-04-07" below and `longhorn-backup-setup.md`.
+> Items 1 (L-04), 3 (L-06), and 5 (L-08) remain deferred.
+
+1. **L-04 — Patch `engine-image` DaemonSet tolerations.** [DEFERRED] Immediate, ~1 minute. Without this, the previous CSI fix is incomplete: auto-workers will register the CSI driver but bot PVC attaches will fail because the engine-image binary never lands on the node. One-line `kubectl patch daemonset` mirroring the existing patch on `longhorn-manager` and `longhorn-csi-plugin`. Also bake into Terraform `master user_data` so it survives master rebuild.
+2. **L-05 — Fix dual-default StorageClass.** [IMPLEMENTED 2026-04-07] Live cluster: `longhorn` no longer carries the default annotation. Terraform `main.tf` master user_data flipped from setting `longhorn` default to setting `local-path` default. Verified: only one PVC in the cluster (kubero/kubero-data) used a default-class fall-through path, and it explicitly specifies `local-path`. The other PVC (jarble/pvc-nljs8499aj7o, t1) explicitly specifies `longhorn`. No production consumer relied on `longhorn` being default — Coolify was removed in commit `bc4ccad`. Zero pod disruption.
+3. **L-06 — Mount a dedicated block device at `/var/lib/longhorn/`.** [DEFERRED] On master and on every auto-worker. The cluster cannot survive bot data filling root. nodeManager.ts already provisions a Hetzner volume on auto-workers and conditionally mounts it; verify the master is doing the same and add fstab entry if not. Master rebuild risk is non-zero (`prevent_destroy = true`), so probably needs to be done as a live `mkfs` + `rsync` migration, not a Terraform change.
+4. **L-09 + L-10 — Stand up a snapshot cadence and an off-cluster backup target.** [IMPLEMENTED 2026-04-07] `RecurringJob` manifest at `infrastructure/longhorn/recurring-jobs.yaml` (daily snapshot retain 7, weekly backup retain 4); same manifest inlined into the master user_data heredoc for fresh-master self-heal. Terraform variables `longhorn_backup_target` and `longhorn_backup_secret_name` added — when set, the master user_data patches the Longhorn `backup-target` + `backup-target-credential-secret` settings on apply. **One step still pending**: the Hetzner Object Storage bucket and the k8s `longhorn-backup-credentials` Secret must be created manually (the Hetzner Cloud Terraform provider does not yet support Object Storage S3 buckets). Full step-by-step in `longhorn-backup-setup.md`. Cost estimate: ~€0.10–0.40 per bot per month.
+5. **L-08 — Upgrade Longhorn to v1.6.4.** [DEFERRED] Patch-level upgrade only, well-supported in-place via the upstream `kubectl apply -f https://.../v1.6.4/longhorn.yaml` flow. Picks up bug fixes for replica rebuild races and CSI socket leaks. v1.7+ requires more diligence. **Now safer to do**: backups exist, so a botched upgrade can be rolled back from snapshot.
+
+---
+
+## Implementation log — 2026-04-07
+
+Three deferred findings completed in a worktree branch building on `8839d8e`
+(develop tip). Scope was strictly L-05, L-09, L-10 — L-04 (engine-image
+DaemonSet) and L-06 (dedicated block device) and L-08 (Longhorn version
+upgrade) remain open. See `longhorn-backup-setup.md` for the operator guide
+covering bucket creation, Secret creation, restore procedure, cost
+estimate, and troubleshooting.
+
+### Live cluster changes applied during this work
+
+1. **`kubectl patch storageclass longhorn -p '...is-default-class=false'`** —
+   live patch on `178.156.230.13`. Verified before/after with
+   `kubectl get storageclass`. Verified t1 pod (`dep-nljs8499aj7o-bb69bc6cf-qtwh5`)
+   stayed `1/1 Running` with `0` restarts throughout. The L-05 evidence row
+   should now read: `local-path (default)`, `longhorn` (no default), `longhorn-isolated` (no default).
+
+### Code-only changes (no live apply)
+
+2. **`infrastructure/terraform/main.tf`** — flipped the existing `kubectl
+   patch storageclass longhorn` block from setting default `true` to setting
+   default `false` (and made `local-path` the explicit default), so a master
+   rebuild will not regress L-05. Added a new section that applies the
+   recurring-jobs manifest after the longhorn CRDs are served, and a shell
+   conditional that patches `backup-target` + `backup-target-credential-secret`
+   when the new variable is non-empty. Both blocks live inside the master
+   `user_data` heredoc.
+3. **`infrastructure/terraform/variables.tf`** — added `longhorn_backup_target`
+   (default empty — disabled in dev/preview) and `longhorn_backup_secret_name`
+   (default `"longhorn-backup-credentials"`).
+4. **`infrastructure/terraform/outputs.tf`** — added `longhorn_backups_enabled`,
+   `longhorn_backup_target`, `longhorn_backup_secret_name` for visibility
+   in `terraform output`.
+5. **`infrastructure/longhorn/recurring-jobs.yaml`** — new file. Two
+   `RecurringJob` CRs (`daily-snapshot`, `weekly-backup`) targeting
+   `groups: ["default"]`. Verified on the live cluster that the existing
+   t1 volume already carries `recurring-job-group.longhorn.io/default: enabled`
+   automatically, so new bot PVCs auto-enroll with no code change required.
+6. **`docs/audits/longhorn-backup-setup.md`** — new operator guide.
+
+### Verification
+
+- `terraform validate` (in `infrastructure/terraform/`) → Success.
+- `terraform output -raw user_data` rendered through bash → produces a
+  syntactically valid bash script with a flush-left YAML body that parses
+  as two valid `RecurringJob` documents.
+- `kubectl get storageclass` on live cluster → only `local-path (default)`
+  shown; `longhorn` and `longhorn-isolated` no longer marked default.
+- `kubectl -n jarble get pods` on live cluster → t1 pod still
+  `1/1 Running` with `0` restarts after the live patch.
+- `kubectl get pvc --all-namespaces` audit → only 2 PVCs cluster-wide;
+  both specify `storageClassName` explicitly. No PVCs depend on default
+  class fall-through. No StatefulSets exist (no `volumeClaimTemplates`
+  to worry about).
+
+### What did NOT change
+
+- No bot PVCs were touched.
+- No Longhorn version upgrade (still v1.6.0).
+- No Longhorn engine-image DaemonSet patch (L-04 still open).
+- No new Hetzner resources (no bucket — that's the manual step the user
+  must take).
+- No Secret values committed to the repo.
+
+### Pending user action (to make L-10 fully live)
+
+1. Create Hetzner Object Storage bucket via Hetzner Console (5 min).
+2. SSH to master and `kubectl create secret generic longhorn-backup-credentials ...`
+   with the bucket access keys (2 min).
+3. Set `longhorn_backup_target` in `terraform.tfvars` to
+   `s3://<bucket>@<region>/`.
+4. SSH to master and run the two `kubectl patch setting` commands manually
+   (since `prevent_destroy = true` on the master means `terraform apply`
+   won't recreate it). OR wait for the next master rebuild for the
+   user_data to do it automatically.
+5. Verify by checking `kubectl -n longhorn-system get settings backup-target`
+   and watching for the first weekly backup the following Sunday.
+
+Detailed steps in `longhorn-backup-setup.md`.
 
 ---
 

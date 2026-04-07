@@ -1,0 +1,78 @@
+# ─── Longhorn Recurring Jobs ────────────────────────────────────────────────
+#
+# Addresses L-09 from docs/audits/longhorn-hardening-findings.md:
+#   "No recurringjobs.longhorn.io exist. Zero snapshot or backup cadence.
+#    Bot PVC data has no point-in-time recovery."
+#
+# Two cron jobs covering two tiers of protection:
+#
+#   1. daily-snapshot  — fast, local, no external dependency. Creates a
+#                        Longhorn volume snapshot (CoW on the replica disk)
+#                        every day at 03:00 UTC, keeps the last 7. Restore
+#                        is instant (minutes) and works even if backup-target
+#                        is down. Cost: zero.
+#
+#   2. weekly-backup   — slow, off-cluster, durable. Ships the volume to
+#                        the configured `backup-target` (Hetzner Object
+#                        Storage — see longhorn-backup-setup.md) every
+#                        Sunday at 04:00 UTC, keeps the last 4. Restore
+#                        is slower (GB-scale download) but survives total
+#                        cluster loss. Cost: ~€0.01/GB/month in object storage.
+#
+# Group selection:
+#   Both jobs target `groups: ["default"]`. In Longhorn v1.6, ALL new volumes
+#   are automatically labeled `recurring-job-group.longhorn.io/default: enabled`,
+#   so new bot PVCs auto-enroll without any code change. Verified on live
+#   cluster 2026-04-07 — t1's existing volume already carries the label.
+#
+# Concurrency:
+#   snapshot = 2  (cheap, can overlap if many volumes)
+#   backup   = 1  (expensive, serialize to avoid saturating upload bandwidth)
+#
+# Apply: `kubectl apply -f infrastructure/longhorn/recurring-jobs.yaml`
+# Also applied automatically from the master user_data heredoc in main.tf.
+#
+# Safety: If backup-target is unconfigured when weekly-backup runs, Longhorn
+# logs an error and moves on — it does NOT block volume operations or
+# prevent future job runs. So it's safe to land this manifest before the
+# Hetzner Object Storage bucket exists.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: daily-snapshot
+  namespace: longhorn-system
+  labels:
+    app.kubernetes.io/managed-by: terraform
+    jarble.ai/audit-ref: L-09
+spec:
+  # Longhorn webhook quirk: spec.name MUST be set and MUST match metadata.name
+  # (the validator rejects empty-name jobs even though the CR has metadata.name).
+  name: daily-snapshot
+  cron: "0 3 * * *"
+  task: snapshot
+  groups:
+    - default
+  retain: 7
+  concurrency: 2
+  labels:
+    jarble.ai/backup-tier: snapshot
+---
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: weekly-backup
+  namespace: longhorn-system
+  labels:
+    app.kubernetes.io/managed-by: terraform
+    jarble.ai/audit-ref: L-09
+spec:
+  name: weekly-backup
+  cron: "0 4 * * 0"
+  task: backup
+  groups:
+    - default
+  retain: 4
+  concurrency: 1
+  labels:
+    jarble.ai/backup-tier: backup

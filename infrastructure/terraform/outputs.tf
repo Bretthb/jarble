@@ -51,6 +51,22 @@ output "cluster_firewall_id" {
   value       = hcloud_firewall.cluster.id
 }
 
+# ─── Longhorn Backup Configuration (L-09 / L-10) ────────────────────────────
+
+output "longhorn_backups_enabled" {
+  description = "True iff a backup-target URL is configured. When false, RecurringJob CRs still install (snapshots work) but the weekly off-cluster backup job will log an error until a target is set."
+  value       = var.longhorn_backup_target != ""
+}
+
+output "longhorn_backup_target" {
+  description = "Configured Longhorn backup-target URL (empty if disabled). The bucket must exist out-of-band — see docs/audits/longhorn-backup-setup.md."
+  value       = var.longhorn_backup_target
+}
+
+output "longhorn_backup_secret_name" {
+  description = "Name of the k8s Secret in longhorn-system holding S3 credentials. Create it out-of-band BEFORE setting longhorn_backup_target — see docs/audits/longhorn-backup-setup.md."
+  value       = var.longhorn_backup_secret_name
+}
 
 # ─── Coolify (Frontend Hosting) ─────────────────────────────────────────────
 
