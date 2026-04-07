@@ -46,6 +46,11 @@ const envSchema = z.object({
   // Sentry - optional, error tracking disabled if not set
   SENTRY_DSN: z.string().optional(),
 
+  // Stuck deployment monitor - set to "false" to disable the background
+  // ticker that alerts when deployments stay in creating/restarting/reloading
+  // for more than 5 minutes. Enabled by default.
+  STUCK_MONITOR_ENABLED: z.string().optional().default("true"),
+
   // Chat WebSocket control channel - optional, disabled by default
   ENABLE_CHAT_WS: z.string().optional(),
 

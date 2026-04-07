@@ -11,7 +11,10 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestDb, type TestDbContext } from "../helpers/testDb.js";
-import * as sqliteSchema from "../../db/schema.sqlite.js";
+// NOTE: tests use the local SQLite schema mirror in `helpers/testSchema.sqlite.ts`
+// (the canonical `src/db/schema.pg.ts` is Postgres dialect and Drizzle can't
+// generate SQLite-dialect SQL from it, so we need a dialect-matched schema).
+import * as sqliteSchema from "../helpers/testSchema.sqlite.js";
 
 let ctx: TestDbContext;
 

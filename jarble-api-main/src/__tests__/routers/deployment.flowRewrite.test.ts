@@ -12,6 +12,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestDb, type TestDbContext } from "../helpers/testDb.js";
 import { createTestCaller } from "../helpers/testCaller.js";
+// Local test-only SQLite schema mirror — Drizzle can't generate SQLite SQL
+// from the production pg schema, so tests use a dedicated sibling file.
+import * as sqliteSchema from "../helpers/testSchema.sqlite.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -89,6 +92,22 @@ vi.mock("../../utils/env.js", () => ({
     FRONTEND_URL: "http://localhost:3000",
   },
 }));
+
+// Mock db/index.js — the real module throws on missing DATABASE_URL at
+// module-load time, before vi.mock on utils/env can take effect. Use a
+// getter so `ctx.db` (set in beforeEach) is returned at call time.
+// tables are populated lazily in beforeEach to avoid TDZ issues with the
+// sqliteSchema import being hoisted below the vi.mock factory.
+vi.mock("../../db/index.js", async () => {
+  const schema = await import("../helpers/testSchema.sqlite.js");
+  return {
+    get db() {
+      return ctx.db;
+    },
+    tables: schema,
+    dbDate: () => new Date().toISOString().replace("T", " ").slice(0, 19),
+  };
+});
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 

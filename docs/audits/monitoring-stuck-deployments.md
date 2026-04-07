@@ -1,7 +1,8 @@
 # Monitoring: Stuck Deployments & Volume Failures
 
-**Status**: Documented (manual setup required)
-**Date**: 2026-04-07
+**Status**: Alert #1 IMPLEMENTED (in-API ticker). Alerts #2 + #3 still
+need a cluster-side `sentry-kubernetes` daemon — tracked as follow-ups.
+**Date**: 2026-04-07 (spec), Alert #1 implemented 2026-04-07
 **Author**: CI/observability follow-up agent (Bot Teams rescue post-mortem)
 
 ## Background
@@ -36,11 +37,42 @@ without coverage of the real signal.
 
 ## Alert 1 — Deployment stuck in `creating` > 5 min
 
+**Status: IMPLEMENTED** — see
+`jarble-api-main/src/services/stuckDeploymentMonitor.ts` (registered in
+`jarble-api-main/src/index.ts`, gated on `STUCK_MONITOR_ENABLED` env var,
+default `"true"`). Unit tests at
+`jarble-api-main/src/services/stuckDeploymentMonitor.test.ts` (17 cases).
+
+**Deviations from the original spec below**:
+
+- The `updating` state referenced in the spec does not exist in the
+  codebase. The monitor actually watches `creating`, `restarting`, and
+  `reloading` — the three transitional states used by the runtime
+  lifecycle and config sync pipeline. See the `STUCK_STATES` constant in
+  the monitor.
+- Sentry's `captureMessage` is called directly. The API's Sentry
+  integration (`src/instrument.ts`) was already wired for Express error
+  reporting, so the stuck monitor reuses the same client. If `SENTRY_DSN`
+  is unset, `captureMessage` is a no-op and only the warn-level pino log
+  fires — the monitor degrades gracefully.
+- Severity escalates from `warning` (5–15 min) to `error` (>15 min),
+  matching the spec's intent.
+- Client-side dedup: the monitor suppresses re-emits for the same
+  deployment for 30 minutes (`SENTRY_REEMIT_WINDOW_MS`). Sentry also
+  dedupes server-side via the `["stuck-deployment", id]` fingerprint;
+  client-side suppression just saves network round-trips.
+- The `warn` log still fires every cycle for a stuck deployment (so the
+  log stream has a continuous record of how long it's been stuck), but
+  Sentry stays quiet within the dedup window.
+- Single-flight guard: if a poll cycle takes longer than the 60s
+  interval (e.g. DB is slow), the next tick bails out rather than piling
+  up overlapping queries.
+
 ### What we want to fire on
 
 A deployment row in the `deployments` table whose `status` has been
-`creating` (or `restarting`, `updating`) for more than 5 minutes
-without transitioning to `running` or `error`.
+`creating` (or `restarting`, `reloading`) for more than 5 minutes
+without transitioning to `running` or `stopped`.
 
 ### How to emit the signal
 
@@ -79,6 +111,11 @@ tags[stuck_minutes]:>5
 ```
 
 ## Alert 2 — `FailedAttachVolume` / `FailedMount` events
+
+**Status: NOT IMPLEMENTED** — requires deploying the
+`sentry-kubernetes` daemon (Option A below) into the cluster. Tracked
+as a separate follow-up since it lives in infra/terraform and can't be
+done from inside the API process.
 
 ### What we want to fire on
 
@@ -133,6 +170,11 @@ to dedupe.
 - **Action**: Email `ops@jarble.ai` (sustained) + PagerDuty (storm)
 
 ## Alert 3 — Longhorn replica rebuild / volume degradation
+
+**Status: NOT IMPLEMENTED** — same `sentry-kubernetes` daemon that
+would satisfy Alert #2 would also cover this one, just with
+`longhorn-system` added to `EVENT_NAMESPACES`. Tracked as a follow-up
+alongside Alert #2.
 
 ### What we want to fire on
 

@@ -15,6 +15,7 @@ import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement
 import { startStatusReconciler } from "./services/statusReconciler.js";
 import { startServiceHealthCheck } from "./services/serviceHealthCheck.js";
 import { startWebhookCleanup } from "./services/webhookCleanup.js";
+import { startStuckDeploymentMonitor } from "./services/stuckDeploymentMonitor.js";
 import helmet from "helmet";
 import { globalLimiter, authLimiter, mutationLimiter } from "./middleware/rateLimit.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
@@ -228,6 +229,9 @@ async function start() {
   startWebhookCleanup();      // Purges processedWebhookEvents older than 30 days (every 24h)
   startJobCleanup();          // Cleans up expired async service jobs (hourly)
   startNodeWatcher();         // Auto-scales Hetzner workers when bot pods go Pending
+  if (env.STUCK_MONITOR_ENABLED !== "false") {
+    startStuckDeploymentMonitor();  // Alerts on deployments stuck in transitional states >5 min
+  }
 
   const PORT = env.PORT;
   const server = app.listen(PORT, () => {
