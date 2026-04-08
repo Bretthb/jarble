@@ -24,9 +24,14 @@
         "created_at": {"name": "created_at", "type": "timestamp", "primaryKey": false, "notNull": true, "default": "now()"}
       },
       "indexes": {
+        "idx_agent_calls_caller": {"name": "idx_agent_calls_caller", "columns": [{"expression": "caller_deployment_id", "isExpression": false, "asc": true, "nulls": "last"}], "isUnique": false, "concurrently": false, "method": "btree", "with": {}},
+        "idx_agent_calls_callee": {"name": "idx_agent_calls_callee", "columns": [{"expression": "callee_deployment_id", "isExpression": false, "asc": true, "nulls": "last"}], "isUnique": false, "concurrently": false, "method": "btree", "with": {}},
         "idx_agent_calls_parent_call_id": {"name": "idx_agent_calls_parent_call_id", "columns": [{"expression": "parent_call_id", "isExpression": false, "asc": true, "nulls": "last"}], "isUnique": false, "concurrently": false, "method": "btree", "with": {}}
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "agent_calls_caller_deployment_id_deployments_id_fk": {"name": "agent_calls_caller_deployment_id_deployments_id_fk", "tableFrom": "agent_calls", "tableTo": "deployments", "columnsFrom": ["caller_deployment_id"], "columnsTo": ["id"], "onDelete": "no action", "onUpdate": "no action"},
+        "agent_calls_callee_deployment_id_deployments_id_fk": {"name": "agent_calls_callee_deployment_id_deployments_id_fk", "tableFrom": "agent_calls", "tableTo": "deployments", "columnsFrom": ["callee_deployment_id"], "columnsTo": ["id"], "onDelete": "no action", "onUpdate": "no action"}
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -40,9 +45,5 @@
   "roles": {},
   "policies": {},
   "views": {},
-  "_meta": {
-    "columns": {},
-    "schemas": {},
-    "tables": {}
-  }
+  "_meta": {"columns": {}, "schemas": {}, "tables": {}}
 }
