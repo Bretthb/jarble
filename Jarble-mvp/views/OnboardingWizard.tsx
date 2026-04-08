@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/contexts/ThemeContext";
 import Image from "next/image";
 import { trpc } from "@/lib/trpc";
 import { useOrg } from "@/contexts/OrgContext";
@@ -41,8 +41,8 @@ export default function OnboardingWizard() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const { activeOrgId } = useOrg();
-  const { resolvedTheme } = useTheme();
-  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
+  const { theme } = useTheme();
+  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
 
   // Step navigation
   const [currentStepIndex, setCurrentStepIndex] = useState(0);

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/contexts/ThemeContext";
 
 const FOOTER_LINKS = [
   { href: "/", label: "Home" },
@@ -13,8 +13,8 @@ const FOOTER_LINKS = [
 ];
 
 export default function MarketingFooter() {
-  const { resolvedTheme } = useTheme();
-  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
+  const { theme } = useTheme();
+  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
 
   return (
     <footer className="py-12 border-t border-border relative z-10">

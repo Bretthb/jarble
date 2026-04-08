@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
 import { useTheme } from "@/contexts/ThemeContext";
-import { useTheme as useNextTheme } from "next-themes";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -34,8 +33,7 @@ export default function SettingsView() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const { theme, toggleTheme, switchable } = useTheme();
-  const { resolvedTheme } = useNextTheme();
-  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
+  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");

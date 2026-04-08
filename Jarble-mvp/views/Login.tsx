@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import Image from "next/image";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/contexts/ThemeContext";
 import { ArrowRight, Github, Chrome, Loader2 } from "lucide-react";
 
 import { useAuth0 } from "@auth0/auth0-react";
@@ -13,8 +13,8 @@ import { useRouter } from "next/navigation";
 export default function Login() {
   const router = useRouter();
   const { loginWithRedirect, isLoading, isAuthenticated } = useAuth0();
-  const { resolvedTheme } = useTheme();
-  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
+  const { theme } = useTheme();
+  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
 
   // Redirect to dashboard if already authenticated
   useEffect(() => {

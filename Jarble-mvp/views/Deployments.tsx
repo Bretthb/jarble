@@ -2,7 +2,7 @@
 
 import { toast } from "sonner";
 import { useAuth0 } from "@auth0/auth0-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/contexts/ThemeContext";
 import Image from "next/image";
 import { trpc, API_URL } from "@/lib/trpc";
 import { vanillaClient } from "@/lib/trpc-vanilla";
@@ -4077,8 +4077,8 @@ function FlowAnimationStyles() {
 export default function Deployments() {
   const { isAuthenticated, isLoading: authLoading } = useAuth0();
   const router = useRouter();
-  const { resolvedTheme } = useTheme();
-  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
+  const { theme } = useTheme();
+  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
   const [activeRuntime, setActiveRuntime] = useState("all");
   const [showCreditPools, setShowCreditPools] = useState(true);
   const [selectedDeploymentId, setSelectedDeploymentId] = useState<

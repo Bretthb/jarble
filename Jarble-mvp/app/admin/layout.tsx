@@ -4,7 +4,7 @@ import ProfileDropdown from "@/components/ProfileDropdown";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/contexts/ThemeContext";
 import {
   LayoutDashboard,
   Users,
@@ -34,8 +34,8 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const { resolvedTheme } = useTheme();
-  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
+  const { theme } = useTheme();
+  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
 
   return (
     <AdminGuard>

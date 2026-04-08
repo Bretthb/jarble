@@ -2,7 +2,7 @@
 
 import { useAuth0 } from "@auth0/auth0-react";
 import Image from "next/image";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/contexts/ThemeContext";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -53,9 +53,9 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export default function Dashboard() {
   const { user, isAuthenticated, isLoading: authLoading, error: authError } = useAuth0();
-  const { resolvedTheme } = useTheme();
+  const { theme } = useTheme();
   const { activeOrgId, activeOrg } = useOrg();
-  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
+  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
 
   if (authError) {
     console.error('[Auth0] Authentication error:', authError);

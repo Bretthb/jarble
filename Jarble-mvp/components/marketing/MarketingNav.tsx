@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/contexts/ThemeContext";
 import { Menu } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -28,9 +28,9 @@ export default function MarketingNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated } = useAuth0();
-  const { resolvedTheme } = useTheme();
+  const { theme } = useTheme();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
+  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
 
   return (
     <nav className="fixed inset-x-0 top-0 z-50 bg-background/80 backdrop-blur-md">
