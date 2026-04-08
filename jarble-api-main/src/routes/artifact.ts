@@ -32,9 +32,26 @@ const MANIFEST_PATH = `${WORKSPACE_DIR}/manifest.json`;
 /** Artifact ID must be 1-64 alphanumeric/dash/underscore chars */
 const ARTIFACT_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 
-/** Per-deployment rate limit: minimum 1 second between sync calls */
-const SYNC_COOLDOWN_MS = 1000;
-const syncTimestamps = new Map<string, number>();
+/**
+ * Per-ARTIFACT lock to serialize concurrent syncs of the same card.
+ * Previously this was a per-deployment 1-second cooldown, which caused
+ * the canvas persistence bug: when a bot rendered multiple components
+ * in a single response, the frontend would fire multiple POST /sync
+ * calls within milliseconds. The first succeeded; the rest got 429
+ * and never persisted to the pod, so on reload the cards rehydrated
+ * with empty props.
+ *
+ * New semantics:
+ *  - Two different artifacts sync concurrently (no cooldown).
+ *  - Two rapid syncs of the SAME artifact serialize via a promise lock,
+ *    so the second waits for the first to finish. This prevents racing
+ *    writes to the same file without losing data.
+ */
+const artifactLocks = new Map<string, Promise<void>>();
+
+function artifactLockKey(deploymentId: string, artifactId: string): string {
+  return `${deploymentId}:${artifactId}`;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -238,15 +255,21 @@ artifactRouter.post("/:id/artifact/sync", async (req, res) => {
       return;
     }
 
-    // Rate limit: 1 sync per second per deployment
-    const now = Date.now();
-    const lastSync = syncTimestamps.get(deploymentId) || 0;
-    if (now - lastSync < SYNC_COOLDOWN_MS) {
-      res.status(429).json({ error: "Rate limited - try again shortly" });
-      return;
-    }
-    syncTimestamps.set(deploymentId, now);
+    // Per-artifact serialization lock. Different artifacts sync in parallel;
+    // multiple rapid syncs of the SAME artifact queue behind each other.
+    // Replaces the old 1-second per-deployment cooldown that dropped
+    // multi-component bot responses.
+    const lockKey = artifactLockKey(deploymentId, artifactId);
+    const previous = artifactLocks.get(lockKey) ?? Promise.resolve();
+    let releaseLock!: () => void;
+    const current = new Promise<void>((resolve) => { releaseLock = resolve; });
+    // Chain our work behind the previous work. The stored promise is what
+    // the next caller will wait on (so a third sync waits for us to finish).
+    const chained = previous.then(() => current);
+    artifactLocks.set(lockKey, chained);
+    await previous;
 
+    try {
     // Find pod
     const podName = await findPodForDeployment(deploymentId);
     if (!podName) {
@@ -333,12 +356,23 @@ artifactRouter.post("/:id/artifact/sync", async (req, res) => {
 
     log.debug({ deploymentId, artifactId }, "Artifact synced");
     res.json({ ok: true, artifact });
+    } finally {
+      // Release the per-artifact lock so the next queued sync (if any) proceeds.
+      releaseLock();
+      // Best-effort cleanup: if no one queued behind us, drop the map entry
+      // so it doesn't grow unbounded over time.
+      if (artifactLocks.get(lockKey) === chained) {
+        artifactLocks.delete(lockKey);
+      }
+    }
   } catch (err: unknown) {
     log.error(
       { err: err instanceof Error ? err.message : String(err) },
       "artifact sync error"
     );
-    res.status(500).json({ error: "Failed to sync artifact" });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to sync artifact" });
+    }
   }
 });
 
