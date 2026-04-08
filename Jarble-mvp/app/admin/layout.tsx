@@ -35,7 +35,7 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname();
   const { resolvedTheme } = useTheme();
-  const logoSrc = resolvedTheme === "dark" ? "/logodark.png" : "/logo.png";
+  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
 
   return (
     <AdminGuard>

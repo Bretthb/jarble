@@ -35,7 +35,7 @@ export default function SettingsView() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const { theme, toggleTheme, switchable } = useTheme();
   const { resolvedTheme } = useNextTheme();
-  const logoSrc = resolvedTheme === "dark" ? "/logodark.png" : "/logo.png";
+  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");

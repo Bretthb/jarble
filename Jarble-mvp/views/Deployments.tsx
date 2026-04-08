@@ -4078,7 +4078,7 @@ export default function Deployments() {
   const { isAuthenticated, isLoading: authLoading } = useAuth0();
   const router = useRouter();
   const { resolvedTheme } = useTheme();
-  const logoSrc = resolvedTheme === "dark" ? "/logodark.png" : "/logo.png";
+  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
   const [activeRuntime, setActiveRuntime] = useState("all");
   const [showCreditPools, setShowCreditPools] = useState(true);
   const [selectedDeploymentId, setSelectedDeploymentId] = useState<

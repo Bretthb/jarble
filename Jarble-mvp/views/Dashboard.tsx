@@ -55,7 +55,7 @@ export default function Dashboard() {
   const { user, isAuthenticated, isLoading: authLoading, error: authError } = useAuth0();
   const { resolvedTheme } = useTheme();
   const { activeOrgId, activeOrg } = useOrg();
-  const logoSrc = resolvedTheme === "dark" ? "/logodark.png" : "/logo.png";
+  const logoSrc = resolvedTheme === "dark" ? "/logo.png" : "/logodark.png";
 
   if (authError) {
     console.error('[Auth0] Authentication error:', authError);
