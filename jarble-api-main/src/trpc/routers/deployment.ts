@@ -335,6 +335,11 @@ export const deploymentRouter = router({
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).default("openrouter"),
       llmModel: z.string().optional(), // e.g. "openrouter/auto", "gpt-4o", "claude-sonnet-4-20250514"
       llmApiKey: z.string().optional(),
+      // systemPrompt intentionally permits HTML characters (no noHtmlTags refine):
+      //   1. It's LLM input, not user-facing content — sent to the model as instructions
+      //   2. Legitimate prompts need `<` for code examples, JSX/HTML discussions, etc.
+      //   3. Only rendered in frontend <textarea value={...}> which React auto-escapes
+      // If this ever surfaces in emails/admin dashboards/logs, escape at render time there.
       systemPrompt: z.string().max(50_000).optional(), // 50K chars max to prevent storage bloat
       creditLimitDollars: z.number().min(1).max(1000).optional(), // Monthly spending cap for "included" mode (default $5)
       linkToDeploymentId: z.string().optional(), // Link to an existing deployment's credit pool instead of provisioning a new key
