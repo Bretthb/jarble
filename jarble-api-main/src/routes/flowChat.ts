@@ -529,6 +529,17 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             sessionId: `flow-${flowId}-${tool.targetNodeId}-${user.id}-${conversationId || threadId}`,
             depth: 1,
             userId: user.id,
+            // ── N-level delegation wiring ──────────────────────────────
+            // The entry bot is depth 0 and has no `agent_calls` row of
+            // its own, so this first hop has `parentCallId: null`. The
+            // ancestor chain begins with the entry deployment so any
+            // nested sub-delegation that tries to route back to it is
+            // rejected by `DelegationCycleError`.
+            sourceDeploymentId: entryNode.deploymentId,
+            toolName: call.toolName,
+            parentCallId: null,
+            ancestorDeploymentIds: [entryNode.deploymentId],
+            flowId,
           });
         } catch (err) {
           delegationError =

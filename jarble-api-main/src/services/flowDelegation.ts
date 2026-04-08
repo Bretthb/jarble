@@ -10,7 +10,7 @@
  *   3. Execute a delegation by sending a task to a target deployment's pod
  */
 
-import { db, tables } from "../db/index.js";
+import { db, tables, dbDate } from "../db/index.js";
 import { eq, and, or, inArray } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
 import { emitOrchestrationStart, emitOrchestrationEnd } from "../utils/agentCallEvents.js";
@@ -42,15 +42,73 @@ export interface DelegationResult {
   componentDefs?: any[];
   /** Suggestions from the delegate */
   suggestions?: string[];
+  /** agent_calls.id row for this delegation — anchor for the parent_call_id tree */
+  callId?: string;
+  /** Delegation depth this call ran at (1 = first hop from entry bot) */
+  depth?: number;
+  /** Recursively collected child delegations this call made */
+  children?: DelegationResult[];
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-/** Maximum delegation chain depth to prevent infinite loops */
-const MAX_DELEGATION_DEPTH = 5;
+/**
+ * Maximum delegation chain depth to prevent infinite recursion.
+ *
+ * Depth semantics:
+ *   0  → user → entry bot (no delegation row; not persisted)
+ *   1  → entry bot → specialist   (first delegation hop)
+ *   2  → specialist → sub-specialist
+ *   ...
+ *
+ * A call is rejected when `depth > MAX_DELEGATION_DEPTH`. With the default of
+ * 4, the chain can go 4 levels deep (depths 1..4).
+ *
+ * Override via env var `JARBLE_MAX_DELEGATION_DEPTH` (must be a positive int).
+ */
+const MAX_DELEGATION_DEPTH = (() => {
+  const raw = process.env.JARBLE_MAX_DELEGATION_DEPTH;
+  const n = raw ? Number(raw) : NaN;
+  if (Number.isFinite(n) && n > 0 && n < 20) return Math.floor(n);
+  return 4;
+})();
+
+export function getMaxDelegationDepth(): number {
+  return MAX_DELEGATION_DEPTH;
+}
 
 /** Timeout for a single delegation call (ms) */
 const DELEGATION_TIMEOUT_MS = 90_000;
+
+// ── Custom errors ────────────────────────────────────────────────────────────
+
+export class DelegationDepthExceededError extends Error {
+  public readonly depth: number;
+  public readonly maxDepth: number;
+  constructor(depth: number) {
+    super(
+      `Delegation depth limit reached (depth=${depth} > max=${MAX_DELEGATION_DEPTH}). ` +
+        "Increase JARBLE_MAX_DELEGATION_DEPTH if deeper chains are intended.",
+    );
+    this.name = "DelegationDepthExceededError";
+    this.depth = depth;
+    this.maxDepth = MAX_DELEGATION_DEPTH;
+  }
+}
+
+export class DelegationCycleError extends Error {
+  public readonly chain: string[];
+  public readonly target: string;
+  constructor(chain: string[], target: string) {
+    super(
+      `Delegation cycle detected: ${chain.join(" → ")} → ${target}. ` +
+        "A bot cannot delegate back to an ancestor already in the current call chain.",
+    );
+    this.name = "DelegationCycleError";
+    this.chain = chain;
+    this.target = target;
+  }
+}
 
 // ── Build delegation tools ───────────────────────────────────────────────────
 
@@ -206,7 +264,7 @@ export function buildFlowSystemPrompt(
 
 // ── Parse delegation tool calls from bot response ────────────────────────────
 
-interface ParsedDelegationCall {
+export interface ParsedDelegationCall {
   toolName: string;
   task: string;
   context?: string;
@@ -313,6 +371,152 @@ export function parseDelegationCalls(text: string): ParsedDelegationCall[] {
   return deduped;
 }
 
+// ── Flow-context loader (for recursive delegation) ──────────────────────────
+
+/**
+ * Look up a deployment's flow-membership context so we can rebuild its
+ * own `DelegationTool[]` for recursive sub-delegation.
+ *
+ * Prefers the `flowIdHint` branch when supplied — a deployment may belong to
+ * multiple flows, and during a recursive call we want to stay within the same
+ * flow as the parent hop.
+ *
+ * **Ownership check:** when `userId` is supplied (the recommended path), the
+ * `orchestrationFlows` lookup is filtered by that user's ownership (or org
+ * membership). This prevents a recursive delegation chain from crossing into
+ * a foreign user's flow definition. Without this guard, a deployment that
+ * happens to be a member of multiple flows could leak the topology of a flow
+ * the requester does not own — see the code review on JAR-fractal for the
+ * full attack scenario.
+ */
+async function loadFlowContextForDeployment(
+  deploymentId: string,
+  flowIdHint?: string,
+  userId?: string,
+): Promise<
+  | {
+      flowId: string;
+      node: FlowNode;
+      nodes: FlowNode[];
+      edges: FlowEdge[];
+    }
+  | null
+> {
+  try {
+    const fdm = (tables as any).flowDeploymentMemberships;
+    if (!fdm) return null;
+
+    // Find a matching membership row
+    let membership: { flowId: string; nodeId: string } | undefined;
+    if (flowIdHint) {
+      const rows = await db
+        .select({ flowId: fdm.flowId, nodeId: fdm.nodeId })
+        .from(fdm)
+        .where(and(eq(fdm.deploymentId, deploymentId), eq(fdm.flowId, flowIdHint)))
+        .limit(1);
+      membership = rows[0];
+    }
+    if (!membership) {
+      // Fallback: a deployment may be a member of multiple flows. If the
+      // hint missed (or was unset), pick the first matching membership. We
+      // still apply the owner-scoped flow check below, so an unauthorized
+      // membership cannot be returned.
+      const rows = await db
+        .select({ flowId: fdm.flowId, nodeId: fdm.nodeId })
+        .from(fdm)
+        .where(eq(fdm.deploymentId, deploymentId))
+        .limit(1);
+      membership = rows[0];
+      if (membership && flowIdHint) {
+        log.warn(
+          { deploymentId, flowIdHint, fallbackFlowId: membership.flowId },
+          "loadFlowContextForDeployment fell back to non-hinted flow membership",
+        );
+      }
+    }
+    if (!membership) return null;
+
+    // ── Owner-scoped flow lookup ────────────────────────────────────────
+    // If the caller provided a userId, only return flows the user owns
+    // (directly or via an org). This prevents IDOR through the recursive
+    // delegation tree.
+    let flowWhere = eq(tables.orchestrationFlows.id, membership.flowId);
+    if (userId) {
+      const memberships = await db.query.orgMembers.findMany({
+        where: eq(tables.orgMembers.userId, userId),
+        columns: { orgId: true },
+      });
+      const orgIds = memberships.map((m: any) => m.orgId);
+      // Flows are scoped per-user (not per-org) in the current schema, so
+      // we filter by `userId` directly. Org-scoped flows would need a
+      // separate orgId column on `orchestrationFlows`; until that exists,
+      // a user's ownership of the flow is the only valid check.
+      void orgIds; // reserved for future org-scoped flow support
+      flowWhere = and(
+        eq(tables.orchestrationFlows.id, membership.flowId),
+        eq(tables.orchestrationFlows.userId, userId),
+      ) as any;
+    }
+
+    const flowRows = await db
+      .select({
+        id: tables.orchestrationFlows.id,
+        definition: tables.orchestrationFlows.definition,
+      })
+      .from(tables.orchestrationFlows)
+      .where(flowWhere)
+      .limit(1);
+    if (flowRows.length === 0) {
+      if (userId) {
+        log.warn(
+          { deploymentId, flowId: membership.flowId, userId },
+          "loadFlowContextForDeployment refused flow not owned by user",
+        );
+      }
+      return null;
+    }
+
+    const def =
+      typeof flowRows[0].definition === "string"
+        ? JSON.parse(flowRows[0].definition)
+        : (flowRows[0].definition as any);
+    if (!def?.nodes || !def?.edges) return null;
+
+    const node = def.nodes.find((n: FlowNode) => n.id === membership!.nodeId);
+    if (!node) return null;
+
+    return {
+      flowId: flowRows[0].id as string,
+      node,
+      nodes: def.nodes as FlowNode[],
+      edges: def.edges as FlowEdge[],
+    };
+  } catch (err) {
+    log.debug(
+      { deploymentId, err: err instanceof Error ? err.message : String(err) },
+      "loadFlowContextForDeployment failed",
+    );
+    return null;
+  }
+}
+
+/**
+ * Strip `jarble_delegate` (and legacy `json` delegate) fenced blocks from a
+ * bot's response text before it is surfaced to the parent synthesiser.
+ *
+ * Kept in sync with the two parser formats in `parseDelegationCalls()`.
+ */
+export function stripDelegationBlocks(text: string): string {
+  return text
+    .replace(/```jarble_delegate\s*\n[\s\S]*?```/g, "")
+    .replace(
+      /```json\s*\n\s*\{[^}]*"tool"\s*:\s*"delegate_to_[^}]*\}\s*```/g,
+      "",
+    )
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // ── Execute delegation ───────────────────────────────────────────────────────
 
 /**
@@ -321,6 +525,20 @@ export function parseDelegationCalls(text: string): ParsedDelegationCall[] {
  * Uses the same chat pathway as tamboAgent (exec into pod via K8s API).
  * This is the non-streaming variant: the delegation completes and the full
  * response text is returned.
+ *
+ * **N-level recursion (JAR-fractal).** After the target's response lands, the
+ * function re-parses it with `parseDelegationCalls()`. If the child emitted
+ * its own `jarble_delegate` blocks AND the depth budget allows, it recursively
+ * invokes `executeDelegation` for each nested hop, threading `parentCallId`
+ * and `ancestorDeploymentIds` so:
+ *
+ *   - Every `agent_calls` row is chained via `parent_call_id` into a tree
+ *   - Cycles (A → B → A) are rejected before they hit a pod
+ *   - `depth > MAX_DELEGATION_DEPTH` is rejected with a clear error
+ *
+ * Callers that predate this feature and pass no `parentCallId` /
+ * `ancestorDeploymentIds` / `flowId` still work — the recursion path simply
+ * no-ops (no child flow context → no sub-delegation).
  */
 export async function executeDelegation(params: {
   targetDeploymentId: string;
@@ -337,23 +555,48 @@ export async function executeDelegation(params: {
   toolName?: string;
   /** User ID for ownership verification — prevents IDOR on delegation targets */
   userId?: string;
-  /** Parent agent_calls row id. If set, this delegation becomes a child of
-   *  that call in the fractal tree (JAR-50 agent_calls writer). */
+  /**
+   * Parent agent_calls.id. `null` / `undefined` means this delegation is the
+   * root of the chain (e.g. entry bot → first specialist). Recursive calls
+   * inside `executeDelegation` will set this to the current row's id so the
+   * tree can be reconstructed later.
+   */
   parentCallId?: string | null;
-  /** Parent OTel span id (usually matches parent call's span_id). */
+  /**
+   * Deployment IDs already in the call chain above this hop. Used for cycle
+   * detection: if `targetDeploymentId` is in this list we throw
+   * DelegationCycleError without hitting the pod.
+   */
+  ancestorDeploymentIds?: string[];
+  /**
+   * Flow ID the delegation is executing inside. Needed for sub-delegation
+   * resolution (a deployment may belong to multiple flows; we stay in the
+   * current one for the whole chain).
+   */
+  flowId?: string;
+  /**
+   * JAR-50: Parent OTel span id (for the observability span tree). Usually
+   * the parent agent_calls row's span_id. Threaded through but not yet
+   * required by the inline writer — Phase 2 (OTel SDK) will consume it.
+   */
   parentSpanId?: string | null;
-  /** Trace id for the root chat turn. Propagates unchanged through every
-   *  recursive delegation so the whole fractal tree stitches to one trace. */
+  /**
+   * JAR-50: Trace id for the root chat turn. Stays constant through every
+   * recursive delegation hop so the whole tree stitches into one trace.
+   */
   traceId?: string | null;
-  /** Org scope for audit rollups. */
+  /** JAR-50: Org scope for audit rollups. */
   orgId?: string | null;
 }): Promise<DelegationResult> {
   const depth = params.depth ?? 0;
-  if (depth >= MAX_DELEGATION_DEPTH) {
-    throw new Error(
-      `Delegation depth limit reached (${MAX_DELEGATION_DEPTH}). ` +
-      "Possible circular delegation or overly deep chain.",
-    );
+  if (depth > MAX_DELEGATION_DEPTH) {
+    throw new DelegationDepthExceededError(depth);
+  }
+
+  // ── Cycle detection ─────────────────────────────────────────────────────
+  const ancestors = params.ancestorDeploymentIds ?? [];
+  if (ancestors.includes(params.targetDeploymentId)) {
+    throw new DelegationCycleError(ancestors, params.targetDeploymentId);
   }
 
   const startTime = Date.now();
@@ -427,34 +670,51 @@ export async function executeDelegation(params: {
     "Executing delegation",
   );
 
-  // ── JAR-50: record agent_calls row for the delegation hop ─────────────────
-  // Fire-and-forget: the writer catches its own errors so audit failures
-  // can never break the delegation path.
-  const { startAgentCall, finishAgentCall } = await import("./agentCallsWriter.js");
-  const agentCallHandle = await startAgentCall({
-    kind: "delegation",
-    skillName: params.toolName || `delegate_to_${params.targetNodeId}`,
-    callerDeploymentId: params.sourceDeploymentId || null,
-    calleeDeploymentId: params.targetDeploymentId,
-    parentCallId: params.parentCallId ?? null,
-    parentSpanId: params.parentSpanId ?? null,
-    traceId: params.traceId ?? null,
-    depth,
-    userId: params.userId ?? null,
-    orgId: params.orgId ?? null,
-    sessionId,
-    podName,
-    spanName: "jarble.delegation.hop",
-    requestBody: { task: params.task, contextScope: params.contextScope },
-    attributes: {
-      targetNodeId: params.targetNodeId,
-      contextScope: params.contextScope,
-      messageLen: message.length,
-    },
-  });
+  // ── Insert agent_calls row (pending) ────────────────────────────────────
+  // The row is the anchor point for the delegation tree: recursive sub-calls
+  // use this row's id as their `parent_call_id`. Insert BEFORE chatViaExec
+  // so child calls emitted by the target can chain against it immediately.
+  //
+  // The caller field on agent_calls points to the hop's SOURCE (the deployment
+  // actually doing the delegating), which is why `sourceDeploymentId` must be
+  // populated by the top-level caller — falling back to `targetDeploymentId`
+  // would record a deployment as calling itself.
+  const callerDeploymentIdForRow =
+    params.sourceDeploymentId || params.targetDeploymentId;
+  const stepId = `acl_${nanoid(12)}`;
+  const callId = stepId; // unify stepId with agent_calls.id so SSE tree == DB tree
+
+  try {
+    const agentCallsTable = (tables as any).agentCalls;
+    if (agentCallsTable) {
+      await db.insert(agentCallsTable).values({
+        id: callId,
+        callerDeploymentId: callerDeploymentIdForRow,
+        calleeDeploymentId: params.targetDeploymentId,
+        skillName: params.toolName || `delegate_to_${params.targetNodeId}`,
+        creditsCharged: 1,
+        status: "pending",
+        requestBody: params.task.slice(0, 10_000),
+        parentCallId: params.parentCallId ?? null,
+        depth,
+        kind: "delegation",
+        createdAt: dbDate(),
+      } as any);
+    }
+  } catch (err) {
+    // Non-fatal — the tree row is diagnostic, don't block the delegation.
+    log.warn(
+      {
+        err: err instanceof Error ? err.message : String(err),
+        callId,
+        parentCallId: params.parentCallId,
+        depth,
+      },
+      "Failed to insert agent_calls row for delegation",
+    );
+  }
 
   // ── Emit orchestration:step:start event ──────────────────────────────────
-  const stepId = `delegation-${nanoid(8)}`;
   const orchestrationDeploymentId = params.sourceDeploymentId || params.targetDeploymentId;
   const orchestrationToolName = params.toolName || `delegate_to_${params.targetNodeId}`;
 
@@ -467,6 +727,8 @@ export async function executeDelegation(params: {
       toolName: orchestrationToolName,
       task: params.task.slice(0, 200),
       targetDeploymentId: params.targetDeploymentId,
+      parentStepId: params.parentCallId ?? undefined,
+      depth,
     });
   } catch {
     // Non-fatal - orchestration events are nice-to-have
@@ -478,6 +740,27 @@ export async function executeDelegation(params: {
     () => abortController.abort(),
     DELEGATION_TIMEOUT_MS,
   );
+
+  // Helper: update the agent_calls row on completion/failure. Non-fatal —
+  // a DB write failure here is logged and swallowed so it cannot mask the
+  // real delegation outcome. The row may be left in `pending` in that case,
+  // which is acceptable (the analytics tree may have a dangling leaf, but
+  // the delegation result itself is still returned to the caller).
+  const updateAgentCallsRow = async (patch: Record<string, any>) => {
+    try {
+      const agentCallsTable = (tables as any).agentCalls;
+      if (!agentCallsTable) return;
+      await db
+        .update(agentCallsTable)
+        .set(patch)
+        .where(eq(agentCallsTable.id, callId));
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), callId },
+        "Failed to update agent_calls row",
+      );
+    }
+  };
 
   try {
     const result = await chatViaExec(
@@ -497,9 +780,174 @@ export async function executeDelegation(params: {
         targetNodeId: params.targetNodeId,
         durationMs,
         responseLen: result.text.length,
+        depth,
+        callId,
       },
       "Delegation completed",
     );
+
+    // ── Recursive sub-delegation ─────────────────────────────────────────
+    // Re-parse the child's response for nested delegation calls. If the
+    // child emitted `jarble_delegate` blocks of its own, resolve them via
+    // flow_deployment_memberships, check depth/cycle budgets, and recurse.
+    //
+    // `rawText` is preferred over `text` to match the format `parseDelegationCalls`
+    // expects and to mirror what flowChat.ts does at the top level.
+    const rawChildText = result.rawText || result.text || "";
+    const childCalls = parseDelegationCalls(rawChildText);
+
+    let finalResponse = result.text || "";
+    let aggregatedUiBlocks: any[] = result.uiBlocks?.length ? [...result.uiBlocks] : [];
+    let aggregatedComponentDefs: any[] = result.componentDefs?.length
+      ? [...result.componentDefs]
+      : [];
+    let aggregatedSuggestions: string[] = result.suggestions?.length
+      ? [...result.suggestions]
+      : [];
+    const childResults: DelegationResult[] = [];
+
+    if (childCalls.length > 0) {
+      // Strip the child's delegation blocks from the visible text so the
+      // parent synthesiser doesn't see raw fences.
+      const cleanedChildText = stripDelegationBlocks(result.text || "");
+
+      // Resolve the child's own flow context so we can look up its tools.
+      // We thread `params.userId` so the flow ownership check rejects any
+      // membership that would cross into a foreign user's flow definition.
+      const childFlowCtx = await loadFlowContextForDeployment(
+        params.targetDeploymentId,
+        params.flowId,
+        params.userId,
+      );
+
+      if (!childFlowCtx) {
+        log.debug(
+          {
+            targetDeploymentId: params.targetDeploymentId,
+            childCallCount: childCalls.length,
+          },
+          "Child emitted delegation blocks but has no flow-membership context — ignoring (backward-compat path)",
+        );
+        finalResponse = cleanedChildText;
+      } else {
+        const childTools = buildDelegationTools(
+          childFlowCtx.node,
+          childFlowCtx.nodes,
+          childFlowCtx.edges,
+        );
+
+        const errorAnnotations: string[] = [];
+        const successAnnotations: string[] = [];
+
+        for (const call of childCalls) {
+          // Match the call against the child's available tools. Unknown
+          // tools are skipped quietly — matches the top-level behavior in
+          // flowChat.ts.
+          const tool = childTools.find((t) => t.name === call.toolName);
+          if (!tool) {
+            log.debug(
+              {
+                parentCallId: callId,
+                childDeployment: params.targetDeploymentId,
+                toolName: call.toolName,
+              },
+              "Sub-delegation tool not found on child",
+            );
+            continue;
+          }
+
+          const nextAncestors = [...ancestors, params.targetDeploymentId];
+
+          // Pre-check cycle + depth before even attempting the recursive
+          // call. Surfacing these inline in the parent response is more
+          // helpful than letting them throw back up.
+          if (nextAncestors.includes(tool.targetDeploymentId)) {
+            const msg = `[sub-delegation to ${call.toolName} refused: cycle back to ancestor ${tool.targetDeploymentId}]`;
+            log.warn(
+              { callId, chain: nextAncestors, target: tool.targetDeploymentId },
+              "Sub-delegation cycle refused",
+            );
+            errorAnnotations.push(msg);
+            continue;
+          }
+          if (depth + 1 > MAX_DELEGATION_DEPTH) {
+            const msg = `[sub-delegation to ${call.toolName} refused: depth ${depth + 1} > max ${MAX_DELEGATION_DEPTH}]`;
+            log.warn(
+              { callId, attemptedDepth: depth + 1, max: MAX_DELEGATION_DEPTH },
+              "Sub-delegation depth limit refused",
+            );
+            errorAnnotations.push(msg);
+            continue;
+          }
+
+          try {
+            const childResult = await executeDelegation({
+              targetDeploymentId: tool.targetDeploymentId,
+              targetNodeId: tool.targetNodeId,
+              task: call.task,
+              context: call.context,
+              contextScope: tool.contextScope,
+              conversationHistory: params.conversationHistory,
+              sessionId: `flow-delegation-${tool.targetDeploymentId}-${Date.now()}-${nanoid(4)}`,
+              depth: depth + 1,
+              sourceDeploymentId: params.targetDeploymentId,
+              toolName: call.toolName,
+              userId: params.userId,
+              parentCallId: callId,
+              ancestorDeploymentIds: nextAncestors,
+              flowId: childFlowCtx.flowId,
+            });
+
+            childResults.push(childResult);
+
+            const childNode = childFlowCtx.nodes.find(
+              (n) => n.id === tool.targetNodeId,
+            );
+            const roleLabel =
+              childNode?.role || childNode?.label || tool.targetNodeId;
+            successAnnotations.push(
+              `**${roleLabel}:** ${childResult.response}`.trim(),
+            );
+
+            if (childResult.uiBlocks?.length) {
+              aggregatedUiBlocks = aggregatedUiBlocks.concat(childResult.uiBlocks);
+            }
+            if (childResult.componentDefs?.length) {
+              aggregatedComponentDefs = aggregatedComponentDefs.concat(
+                childResult.componentDefs,
+              );
+            }
+            if (childResult.suggestions?.length) {
+              aggregatedSuggestions = aggregatedSuggestions.concat(
+                childResult.suggestions,
+              );
+            }
+          } catch (subErr) {
+            const msg = `[sub-delegation to ${call.toolName} failed: ${
+              subErr instanceof Error ? subErr.message : String(subErr)
+            }]`;
+            log.warn(
+              {
+                callId,
+                toolName: call.toolName,
+                err: subErr instanceof Error ? subErr.message : String(subErr),
+              },
+              "Sub-delegation errored",
+            );
+            errorAnnotations.push(msg);
+          }
+        }
+
+        // Merge child outputs into the parent's visible response text. The
+        // parent's own prose (minus delegation fences) comes first, then
+        // each specialist's labeled reply, then any refusal annotations.
+        const parts: string[] = [];
+        if (cleanedChildText) parts.push(cleanedChildText);
+        if (successAnnotations.length > 0) parts.push(successAnnotations.join("\n\n"));
+        if (errorAnnotations.length > 0) parts.push(errorAnnotations.join("\n"));
+        finalResponse = parts.join("\n\n").trim() || cleanedChildText;
+      }
+    }
 
     // ── Emit orchestration:step:end event ──────────────────────────────────
     try {
@@ -512,34 +960,32 @@ export async function executeDelegation(params: {
         targetDeploymentId: params.targetDeploymentId,
         success: true,
         durationMs,
-        resultPreview: (result.text || "").slice(0, 200),
+        resultPreview: (finalResponse || "").slice(0, 200),
+        parentStepId: params.parentCallId ?? undefined,
+        depth,
       });
     } catch {
       // Non-fatal
     }
 
-    // ── JAR-50: finish the agent_calls row as completed ───────────────────
-    await finishAgentCall({
-      call: agentCallHandle,
+    await updateAgentCallsRow({
       status: "completed",
-      responseBody: result.text || "",
-      creditsCharged: 1,
-      attributes: {
-        responseLen: (result.text || "").length,
-        uiBlocks: result.uiBlocks?.length || 0,
-        componentDefs: result.componentDefs?.length || 0,
-      },
+      responseBody: (finalResponse || "").slice(0, 10_000),
+      latencyMs: durationMs,
     });
 
     return {
-      response: result.text || "",
-      creditsUsed: 1, // 1 credit per delegation call
+      response: finalResponse,
+      creditsUsed: 1, // 1 credit per delegation call (children add their own)
       durationMs,
       targetNodeId: params.targetNodeId,
       targetDeploymentId: params.targetDeploymentId,
-      uiBlocks: result.uiBlocks?.length ? result.uiBlocks : undefined,
-      componentDefs: result.componentDefs?.length ? result.componentDefs : undefined,
-      suggestions: result.suggestions?.length ? result.suggestions : undefined,
+      uiBlocks: aggregatedUiBlocks.length ? aggregatedUiBlocks : undefined,
+      componentDefs: aggregatedComponentDefs.length ? aggregatedComponentDefs : undefined,
+      suggestions: aggregatedSuggestions.length ? aggregatedSuggestions : undefined,
+      callId,
+      depth,
+      children: childResults.length ? childResults : undefined,
     };
   } catch (err) {
     const durationMs = Date.now() - startTime;
@@ -555,16 +1001,16 @@ export async function executeDelegation(params: {
         success: false,
         durationMs,
         error: err instanceof Error ? err.message : String(err),
+        parentStepId: params.parentCallId ?? undefined,
+        depth,
       });
     } catch {
       // Non-fatal
     }
-    // ── JAR-50: finish the agent_calls row as failed ──────────────────────
-    await finishAgentCall({
-      call: agentCallHandle,
+    await updateAgentCallsRow({
       status: "failed",
-      errorMessage: err instanceof Error ? err.message : String(err),
-      attributes: { errorKind: err instanceof Error ? err.name : "unknown" },
+      errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 2000),
+      latencyMs: durationMs,
     });
     throw err;
   } finally {
