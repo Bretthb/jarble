@@ -254,6 +254,7 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
     // Only for saved flows (dbFlow exists) — ad-hoc executions have no FK target.
     if (dbFlow.length > 0) {
       try {
+        const nowTs = new Date();
         await db.insert(tables.flowExecutions).values({
           id: executionId,
           flowId,
@@ -261,7 +262,8 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
           status: "running",
           stepResults: JSON.stringify({}),
           totalCreditsCharged: 0,
-          createdAt: new Date(),
+          startedAt: nowTs,
+          createdAt: nowTs,
         } as any);
       } catch (insertErr) {
         log.error({ insertErr, executionId }, "Failed to insert flow execution row");

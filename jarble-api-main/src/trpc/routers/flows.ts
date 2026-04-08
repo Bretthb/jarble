@@ -284,7 +284,16 @@ const MAX_FLOW_EDGES = 200;
 const FlowDefinitionSchema = z.object({
   nodes: z.array(FlowNodeSchema).max(MAX_FLOW_NODES, `Flow cannot have more than ${MAX_FLOW_NODES} nodes`),
   edges: z.array(FlowEdgeSchema).max(MAX_FLOW_EDGES, `Flow cannot have more than ${MAX_FLOW_EDGES} edges`),
-});
+}).refine(
+  (def) => {
+    // Reject dangling edges: every edge.source and edge.target must reference
+    // an existing node id. Without this check the executor produces confusing
+    // results when it encounters references to nodes that were never defined.
+    const nodeIds = new Set(def.nodes.map((n) => n.id));
+    return def.edges.every((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
+  },
+  { message: "Flow contains edges that reference unknown node ids" },
+);
 
 // ── Router ───────────────────────────────────────────────────────────────
 
