@@ -22,6 +22,17 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import MemberList from "@/components/organizations/MemberList";
 import InviteMemberDialog from "@/components/organizations/InviteMemberDialog";
@@ -121,14 +132,18 @@ export default function OrgDetailView() {
   }
 
   const org = orgQuery.data;
-  if (!org || !membership) {
+  // Show not-found UI if:
+  //   - the getById query errored (NOT_FOUND, wrong membership, etc.)
+  //   - OR the server returned no data
+  //   - OR the user isn't a member of this org (context mismatch)
+  if (orgQuery.isError || !org || !membership) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-4">
+        <div className="text-center space-y-4 max-w-md px-6">
           <Building2 className="w-12 h-12 text-muted-foreground mx-auto" />
           <h2 className="text-lg font-medium">Organization not found</h2>
           <p className="text-sm text-muted-foreground">
-            You may not have access to this organization.
+            This organization doesn't exist or you're not a member.
           </p>
           <Button variant="outline" onClick={() => router.push("/orgs")}>
             Back to Organizations
@@ -309,23 +324,37 @@ export default function OrgDetailView() {
                   All deployments will return to personal mode. Members will be removed.
                 </p>
               </div>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  if (confirm(`Delete "${org.name}"? This cannot be undone.`)) {
-                    deleteOrg.mutate({ orgId });
-                  }
-                }}
-                disabled={deleteOrg.isPending}
-              >
-                {deleteOrg.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Trash2 className="w-4 h-4" />
-                )}
-                Delete
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm" disabled={deleteOrg.isPending}>
+                    {deleteOrg.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                    Delete
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete organization?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete <strong>{org.name}</strong>. All
+                      deployments owned by the org will return to personal mode and
+                      all members will lose access. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => deleteOrg.mutate({ orgId })}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           ) : (
             <div className="flex items-center justify-between">
@@ -335,23 +364,37 @@ export default function OrgDetailView() {
                   Your deployments assigned to this org will return to personal mode.
                 </p>
               </div>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  if (confirm(`Leave "${org.name}"?`)) {
-                    leaveOrg.mutate({ orgId });
-                  }
-                }}
-                disabled={leaveOrg.isPending}
-              >
-                {leaveOrg.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <LogOut className="w-4 h-4" />
-                )}
-                Leave
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm" disabled={leaveOrg.isPending}>
+                    {leaveOrg.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <LogOut className="w-4 h-4" />
+                    )}
+                    Leave
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Leave organization?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      You'll lose access to <strong>{org.name}</strong> and any
+                      deployments you assigned to it will return to your personal
+                      workspace.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => leaveOrg.mutate({ orgId })}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Leave
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           )}
         </Card>
