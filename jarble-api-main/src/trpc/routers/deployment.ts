@@ -1060,7 +1060,10 @@ export const deploymentRouter = router({
         .set(updates)
         .where(and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)));
 
-      // Config sync: push updated configs to PVC if deployment is running
+      // Config sync: push updated configs to PVC if deployment is running.
+      // memoryScope is now a Secret entry (JARBLE_MEMORY_SCOPE, wired in
+      // openclaw.ts:getSecretEntries), so a change auto-escalates configSync
+      // to tier-3 (pod restart) — no explicit restart needed here.
       if (existing.status === "running") {
         safeFireAndForget(syncConfigsToPvc(id), { operation: "syncConfigsToPvc", deploymentId: id });
       }
