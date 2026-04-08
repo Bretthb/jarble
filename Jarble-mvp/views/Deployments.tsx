@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc, API_URL } from "@/lib/trpc";
 import { vanillaClient } from "@/lib/trpc-vanilla";
@@ -2313,23 +2314,89 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
 
   // ── Mutations ─────────────────────────────────────────────────────
 
+  // Mutations use setData-based optimistic cache updates instead of
+  // invalidate+refetch. The refetch approach races with DB write propagation
+  // (especially on Neon Postgres), causing stale reads to overwrite local
+  // state — the root cause of multiple QA-reported data loss bugs:
+  //   - "Save wipes added node" — new definition lost to stale refetch
+  //   - "Rename lost on Save" — new name lost to stale refetch
+  //   - "New button no-op until next Save" — new flow invisible until refetch
+  //   - "Ghost tabs after server-side delete" — failed 404 not reconciled
+  //
+  // By writing directly to the cache with what we know the server now has,
+  // we eliminate the race entirely.
+
   const createFlowMutation = trpc.flows.create.useMutation({
-    onSuccess: (data) => {
-      utils.flows.list.invalidate();
+    onSuccess: (data, input) => {
+      // Insert the newly-created flow into the list cache directly. We
+      // construct the ApiFlow shape from the input + server-returned id.
+      utils.flows.list.setData(undefined, (old: any) => {
+        const newFlow = {
+          id: data.id,
+          name: input.name,
+          description: input.description ?? null,
+          definition: JSON.stringify(input.definition),
+          status: input.status ?? "draft",
+          isPublic: false,
+          forkCount: 0,
+          forkedFromId: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        return old ? [newFlow, ...old] : [newFlow];
+      });
       setActiveFlowId(data.id);
       setIsSaved(true);
     },
   });
 
   const updateFlowMutation = trpc.flows.update.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, input) => {
+      // Merge the input fields into the cached flow directly. The server
+      // just persisted these exact values, so writing them to the cache is
+      // authoritative. No refetch needed.
+      utils.flows.list.setData(undefined, (old: any) => {
+        if (!old) return old;
+        return old.map((f: any) => {
+          if (f.id !== input.id) return f;
+          const merged: any = { ...f, updatedAt: new Date().toISOString() };
+          if (input.name !== undefined) merged.name = input.name;
+          if (input.description !== undefined) merged.description = input.description;
+          if (input.definition !== undefined) merged.definition = JSON.stringify(input.definition);
+          if (input.status !== undefined) merged.status = input.status;
+          if (input.isPublic !== undefined) merged.isPublic = input.isPublic;
+          if (input.entryNodeId !== undefined) merged.entryNodeId = input.entryNodeId;
+          if (input.teamType !== undefined) merged.teamType = input.teamType;
+          return merged;
+        });
+      });
       setIsSaved(true);
+    },
+    onError: (err) => {
+      // Show a toast so the user knows the save failed — previously it was
+      // silent and the user thought their work saved.
+      toast.error(`Failed to save flow: ${err.message}`);
     },
   });
 
   const deleteFlowMutation = trpc.flows.delete.useMutation({
-    onSuccess: () => {
-      utils.flows.list.invalidate();
+    onSuccess: (_data, input) => {
+      // Remove the flow from the cache directly instead of invalidating.
+      utils.flows.list.setData(undefined, (old: any) =>
+        old ? old.filter((f: any) => f.id !== input.id) : old
+      );
+    },
+    onError: (err, input) => {
+      // Reconcile: if the server says the flow is already gone, remove it
+      // from the local cache anyway (ghost tab bug). Otherwise show an error.
+      if (err.data?.code === "NOT_FOUND") {
+        utils.flows.list.setData(undefined, (old: any) =>
+          old ? old.filter((f: any) => f.id !== input.id) : old
+        );
+        toast.info("Flow was already removed on the server — cleaned up locally");
+      } else {
+        toast.error(`Failed to delete flow: ${err.message}`);
+      }
     },
   });
 
@@ -2430,11 +2497,12 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     } as typeof mutation.definition;
 
     updateFlowMutation.mutate(mutation, {
-      onSuccess: async () => {
-        // Wait for the refetch to land in the cache before clearing local overrides.
-        // Without this await, there's a race: overrides clear → stale cache shown
-        // (with empty nodes) → refetch arrives too late → canvas appears empty.
-        await utils.flows.list.invalidate();
+      onSuccess: () => {
+        // The global updateFlowMutation.onSuccess handler already merged the
+        // input into the query cache. We can safely clear the local override
+        // now — the cache contains the authoritative post-save data, so
+        // activeFlow (which reads from flows which reads from cache) will
+        // show the saved state.
         setLocalOverrides((prev) => {
           const next = { ...prev };
           delete next[activeFlowId];
@@ -3292,9 +3360,13 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         entryNodeName={entryNodeName}
       />
 
-      {/* Canvas or empty state */}
+      {/* Canvas or empty state. Use flex-row so Chat panel docks beside the
+          canvas (pushes it, doesn't overlay it). showFlowChat adds a sibling
+          on the right — the ReactFlow canvas shrinks to fit. */}
       {activeFlow ? (
-        <div className="flex-1 flex flex-col min-h-0 relative">
+        <div className="flex-1 flex flex-row min-h-0 relative">
+          {/* Canvas column: holds the flow canvas + execution timeline */}
+          <div className="flex-1 flex flex-col min-w-0 relative">
           <ReactFlowProvider>
             <FlowCanvas
               deployments={deployments}
@@ -3328,10 +3400,15 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
               }}
             />
           )}
+          </div>
+          {/* /canvas column */}
 
-          {/* Chat with Team panel overlay (right side of canvas) */}
+          {/* Chat with Team panel — docked side drawer. Previously used
+              `absolute right-0 top-0 bottom-0` which overlaid the canvas
+              and hid nodes on the right side of the graph. Now it's a
+              sibling flex child that takes up its own space. */}
           {showFlowChat && (
-            <div className="absolute right-0 top-0 bottom-0 w-96 bg-card border-l border-border z-50 flex flex-col">
+            <div className="relative w-96 shrink-0 bg-card border-l border-border z-10 flex flex-col">
               <div className="flex items-center justify-between p-3 border-b border-border">
                 {/* Session picker — replaces the static "Chat with Team"
                     title with a dropdown that lists persisted sessions
