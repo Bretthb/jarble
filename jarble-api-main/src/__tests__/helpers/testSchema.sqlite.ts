@@ -804,10 +804,14 @@ export const agentCalls = sqliteTable("agent_calls", {
   responseBody: text("response_body"),
   latencyMs: integer("latency_ms"),
   errorMessage: text("error_message"),
+  parentCallId: text("parent_call_id"), // nullable self-ref to agent_calls.id; FK not enforced
+  depth: integer("depth").notNull().default(0), // 0 = top-level user call, 1 = first delegation, etc.
+  kind: text("kind").notNull().default("delegation"), // delegation | subagent | skill
   createdAt: text("created_at").notNull().$defaultFn(now),
 }, (table) => ({
   callerIdx: index("idx_agent_calls_caller").on(table.callerDeploymentId),
   calleeIdx: index("idx_agent_calls_callee").on(table.calleeDeploymentId),
+  parentCallIdx: index("idx_agent_calls_parent_call_id").on(table.parentCallId),
 }));
 
 // ── Managed Nodes (Auto-scaling) ─────────────────────────────────────────

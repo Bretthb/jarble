@@ -966,6 +966,9 @@ tamboAgentRouter.post("/", async (req, res) => {
   let teamDelegationTools: DelegationTool[] = [];
   let teamFlowNode: FlowNode | null = null;
   let teamFlowDefinition: FlowDefinition | null = null;
+  // Flow id the team delegation belongs to. Passed into `executeDelegation`
+  // so recursive sub-delegation stays within the same flow membership.
+  let teamFlowId: string | null = null;
 
   try {
     const fdm = (tables as any).flowDeploymentMemberships;
@@ -1002,6 +1005,7 @@ tamboAgentRouter.post("/", async (req, res) => {
             if (thisNode) {
               teamFlowNode = thisNode;
               teamFlowDefinition = def;
+              teamFlowId = flowRows[0].id as string;
               teamDelegationTools = buildDelegationTools(thisNode, def.nodes, def.edges);
 
               if (teamDelegationTools.length > 0) {
@@ -1270,6 +1274,15 @@ tamboAgentRouter.post("/", async (req, res) => {
                 sourceDeploymentId: deploymentId,
                 toolName: call.toolName,
                 userId: authenticatedUserId ?? undefined,
+                // ── N-level delegation wiring ──────────────────────────
+                // The entry bot (this deployment) is depth 0 and owns no
+                // agent_calls row, so this first hop has `parentCallId:
+                // null`. The ancestor chain starts with this deployment
+                // so a downstream attempt to route back here is refused
+                // by `DelegationCycleError`.
+                parentCallId: null,
+                ancestorDeploymentIds: [deploymentId],
+                flowId: teamFlowId ?? undefined,
               });
 
               // Emit delegation end event

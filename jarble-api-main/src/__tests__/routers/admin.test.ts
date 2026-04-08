@@ -640,10 +640,14 @@ const CREATE_TABLES_SQL = `
     response_body TEXT,
     latency_ms INTEGER,
     error_message TEXT,
+    parent_call_id TEXT,
+    depth INTEGER DEFAULT 0 NOT NULL,
+    kind TEXT DEFAULT 'delegation' NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_agent_calls_caller ON agent_calls(caller_deployment_id);
   CREATE INDEX IF NOT EXISTS idx_agent_calls_callee ON agent_calls(callee_deployment_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_parent_call_id ON agent_calls(parent_call_id);
   CREATE TABLE IF NOT EXISTS chat_sessions (
     id TEXT PRIMARY KEY,
     deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
