@@ -21,7 +21,7 @@ export default function MarketingFooter() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col md:flex-row justify-between items-center gap-6">
           <Link href="/" className="flex items-center hover:opacity-80 transition-opacity">
-            <Image src={logoSrc} alt="Jarble" width={100} height={30} className="h-7 w-auto" />
+            <Image src={logoSrc} alt="Jarble" width={100} height={30} className="h-10 w-auto" />
           </Link>
           <nav className="flex flex-wrap justify-center gap-x-8 gap-y-2">
             {FOOTER_LINKS.map(({ href, label }) => (

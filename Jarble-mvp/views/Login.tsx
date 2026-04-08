@@ -63,7 +63,7 @@ export default function Login() {
         {/* Logo */}
         <div className="text-center mb-8 animate-fade-in-up">
           <Link href="/" className="inline-flex items-center hover:opacity-80 transition-opacity">
-            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-9 w-auto" />
+            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" />
           </Link>
           <h1 className="text-2xl font-serif font-medium mt-6 mb-2">Welcome back</h1>
           <p className="text-muted-foreground">Sign in to your account to continue</p>

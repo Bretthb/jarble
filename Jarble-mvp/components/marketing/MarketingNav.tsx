@@ -37,7 +37,7 @@ export default function MarketingNav() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
         {/* Logo */}
         <Link href="/" className="flex items-center hover:opacity-80 transition-opacity">
-          <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-9 w-auto" priority />
+          <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" priority />
         </Link>
 
         {/* Desktop nav links */}
@@ -98,7 +98,7 @@ export default function MarketingNav() {
             <SheetContent side="right" className="w-[260px] p-0">
               <SheetHeader className="px-4 pt-4 pb-2">
                 <SheetTitle className="text-left">
-                  <Image src={logoSrc} alt="Jarble" width={100} height={30} className="h-7 w-auto" />
+                  <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-10 w-auto" />
                 </SheetTitle>
               </SheetHeader>
               <div className="flex flex-col py-2">

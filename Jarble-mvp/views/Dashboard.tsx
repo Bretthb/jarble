@@ -241,7 +241,7 @@ export default function Dashboard() {
       <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
           <a href="/" className="flex items-center cursor-pointer no-underline">
-            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-9 w-auto" />
+            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" />
           </a>
           <ProfileDropdown />
         </div>
