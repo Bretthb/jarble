@@ -70,6 +70,9 @@ import FlowNodeConfigPanel from "@/components/workspace/FlowNodeConfigPanel";
 import type { FlowNodeConfig } from "@/components/workspace/FlowNodeConfigPanel";
 import FlowExecutionTimeline from "@/components/workspace/FlowExecutionTimeline";
 import type { FlowExecutionStep } from "@/components/workspace/FlowExecutionTimeline";
+import TeamChatCanvasCard, {
+  type TeamCanvasCardData,
+} from "@/components/workspace/TeamChatCanvasCard";
 import { runtimeNeedsLlm } from "./onboarding/wizardStepConfig";
 import {
   ReactFlow,
@@ -2628,6 +2631,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
       availableToolCount: number;
       availableTools: string[];
     };
+    /** Canvas cards produced by the team during this assistant turn. */
+    canvasCards?: TeamCanvasCardData[];
   }>>([]);
   const [flowChatInput, setFlowChatInput] = useState("");
   const [flowChatLoading, setFlowChatLoading] = useState(false);
@@ -3129,6 +3134,20 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     chatMessagesQuery.data,
   ]);
 
+  // Remove a canvas card from its assistant message. Used by the X button
+  // on each inline TeamChatCanvasCard. Matches the dedupe-by-id semantics
+  // used when the card is added from a uiblock event.
+  const handleRemoveCanvasCard = useCallback((cardId: string) => {
+    setFlowChatMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.role !== "assistant" || !msg.canvasCards?.length) return msg;
+        const next = msg.canvasCards.filter((c) => c.id !== cardId);
+        if (next.length === msg.canvasCards.length) return msg;
+        return { ...msg, canvasCards: next };
+      }),
+    );
+  }, []);
+
   const handleFlowChatSend = useCallback(async () => {
     if (!flowChatInput.trim() || !activeFlowId || flowChatLoading) return;
     const userMsg = flowChatInput.trim();
@@ -3265,6 +3284,65 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                     }
                     return [...prev, { role: "assistant", content: "", skip }];
                   });
+                } else if (name === "jarble.flow.delegation.uiblock") {
+                  // A delegated specialist produced a UI block. Backend
+                  // already extracted the JarbleUIBlock and tagged it with
+                  // the producer's deploymentId + role — see
+                  // jarble-api-main/src/routes/flowChat.ts:591-604.
+                  // Attach it to the current assistant bubble as a
+                  // canvas card with producer attribution. This is the
+                  // team-chat counterpart of the TOOL_CALL_* rail used by
+                  // the individual deployment chat (useCanvasChat.ts).
+                  const rawBlock = value.block;
+                  if (rawBlock && typeof rawBlock === "object" && rawBlock.component) {
+                    // Compute the id fallback exactly once so card.id and
+                    // block.id stay in lockstep — the dedupe guard below
+                    // keys off card.id while CanvasRenderer keys off
+                    // block.id, and any drift between them would break
+                    // reconnect/replay dedupe.
+                    const stableId =
+                      rawBlock.id || `team-card-${Math.random().toString(36).slice(2, 10)}`;
+                    const newCard: TeamCanvasCardData = {
+                      id: stableId,
+                      block: {
+                        id: stableId,
+                        component: rawBlock.component,
+                        props: rawBlock.props ?? {},
+                        editable: rawBlock.editable,
+                        fileId: rawBlock.fileId,
+                        saveMethod: rawBlock.saveMethod,
+                      },
+                      producerDeploymentId: String(value.sourceDeploymentId ?? ""),
+                      producerRole: String(value.sourceRole ?? "Team member"),
+                      delegationToolName: value.delegationToolName
+                        ? String(value.delegationToolName)
+                        : undefined,
+                      origin: "delegation",
+                    };
+                    setFlowChatMessages((prev) => {
+                      const last = prev[prev.length - 1];
+                      // Mirror the delegation.start pattern: create an
+                      // assistant bubble if none exists yet, so a uiblock
+                      // event arriving before any text delta doesn't get
+                      // silently dropped.
+                      if (!last || last.role !== "assistant") {
+                        return [
+                          ...prev,
+                          { role: "assistant", content: "", canvasCards: [newCard] },
+                        ];
+                      }
+                      // Deduplicate by card id so a reconnect / replay
+                      // doesn't stack the same card twice.
+                      const existing = last.canvasCards ?? [];
+                      if (existing.some((c) => c.id === newCard.id)) {
+                        return prev;
+                      }
+                      return [
+                        ...prev.slice(0, -1),
+                        { ...last, canvasCards: [...existing, newCard] },
+                      ];
+                    });
+                  }
                 }
               }
             } catch {
@@ -3686,6 +3764,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                 )}
                 {flowChatMessages.map((msg, i) => (
                   <div key={i} className={`text-sm ${msg.role === "user" ? "text-right" : ""}`}>
+                    {(msg.content || msg.delegations?.length || msg.skip || msg.role === "user") && (
                     <div className={`inline-block max-w-[85%] rounded-lg px-3 py-2 ${
                       msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary"
                     }`}>
@@ -3737,6 +3816,24 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                         </div>
                       )}
                     </div>
+                    )}
+                    {/* Inline canvas cards — one per UI block produced by a
+                        delegated specialist during this assistant turn. Cards
+                        render below the bubble so their full-width layout
+                        doesn't fight the 85% bubble cap. Each card carries
+                        the producer attribution (deployment + role) from
+                        jarble.flow.delegation.uiblock. */}
+                    {msg.role === "assistant" && msg.canvasCards && msg.canvasCards.length > 0 && (
+                      <div className="mt-1 space-y-1.5" data-testid="team-chat-canvas-cards">
+                        {msg.canvasCards.map((card) => (
+                          <TeamChatCanvasCard
+                            key={card.id}
+                            card={card}
+                            onRemove={handleRemoveCanvasCard}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
                 {flowChatLoading && (
