@@ -44,6 +44,64 @@ const PROTECTED_PATHS = [
   `${PVC_MOUNT}/.npm`,
 ];
 
+// ── Structured logger ────────────────────────────────────────────────────
+//
+// Zero-deps replacement for the previous `log.info("X")` calls.
+// We can't import pino because the MCP server is bundled into the OpenClaw
+// runtime image without npm install (only the single file is copied), but
+// we DO want structured JSON logs so K8s log aggregators (Loki, Elastic,
+// Sentry's log integration) can parse + index them.
+//
+// Output goes to stderr because stdout is reserved for the MCP JSON-RPC
+// protocol — anything written to stdout would corrupt the wire format
+// and disconnect the client.
+//
+// Format mirrors pino's default shape ({level, time, pid, hostname,
+// module, msg, ...fields}) so any pino-aware tooling on the receiving end
+// processes these without special-casing the MCP server.
+const PINO_LEVELS = { trace: 10, debug: 20, info: 30, warn: 40, error: 50, fatal: 60 };
+const HOSTNAME = (() => {
+  try { return require("os").hostname(); } catch { return "unknown"; }
+})();
+function _emitLog(level, arg1, arg2) {
+  // Two call shapes, mirroring pino:
+  //   log.info("message")
+  //   log.info({field: value, err: e}, "message")
+  let fields = {};
+  let msg;
+  if (typeof arg1 === "string") {
+    msg = arg1;
+  } else if (arg1 && typeof arg1 === "object") {
+    fields = arg1;
+    msg = arg2 || "";
+  }
+  // Coerce Error objects in `err` field so the message + stack survive JSON.
+  if (fields.err instanceof Error) {
+    fields.err = { message: fields.err.message, stack: fields.err.stack, name: fields.err.name };
+  }
+  const record = {
+    level: PINO_LEVELS[level] || 30,
+    time: Date.now(),
+    pid: process.pid,
+    hostname: HOSTNAME,
+    module: "mcp:jarble-ui",
+    ...fields,
+    msg,
+  };
+  try {
+    process.stderr.write(JSON.stringify(record) + "\n");
+  } catch {
+    // last-resort fallback if JSON.stringify chokes on a circular ref
+    process.stderr.write(`[mcp:jarble-ui] ${level} ${msg}\n`);
+  }
+}
+const log = {
+  info: (a, b) => _emitLog("info", a, b),
+  warn: (a, b) => _emitLog("warn", a, b),
+  error: (a, b) => _emitLog("error", a, b),
+  debug: (a, b) => _emitLog("debug", a, b),
+};
+
 /**
  * Returns true if the given absolute path is platform-protected.
  * Checks for exact match or prefix match (directory containment).
@@ -126,12 +184,12 @@ try {
           } catch { /* skip malformed */ }
         }
         fs.writeFileSync(wsManifestPath, JSON.stringify({ version: 1, artifacts: manifestArtifacts }, null, 2), "utf-8");
-        if (migrated > 0) console.error(`[MCP] Migrated ${migrated} old canvas files to workspace artifacts`);
+        if (migrated > 0) log.info(`Migrated ${migrated} old canvas files to workspace artifacts`);
       }
     }
   }
 } catch (e) {
-  console.error("[MCP] Migration failed:", e.message);
+  log.warn("Migration failed:", e.message);
 }
 const MAX_FILE_SIZE = 1_000_000; // 1MB
 
@@ -153,11 +211,11 @@ try {
   BUILTIN_DESCRIPTIONS = manifestData.descriptions;
   if (manifestData.schemas) {
     BUILTIN_SCHEMAS = manifestData.schemas;
-    console.error(`[MCP] Loaded ${Object.keys(BUILTIN_SCHEMAS).length} component JSON schemas`);
+    log.info(`Loaded ${Object.keys(BUILTIN_SCHEMAS).length} component JSON schemas`);
   }
   if (Array.isArray(manifestData.tools)) {
     PER_COMPONENT_TOOLS = manifestData.tools;
-    console.error(`[MCP] Loaded ${PER_COMPONENT_TOOLS.length} per-component tools`);
+    log.info(`Loaded ${PER_COMPONENT_TOOLS.length} per-component tools`);
   }
 } catch {
   // Fallback: inline list for first boot / when JSON not yet generated
@@ -202,11 +260,11 @@ try {
       }
     }
     if (MARKETPLACE_COMPONENT_NAMES.size > 0) {
-      console.error(`[MCP] Found ${MARKETPLACE_COMPONENT_NAMES.size} marketplace components (resolved via /data/components/)`);
+      log.info(`Found ${MARKETPLACE_COMPONENT_NAMES.size} marketplace components (resolved via /data/components/)`);
     }
   }
 } catch (e) {
-  console.error("[MCP] Failed to scan marketplace dir:", e.message);
+  log.warn("Failed to scan marketplace dir:", e.message);
 }
 
 // ── Load service tools from /data/config/service-tools.json ───────────
@@ -231,11 +289,11 @@ function loadServiceTools() {
             _serviceId: t.serviceId,
           };
         });
-        console.error("[MCP] Loaded " + SERVICE_TOOLS.length + " service tools from " + SERVICE_TOOLS_PATH);
+        log.info("Loaded " + SERVICE_TOOLS.length + " service tools from " + SERVICE_TOOLS_PATH);
       }
     }
   } catch (e) {
-    console.error("[MCP] Failed to load service tools:", e.message);
+    log.warn("Failed to load service tools:", e.message);
   }
 }
 loadServiceTools();
@@ -246,14 +304,14 @@ try {
   if (fs.existsSync(serviceToolsDir)) {
     fs.watch(serviceToolsDir, function(eventType, filename) {
       if (filename === path.basename(SERVICE_TOOLS_PATH)) {
-        console.error("[MCP] service-tools.json changed, reloading...");
+        log.info("service-tools.json changed, reloading...");
         loadServiceTools();
       }
     });
   }
 } catch (e) {
   // fs.watch may fail on some platforms — non-fatal, tools reload on MCP restart
-  console.error("[MCP] Could not watch for service-tools.json changes:", e.message);
+  log.warn("Could not watch for service-tools.json changes:", e.message);
 }
 
 // ── Subagent tools — user-configured specialist agents ─────────────────
@@ -283,11 +341,11 @@ function loadSubagentTools() {
             },
           };
         });
-        console.error("[MCP] Loaded " + SUBAGENT_TOOLS.length + " subagent tools from " + SUBAGENT_TOOLS_PATH);
+        log.info("Loaded " + SUBAGENT_TOOLS.length + " subagent tools from " + SUBAGENT_TOOLS_PATH);
       }
     }
   } catch (e) {
-    console.error("[MCP] Failed to load subagent tools:", e.message);
+    log.warn("Failed to load subagent tools:", e.message);
   }
 }
 loadSubagentTools();
@@ -298,14 +356,14 @@ try {
   if (fs.existsSync(subagentToolsDir)) {
     fs.watch(subagentToolsDir, function(eventType, filename) {
       if (filename === path.basename(SUBAGENT_TOOLS_PATH)) {
-        console.error("[MCP] subagent-tools.json changed, reloading...");
+        log.info("subagent-tools.json changed, reloading...");
         loadSubagentTools();
       }
     });
   }
 } catch (e) {
   // fs.watch may fail on some platforms — non-fatal, tools reload on MCP restart
-  console.error("[MCP] Could not watch for subagent-tools.json changes:", e.message);
+  log.warn("Could not watch for subagent-tools.json changes:", e.message);
 }
 
 /**
@@ -679,10 +737,10 @@ function readComponent(name) {
   const fp = path.join(COMPONENTS_DIR, `${name}.json`);
   if (!fs.existsSync(fp)) return null;
   try {
-    console.error("[MCP] File read:", fp);
+    log.info("File read:", fp);
     return JSON.parse(fs.readFileSync(fp, "utf8"));
   } catch (err) {
-    console.error("[MCP] Failed to parse JSON from file:", fp, err.message);
+    log.warn("Failed to parse JSON from file:", fp, err.message);
     return null;
   }
 }
@@ -690,7 +748,7 @@ function readComponent(name) {
 function writeComponent(name, def) {
   ensureDir();
   const fp = path.join(COMPONENTS_DIR, `${name}.json`);
-  console.error("[MCP] File write:", fp);
+  log.info("File write:", fp);
   safeWriteFileSync(fp, JSON.stringify(def, null, 2), "utf8");
 }
 
@@ -704,7 +762,7 @@ function listCustomComponents() {
       const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
       results.push({ name: parsed.name || file.replace(".json", ""), description: parsed.description || "" });
     } catch (err) {
-      console.error("[MCP] Failed to parse JSON from file:", filePath, err.message);
+      log.warn("Failed to parse JSON from file:", filePath, err.message);
     }
   }
   return results;
@@ -1726,7 +1784,7 @@ function readServiceManifest() {
       return JSON.parse(fs.readFileSync(SERVICE_MANIFEST_PATH, "utf-8"));
     }
   } catch (e) {
-    console.error("[MCP] Failed to read service manifest:", e.message);
+    log.warn("Failed to read service manifest:", e.message);
   }
   return { services: {} };
 }
@@ -1782,11 +1840,11 @@ function spawnService(name, port, codeFilePath) {
     detached: false,
   });
 
-  child.stdout.on("data", (d) => console.error(`[service:${name}] ${d.toString().trim()}`));
-  child.stderr.on("data", (d) => console.error(`[service:${name}:err] ${d.toString().trim()}`));
+  child.stdout.on("data", (d) => log.info(`[service:${name}] ${d.toString().trim()}`));
+  child.stderr.on("data", (d) => log.info(`[service:${name}:err] ${d.toString().trim()}`));
 
   child.on("exit", (code, signal) => {
-    console.error(`[MCP] Service "${name}" exited (code=${code}, signal=${signal})`);
+    log.info(`Service "${name}" exited (code=${code}, signal=${signal})`);
     runningServices.delete(name);
   });
 
@@ -1797,7 +1855,7 @@ function spawnService(name, port, codeFilePath) {
     startedAt: new Date().toISOString(),
   });
 
-  console.error(`[MCP] Service "${name}" started on port ${port} (PID ${child.pid})`);
+  log.info(`Service "${name}" started on port ${port} (PID ${child.pid})`);
   return child.pid;
 }
 
@@ -1810,18 +1868,18 @@ function autoRestartServices() {
   for (const [name, svc] of Object.entries(manifest.services)) {
     const codeFile = path.join(SERVICES_DIR, name, "server.js");
     if (!fs.existsSync(codeFile)) {
-      console.error(`[MCP] Service "${name}" code missing at ${codeFile}, skipping auto-restart`);
+      log.info(`Service "${name}" code missing at ${codeFile}, skipping auto-restart`);
       continue;
     }
     try {
       spawnService(name, svc.port, codeFile);
       restarted++;
     } catch (e) {
-      console.error(`[MCP] Failed to auto-restart service "${name}":`, e.message);
+      log.warn(`Failed to auto-restart service "${name}":`, e.message);
     }
   }
   if (restarted > 0) {
-    console.error(`[MCP] Auto-restarted ${restarted} service(s) from manifest`);
+    log.info(`Auto-restarted ${restarted} service(s) from manifest`);
   }
 
   // Re-register platform-managed services from saved registrations
@@ -1852,11 +1910,11 @@ function autoRestartServices() {
           skills,
         }).then(res => {
           if (res.status === 200) {
-            console.error(`[service-recovery] Re-registered platform service: ${registration.name}`);
+            log.info(`[service-recovery] Re-registered platform service: ${registration.name}`);
           }
         }).catch(() => {});
       } catch (err) {
-        console.error(`[service-recovery] Failed to re-register ${dir}: ${err.message}`);
+        log.warn(`[service-recovery] Failed to re-register ${dir}: ${err.message}`);
       }
     }
   } catch (err) {
@@ -1889,7 +1947,7 @@ function executeRenderUi(args) {
     if (schema && props && typeof props === "object") {
       const result = validateJsonSchema(props, schema, "props");
       if (!result.valid) {
-        console.error(`[MCP] render_ui validation failed for "${component}":`, result.errors.length, "errors");
+        log.warn(`render_ui validation failed for "${component}":`, result.errors.length, "errors");
         return { isError: true, text: _formatValidationErrors(component, result.errors) };
       }
     }
@@ -2000,7 +2058,7 @@ function executeCreateDashboard(args) {
     output += "\n\nNote: " + errors.length + " component(s) skipped due to errors:\n" + errors.join("\n");
   }
 
-  console.error(`[MCP] create_dashboard: "${title}" (layout=${layout || "auto"}) with ${blocks.length} components (dashboardId=${dashboardId})`);
+  log.info(`create_dashboard: "${title}" (layout=${layout || "auto"}) with ${blocks.length} components (dashboardId=${dashboardId})`);
   return { isError: false, text: output };
 }
 
@@ -2014,7 +2072,7 @@ async function executeComposeDashboard(args) {
   }
 
   const composeMode = mode || "auto";
-  console.error(`[MCP] compose_dashboard: "${title}" with ${components.length} components (mode=${composeMode})`);
+  log.info(`compose_dashboard: "${title}" with ${components.length} components (mode=${composeMode})`);
 
   try {
     const res = await apiRequest("POST", "/api/pod/compose", {
@@ -2044,10 +2102,10 @@ async function executeComposeDashboard(args) {
       output += "\n\nNote: " + errors.length + " component(s) failed:\n" + errors.join("\n");
     }
 
-    console.error(`[MCP] compose_dashboard: "${title}" completed — ${blocks.length} components, ${(errors || []).length} errors (dashboardId=${dashboardId})`);
+    log.warn(`compose_dashboard: "${title}" completed — ${blocks.length} components, ${(errors || []).length} errors (dashboardId=${dashboardId})`);
     return { isError: false, text: output };
   } catch (err) {
-    console.error(`[MCP] compose_dashboard error:`, err.message || err);
+    log.warn(`compose_dashboard error:`, err.message || err);
     return { isError: true, text: `compose_dashboard failed: ${err.message || String(err)}` };
   }
 }
@@ -2294,7 +2352,7 @@ function executeDebugComponent(args) {
     lines.push("If the component still isn't rendering, the issue may be in the JavaScript logic.");
   }
 
-  console.error("[MCP] debug_component: " + component + " — " + (allPassed ? "passed" : "issues found"));
+  log.info("debug_component: " + component + " — " + (allPassed ? "passed" : "issues found"));
   return { isError: false, text: lines.join("\n") };
 }
 
@@ -2304,7 +2362,7 @@ function executeTestDashboard(args) {
     return { isError: true, text: "Missing or empty cards array." };
   }
 
-  console.error("[MCP] test_dashboard: validating " + cards.length + " cards");
+  log.info("test_dashboard: validating " + cards.length + " cards");
 
   var lines = [];
   lines.push("## Dashboard Test Report");
@@ -2370,7 +2428,7 @@ function executeTestDashboard(args) {
   var overallStatus = failedCards === 0 ? "✅ All cards passed" : "⚠️ " + failedCards + "/" + cards.length + " cards have issues";
   lines.push("**Overall:** " + overallStatus + " (" + totalWarnings + " warnings)");
 
-  console.error("[MCP] test_dashboard: " + cards.length + " cards, " + totalWarnings + " warnings, " + failedCards + " failed");
+  log.warn("test_dashboard: " + cards.length + " cards, " + totalWarnings + " warnings, " + failedCards + " failed");
   return { isError: false, text: lines.join("\n") };
 }
 
@@ -2436,7 +2494,7 @@ function executeRenderPage(args) {
     output += "\n\nNote: " + errors.length + " issue(s) found:\n" + errors.join("\n");
   }
 
-  console.error("[MCP] render_page: \"" + title + "\" (type=" + type + ") with " + totalChildren + " children across " + Object.keys(sections).length + " sections");
+  log.info("render_page: \"" + title + "\" (type=" + type + ") with " + totalChildren + " children across " + Object.keys(sections).length + " sections");
   return { isError: false, text: output };
 }
 
@@ -2463,7 +2521,7 @@ async function executeCreateComponent(args) {
       return { isError: true, text: "Component Agent returned empty HTML." };
     }
 
-    console.error(`[MCP] create_component: "${intent}" (${html.length} chars)`);
+    log.info(`create_component: "${intent}" (${html.length} chars)`);
 
     if (render) {
       // Auto-render via render_ui as a sandbox component
@@ -2494,10 +2552,10 @@ function executeDefineComponent(args) {
 
   try {
     writeComponent(name, def);
-    console.error("[MCP] Component defined:", name);
+    log.info("Component defined:", name);
     return { isError: false, text: `Component "${name}" saved. Use render_ui with component="${name}" to display it.\n\nTip: To share this component with other bots, use the publish_component tool.` };
   } catch (err) {
-    console.error("[MCP] Failed to define component:", name, err.message);
+    log.warn("Failed to define component:", name, err.message);
     return { isError: true, text: `Failed to save: ${err.message}` };
   }
 }
@@ -2554,12 +2612,12 @@ function executeSaveCanvasFile(args) {
       fs.mkdirSync(FILES_DIR, { recursive: true });
     }
     const filePath = path.join(FILES_DIR, `${fileId}.json`);
-    console.error("[MCP] File write:", filePath);
+    log.info("File write:", filePath);
     safeWriteFileSync(filePath, payload, "utf8");
     const displayName = name || fileId;
     return { isError: false, text: `Saved "${displayName}" (${component}) to library as "${fileId}".` };
   } catch (err) {
-    console.error("[MCP] Failed to save canvas file:", fileId, err.message);
+    log.warn("Failed to save canvas file:", fileId, err.message);
     return { isError: true, text: `Failed to save: ${err.message}` };
   }
 }
@@ -2576,7 +2634,7 @@ function executeLoadCanvasFile(args) {
     const content = JSON.parse(fs.readFileSync(fp, "utf8"));
     return { isError: false, text: JSON.stringify(content) };
   } catch (err) {
-    console.error("[MCP] Failed to parse JSON from file:", fp, err.message);
+    log.warn("Failed to parse JSON from file:", fp, err.message);
     return { isError: true, text: `Failed to read: ${err.message}` };
   }
 }
@@ -2603,7 +2661,7 @@ function executeListCanvasFiles(args) {
         savedAt: parsed.savedAt || null,
       });
     } catch (err) {
-      console.error("[MCP] Failed to parse JSON from file:", filePath, err.message);
+      log.warn("Failed to parse JSON from file:", filePath, err.message);
     }
   }
 
@@ -2766,7 +2824,7 @@ function executeSaveArtifact(args) {
   }
   writeArtifactManifest(manifest);
 
-  console.error("[MCP] Artifact saved:", id, component);
+  log.info("Artifact saved:", id, component);
   return { isError: false, text: `Saved artifact "${title}" (${id}) — ${artifact.pinned ? "pinned" : "not pinned"}` };
 }
 
@@ -2824,7 +2882,7 @@ function executeDeleteArtifact(args) {
   if (idx !== -1) {
     manifest.artifacts.splice(idx, 1);
     writeArtifactManifest(manifest);
-    console.error("[MCP] Artifact deleted:", id);
+    log.info("Artifact deleted:", id);
     return { isError: false, text: `Deleted artifact "${id}" from workspace.` };
   }
 
@@ -3808,20 +3866,20 @@ async function fetchAndMergeSkills() {
   const url = `${apiUrl}/debug/platform-skills`;
 
   try {
-    console.error("[MCP] Fetching latest platform skills from", url);
+    log.info("Fetching latest platform skills from", url);
     const resp = await fetch(url, {
       signal: AbortSignal.timeout(10000), // 10s timeout
       headers: { "Accept": "application/json" },
     });
 
     if (!resp.ok) {
-      console.error("[MCP] Skills fetch failed:", resp.status, resp.statusText);
+      log.warn("Skills fetch failed:", resp.status, resp.statusText);
       return loadCachedSkills();
     }
 
     const data = await resp.json();
     if (!data.skills || typeof data.skills !== "object") {
-      console.error("[MCP] Invalid skills response — missing skills object");
+      log.warn("Invalid skills response — missing skills object");
       return loadCachedSkills();
     }
 
@@ -3834,18 +3892,18 @@ async function fetchAndMergeSkills() {
       }
     }
 
-    console.error(`[MCP] Merged ${updated} skills from API (version ${data.version || "?"})`);
+    log.info(`Merged ${updated} skills from API (version ${data.version || "?"})`);
 
     // Cache to PVC for offline fallback
     try {
       fs.mkdirSync(path.dirname(SKILLS_CACHE_PATH), { recursive: true });
       safeWriteFileSync(SKILLS_CACHE_PATH, JSON.stringify(data, null, 2));
-      console.error("[MCP] Cached skills to", SKILLS_CACHE_PATH);
+      log.info("Cached skills to", SKILLS_CACHE_PATH);
     } catch (cacheErr) {
-      console.error("[MCP] Failed to cache skills:", cacheErr.message);
+      log.warn("Failed to cache skills:", cacheErr.message);
     }
   } catch (err) {
-    console.error("[MCP] Skills fetch error:", err.message || err);
+    log.warn("Skills fetch error:", err.message || err);
     return loadCachedSkills();
   }
 }
@@ -3862,13 +3920,13 @@ function loadCachedSkills() {
             updated++;
           }
         }
-        console.error(`[MCP] Loaded ${updated} cached skills from PVC (version ${cached.version || "?"})`);
+        log.info(`Loaded ${updated} cached skills from PVC (version ${cached.version || "?"})`);
       }
     } else {
-      console.error("[MCP] No cached skills on PVC, using baked-in defaults");
+      log.info("No cached skills on PVC, using baked-in defaults");
     }
   } catch (err) {
-    console.error("[MCP] Failed to load cached skills:", err.message);
+    log.warn("Failed to load cached skills:", err.message);
   }
 }
 
@@ -4079,7 +4137,7 @@ function executeUpdateUi(args) {
   if (!card_id) return { isError: true, text: "Missing 'card_id' parameter." };
   if (!props || typeof props !== "object") return { isError: true, text: "Missing or invalid 'props' parameter." };
 
-  console.error("[MCP] update_ui:", card_id, "merge:", merge !== false);
+  log.info("update_ui:", card_id, "merge:", merge !== false);
 
   // Validate props if a component is specified (for merge mode, skip required-field checks)
   const targetComponent = component || null;
@@ -4091,7 +4149,7 @@ function executeUpdateUi(args) {
       : schema;
     const result = validateJsonSchema(props, effectiveSchema, "props");
     if (!result.valid) {
-      console.error(`[MCP] update_ui validation failed for "${targetComponent}":`, result.errors.length, "errors");
+      log.warn(`update_ui validation failed for "${targetComponent}":`, result.errors.length, "errors");
       return { isError: true, text: _formatValidationErrors(targetComponent, result.errors) };
     }
   }
@@ -4198,7 +4256,7 @@ function getLLMConfig() {
     // Claude Max (sk-ant-oat*) tokens can't be used for direct API calls
     // They only work through the Claude app. Skip for memory operations.
     if (key.startsWith("sk-ant-oat")) {
-      console.error("[MCP:Memory] Claude Max token detected — using simple extraction (no API access for memory ops)");
+      log.info("[MCP:Memory] Claude Max token detected — using simple extraction (no API access for memory ops)");
       // Fall through to try other providers
     } else {
       return {
@@ -4245,7 +4303,7 @@ async function embed(text) {
   const config = getEmbeddingConfig();
   if (!config) {
     // Fallback to local embedding when no API is available (e.g. Anthropic-only)
-    console.error("[MCP:Memory] Using local embedding fallback (no embedding API available)");
+    log.info("[MCP:Memory] Using local embedding fallback (no embedding API available)");
     return localEmbed(text);
   }
 
@@ -4423,12 +4481,12 @@ function loadMemoryStore() {
     }
     const raw = JSON.parse(fs.readFileSync(MEMORY_FILE, "utf8"));
     if (raw.version !== MEMORY_VERSION) {
-      console.error("[MCP:Memory] Store version mismatch, starting fresh");
+      log.info("[MCP:Memory] Store version mismatch, starting fresh");
       return { version: MEMORY_VERSION, embeddingModel: "text-embedding-3-small", dims: EMBEDDING_DIMS, memories: [] };
     }
     return raw;
   } catch (err) {
-    console.error("[MCP:Memory] Failed to load store:", err.message);
+    log.warn("[MCP:Memory] Failed to load store:", err.message);
     return { version: MEMORY_VERSION, embeddingModel: "text-embedding-3-small", dims: EMBEDDING_DIMS, memories: [] };
   }
 }
@@ -4471,13 +4529,13 @@ Return ONLY the JSON array, no other text.`;
         }
       }
     } catch (err) {
-      console.error("[MCP:Memory] LLM extraction failed, using simple extraction:", err.message);
+      log.warn("[MCP:Memory] LLM extraction failed, using simple extraction:", err.message);
     }
   }
 
   // Fallback: simple sentence-based extraction (no LLM needed)
   // Split into sentences and filter out questions/greetings
-  console.error("[MCP:Memory] Using simple fact extraction (no LLM available)");
+  log.info("[MCP:Memory] Using simple fact extraction (no LLM available)");
   const sentences = text
     .replace(/\n+/g, ". ")
     .split(/[.!]+/)
@@ -4524,7 +4582,7 @@ resulting memory text (or empty for SKIP)`;
         return { action, result: result || newFact };
       }
     } catch (err) {
-      console.error("[MCP:Memory] Compaction LLM call failed, using simple compaction:", err.message);
+      log.warn("[MCP:Memory] Compaction LLM call failed, using simple compaction:", err.message);
     }
   }
 
@@ -4552,13 +4610,13 @@ async function executeStoreMemory(args) {
 
   try {
     // 1. Extract discrete facts from the text
-    console.error("[MCP:Memory] Extracting facts from text...");
+    log.info("[MCP:Memory] Extracting facts from text...");
     const facts = await extractFacts(text);
 
     if (facts.length === 0) {
       return { isError: false, text: "No memorable facts found in the text. Nothing stored." };
     }
-    console.error(`[MCP:Memory] Extracted ${facts.length} fact(s)`);
+    log.info(`[MCP:Memory] Extracted ${facts.length} fact(s)`);
 
     // 2. Embed all facts in one batch call
     const embeddings = await embedBatch(facts);
@@ -4599,7 +4657,7 @@ async function executeStoreMemory(args) {
       if (bestSim >= simThreshold && bestIdx >= 0) {
         // Similar memory found — ask LLM to decide
         const existing = store.memories[bestIdx];
-        console.error(`[MCP:Memory] Similar memory found (sim=${bestSim.toFixed(3)}): "${existing.text.slice(0, 60)}"`);
+        log.info(`[MCP:Memory] Similar memory found (sim=${bestSim.toFixed(3)}): "${existing.text.slice(0, 60)}"`);
 
         const decision = await compactDecision(existing.text, fact);
 
@@ -4651,7 +4709,7 @@ async function executeStoreMemory(args) {
       text: `Memory updated (${store.memories.length} total memories):\n${summary}`,
     };
   } catch (err) {
-    console.error("[MCP:Memory] store_memory failed:", err.message);
+    log.warn("[MCP:Memory] store_memory failed:", err.message);
     return { isError: true, text: `Memory store failed: ${err.message}` };
   }
 }
@@ -4695,7 +4753,7 @@ async function executeRecallMemory(args) {
       text: `Found ${relevant.length} relevant memory/memories:\n${lines.join("\n")}`,
     };
   } catch (err) {
-    console.error("[MCP:Memory] recall_memory failed:", err.message);
+    log.warn("[MCP:Memory] recall_memory failed:", err.message);
     return { isError: true, text: `Memory recall failed: ${err.message}` };
   }
 }
@@ -4989,7 +5047,7 @@ function executeStartHttpService(args) {
     const old = runningServices.get(name);
     try { old.process.kill("SIGTERM"); } catch { /* already dead */ }
     runningServices.delete(name);
-    console.error(`[MCP] Stopped old instance of "${name}" (PID ${old.pid}) for update`);
+    log.info(`Stopped old instance of "${name}" (PID ${old.pid}) for update`);
   }
 
   const manifest = readServiceManifest();
@@ -5725,7 +5783,7 @@ async function executeSetTheme(args) {
     fs.mkdirSync(path.dirname(themeFile), { recursive: true });
     safeWriteFileSync(themeFile, JSON.stringify(body, null, 2));
   } catch (err) {
-    console.error("[MCP] Failed to write theme file:", err.message);
+    log.warn("Failed to write theme file:", err.message);
   }
 
   // Also try API call (works when JARBLE_API_URL is configured)
@@ -5828,7 +5886,7 @@ function writeDesignContext(ctx) {
     fs.mkdirSync(path.dirname(DESIGN_CONTEXT_PATH), { recursive: true });
     safeWriteFileSync(DESIGN_CONTEXT_PATH, JSON.stringify(ctx, null, 2));
   } catch (err) {
-    console.error("[MCP] Failed to write design context:", err.message);
+    log.warn("Failed to write design context:", err.message);
   }
 }
 
@@ -6371,7 +6429,7 @@ async function executeImageSearch(args) {
         };
       }
     } catch (err) {
-      console.error("[MCP] Unsplash search failed, falling back to Wikimedia:", err.message);
+      log.warn("Unsplash search failed, falling back to Wikimedia:", err.message);
     }
   }
 
@@ -6983,7 +7041,7 @@ function saveConfirmations(data) {
     fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
     safeWriteFileSync(CONFIRMATIONS_PATH, JSON.stringify(data, null, 2), "utf-8");
   } catch (e) {
-    console.error("[MCP] Failed to save confirmations:", e.message);
+    log.warn("Failed to save confirmations:", e.message);
   }
 }
 
@@ -7265,11 +7323,11 @@ async function handleMessage(msg) {
     const toolName = params?.name;
     const toolArgs = params?.arguments || {};
 
-    console.error("[MCP] Tool called:", toolName, "args:", JSON.stringify(toolArgs).slice(0, 200));
+    log.info("Tool called:", toolName, "args:", JSON.stringify(toolArgs).slice(0, 200));
 
     const result = await executeTool(toolName, toolArgs);
     if (!result) {
-      console.error("[MCP] Unknown tool:", toolName);
+      log.info("Unknown tool:", toolName);
       return {
         jsonrpc: "2.0",
         id,
@@ -7277,7 +7335,7 @@ async function handleMessage(msg) {
       };
     }
 
-    console.error("[MCP] Tool result:", toolName, result.isError ? "ERROR" : "OK");
+    log.warn("Tool result:", toolName, result.isError ? "ERROR" : "OK");
 
     return {
       jsonrpc: "2.0",
@@ -7329,7 +7387,7 @@ process.stdin.on("data", (chunk) => {
           process.stdout.write(JSON.stringify(response) + "\n");
         }
       }).catch((err) => {
-        console.error("[MCP] Handler error:", err.message);
+        log.warn("Handler error:", err.message);
         if (msg.id !== undefined) {
           process.stdout.write(JSON.stringify({
             jsonrpc: "2.0",
