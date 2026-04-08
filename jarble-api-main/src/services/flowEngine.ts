@@ -987,11 +987,17 @@ export class FlowExecutionEngine extends EventEmitter {
 
     if (childState.status === "failed") {
       const childError = childEngine["findFirstError"]?.() ?? "Subflow failed";
-      throw new Error(`Subflow "${flowId}" failed: ${childError}`);
+      // Don't include the subflow's ID in the error message — repeated
+      // subflow failures would walk the full call tree and leak internal
+      // resource identifiers to the client. Log the full chain for ops
+      // debugging via the logger (not the thrown message).
+      log.warn({ subflowId: flowId, childError }, "Subflow execution failed");
+      throw new Error(`Subflow failed: ${childError}`);
     }
 
     if (childState.status === "cancelled") {
-      throw new Error(`Subflow "${flowId}" was cancelled`);
+      log.debug({ subflowId: flowId }, "Subflow was cancelled");
+      throw new Error(`Subflow was cancelled`);
     }
 
     // Collect the final output: look for output nodes, or use all completed results
