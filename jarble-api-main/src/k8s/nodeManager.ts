@@ -603,26 +603,62 @@ async function scaleDownEmptyNodes(podList: any): Promise<void> {
 
   if (readyNodes.length === 0) return;
 
-  // Get all bot K8s Deployments (including stopped ones with replicas=0)
-  const { body: depList } = await appsApi.listNamespacedDeployment(
-    NAMESPACE, undefined, undefined, undefined, undefined,
-    "jarble.ai/type=bot"
-  );
+  // CRITICAL: Deployment objects use labels `jarble.ai/deployment-id` and
+  // `jarble.ai/deployment-type: agent`. The `jarble.ai/type: bot` label lives
+  // on the Pod template, NOT the Deployment — so filtering Deployments by
+  // `type=bot` returned an empty list, silently bypassing the "node in use"
+  // guard. We now query ALL deployments in the namespace without a label
+  // filter so the guard actually protects user workloads. (JAR data-loss fix.)
+  const { body: depList } = await appsApi.listNamespacedDeployment(NAMESPACE);
   const k8sDeployments = depList.items || [];
-  const items = podList?.items || [];
+
+  // Also fetch ALL pods (unfiltered) so we don't miss pods whose label is
+  // stale, missing, or applied by a different controller path.
+  const { body: allPodsResp } = await coreApi.listNamespacedPod(NAMESPACE);
+  const allPods = allPodsResp.items || [];
 
   for (const managedNode of readyNodes) {
-    // Check if any K8s Deployment has a nodeSelector pointing at this managed node
+    // Extract the deployment ID encoded in the node name
+    // (nodeName format: `${NODE_NAME_PREFIX}-${deploymentId.slice(0, 12)}`).
+    // If ANY K8s Deployment exists that was provisioned for this node, keep
+    // the node alive — even if it has 0 replicas or no nodeSelector. The
+    // user's deployment row is the source of truth for "this node belongs
+    // to someone".
+    const nodeDeploymentIdHint = managedNode.nodeName.replace(
+      new RegExp(`^${NODE_NAME_PREFIX}-`), ""
+    );
+    const ownerDeploymentExists = k8sDeployments.some((dep: any) => {
+      const depIdLabel = dep.metadata?.labels?.["jarble.ai/deployment-id"];
+      const depName = dep.metadata?.name;
+      return (
+        (depIdLabel && depIdLabel.startsWith(nodeDeploymentIdHint)) ||
+        (depName && depName === `dep-${nodeDeploymentIdHint}`) ||
+        (depName && depName.startsWith(`dep-${nodeDeploymentIdHint}`))
+      );
+    });
+    if (ownerDeploymentExists) {
+      logger.debug({ nodeName: managedNode.nodeName },
+        "Owner deployment still exists - keeping VPS alive");
+      continue;
+    }
+
+    // Legacy guard: any Deployment with a nodeSelector pinning this node
     const nodeInUse = k8sDeployments.some((dep: any) => {
       const selector = dep.spec?.template?.spec?.nodeSelector || {};
       return selector["kubernetes.io/hostname"] === managedNode.nodeName;
     });
 
     if (!nodeInUse) {
-      // Also check for bare pods on the node (catch deployments without nodeSelector)
-      const podsOnNode = items.filter(
-        (p: any) => p.spec?.nodeName === managedNode.nodeName
-      );
+      // Match any pod whose spec.nodeName OR nodeSelector targets this node.
+      // Pending pods that were scheduled here but failed to attach a volume
+      // still have spec.nodeName set; pods stuck in earlier scheduling may
+      // only have a nodeSelector hint. Catch both.
+      const podsOnNode = allPods.filter((p: any) => {
+        if (p.spec?.nodeName === managedNode.nodeName) return true;
+        const selector = p.spec?.nodeSelector || {};
+        if (selector["kubernetes.io/hostname"] === managedNode.nodeName) return true;
+        return false;
+      });
       if (podsOnNode.length === 0) {
         const readyTime = managedNode.readyAt ? new Date(managedNode.readyAt).getTime() : 0;
         const ageMs = Date.now() - readyTime;
