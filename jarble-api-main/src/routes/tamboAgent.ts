@@ -1014,6 +1014,10 @@ tamboAgentRouter.post("/", async (req, res) => {
   let teamDelegationTools: DelegationTool[] = [];
   let teamFlowNode: FlowNode | null = null;
   let teamFlowDefinition: FlowDefinition | null = null;
+  // JAR-51: Flow id the team delegation belongs to. Passed into
+  // `executeDelegation` so recursive sub-delegation stays within the same
+  // flow membership (prevents cross-tenant recursion via the IDOR guard).
+  let teamFlowId: string | null = null;
 
   try {
     const fdm = (tables as any).flowDeploymentMemberships;
@@ -1050,6 +1054,7 @@ tamboAgentRouter.post("/", async (req, res) => {
             if (thisNode) {
               teamFlowNode = thisNode;
               teamFlowDefinition = def;
+              teamFlowId = (membership.flowId ?? (flowRows as any)[0]?.id) ?? null;
               teamDelegationTools = buildDelegationTools(thisNode, def.nodes, def.edges);
 
               if (teamDelegationTools.length > 0) {
@@ -1318,6 +1323,15 @@ tamboAgentRouter.post("/", async (req, res) => {
                 sourceDeploymentId: deploymentId,
                 toolName: call.toolName,
                 userId: authenticatedUserId ?? undefined,
+                // ── JAR-50 + JAR-51: stitch this delegation into the
+                // root chat-turn span and seed the recursion ancestor
+                // chain so a downstream attempt to route back to this
+                // entry bot is refused by DelegationCycleError.
+                parentCallId: rootAgentCall.callId,
+                parentSpanId: rootAgentCall.spanId,
+                traceId: rootAgentCall.traceId,
+                ancestorDeploymentIds: [deploymentId],
+                flowId: teamFlowId ?? undefined,
               });
 
               // Emit delegation end event
