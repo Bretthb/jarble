@@ -46,23 +46,42 @@ const PROTECTED_PATHS = [
 
 // ── Structured logger ────────────────────────────────────────────────────
 //
-// Zero-deps replacement for the previous `log.info("X")` calls.
+// Zero-deps replacement for the previous `console.error("[MCP] X")` calls.
 // We can't import pino because the MCP server is bundled into the OpenClaw
 // runtime image without npm install (only the single file is copied), but
 // we DO want structured JSON logs so K8s log aggregators (Loki, Elastic,
 // Sentry's log integration) can parse + index them.
 //
-// Output goes to stderr because stdout is reserved for the MCP JSON-RPC
-// protocol — anything written to stdout would corrupt the wire format
-// and disconnect the client.
-//
 // Format mirrors pino's default shape ({level, time, pid, hostname,
-// module, msg, ...fields}) so any pino-aware tooling on the receiving end
-// processes these without special-casing the MCP server.
+// module, msg, ...fields}) so any pino-aware tooling on the receiving
+// end processes these without special-casing the MCP server.
+//
+// ── Where logs go ──
+// Output is written to TWO sinks:
+//
+//   1. stderr — preserves the legacy `console.error` behavior. Stdout is
+//      reserved for the MCP JSON-RPC protocol; anything written there
+//      would corrupt the wire format and disconnect the client.
+//
+//   2. A file at MCP_LOG_FILE (default `/tmp/mcp-jarble-ui.log`).
+//      THIS IS THE LOAD-BEARING SINK in production. Verified empirically
+//      that openclaw discards MCP child stderr entirely (no MCP records
+//      ever appear in /tmp/openclaw/openclaw-*.log nor in container
+//      stdout/stderr), so without the file sink the structured records
+//      are invisible to anyone outside the MCP child process. The file
+//      is appended to on every log call; a fluent-bit sidecar or
+//      `kubectl exec ... cat` can ship it to log aggregation later.
+//      Set MCP_LOG_FILE="" to disable the file sink (e.g. in tests).
+const fs_logger = require("fs");
 const PINO_LEVELS = { trace: 10, debug: 20, info: 30, warn: 40, error: 50, fatal: 60 };
 const HOSTNAME = (() => {
   try { return require("os").hostname(); } catch { return "unknown"; }
 })();
+const MCP_LOG_FILE = (() => {
+  if (process.env.MCP_LOG_FILE === "") return null; // explicit opt-out
+  return process.env.MCP_LOG_FILE || "/tmp/mcp-jarble-ui.log";
+})();
+let _fileSinkBroken = false; // flip if the file sink errors so we don't spam
 function _emitLog(level, arg1, arg2) {
   // Two call shapes, mirroring pino:
   //   log.info("message")
@@ -88,11 +107,25 @@ function _emitLog(level, arg1, arg2) {
     ...fields,
     msg,
   };
+  let line;
   try {
-    process.stderr.write(JSON.stringify(record) + "\n");
+    line = JSON.stringify(record) + "\n";
   } catch {
     // last-resort fallback if JSON.stringify chokes on a circular ref
-    process.stderr.write(`[mcp:jarble-ui] ${level} ${msg}\n`);
+    line = `{"level":${PINO_LEVELS[level] || 30},"time":${Date.now()},"module":"mcp:jarble-ui","msg":${JSON.stringify(String(msg))}}\n`;
+  }
+  // sink 1: stderr (legacy + dev usage)
+  try { process.stderr.write(line); } catch { /* ignore */ }
+  // sink 2: file (load-bearing in prod — openclaw discards MCP stderr)
+  if (MCP_LOG_FILE && !_fileSinkBroken) {
+    try {
+      fs_logger.appendFileSync(MCP_LOG_FILE, line);
+    } catch (err) {
+      // If the file sink breaks (e.g. /tmp is read-only) flip the flag
+      // so we don't try every call. Stderr sink keeps working.
+      _fileSinkBroken = true;
+      try { process.stderr.write(`[mcp:jarble-ui] file sink disabled: ${err.message}\n`); } catch {}
+    }
   }
 }
 const log = {
@@ -101,6 +134,10 @@ const log = {
   error: (a, b) => _emitLog("error", a, b),
   debug: (a, b) => _emitLog("debug", a, b),
 };
+
+// Emit a startup heartbeat so we can confirm the file sink works on every
+// new pod even when no tool calls have happened yet.
+log.info({ pid: process.pid, file_sink: MCP_LOG_FILE || "(disabled)" }, "mcp server logger initialized");
 
 /**
  * Returns true if the given absolute path is platform-protected.
