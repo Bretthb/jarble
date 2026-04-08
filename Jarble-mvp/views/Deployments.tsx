@@ -6,6 +6,7 @@ import { useTheme } from "next-themes";
 import Image from "next/image";
 import { trpc, API_URL } from "@/lib/trpc";
 import { vanillaClient } from "@/lib/trpc-vanilla";
+import { useStatusStream } from "@/hooks/useStatusStream";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1892,16 +1893,32 @@ function FlowCanvas({
 }) {
   const { fitView } = useReactFlow();
 
+  // Subscribe to live deployment status so node badges reflect real-time state
+  // (fixes Bot Teams canvas showing stale "Running" when a bot is Stopped).
+  const { getStatus } = useStatusStream({ enabled: true });
+
+  // Build a quick lookup from the latest deployments list for fallback
+  const deploymentById = useMemo(() => {
+    const map = new Map<string, DeploymentData>();
+    for (const d of deployments) map.set(d.id, d);
+    return map;
+  }, [deployments]);
+
   // Merge execution state into node data
   const nodesWithExecution: Node<FlowNodeData>[] = useMemo(() => {
     return flow.nodes.map((node) => {
       const stepStatus = executionSteps.get(node.id);
       const isPaused = pausedNodeId === node.id;
+      // Live status wins; fall back to latest deployments query, then stored snapshot
+      const liveStatus = getStatus(node.id)?.status;
+      const latestDep = deploymentById.get(node.id);
+      const resolvedStatus = liveStatus ?? latestDep?.status ?? node.data.status;
       return {
         ...node,
         selected: node.id === selectedNodeId,
         data: {
           ...node.data,
+          status: resolvedStatus,
           executionStatus: stepStatus?.status,
           executionCredits: stepStatus?.credits,
           executionDurationMs: stepStatus?.durationMs,
@@ -1917,7 +1934,7 @@ function FlowCanvas({
         },
       };
     });
-  }, [flow.nodes, executionSteps, pausedNodeId, onResumeInput, selectedNodeId]);
+  }, [flow.nodes, executionSteps, pausedNodeId, onResumeInput, selectedNodeId, getStatus, deploymentById]);
 
   // Merge execution state into edges (preserve edgeType)
   const edgesWithExecution: Edge[] = useMemo(() => {
