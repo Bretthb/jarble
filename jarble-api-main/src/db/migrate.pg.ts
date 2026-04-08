@@ -120,10 +120,21 @@ async function main() {
       // statements (e.g. CREATE INDEX) cannot run inside an explicit
       // transaction block. Run statements one at a time, ignoring the
       // breakpoint marker.
+      // Split on Drizzle's breakpoint marker, then drop chunks that contain
+      // ONLY SQL comments / whitespace. Earlier logic used `!s.match(/^--/)`
+      // which incorrectly dropped any chunk *starting* with a comment — even
+      // when real SQL followed the comment block (e.g. 0009 memory_scope).
+      const isCommentOnly = (chunk: string) =>
+        chunk
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+          .every((line) => line.startsWith("--"));
+
       const statements = sql
         .split("--> statement-breakpoint")
         .map((s) => s.trim())
-        .filter((s) => s.length > 0 && !s.match(/^--/));
+        .filter((s) => s.length > 0 && !isCommentOnly(s));
 
       for (const stmt of statements) {
         try {
