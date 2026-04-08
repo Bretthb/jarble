@@ -269,9 +269,14 @@
   }
 }
 
-/* Respect user motion preferences for accessibility & performance */
+/* Respect user motion preferences for accessibility & performance.
+ * Exempts loading indicators (animate-spin / animate-pulse / animate-ping) so
+ * spinners still visibly animate when users have Reduce Motion enabled or when
+ * iOS Low Power Mode forces it on — otherwise loaders look frozen. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *:not(.animate-spin):not(.animate-pulse):not(.animate-ping),
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
