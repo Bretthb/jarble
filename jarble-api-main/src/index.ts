@@ -103,7 +103,10 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), strip
 app.use(globalLimiter);
 
 // ─── JSON parsing (after webhook route) ───
-app.use(express.json());
+// Explicit 10mb limit so normal flow definitions / large system prompts
+// succeed, and oversized payloads return 413 not 500 (the default 100KB
+// was too small and the error bubbled to the generic 500 handler).
+app.use(express.json({ limit: "10mb" }));
 
 // ─── Request ID + logging middleware ───
 app.use(requestIdMiddleware);
@@ -210,6 +213,17 @@ Sentry.setupExpressErrorHandler(app);
 // Global error handler - catches unhandled sync errors in Express routes
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const log = req.log || logger;
+
+  // Payload too large → 413 instead of 500. express.json() throws a
+  // PayloadTooLargeError (type: "entity.too.large") when the body exceeds
+  // the configured limit. Surface this as a proper client error instead
+  // of letting it bubble to the generic 500 path.
+  if ((err as any)?.type === "entity.too.large" || (err as any)?.status === 413) {
+    if (!res.headersSent) {
+      res.status(413).json({ error: "Request body too large (max 10MB)" });
+    }
+    return;
+  }
 
   // Malformed JSON body → 400 instead of 500
   if (err instanceof SyntaxError && "body" in err) {

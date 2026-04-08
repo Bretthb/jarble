@@ -246,13 +246,14 @@ const FlowNodeSchema = z.object({
   deploymentId: z.string().optional(),
   serviceId: z.string().optional(),
   skillName: z.string().optional(),
-  label: z.string().min(1),
-  // Bot team fields
-  role: z.string().optional(),
-  goal: z.string().optional(),
+  label: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE),
+  // Bot team fields — text shown in the canvas UI and rendered into
+  // bot system prompts. All user-visible text is HTML-rejected.
+  role: z.string().max(500).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
+  goal: z.string().max(2000).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
   canDelegate: z.boolean().optional(),
   contextScope: z.enum(["task", "summary", "full"]).optional(),
-  modelOverride: z.string().optional(),
+  modelOverride: z.string().max(200).optional(),
   isEntryPoint: z.boolean().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
   position: z.object({ x: z.number(), y: z.number() }),
@@ -267,8 +268,10 @@ const FlowEdgeSchema = z.object({
   targetHandle: z.string().optional(),
   type: z.enum(["delegates", "reports", "collaborates"]).optional(),
   contextScope: z.enum(["task", "summary", "full"]).optional(),
-  label: z.string().optional(),
-  condition: z.string().optional(),
+  label: z.string().max(255).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
+  // Condition expressions are JS-like comparisons like "stepN.result > 10".
+  // Reject HTML tags to prevent stored XSS through this field.
+  condition: z.string().max(1000).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
   maxIterations: z.number().int().min(1).max(100).optional(),
 });
 
