@@ -1,0 +1,48 @@
+{
+  "id": "49868fd8-a567-42f4-b747-cf984a889122",
+  "prevId": "e4c47051-2605-4f66-bc64-797e7e627aee",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.agent_calls": {
+      "name": "agent_calls",
+      "schema": "",
+      "columns": {
+        "id": {"name": "id", "type": "varchar(255)", "primaryKey": true, "notNull": true},
+        "caller_deployment_id": {"name": "caller_deployment_id", "type": "varchar(255)", "primaryKey": false, "notNull": true},
+        "callee_deployment_id": {"name": "callee_deployment_id", "type": "varchar(255)", "primaryKey": false, "notNull": true},
+        "skill_name": {"name": "skill_name", "type": "varchar(100)", "primaryKey": false, "notNull": true},
+        "credits_charged": {"name": "credits_charged", "type": "integer", "primaryKey": false, "notNull": true, "default": 0},
+        "status": {"name": "status", "type": "varchar(20)", "primaryKey": false, "notNull": true, "default": "'pending'"},
+        "request_body": {"name": "request_body", "type": "text", "primaryKey": false, "notNull": false},
+        "response_body": {"name": "response_body", "type": "text", "primaryKey": false, "notNull": false},
+        "latency_ms": {"name": "latency_ms", "type": "integer", "primaryKey": false, "notNull": false},
+        "error_message": {"name": "error_message", "type": "text", "primaryKey": false, "notNull": false},
+        "parent_call_id": {"name": "parent_call_id", "type": "varchar(40)", "primaryKey": false, "notNull": false},
+        "depth": {"name": "depth", "type": "integer", "primaryKey": false, "notNull": true, "default": 0},
+        "kind": {"name": "kind", "type": "varchar(16)", "primaryKey": false, "notNull": true, "default": "'delegation'"},
+        "created_at": {"name": "created_at", "type": "timestamp", "primaryKey": false, "notNull": true, "default": "now()"}
+      },
+      "indexes": {
+        "idx_agent_calls_parent_call_id": {"name": "idx_agent_calls_parent_call_id", "columns": [{"expression": "parent_call_id", "isExpression": false, "asc": true, "nulls": "last"}], "isUnique": false, "concurrently": false, "method": "btree", "with": {}}
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
