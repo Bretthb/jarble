@@ -77,9 +77,18 @@ const PINO_LEVELS = { trace: 10, debug: 20, info: 30, warn: 40, error: 50, fatal
 const HOSTNAME = (() => {
   try { return require("os").hostname(); } catch { return "unknown"; }
 })();
+// Resolve the file sink path:
+//   - unset → default `/tmp/mcp-jarble-ui.log`
+//   - empty string → default (NOT opt-out — openclaw passes empty env vars
+//     when spawning MCP children, which would silently disable the sink)
+//   - whitespace-only → default
+//   - "off" → explicit opt-out (used by tests)
+//   - any other value → that path
 const MCP_LOG_FILE = (() => {
-  if (process.env.MCP_LOG_FILE === "") return null; // explicit opt-out
-  return process.env.MCP_LOG_FILE || "/tmp/mcp-jarble-ui.log";
+  const v = process.env.MCP_LOG_FILE;
+  if (v === "off") return null;
+  const trimmed = (v || "").trim();
+  return trimmed || "/tmp/mcp-jarble-ui.log";
 })();
 let _fileSinkBroken = false; // flip if the file sink errors so we don't spam
 function _emitLog(level, arg1, arg2) {
