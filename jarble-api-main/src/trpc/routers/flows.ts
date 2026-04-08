@@ -272,9 +272,15 @@ const FlowEdgeSchema = z.object({
   maxIterations: z.number().int().min(1).max(100).optional(),
 });
 
+// MAX_FLOW_NODES matches the runtime enforcement in flowExecution.ts.
+// Kept here at the Zod layer so invalid flows are rejected at create/update
+// time rather than silently stored and failing only at execution.
+const MAX_FLOW_NODES = 50;
+const MAX_FLOW_EDGES = 200;
+
 const FlowDefinitionSchema = z.object({
-  nodes: z.array(FlowNodeSchema),
-  edges: z.array(FlowEdgeSchema),
+  nodes: z.array(FlowNodeSchema).max(MAX_FLOW_NODES, `Flow cannot have more than ${MAX_FLOW_NODES} nodes`),
+  edges: z.array(FlowEdgeSchema).max(MAX_FLOW_EDGES, `Flow cannot have more than ${MAX_FLOW_EDGES} edges`),
 });
 
 // ── Router ───────────────────────────────────────────────────────────────
@@ -358,7 +364,7 @@ export const flowsRouter = router({
     .input(
       z.object({
         name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE),
-        description: z.string().optional(),
+        description: z.string().max(5000).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
         definition: FlowDefinitionSchema,
         status: z.enum(["draft", "published"]).default("draft"),
         entryNodeId: z.string().optional(),
@@ -436,7 +442,7 @@ export const flowsRouter = router({
       z.object({
         id: z.string(),
         name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
-        description: z.string().max(5000).nullable().optional(),
+        description: z.string().max(5000).refine((v) => v === null || noHtmlTags(v), NO_HTML_MESSAGE).nullable().optional(),
         definition: FlowDefinitionSchema.optional(),
         status: z.enum(["draft", "published", "archived"]).optional(),
         isPublic: z.boolean().optional(),

@@ -176,8 +176,14 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
 
     // For ad-hoc definitions (not from DB), validate deployment ownership
     if (dbFlow.length === 0 && definition) {
+      // Collect deployment IDs from BOTH n.deploymentId AND n.config.deploymentId.
+      // A previous bypass was reported where placing the ID in node.config let
+      // the check pass silently. Scan both locations to close the gap.
       const deploymentIds = definition.nodes
-        .map((n: any) => n.deploymentId)
+        .flatMap((n: any) => [
+          n.deploymentId,
+          n.config?.deploymentId,
+        ])
         .filter(Boolean) as string[];
 
       if (deploymentIds.length > 0) {

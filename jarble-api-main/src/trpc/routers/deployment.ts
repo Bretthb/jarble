@@ -262,7 +262,7 @@ export const deploymentRouter = router({
     .input(z.object({
       id: z.string(),
       name: z.string(),
-      description: z.string().optional(),
+      description: z.string().max(5000).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
       layout: z.array(z.object({
         component: z.string(),
         props: z.record(z.string(), z.unknown()),
@@ -921,7 +921,7 @@ export const deploymentRouter = router({
     .input(z.object({
       id: z.string(),
       name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
-      description: z.string().max(5000).optional(),
+      description: z.string().max(5000).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
       systemPrompt: z.string().max(50_000).optional(),
       llmMode: z.enum(["included", "byok", "platform"]).optional(),
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).optional(),
