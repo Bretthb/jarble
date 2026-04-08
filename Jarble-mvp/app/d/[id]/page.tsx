@@ -30,7 +30,8 @@ import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
 import ConversationHistoryPanel from "@/components/workspace/ConversationHistoryPanel";
 import SubagentsPanel from "@/components/workspace/SubagentsPanel";
-import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot } from "lucide-react";
+import TeamMembershipsPanel from "@/components/workspace/TeamMembershipsPanel";
+import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -121,6 +122,39 @@ function SubagentsBadgeButton({ deploymentId, isOpen, onClick }: { deploymentId:
       aria-label={count > 0 ? `Subagents (${count})` : "Subagents"}
     >
       <Bot className="w-4 h-4" />
+      {count > 0 && (
+        <span className="text-xs font-medium tabular-nums">
+          {count}
+        </span>
+      )}
+    </Button>
+  );
+}
+
+// ── Team Memberships Badge Button ────────────────────────────────────────────
+//
+// Shows how many teams this deployment is on. Closes the
+// "Per-deployment team membership visibility" gap from
+// docs/audits/fractal-vision-gap-audit.md — until this landed there
+// was no way from the /d/[id] page to know whether the deployment was
+// on any teams or who its teammates were.
+function TeamsBadgeButton({ deploymentId, isOpen, onClick }: { deploymentId: string; isOpen: boolean; onClick: () => void }) {
+  const listQuery = trpc.flows.listForDeployment.useQuery({ deploymentId }, {
+    staleTime: 30_000,
+  });
+  const count = listQuery.data?.length ?? 0;
+
+  return (
+    <Button
+      variant={isOpen ? "secondary" : "ghost"}
+      size="sm"
+      onClick={onClick}
+      className={cn("h-8 p-0 gap-1 shrink-0 hidden sm:flex", count > 0 ? "px-2" : "w-8")}
+      title="Team Memberships"
+      aria-label={count > 0 ? `Teams (${count})` : "Teams"}
+      type="button"
+    >
+      <Users className="w-4 h-4" />
       {count > 0 && (
         <span className="text-xs font-medium tabular-nums">
           {count}
@@ -304,6 +338,7 @@ function WorkspacePage({
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [subagentsOpen, setSubagentsOpen] = useState(false);
+  const [teamsOpen, setTeamsOpen] = useState(false);
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
   // Track whether theme was set by SSE (takes priority over prop sync for 5s)
   const themeSetBySse = useRef(false);
@@ -419,7 +454,17 @@ function WorkspacePage({
               isOpen={subagentsOpen}
               onClick={() => {
                 setSubagentsOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setTeamsOpen(false); }
+                  return !v;
+                });
+              }}
+            />
+            <TeamsBadgeButton
+              deploymentId={deploymentId}
+              isOpen={teamsOpen}
+              onClick={() => {
+                setTeamsOpen((v) => {
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -497,6 +542,12 @@ function WorkspacePage({
           <SubagentsPanel
             deploymentId={deploymentId}
             onClose={() => setSubagentsOpen(false)}
+          />
+        )}
+        {teamsOpen && (
+          <TeamMembershipsPanel
+            deploymentId={deploymentId}
+            onClose={() => setTeamsOpen(false)}
           />
         )}
         <CanvasWorkspace
