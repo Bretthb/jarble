@@ -193,6 +193,13 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
     updateMutation.mutate({ id: deploymentId, systemPrompt: editPrompt });
   };
 
+  const handleSaveMemoryScope = (next: "global" | "session" | "off") => {
+    // Memory scope changes require a pod restart so soul.md is re-rendered
+    // with the new prompt section and the pod picks up the new env var.
+    pendingRestartRef.current = true;
+    updateMutation.mutate({ id: deploymentId, memoryScope: next });
+  };
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="px-4 py-4 space-y-4">
@@ -381,6 +388,34 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
                 Save Prompt
               </Button>
             )}
+          </div>
+        )}
+
+        {/* Long-term memory scoping */}
+        {deployment && (
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Long-term memory</span>
+            <select
+              value={(dep?.memoryScope ?? "global") as string}
+              onChange={(e) => handleSaveMemoryScope(e.target.value as "global" | "session" | "off")}
+              disabled={updateMutation.isPending}
+              className="w-full px-2.5 py-1.5 bg-secondary/50 border border-border rounded-md text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="global">Global (shared across all chats)</option>
+              <option value="session">Per-session (isolated to each chat)</option>
+              <option value="off">Off (no long-term memory)</option>
+            </select>
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              {(dep?.memoryScope ?? "global") === "global" &&
+                "The bot remembers things from every chat with every user. Good for personal assistants."}
+              {dep?.memoryScope === "session" &&
+                "Each chat is isolated. The bot cannot recall anything from other conversations (best-effort: relies on bot compliance)."}
+              {dep?.memoryScope === "off" &&
+                "Memory tools are disabled. The bot starts fresh every turn."}
+            </p>
+            <p className="text-[10px] text-amber-500/90 leading-snug">
+              Changing this triggers a restart so the new memory mode takes effect.
+            </p>
           </div>
         )}
 

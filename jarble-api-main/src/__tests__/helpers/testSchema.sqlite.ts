@@ -78,6 +78,8 @@ export const deployments = sqliteTable("deployments", {
   bio: text("bio"),  // Public description of what this bot does
   showcasePrompts: text("showcase_prompts"),  // JSON array of example prompts
   orgId: text("org_id"),  // null = personal deployment, non-null = org-owned
+  // JAR memory-scoping: foundation column (see schema.pg.ts for details)
+  memoryScope: text("memory_scope").notNull().default("global"),
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 }, (table) => ({

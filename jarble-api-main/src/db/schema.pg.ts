@@ -69,6 +69,24 @@ export const deployments = pgTable("deployments", {
   bio: text("bio"),
   showcasePrompts: text("showcase_prompts"),  // JSON array of example prompts
   orgId: varchar("org_id", { length: 255 }),  // null = personal deployment, non-null = org-owned
+  /**
+   * JAR memory-scoping (foundation): how the bot's long-term memory layer
+   * behaves across sessions. The actual enforcement of `session` mode lives
+   * in the OpenClaw runtime handler + MCP server (separate follow-up PRs);
+   * this column stores the user's choice and the chat surface displays a
+   * disclosure banner derived from it. See
+   * `docs/audits/memory-scoping-decision.md` for the design.
+   *
+   * Values:
+   *   - "global"  (default) — current behavior, persists across sessions
+   *                            and platforms (web/Telegram/Discord/etc.)
+   *   - "session"            — bot is instructed to scope memories to the
+   *                            current session id; Jarble MCP store
+   *                            partitions store.json by session
+   *   - "off"                — memory tools removed from the prompt; MCP
+   *                            memory tools no-op
+   */
+  memoryScope: varchar("memory_scope", { length: 20 }).notNull().default("global"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
