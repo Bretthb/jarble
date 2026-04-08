@@ -68,7 +68,7 @@ export const protectedProcedure = t.procedure.use(sentryMiddleware).use(loggingM
 
 // Admin procedure - requires authenticated admin user
 export const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (!isAdmin(ctx.user.id)) {
+  if (!isAdmin(ctx.user.auth0Id)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Admin access required",

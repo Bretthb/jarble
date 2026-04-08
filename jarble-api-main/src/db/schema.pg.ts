@@ -959,3 +959,26 @@ export const flowChatSessionsRelations = relations(flowChatSessions, ({ many }) 
 export const flowChatMessagesRelations = relations(flowChatMessages, ({ one }) => ({
   session: one(flowChatSessions, { fields: [flowChatMessages.sessionId], references: [flowChatSessions.id] }),
 }));
+
+// ── Promo Codes ─────────────────────────────────────────────────────────
+
+export const promoCodes = pgTable("promo_codes", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => `promo_${alphanumeric()}`),
+  code: varchar("code", { length: 50 }).notNull().unique(),
+  discountType: varchar("discount_type", { length: 20 }).notNull().default("fixed"), // "fixed" | "percent"
+  discountAmount: integer("discount_amount").notNull(), // cents for fixed, percentage for percent
+  maxUses: integer("max_uses"), // null = unlimited
+  currentUses: integer("current_uses").notNull().default(0),
+  expiresAt: timestamp("expires_at"),
+  active: boolean("active").notNull().default(true),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const promoRedemptions = pgTable("promo_redemptions", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => `red_${alphanumeric()}`),
+  promoCodeId: varchar("promo_code_id", { length: 255 }).notNull().references(() => promoCodes.id),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id),
+  deploymentId: varchar("deployment_id", { length: 255 }).references(() => deployments.id),
+  redeemedAt: timestamp("redeemed_at").defaultNow().notNull(),
+});
