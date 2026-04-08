@@ -792,11 +792,14 @@ export const serviceReviewsRelations = relations(serviceReviews, ({ one }) => ({
 
 // ── Agent Calls Table ─────────────────────────────────────────────────
 
-// Agent-to-agent call tracking
+// Agent-to-agent call tracking + OpenTelemetry span store.
+// Mirrors the Postgres schema (see schema.pg.ts:agentCalls). SQLite stores
+// jsonb as TEXT and bigint as INTEGER — helpers read/write via JSON.stringify
+// + Number() coercion in the writer.
 export const agentCalls = sqliteTable("agent_calls", {
   id: text("id").primaryKey().$defaultFn(() => generateMarketplaceId("acl")),
-  callerDeploymentId: text("caller_deployment_id").notNull().references(() => deployments.id),
-  calleeDeploymentId: text("callee_deployment_id").notNull().references(() => deployments.id),
+  callerDeploymentId: text("caller_deployment_id").references(() => deployments.id),
+  calleeDeploymentId: text("callee_deployment_id").references(() => deployments.id),
   skillName: text("skill_name").notNull(),
   creditsCharged: integer("credits_charged").notNull().default(0),
   status: text("status").notNull().default("pending"), // pending, completed, failed, refunded
@@ -805,9 +808,44 @@ export const agentCalls = sqliteTable("agent_calls", {
   latencyMs: integer("latency_ms"),
   errorMessage: text("error_message"),
   createdAt: text("created_at").notNull().$defaultFn(now),
+
+  // Fractal delegation topology
+  parentCallId: text("parent_call_id"),
+  depth: integer("depth").notNull().default(0),
+  kind: text("kind").notNull().default("delegation"),
+
+  // OpenTelemetry span identity
+  traceId: text("trace_id"),
+  spanId: text("span_id"),
+  parentSpanId: text("parent_span_id"),
+  spanName: text("span_name"),
+  spanKind: text("span_kind").notNull().default("internal"),
+  serviceName: text("service_name"),
+  podName: text("pod_name"),
+
+  // Audit / filter
+  userId: text("user_id"),
+  orgId: text("org_id"),
+  sessionId: text("session_id"),
+
+  // Timing (milliseconds; Phase 2 OTel may add _ns columns later)
+  startMs: integer("start_ms"),
+  endMs: integer("end_ms"),
+  durationMs: integer("duration_ms"),
+
+  // OTel span status + attribute bag (jsonb → text+json in sqlite)
+  statusCode: text("status_code").notNull().default("ok"),
+  attributes: text("attributes", { mode: "json" }).notNull().$type<Record<string, unknown>>().default({}),
 }, (table) => ({
   callerIdx: index("idx_agent_calls_caller").on(table.callerDeploymentId),
   calleeIdx: index("idx_agent_calls_callee").on(table.calleeDeploymentId),
+  parentCallIdx: index("idx_agent_calls_parent_call_id").on(table.parentCallId),
+  traceIdx: index("idx_agent_calls_trace_id").on(table.traceId),
+  traceParentIdx: index("idx_agent_calls_trace_parent").on(table.traceId, table.parentSpanId),
+  parentSpanIdx: index("idx_agent_calls_parent_span_id").on(table.parentSpanId),
+  userStartIdx: index("idx_agent_calls_user_start").on(table.userId, table.startMs),
+  spanNameStartIdx: index("idx_agent_calls_span_name_start").on(table.spanName, table.startMs),
+  spanIdUniqueIdx: uniqueIndex("uq_agent_calls_span_id").on(table.spanId),
 }));
 
 // ── Managed Nodes (Auto-scaling) ─────────────────────────────────────────
@@ -835,6 +873,7 @@ export const managedNodes = sqliteTable("managed_nodes", {
 export const agentCallsRelations = relations(agentCalls, ({ one }) => ({
   callerDeployment: one(deployments, { fields: [agentCalls.callerDeploymentId], references: [deployments.id] }),
   calleeDeployment: one(deployments, { fields: [agentCalls.calleeDeploymentId], references: [deployments.id] }),
+  parentCall: one(agentCalls, { fields: [agentCalls.parentCallId], references: [agentCalls.id], relationName: "parentChild" }),
 }));
 
 // ── Deployment Subagents ──────────────────────────────────────────────────

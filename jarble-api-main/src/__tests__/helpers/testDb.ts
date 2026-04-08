@@ -526,8 +526,8 @@ const CREATE_TABLES_SQL = `
 
   CREATE TABLE IF NOT EXISTS agent_calls (
     id TEXT PRIMARY KEY,
-    caller_deployment_id TEXT NOT NULL REFERENCES deployments(id),
-    callee_deployment_id TEXT NOT NULL REFERENCES deployments(id),
+    caller_deployment_id TEXT REFERENCES deployments(id),
+    callee_deployment_id TEXT REFERENCES deployments(id),
     skill_name TEXT NOT NULL,
     credits_charged INTEGER DEFAULT 0 NOT NULL,
     status TEXT DEFAULT 'pending' NOT NULL,
@@ -535,11 +535,37 @@ const CREATE_TABLES_SQL = `
     response_body TEXT,
     latency_ms INTEGER,
     error_message TEXT,
-    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    -- JAR-50 observability columns
+    parent_call_id TEXT,
+    depth INTEGER DEFAULT 0 NOT NULL,
+    kind TEXT DEFAULT 'delegation' NOT NULL,
+    trace_id TEXT,
+    span_id TEXT,
+    parent_span_id TEXT,
+    span_name TEXT,
+    span_kind TEXT DEFAULT 'internal' NOT NULL,
+    service_name TEXT,
+    pod_name TEXT,
+    user_id TEXT,
+    org_id TEXT,
+    session_id TEXT,
+    start_ms INTEGER,
+    end_ms INTEGER,
+    duration_ms INTEGER,
+    status_code TEXT DEFAULT 'ok' NOT NULL,
+    attributes TEXT DEFAULT '{}' NOT NULL
   );
 
   CREATE INDEX IF NOT EXISTS idx_agent_calls_caller ON agent_calls(caller_deployment_id);
   CREATE INDEX IF NOT EXISTS idx_agent_calls_callee ON agent_calls(callee_deployment_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_parent_call_id ON agent_calls(parent_call_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_trace_id ON agent_calls(trace_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_trace_parent ON agent_calls(trace_id, parent_span_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_parent_span_id ON agent_calls(parent_span_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_user_start ON agent_calls(user_id, start_ms);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_span_name_start ON agent_calls(span_name, start_ms);
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_calls_span_id ON agent_calls(span_id);
 
   CREATE TABLE IF NOT EXISTS chat_sessions (
     id TEXT PRIMARY KEY,

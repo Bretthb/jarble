@@ -57,6 +57,13 @@
       "when": 1775498961717,
       "tag": "0007_lyrical_callisto",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775836800000,
+      "tag": "0008_agent_calls_observability",
+      "breakpoints": true
     }
   ]
 }

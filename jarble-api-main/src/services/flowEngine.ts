@@ -601,6 +601,21 @@ export class FlowExecutionEngine extends EventEmitter {
     // Mark as running
     this.state.stepResults.set(node.id, { status: "running" });
     const runningIndex = this.countCompleted() + 1;
+
+    // JAR-50: log the success path at info level so we can find slow nodes
+    // in prod. Previously only warn/error branches logged, meaning a
+    // successfully-slow 40-step flow gave no timing trail.
+    log.info(
+      {
+        executionId: this.state.executionId,
+        nodeId: node.id,
+        nodeType: node.type,
+        iteration: runningIndex,
+        total: totalNodes,
+      },
+      "flow: step started",
+    );
+
     this.emit("step:started", {
       nodeId: node.id,
       label: node.label,
@@ -659,6 +674,22 @@ export class FlowExecutionEngine extends EventEmitter {
       });
 
       const completedCount = this.countCompleted();
+
+      // JAR-50: log the success path with timing + credits so prod flame
+      // graphs are queryable even before OTel (Phase 2) is wired.
+      log.info(
+        {
+          executionId: this.state.executionId,
+          nodeId: node.id,
+          nodeType: node.type,
+          durationMs,
+          creditsCharged,
+          completed: completedCount,
+          total: totalNodes,
+        },
+        "flow: step completed",
+      );
+
       this.emit("step:finished", {
         nodeId: node.id,
         label: node.label,
