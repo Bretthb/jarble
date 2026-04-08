@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import ConversationHistoryPanel from "@/components/workspace/ConversationHistoryPanel";
 import SubagentsPanel from "@/components/workspace/SubagentsPanel";
 import TeamMembershipsPanel from "@/components/workspace/TeamMembershipsPanel";
+import { MemoryDisclosureBanner, type MemoryScope } from "@/components/chat/MemoryDisclosureBanner";
 import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
@@ -308,6 +309,7 @@ export default function DeploymentChatPage() {
           deploymentName={deployment.name}
           liveStatus={liveStatus}
           themeConfig={(deployment as any).themeConfig}
+          memoryScope={(deployment as any).memoryScope ?? "global"}
           onRefetchDeployment={() => deploymentQuery.refetch()}
         />
       </DeploymentTamboProvider>
@@ -322,12 +324,17 @@ function WorkspacePage({
   deploymentName,
   liveStatus,
   themeConfig,
+  memoryScope,
   onRefetchDeployment,
 }: {
   deploymentId: string;
   deploymentName: string;
   liveStatus: string;
   themeConfig?: string | null;
+  /** JAR memory-scoping foundation: passed straight through to
+   *  CanvasWorkspace which renders the disclosure banner. Defaults
+   *  to "global" if the deployment record predates the column. */
+  memoryScope?: string | null;
   onRefetchDeployment?: () => void;
 }) {
   const router = useRouter();
@@ -556,6 +563,7 @@ function WorkspacePage({
           historyOpen={historyOpen}
           onHistoryClose={() => setHistoryOpen(false)}
           onRefetchDeployment={onRefetchDeployment}
+          memoryScope={memoryScope}
         />
         {marketplaceOpen && (
           <MarketplacePanel
@@ -646,12 +654,16 @@ function CanvasWorkspace({
   historyOpen,
   onHistoryClose,
   onRefetchDeployment,
+  memoryScope,
 }: {
   deploymentId: string;
   liveStatus: string;
   historyOpen: boolean;
   onHistoryClose: () => void;
   onRefetchDeployment?: () => void;
+  /** JAR memory-scoping foundation: drives the disclosure banner above
+   *  the chat. Read from the deployment record on the parent. */
+  memoryScope?: string | null;
 }) {
   const { getAccessTokenSilently } = useAuth0();
   const startMutation = trpc.deployment.start.useMutation();
@@ -893,6 +905,12 @@ function CanvasWorkspace({
             [style*="--chat-width"] { width: var(--chat-width) !important; }
           }
         `}</style>
+        {/* JAR memory-scoping disclosure: tells the user how memory is
+            scoped before they share anything personal. Reads the
+            memoryScope field from the deployment record (defaults to
+            "global" until set). The banner is intentionally persistent
+            in global mode — that's the privacy-loaded default. */}
+        <MemoryDisclosureBanner scope={(memoryScope ?? null) as MemoryScope | null} />
         {/* Chat messages via assistant-ui - keyed so runtime resets on conversation switch */}
         <KeyedChatPanel
           key={activeConversationId ?? "default"}

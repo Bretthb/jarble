@@ -936,6 +936,12 @@ export const deploymentRouter = router({
       memoryMb: z.number().int().positive().optional(),
       storageMb: z.number().int().positive().optional(),
       messagingOnly: z.boolean().optional(),
+      // JAR memory-scoping foundation: see schema.pg.ts and
+      // docs/audits/memory-scoping-decision.md for the design.
+      // Enforcement of `session` mode lives in a follow-up PR — this
+      // input just persists the user's choice so the disclosure banner
+      // can read it back.
+      memoryScope: z.enum(["global", "session", "off"]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...rawUpdates } = input;

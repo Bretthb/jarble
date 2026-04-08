@@ -64,6 +64,13 @@
       "when": 1775836800000,
       "tag": "0008_agent_calls_observability",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1775683200000,
+      "tag": "0009_deployments_memory_scope",
+      "breakpoints": true
     }
   ]
 }

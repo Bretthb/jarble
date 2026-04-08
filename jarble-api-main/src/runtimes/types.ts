@@ -58,6 +58,16 @@ export interface DeploymentFields {
   gatewayToken?: string;
   /** If true, deployment only uses messaging platforms (no web chat) - enables condensed prompt */
   messagingOnly?: boolean;
+  /**
+   * Long-term memory scoping mode for the bot's MCP memory tools.
+   *   "global"  — current behavior, memory persists across all chat sessions
+   *               and platforms (default; soul.md advertises cross-platform memory).
+   *   "session" — memory partitioned per Jarble chat session/conversationId.
+   *               soul.md tells the bot not to recall cross-session.
+   *   "off"     — memory tools removed from soul.md entirely.
+   * See docs/audits/memory-scoping-decision.md.
+   */
+  memoryScope?: "global" | "session" | "off";
   /** Management mode: "legacy" (K8s Deployment) or "operator" (OpenClaw CRD). Affects PVC paths. */
   managedBy?: "legacy" | "operator";
   /** Installed skills: array of { name, config } from deploymentSkills + skillsCatalog join */
