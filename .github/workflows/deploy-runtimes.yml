@@ -3,10 +3,16 @@
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Triggers:
-#   - Push to main when runtimes/ files change
-#   - Push to main when the canonical jarble-ui-server.js changes
-#     (it gets copied into the openclaw build context)
+#   - Push to main OR develop when runtimes/ files change
+#   - Push to main OR develop when the canonical jarble-ui-server.js
+#     changes (it gets copied into the openclaw build context)
 #   - Manual dispatch (workflow_dispatch) with runtime selection
+#
+# Why develop too: the team develops on `develop` and cherry-picks to
+# `main`. If the runtime build only ran on main, MCP server fixes pushed
+# to develop would never produce a new openclaw image until someone
+# manually back-merged to main — which has been silently swallowing
+# every MCP server change for weeks.
 #
 # Publishes to:
 #   ghcr.io/jarble-ai/openclaw:latest  (+ :sha-XXXXXXX tag)
@@ -27,7 +33,7 @@ name: Build Runtime Images
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - "runtimes/**"
       - "jarble-api-main/src/mcp/jarble-ui-server.js"
