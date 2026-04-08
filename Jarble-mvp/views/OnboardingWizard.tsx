@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useTheme } from "next-themes";
+import Image from "next/image";
 import { trpc } from "@/lib/trpc";
 import { useOrg } from "@/contexts/OrgContext";
 import { Button } from "@/components/ui/button";
@@ -39,6 +41,8 @@ export default function OnboardingWizard() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const { activeOrgId } = useOrg();
+  const { resolvedTheme } = useTheme();
+  const logoSrc = resolvedTheme === "dark" ? "/logodark.png" : "/logo.png";
 
   // Step navigation
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -383,11 +387,7 @@ export default function OnboardingWizard() {
       <header className="border-b border-border/60 bg-background/95 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img
-              src="https://azeubylyzvcqot5l.public.blob.vercel-storage.com/logos/jarblelogo.png"
-              alt="Jarble"
-              className="w-8 h-8 object-contain rounded"
-            />
+            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-10 w-auto" />
             <span className="font-semibold text-sm">New Deployment</span>
           </div>
           <div className="flex items-center gap-4">

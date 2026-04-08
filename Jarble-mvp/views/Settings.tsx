@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useTheme as useNextTheme } from "next-themes";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,6 +34,8 @@ export default function SettingsView() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const { theme, toggleTheme, switchable } = useTheme();
+  const { resolvedTheme } = useNextTheme();
+  const logoSrc = resolvedTheme === "dark" ? "/logodark.png" : "/logo.png";
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -191,7 +195,7 @@ export default function SettingsView() {
               <ChevronLeft className="w-4 h-4" />
             </Button>
             <a href="/" className="flex items-center gap-2 cursor-pointer no-underline text-foreground">
-              <span className="font-semibold">Jarble</span>
+              <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" />
             </a>
           </div>
           <ProfileDropdown />

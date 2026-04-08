@@ -1,8 +1,10 @@
 "use client";
 import { AdminGuard } from "@/components/admin/AdminGuard";
 import ProfileDropdown from "@/components/ProfileDropdown";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTheme } from "next-themes";
 import {
   LayoutDashboard,
   Users,
@@ -32,6 +34,8 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const { resolvedTheme } = useTheme();
+  const logoSrc = resolvedTheme === "dark" ? "/logodark.png" : "/logo.png";
 
   return (
     <AdminGuard>
@@ -44,9 +48,7 @@ export default function AdminLayout({
                 href="/"
                 className="flex items-center gap-2 cursor-pointer no-underline text-foreground"
               >
-                <span className="font-serif font-bold text-2xl tracking-tight">
-                  Jarble
-                </span>
+                <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" />
               </a>
               <span className="text-border/80">|</span>
               <span className="text-sm font-medium text-muted-foreground">

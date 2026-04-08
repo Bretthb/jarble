@@ -2,6 +2,8 @@
 
 import { toast } from "sonner";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useTheme } from "next-themes";
+import Image from "next/image";
 import { trpc, API_URL } from "@/lib/trpc";
 import { vanillaClient } from "@/lib/trpc-vanilla";
 import { Button } from "@/components/ui/button";
@@ -3852,6 +3854,8 @@ function FlowAnimationStyles() {
 export default function Deployments() {
   const { isAuthenticated, isLoading: authLoading } = useAuth0();
   const router = useRouter();
+  const { resolvedTheme } = useTheme();
+  const logoSrc = resolvedTheme === "dark" ? "/logodark.png" : "/logo.png";
   const [activeRuntime, setActiveRuntime] = useState("all");
   const [showCreditPools, setShowCreditPools] = useState(true);
   const [selectedDeploymentId, setSelectedDeploymentId] = useState<
@@ -3928,7 +3932,7 @@ export default function Deployments() {
             href="/"
             className="flex items-center gap-2 cursor-pointer no-underline text-foreground"
           >
-            <span className="font-semibold">Jarble</span>
+            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" />
           </a>
           <ProfileDropdown />
         </div>
