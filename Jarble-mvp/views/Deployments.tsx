@@ -659,6 +659,7 @@ function DeploymentDetailPanel({
           {deployment.name}
         </h3>
         <button
+          type="button"
           onClick={onClose}
           className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary"
           aria-label="Close panel"
@@ -1395,6 +1396,7 @@ function FlowEdge({
           }}
         >
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               setShowDropdown((v) => !v);
@@ -1420,6 +1422,7 @@ function FlowEdge({
             <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 bg-card border border-border rounded-lg shadow-xl py-1 min-w-[130px]">
               {(["delegates", "reports", "collaborates"] as FlowEdgeType[]).map((type) => (
                 <button
+                  type="button"
                   key={type}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -1498,6 +1501,7 @@ function FlowPaletteSidebar({
             <div className="space-y-1">
               {available.map((dep) => (
                 <button
+                  type="button"
                   key={dep.id}
                   onClick={() => onAddNode(dep)}
                   className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg border border-border/40 bg-card/60 hover:bg-secondary/60 hover:border-primary/30 transition-all text-left group"
@@ -1674,6 +1678,7 @@ function FlowToolbar({
           />
         ) : (
           <button
+            type="button"
             onClick={() => { if (hasFlow) setIsEditing(true); }}
             className="flex items-center gap-1 text-sm font-semibold text-foreground hover:text-primary transition-colors truncate max-w-[180px]"
             disabled={!hasFlow}
@@ -1701,6 +1706,7 @@ function FlowToolbar({
       {hasFlow && (
         <div ref={teamTypeRef} className="relative shrink-0">
           <button
+            type="button"
             onClick={() => setShowTeamTypeDropdown((v) => !v)}
             className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-border bg-card hover:bg-secondary/50 transition-colors text-sm font-medium text-foreground hover:text-foreground shadow-sm"
           >
@@ -1715,6 +1721,7 @@ function FlowToolbar({
                 const Icon = opt.icon;
                 return (
                   <button
+                    type="button"
                     key={opt.value}
                     onClick={() => { onTeamTypeChange(opt.value); setShowTeamTypeDropdown(false); }}
                     className={`w-full flex items-start gap-2.5 px-3.5 py-2.5 text-left transition-colors rounded-md mx-0.5 ${
@@ -1854,6 +1861,7 @@ function FlowListSidebar({
     <div className="flex gap-1.5 overflow-x-auto pb-1">
       {flows.map((flow) => (
         <button
+          type="button"
           key={flow.id}
           onClick={() => onSelectFlow(flow.id)}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all whitespace-nowrap ${
@@ -3726,7 +3734,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                       </>
                     )}
                 </div>
-                <button onClick={() => setShowFlowChat(false)} className="p-1 rounded hover:bg-secondary shrink-0">
+                <button type="button" onClick={() => setShowFlowChat(false)} className="p-1 rounded hover:bg-secondary shrink-0">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -3852,6 +3860,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                     className="flex-1 bg-secondary rounded-lg px-3 py-2 text-sm outline-none"
                   />
                   <button
+                    type="button"
                     onClick={handleFlowChatSend}
                     disabled={flowChatLoading}
                     className="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
@@ -4119,6 +4128,7 @@ export default function Deployments() {
                   {/* Filter Bar */}
                   <div className="flex items-center gap-2 sm:gap-3 flex-wrap pb-4 overflow-x-auto scrollbar-none">
                     <button
+                      type="button"
                       onClick={() => setShowCreditPools((v) => !v)}
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
                         showCreditPools
@@ -4131,6 +4141,7 @@ export default function Deployments() {
                     </button>
 
                     <button
+                      type="button"
                       disabled
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-secondary/50 border-border text-muted-foreground-subtle cursor-not-allowed"
                     >
@@ -4149,6 +4160,7 @@ export default function Deployments() {
                         </span>
                         <div className="flex gap-1">
                           <button
+                            type="button"
                             onClick={() => setActiveRuntime("all")}
                             className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
                               activeRuntime === "all"
@@ -4160,6 +4172,7 @@ export default function Deployments() {
                           </button>
                           {runtimeSlugs.map((slug) => (
                             <button
+                              type="button"
                               key={slug}
                               onClick={() => setActiveRuntime(slug)}
                               className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${

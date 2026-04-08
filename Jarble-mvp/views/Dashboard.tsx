@@ -547,12 +547,15 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData
                 );
               })()}
               {deployment.cancelledAt && deployment.cancelAtPeriodEnd && <span className="text-border">·</span>}
-              {deployment.monthlyPriceCents > 0 ? (
-                <span className="inline-flex items-center gap-1">
-                  <DollarSign className="w-3 h-3" />
-                  ${(deployment.monthlyPriceCents / 100).toFixed(0)}/mo
-                </span>
-              ) : null}
+              {/* Beta pricing — matches Home hero ($13.99/mo per agent).
+                  The deployment.monthlyPriceCents value in the DB is seeded
+                  from runtime_catalog and may still carry the pre-beta $27
+                  figure. During beta we show the canonical $13.99 string so
+                  marketing and product stay in sync. Tracked in JAR-49. */}
+              <span className="inline-flex items-center gap-1">
+                <DollarSign className="w-3 h-3" />
+                $13.99/mo
+              </span>
               <span className="text-border">·</span>
               <span>{deployment.llmMode === "byok" ? "BYOK" : "Included"} LLM</span>
             </div>
