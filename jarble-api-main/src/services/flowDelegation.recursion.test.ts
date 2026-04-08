@@ -587,4 +587,122 @@ describe("executeDelegation — N-level recursion", () => {
       expect(rows[0].callee_deployment_id).toBe(SPEC_A_DEP);
     });
   });
+
+  // ── JAR-50 ↔ JAR-51 stitching guard ─────────────────────────────────────
+  // Closes the integration gap between PR #55 (agent_calls writer + root
+  // chat_turn span in tamboAgent) and PR #56 (recursive delegation). The
+  // unit tests above verify the recursion mechanics in isolation, but
+  // tamboAgent passes a `parentCallId` / `parentSpanId` / `traceId` from
+  // its rootAgentCall — if any of those don't reach the persisted row,
+  // the trace tree is silently broken even though every individual test
+  // passes. These tests assert the params actually land in the DB.
+  describe("JAR-50 root-span stitching", () => {
+    it("persists parentCallId from caller into the agent_calls row", async () => {
+      const rootCallId = "acl_test_root_chat_turn";
+      const rootSpanId = "test_span_root";
+      const rootTraceId = "0123456789abcdef0123456789abcdef";
+
+      hoisted.botBrain.set(SPEC_A_DEP, () => "Hello back from A.");
+
+      await executeDelegation({
+        targetDeploymentId: SPEC_A_DEP,
+        targetNodeId: "n_a",
+        task: "Say hello",
+        contextScope: "task",
+        sourceDeploymentId: ENTRY_DEP,
+        toolName: "delegate_to_a",
+        userId: hoisted.ctxRef.current!.testUserId,
+        depth: 1,
+        // ── The stitching params from tamboAgent's rootAgentCall ──
+        parentCallId: rootCallId,
+        parentSpanId: rootSpanId,
+        traceId: rootTraceId,
+      });
+
+      const rows = await readAgentCalls();
+      expect(rows).toHaveLength(1);
+      const row = rows[0];
+
+      // The recursion writer must have stamped each stitching field on
+      // the row, otherwise the debug drawer won't be able to walk back
+      // to the root chat turn.
+      expect(row.parent_call_id).toBe(rootCallId);
+      expect(row.callee_deployment_id).toBe(SPEC_A_DEP);
+      expect(row.depth).toBe(1);
+      expect(row.kind).toBe("delegation");
+    });
+
+    it("propagates the same trace context through 2 levels of recursion", async () => {
+      const rootCallId = "acl_test_root_2level";
+      const rootTraceId = "fedcba9876543210fedcba9876543210";
+
+      hoisted.botBrain.set(SPEC_A_DEP, () =>
+        [
+          "Asking B for help.",
+          "```jarble_delegate",
+          '{ "to": "b", "task": "Do the deeper thing" }',
+          "```",
+        ].join("\n"),
+      );
+      hoisted.botBrain.set(SPEC_B_DEP, () => "Done.");
+
+      await executeDelegation({
+        targetDeploymentId: SPEC_A_DEP,
+        targetNodeId: "n_a",
+        task: "Two levels please",
+        contextScope: "task",
+        sourceDeploymentId: ENTRY_DEP,
+        toolName: "delegate_to_a",
+        userId: hoisted.ctxRef.current!.testUserId,
+        depth: 1,
+        parentCallId: rootCallId,
+        traceId: rootTraceId,
+        flowId: FLOW_ID,
+      });
+
+      const rows = await readAgentCalls();
+      // 2 rows: A (parent=rootCallId) and B (parent=A's callId)
+      expect(rows).toHaveLength(2);
+
+      const aRow = rows.find((r) => r.callee_deployment_id === SPEC_A_DEP);
+      const bRow = rows.find((r) => r.callee_deployment_id === SPEC_B_DEP);
+      expect(aRow).toBeDefined();
+      expect(bRow).toBeDefined();
+
+      // A is a direct child of the chat-turn root
+      expect(aRow!.parent_call_id).toBe(rootCallId);
+      expect(aRow!.depth).toBe(1);
+
+      // B is a child of A — the recursive call must thread A.callId
+      // through, NOT pass back the original rootCallId at every level
+      expect(bRow!.parent_call_id).toBe(aRow!.id);
+      expect(bRow!.depth).toBe(2);
+    });
+
+    it("first hop without a parentCallId still writes a row (1-level back-compat)", async () => {
+      // Some legacy callers (flowChat.ts pre-JAR-50, scheduled jobs)
+      // invoke executeDelegation without the stitching params. Those rows
+      // should still land in agent_calls — they just become roots of
+      // their own mini-tree instead of children of a chat turn.
+      hoisted.botBrain.set(SPEC_A_DEP, () => "Standalone delegation.");
+
+      await executeDelegation({
+        targetDeploymentId: SPEC_A_DEP,
+        targetNodeId: "n_a",
+        task: "Solo run",
+        contextScope: "task",
+        sourceDeploymentId: ENTRY_DEP,
+        toolName: "delegate_to_a",
+        userId: hoisted.ctxRef.current!.testUserId,
+        depth: 0,
+        // no parentCallId, no parentSpanId, no traceId
+      });
+
+      const rows = await readAgentCalls();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].parent_call_id).toBeNull();
+      expect(rows[0].callee_deployment_id).toBe(SPEC_A_DEP);
+      expect(rows[0].depth).toBe(0);
+    });
+  });
 });
