@@ -105,6 +105,12 @@ jobs:
   build:
     needs: changes
     runs-on: ubuntu-latest
+    # Job-level gate cannot use `matrix.*` (matrix is expanded AFTER `if:`
+    # is evaluated — `Unrecognized named-value: 'matrix'`). So we gate the
+    # whole job on either runtime having changed, then skip individual
+    # steps via per-step `if:` (which DO have matrix context). Empty
+    # matrix entries become near-no-ops.
+    if: needs.changes.outputs.openclaw == 'true' || needs.changes.outputs.zeroclaw == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -113,18 +119,28 @@ jobs:
     concurrency:
       group: deploy-runtimes-${{ matrix.runtime }}
       cancel-in-progress: false
-    if: |
-      (matrix.runtime == 'openclaw' && needs.changes.outputs.openclaw == 'true') ||
-      (matrix.runtime == 'zeroclaw' && needs.changes.outputs.zeroclaw == 'true')
     steps:
+      - name: Should this matrix entry build?
+        id: should
+        run: |
+          if [ "${{ matrix.runtime }}" = "openclaw" ] && [ "${{ needs.changes.outputs.openclaw }}" = "true" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ matrix.runtime }}" = "zeroclaw" ] && [ "${{ needs.changes.outputs.zeroclaw }}" = "true" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ matrix.runtime }} runtime did not change, skipping build"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.should.outputs.build == 'true'
 
       # ── Bring the canonical Jarble UI MCP server into the build ──
       # Only openclaw uses it; zeroclaw skips this step.
       # This guarantees the image always bundles the latest MCP server
       # rather than relying on a stale committed copy.
       - name: Copy canonical jarble-ui-server.js into openclaw context
-        if: matrix.runtime == 'openclaw'
+        if: steps.should.outputs.build == 'true' && matrix.runtime == 'openclaw'
         run: |
           set -euo pipefail
           SRC="jarble-api-main/src/mcp/jarble-ui-server.js"
@@ -138,9 +154,11 @@ jobs:
           echo "Copied $SRC -> $DEST ($BYTES bytes)"
 
       - name: Set up Docker Buildx
+        if: steps.should.outputs.build == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: steps.should.outputs.build == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -148,10 +166,12 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute short SHA
+        if: steps.should.outputs.build == 'true'
         id: sha
         run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata
+        if: steps.should.outputs.build == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -161,6 +181,7 @@ jobs:
             type=raw,value=sha-${{ steps.sha.outputs.short }}
 
       - name: Build and push ${{ matrix.runtime }}
+        if: steps.should.outputs.build == 'true'
         id: build
         uses: docker/build-push-action@v5
         with:
@@ -172,6 +193,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=runtime-${{ matrix.runtime }}
 
       - name: Job summary
+        if: steps.should.outputs.build == 'true'
         run: |
           {
             echo "## Built ${{ matrix.runtime }}"
@@ -214,6 +236,7 @@ jobs:
       # `configmaps/runtime-image-tracker` resource in the `jarble`
       # namespace. See docs/audits/ci-hardening.md for the sample Role.
       - name: Check if KUBE_CONFIG is configured
+        if: steps.should.outputs.build == 'true'
         id: check_kubeconfig
         env:
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
