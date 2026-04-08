@@ -1,4 +1,4 @@
-import { pgTable, varchar, text, integer, timestamp, boolean, serial, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, integer, timestamp, boolean, serial, uniqueIndex, index, bigint, jsonb } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { customAlphabet } from "nanoid";
 
@@ -725,11 +725,33 @@ export const serviceReviewsRelations = relations(serviceReviews, ({ one }) => ({
 
 // ── Agent Calls Table ─────────────────────────────────────────────────
 
-// Agent-to-agent call tracking
+// Agent-to-agent call tracking + orchestration span store.
+//
+// This table has two hats:
+//   1. Domain table — caller/callee/skill/status/credits for billing rollups
+//      and the "who delegated to whom" audit trail. This is the shape that
+//      already existed.
+//   2. OpenTelemetry-compatible span store — adds trace_id / span_id /
+//      parent_span_id / span_name / attributes so it can also power the
+//      cross-pod delegation tree visualisation described in
+//      `docs/audits/orchestration-observability-plan.md` without us having
+//      to keep two tables in sync.
+//
+// Columns added in JAR-50 (Phase 1) for the observability rollout:
+//   - parent_call_id, depth, kind   → fractal delegation topology
+//   - trace_id, span_id, parent_span_id, span_name, span_kind, service_name
+//   - pod_name, user_id, org_id     → filtering + per-user audit queries
+//   - start_ns, end_ns, duration_ms → high-res timing for debug drawer
+//   - status_code, attributes       → OTel-compatible span shape
+//
+// Root span rows (one per user chat turn) carry parent_span_id = NULL and
+// may also carry a null callee_deployment_id when the root hasn't delegated
+// yet — that's why both caller/callee were loosened to nullable. Existing
+// readers already handle the row and only care about non-null cases.
 export const agentCalls = pgTable("agent_calls", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => generateMarketplaceId("acl")),
-  callerDeploymentId: varchar("caller_deployment_id", { length: 255 }).notNull().references(() => deployments.id),
-  calleeDeploymentId: varchar("callee_deployment_id", { length: 255 }).notNull().references(() => deployments.id),
+  callerDeploymentId: varchar("caller_deployment_id", { length: 255 }).references(() => deployments.id),
+  calleeDeploymentId: varchar("callee_deployment_id", { length: 255 }).references(() => deployments.id),
   skillName: varchar("skill_name", { length: 100 }).notNull(),
   creditsCharged: integer("credits_charged").notNull().default(0),
   status: varchar("status", { length: 20 }).notNull().default("pending"), // pending, completed, failed, refunded
@@ -738,9 +760,44 @@ export const agentCalls = pgTable("agent_calls", {
   latencyMs: integer("latency_ms"),
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+
+  // ── Fractal delegation topology (aligned with feature/fractal-n-level-delegation) ──
+  parentCallId: varchar("parent_call_id", { length: 40 }),
+  depth: integer("depth").notNull().default(0),
+  kind: varchar("kind", { length: 16 }).notNull().default("delegation"), // delegation | chat_turn | tool | flow_step | llm
+
+  // ── OpenTelemetry span identity ──
+  traceId: varchar("trace_id", { length: 32 }),
+  spanId: varchar("span_id", { length: 16 }),
+  parentSpanId: varchar("parent_span_id", { length: 16 }),
+  spanName: varchar("span_name", { length: 128 }),
+  spanKind: varchar("span_kind", { length: 24 }).notNull().default("internal"),
+  serviceName: varchar("service_name", { length: 64 }),
+  podName: varchar("pod_name", { length: 128 }),
+
+  // ── Audit / filter fields ──
+  userId: varchar("user_id", { length: 255 }),
+  orgId: varchar("org_id", { length: 255 }),
+  sessionId: varchar("session_id", { length: 255 }),
+
+  // ── Timing (Phase 1 uses milliseconds; Phase 2 OTel may add _ns columns later) ──
+  startMs: bigint("start_ms", { mode: "number" }),
+  endMs: bigint("end_ms", { mode: "number" }),
+  durationMs: integer("duration_ms"),
+
+  // ── OTel-compatible span status + attribute bag ──
+  statusCode: varchar("status_code", { length: 8 }).notNull().default("ok"), // ok | error
+  attributes: jsonb("attributes").notNull().default({}),
 }, (table) => ({
   callerIdx: index("idx_agent_calls_caller").on(table.callerDeploymentId),
   calleeIdx: index("idx_agent_calls_callee").on(table.calleeDeploymentId),
+  parentCallIdx: index("idx_agent_calls_parent_call_id").on(table.parentCallId),
+  traceIdx: index("idx_agent_calls_trace_id").on(table.traceId),
+  traceParentIdx: index("idx_agent_calls_trace_parent").on(table.traceId, table.parentSpanId),
+  parentSpanIdx: index("idx_agent_calls_parent_span_id").on(table.parentSpanId),
+  userStartIdx: index("idx_agent_calls_user_start").on(table.userId, table.startMs),
+  spanNameStartIdx: index("idx_agent_calls_span_name_start").on(table.spanName, table.startMs),
+  spanIdUniqueIdx: uniqueIndex("uq_agent_calls_span_id").on(table.spanId),
 }));
 
 // ── Agent Calls Relations ─────────────────────────────────────────────
@@ -748,6 +805,7 @@ export const agentCalls = pgTable("agent_calls", {
 export const agentCallsRelations = relations(agentCalls, ({ one }) => ({
   callerDeployment: one(deployments, { fields: [agentCalls.callerDeploymentId], references: [deployments.id] }),
   calleeDeployment: one(deployments, { fields: [agentCalls.calleeDeploymentId], references: [deployments.id] }),
+  parentCall: one(agentCalls, { fields: [agentCalls.parentCallId], references: [agentCalls.id], relationName: "parentChild" }),
 }));
 
 // ── Persona Templates ─────────────────────────────────────────────────────

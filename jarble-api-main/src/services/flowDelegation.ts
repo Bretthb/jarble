@@ -337,6 +337,16 @@ export async function executeDelegation(params: {
   toolName?: string;
   /** User ID for ownership verification — prevents IDOR on delegation targets */
   userId?: string;
+  /** Parent agent_calls row id. If set, this delegation becomes a child of
+   *  that call in the fractal tree (JAR-50 agent_calls writer). */
+  parentCallId?: string | null;
+  /** Parent OTel span id (usually matches parent call's span_id). */
+  parentSpanId?: string | null;
+  /** Trace id for the root chat turn. Propagates unchanged through every
+   *  recursive delegation so the whole fractal tree stitches to one trace. */
+  traceId?: string | null;
+  /** Org scope for audit rollups. */
+  orgId?: string | null;
 }): Promise<DelegationResult> {
   const depth = params.depth ?? 0;
   if (depth >= MAX_DELEGATION_DEPTH) {
@@ -417,6 +427,32 @@ export async function executeDelegation(params: {
     "Executing delegation",
   );
 
+  // ── JAR-50: record agent_calls row for the delegation hop ─────────────────
+  // Fire-and-forget: the writer catches its own errors so audit failures
+  // can never break the delegation path.
+  const { startAgentCall, finishAgentCall } = await import("./agentCallsWriter.js");
+  const agentCallHandle = await startAgentCall({
+    kind: "delegation",
+    skillName: params.toolName || `delegate_to_${params.targetNodeId}`,
+    callerDeploymentId: params.sourceDeploymentId || null,
+    calleeDeploymentId: params.targetDeploymentId,
+    parentCallId: params.parentCallId ?? null,
+    parentSpanId: params.parentSpanId ?? null,
+    traceId: params.traceId ?? null,
+    depth,
+    userId: params.userId ?? null,
+    orgId: params.orgId ?? null,
+    sessionId,
+    podName,
+    spanName: "jarble.delegation.hop",
+    requestBody: { task: params.task, contextScope: params.contextScope },
+    attributes: {
+      targetNodeId: params.targetNodeId,
+      contextScope: params.contextScope,
+      messageLen: message.length,
+    },
+  });
+
   // ── Emit orchestration:step:start event ──────────────────────────────────
   const stepId = `delegation-${nanoid(8)}`;
   const orchestrationDeploymentId = params.sourceDeploymentId || params.targetDeploymentId;
@@ -482,6 +518,19 @@ export async function executeDelegation(params: {
       // Non-fatal
     }
 
+    // ── JAR-50: finish the agent_calls row as completed ───────────────────
+    await finishAgentCall({
+      call: agentCallHandle,
+      status: "completed",
+      responseBody: result.text || "",
+      creditsCharged: 1,
+      attributes: {
+        responseLen: (result.text || "").length,
+        uiBlocks: result.uiBlocks?.length || 0,
+        componentDefs: result.componentDefs?.length || 0,
+      },
+    });
+
     return {
       response: result.text || "",
       creditsUsed: 1, // 1 credit per delegation call
@@ -510,6 +559,13 @@ export async function executeDelegation(params: {
     } catch {
       // Non-fatal
     }
+    // ── JAR-50: finish the agent_calls row as failed ──────────────────────
+    await finishAgentCall({
+      call: agentCallHandle,
+      status: "failed",
+      errorMessage: err instanceof Error ? err.message : String(err),
+      attributes: { errorKind: err instanceof Error ? err.name : "unknown" },
+    });
     throw err;
   } finally {
     clearTimeout(timeout);
