@@ -118,6 +118,7 @@ function SubagentsBadgeButton({ deploymentId, isOpen, onClick }: { deploymentId:
       onClick={onClick}
       className={cn("h-8 p-0 gap-1 shrink-0 hidden sm:flex", count > 0 ? "px-2" : "w-8")}
       title="Subagents"
+      aria-label={count > 0 ? `Subagents (${count})` : "Subagents"}
     >
       <Bot className="w-4 h-4" />
       {count > 0 && (
@@ -228,10 +229,22 @@ export default function DeploymentChatPage() {
     );
   }
 
-  if (!deploymentQuery.data) {
+  // After isLoading settles, data will be undefined AND isError will be true
+  // if the deployment doesn't exist or the user doesn't own it. Show a proper
+  // not-found UI with a back-to-dashboard action so the page isn't blank.
+  if (deploymentQuery.isError || !deploymentQuery.data) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <p className="text-muted-foreground">Deployment not found</p>
+        <div className="text-center space-y-4 max-w-md px-6">
+          <Bot className="w-12 h-12 text-muted-foreground mx-auto" />
+          <h2 className="text-lg font-medium">Deployment not found</h2>
+          <p className="text-sm text-muted-foreground">
+            This deployment doesn't exist or you don't have access to it.
+          </p>
+          <Button variant="outline" onClick={() => router.push("/dashboard")}>
+            Back to Dashboard
+          </Button>
+        </div>
       </div>
     );
   }
