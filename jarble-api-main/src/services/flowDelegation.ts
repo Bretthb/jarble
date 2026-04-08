@@ -670,49 +670,51 @@ export async function executeDelegation(params: {
     "Executing delegation",
   );
 
-  // ── Insert agent_calls row (pending) ────────────────────────────────────
+  // ── Insert agent_calls row (pending) via the JAR-50 writer helper ───────
   // The row is the anchor point for the delegation tree: recursive sub-calls
-  // use this row's id as their `parent_call_id`. Insert BEFORE chatViaExec
-  // so child calls emitted by the target can chain against it immediately.
+  // use this row's id as their `parent_call_id`. Insert BEFORE chatViaExec so
+  // child calls emitted by the target can chain against it immediately.
   //
-  // The caller field on agent_calls points to the hop's SOURCE (the deployment
-  // actually doing the delegating), which is why `sourceDeploymentId` must be
-  // populated by the top-level caller — falling back to `targetDeploymentId`
-  // would record a deployment as calling itself.
-  const callerDeploymentIdForRow =
-    params.sourceDeploymentId || params.targetDeploymentId;
-  const stepId = `acl_${nanoid(12)}`;
-  const callId = stepId; // unify stepId with agent_calls.id so SSE tree == DB tree
-
-  try {
-    const agentCallsTable = (tables as any).agentCalls;
-    if (agentCallsTable) {
-      await db.insert(agentCallsTable).values({
-        id: callId,
-        callerDeploymentId: callerDeploymentIdForRow,
-        calleeDeploymentId: params.targetDeploymentId,
-        skillName: params.toolName || `delegate_to_${params.targetNodeId}`,
-        creditsCharged: 1,
-        status: "pending",
-        requestBody: params.task.slice(0, 10_000),
-        parentCallId: params.parentCallId ?? null,
-        depth,
-        kind: "delegation",
-        createdAt: dbDate(),
-      } as any);
-    }
-  } catch (err) {
-    // Non-fatal — the tree row is diagnostic, don't block the delegation.
-    log.warn(
-      {
-        err: err instanceof Error ? err.message : String(err),
-        callId,
-        parentCallId: params.parentCallId,
-        depth,
-      },
-      "Failed to insert agent_calls row for delegation",
-    );
-  }
+  // Using `agentCallsWriter` (instead of an inline `db.insert`) so every
+  // delegation row gets the full OTel-ready column set populated:
+  // span_name, span_kind, service_name, pod_name, user_id, org_id,
+  // session_id, start_ms, end_ms, duration_ms, status_code, attributes.
+  // This was the JAR-50 follow-up flagged after the live verification of
+  // PR #56 — delegation rows in prod were landing with span_name/start_ms/
+  // duration_ms = null because the inline writer didn't set them.
+  //
+  // The writer is fire-and-forget: it logs warnings on DB failure and
+  // never throws, so an audit-store outage cannot break the delegation
+  // path.
+  const { startAgentCall, finishAgentCall } = await import("./agentCallsWriter.js");
+  const agentCallHandle = await startAgentCall({
+    kind: "delegation",
+    skillName: params.toolName || `delegate_to_${params.targetNodeId}`,
+    callerDeploymentId: params.sourceDeploymentId || null,
+    calleeDeploymentId: params.targetDeploymentId,
+    parentCallId: params.parentCallId ?? null,
+    parentSpanId: params.parentSpanId ?? null,
+    traceId: params.traceId ?? null,
+    depth,
+    userId: params.userId ?? null,
+    orgId: params.orgId ?? null,
+    sessionId,
+    podName,
+    spanName: "jarble.delegation.hop",
+    requestBody: { task: params.task, contextScope: params.contextScope },
+    attributes: {
+      targetNodeId: params.targetNodeId,
+      targetDeploymentId: params.targetDeploymentId,
+      contextScope: params.contextScope,
+      messageLen: message.length,
+    },
+  });
+  // Pull the call id back out so the existing recursion threading
+  // (`parentCallId: callId` at the sub-delegation site) keeps working
+  // unchanged. The writer also generates a stable trace_id we propagate
+  // to children.
+  const callId = agentCallHandle.callId;
+  const stepId = callId; // unify SSE stepId with agent_calls.id so SSE tree == DB tree
 
   // ── Emit orchestration:step:start event ──────────────────────────────────
   const orchestrationDeploymentId = params.sourceDeploymentId || params.targetDeploymentId;
@@ -741,26 +743,8 @@ export async function executeDelegation(params: {
     DELEGATION_TIMEOUT_MS,
   );
 
-  // Helper: update the agent_calls row on completion/failure. Non-fatal —
-  // a DB write failure here is logged and swallowed so it cannot mask the
-  // real delegation outcome. The row may be left in `pending` in that case,
-  // which is acceptable (the analytics tree may have a dangling leaf, but
-  // the delegation result itself is still returned to the caller).
-  const updateAgentCallsRow = async (patch: Record<string, any>) => {
-    try {
-      const agentCallsTable = (tables as any).agentCalls;
-      if (!agentCallsTable) return;
-      await db
-        .update(agentCallsTable)
-        .set(patch)
-        .where(eq(agentCallsTable.id, callId));
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err), callId },
-        "Failed to update agent_calls row",
-      );
-    }
-  };
+  // (`updateAgentCallsRow` removed — finishAgentCall from the writer now
+  // handles the patch + status_code + duration + end_ms in one place.)
 
   try {
     const result = await chatViaExec(
@@ -968,10 +952,17 @@ export async function executeDelegation(params: {
       // Non-fatal
     }
 
-    await updateAgentCallsRow({
+    await finishAgentCall({
+      call: agentCallHandle,
       status: "completed",
-      responseBody: (finalResponse || "").slice(0, 10_000),
-      latencyMs: durationMs,
+      responseBody: finalResponse || "",
+      creditsCharged: 1,
+      attributes: {
+        responseLen: (finalResponse || "").length,
+        childCount: childResults.length,
+        uiBlocks: aggregatedUiBlocks.length,
+        componentDefs: aggregatedComponentDefs.length,
+      },
     });
 
     return {
@@ -1007,10 +998,11 @@ export async function executeDelegation(params: {
     } catch {
       // Non-fatal
     }
-    await updateAgentCallsRow({
+    await finishAgentCall({
+      call: agentCallHandle,
       status: "failed",
       errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 2000),
-      latencyMs: durationMs,
+      attributes: { errorKind: err instanceof Error ? err.name : "unknown" },
     });
     throw err;
   } finally {
