@@ -49,20 +49,29 @@ jobs:
       # the new :latest image. Kubero in `docker` deployment-strategy mode does
       # NOT poll the registry, so even with `autodeploy: true` and
       # `pullPolicy: Always` the running pod keeps the old image until something
-      # restarts it. We SSH into the master and run `kubectl rollout restart`
-      # which forces K8s to pull the new :latest tag and start a fresh pod.
-      # The new pod's CMD invokes migrate.pg.js so any pending DB migration
-      # runs automatically before the API server boots.
+      # restarts it.
+      #
+      # `kubectl rollout restart` does NOT work here — Kubero's reconciler
+      # strips the `kubectl.kubernetes.io/restartedAt` annotation as drift
+      # within seconds, scaling the new ReplicaSet back to 0 and killing the
+      # fresh pod. Verified by events:
+      #   21m  ScalingReplicaSet  ...86cdc95db7 to 1
+      #   21m  Started container
+      #   21m  ScalingReplicaSet  ...86cdc95db7 to 0 from 1   ← rollback
+      #
+      # Workaround: delete the pod directly. K8s recreates it from the
+      # existing ReplicaSet (no template change → no Kubero conflict), and
+      # `pullPolicy: Always` forces a fresh `:latest` pull. The new pod's
+      # CMD invokes migrate.pg.js so pending DB migrations apply before
+      # the API server boots.
       #
       # Required secrets:
       #   K3S_SSH_HOST          — e.g. 178.156.230.13
       #   K3S_SSH_USER          — e.g. root
       #   K3S_SSH_PRIVATE_KEY   — the private key half of an authorized key
       #
-      # If any secret is missing the step is skipped, not failed, so the
-      # build still succeeds (image is on GHCR; manual rollout is the
-      # fallback).
-      - name: Trigger prod rollout (ssh + kubectl)
+      # If any secret is missing the step is skipped, not failed.
+      - name: Trigger prod rollout (delete pod for fresh pull)
         if: github.ref == 'refs/heads/develop' && env.K3S_SSH_HOST != ''
         env:
           K3S_SSH_HOST: ${{ secrets.K3S_SSH_HOST }}
@@ -75,5 +84,21 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$K3S_SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no "$K3S_SSH_USER@$K3S_SSH_HOST" \
-            "kubectl -n jarble-production rollout restart deploy jarble-api-kuberoapp-web && kubectl -n jarble-production rollout status deploy jarble-api-kuberoapp-web --timeout=180s"
-          echo "✅ prod rollout triggered + completed"
+            'set -e
+             POD=$(kubectl -n jarble-production get pods --no-headers 2>/dev/null | grep "jarble-api-kuberoapp-web" | grep -v Terminating | grep Running | head -1 | awk "{print \$1}")
+             if [ -z "$POD" ]; then echo "No running web pod found"; exit 1; fi
+             echo "deleting pod: $POD"
+             kubectl -n jarble-production delete pod "$POD" --wait=false
+             # Wait for the replacement to come up + pass startup probe
+             for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+               NEW=$(kubectl -n jarble-production get pods --no-headers 2>/dev/null | grep "jarble-api-kuberoapp-web" | grep Running | grep "1/1" | head -1 | awk "{print \$1}")
+               if [ -n "$NEW" ] && [ "$NEW" != "$POD" ]; then
+                 echo "✅ new pod ready: $NEW"
+                 exit 0
+               fi
+               echo "  waiting for replacement... (tick $i)"
+               sleep 10
+             done
+             echo "⚠️ replacement pod did not become Ready in 120s"
+             kubectl -n jarble-production get pods | grep jarble-api-kuberoapp-web
+             exit 1'
