@@ -589,7 +589,7 @@ async function defaultDeleteOrphan(deploymentId: string): Promise<void> {
 
 async function defaultScaleDown(): Promise<void> {
   const { checkScaleDown } = await import("../k8s/nodeManager.js");
-  await checkScaleDown(db);
+  await checkScaleDown();
 }
 
 /**
