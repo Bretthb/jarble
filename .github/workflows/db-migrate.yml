@@ -1,0 +1,49 @@
+name: DB Migration (Drizzle)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Migration action'
+        required: true
+        default: 'migrate'
+        type: choice
+        options:
+          - migrate
+          - generate
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: jarble-api-main
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate migration
+        if: inputs.action == 'generate'
+        run: npm run db:generate:pg
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Run migration
+        if: inputs.action == 'migrate'
+        run: npm run db:migrate:pg
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Upload migration files
+        if: inputs.action == 'generate'
+        uses: actions/upload-artifact@v4
+        with:
+          name: drizzle-migration
+          path: jarble-api-main/drizzle-pg/
