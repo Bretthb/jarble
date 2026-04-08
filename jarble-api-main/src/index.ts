@@ -74,15 +74,16 @@ app.use(cors({
 
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
-    } else if (env.NODE_ENV === "development") {
+    } else if (env.NODE_ENV === "development" && (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:"))) {
       // In development, allow any localhost origin
-      if (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
+      callback(null, true);
     } else {
-      callback(new Error("Not allowed by CORS"));
+      // IMPORTANT: pass (null, false) for disallowed origins — NOT an Error.
+      // Throwing an Error here bubbles up to the Express global error handler
+      // and returns a 500, causing spurious Sentry alerts for every probe from
+      // an unlisted origin. (null, false) returns a clean response without
+      // the Access-Control-Allow-Origin header, which browsers block correctly.
+      callback(null, false);
     }
   },
   credentials: true,

@@ -100,8 +100,8 @@ export const subagentsRouter = router({
       z.object({
         deploymentId: z.string(),
         name: z.string().min(1).max(100).refine(noHtmlTags, NO_HTML_MESSAGE),
-        description: z.string().optional(),
-        systemPrompt: z.string().min(1),
+        description: z.string().max(2000).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
+        systemPrompt: z.string().min(1).max(50_000),
         model: z.string().max(100).optional(),
         triggerType: z.enum(["manual", "auto", "conditional"]).default("manual"),
         triggerConfig: z.string().optional(),
@@ -179,7 +179,7 @@ export const subagentsRouter = router({
       z.object({
         id: z.string(),
         name: z.string().min(1).max(100).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
-        description: z.string().max(2000).optional(),
+        description: z.string().max(2000).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
         systemPrompt: z.string().min(1).optional(),
         model: z.string().max(100).nullable().optional(),
         triggerType: z.enum(["manual", "auto", "conditional"]).optional(),
