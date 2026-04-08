@@ -4221,6 +4221,33 @@ function executeUpdateUi(args) {
 const MEMORY_DIR = process.env.JARBLE_MEMORY_DIR || "/data/memory";
 const MEMORY_FILE = path.join(MEMORY_DIR, "store.json");
 const MEMORY_VERSION = 1;
+
+// Memory scope enforcement (JAR memory-scoping enforcement PR B).
+// Values: "global" (default, cross-session), "session" (advisory for now),
+// "off" (memory tools hidden + dispatch-blocked).
+const MEMORY_SCOPE = (process.env.JARBLE_MEMORY_SCOPE || "global").toLowerCase();
+const MEMORY_TOOL_NAMES = new Set([
+  "store_memory",
+  "recall_memory",
+  "list_memories",
+  "forget_memory",
+]);
+
+function isMemoryScopeOff() {
+  return MEMORY_SCOPE === "off";
+}
+
+function filterToolsForMemoryScope(toolList) {
+  if (!isMemoryScopeOff()) return toolList;
+  return toolList.filter((t) => !MEMORY_TOOL_NAMES.has(t.name));
+}
+
+function memoryOffResponse() {
+  return {
+    isError: true,
+    text: "Long-term memory is disabled for this deployment (memory_scope=off). Ask the user to re-enable it in the deployment configuration if they want the bot to remember anything.",
+  };
+}
 const EMBEDDING_DIMS = 512;
 const SIMILARITY_THRESHOLD = 0.82; // cosine sim threshold for dedup/compaction
 const MAX_MEMORIES = 10000;
@@ -7210,10 +7237,10 @@ async function executeTool(name, args) {
     case "component_reference": return executeComponentReference(args || {});
     case "skill_reference": return executeSkillReference(args || {});
     case "update_ui": return executeUpdateUi(args || {});
-    case "store_memory": return executeStoreMemory(args || {});
-    case "recall_memory": return executeRecallMemory(args || {});
-    case "list_memories": return executeListMemories(args || {});
-    case "forget_memory": return executeForgetMemory(args || {});
+    case "store_memory": return isMemoryScopeOff() ? memoryOffResponse() : executeStoreMemory(args || {});
+    case "recall_memory": return isMemoryScopeOff() ? memoryOffResponse() : executeRecallMemory(args || {});
+    case "list_memories": return isMemoryScopeOff() ? memoryOffResponse() : executeListMemories(args || {});
+    case "forget_memory": return isMemoryScopeOff() ? memoryOffResponse() : executeForgetMemory(args || {});
     case "create_dashboard": return executeCreateDashboard(args || {});
     case "compose_dashboard": return executeComposeDashboard(args || {});
     case "render_page": return executeRenderPage(args || {});
@@ -7360,7 +7387,15 @@ async function handleMessage(msg) {
     return {
       jsonrpc: "2.0",
       id,
-      result: { tools: [...TOOLS, ...PER_COMPONENT_TOOLS, ...serviceToolDefs, ...agentToolDefs, ...subagentToolDefs] },
+      result: {
+        tools: filterToolsForMemoryScope([
+          ...TOOLS,
+          ...PER_COMPONENT_TOOLS,
+          ...serviceToolDefs,
+          ...agentToolDefs,
+          ...subagentToolDefs,
+        ]),
+      },
     };
   }
 

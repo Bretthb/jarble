@@ -714,6 +714,12 @@ export const openclawHandler: RuntimeHandler = {
       entries["JARBLE_KNOWLEDGE_DIR"] = "/home/openclaw/.openclaw/knowledge";
     }
 
+    // Memory scope enforcement (JAR memory-scoping enforcement PR B).
+    // Surfaced to the pod so jarble-ui-server.js can hide/disable the
+    // memory tools when the user picks "off". Session mode is advisory
+    // for now — session-keyed partition lives in a follow-up.
+    entries["JARBLE_MEMORY_SCOPE"] = deployment.memoryScope ?? "global";
+
     // Platform credential env var fallbacks (OpenClaw reads these as backup)
     if (deployment.platformCredentials) {
       for (const [platformId, creds] of Object.entries(deployment.platformCredentials)) {
