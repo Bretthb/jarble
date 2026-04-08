@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import Image from "next/image";
+import { useTheme } from "next-themes";
 
 const FOOTER_LINKS = [
   { href: "/", label: "Home" },
@@ -9,12 +13,15 @@ const FOOTER_LINKS = [
 ];
 
 export default function MarketingFooter() {
+  const { resolvedTheme } = useTheme();
+  const logoSrc = resolvedTheme === "dark" ? "/logodark.png" : "/logo.png";
+
   return (
     <footer className="py-12 border-t border-border relative z-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <span className="font-serif font-bold text-foreground">Jarble</span>
+          <Link href="/" className="flex items-center hover:opacity-80 transition-opacity">
+            <Image src={logoSrc} alt="Jarble" width={100} height={30} className="h-7 w-auto" />
           </Link>
           <nav className="flex flex-wrap justify-center gap-x-8 gap-y-2">
             {FOOTER_LINKS.map(({ href, label }) => (

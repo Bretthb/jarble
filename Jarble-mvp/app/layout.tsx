@@ -56,7 +56,8 @@ export const metadata: Metadata = {
   },
   description: "Deploy powerful AI bots across WhatsApp, Discord, Slack, and more. No coding required.",
   icons: {
-    icon: "/icon.svg",
+    icon: "/favicon.png",
+    apple: "/favicon.png",
   },
   openGraph: {
     title: "Jarble",

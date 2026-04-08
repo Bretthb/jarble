@@ -1,6 +1,8 @@
 "use client";
 
 import { useAuth0 } from "@auth0/auth0-react";
+import Image from "next/image";
+import { useTheme } from "next-themes";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -51,7 +53,9 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export default function Dashboard() {
   const { user, isAuthenticated, isLoading: authLoading, error: authError } = useAuth0();
+  const { resolvedTheme } = useTheme();
   const { activeOrgId, activeOrg } = useOrg();
+  const logoSrc = resolvedTheme === "dark" ? "/logodark.png" : "/logo.png";
 
   if (authError) {
     console.error('[Auth0] Authentication error:', authError);
@@ -236,8 +240,8 @@ export default function Dashboard() {
       {/* Navigation */}
       <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
-          <a href="/" className="flex items-center gap-2 cursor-pointer no-underline text-foreground">
-            <span className="font-serif font-bold text-2xl tracking-tight">Jarble</span>
+          <a href="/" className="flex items-center cursor-pointer no-underline">
+            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-9 w-auto" />
           </a>
           <ProfileDropdown />
         </div>

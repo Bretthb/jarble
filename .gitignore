@@ -25,6 +25,11 @@ playwright-report/
 *.jpg
 *.jpeg
 *.gif
+
+# Allow logo/favicon assets
+!Jarble-mvp/public/logo.png
+!Jarble-mvp/public/logodark.png
+!Jarble-mvp/public/favicon.png
 tmp_db.json
 
 # IDE
