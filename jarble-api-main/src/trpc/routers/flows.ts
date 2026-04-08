@@ -370,6 +370,160 @@ export const flowsRouter = router({
     }),
 
   /**
+   * List every team (flow) a given deployment belongs to, plus its
+   * teammates within each team.
+   *
+   * Used by the per-deployment `/d/[id]` page to surface a "Team
+   * Memberships" panel — closes the "Per-deployment team membership
+   * visibility" gap from `docs/audits/fractal-vision-gap-audit.md`.
+   *
+   * Returns:
+   *   [
+   *     {
+   *       flowId, flowName, status, entryNodeId,
+   *       nodeId,                    // this deployment's node id within the flow
+   *       isEntry,                   // true if this deployment is the entry point
+   *       roleLabel,                 // node.role || node.label || "Member"
+   *       teammates: [
+   *         { deploymentId, name, runtime, status, nodeId, isEntry, roleLabel }
+   *       ],
+   *     },
+   *     ...
+   *   ]
+   *
+   * Ownership: filters by `ctx.user.id` so a caller can never see a
+   * flow they don't own (no IDOR — even if they guess a real deployment
+   * id, the join is scoped to flows owned by them).
+   *
+   * Empty result is normal — most solo deployments aren't on any team.
+   */
+  listForDeployment: protectedProcedure
+    .input(z.object({ deploymentId: z.string().min(1).max(255) }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.user.id;
+      const fdm = (tables as any).flowDeploymentMemberships;
+      if (!fdm) return [];
+
+      // Step 1: find every membership row for this deployment, joined to
+      // the flow row, with ownership filter.
+      const memberships = await db
+        .select({
+          flowId: fdm.flowId,
+          nodeId: fdm.nodeId,
+          flowName: orchestrationFlows.name,
+          flowStatus: orchestrationFlows.status,
+          flowDefinition: orchestrationFlows.definition,
+          flowEntryNodeId: orchestrationFlows.entryNodeId,
+        })
+        .from(fdm)
+        .innerJoin(
+          orchestrationFlows,
+          and(
+            eq(fdm.flowId, orchestrationFlows.id),
+            eq(orchestrationFlows.userId, userId), // IDOR guard
+          ),
+        )
+        .where(eq(fdm.deploymentId, input.deploymentId));
+
+      if (memberships.length === 0) return [];
+
+      // Step 2: for each flow, walk the definition to extract the
+      // teammate node list. Then fetch the deployment metadata in one
+      // batch.
+      const allTeammateIds = new Set<string>();
+      const flowsParsed = memberships.map((m: any) => {
+        let definition: { nodes?: any[]; edges?: any[] } = {};
+        try {
+          definition = typeof m.flowDefinition === "string"
+            ? JSON.parse(m.flowDefinition)
+            : (m.flowDefinition || {});
+        } catch {
+          definition = {};
+        }
+        const nodes = definition.nodes || [];
+        const teammateNodes = nodes.filter(
+          (n: any) =>
+            n?.deploymentId &&
+            typeof n.deploymentId === "string" &&
+            n.id !== m.nodeId, // exclude self
+        );
+        for (const n of teammateNodes) allTeammateIds.add(n.deploymentId);
+        const selfNode = nodes.find((n: any) => n.id === m.nodeId);
+        const isEntry = m.flowEntryNodeId === m.nodeId;
+        const roleLabel =
+          selfNode?.role || selfNode?.label || (isEntry ? "Entry" : "Member");
+        return {
+          flowId: m.flowId,
+          flowName: m.flowName,
+          status: m.flowStatus,
+          entryNodeId: m.flowEntryNodeId,
+          nodeId: m.nodeId,
+          isEntry,
+          roleLabel,
+          teammateNodes,
+        };
+      });
+
+      // Step 3: batch-fetch teammate deployment metadata in one query.
+      // Must be filtered by user ownership (defense in depth — the
+      // memberships query already enforced it via the flow join).
+      const deploymentsTable = (tables as any).deployments;
+      let teammateDeployments: Map<
+        string,
+        { id: string; name: string; runtime: string; status: string }
+      > = new Map();
+      if (allTeammateIds.size > 0 && deploymentsTable) {
+        const rows = await db
+          .select({
+            id: deploymentsTable.id,
+            name: deploymentsTable.name,
+            runtime: deploymentsTable.runtime,
+            status: deploymentsTable.status,
+          })
+          .from(deploymentsTable)
+          .where(
+            and(
+              inArray(deploymentsTable.id, Array.from(allTeammateIds)),
+              eq(deploymentsTable.userId, userId),
+            ),
+          );
+        teammateDeployments = new Map(rows.map((r: any) => [r.id, r]));
+      }
+
+      // Step 4: assemble final response shape with strictly-typed
+      // teammates (no nulls — unowned deployments are dropped via
+      // flatMap rather than map+filter so the TS type is non-nullable).
+      return flowsParsed.map((f) => {
+        const teammates = f.teammateNodes.flatMap((tn: any) => {
+          const dep = teammateDeployments.get(tn.deploymentId);
+          if (!dep) return [];
+          const tnIsEntry = f.entryNodeId === tn.id;
+          return [
+            {
+              deploymentId: tn.deploymentId as string,
+              name: dep.name,
+              runtime: dep.runtime,
+              status: dep.status,
+              nodeId: tn.id as string,
+              isEntry: tnIsEntry,
+              roleLabel: (tn.role || tn.label || (tnIsEntry ? "Entry" : "Member")) as string,
+            },
+          ];
+        });
+        return {
+          flowId: f.flowId,
+          flowName: f.flowName,
+          status: f.status,
+          entryNodeId: f.entryNodeId,
+          nodeId: f.nodeId,
+          isEntry: f.isEntry,
+          roleLabel: f.roleLabel,
+          teammates,
+        };
+      });
+    }),
+
+  /**
    * Create a new orchestration flow.
    */
   create: protectedProcedure

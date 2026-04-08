@@ -1850,33 +1850,131 @@ function FlowListSidebar({
   flows,
   activeFlowId,
   onSelectFlow,
+  deployments,
+  executingFlowId,
 }: {
   flows: FlowDefinition[];
   activeFlowId: string | null;
   onSelectFlow: (id: string) => void;
+  /** Latest deployments list — used to compute per-team health (running/total). */
+  deployments: DeploymentData[];
+  /** Flow id whose execution is currently in flight (if any). Drives the
+   *  pulsing "active" indicator on its pill. */
+  executingFlowId: string | null;
 }) {
   if (flows.length === 0) return null;
 
+  // Lookup for fast per-team health rollup. Subscribes to live SSE status
+  // so the badge updates within seconds of a bot transitioning state.
+  const { getStatus } = useStatusStream({ enabled: true });
+  const depById = useMemo(() => {
+    const m = new Map<string, DeploymentData>();
+    for (const d of deployments) m.set(d.id, d);
+    return m;
+  }, [deployments]);
+
+  // For each flow, compute (a) how many member deployments are Running,
+  // (b) how many total, (c) whether the flow is currently executing.
+  const flowHealth = useMemo(() => {
+    return flows.map((flow) => {
+      const memberIds = flow.nodes
+        .map((n) => (n as any).deploymentId || n.id)
+        .filter(Boolean) as string[];
+      let running = 0;
+      let stopped = 0;
+      let other = 0;
+      for (const id of memberIds) {
+        const liveStatus = getStatus(id)?.status;
+        const status = liveStatus ?? depById.get(id)?.status ?? "unknown";
+        if (status === "running") running++;
+        else if (status === "stopped") stopped++;
+        else other++;
+      }
+      return {
+        flowId: flow.id,
+        total: memberIds.length,
+        running,
+        stopped,
+        other,
+        isExecuting: flow.id === executingFlowId,
+        // Derived state used for the pill color
+        // - executing: blue pulse, currently in flight
+        // - all running: emerald, healthy
+        // - some stopped/pending/failed: amber, partially healthy
+        // - all stopped: red, idle
+        // - empty: gray, no members
+        derivedState:
+          flow.id === executingFlowId
+            ? "executing"
+            : memberIds.length === 0
+              ? "empty"
+              : running === memberIds.length
+                ? "healthy"
+                : running === 0
+                  ? "idle"
+                  : "partial",
+      };
+    });
+  }, [flows, depById, executingFlowId, getStatus]);
+  const healthByFlow = useMemo(() => {
+    const m = new Map<string, (typeof flowHealth)[number]>();
+    for (const h of flowHealth) m.set(h.flowId, h);
+    return m;
+  }, [flowHealth]);
+
   return (
     <div className="flex gap-1.5 overflow-x-auto pb-1">
-      {flows.map((flow) => (
-        <button
-          type="button"
-          key={flow.id}
-          onClick={() => onSelectFlow(flow.id)}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all whitespace-nowrap ${
-            flow.id === activeFlowId
-              ? "bg-primary/10 border-primary/30 text-primary"
-              : "bg-secondary/80 border-border text-muted-foreground hover:text-foreground hover:border-primary/20"
-          }`}
-        >
-          <Users className="w-3 h-3" />
-          {flow.name}
-          <span className="text-muted-foreground/70">
-            ({flow.nodes.length})
-          </span>
-        </button>
-      ))}
+      {flows.map((flow) => {
+        const isActive = flow.id === activeFlowId;
+        const health = healthByFlow.get(flow.id);
+        const state = health?.derivedState ?? "empty";
+        // Status dot color per derived state
+        const dotClass =
+          state === "executing"
+            ? "bg-blue-500 animate-pulse"
+            : state === "healthy"
+              ? "bg-emerald-500"
+              : state === "partial"
+                ? "bg-amber-500"
+                : state === "idle"
+                  ? "bg-red-500/80"
+                  : "bg-muted-foreground/40";
+        // Tooltip-friendly summary string ("3/3 running" / "1/3 running, 2 stopped" / "executing now")
+        const summary =
+          state === "executing"
+            ? "executing now"
+            : health
+              ? `${health.running}/${health.total} running` +
+                (health.stopped > 0 ? `, ${health.stopped} stopped` : "") +
+                (health.other > 0 ? `, ${health.other} other` : "")
+              : "";
+
+        return (
+          <button
+            type="button"
+            key={flow.id}
+            onClick={() => onSelectFlow(flow.id)}
+            title={summary}
+            aria-label={`${flow.name}, ${summary}`}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all whitespace-nowrap ${
+              isActive
+                ? "bg-primary/10 border-primary/30 text-primary"
+                : "bg-secondary/80 border-border text-muted-foreground hover:text-foreground hover:border-primary/20"
+            }`}
+          >
+            {/* Status dot — color encodes per-team health, animates when executing */}
+            <span
+              className={`inline-block w-1.5 h-1.5 rounded-full ${dotClass}`}
+              aria-hidden="true"
+            />
+            <Users className="w-3 h-3" />
+            {flow.name}
+            <span className="text-muted-foreground/70">
+              {health ? `${health.running}/${health.total}` : `(${flow.nodes.length})`}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -3442,6 +3540,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
           flows={flows}
           activeFlowId={activeFlowId}
           onSelectFlow={setActiveFlowId}
+          deployments={deployments}
+          executingFlowId={execState.steps.size > 0 ? activeFlowId : null}
         />
       </div>
 
