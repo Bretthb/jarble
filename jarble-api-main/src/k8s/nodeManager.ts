@@ -577,6 +577,75 @@ async function getPodResources(pod: any): Promise<{ cpuCores: number; memGb: num
   };
 }
 
+/**
+ * Scan managed Hetzner worker nodes and deprovision any that are empty
+ * (no bot K8s Deployments or bare pods referencing them) AND have been
+ * ready longer than SCALE_DOWN_GRACE_MS.
+ *
+ * IMPORTANT: A stopped bot (replicas=0) still has a K8s Deployment with a
+ * nodeSelector pointing at the managed node. We must NOT deprovision nodes
+ * that have any K8s Deployment (even replicas=0) referencing them. This
+ * preserves the VPS so restarting a stopped bot is instant.
+ *
+ * Used by both the background watcher (poll) and checkScaleDown.
+ *
+ * Race note: poll() and checkScaleDown() may run concurrently. Both could
+ * observe the same "ready" node and call deprovisionNode on it. deprovisionNode's
+ * first action is to flip status to "draining", and subsequent K8s/Hetzner
+ * delete calls are wrapped in .catch(() => {}), so the duplicate is harmless
+ * (a few extra 404s). We do not add a mutex here.
+ *
+ * @param podList - Pre-fetched pod list from coreApi.listNamespacedPod
+ */
+async function scaleDownEmptyNodes(podList: any): Promise<void> {
+  const readyNodes = await db.select().from(managedNodes)
+    .where(eq(managedNodes.status, "ready"));
+
+  if (readyNodes.length === 0) return;
+
+  // Get all bot K8s Deployments (including stopped ones with replicas=0)
+  const { body: depList } = await appsApi.listNamespacedDeployment(
+    NAMESPACE, undefined, undefined, undefined, undefined,
+    "jarble.ai/type=bot"
+  );
+  const k8sDeployments = depList.items || [];
+  const items = podList?.items || [];
+
+  for (const managedNode of readyNodes) {
+    // Check if any K8s Deployment has a nodeSelector pointing at this managed node
+    const nodeInUse = k8sDeployments.some((dep: any) => {
+      const selector = dep.spec?.template?.spec?.nodeSelector || {};
+      return selector["kubernetes.io/hostname"] === managedNode.nodeName;
+    });
+
+    if (!nodeInUse) {
+      // Also check for bare pods on the node (catch deployments without nodeSelector)
+      const podsOnNode = items.filter(
+        (p: any) => p.spec?.nodeName === managedNode.nodeName
+      );
+      if (podsOnNode.length === 0) {
+        const readyTime = managedNode.readyAt ? new Date(managedNode.readyAt).getTime() : 0;
+        const ageMs = Date.now() - readyTime;
+        if (ageMs > SCALE_DOWN_GRACE_MS) {
+          logger.info({ nodeName: managedNode.nodeName },
+            "No deployments or pods reference this node - eligible for scale-down");
+          void deprovisionNode(managedNode);
+        } else {
+          logger.debug({
+            nodeName: managedNode.nodeName,
+            ageMs,
+            graceMs: SCALE_DOWN_GRACE_MS,
+            remainingMs: SCALE_DOWN_GRACE_MS - ageMs,
+          }, "Node is empty but still within scale-down grace period - keeping VPS alive");
+        }
+      }
+    } else {
+      logger.debug({ nodeName: managedNode.nodeName },
+        "Node has K8s Deployments referencing it (may be stopped) - keeping VPS alive");
+    }
+  }
+}
+
 async function poll(): Promise<void> {
   try {
     const { body: podList } = await coreApi.listNamespacedPod(
@@ -626,48 +695,8 @@ async function poll(): Promise<void> {
         "Pending pods detected but provisioning already in progress - skipping scale-up");
     }
 
-    // 2. Scale DOWN: check for auto-scaled nodes with no deployments referencing them.
-    // IMPORTANT: A stopped bot (replicas=0) still has a K8s Deployment with a nodeSelector
-    // pointing at the managed node. We must NOT deprovision nodes that have any K8s Deployment
-    // (even replicas=0) referencing them. Only deprovision if NO deployments reference the node.
-    // This preserves the VPS so restarting a stopped bot is instant (no re-provisioning).
-    const readyNodes = await db.select().from(managedNodes)
-      .where(eq(managedNodes.status, "ready"));
-
-    if (readyNodes.length > 0) {
-      // Get all bot K8s Deployments (including stopped ones with replicas=0)
-      const { body: depList } = await appsApi.listNamespacedDeployment(
-        NAMESPACE, undefined, undefined, undefined, undefined,
-        "jarble.ai/type=bot"
-      );
-      const k8sDeployments = depList.items || [];
-
-      for (const managedNode of readyNodes) {
-        // Check if any K8s Deployment has a nodeSelector pointing at this managed node
-        const nodeInUse = k8sDeployments.some((dep: any) => {
-          const selector = dep.spec?.template?.spec?.nodeSelector || {};
-          return selector["kubernetes.io/hostname"] === managedNode.nodeName;
-        });
-
-        if (!nodeInUse) {
-          // Also check for pods on the node (catch deployments without nodeSelector)
-          const podsOnNode = (podList.items || []).filter(
-            (p: any) => p.spec?.nodeName === managedNode.nodeName
-          );
-          if (podsOnNode.length === 0) {
-            const readyTime = managedNode.readyAt ? new Date(managedNode.readyAt).getTime() : 0;
-            if (Date.now() - readyTime > SCALE_DOWN_GRACE_MS) {
-              logger.info({ nodeName: managedNode.nodeName },
-                "No deployments or pods reference this node - eligible for scale-down");
-              void deprovisionNode(managedNode);
-            }
-          }
-        } else {
-          logger.debug({ nodeName: managedNode.nodeName },
-            "Node has K8s Deployments referencing it (may be stopped) - keeping VPS alive");
-        }
-      }
-    }
+    // 2. Scale DOWN: deprovision empty managed nodes past the grace period.
+    await scaleDownEmptyNodes(podList);
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : err }, "Poll cycle error");
   }
@@ -1059,7 +1088,31 @@ export async function getCapacityStatus(): Promise<CapacityStatus> {
   };
 }
 
-export async function checkScaleDown(_db: any): Promise<void> {}
+/**
+ * On-demand scale-down check. Called fire-and-forget after events that may
+ * have freed up a Hetzner worker (deployment deletion, orphan cleanup) so
+ * empty nodes are torn down immediately instead of waiting up to 15s for
+ * the next watcher poll.
+ *
+ * Honors SCALE_DOWN_GRACE_MS — a freshly-provisioned node will not be torn
+ * down even if invoked immediately after an unrelated deletion.
+ *
+ * Errors are caught and logged but never re-thrown — both callers use
+ * fire-and-forget invocation.
+ */
+export async function checkScaleDown(): Promise<void> {
+  if (!isEnabled()) return;
+  try {
+    const { body: podList } = await coreApi.listNamespacedPod(
+      NAMESPACE, undefined, undefined, undefined, undefined,
+      "jarble.ai/type=bot"
+    );
+    await scaleDownEmptyNodes(podList);
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : err },
+      "checkScaleDown failed");
+  }
+}
 
 export async function cleanupFailedNodes(): Promise<void> {
   if (!isEnabled()) return;

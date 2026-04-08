@@ -1898,7 +1898,7 @@ export const deploymentRouter = router({
       logger.info({ deploymentId: input.id }, "delete: K8s cleanup complete, removing DB records");
 
       // Check if any auto-scaled nodes are now empty and can be removed
-      void checkScaleDown(ctx.db).catch((err) => {
+      void checkScaleDown().catch((err) => {
         logger.warn({ err }, "Scale-down check failed (non-blocking)");
       });
 
