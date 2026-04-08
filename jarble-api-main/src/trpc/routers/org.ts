@@ -63,15 +63,13 @@ export const orgRouter = router({
     .mutation(async ({ ctx, input }) => {
       const schema = await import("../../db/schema.pg.js");
       const { tables, dbDate } = await import("../../db/index.js");
-      const { sql } = await import("drizzle-orm");
-
       // Enforce max 10 orgs per user (only orgs they own)
-      const [{ count }] = await ctx.db
-        .select({ count: sql<number>`count(*)` })
-        .from(tables.organizations)
-        .where(eq(schema.organizations.ownerId, ctx.user.id));
+      const ownedOrgs = await ctx.db.query.organizations.findMany({
+        where: eq(schema.organizations.ownerId, ctx.user.id),
+        columns: { id: true },
+      });
 
-      if (Number(count) >= 10) {
+      if (ownedOrgs.length >= 10) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "You've reached the maximum of 10 organizations. Delete an unused org to create a new one.",
