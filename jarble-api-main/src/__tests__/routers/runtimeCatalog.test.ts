@@ -167,13 +167,20 @@ describe("runtimeCatalog router", () => {
       expect(result[0].slug).toBe("openclaw");
     });
 
-    it("should include expected fields on each runtime", async () => {
+    it("should return only display-safe fields (no internal data)", async () => {
       const result = await anonCaller().runtimeCatalog.list();
       const oc = result.find((r) => r.slug === "openclaw")!;
       expect(oc.name).toBe("OpenClaw");
-      expect(oc.dockerImage).toBeDefined();
-      expect(oc.cpuLimit).toBeDefined();
-      expect(oc.memoryMb).toBeDefined();
+      expect(oc.description).toBeDefined();
+      expect(oc.category).toBeDefined();
+      expect(oc.monthlyPriceCents).toBeGreaterThanOrEqual(0);
+      // Regression guard: internal fields must not leak on the public endpoint
+      expect((oc as Record<string, unknown>).dockerImage).toBeUndefined();
+      expect((oc as Record<string, unknown>).cpuLimit).toBeUndefined();
+      expect((oc as Record<string, unknown>).memoryMb).toBeUndefined();
+      expect((oc as Record<string, unknown>).storageMb).toBeUndefined();
+      expect((oc as Record<string, unknown>).isActive).toBeUndefined();
+      expect((oc as Record<string, unknown>).createdAt).toBeUndefined();
     });
 
     it("should work for authenticated callers too", async () => {
