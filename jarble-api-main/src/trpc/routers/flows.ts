@@ -1059,6 +1059,23 @@ export const flowsRouter = router({
           { userId: ctx.user.id, err: message },
           "generateFromPrompt: LLM call failed"
         );
+        // Detect LLM provider auth failures and surface as PRECONDITION_FAILED
+        // so the client can prompt the user to configure their API key instead
+        // of showing a generic 500 error.
+        if (
+          /\b401\b/.test(message) ||
+          /unauthorized/i.test(message) ||
+          /missing\s+authentication/i.test(message) ||
+          /invalid\s+api\s+key/i.test(message)
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Flow generation requires a valid LLM API key. The configured " +
+              "key was rejected by the provider — please check your OpenRouter " +
+              "or Anthropic key in Settings.",
+          });
+        }
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: `Flow generation failed: ${message}`,

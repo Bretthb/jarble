@@ -4,9 +4,14 @@ import * as Sentry from "@sentry/node";
 import type { Context } from "./context.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { isAdmin } from "../utils/admin.js";
-import { env } from "../utils/env.js";
 
 const log = createModuleLogger("trpc:middleware");
+
+// Whether to include stack traces in error responses. Default is NEVER —
+// even deployed "development" environments must strip stacks because they're
+// exposed to the public internet. Only set EXPOSE_INTERNAL_ERRORS=true on
+// your LOCAL machine when debugging.
+const EXPOSE_INTERNAL_ERRORS = process.env.EXPOSE_INTERNAL_ERRORS === "true";
 
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
@@ -15,8 +20,9 @@ const t = initTRPC.context<Context>().create({
       ...shape,
       data: {
         ...shape.data,
-        // Strip stack traces in production to prevent leaking internal paths
-        stack: env.NODE_ENV === "development" ? error.stack : undefined,
+        // Strip stack traces unless explicitly enabled for local dev.
+        // Leaking stacks exposes internal file paths and code structure.
+        stack: EXPOSE_INTERNAL_ERRORS ? error.stack : undefined,
       },
     };
   },

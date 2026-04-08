@@ -136,12 +136,15 @@ app.use("/api/beta-signup", betaRouter);
 app.use("/api/flows", authLimiter, flowExecutionRouter);
 app.use("/api/flows", authLimiter, flowChatRouter);
 
-// Debug endpoints - dev only, with JWT verification as defense-in-depth
+// Debug endpoints - gated by ADMIN role (not just NODE_ENV).
+// Even on a deployed "development" API, /debug is accessible to the public
+// internet, so a simple JWT check is not enough — any authenticated user
+// could dump the entire DB. We require the caller to be in ADMIN_USER_IDS.
 if (env.NODE_ENV === "development") {
   app.use("/debug", async (req, res, next) => {
-    const { verifyToken } = await import("./services/auth.js");
-    // Defense-in-depth: require a VALID JWT even in development mode.
-    // Prevents accidental exposure if NODE_ENV is misconfigured in production.
+    const { verifyToken, getUserFromToken } = await import("./services/auth.js");
+    const { isAdmin } = await import("./utils/admin.js");
+
     const authHeader = req.headers.authorization;
     const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
     if (!token) {
@@ -149,17 +152,22 @@ if (env.NODE_ENV === "development") {
       return;
     }
     try {
-      await verifyToken(token);
+      const payload = await verifyToken(token);
+      const user = await getUserFromToken(payload);
+      if (!user || !isAdmin(user.id)) {
+        res.status(403).json({ error: "Admin access required" });
+        return;
+      }
       next();
     } catch {
       res.status(401).json({ error: "Invalid or expired token" });
     }
   }, debugRouter);
-  // Sentry test route also under /debug prefix so it inherits the auth guard
+  // Sentry test route also under /debug prefix so it inherits the admin guard
   app.get("/debug/sentry-test", (_req, _res) => { throw new Error("Sentry test error!"); });
-  logger.info("Debug endpoints enabled (JWT-gated): /debug/db, /debug/deployment/:id/status, /debug/seed-deployment, /debug/deployment/:id/sync-config");
+  logger.info("Debug endpoints enabled (admin-gated): /debug/db, /debug/deployment/:id/status, /debug/seed-deployment, /debug/deployment/:id/sync-config");
 } else {
-  // Explicitly block debug routes in non-development environments
+  // Explicitly block debug routes in production
   app.use("/debug", (_req, res) => {
     res.status(404).json({ error: "Not found" });
   });

@@ -340,7 +340,7 @@ export const deploymentRouter = router({
       linkToDeploymentId: z.string().optional(), // Link to an existing deployment's credit pool instead of provisioning a new key
       cpuLimit: z.string().optional(),    // e.g. "2.0" - overrides runtime catalog default
       memoryMb: z.number().int().positive().optional(),   // e.g. 2048 - RAM in MB
-      storageMb: z.number().int().positive().optional(),  // e.g. 30 - storage in GB (historical naming)
+      storageMb: z.number().int().positive().max(500).optional(),  // e.g. 30 - storage in GiB (historical naming). Max 500 GiB to prevent runaway provisioning.
       telegramBotToken: z.string().optional(), // Pre-validated Telegram bot token (included in initial K8s Secret)
       messagingOnly: z.boolean().optional(), // If true, omit web-chat UI prompt (~1,250 tokens saved)
       isolationLevel: z.enum(["standard", "gvisor", "kata"]).optional(), // Runtime sandbox isolation (default: "standard")
