@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { logger } from "../utils/logger.js";
 import { env } from "../utils/env.js";
@@ -243,40 +243,24 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     return;
   }
 
-  const { runtimeSlug, inline, llmMode, creditLimitDollars, linkToDeploymentId, promoCode } = req.body;
+  const { runtimeSlug, cpuLimit, memoryMb, storageMb, inline, llmMode, creditLimitDollars, linkToDeploymentId } = req.body;
   if (!runtimeSlug) {
     res.status(400).json({ error: "Missing runtimeSlug" });
     return;
   }
 
-  // Fixed beta pricing: $25/mo base, $13.99/mo with valid promo
-  const BASE_PRICE_CENTS = 2500;
-  const PROMO_PRICE_CENTS = 1399;
-
-  let monthlyPriceCents = BASE_PRICE_CENTS;
-
-  // Validate promo code server-side (never trust client)
-  if (promoCode && typeof promoCode === "string" && promoCode.trim().length > 0) {
-    const promo = await db.query.promoCodes.findFirst({
-      where: and(
-        eq(tables.promoCodes.code, promoCode.trim().toUpperCase()),
-        eq(tables.promoCodes.active, true),
-      ),
-    });
-
-    if (promo) {
-      const notExpired = !promo.expiresAt || new Date(promo.expiresAt) >= new Date();
-      const notMaxed = promo.maxUses === null || promo.currentUses < promo.maxUses;
-
-      if (notExpired && notMaxed) {
-        monthlyPriceCents = PROMO_PRICE_CENTS;
-        // Increment usage
-        await (db as any).update(tables.promoCodes)
-          .set({ currentUses: promo.currentUses + 1 })
-          .where(eq(tables.promoCodes.id, promo.id));
-        logger.info({ promoCode: promo.code, userId: user.id }, "Promo code applied at checkout");
-      }
-    }
+  // Look up runtime catalog to get the canonical defaults (never trust client-sent price)
+  const runtime = await db.query.runtimeCatalog.findFirst({
+    where: eq(tables.runtimeCatalog.slug, runtimeSlug),
+  });
+  if (!runtime) {
+    res.status(400).json({ error: "Unknown runtime" });
+    return;
+  }
+  const monthlyPriceCents = runtime.monthlyPriceCents;
+  if (!monthlyPriceCents || monthlyPriceCents <= 0) {
+    res.status(400).json({ error: "Runtime has no configured price" });
+    return;
   }
 
   // Compute managed key cost: only when user picks "included" mode AND is NOT linking to an existing pool

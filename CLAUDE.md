@@ -226,7 +226,7 @@ When adding tables or columns:
 | Layer | Tool | Domain | Notes |
 |-------|------|--------|-------|
 | **Frontend** | Coolify | `dev.jarble.ai` (dev), `jarble.ai` (prod) | Next.js deployed via Coolify on K3s |
-| **API** | Coolify | `api.jarble.ai` | Express + tRPC, namespace `jarble-production` |
+| **API** | Kubero | `api.jarble.ai` | Express + tRPC, namespace `jarble-production` |
 | **Database** | Neon Postgres | — | Production DB and local dev (via a Neon branch) |
 | **Cluster** | K3s on Hetzner | master: `178.156.230.13` | Traefik ingress, Longhorn storage, cert-manager |
 | **Email** | Resend | — | Transactional email (org invites, beta welcome) |

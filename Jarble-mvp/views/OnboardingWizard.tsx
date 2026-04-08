@@ -100,10 +100,6 @@ export default function OnboardingWizard() {
   const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
   const [isLoadingCheckout, setIsLoadingCheckout] = useState(false);
 
-  // Promo code state
-  const [promoCode, setPromoCode] = useState("");
-  const [promoValid, setPromoValid] = useState<boolean | null>(null);
-
   // Telegram pairing poll mutation (used in deploy step after deploy succeeds)
   const pollTelegramMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
 
@@ -516,15 +512,17 @@ export default function OnboardingWizard() {
                   llmMode={llmMode}
                   llmProvider={llmProvider}
                   llmModel={llmModel}
+                  cpuLimit={cpuLimit}
+                  setCpuLimit={setCpuLimit}
+                  memoryMb={memoryMb}
+                  setMemoryMb={setMemoryMb}
+                  storageMb={storageMb}
+                  setStorageMb={setStorageMb}
                   emailVerified={!!user?.email_verified}
                   deployPhase={deployPhase}
                   telegramBotUsername={telegramBotUsername}
                   creditLimitDollars={creditLimitDollars}
                   linkToDeploymentId={linkToDeploymentId}
-                  promoCode={promoCode}
-                  setPromoCode={setPromoCode}
-                  promoValid={promoValid}
-                  setPromoValid={setPromoValid}
                   checkoutConfirmed={checkoutConfirmed}
                   stripeClientSecret={stripeClientSecret}
                   isLoadingCheckout={isLoadingCheckout}

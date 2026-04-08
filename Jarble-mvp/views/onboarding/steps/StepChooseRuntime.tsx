@@ -5,6 +5,9 @@ import {
   CheckCircle2,
   Loader2,
   HelpCircle,
+  Cpu,
+  HardDrive,
+  MemoryStick,
 } from "lucide-react";
 import type { RuntimeEntry } from "../types";
 
@@ -85,6 +88,11 @@ export default function StepChooseRuntime({
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-semibold text-lg">{runtime.name}</h3>
+                    {runtime.monthlyPriceCents > 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-xs font-medium">
+                        ${(runtime.monthlyPriceCents / 100).toFixed(0)}/mo
+                      </span>
+                    )}
                     {isSelected && (
                       <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
                         Selected
@@ -100,6 +108,19 @@ export default function StepChooseRuntime({
                 )}
               </div>
 
+              {/* Hardware specs */}
+              <div className="mt-4 flex flex-wrap gap-3">
+                <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-secondary/60 text-muted-foreground">
+                  <Cpu className="w-3 h-3" /> {runtime.cpuLimit} vCPU
+                </span>
+                <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-secondary/60 text-muted-foreground">
+                  <MemoryStick className="w-3 h-3" /> {runtime.memoryMb >= 1024 ? `${runtime.memoryMb / 1024} GB` : `${runtime.memoryMb} MB`} RAM
+                </span>
+                <span className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-secondary/60 text-muted-foreground">
+                  <HardDrive className="w-3 h-3" /> {runtime.storageMb} GB
+                  Storage
+                </span>
+              </div>
             </button>
           );
         })}

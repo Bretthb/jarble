@@ -54,7 +54,6 @@ import { attachChatControlWs } from "./routes/chatControl.js";
 import { attachOrchestrationWs } from "./routes/orchestration.js";
 import { flowExecutionRouter } from "./routes/flowExecution.js";
 import { flowChatRouter } from "./routes/flowChat.js";
-import { promoRouter } from "./routes/promo.js";
 
 const app = express();
 
@@ -135,7 +134,6 @@ app.use("/api/mesh", meshGatewayRouter);
 app.use("/api/mesh", meshDiscoveryRouter);
 app.use("/api/agent-hub", agentHubRouter);
 app.use("/api/beta-signup", betaRouter);
-app.use("/api/promo", promoRouter);
 app.use("/api/flows", authLimiter, flowExecutionRouter);
 app.use("/api/flows", authLimiter, flowChatRouter);
 
