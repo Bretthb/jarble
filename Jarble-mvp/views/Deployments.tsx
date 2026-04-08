@@ -3278,10 +3278,17 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                   // the individual deployment chat (useCanvasChat.ts).
                   const rawBlock = value.block;
                   if (rawBlock && typeof rawBlock === "object" && rawBlock.component) {
+                    // Compute the id fallback exactly once so card.id and
+                    // block.id stay in lockstep — the dedupe guard below
+                    // keys off card.id while CanvasRenderer keys off
+                    // block.id, and any drift between them would break
+                    // reconnect/replay dedupe.
+                    const stableId =
+                      rawBlock.id || `team-card-${Math.random().toString(36).slice(2, 10)}`;
                     const newCard: TeamCanvasCardData = {
-                      id: rawBlock.id || `team-card-${Math.random().toString(36).slice(2, 10)}`,
+                      id: stableId,
                       block: {
-                        id: rawBlock.id || `team-card-${Math.random().toString(36).slice(2, 10)}`,
+                        id: stableId,
                         component: rawBlock.component,
                         props: rawBlock.props ?? {},
                         editable: rawBlock.editable,
