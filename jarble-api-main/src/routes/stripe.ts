@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { logger } from "../utils/logger.js";
 import { env } from "../utils/env.js";
@@ -55,17 +55,32 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
         const userId = session.metadata?.userId || session.client_reference_id;
         const customerId = session.customer as string;
         const subscriptionId = session.subscription as string | null;
+        const metadataOrgId = session.metadata?.orgId as string | undefined;
 
         if (userId) {
-          await db.update(tables.users)
-            .set({
-              stripeCustomerId: customerId,
-              emailVerified: true, // If they can pay, they're verified
-              ...(subscriptionId ? { pendingStripeSubscriptionId: subscriptionId } : {}),
-            })
-            .where(eq(tables.users.id, userId));
+          if (metadataOrgId) {
+            // Org billing: don't overwrite the user's personal stripeCustomerId
+            // since this customer belongs to the org, not the individual
+            await db.update(tables.users)
+              .set({
+                emailVerified: true,
+                ...(subscriptionId ? { pendingStripeSubscriptionId: subscriptionId } : {}),
+              })
+              .where(eq(tables.users.id, userId));
 
-          logger.info({ userId, customerId, subscriptionId }, "Checkout completed - subscription pending link");
+            logger.info({ userId, orgId: metadataOrgId, customerId, subscriptionId }, "Org checkout completed - subscription pending link");
+          } else {
+            // Personal billing: set the user's Stripe customer
+            await db.update(tables.users)
+              .set({
+                stripeCustomerId: customerId,
+                emailVerified: true,
+                ...(subscriptionId ? { pendingStripeSubscriptionId: subscriptionId } : {}),
+              })
+              .where(eq(tables.users.id, userId));
+
+            logger.info({ userId, customerId, subscriptionId }, "Checkout completed - subscription pending link");
+          }
         }
         break;
       }
@@ -243,24 +258,39 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     return;
   }
 
-  const { runtimeSlug, cpuLimit, memoryMb, storageMb, inline, llmMode, creditLimitDollars, linkToDeploymentId } = req.body;
+  const { runtimeSlug, inline, llmMode, creditLimitDollars, linkToDeploymentId, promoCode, orgId } = req.body;
   if (!runtimeSlug) {
     res.status(400).json({ error: "Missing runtimeSlug" });
     return;
   }
 
-  // Look up runtime catalog to get the canonical defaults (never trust client-sent price)
-  const runtime = await db.query.runtimeCatalog.findFirst({
-    where: eq(tables.runtimeCatalog.slug, runtimeSlug),
-  });
-  if (!runtime) {
-    res.status(400).json({ error: "Unknown runtime" });
-    return;
-  }
-  const monthlyPriceCents = runtime.monthlyPriceCents;
-  if (!monthlyPriceCents || monthlyPriceCents <= 0) {
-    res.status(400).json({ error: "Runtime has no configured price" });
-    return;
+  // Fixed beta pricing: $25/mo base, $13.99/mo with valid promo
+  const BASE_PRICE_CENTS = 2500;
+  const PROMO_PRICE_CENTS = 1399;
+
+  let monthlyPriceCents = BASE_PRICE_CENTS;
+
+  // Validate promo code server-side (never trust client)
+  if (promoCode && typeof promoCode === "string" && promoCode.trim().length > 0) {
+    const promo = await db.query.promoCodes.findFirst({
+      where: and(
+        eq(tables.promoCodes.code, promoCode.trim().toUpperCase()),
+        eq(tables.promoCodes.active, true),
+      ),
+    });
+
+    if (promo) {
+      const notExpired = !promo.expiresAt || new Date(promo.expiresAt) >= new Date();
+      const notMaxed = promo.maxUses === null || promo.currentUses < promo.maxUses;
+
+      if (notExpired && notMaxed) {
+        monthlyPriceCents = PROMO_PRICE_CENTS;
+        await (db as any).update(tables.promoCodes)
+          .set({ currentUses: promo.currentUses + 1 })
+          .where(eq(tables.promoCodes.id, promo.id));
+        logger.info({ promoCode: promo.code, userId: user.id }, "Promo code applied at checkout");
+      }
+    }
   }
 
   // Compute managed key cost: only when user picks "included" mode AND is NOT linking to an existing pool
@@ -269,19 +299,41 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
     : 0;
 
   try {
-    // Ensure user has a Stripe customer record
-    let stripeCustomerId = user.stripeCustomerId;
-    if (!stripeCustomerId) {
-      const s = getStripe();
-      const customer = await s.customers.create({
-        email: user.email,
-        metadata: { userId: user.id },
+    // Determine which Stripe customer to bill: org or personal
+    let stripeCustomerId: string | null = null;
+    let billingOrgId: string | undefined;
+
+    if (orgId && typeof orgId === "string") {
+      // Org billing: look up the org's Stripe customer
+      const org = await db.query.organizations.findFirst({
+        where: eq(tables.organizations.id, orgId),
       });
-      stripeCustomerId = customer.id;
-      await (db as any).update(tables.users)
-        .set({ stripeCustomerId })
-        .where(eq(tables.users.id, user.id));
-      logger.info({ userId: user.id, stripeCustomerId }, "Created Stripe customer");
+      if (!org) {
+        res.status(404).json({ error: "Organization not found" });
+        return;
+      }
+      if (!org.stripeCustomerId) {
+        res.status(400).json({ error: "Set up org billing first. Go to your organization settings to add a payment method." });
+        return;
+      }
+      stripeCustomerId = org.stripeCustomerId;
+      billingOrgId = orgId;
+      logger.info({ userId: user.id, orgId, stripeCustomerId }, "Using org Stripe customer for checkout");
+    } else {
+      // Personal billing: ensure user has a Stripe customer record
+      stripeCustomerId = user.stripeCustomerId;
+      if (!stripeCustomerId) {
+        const s = getStripe();
+        const customer = await s.customers.create({
+          email: user.email,
+          metadata: { userId: user.id },
+        });
+        stripeCustomerId = customer.id;
+        await (db as any).update(tables.users)
+          .set({ stripeCustomerId })
+          .where(eq(tables.users.id, user.id));
+        logger.info({ userId: user.id, stripeCustomerId }, "Created Stripe customer");
+      }
     }
 
     // Inline mode: create an incomplete subscription and return client_secret
@@ -294,6 +346,7 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
         monthlyPriceCents,
         managedKeyCents: managedKeyCents > 0 ? managedKeyCents : undefined,
         stripeCustomerId,
+        orgId: billingOrgId,
       });
 
       // Store pending subscription so deployment.create can link it
@@ -317,6 +370,7 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
       monthlyPriceCents,
       managedKeyCents: managedKeyCents > 0 ? managedKeyCents : undefined,
       stripeCustomerId,
+      orgId: billingOrgId,
       successUrl: `${frontendUrl}/onboarding/new?checkout=success`,
       cancelUrl: `${frontendUrl}/onboarding/new?checkout=cancel`,
     });

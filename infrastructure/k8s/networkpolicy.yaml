@@ -1,0 +1,102 @@
+# NetworkPolicies for the `jarble` namespace (multi-tenant agent pods).
+#
+# CNI compatibility: K3s ships with kube-router-based NetworkPolicy
+# enforcement when flannel is enabled. Verified active on the Hetzner
+# cluster (KUBE-NWPLCY iptables chains present, kube-router netpol
+# controller running). These policies WILL be enforced.
+#
+# Hetzner-level egress restrictions (hcloud_firewall.agent_egress) are
+# applied separately at the VPS layer (Wave 2 Team 2). NetworkPolicy
+# covers intra-cluster traffic that the host firewall cannot see.
+#
+# Apply with:
+#   kubectl apply -f infrastructure/k8s/networkpolicy.yaml
+#
+# Roll back with:
+#   kubectl -n jarble delete networkpolicy jarble-default-deny-egress jarble-default-deny-ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jarble-default-deny-egress
+  namespace: jarble
+  labels:
+    jarble.ai/managed-by: hardening-wave
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    # Allow DNS to any namespace (CoreDNS in kube-system)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow HTTPS to PUBLIC internet only — explicitly excludes:
+    #   - 169.254.0.0/16 (Hetzner metadata SSRF, link-local)
+    #   - RFC1918 private ranges (10/8, 172.16/12, 192.168/16)
+    #     so a compromised bot cannot pivot to internal services
+    # NOTE: This means bots cannot reach cluster-internal HTTPS services.
+    # If a bot needs to reach the API webhook, it does so via the API
+    # namespace which has a separate ingress rule below.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow HTTP to public internet only (same exclusions as 443).
+    # CRITICAL: Hetzner metadata listens on TCP 80, so a naive
+    # "allow all 80" rule reopens the SSRF. Verified blocked.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 80
+    # Allow K3s control-plane traffic on the private network
+    # (kube-apiserver: 6443, kubelet: 10250, flannel VXLAN: UDP 8472)
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+      ports:
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 10250
+        - protocol: UDP
+          port: 8472
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jarble-default-deny-ingress
+  namespace: jarble
+  labels:
+    jarble.ai/managed-by: hardening-wave
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    # Allow only the API namespace to reach the OpenClaw WS gateway port.
+    # Bot-to-bot ingress is blocked by default — bots cannot scan or
+    # connect to each other inside the cluster.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: jarble-production
+      ports:
+        - protocol: TCP
+          port: 18789

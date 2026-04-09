@@ -3,26 +3,46 @@
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Triggers:
-#   - Push to main when runtimes/ files change
+#   - Push to main OR develop when runtimes/ files change
+#   - Push to main OR develop when the canonical jarble-ui-server.js
+#     changes (it gets copied into the openclaw build context)
 #   - Manual dispatch (workflow_dispatch) with runtime selection
 #
+# Why develop too: the team develops on `develop` and cherry-picks to
+# `main`. If the runtime build only ran on main, MCP server fixes pushed
+# to develop would never produce a new openclaw image until someone
+# manually back-merged to main — which has been silently swallowing
+# every MCP server change for weeks.
+#
 # Publishes to:
-#   ghcr.io/jarble-ai/openclaw:latest  (+ :sha tag)
-#   ghcr.io/jarble-ai/zeroclaw:latest  (+ :sha tag)
+#   ghcr.io/jarble-ai/openclaw:latest  (+ :sha-XXXXXXX tag)
+#   ghcr.io/jarble-ai/zeroclaw:latest  (+ :sha-XXXXXXX tag)
+#
+# Runtime images are pulled by the autoscaler when bot pods spin up.
+# The :latest tag is what new pods get; bumping it requires no K8s changes.
+#
+# Why we copy jarble-ui-server.js fresh on every build:
+#   The MCP server lives in jarble-api-main/src/mcp/jarble-ui-server.js
+#   (the canonical source). The openclaw image bakes a copy at
+#   /opt/jarble/mcp/jarble-ui-server.js. Without this copy step the bot
+#   would run a stale snapshot and the Jarble UI tools would fail to
+#   register. See docs/audits/qa-bot-teams-2026-04-07.md.
 # ═══════════════════════════════════════════════════════════════════════
 
 name: Build Runtime Images
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - "runtimes/**"
+      - "jarble-api-main/src/mcp/jarble-ui-server.js"
   workflow_dispatch:
     inputs:
       runtime:
         description: "Which runtime to build"
         required: true
+        default: "all"
         type: choice
         options:
           - all
@@ -38,12 +58,12 @@ permissions:
   packages: write
 
 jobs:
-  # ── Detect which runtimes changed ──────────────────────────────────
+  # ── Detect which runtimes need rebuilding ────────────────────────────
   changes:
     runs-on: ubuntu-latest
     outputs:
-      openclaw: ${{ steps.filter.outputs.openclaw }}
-      zeroclaw: ${{ steps.filter.outputs.zeroclaw }}
+      openclaw: ${{ steps.decide.outputs.openclaw }}
+      zeroclaw: ${{ steps.decide.outputs.zeroclaw }}
     steps:
       - uses: actions/checkout@v4
 
@@ -54,95 +74,234 @@ jobs:
           filters: |
             openclaw:
               - 'runtimes/openclaw/**'
+              - 'jarble-api-main/src/mcp/jarble-ui-server.js'
             zeroclaw:
               - 'runtimes/zeroclaw/**'
 
-      # On manual dispatch, use the selected runtime
-      - name: Set manual dispatch outputs
-        if: github.event_name == 'workflow_dispatch'
-        id: manual
+      - name: Decide which runtimes to build
+        id: decide
         run: |
-          if [ "${{ inputs.runtime }}" = "all" ] || [ "${{ inputs.runtime }}" = "openclaw" ]; then
-            echo "openclaw=true" >> $GITHUB_OUTPUT
-          fi
-          if [ "${{ inputs.runtime }}" = "all" ] || [ "${{ inputs.runtime }}" = "zeroclaw" ]; then
-            echo "zeroclaw=true" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SELECTED="${{ inputs.runtime }}"
+            if [ "$SELECTED" = "all" ] || [ "$SELECTED" = "openclaw" ]; then
+              echo "openclaw=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "openclaw=false" >> "$GITHUB_OUTPUT"
+            fi
+            if [ "$SELECTED" = "all" ] || [ "$SELECTED" = "zeroclaw" ]; then
+              echo "zeroclaw=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "zeroclaw=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "openclaw=${{ steps.filter.outputs.openclaw || 'false' }}" >> "$GITHUB_OUTPUT"
+            echo "zeroclaw=${{ steps.filter.outputs.zeroclaw || 'false' }}" >> "$GITHUB_OUTPUT"
           fi
 
-  # ── Build & Push OpenClaw ──────────────────────────────────────────
-  build-openclaw:
+  # ── Build & Push runtime images (matrix) ─────────────────────────────
+  # Matrix entries run in parallel. To add a new runtime:
+  #   1. Drop a new directory under runtimes/<name>/ with a Dockerfile
+  #   2. Add <name> to the matrix below + a filter in the changes job
+  build:
     needs: changes
-    if: |
-      needs.changes.outputs.openclaw == 'true' ||
-      (github.event_name == 'workflow_dispatch' && (inputs.runtime == 'all' || inputs.runtime == 'openclaw'))
     runs-on: ubuntu-latest
+    # Job-level gate cannot use `matrix.*` (matrix is expanded AFTER `if:`
+    # is evaluated — `Unrecognized named-value: 'matrix'`). So we gate the
+    # whole job on either runtime having changed, then skip individual
+    # steps via per-step `if:` (which DO have matrix context). Empty
+    # matrix entries become near-no-ops.
+    if: needs.changes.outputs.openclaw == 'true' || needs.changes.outputs.zeroclaw == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [openclaw, zeroclaw]
+    # Limit one in-flight build per runtime to avoid cache thrash + tag races
+    concurrency:
+      group: deploy-runtimes-${{ matrix.runtime }}
+      cancel-in-progress: false
     steps:
+      - name: Should this matrix entry build?
+        id: should
+        run: |
+          if [ "${{ matrix.runtime }}" = "openclaw" ] && [ "${{ needs.changes.outputs.openclaw }}" = "true" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ matrix.runtime }}" = "zeroclaw" ] && [ "${{ needs.changes.outputs.zeroclaw }}" = "true" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ matrix.runtime }} runtime did not change, skipping build"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.should.outputs.build == 'true'
+
+      # ── Bring the canonical Jarble UI MCP server into the build ──
+      # Only openclaw uses it; zeroclaw skips this step.
+      # This guarantees the image always bundles the latest MCP server
+      # rather than relying on a stale committed copy.
+      - name: Copy canonical jarble-ui-server.js into openclaw context
+        if: steps.should.outputs.build == 'true' && matrix.runtime == 'openclaw'
+        run: |
+          set -euo pipefail
+          SRC="jarble-api-main/src/mcp/jarble-ui-server.js"
+          DEST="runtimes/openclaw/jarble-ui-server.js"
+          if [ ! -f "$SRC" ]; then
+            echo "::error::Canonical MCP server not found at $SRC"
+            exit 1
+          fi
+          cp "$SRC" "$DEST"
+          BYTES=$(wc -c < "$DEST")
+          echo "Copied $SRC -> $DEST ($BYTES bytes)"
 
       - name: Set up Docker Buildx
+        if: steps.should.outputs.build == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: steps.should.outputs.build == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute short SHA
+        if: steps.should.outputs.build == 'true'
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata
+        if: steps.should.outputs.build == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}/openclaw
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.runtime }}
           tags: |
             type=raw,value=latest
-            type=sha,prefix=
+            type=raw,value=sha-${{ steps.sha.outputs.short }}
 
-      - name: Build and push OpenClaw
+      - name: Build and push ${{ matrix.runtime }}
+        if: steps.should.outputs.build == 'true'
+        id: build
         uses: docker/build-push-action@v5
         with:
-          context: runtimes/openclaw
+          context: ./runtimes/${{ matrix.runtime }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=runtime-${{ matrix.runtime }}
+          cache-to: type=gha,mode=max,scope=runtime-${{ matrix.runtime }}
 
-  # ── Build & Push ZeroClaw ──────────────────────────────────────────
-  build-zeroclaw:
-    needs: changes
-    if: |
-      needs.changes.outputs.zeroclaw == 'true' ||
-      (github.event_name == 'workflow_dispatch' && (inputs.runtime == 'all' || inputs.runtime == 'zeroclaw'))
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Job summary
+        if: steps.should.outputs.build == 'true'
+        run: |
+          {
+            echo "## Built ${{ matrix.runtime }}"
+            echo ""
+            echo "**Image**: \`${{ env.IMAGE_PREFIX }}/${{ matrix.runtime }}\`"
+            echo ""
+            echo "**Tags pushed**:"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo ""
+            echo "**Digest**: \`${{ steps.build.outputs.digest }}\`"
+            echo ""
+            echo "**Commit**: \`${{ github.sha }}\`"
+            if [ "${{ matrix.runtime }}" = "openclaw" ]; then
+              echo ""
+              echo "Bundled \`jarble-ui-server.js\` from \`jarble-api-main/src/mcp/\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      # ── Optional: notify cluster of new image ─────────────────────
+      #
+      # DESIGN DECISION: We do NOT automatically `kubectl rollout restart`
+      # user bot pods. Each bot is a separate Deployment and may be
+      # mid-conversation — restarting them would drop streaming SSE
+      # responses and kill in-flight tool calls for every user.
+      #
+      # Instead, this step writes the new image digest to a sentinel
+      # ConfigMap (`runtime-image-tracker`) in the `jarble` namespace.
+      # Ops can query this ConfigMap to see the latest available image
+      # and manually trigger rollouts for individual deployments when
+      # convenient (e.g. during off-hours, or one-at-a-time via the
+      # `forceRefresh` admin tRPC procedure).
+      #
+      # The step is gated on the `KUBE_CONFIG` repo secret being set —
+      # if not configured, the workflow still completes successfully and
+      # just prints a notice to the job summary.
+      #
+      # The kubeconfig user only needs `get/create/patch` on the single
+      # `configmaps/runtime-image-tracker` resource in the `jarble`
+      # namespace. See docs/audits/ci-hardening.md for the sample Role.
+      - name: Check if KUBE_CONFIG is configured
+        if: steps.should.outputs.build == 'true'
+        id: check_kubeconfig
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          if [ -n "$KUBE_CONFIG" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Configure kubectl
+        if: steps.check_kubeconfig.outputs.configured == 'true'
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          mkdir -p "$HOME/.kube"
+          printf '%s' "$KUBE_CONFIG" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_PREFIX }}/zeroclaw
-          tags: |
-            type=raw,value=latest
-            type=sha,prefix=
+      - name: Annotate runtime image tracker ConfigMap
+        if: steps.check_kubeconfig.outputs.configured == 'true'
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_PREFIX }}/${{ matrix.runtime }}@${{ steps.build.outputs.digest }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          set -euo pipefail
+          # Create the tracker ConfigMap if it doesn't exist (idempotent).
+          kubectl -n jarble create configmap runtime-image-tracker \
+            --dry-run=client -o yaml | kubectl apply -f -
+          # Stamp the new image digest + commit onto the ConfigMap so ops
+          # can see the latest available image without touching user pods.
+          kubectl -n jarble annotate configmap runtime-image-tracker \
+            --overwrite \
+            "jarble.ai/${RUNTIME}-image=${IMAGE_TAG}" \
+            "jarble.ai/${RUNTIME}-commit=${COMMIT_SHA}" \
+            "jarble.ai/${RUNTIME}-updated-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            echo ""
+            echo "### ${RUNTIME} runtime image tracked in cluster"
+            echo ""
+            echo "- Image: \`${IMAGE_TAG}\`"
+            echo "- Commit: \`${COMMIT_SHA}\`"
+            echo ""
+            echo "Annotated \`configmap/runtime-image-tracker\` in namespace \`jarble\`."
+            echo "Existing bot pods will keep running the old image until"
+            echo "manually rolled over via the admin \`forceRefresh\` procedure."
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Build and push ZeroClaw
-        uses: docker/build-push-action@v5
-        with:
-          context: runtimes/zeroclaw
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Notice when KUBE_CONFIG not configured
+        if: steps.check_kubeconfig.outputs.configured != 'true'
+        run: |
+          {
+            echo ""
+            echo "### ${{ matrix.runtime }} runtime published (no cluster notify)"
+            echo ""
+            echo "\`KUBE_CONFIG\` repo secret is not configured, so the"
+            echo "cluster-side image tracker ConfigMap was not updated."
+            echo "Existing bot pods will continue running the previous"
+            echo "image until they restart."
+            echo ""
+            echo "To enable auto-annotation, add a base64-encoded"
+            echo "kubeconfig to the \`KUBE_CONFIG\` repo secret. The"
+            echo "kubeconfig user only needs \`get/create/patch\` on"
+            echo "\`configmaps/runtime-image-tracker\` in the \`jarble\`"
+            echo "namespace — no pod or deployment permissions required."
+            echo "See docs/audits/ci-hardening.md for the sample Role."
+          } >> "$GITHUB_STEP_SUMMARY"

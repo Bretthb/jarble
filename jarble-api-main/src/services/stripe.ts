@@ -31,6 +31,7 @@ export async function createCheckoutSession(params: {
   monthlyPriceCents: number;
   managedKeyCents?: number;
   stripeCustomerId?: string | null;
+  orgId?: string;
   successUrl: string;
   cancelUrl: string;
 }): Promise<Stripe.Checkout.Session> {
@@ -75,6 +76,7 @@ export async function createCheckoutSession(params: {
     metadata: {
       userId: params.userId,
       runtimeSlug: params.runtimeSlug,
+      ...(params.orgId ? { orgId: params.orgId } : {}),
       ...(params.managedKeyCents && params.managedKeyCents > 0
         ? { hasManagedKeys: "true", managedKeyPlanDollars: String(params.managedKeyCents / 100) }
         : {}),
@@ -106,6 +108,7 @@ export async function createIncompleteSubscription(params: {
   monthlyPriceCents: number;
   managedKeyCents?: number;
   stripeCustomerId: string;
+  orgId?: string;
 }): Promise<{ subscriptionId: string; clientSecret: string }> {
   const s = getStripe();
 
@@ -152,6 +155,7 @@ export async function createIncompleteSubscription(params: {
     metadata: {
       userId: params.userId,
       runtimeSlug: params.runtimeSlug,
+      ...(params.orgId ? { orgId: params.orgId } : {}),
       ...(params.managedKeyCents && params.managedKeyCents > 0
         ? { hasManagedKeys: "true", managedKeyPlanDollars: String(params.managedKeyCents / 100) }
         : {}),

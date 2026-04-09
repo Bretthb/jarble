@@ -3,11 +3,16 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useTheme } from "@/contexts/ThemeContext";
+import Image from "next/image";
 import { trpc } from "@/lib/trpc";
+import { useOrg } from "@/contexts/OrgContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import {
+  AlertTriangle,
+  Building2,
   ChevronRight,
   ChevronLeft,
   CheckCircle2,
@@ -36,7 +41,10 @@ import StepDeploy from "./onboarding/steps/StepDeploy";
 export default function OnboardingWizard() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
+  const { user, isAuthenticated, isLoading: authLoading, getAccessTokenSilently } = useAuth0();
+  const { activeOrgId, activeOrg } = useOrg();
+  const { theme } = useTheme();
+  const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
 
   // Step navigation
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -45,6 +53,7 @@ export default function OnboardingWizard() {
   const [isNavigating, setIsNavigating] = useState(false);
 
   // Simulate deploy progress (no streaming progress from API, so we animate it)
+  // Includes a 5-minute timeout to prevent infinite spinner if provisioning hangs
   useEffect(() => {
     if (!isDeploying) {
       setDeployProgress(0);
@@ -61,13 +70,25 @@ export default function OnboardingWizard() {
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+
+    // Timeout: if deploy takes longer than 5 minutes, stop spinner and redirect
+    const timeout = setTimeout(() => {
+      setIsDeploying(false);
+      toast.error("Deployment is taking longer than expected. Check the dashboard for status.");
+      router.replace("/dashboard");
+    }, 5 * 60 * 1000);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timeout);
+    };
   }, [isDeploying]);
 
   // Form state
   const [deploymentName, setDeploymentName] = useState("");
   const [selectedRuntimeId, setSelectedRuntimeId] = useState<number | null>(null);
   const [selectedRuntimeSlug, setSelectedRuntimeSlug] = useState<string | null>(null);
+  const [systemPrompt, setSystemPrompt] = useState("");
   const [llmMode, setLlmMode] = useState<"included" | "byok">("byok");
   const [llmProvider, setLlmProvider] = useState<LLMProviderDef["id"]>("openrouter");
   const [llmModel, setLlmModel] = useState<string>(DEFAULT_INCLUDED_MODEL);
@@ -84,6 +105,10 @@ export default function OnboardingWizard() {
   const [checkoutConfirmed, setCheckoutConfirmed] = useState(false);
   const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
   const [isLoadingCheckout, setIsLoadingCheckout] = useState(false);
+
+  // Promo code state
+  const [promoCode, setPromoCode] = useState("");
+  const [promoValid, setPromoValid] = useState<boolean | null>(null);
 
   // Telegram pairing poll mutation (used in deploy step after deploy succeeds)
   const pollTelegramMutation = trpc.platformCredentials.pollTelegramPairing.useMutation();
@@ -176,6 +201,12 @@ export default function OnboardingWizard() {
   const linkableQuery = trpc.deployment.listLinkableDeployments.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading && llmMode === "included",
   });
+
+  // Fetch org billing status when creating in an org context
+  const orgBillingQuery = trpc.org.getBilling.useQuery(
+    { orgId: activeOrgId! },
+    { enabled: !!activeOrgId, retry: false },
+  );
 
   // Key validation mutation
   const validateKeyMutation = trpc.openrouter.validateProviderKey.useMutation({
@@ -289,7 +320,8 @@ export default function OnboardingWizard() {
           cpuLimit: cpuLimit || undefined,
           memoryMb: memoryMb || undefined,
           storageMb: storageMb || undefined,
-          systemPrompt: undefined,
+          systemPrompt: systemPrompt.trim() || undefined,
+          orgId: activeOrgId ?? undefined,
         });
       }
     } else if (currentStepIndex < steps.length - 1) {
@@ -363,11 +395,7 @@ export default function OnboardingWizard() {
       <header className="border-b border-border/60 bg-background/95 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img
-              src="https://azeubylyzvcqot5l.public.blob.vercel-storage.com/logos/jarblelogo.png"
-              alt="Jarble"
-              className="w-8 h-8 object-contain rounded"
-            />
+            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-10 w-auto" />
             <span className="font-semibold text-sm">New Deployment</span>
           </div>
           <div className="flex items-center gap-4">
@@ -421,6 +449,30 @@ export default function OnboardingWizard() {
           })}
         </nav>
 
+        {/* Org billing context banner */}
+        {activeOrgId && activeOrg && (
+          <div className="mb-4">
+            {orgBillingQuery.isLoading ? null : orgBillingQuery.data?.hasPaymentMethod ? (
+              <div className="flex items-center gap-2.5 rounded-lg border border-border bg-secondary/30 px-4 py-2.5 text-sm">
+                <Building2 className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-muted-foreground">
+                  This deployment will be billed to{" "}
+                  <span className="font-medium text-foreground">{activeOrg.name}</span>
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2.5 text-sm">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                <span className="text-muted-foreground">
+                  Set up billing in{" "}
+                  <span className="font-medium text-foreground">{activeOrg.name}</span>{" "}
+                  org settings before creating a deployment
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Step Content */}
         <div className="mb-8">
           <AnimatePresence mode="wait">
@@ -443,6 +495,25 @@ export default function OnboardingWizard() {
                   selectedId={selectedRuntimeId}
                   onSelect={handleRuntimeSelect}
                 />
+              )}
+              {currentStepId === "prompt" && (
+                <div className="space-y-4">
+                  <div>
+                    <h2 className="text-xl font-semibold mb-1">System Prompt</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Tell your bot how to behave. This sets its personality, knowledge, and capabilities.
+                    </p>
+                  </div>
+                  <textarea
+                    className="w-full min-h-[200px] rounded-lg border border-border bg-background p-3 text-sm font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                    placeholder="You are a helpful assistant that..."
+                    value={systemPrompt}
+                    onChange={(e) => setSystemPrompt(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Optional — you can always change this later in the deployment config.
+                  </p>
+                </div>
               )}
               {currentStepId === "llm" && (
                 <StepLlmSetup
@@ -477,23 +548,50 @@ export default function OnboardingWizard() {
                   llmMode={llmMode}
                   llmProvider={llmProvider}
                   llmModel={llmModel}
-                  cpuLimit={cpuLimit}
-                  setCpuLimit={setCpuLimit}
-                  memoryMb={memoryMb}
-                  setMemoryMb={setMemoryMb}
-                  storageMb={storageMb}
-                  setStorageMb={setStorageMb}
                   emailVerified={!!user?.email_verified}
                   deployPhase={deployPhase}
                   telegramBotUsername={telegramBotUsername}
                   creditLimitDollars={creditLimitDollars}
                   linkToDeploymentId={linkToDeploymentId}
+                  promoCode={promoCode}
+                  setPromoCode={setPromoCode}
+                  promoValid={promoValid}
+                  setPromoValid={setPromoValid}
                   checkoutConfirmed={checkoutConfirmed}
                   stripeClientSecret={stripeClientSecret}
                   isLoadingCheckout={isLoadingCheckout}
-                  onInitCheckout={() => {
-                    // TODO: Call stripe checkout endpoint
+                  onInitCheckout={async () => {
                     setIsLoadingCheckout(true);
+                    try {
+                      const token = await getAccessTokenSilently();
+                      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/stripe/checkout`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({
+                          inline: true,
+                          runtimeSlug: selectedRuntimeSlug,
+                          llmMode,
+                          creditLimitDollars: llmMode === "included" ? creditLimitDollars : 0,
+                          linkToDeploymentId: linkToDeploymentId || undefined,
+                          promoCode: promoValid ? promoCode.trim() : undefined,
+                          orgId: activeOrgId || undefined,
+                        }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) {
+                        toast.error(data.error || "Failed to start checkout");
+                        setIsLoadingCheckout(false);
+                        return;
+                      }
+                      setStripeClientSecret(data.clientSecret);
+                      setIsLoadingCheckout(false);
+                    } catch (err) {
+                      toast.error("Failed to initialize payment");
+                      setIsLoadingCheckout(false);
+                    }
                   }}
                   onCheckoutComplete={() => {
                     setCheckoutConfirmed(true);

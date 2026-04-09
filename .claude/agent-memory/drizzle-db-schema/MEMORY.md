@@ -1,0 +1,1 @@
+- [Flow membership sync fragility](flow_membership_sync.md) — orchestration_flows.definition is a text JSON blob with no FK to deployments; stale deploymentIds silently break Bot Teams via empty flow_deployment_memberships

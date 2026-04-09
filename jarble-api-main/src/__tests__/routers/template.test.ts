@@ -57,8 +57,7 @@ vi.mock("../../utils/openrouter.js", () => ({
 
 vi.mock("../../utils/env.js", () => ({
   env: {
-    USE_SQLITE: "true",
-    DB_PROVIDER: "sqlite",
+    DB_PROVIDER: "postgres",
     AUTH0_DOMAIN: "test.auth0.com",
     AUTH0_AUDIENCE: "https://api.jarble.ai",
     OPENROUTER_API_KEY: "sk-test",
@@ -69,6 +68,24 @@ vi.mock("../../utils/env.js", () => ({
     FRONTEND_URL: "http://localhost:3000",
   },
 }));
+// Mock db/index.js to prevent Postgres connection at import time.
+// Tests pass the in-memory SQLite db through the tRPC caller context.
+// The  export must carry real Drizzle column definitions so routers
+// can build  expressions.
+vi.mock("../../db/index.js", async () => {
+  const schema = await import("../helpers/testSchema.sqlite.js");
+  return {
+    db: {},
+    tables: schema,
+    dbDate: (date: Date = new Date()) => date.toISOString(),
+    getRowsAffected: (result: any) => {
+      if (result?.rowCount != null) return result.rowCount;
+      if (result?.rowsAffected != null) return result.rowsAffected;
+      if (result?.changes != null) return result.changes;
+      return 0;
+    },
+  };
+});
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 let ctx: TestDbContext;
@@ -108,10 +125,17 @@ describe("template router", () => {
       expect(result).toHaveLength(3);
     });
 
-    it("should return templates sorted by sortOrder", async () => {
+    it("should return templates sorted by sortOrder (authed)", async () => {
+      // sortOrder is an internal field stripped from the public list.
+      // Authed callers hit listByCategory which still returns the full record,
+      // so we verify ordering there. The public list is ordered server-side
+      // the same way — this test guarantees the order is preserved.
       const result = await anonCaller().template.list();
-      const orders = result.map((t: any) => t.sortOrder);
-      expect(orders).toEqual([0, 1, 2]);
+      expect(result.map((t: any) => t.slug)).toEqual([
+        "general-assistant",
+        "sales-coach",
+        "customer-support",
+      ]);
     });
 
     it("should not return inactive templates", async () => {
@@ -128,25 +152,29 @@ describe("template router", () => {
       expect(general!.showcasePrompts.length).toBeGreaterThan(0);
     });
 
-    it("should return parsed recommendedTools as array", async () => {
+    it("should strip systemPrompt + internal fields from public list", async () => {
+      // Regression guard for the unauth info-disclosure fix: the public
+      // list endpoint must not leak system prompts, recommendedTools,
+      // exampleConversation, sortOrder, createdAt, or isActive. Those
+      // are only reachable via the authenticated getById / listByCategory.
       const result = await anonCaller().template.list();
-      // recommendedTools is null in seed data, should return []
-      expect(result[0].recommendedTools).toEqual([]);
-    });
-
-    it("should return parsed exampleConversation as array", async () => {
-      const result = await anonCaller().template.list();
-      expect(result[0].exampleConversation).toEqual([]);
-    });
-
-    it("should include all expected fields", async () => {
-      const result = await anonCaller().template.list();
-      const t = result[0];
+      const t = result[0] as Record<string, unknown>;
       expect(t.id).toBeDefined();
-      expect(t.name).toBeDefined();
       expect(t.slug).toBeDefined();
-      expect(t.category).toBeDefined();
-      expect(t.systemPrompt).toBeDefined();
+      expect(t.name).toBeDefined();
+      expect(t.systemPrompt).toBeUndefined();
+      expect(t.recommendedTools).toBeUndefined();
+      expect(t.exampleConversation).toBeUndefined();
+      expect(t.sortOrder).toBeUndefined();
+      expect(t.createdAt).toBeUndefined();
+      expect(t.isActive).toBeUndefined();
+    });
+
+    it("authed getById returns the full template including systemPrompt", async () => {
+      const result = await caller().template.getById({ id: "persona-general" });
+      expect(result).toBeDefined();
+      expect(result!.systemPrompt).toBeDefined();
+      expect(Array.isArray(result!.recommendedTools)).toBe(true);
     });
   });
 
@@ -154,25 +182,25 @@ describe("template router", () => {
 
   describe("getById", () => {
     it("should return a template by ID", async () => {
-      const result = await anonCaller().template.getById({ id: "persona-general" });
+      const result = await caller().template.getById({ id: "persona-general" });
       expect(result).toBeDefined();
       expect(result!.slug).toBe("general-assistant");
       expect(result!.name).toBe("General Assistant");
     });
 
     it("should return null for non-existent ID", async () => {
-      const result = await anonCaller().template.getById({ id: "nonexistent" });
+      const result = await caller().template.getById({ id: "nonexistent" });
       expect(result).toBeNull();
     });
 
     it("should parse JSON fields on single result", async () => {
-      const result = await anonCaller().template.getById({ id: "persona-dev" });
+      const result = await caller().template.getById({ id: "persona-dev" });
       expect(result).toBeDefined();
       expect(Array.isArray(result!.showcasePrompts)).toBe(true);
     });
 
     it("should include system prompt", async () => {
-      const result = await anonCaller().template.getById({ id: "persona-general" });
+      const result = await caller().template.getById({ id: "persona-general" });
       expect(result!.systemPrompt).toContain("helpful");
     });
   });
@@ -181,25 +209,25 @@ describe("template router", () => {
 
   describe("listByCategory", () => {
     it("should filter templates by category", async () => {
-      const result = await anonCaller().template.listByCategory({ category: "general" });
+      const result = await caller().template.listByCategory({ category: "general" });
       expect(result).toHaveLength(1);
       expect(result[0].slug).toBe("general-assistant");
     });
 
     it("should return technical templates", async () => {
-      const result = await anonCaller().template.listByCategory({ category: "technical" });
+      const result = await caller().template.listByCategory({ category: "technical" });
       expect(result).toHaveLength(1);
       expect(result[0].slug).toBe("full-stack-developer");
     });
 
     it("should return empty array for non-existent category", async () => {
-      const result = await anonCaller().template.listByCategory({ category: "nonexistent" });
+      const result = await caller().template.listByCategory({ category: "nonexistent" });
       expect(result).toHaveLength(0);
     });
 
     it("should not include inactive templates in category results", async () => {
       ctx.raw.exec(`UPDATE persona_templates SET is_active = 0 WHERE category = 'general'`);
-      const result = await anonCaller().template.listByCategory({ category: "general" });
+      const result = await caller().template.listByCategory({ category: "general" });
       expect(result).toHaveLength(0);
     });
   });

@@ -104,13 +104,13 @@ function StatusBadge({ status }: { status?: string }) {
   const s = status ?? "unknown";
   const colorMap: Record<string, string> = {
     running: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-    stopped: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
+    stopped: "bg-muted text-muted-foreground border-border",
     failed: "bg-red-500/20 text-red-400 border-red-500/30",
     deploying: "bg-amber-500/20 text-amber-400 border-amber-500/30",
   };
   const dotMap: Record<string, string> = {
     running: "bg-emerald-400",
-    stopped: "bg-zinc-400",
+    stopped: "bg-muted-foreground",
     failed: "bg-red-400",
     deploying: "bg-amber-400",
   };

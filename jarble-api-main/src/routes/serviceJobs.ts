@@ -13,7 +13,7 @@
 import { Router } from "express";
 import { eq, lt } from "drizzle-orm";
 import { db, tables, dbDate } from "../db/index.js";
-import { generateMarketplaceId } from "../db/schema.js";
+import { generateMarketplaceId } from "../db/schema.pg.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 

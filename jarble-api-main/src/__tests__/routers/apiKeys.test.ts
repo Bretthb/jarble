@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import * as sqliteSchema from "../../db/schema.sqlite.js";
+import * as sqliteSchema from "../helpers/testSchema.sqlite.js";
 import { createTestCaller, createAnonymousCaller } from "../helpers/testCaller.js";
 
 // ── Hoisted mutable DB reference ─────────────────────────────────────────────
@@ -62,6 +62,12 @@ vi.mock("../../db/index.js", () => ({
       betaSignups: sqliteSchema.betaSignups,
       orchestrationFlows: sqliteSchema.orchestrationFlows,
       flowExecutions: sqliteSchema.flowExecutions,
+      deploymentSecrets: sqliteSchema.deploymentSecrets,
+      deploymentSubagents: sqliteSchema.deploymentSubagents,
+      flowDeploymentMemberships: sqliteSchema.flowDeploymentMemberships,
+      organizations: sqliteSchema.organizations,
+      orgMembers: sqliteSchema.orgMembers,
+      orgInvites: sqliteSchema.orgInvites,
     };
   },
   dbDate: () => new Date().toISOString(),
@@ -114,8 +120,7 @@ vi.mock("../../utils/openrouter.js", () => ({
 
 vi.mock("../../utils/env.js", () => ({
   env: {
-    USE_SQLITE: "true",
-    DB_PROVIDER: "sqlite",
+    DB_PROVIDER: "postgres",
     AUTH0_DOMAIN: "test.auth0.com",
     AUTH0_AUDIENCE: "https://api.jarble.ai",
     OPENROUTER_API_KEY: "sk-test",

@@ -9,6 +9,9 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Building2,
+  CreditCard,
+  DollarSign,
+  ExternalLink,
   Loader2,
   LogOut,
   Mail,
@@ -22,9 +25,236 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import MemberList from "@/components/organizations/MemberList";
 import InviteMemberDialog from "@/components/organizations/InviteMemberDialog";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+function formatCents(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+function subscriptionStatusBadge(status: string) {
+  switch (status) {
+    case "active":
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-500">
+          Active
+        </span>
+      );
+    case "past_due":
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-500">
+          Past Due
+        </span>
+      );
+    case "canceled":
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-500">
+          Cancelled
+        </span>
+      );
+    default:
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground capitalize">
+          {status}
+        </span>
+      );
+  }
+}
+
+// ─── Org Billing Section ──────────────────────────────────────────────────
+
+function OrgBillingSection({ orgId, isOwner }: { orgId: string; isOwner: boolean }) {
+  const utils = trpc.useUtils();
+
+  const billingQuery = trpc.org.getBilling.useQuery(
+    { orgId },
+    { enabled: !!orgId },
+  );
+
+  const createBillingPortal = trpc.org.createBillingPortal.useMutation({
+    onSuccess: (data) => {
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    },
+    onError: (err) => toast.error(err.message || "Failed to open billing portal"),
+  });
+
+  // Setup creates a Stripe customer, then opens the portal to add a payment method
+  const setupBilling = trpc.org.setupBilling.useMutation({
+    onSuccess: () => {
+      utils.org.getBilling.invalidate({ orgId });
+      // After creating the Stripe customer, open the portal to add payment method
+      createBillingPortal.mutate({ orgId });
+    },
+    onError: (err) => toast.error(err.message || "Failed to set up billing"),
+  });
+
+  if (billingQuery.isLoading) {
+    return (
+      <Card className="p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <CreditCard className="w-5 h-5 text-primary" />
+          <h3 className="text-lg font-semibold">Billing</h3>
+        </div>
+        <div className="space-y-3">
+          <Skeleton className="h-4 w-48" />
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+      </Card>
+    );
+  }
+
+  if (billingQuery.isError) {
+    return (
+      <Card className="p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <CreditCard className="w-5 h-5 text-primary" />
+          <h3 className="text-lg font-semibold">Billing</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Failed to load billing information.
+        </p>
+        <Button variant="outline" size="sm" onClick={() => billingQuery.refetch()}>
+          Retry
+        </Button>
+      </Card>
+    );
+  }
+
+  const billing = billingQuery.data;
+  const hasPaymentMethod = !!billing?.hasPaymentMethod;
+
+  // No payment method set up
+  if (!hasPaymentMethod) {
+    return (
+      <Card className="p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <CreditCard className="w-5 h-5 text-primary" />
+          <h3 className="text-lg font-semibold">Billing</h3>
+        </div>
+        <div className="rounded-lg border border-border bg-secondary/20 p-4 text-center space-y-3">
+          <DollarSign className="w-8 h-8 text-muted-foreground/50 mx-auto" />
+          <p className="text-sm text-muted-foreground">
+            Set up billing to create deployments in this organization
+          </p>
+          {isOwner ? (
+            <Button
+              size="sm"
+              onClick={() => setupBilling.mutate({ orgId })}
+              disabled={setupBilling.isPending || createBillingPortal.isPending}
+            >
+              {setupBilling.isPending || createBillingPortal.isPending ? (
+                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+              ) : (
+                <CreditCard className="w-4 h-4 mr-1.5" />
+              )}
+              Set Up Billing
+            </Button>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Only the organization owner can set up billing.
+            </p>
+          )}
+        </div>
+      </Card>
+    );
+  }
+
+  // Payment method exists — show billing overview
+  const deployments = billing?.deployments ?? [];
+  const totalMonthlyCents = billing?.totalMonthlyCents ?? 0;
+
+  return (
+    <Card className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <CreditCard className="w-5 h-5 text-primary" />
+          <h3 className="text-lg font-semibold">Billing</h3>
+        </div>
+        {isOwner && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => createBillingPortal.mutate({ orgId })}
+            disabled={createBillingPortal.isPending}
+          >
+            {createBillingPortal.isPending ? (
+              <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+            ) : (
+              <ExternalLink className="w-4 h-4 mr-1.5" />
+            )}
+            Manage Billing
+          </Button>
+        )}
+      </div>
+
+      {/* Monthly cost summary */}
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-secondary/20 px-4 py-3">
+        <div className="p-2 rounded-lg bg-primary/10">
+          <DollarSign className="w-5 h-5 text-primary" />
+        </div>
+        <div>
+          <p className="text-sm text-muted-foreground">Monthly Total</p>
+          <p className="text-xl font-bold">{formatCents(totalMonthlyCents)}/mo</p>
+        </div>
+      </div>
+
+      {/* Billing email */}
+      {billing?.billingEmail && (
+        <div className="text-sm text-muted-foreground">
+          Billing email: <span className="text-foreground">{billing.billingEmail}</span>
+        </div>
+      )}
+
+      {/* Deployment list */}
+      {deployments.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No deployments in this organization yet.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-muted-foreground">
+            Deployments ({deployments.length})
+          </p>
+          {deployments.map((dep: any) => (
+            <div
+              key={dep.id}
+              className="flex items-center gap-3 p-2.5 rounded-lg bg-secondary/20"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{dep.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {formatCents(dep.monthlyPriceCents ?? 0)}/mo
+                </p>
+              </div>
+              {dep.status && subscriptionStatusBadge(
+                dep.cancelledAt ? "canceled" : dep.status === "running" ? "active" : dep.status
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────
 
 export default function OrgDetailView() {
   const { orgId } = useParams() as { orgId: string };
@@ -121,14 +351,18 @@ export default function OrgDetailView() {
   }
 
   const org = orgQuery.data;
-  if (!org || !membership) {
+  // Show not-found UI if:
+  //   - the getById query errored (NOT_FOUND, wrong membership, etc.)
+  //   - OR the server returned no data
+  //   - OR the user isn't a member of this org (context mismatch)
+  if (orgQuery.isError || !org || !membership) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-4">
+        <div className="text-center space-y-4 max-w-md px-6">
           <Building2 className="w-12 h-12 text-muted-foreground mx-auto" />
           <h2 className="text-lg font-medium">Organization not found</h2>
           <p className="text-sm text-muted-foreground">
-            You may not have access to this organization.
+            This organization doesn't exist or you're not a member.
           </p>
           <Button variant="outline" onClick={() => router.push("/orgs")}>
             Back to Organizations
@@ -298,6 +532,11 @@ export default function OrgDetailView() {
           )}
         </Card>
 
+        {/* Billing — visible to owner and admin only */}
+        {canEdit && (
+          <OrgBillingSection orgId={orgId} isOwner={isOwner} />
+        )}
+
         {/* Danger Zone */}
         <Card className="p-6 border-destructive/20">
           <h3 className="text-lg font-semibold text-destructive mb-4">Danger Zone</h3>
@@ -309,23 +548,37 @@ export default function OrgDetailView() {
                   All deployments will return to personal mode. Members will be removed.
                 </p>
               </div>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  if (confirm(`Delete "${org.name}"? This cannot be undone.`)) {
-                    deleteOrg.mutate({ orgId });
-                  }
-                }}
-                disabled={deleteOrg.isPending}
-              >
-                {deleteOrg.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Trash2 className="w-4 h-4" />
-                )}
-                Delete
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm" disabled={deleteOrg.isPending}>
+                    {deleteOrg.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                    Delete
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete organization?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete <strong>{org.name}</strong>. All
+                      deployments owned by the org will return to personal mode and
+                      all members will lose access. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => deleteOrg.mutate({ orgId })}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           ) : (
             <div className="flex items-center justify-between">
@@ -335,23 +588,37 @@ export default function OrgDetailView() {
                   Your deployments assigned to this org will return to personal mode.
                 </p>
               </div>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  if (confirm(`Leave "${org.name}"?`)) {
-                    leaveOrg.mutate({ orgId });
-                  }
-                }}
-                disabled={leaveOrg.isPending}
-              >
-                {leaveOrg.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <LogOut className="w-4 h-4" />
-                )}
-                Leave
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm" disabled={leaveOrg.isPending}>
+                    {leaveOrg.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <LogOut className="w-4 h-4" />
+                    )}
+                    Leave
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Leave organization?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      You'll lose access to <strong>{org.name}</strong> and any
+                      deployments you assigned to it will return to your personal
+                      workspace.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => leaveOrg.mutate({ orgId })}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Leave
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           )}
         </Card>

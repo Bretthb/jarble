@@ -60,6 +60,7 @@ export default function MarketplaceBrowsePage() {
   const components: MarketplaceComponentData[] | undefined = browseQuery.data?.items;
   const nextCursor = browseQuery.data?.nextCursor;
   const isLoading = browseQuery.isLoading;
+  const isError = browseQuery.isError;
   const hasData = components !== undefined;
   const isEmpty = hasData && components.length === 0;
   const hasActiveFilters = category !== "all" || tier !== "all" || pricing !== "all" || search !== "";
@@ -250,6 +251,14 @@ export default function MarketplaceBrowsePage() {
         {/* Component grid */}
         {isLoading ? (
           <ComponentGridSkeleton />
+        ) : isError ? (
+          // Treat query errors as "no results" so users see feedback instead
+          // of a blank grid. The actual error is logged to the console.
+          <MarketplaceEmptyState
+            type="no-results"
+            hasFilters={hasActiveFilters}
+            onClearFilters={clearFilters}
+          />
         ) : !hasData ? (
           <MarketplaceEmptyState type="not-connected" />
         ) : isEmpty ? (

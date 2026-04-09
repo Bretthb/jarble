@@ -139,7 +139,7 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
   const pendingRestartRef = useRef(false);
 
   const updateMutation = trpc.deployment.update.useMutation({
-    onSuccess: () => {
+    onSuccess: async (updated) => {
       toast.success("Configuration saved");
       const shouldRestart = pendingRestartRef.current;
       pendingRestartRef.current = false;
@@ -149,9 +149,26 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
       setEditPrompt(null);
       deploymentQuery.refetch();
       podConfigQuery.refetch();
-      // Model/provider changes need a pod restart since OpenClaw reads config at startup
+      // Config changes that affect pod-start env vars (model, provider,
+      // memoryScope) need the pod to restart so OpenClaw reads the new
+      // config. Historically this was an explicit restart call, but the
+      // backend's configSync now auto-escalates to tier-3 (pod restart)
+      // whenever a Secret entry changes. Firing the explicit restart while
+      // configSync's restart is already in-flight produces
+      // "Cannot restart a deployment that is reloading" and blocks the
+      // user's toggle from taking effect.
+      //
+      // Fix: only fire the explicit restart if the deployment is still
+      // in "running" state a moment after the update. If configSync has
+      // already pushed it into "reloading"/"restarting", the pod is
+      // already coming back up with the fresh config — skip.
       if (shouldRestart) {
-        restartMutation.mutate({ id: deploymentId });
+        await new Promise((r) => setTimeout(r, 750));
+        const fresh = updated as { status?: string } | null | undefined;
+        const freshStatus = fresh?.status;
+        if (freshStatus === "running") {
+          restartMutation.mutate({ id: deploymentId });
+        }
       }
     },
     onError: (err) => toast.error(err.message || "Failed to save"),
@@ -191,6 +208,13 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
   const handleSavePrompt = () => {
     if (editPrompt === null) return;
     updateMutation.mutate({ id: deploymentId, systemPrompt: editPrompt });
+  };
+
+  const handleSaveMemoryScope = (next: "global" | "session" | "off") => {
+    // Memory scope changes require a pod restart so soul.md is re-rendered
+    // with the new prompt section and the pod picks up the new env var.
+    pendingRestartRef.current = true;
+    updateMutation.mutate({ id: deploymentId, memoryScope: next });
   };
 
   return (
@@ -381,6 +405,34 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
                 Save Prompt
               </Button>
             )}
+          </div>
+        )}
+
+        {/* Long-term memory scoping */}
+        {deployment && (
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Long-term memory</span>
+            <select
+              value={(dep?.memoryScope ?? "global") as string}
+              onChange={(e) => handleSaveMemoryScope(e.target.value as "global" | "session" | "off")}
+              disabled={updateMutation.isPending}
+              className="w-full px-2.5 py-1.5 bg-secondary/50 border border-border rounded-md text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="global">Global (shared across all chats)</option>
+              <option value="session">Per-session (isolated to each chat)</option>
+              <option value="off">Off (no long-term memory)</option>
+            </select>
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              {(dep?.memoryScope ?? "global") === "global" &&
+                "The bot remembers things from every chat with every user. Good for personal assistants."}
+              {dep?.memoryScope === "session" &&
+                "Each chat is isolated. The bot cannot recall anything from other conversations (best-effort: relies on bot compliance)."}
+              {dep?.memoryScope === "off" &&
+                "Memory tools are disabled. The bot starts fresh every turn."}
+            </p>
+            <p className="text-[10px] text-amber-500/90 leading-snug">
+              Changing this triggers a restart so the new memory mode takes effect.
+            </p>
           </div>
         )}
 

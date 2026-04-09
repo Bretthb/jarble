@@ -3,22 +3,31 @@
  *
  * POST /api/flows/:flowId/chat - Send a message to the flow's entry bot.
  *
- * The entry bot can delegate to connected bots via auto-generated delegation
- * tools. Delegation happens transparently: the user talks to one bot, and the
- * bot team coordinates behind the scenes.
+ * The entry bot can delegate to connected bots by emitting a single canonical
+ * `jarble_delegate` fenced code block. There is NO per-member tool exposed
+ * to the LLM (e.g. no `delegate_to_<name>`); the one tool the bot uses is the
+ * `jarble_delegate` fence, and the `to` field of its JSON body picks the
+ * target by bare slug. Delegation happens transparently: the user talks to
+ * one bot, and the bot team coordinates behind the scenes.
+ *
+ * The internal `DelegationTool.name` (e.g. `delegate_to_t1`) is kept purely
+ * as a routing key inside the parser — it never reaches the LLM and is no
+ * longer surfaced on user-facing diagnostics. The skipped/banner SSE events
+ * ship bare slugs to match the `jarble_delegate` contract.
  *
  * Response streams via SSE using the same AG-UI event protocol as tamboAgent.ts.
  * Additional flow-specific events:
  *   - jarble.flow.delegation.start  - delegation to a team member began
  *   - jarble.flow.delegation.end    - delegation finished (includes result summary)
  *   - jarble.flow.chat.trace        - full delegation trace at end of response
+ *   - jarble.flow.delegation.skipped - diagnostic when no delegation happened
  *
  * Auth: Bearer JWT (same as tamboAgent.ts and flowExecution.ts)
  */
 
 import { Router } from "express";
 import { nanoid } from "nanoid";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, inArray } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
@@ -32,6 +41,7 @@ import {
   type DelegationTool,
   type DelegationResult,
 } from "../services/flowDelegation.js";
+import { getDeploymentCapabilitiesBatch } from "../services/deploymentCapabilities.js";
 import type { FlowDefinition, FlowNode, FlowEdge } from "../services/flowEngine.js";
 import {
   CUSTOM,
@@ -41,6 +51,7 @@ import {
   TEXT_MESSAGE_CONTENT,
   TEXT_MESSAGE_END,
 } from "../utils/eventTypes.js";
+import { agentCallEvents } from "../utils/agentCallEvents.js";
 
 const log = createModuleLogger("flow-chat");
 
@@ -138,7 +149,15 @@ interface DelegationTraceEntry {
   targetNodeId: string;
   targetDeploymentId: string;
   task: string;
+  /** First 300 chars — wire-format preview shipped on the SSE trace event. */
   responsePreview: string;
+  /**
+   * The COMPLETE specialist reply. Kept server-side only and used to feed the
+   * coordinator's wrap-up synthesis turn so it sees the full text instead of
+   * the truncated preview (preview-only caused "result was truncated"
+   * hallucinations — qa-bot-teams 2026-04-07 P3 #2).
+   */
+  fullResponse: string;
   durationMs: number;
   creditsUsed: number;
   success: boolean;
@@ -222,9 +241,9 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       return;
     }
 
-    // 3. Find the entry node
+    // 3. Find the entry node (check both top-level and config.isEntryPoint)
     const entryNode =
-      definition.nodes.find((n) => n.isEntryPoint) || definition.nodes[0];
+      definition.nodes.find((n) => n.isEntryPoint || (n.config as any)?.isEntryPoint) || definition.nodes[0];
 
     if (!entryNode.deploymentId) {
       res.status(400).json({
@@ -235,10 +254,21 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     }
 
     // Verify the entry deployment exists, is running, and belongs to this user
+    // (check both personal ownership and org membership)
+    const memberships = await db.query.orgMembers.findMany({
+      where: eq(tables.orgMembers.userId, user.id),
+      columns: { orgId: true },
+    });
+    const orgIds = memberships.map((m: any) => m.orgId);
+
+    const ownershipFilter = orgIds.length > 0
+      ? or(eq(tables.deployments.userId, user.id), inArray(tables.deployments.orgId, orgIds))
+      : eq(tables.deployments.userId, user.id);
+
     const entryDeployment = await db.query.deployments.findFirst({
       where: and(
         eq(tables.deployments.id, entryNode.deploymentId),
-        eq(tables.deployments.userId, user.id),
+        ownershipFilter,
       ),
     });
 
@@ -283,11 +313,56 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       }
     }, MASTER_TIMEOUT_MS);
 
+    // Fractal Piece 4 wiring: forward orchestration step events to
+    // the frontend so the OrchestrationSteps tree can render nested
+    // delegations with parentId set. Mirror of the handler in
+    // tamboAgent.ts — the backend emits these via
+    // emitOrchestrationStart/End from flowDelegation.ts on every
+    // delegation hop with parentStepId + depth pre-filled.
+    const onOrchestrationStart = (evt: import("../utils/agentCallEvents.js").OrchestrationStepEvent) => {
+      // Filter by entry deployment id — we receive events from every
+      // deployment currently mutating its call tree, but this SSE stream
+      // only cares about its own flow.
+      if (evt.deploymentId !== entryDeployment.id && evt.deploymentId !== entryNode.deploymentId) return;
+      sendEvent(res, {
+        type: CUSTOM,
+        name: "jarble.orchestration.step.start",
+        value: {
+          stepId: evt.stepId,
+          agentType: evt.agentType,
+          agentName: evt.agentName,
+          toolName: evt.toolName,
+          task: evt.task,
+          targetDeploymentId: evt.targetDeploymentId,
+          parentStepId: evt.parentStepId,
+          depth: evt.depth,
+        },
+      });
+    };
+    const onOrchestrationEnd = (evt: import("../utils/agentCallEvents.js").OrchestrationStepEndEvent) => {
+      if (evt.deploymentId !== entryDeployment.id && evt.deploymentId !== entryNode.deploymentId) return;
+      sendEvent(res, {
+        type: CUSTOM,
+        name: "jarble.orchestration.step.end",
+        value: {
+          stepId: evt.stepId,
+          success: evt.success,
+          durationMs: evt.durationMs,
+          error: evt.error,
+          resultPreview: evt.resultPreview,
+        },
+      });
+    };
+    agentCallEvents.on("orchestration:step:start", onOrchestrationStart);
+    agentCallEvents.on("orchestration:step:end", onOrchestrationEnd);
+
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
       clearInterval(keepAlive);
       clearTimeout(masterTimeout);
+      agentCallEvents.off("orchestration:step:start", onOrchestrationStart);
+      agentCallEvents.off("orchestration:step:end", onOrchestrationEnd);
       releaseConnection(user!.id);
     };
 
@@ -319,11 +394,17 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     // 5. Send RUN_STARTED
     sendEvent(res, { type: RUN_STARTED, runId, threadId });
 
-    // 6. Build delegation tools for the entry bot
+    // 6. Load capabilities for all deployments in the flow and build delegation tools
+    const deploymentIds = definition.nodes
+      .map((n) => n.deploymentId)
+      .filter((id): id is string => !!id);
+    const capabilitiesMap = await getDeploymentCapabilitiesBatch(deploymentIds);
+
     const delegationTools = buildDelegationTools(
       entryNode,
       definition.nodes,
       definition.edges,
+      capabilitiesMap,
     );
 
     log.info(
@@ -347,11 +428,15 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     );
 
     // Build the message to send to the entry bot.
-    // We prefix with the augmented system context as a "system" instruction,
-    // since chatViaExec sends a single message string to the pod.
+    // chatViaExec has no system-prompt channel today (see follow-up Phase B1b),
+    // so we inject the augmented prompt into the user turn with an authoritative
+    // header that frames it as system-level instructions the model must follow.
+    // The strong header tag is a band-aid until chatViaExec gains a real system
+    // prompt channel — without it the bot tends to treat the prompt as
+    // conversational context and ignore the delegation contract.
     const entryMessage =
       delegationTools.length > 0
-        ? `[FLOW CONTEXT]\n${augmentedPrompt}\n[/FLOW CONTEXT]\n\n${userMessage}`
+        ? `[FLOW SYSTEM INSTRUCTIONS — AUTHORITATIVE]\n${augmentedPrompt}\n[/FLOW SYSTEM INSTRUCTIONS]\n\nUser message:\n${userMessage}`
         : userMessage;
 
     // 8. Send message to entry bot
@@ -414,8 +499,11 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     const delegationTrace: DelegationTraceEntry[] = [];
 
     if (delegationCalls.length > 0 && delegationTools.length > 0) {
-      // Strip delegation JSON blocks from the visible text
+      // Strip delegation tool-call blocks from the visible text so the user
+      // doesn't see the raw fenced block. Strip BOTH the new jarble_delegate
+      // format AND the legacy json format (during the rollout window).
       let visibleText = entryResult.text
+        .replace(/```jarble_delegate\s*\n[\s\S]*?```/g, "")
         .replace(/```json\s*\n\s*\{[^}]*"tool"\s*:\s*"delegate_to_[^}]*\}\s*```/g, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
@@ -457,9 +545,24 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           },
         });
 
-        // Execute the delegation
+        // Execute the delegation (with heartbeat during long-running calls)
         let delegationResult: DelegationResult | null = null;
         let delegationError: string | null = null;
+        const delegationStartMs = Date.now();
+
+        const heartbeat = setInterval(() => {
+          if (!res.writableEnded) {
+            sendEvent(res, {
+              type: CUSTOM,
+              name: "jarble.flow.delegation.heartbeat",
+              value: {
+                toolName: call.toolName,
+                targetDeploymentId: tool.targetDeploymentId,
+                elapsedMs: Date.now() - delegationStartMs,
+              },
+            });
+          }
+        }, 5_000);
 
         try {
           delegationResult = await executeDelegation({
@@ -469,8 +572,20 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             context: call.context,
             contextScope: tool.contextScope,
             conversationHistory: [{ role: "user", content: userMessage }],
-            sessionId: `flow-delegation-${flowId}-${tool.targetNodeId}-${Date.now()}`,
+            sessionId: `flow-${flowId}-${tool.targetNodeId}-${user.id}-${conversationId || threadId}`,
             depth: 1,
+            userId: user.id,
+            // ── N-level delegation wiring ──────────────────────────────
+            // The entry bot is depth 0 and has no `agent_calls` row of
+            // its own, so this first hop has `parentCallId: null`. The
+            // ancestor chain begins with the entry deployment so any
+            // nested sub-delegation that tries to route back to it is
+            // rejected by `DelegationCycleError`.
+            sourceDeploymentId: entryNode.deploymentId,
+            toolName: call.toolName,
+            parentCallId: null,
+            ancestorDeploymentIds: [entryNode.deploymentId],
+            flowId,
           });
         } catch (err) {
           delegationError =
@@ -483,6 +598,8 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             },
             "Delegation failed",
           );
+        } finally {
+          clearInterval(heartbeat);
         }
 
         // Emit delegation end event
@@ -498,16 +615,20 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             creditsUsed: delegationResult?.creditsUsed ?? 0,
             error: delegationError,
             responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
+            uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
           },
         });
 
-        // Record in trace
+        // Record in trace. responsePreview is the wire-format slice (300 chars)
+        // shipped on the SSE event; fullResponse is kept server-side and fed
+        // into the coordinator's synthesis turn so it sees the full reply.
         delegationTrace.push({
           toolName: call.toolName,
           targetNodeId: tool.targetNodeId,
           targetDeploymentId: tool.targetDeploymentId,
           task: call.task,
           responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
+          fullResponse: delegationResult?.response ?? "",
           durationMs: delegationResult?.durationMs ?? 0,
           creditsUsed: delegationResult?.creditsUsed ?? 0,
           success: !!delegationResult,
@@ -522,6 +643,22 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             messageId,
             delta: `**${roleName}:** ${delegationResult.response}\n\n`,
           });
+
+          // Forward UI blocks from delegated bot to the frontend
+          if (delegationResult.uiBlocks?.length) {
+            for (const block of delegationResult.uiBlocks) {
+              sendEvent(res, {
+                type: CUSTOM,
+                name: "jarble.flow.delegation.uiblock",
+                value: {
+                  delegationToolName: call.toolName,
+                  sourceDeploymentId: tool.targetDeploymentId,
+                  sourceRole: targetNode?.role || targetNode?.label || "Team member",
+                  block,
+                },
+              });
+            }
+          }
         } else if (delegationError) {
           sendEvent(res, {
             type: TEXT_MESSAGE_CONTENT,
@@ -531,13 +668,139 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         }
       }
 
-      // 10. Optionally, send the delegation results back to the entry bot
-      //     for it to synthesize a unified response.
-      //     For now, we present delegation results directly to the user.
-      //     A follow-up iteration can add a second entry-bot call for synthesis.
+      // 10. Send delegation results back to entry bot for synthesis.
+      // The coordinator gets the FULL specialist replies (not the 300-char
+      // wire-format previews) wrapped in explicit BEGIN/END markers so it
+      // cannot mistake them for previews. Previously this used responsePreview
+      // and the coordinator routinely hallucinated "the result was truncated"
+      // because the preview cut off mid-sentence — see qa-bot-teams
+      // 2026-04-07 P3 finding #2.
+      if (delegationTrace.length > 0 && !abortController.signal.aborted) {
+        const synthesisPrompt = delegationTrace
+          .filter((d) => d.success)
+          .map((d) => {
+            const slug = d.toolName.replace(/^delegate_to_/, "");
+            return `[BEGIN ${slug} FULL REPLY]\n${d.fullResponse}\n[END ${slug} FULL REPLY]`;
+          })
+          .join("\n\n");
+
+        if (synthesisPrompt) {
+          sendEvent(res, {
+            type: CUSTOM,
+            name: "jarble.flow.synthesis.start",
+            value: { delegationCount: delegationTrace.length },
+          });
+
+          const synthMessageId = nanoid();
+          sendEvent(res, { type: TEXT_MESSAGE_START, messageId: synthMessageId, role: "assistant" });
+
+          try {
+            const synthResult = await chatViaExec(
+              entryPodName,
+              sessionKey,
+              `[DELEGATION RESULTS]\n${synthesisPrompt}\n[/DELEGATION RESULTS]\n\n` +
+                `Each block above contains the COMPLETE, untruncated reply from one team member, ` +
+                `bounded by [BEGIN ... FULL REPLY] / [END ... FULL REPLY] markers. The full reply ` +
+                `is everything between those markers — there is no hidden continuation. Do NOT ` +
+                `claim any reply was "truncated", "cut off", "shortened", "incomplete", or that ` +
+                `you "only saw a preview". If a reply ends mid-thought it is because the team ` +
+                `member chose to stop there, not because it was truncated by the system.\n\n` +
+                `Briefly weave these replies into a cohesive response for the user. Be concise — ` +
+                `the raw replies were already streamed to the user above, so your job is just to ` +
+                `add a short framing summary, not to repeat the contents.`,
+              undefined,
+              undefined,
+              abortController.signal,
+            );
+
+            const synthText = synthResult.text
+              .replace(/<(think|reasoning)>[\s\S]*?<\/\1>/gi, "")
+              .replace(/\n{3,}/g, "\n\n")
+              .trim();
+
+            if (synthText) {
+              sendEvent(res, {
+                type: TEXT_MESSAGE_CONTENT,
+                messageId: synthMessageId,
+                delta: `\n\n---\n**Summary:** ${synthText}`,
+              });
+            }
+          } catch (err) {
+            log.warn({ flowId, err: err instanceof Error ? err.message : err }, "Synthesis call failed (non-fatal)");
+          }
+
+          sendEvent(res, { type: TEXT_MESSAGE_END, messageId: synthMessageId });
+
+          sendEvent(res, {
+            type: CUSTOM,
+            name: "jarble.flow.synthesis.end",
+            value: { delegationCount: delegationTrace.length },
+          });
+        }
+      }
 
     } else {
-      // No delegation - stream the entry bot's response directly
+      // Delegation was not performed. One of three cases:
+      //   1. no_tools_available       — entry bot has no outgoing "delegates" edges (normal)
+      //   2. tool_call_not_emitted    — tools were available, bot just answered directly
+      //   3. mentioned_but_not_emitted — bot said "I delegated to X" in natural language
+      //                                  but did not emit the ```json tool call block the
+      //                                  parser requires. This is a SILENT FAILURE MODE
+      //                                  that leaves users waiting for an answer that
+      //                                  never comes. See docs/audits/qa-bot-teams-2026-04-07.md
+      // Emit a diagnostic event so the frontend (and logs) can surface WHY no delegation
+      // happened instead of falling through silently to the bot's natural-language text.
+      const hasDelegationMention = /\b(delegat(e|ing|ed)|ask(ed|ing)?\s+the\s+(specialist|researcher|team|expert|coordinator)|pass(ed|ing)?\s+(this|it)\s+to|hand(ing|ed)?\s+off\s+to)\b/i.test(
+        entryResult.text ?? "",
+      );
+      let skipReason: "no_tools_available" | "tool_call_not_emitted" | "mentioned_but_not_emitted";
+      if (delegationTools.length === 0) {
+        skipReason = "no_tools_available";
+      } else if (hasDelegationMention) {
+        skipReason = "mentioned_but_not_emitted";
+        log.warn(
+          {
+            flowId,
+            entryNodeId: entryNode.id,
+            availableTools: delegationTools.map((t) => t.name),
+            rawTextPreview: entryResult.rawText.slice(0, 500),
+          },
+          "Bot mentioned delegation in natural language but did not emit a valid tool_call JSON block — silent delegation failure",
+        );
+      } else {
+        skipReason = "tool_call_not_emitted";
+        if (delegationTools.length > 0) {
+          log.info(
+            {
+              flowId,
+              entryNodeId: entryNode.id,
+              availableToolCount: delegationTools.length,
+            },
+            "Delegation tools available but entry bot answered directly without delegating",
+          );
+        }
+      }
+
+      // Surface the bare slugs (e.g. "t1", "researcher") instead of the
+      // internal `delegate_to_<slug>` tool names. The user-facing contract
+      // exposed in the system prompt teaches bots to emit
+      // `jarble_delegate { "to": "<bare-slug>" }`, so the banner copy and
+      // skipped-diagnostic should match that vocabulary. The internal
+      // DelegationTool.name field stays as `delegate_to_<slug>` purely as a
+      // routing key for the parser — see qa-bot-teams 2026-04-07 P3 #3.
+      sendEvent(res, {
+        type: CUSTOM,
+        name: "jarble.flow.delegation.skipped",
+        value: {
+          reason: skipReason,
+          availableToolCount: delegationTools.length,
+          availableTools: delegationTools.map((t) =>
+            t.name.replace(/^delegate_to_/, ""),
+          ),
+        },
+      });
+
+      // Stream the entry bot's response directly
       // Strip reasoning tags for clean display
       const cleanText = entryResult.text
         .replace(/<(think|reasoning)>[\s\S]*?<\/\1>/gi, "")
@@ -575,6 +838,76 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         },
       });
     }
+
+    // Persist team chat messages to database (fire-and-forget)
+    void (async () => {
+      try {
+        const { nanoid: genId } = await import("nanoid");
+        const convId = conversationId || threadId;
+
+        // Ensure session exists (upsert pattern)
+        const existingSession = await db.query.flowChatSessions.findFirst({
+          where: and(
+            eq(tables.flowChatSessions.flowId, flowId),
+            eq(tables.flowChatSessions.userId, user!.id),
+            eq(tables.flowChatSessions.id, convId),
+          ),
+        });
+
+        if (!existingSession) {
+          await db.insert(tables.flowChatSessions).values({
+            id: convId,
+            flowId,
+            userId: user!.id,
+            title: `Team Chat`,
+          });
+        }
+
+        // Save user message
+        await db.insert(tables.flowChatMessages).values({
+          id: genId(),
+          sessionId: convId,
+          role: "user",
+          content: userMessage,
+        });
+
+        // Save assistant (entry bot) response
+        // Collect the full assistant text from the entry result
+        const fullAssistantText = entryResult.text
+          .replace(/<(think|reasoning)>[\s\S]*?<\/\1>/gi, "")
+          .replace(/```json\s*\n\s*\{[^}]*"tool"\s*:\s*"delegate_to_[^}]*\}\s*```/g, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+
+        if (fullAssistantText) {
+          await db.insert(tables.flowChatMessages).values({
+            id: genId(),
+            sessionId: convId,
+            role: "assistant",
+            content: fullAssistantText,
+            sourceNodeId: entryNode.id,
+            sourceDeploymentId: entryNode.deploymentId,
+          });
+        }
+
+        // Save delegation results
+        for (const d of delegationTrace) {
+          if (d.success && d.responsePreview) {
+            await db.insert(tables.flowChatMessages).values({
+              id: genId(),
+              sessionId: convId,
+              role: "delegation_result",
+              content: d.responsePreview,
+              sourceNodeId: d.targetNodeId,
+              sourceDeploymentId: d.targetDeploymentId,
+              delegationToolName: d.toolName,
+            });
+          }
+        }
+      } catch (err) {
+        log.warn({ flowId, err: err instanceof Error ? err.message : err }, "Failed to persist flow chat messages (non-fatal)");
+      }
+    })();
 
     // Finish
     sendEvent(res, { type: RUN_FINISHED, runId, threadId });

@@ -35,7 +35,7 @@ export const podApiRouter = Router();
 // ── Authentication middleware ─────────────────────────────────────────────────
 // Verifies pod identity using deployment ID + gateway token.
 // In production (K8s available), reads the expected token from K8s Secret.
-// In dev mode (USE_SQLITE=true, no K8s), accepts any non-empty token if deployment exists.
+// In dev mode (no K8s), accepts any non-empty token if deployment exists.
 
 export async function authenticatePod(req: Request, res: Response, next: NextFunction) {
   // Ensure K8s client is initialized (no-op after first request)
@@ -59,7 +59,7 @@ export async function authenticatePod(req: Request, res: Response, next: NextFun
   }
 
   // In K8s mode, verify token from the deployment's Secret
-  if (coreApi && process.env.USE_SQLITE !== "true") {
+  if (coreApi) {
     try {
       const secret = await coreApi.readNamespacedSecret(
         `secret-${deploymentId}`,

@@ -49,7 +49,7 @@ const HEALTH_DOT_STYLES: Record<string, string> = {
   healthy: "bg-emerald-500",
   degraded: "bg-amber-500",
   offline: "bg-red-500",
-  unknown: "bg-gray-400",
+  unknown: "bg-muted-foreground",
 };
 
 const HEALTH_LABELS: Record<string, string> = {
