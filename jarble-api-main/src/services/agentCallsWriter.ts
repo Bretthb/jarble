@@ -233,9 +233,20 @@ export interface StartedAgentCall {
 
 /**
  * Insert a `pending` agent_calls row and return the IDs the caller must
- * pass to `finishAgentCall`. Never throws — if the insert fails the
- * returned object still has fresh IDs so downstream code that references
- * them keeps working (the span will just be missing from the audit table).
+ * pass to `finishAgentCall`. Throwing behavior:
+ *
+ *   - **RunawayTraceError** IS thrown when the circuit breaker trips
+ *     (Phase 6, MAX_SPANS_PER_TRACE or MAX_CREDITS_PER_TRACE_CENTS).
+ *     Callers MUST handle this error and treat it as a terminal
+ *     delegation failure — that's the whole point of the breaker.
+ *     See flowDelegation.ts for the preferred try/catch pattern that
+ *     re-throws RunawayTraceError while swallowing other errors.
+ *
+ *   - **Any OTHER error** (DB outage, transient network, etc.) is
+ *     caught internally, logged, and the function returns a valid
+ *     handle (the row simply won't be in the audit table). This
+ *     preserves the "DB outage doesn't break the delegation path"
+ *     contract that predates the circuit breaker.
  */
 export async function startAgentCall(
   input: StartAgentCallInput,
