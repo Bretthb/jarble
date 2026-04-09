@@ -737,7 +737,9 @@ function ResourceMapGraph({
         maxZoom={2}
         nodesDraggable={true}
         nodesConnectable={false}
+        edgesReconnectable={false}
         elementsSelectable={true}
+        deleteKeyCode={null}
       >
         <Background gap={20} size={1} className="!bg-background" />
         <Controls
