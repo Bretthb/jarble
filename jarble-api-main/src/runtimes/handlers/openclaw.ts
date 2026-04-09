@@ -368,6 +368,35 @@ export const openclawHandler: RuntimeHandler = {
       }
     }
 
+    // Memory scope guidance (PR C follow-up).
+    // Tell the bot how the memory tool suite is scoped so it can decide
+    // whether to use memory proactively. In "global" mode nothing is
+    // mentioned (default behavior, all memories are cross-session).
+    // In "session" mode we tell the bot that memory is auto-scoped to
+    // the current conversation via an env-var fallback injected by
+    // chatViaExec, and that if it needs to scope explicitly (e.g. from
+    // the WS gateway path where env-var injection is not possible),
+    // it should pass session_id as a tool argument.
+    // In "off" mode the memory tools are hidden from tools/list entirely
+    // (enforced in jarble-ui-server.js), so we tell the bot not to
+    // mention memory at all.
+    const memoryScope = deployment.memoryScope ?? "global";
+    if (memoryScope === "session") {
+      soulParts.push(
+        `## Long-Term Memory — Per-Session Scope\n` +
+        `This deployment's memory is scoped to individual conversations. ` +
+        `Anything you store via \`store_memory\` is only visible in the current chat — you will not recall it in other conversations with this user. ` +
+        `The MCP server auto-resolves the current session from the runtime environment in most cases, so you can call memory tools without a \`session_id\` argument and it will work correctly. ` +
+        `If a memory call returns a "session mode — you MUST pass session_id" error, re-run it with \`session_id\` set to your current openclaw session id (visible in your session context).`
+      );
+    } else if (memoryScope === "off") {
+      soulParts.push(
+        `## Long-Term Memory — Disabled\n` +
+        `Long-term memory tools (\`store_memory\`, \`recall_memory\`, \`list_memories\`, \`forget_memory\`) are disabled for this deployment. ` +
+        `Do not attempt to use them, and do not promise the user that you will remember anything after this chat ends.`
+      );
+    }
+
     soulParts.push(uiPromptSection);
     const soulContent = soulParts.join("\n\n");
 

@@ -689,16 +689,26 @@ async function chatViaExecInner(
   //
   // JAR-51 Phase 3: prepend `env TRACEPARENT=...` (and tracestate if present)
   // so a traceparent-aware openclaw runtime can attach its child spans
-  // to the current trace. When no active OTel context, the carrier is empty
-  // and we skip the env prefix entirely.
+  // to the current trace. Also inject JARBLE_CURRENT_SESSION_ID so the
+  // jarble-ui MCP server (which spawns fresh node processes via mcporter)
+  // can resolve memory-scope=session calls without bot-side compliance
+  // on session_id. The env var cascades: env → openclaw → mcporter → node.
+  // When no active OTel context, the carrier is empty and we skip
+  // TRACEPARENT; SESSION_ID is injected unconditionally because the bot
+  // always has a session at this point.
   const traceHeaders = getW3CTraceHeaders();
   const envPrefix: string[] = [];
+  const envAssignments: string[] = [];
   if (traceHeaders.traceparent) {
-    envPrefix.push("env", `TRACEPARENT=${traceHeaders.traceparent}`);
+    envAssignments.push(`TRACEPARENT=${traceHeaders.traceparent}`);
     if (traceHeaders.tracestate) {
-      envPrefix.push(`TRACESTATE=${traceHeaders.tracestate}`);
+      envAssignments.push(`TRACESTATE=${traceHeaders.tracestate}`);
     }
     span?.setAttribute("jarble.traceparent.injected", true);
+  }
+  envAssignments.push(`JARBLE_CURRENT_SESSION_ID=${sessionKey}`);
+  if (envAssignments.length > 0) {
+    envPrefix.push("env", ...envAssignments);
   }
 
   const args = [

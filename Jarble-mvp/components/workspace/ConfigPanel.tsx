@@ -139,7 +139,7 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
   const pendingRestartRef = useRef(false);
 
   const updateMutation = trpc.deployment.update.useMutation({
-    onSuccess: () => {
+    onSuccess: async (updated) => {
       toast.success("Configuration saved");
       const shouldRestart = pendingRestartRef.current;
       pendingRestartRef.current = false;
@@ -149,9 +149,26 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
       setEditPrompt(null);
       deploymentQuery.refetch();
       podConfigQuery.refetch();
-      // Model/provider changes need a pod restart since OpenClaw reads config at startup
+      // Config changes that affect pod-start env vars (model, provider,
+      // memoryScope) need the pod to restart so OpenClaw reads the new
+      // config. Historically this was an explicit restart call, but the
+      // backend's configSync now auto-escalates to tier-3 (pod restart)
+      // whenever a Secret entry changes. Firing the explicit restart while
+      // configSync's restart is already in-flight produces
+      // "Cannot restart a deployment that is reloading" and blocks the
+      // user's toggle from taking effect.
+      //
+      // Fix: only fire the explicit restart if the deployment is still
+      // in "running" state a moment after the update. If configSync has
+      // already pushed it into "reloading"/"restarting", the pod is
+      // already coming back up with the fresh config — skip.
       if (shouldRestart) {
-        restartMutation.mutate({ id: deploymentId });
+        await new Promise((r) => setTimeout(r, 750));
+        const fresh = updated as { status?: string } | null | undefined;
+        const freshStatus = fresh?.status;
+        if (freshStatus === "running") {
+          restartMutation.mutate({ id: deploymentId });
+        }
       }
     },
     onError: (err) => toast.error(err.message || "Failed to save"),

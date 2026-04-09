@@ -4257,18 +4257,47 @@ function isMemoryScopeSession() {
   return MEMORY_SCOPE === "session";
 }
 
+// Resolve the effective session_id for a memory call. Precedence:
+//   1. Explicit session_id argument from the bot (preferred)
+//   2. JARBLE_CURRENT_SESSION_ID env var (injected per-call by chatViaExec)
+//   3. null (caller must handle — triggers session-scope guard below)
+//
+// The env fallback exists because chatViaExec prepends
+//   env TRACEPARENT=... JARBLE_CURRENT_SESSION_ID=<key> npx openclaw agent ...
+// and those env vars cascade down to the openclaw child → mcporter →
+// node (jarble-ui-server.js). The chatViaGateway (WS) path does NOT get
+// this fallback because its env is fixed at pod boot. For WS mode, the
+// bot MUST pass session_id explicitly — the system prompt section added
+// by openclaw.ts when memoryScope=session tells the bot to do so.
+function resolveEffectiveSessionId(argSessionId) {
+  if (typeof argSessionId === "string" && argSessionId.trim().length > 0) {
+    return argSessionId.trim();
+  }
+  const envSessionId = process.env.JARBLE_CURRENT_SESSION_ID;
+  if (typeof envSessionId === "string" && envSessionId.trim().length > 0) {
+    return envSessionId.trim();
+  }
+  return null;
+}
+
 // Session-scope enforcement helper (PR C).
-// Returns a bot-readable error response if session_id is missing while
-// memory_scope=session, otherwise returns null (success; caller proceeds).
+// Returns a bot-readable error response if no session id can be
+// resolved while memory_scope=session, otherwise returns null.
+// The returned effectiveSessionId should be used for all subsequent
+// read/write scoping in this call.
 function requireSessionIdForSessionScope(sessionId) {
-  if (!isMemoryScopeSession()) return null;
-  if (typeof sessionId === "string" && sessionId.trim().length > 0) return null;
+  if (!isMemoryScopeSession()) return { ok: true, effective: null };
+  const effective = resolveEffectiveSessionId(sessionId);
+  if (effective !== null) return { ok: true, effective };
   return {
-    isError: true,
-    text:
-      "Memory is in session mode for this deployment — you MUST pass session_id on this call. " +
-      "Use your current conversation's session id (openclaw exposes it as `{session_id}` in the system prompt context). " +
-      "Memories stored/recalled without session_id would leak across chats, so the call was blocked.",
+    ok: false,
+    response: {
+      isError: true,
+      text:
+        "Memory is in session mode for this deployment — you MUST pass session_id on this call. " +
+        "Use your current conversation's session id. " +
+        "Memories stored/recalled without session_id would leak across chats, so the call was blocked.",
+    },
   };
 }
 const EMBEDDING_DIMS = 512;
@@ -4701,15 +4730,15 @@ async function executeStoreMemory(args) {
   if (text.length > 5000) return { isError: true, text: "Text too long (max 5000 chars). Summarize first." };
 
   const sessionGuard = requireSessionIdForSessionScope(session_id);
-  if (sessionGuard) return sessionGuard;
+  if (!sessionGuard.ok) return sessionGuard.response;
 
   const store = loadMemoryStore();
   const platform = source_platform || process.env.RUNTIME || "unknown";
-  // In session mode every stored memory carries the session id it was
-  // written under. In global mode this field is simply omitted (backward
-  // compatible — existing memories have no sessionId and recall_memory in
-  // global mode ignores the field entirely).
-  const writeSessionId = isMemoryScopeSession() ? session_id : undefined;
+  // In session mode every stored memory carries the effective session id
+  // (bot arg OR env fallback). In global mode this field is undefined
+  // (backward compatible — existing memories have no sessionId and
+  // recall_memory in global mode ignores the field entirely).
+  const writeSessionId = sessionGuard.effective;
   const actions = [];
 
   try {
@@ -4832,7 +4861,8 @@ async function executeRecallMemory(args) {
   if (!query || typeof query !== "string") return { isError: true, text: "Missing 'query' parameter." };
 
   const sessionGuard = requireSessionIdForSessionScope(session_id);
-  if (sessionGuard) return sessionGuard;
+  if (!sessionGuard.ok) return sessionGuard.response;
+  const effectiveSessionId = sessionGuard.effective;
 
   const store = loadMemoryStore();
   if (store.memories.length === 0) {
@@ -4840,9 +4870,10 @@ async function executeRecallMemory(args) {
   }
 
   // Session isolation: in session mode, only consider memories tagged
-  // with the matching session id. In global mode, all memories are in scope.
+  // with the matching effective session id. In global mode, all memories
+  // are in scope.
   const candidateMemories = isMemoryScopeSession()
-    ? store.memories.filter((m) => m.sessionId === session_id)
+    ? store.memories.filter((m) => m.sessionId === effectiveSessionId)
     : store.memories;
 
   if (candidateMemories.length === 0) {
@@ -4886,16 +4917,17 @@ async function executeRecallMemory(args) {
 
 async function executeListMemories(args) {
   const sessionGuard = requireSessionIdForSessionScope(args?.session_id);
-  if (sessionGuard) return sessionGuard;
+  if (!sessionGuard.ok) return sessionGuard.response;
+  const effectiveSessionId = sessionGuard.effective;
 
   const store = loadMemoryStore();
   const category = args?.category;
   const limit = Math.min(args?.limit || 50, 200);
 
   let memories = store.memories;
-  // Session isolation
+  // Session isolation (uses effective session id: bot arg OR env fallback)
   if (isMemoryScopeSession()) {
-    memories = memories.filter((m) => m.sessionId === args?.session_id);
+    memories = memories.filter((m) => m.sessionId === effectiveSessionId);
   }
   if (category) {
     memories = memories.filter(m => m.category === category);
@@ -4924,7 +4956,8 @@ async function executeForgetMemory(args) {
   if (!id && !query) return { isError: true, text: "Provide either 'id' (exact) or 'query' (semantic search) to find the memory to delete." };
 
   const sessionGuard = requireSessionIdForSessionScope(session_id);
-  if (sessionGuard) return sessionGuard;
+  if (!sessionGuard.ok) return sessionGuard.response;
+  const effectiveSessionId = sessionGuard.effective;
 
   const store = loadMemoryStore();
 
@@ -4932,7 +4965,7 @@ async function executeForgetMemory(args) {
     const idx = store.memories.findIndex(m => m.id === id);
     if (idx === -1) return { isError: true, text: `Memory "${id}" not found.` };
     // Session isolation: prevent cross-session deletes in session mode.
-    if (isMemoryScopeSession() && store.memories[idx].sessionId !== session_id) {
+    if (isMemoryScopeSession() && store.memories[idx].sessionId !== effectiveSessionId) {
       return { isError: true, text: `Memory "${id}" is not in the current conversation's scope.` };
     }
     const removed = store.memories.splice(idx, 1)[0];
@@ -4945,8 +4978,8 @@ async function executeForgetMemory(args) {
     const queryEmb = await embed(query);
     let bestSim = 0, bestIdx = -1;
     for (let i = 0; i < store.memories.length; i++) {
-      // Session isolation
-      if (isMemoryScopeSession() && store.memories[i].sessionId !== session_id) continue;
+      // Session isolation (uses effective session id)
+      if (isMemoryScopeSession() && store.memories[i].sessionId !== effectiveSessionId) continue;
       const sim = cosineSim(queryEmb, store.memories[i].embedding);
       if (sim > bestSim) { bestSim = sim; bestIdx = i; }
     }
