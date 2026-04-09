@@ -179,11 +179,13 @@ describe("createDeployment (legacy)", () => {
     expect(pvcSpec.spec?.resources?.requests?.storage).toBe("20Gi"); // default
   });
 
-  it("uses custom storage size", async () => {
+  it("caps custom storage size at 20 GiB (fits on smallest Hetzner worker)", async () => {
+    // Requests larger than 20 GiB can't be scheduled on cpx11 (~29 GiB usable
+    // for Longhorn). We hard-cap so pods never stick on Pending.
     await createDeployment("dep-1", "user-1", { ...baseConfig, storageMb: 50 });
 
     const pvcSpec = mockCoreApi.createNamespacedPersistentVolumeClaim.mock.calls[0][1];
-    expect(pvcSpec.spec?.resources?.requests?.storage).toBe("50Gi");
+    expect(pvcSpec.spec?.resources?.requests?.storage).toBe("20Gi");
   });
 
   it("sets correct storage class (longhorn-isolated for tenant isolation)", async () => {
