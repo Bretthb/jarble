@@ -1356,6 +1356,34 @@ tamboAgentRouter.post("/", async (req, res) => {
                   delta: `\n\n**${roleName}:** ${delegationResult.response}`,
                 });
               }
+
+              // Forward UI blocks produced by the delegated specialist to
+              // the caller's canvas (Fractal vision piece 5 — audit said
+              // this was "the highest-ROI task: biggest visible impact for
+              // smallest code change"). Before this fix, tamboAgent.ts
+              // dropped delegationResult.uiBlocks on the floor and any
+              // chart/table/component the specialist rendered never made
+              // it back to the user.
+              //
+              // Emit each block as its own CUSTOM event with
+              // producerDeploymentId + producerRole so the frontend can
+              // show an attribution footer. The event name matches the
+              // one flowChat.ts already uses (jarble.flow.delegation.uiblock)
+              // so the frontend can share the handler.
+              if (delegationResult.uiBlocks?.length) {
+                for (const block of delegationResult.uiBlocks) {
+                  safeSendEvent(res, {
+                    type: CUSTOM,
+                    name: "jarble.flow.delegation.uiblock",
+                    value: {
+                      delegationToolName: call.toolName,
+                      sourceDeploymentId: tool.targetDeploymentId,
+                      sourceRole: roleName,
+                      block,
+                    },
+                  });
+                }
+              }
             } catch (delegErr) {
               const errMsg = delegErr instanceof Error ? delegErr.message : String(delegErr);
               log.error(

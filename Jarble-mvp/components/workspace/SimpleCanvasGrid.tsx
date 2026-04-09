@@ -768,6 +768,22 @@ function SimpleCanvasGridInner({
                 </div>
               )}
 
+              {/* Fractal Piece 5: attribution badge for cards produced
+                  by a delegated team member. Tiny pill pinned bottom-left
+                  so it doesn't fight with the main card content, showing
+                  "from <role>". Only visible on cards with delegation
+                  provenance. */}
+              {card.producerRole && (
+                <div className="absolute bottom-1 left-1 z-20 pointer-events-none">
+                  <span
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 text-[9px] font-semibold uppercase tracking-wider backdrop-blur-sm border border-sky-500/20"
+                    title={`Produced by delegated team member ${card.producerRole}${card.delegationToolName ? ` (${card.delegationToolName})` : ""}`}
+                  >
+                    from {card.producerRole}
+                  </span>
+                </div>
+              )}
+
               {/* Card menu trigger - small ... button, top-right corner */}
               <div
                 className="absolute top-1 right-1 z-20 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center gap-1"
