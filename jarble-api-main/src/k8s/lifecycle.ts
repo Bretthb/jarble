@@ -306,7 +306,14 @@ async function createDeploymentLegacy(
   const isSharedPool = deploymentType === "container" || deploymentType === "website";
   const cpuLimit = config.cpuLimit || (isSharedPool ? "0.5" : "2.0");
   const memoryMb = config.memoryMb || (isSharedPool ? 512 : 3072);
-  const storageGbVal = config.storageMb || (isSharedPool ? 10 : 20); // "storageMb" is actually GB (historical naming)
+  // "storageMb" is actually GB (historical naming). Hard cap at 20 GiB:
+  // the smallest Hetzner worker (cpx11) ships with ~30 GB root disk and
+  // Longhorn only exposes ~29 GiB of that. A request larger than the node
+  // disk results in `LocalReplicaSchedulingFailure: insufficient storage`
+  // and the pod sticks on Pending forever. 20 GiB fits every node type.
+  const MAX_STORAGE_GB = 20;
+  const requestedStorageGb = config.storageMb || (isSharedPool ? 10 : 20);
+  const storageGbVal = Math.min(MAX_STORAGE_GB, requestedStorageGb);
 
   // Convert to K8s resource units
   const cpuMillicores = `${Math.round(parseFloat(cpuLimit) * 1000)}m`;
