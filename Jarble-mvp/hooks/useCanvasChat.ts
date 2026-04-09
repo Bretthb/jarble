@@ -1051,6 +1051,46 @@ export function useCanvasChat(
                   messagesRef.current = [];
                   dispatch({ type: "CLEAR_CANVAS" });
                 }
+                // Fractal Piece 5: delegated specialist produced a UI block.
+                // Attach it to the canvas as a card with producer attribution
+                // so the user knows which team member produced it.
+                // Backend emitter: jarble-api-main/src/routes/tamboAgent.ts
+                if (event.name === "jarble.flow.delegation.uiblock" && event.value?.block) {
+                  const v = event.value as {
+                    block: { id?: string; component?: string; props?: Record<string, unknown>; editable?: boolean; fileId?: string; saveMethod?: "mcp" | "chat"; layoutHint?: LayoutHint; dashboardId?: string };
+                    sourceDeploymentId?: string;
+                    sourceRole?: string;
+                    delegationToolName?: string;
+                  };
+                  const rawBlock = v.block;
+                  if (rawBlock?.component) {
+                    const blockId = rawBlock.id || `delegation-${Math.random().toString(36).slice(2, 10)}`;
+                    const pending: UIBlockPending = {
+                      id: blockId,
+                      component: rawBlock.component,
+                      props: rawBlock.props ?? {},
+                      editable: rawBlock.editable,
+                      fileId: rawBlock.fileId,
+                      saveMethod: rawBlock.saveMethod,
+                      layoutHint: rawBlock.layoutHint,
+                      dashboardId: rawBlock.dashboardId,
+                    };
+                    addComponentCard(
+                      pending,
+                      messageId,
+                      stateRef.current,
+                      dispatch,
+                      [],
+                      currentLlmRef.current,
+                      null, // no parent card
+                      {
+                        producerDeploymentId: v.sourceDeploymentId,
+                        producerRole: v.sourceRole,
+                        delegationToolName: v.delegationToolName,
+                      },
+                    );
+                  }
+                }
               }
 
               // Break both the for loop and the outer while loop cleanly
@@ -1435,7 +1475,14 @@ function addComponentCard(
   dispatch: React.Dispatch<CanvasAction>,
   extraCards: CanvasCard[] = [],
   llmInfo: { provider?: string; model?: string } = {},
-  parentCardId?: string | null
+  parentCardId?: string | null,
+  // Attribution for cards produced by a delegated team member
+  // (Fractal vision piece 5). When set, the canvas renders a footer.
+  delegationAttribution?: {
+    producerDeploymentId?: string;
+    producerRole?: string;
+    delegationToolName?: string;
+  },
 ): CanvasCard {
   const size = getDefaultSize(block.component);
   const container = getContainerSize();
@@ -1470,6 +1517,9 @@ function addComponentCard(
     llmModel: llmInfo.model,
     groupId: block.dashboardId || undefined,
     parentCardId: parentCardId || undefined,
+    producerDeploymentId: delegationAttribution?.producerDeploymentId,
+    producerRole: delegationAttribution?.producerRole,
+    delegationToolName: delegationAttribution?.delegationToolName,
   };
 
   if (state.cards.length >= MAX_CANVAS_CARDS) {

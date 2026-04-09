@@ -58,6 +58,15 @@ export interface CanvasCard {
   autoHeight?: boolean;
   /** ID of the card this one was derived from (provenance tracking) */
   parentCardId?: string;
+  /**
+   * Attribution for cards produced by a delegated team member.
+   * When set, the canvas renders a small "from <producerRole>" footer.
+   * Populated from jarble.flow.delegation.uiblock SSE events
+   * (see jarble-api-main/src/routes/flowChat.ts and tamboAgent.ts).
+   */
+  producerDeploymentId?: string;
+  producerRole?: string;
+  delegationToolName?: string;
   /** Accumulated CSP violations from sandbox iframe bridge (max 10) */
   cspViolations?: Array<{
     blockedURI: string;
