@@ -456,6 +456,115 @@ export const orgRouter = router({
       return { success: true };
     }),
 
+  // ── Billing ──────────────────────────────────────────────────────────────
+
+  // Set up Stripe billing for an org (owner only)
+  setupBilling: protectedProcedure
+    .input(z.object({ orgId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner"]);
+
+      const schema = await import("../../db/schema.pg.js");
+      const { tables } = await import("../../db/index.js");
+
+      const org = await ctx.db.query.organizations.findFirst({
+        where: eq(schema.organizations.id, input.orgId),
+      });
+      if (!org) throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
+
+      // Already has billing set up
+      if (org.stripeCustomerId) {
+        return { stripeCustomerId: org.stripeCustomerId, alreadySetUp: true };
+      }
+
+      // Create Stripe customer for the org
+      const { getStripe } = await import("../../services/stripe.js");
+      const stripeClient = getStripe();
+
+      // Get owner's email for billing
+      const owner = await ctx.db.query.users.findFirst({
+        where: eq(schema.users.id, ctx.user.id),
+      });
+
+      const customer = await stripeClient.customers.create({
+        name: org.name,
+        email: owner?.email || undefined,
+        metadata: { orgId: input.orgId, type: "organization" },
+      });
+
+      await ctx.db.update(tables.organizations)
+        .set({
+          stripeCustomerId: customer.id,
+          billingEmail: owner?.email || null,
+        })
+        .where(eq(schema.organizations.id, input.orgId));
+
+      log.info({ orgId: input.orgId, stripeCustomerId: customer.id }, "Org billing set up");
+      return { stripeCustomerId: customer.id, alreadySetUp: false };
+    }),
+
+  // Get billing info for an org (owner or admin)
+  getBilling: protectedProcedure
+    .input(z.object({ orgId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
+
+      const schema = await import("../../db/schema.pg.js");
+
+      const org = await ctx.db.query.organizations.findFirst({
+        where: eq(schema.organizations.id, input.orgId),
+      });
+      if (!org) throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
+
+      // Get all org deployments with their subscription info
+      const orgDeployments = await ctx.db.query.deployments.findMany({
+        where: eq(schema.deployments.orgId, input.orgId),
+        columns: {
+          id: true, name: true, status: true, runtime: true,
+          monthlyPriceCents: true, stripeSubscriptionId: true,
+          cancelledAt: true, cancelAtPeriodEnd: true,
+        },
+      });
+
+      const totalMonthlyCents = orgDeployments
+        .filter((d: any) => d.status === "running" || d.status === "creating")
+        .reduce((sum: number, d: any) => sum + (d.monthlyPriceCents || 0), 0);
+
+      return {
+        hasPaymentMethod: !!org.stripeCustomerId,
+        stripeCustomerId: org.stripeCustomerId,
+        billingEmail: org.billingEmail,
+        deployments: orgDeployments,
+        totalMonthlyCents,
+      };
+    }),
+
+  // Create a Stripe billing portal session for an org (owner only)
+  createBillingPortal: protectedProcedure
+    .input(z.object({ orgId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner"]);
+
+      const schema = await import("../../db/schema.pg.js");
+
+      const org = await ctx.db.query.organizations.findFirst({
+        where: eq(schema.organizations.id, input.orgId),
+      });
+      if (!org?.stripeCustomerId) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Set up billing first" });
+      }
+
+      const { createPortalSession } = await import("../../services/stripe.js");
+      const frontendUrl = env.FRONTEND_URL || "http://localhost:3000";
+
+      const session = await createPortalSession({
+        stripeCustomerId: org.stripeCustomerId,
+        returnUrl: `${frontendUrl}/orgs/${input.orgId}`,
+      });
+
+      return { url: session.url };
+    }),
+
   // Leave an org (any member except owner)
   leave: protectedProcedure
     .input(z.object({ orgId: z.string() }))

@@ -982,6 +982,8 @@ export const organizations = pgTable("organizations", {
   slug: varchar("slug", { length: 100 }).notNull().unique(),
   ownerId: varchar("owner_id", { length: 255 }).notNull().references(() => users.id),
   avatarUrl: varchar("avatar_url", { length: 512 }),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+  billingEmail: varchar("billing_email", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
