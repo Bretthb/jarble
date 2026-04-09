@@ -4134,7 +4134,7 @@ function FlowAnimationStyles() {
 
 // ─── Main Component ──────────────────────────────────────────────────
 
-export default function Deployments() {
+export default function Deployments({ defaultTab, embedded }: { defaultTab?: string; embedded?: boolean } = {}) {
   const { isAuthenticated, isLoading: authLoading } = useAuth0();
   const router = useRouter();
   const { theme } = useTheme();
@@ -4144,7 +4144,7 @@ export default function Deployments() {
   const [selectedDeploymentId, setSelectedDeploymentId] = useState<
     string | null
   >(null);
-  const [activeTab, setActiveTab] = useState("deployments");
+  const [activeTab, setActiveTab] = useState(defaultTab || "deployments");
 
   const deploymentsQuery = trpc.deployment.list.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading,
@@ -4208,28 +4208,32 @@ export default function Deployments() {
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <FlowAnimationStyles />
 
-      {/* Navigation */}
-      <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
-          <a
-            href="/"
-            className="flex items-center gap-2 cursor-pointer no-underline text-foreground"
-          >
-            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" />
-          </a>
-          <ProfileDropdown />
-        </div>
-      </nav>
+      {/* Navigation — hidden when embedded in dashboard */}
+      {!embedded && (
+        <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
+            <a
+              href="/"
+              className="flex items-center gap-2 cursor-pointer no-underline text-foreground"
+            >
+              <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" />
+            </a>
+            <ProfileDropdown />
+          </div>
+        </nav>
+      )}
 
       {/* Main Content */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 w-full flex flex-col flex-1">
-        {/* Header */}
-        <div className="pt-6 pb-3">
-          <h1 className="text-2xl font-bold mb-1">Deployments</h1>
-          <p className="text-muted-foreground text-sm">
-            Manage linked deployments and orchestration flows
-          </p>
-        </div>
+      <div className={embedded ? "flex flex-col flex-1" : "max-w-5xl mx-auto px-4 sm:px-6 w-full flex flex-col flex-1"}>
+        {/* Header — hidden when embedded */}
+        {!embedded && (
+          <div className="pt-6 pb-3">
+            <h1 className="text-2xl font-bold mb-1">Deployments</h1>
+            <p className="text-muted-foreground text-sm">
+              Manage linked deployments and orchestration flows
+            </p>
+          </div>
+        )}
 
         {deploymentsQuery.isLoading ? (
           <div className="py-8 space-y-4">

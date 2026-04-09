@@ -370,7 +370,7 @@ export default function Dashboard() {
         {/* Tab content */}
         {activeTab === "botteams" && (
           <div className="flex-1 min-h-[500px] -mx-6 -mb-6">
-            <LazyDeployments />
+            <LazyDeployments defaultTab="botteams" embedded />
           </div>
         )}
 
