@@ -1241,9 +1241,25 @@ tamboAgentRouter.post("/", async (req, res) => {
     lastDeltaText = fullTextSoFar;
   };
 
-  // In local dev, pod IPs may be unreachable from the host - skip
-  // the WS gateway entirely and go straight to exec through the K8s API.
-  const useExecOnly = process.env.NODE_ENV === "development";
+  // Chat transport selection. The primary path (HTTP /v1/chat/completions)
+  // gives true per-token streaming. The exec fallback (npx openclaw agent)
+  // works everywhere but is batch-only. In local dev, pod IPs are
+  // unreachable from the host, so exec is the only option.
+  //
+  // Previously this was `NODE_ENV === "development"` which also forced
+  // exec on dev.jarble.ai (running with NODE_ENV=development) — making
+  // the HTTP/WS paths dead code in that environment. Decoupled to a
+  // dedicated env var so ops can enable the HTTP path without flipping
+  // NODE_ENV (which requires STRIPE_WEBHOOK_SECRET, AUTH0_M2M_SECRET).
+  //
+  // JARBLE_CHAT_TRANSPORT=exec → always exec (local dev default)
+  // JARBLE_CHAT_TRANSPORT=http → always try HTTP first, then WS, then exec
+  // unset/auto → HTTP in production, exec in development
+  const transportEnv = (process.env.JARBLE_CHAT_TRANSPORT || "").toLowerCase();
+  const useExecOnly =
+    transportEnv === "exec" ? true :
+    transportEnv === "http" ? false :
+    process.env.NODE_ENV === "development";
 
   // Helper: send a gateway result as SSE events
   const emitGatewayResult = async (gatewayResult: GatewayResponse) => {
