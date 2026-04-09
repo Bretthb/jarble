@@ -1703,6 +1703,20 @@ const TOOLS = [
       required: ["serviceId", "skillName"],
     },
   },
+  // ── Recall search (conversation history search) ───────────────────────
+  {
+    name: "recall_search",
+    description: "Search past conversation messages by semantic similarity. Searches the recall index built from recent chat sessions stored on the PVC. Use this to find what a user said previously, revisit earlier topics, or locate context from past conversations. Returns messages ranked by relevance.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to search for in past conversations (natural language)" },
+        limit: { type: "number", description: "Max number of messages to return (default 10, max 30)", default: 10 },
+        session_id: { type: "string", description: "Optional: restrict search to a specific session ID" },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 // ── Service hosting — process manager ─────────────────────────────────
@@ -4766,6 +4780,272 @@ async function executeForgetMemory(args) {
   }
 }
 
+// ── Recall Search (conversation history search) ──────────────────────
+// Searches past conversation messages by semantic similarity.
+// Maintains a recall_index.json on the PVC that indexes recent chat
+// messages from OpenClaw session files.
+
+const RECALL_INDEX_FILE = path.join(MEMORY_DIR, "recall_index.json");
+const RECALL_VERSION = 1;
+const RECALL_MAX_MESSAGES = 2000;
+const RECALL_MAX_AGE_DAYS = 90;
+// OpenClaw stores session history in ~/.openclaw/sessions/ inside the pod
+const OPENCLAW_SESSIONS_DIR = process.env.OPENCLAW_SESSIONS_DIR || path.join(PVC_MOUNT, ".openclaw", "sessions");
+
+function loadRecallIndex() {
+  try {
+    if (!fs.existsSync(RECALL_INDEX_FILE)) {
+      return { version: RECALL_VERSION, messages: [], lastBuilt: null };
+    }
+    const raw = JSON.parse(fs.readFileSync(RECALL_INDEX_FILE, "utf8"));
+    if (raw.version !== RECALL_VERSION) {
+      return { version: RECALL_VERSION, messages: [], lastBuilt: null };
+    }
+    return raw;
+  } catch (err) {
+    console.error("[MCP:Recall] Failed to load recall index:", err.message);
+    return { version: RECALL_VERSION, messages: [], lastBuilt: null };
+  }
+}
+
+function saveRecallIndex(index) {
+  if (!fs.existsSync(MEMORY_DIR)) {
+    fs.mkdirSync(MEMORY_DIR, { recursive: true });
+  }
+  safeWriteFileSync(RECALL_INDEX_FILE, JSON.stringify(index), "utf8");
+}
+
+/**
+ * Scan OpenClaw session files for chat messages and build/update the recall index.
+ * OpenClaw stores sessions as JSON files with message arrays.
+ * We scan for .json files in the sessions directory and extract user/assistant messages.
+ */
+async function buildRecallIndex() {
+  const index = loadRecallIndex();
+  const existingIds = new Set(index.messages.map(function(m) { return m.id; }));
+  const newMessages = [];
+
+  // 1. Scan OpenClaw session directory for session JSON files
+  if (fs.existsSync(OPENCLAW_SESSIONS_DIR)) {
+    try {
+      const entries = fs.readdirSync(OPENCLAW_SESSIONS_DIR);
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        if (!entry.endsWith(".json")) continue;
+        var sessionPath = path.join(OPENCLAW_SESSIONS_DIR, entry);
+        try {
+          var sessionData = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+          var sessionId = entry.replace(/\.json$/, "");
+          // OpenClaw sessions may have messages at top-level or under .messages
+          var messages = Array.isArray(sessionData) ? sessionData : (sessionData.messages || []);
+          for (var j = 0; j < messages.length; j++) {
+            var msg = messages[j];
+            if (!msg || typeof msg !== "object") continue;
+            var role = msg.role || "";
+            var content = typeof msg.content === "string" ? msg.content : "";
+            if (!content || content.length < 5) continue;
+            // Skip system messages and tool calls
+            if (role === "system" || role === "tool") continue;
+            // Create a deterministic ID from session + index
+            var msgId = "recall-" + sessionId + "-" + j;
+            if (existingIds.has(msgId)) continue;
+            // Truncate very long messages for the index
+            var indexContent = content.length > 1000 ? content.slice(0, 1000) : content;
+            newMessages.push({
+              id: msgId,
+              sessionId: sessionId,
+              role: role,
+              content: indexContent,
+              timestamp: msg.timestamp || msg.createdAt || new Date().toISOString(),
+            });
+          }
+        } catch (parseErr) {
+          console.error("[MCP:Recall] Failed to parse session " + entry + ":", parseErr.message);
+        }
+      }
+    } catch (scanErr) {
+      console.error("[MCP:Recall] Failed to scan sessions dir:", scanErr.message);
+    }
+  }
+
+  // 2. Also scan for Jarble conversation history files (tamboAgent format)
+  // These may be stored at /data/conversations/ or similar
+  var convDir = process.env.JARBLE_CONVERSATIONS_DIR || path.join(PVC_MOUNT, "conversations");
+  if (fs.existsSync(convDir)) {
+    try {
+      var convEntries = fs.readdirSync(convDir);
+      for (var ci = 0; ci < convEntries.length; ci++) {
+        var cEntry = convEntries[ci];
+        if (!cEntry.endsWith(".json")) continue;
+        var convPath = path.join(convDir, cEntry);
+        try {
+          var convData = JSON.parse(fs.readFileSync(convPath, "utf8"));
+          var convId = cEntry.replace(/\.json$/, "");
+          var convMessages = Array.isArray(convData) ? convData : (convData.messages || []);
+          for (var cj = 0; cj < convMessages.length; cj++) {
+            var cMsg = convMessages[cj];
+            if (!cMsg || typeof cMsg !== "object") continue;
+            var cRole = cMsg.role || "";
+            var cContent = typeof cMsg.content === "string" ? cMsg.content : "";
+            if (!cContent || cContent.length < 5) continue;
+            if (cRole === "system" || cRole === "tool") continue;
+            var cMsgId = "recall-conv-" + convId + "-" + cj;
+            if (existingIds.has(cMsgId)) continue;
+            var cIndexContent = cContent.length > 1000 ? cContent.slice(0, 1000) : cContent;
+            newMessages.push({
+              id: cMsgId,
+              sessionId: convId,
+              role: cRole,
+              content: cIndexContent,
+              timestamp: cMsg.timestamp || cMsg.createdAt || new Date().toISOString(),
+            });
+          }
+        } catch (cParseErr) {
+          console.error("[MCP:Recall] Failed to parse conversation " + cEntry + ":", cParseErr.message);
+        }
+      }
+    } catch (cScanErr) {
+      console.error("[MCP:Recall] Failed to scan conversations dir:", cScanErr.message);
+    }
+  }
+
+  if (newMessages.length === 0) {
+    console.error("[MCP:Recall] No new messages to index.");
+    index.lastBuilt = new Date().toISOString();
+    saveRecallIndex(index);
+    return index;
+  }
+
+  console.error("[MCP:Recall] Indexing " + newMessages.length + " new message(s)...");
+
+  // 3. Embed new messages in batches of 20
+  var batchSize = 20;
+  for (var bi = 0; bi < newMessages.length; bi += batchSize) {
+    var batch = newMessages.slice(bi, bi + batchSize);
+    var texts = batch.map(function(m) { return m.role + ": " + m.content; });
+    try {
+      var embeddings = await embedBatch(texts);
+      for (var be = 0; be < batch.length; be++) {
+        batch[be].embedding = embeddings[be];
+      }
+    } catch (embErr) {
+      console.error("[MCP:Recall] Embedding batch failed, using local fallback:", embErr.message);
+      for (var bf = 0; bf < batch.length; bf++) {
+        batch[bf].embedding = localEmbed(batch[bf].role + ": " + batch[bf].content);
+      }
+    }
+  }
+
+  // 4. Add to index, enforce max size and age
+  var cutoffDate = new Date(Date.now() - RECALL_MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  // Filter out expired messages from existing index
+  index.messages = index.messages.filter(function(m) {
+    return m.timestamp >= cutoffDate;
+  });
+  // Add new messages
+  for (var ni = 0; ni < newMessages.length; ni++) {
+    if (newMessages[ni].embedding) {
+      index.messages.push(newMessages[ni]);
+    }
+  }
+  // Enforce max size — keep most recent
+  if (index.messages.length > RECALL_MAX_MESSAGES) {
+    index.messages.sort(function(a, b) {
+      return a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0;
+    });
+    index.messages = index.messages.slice(0, RECALL_MAX_MESSAGES);
+  }
+
+  index.lastBuilt = new Date().toISOString();
+  saveRecallIndex(index);
+  console.error("[MCP:Recall] Index updated: " + index.messages.length + " total messages.");
+  return index;
+}
+
+async function executeRecallSearch(args) {
+  var query = args.query;
+  var limit = args.limit;
+  var sessionId = args.session_id;
+
+  if (!query || typeof query !== "string") {
+    return { isError: true, text: "Missing 'query' parameter." };
+  }
+
+  var maxResults = Math.min(Math.max(limit || 10, 1), 30);
+
+  try {
+    // Build/update the recall index (lazy — only scans for new messages)
+    var index = await buildRecallIndex();
+
+    if (index.messages.length === 0) {
+      return {
+        isError: false,
+        text: "No conversation history found to search. The recall index is empty (no session files found at " + OPENCLAW_SESSIONS_DIR + " or conversations directory).",
+      };
+    }
+
+    // Filter by session_id if provided
+    var candidates = index.messages;
+    if (sessionId) {
+      candidates = candidates.filter(function(m) { return m.sessionId === sessionId; });
+      if (candidates.length === 0) {
+        return {
+          isError: false,
+          text: "No messages found for session \"" + sessionId + "\". Try without session_id to search all sessions.",
+        };
+      }
+    }
+
+    // Embed the query
+    var queryEmb = await embed(query);
+
+    // Compute similarities
+    var scored = candidates.map(function(m) {
+      return {
+        id: m.id,
+        sessionId: m.sessionId,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        score: cosineSim(queryEmb, m.embedding),
+      };
+    });
+
+    // Sort by relevance, filter low scores
+    scored.sort(function(a, b) { return b.score - a.score; });
+    var relevant = scored.filter(function(m) { return m.score > 0.25; }).slice(0, maxResults);
+
+    if (relevant.length === 0) {
+      return {
+        isError: false,
+        text: "No relevant messages found for this query. Searched " + candidates.length + " messages across " + countUniqueSessions(candidates) + " session(s).",
+      };
+    }
+
+    var lines = relevant.map(function(m, i) {
+      var dateStr = m.timestamp ? m.timestamp.split("T")[0] : "unknown";
+      var preview = m.content.length > 200 ? m.content.slice(0, 200) + "..." : m.content;
+      return (i + 1) + ". [" + (m.score * 100).toFixed(0) + "% match] " + m.role + " (" + dateStr + ", session: " + m.sessionId.slice(0, 16) + "): " + preview;
+    });
+
+    return {
+      isError: false,
+      text: "Found " + relevant.length + " relevant message(s) from " + countUniqueSessions(relevant) + " session(s) (searched " + candidates.length + " total):\n" + lines.join("\n"),
+    };
+  } catch (err) {
+    console.error("[MCP:Recall] recall_search failed:", err.message);
+    return { isError: true, text: "Recall search failed: " + err.message };
+  }
+}
+
+function countUniqueSessions(messages) {
+  var seen = {};
+  for (var i = 0; i < messages.length; i++) {
+    seen[messages[i].sessionId] = true;
+  }
+  return Object.keys(seen).length;
+}
+
 // ── Knowledge Base tool execution ─────────────────────────────────────
 
 const KNOWLEDGE_DIR = process.env.JARBLE_KNOWLEDGE_DIR || "/data/knowledge";
@@ -7110,6 +7390,7 @@ async function executeTool(name, args) {
     case "recall_memory": return executeRecallMemory(args || {});
     case "list_memories": return executeListMemories(args || {});
     case "forget_memory": return executeForgetMemory(args || {});
+    case "recall_search": return executeRecallSearch(args || {});
     case "create_dashboard": return executeCreateDashboard(args || {});
     case "compose_dashboard": return executeComposeDashboard(args || {});
     case "render_page": return executeRenderPage(args || {});
