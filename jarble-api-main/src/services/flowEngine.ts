@@ -834,6 +834,9 @@ export class FlowExecutionEngine extends EventEmitter {
       userId: this.userId,
       flowId: this.state.flowId,
       sourceDeploymentId: this.callerDeploymentId || undefined,
+      // Use executionId as traceId so budget checks and OTel spans
+      // stitch all delegation hops in this flow execution into one trace.
+      traceId: this.state.executionId,
     });
 
     return {
