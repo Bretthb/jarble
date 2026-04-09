@@ -85,6 +85,7 @@ const CREATE_TABLES_SQL = `
     showcase_prompts TEXT,
     org_id TEXT,
     memory_scope TEXT DEFAULT 'global' NOT NULL,
+    max_budget_cents INTEGER,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
