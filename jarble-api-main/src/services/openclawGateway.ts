@@ -593,6 +593,9 @@ async function chatViaHTTPInner(
   let fullText = "";
   let nativeThinking = "";
   let emittedBlockCount = 0;
+  let isInsideThinkTag = false;
+  const toolCallBuffers: Record<number, { name: string; args: string }> = {};
+  let tokenUsageFromStream: { inputTokens: number; outputTokens: number; totalTokens: number } | undefined;
 
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No response body");
@@ -619,18 +622,94 @@ async function chatViaHTTPInner(
         try {
           const chunk = JSON.parse(data);
           const delta = chunk.choices?.[0]?.delta;
-          if (delta?.content) {
-            fullText += delta.content;
-            onDelta?.(fullText);
 
-            // Incrementally detect UI blocks during streaming
-            if (onBlockDetected) {
-              const { uiBlocks } = extractUIBlocks(fullText);
-              for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
-                onBlockDetected(uiBlocks[idx]);
+          if (delta?.content) {
+            let content = delta.content;
+
+            // Strip thinking tags that OpenClaw may include in streaming deltas.
+            // Handle complete <think>...</think> pairs within a single delta.
+            content = content.replace(/<think>[\s\S]*?<\/think>/g, "");
+
+            // Handle unclosed think tag from a previous delta
+            if (isInsideThinkTag) {
+              const closeIdx = content.indexOf("</think>");
+              if (closeIdx >= 0) {
+                content = content.slice(closeIdx + 8);
+                isInsideThinkTag = false;
+              } else {
+                content = ""; // Still inside think tag, skip all content
               }
-              emittedBlockCount = uiBlocks.length;
             }
+
+            // Handle think tag opened in this delta but not yet closed
+            if (content.includes("<think>")) {
+              const openIdx = content.indexOf("<think>");
+              const closeIdx = content.indexOf("</think>", openIdx);
+              if (closeIdx >= 0) {
+                content = content.slice(0, openIdx) + content.slice(closeIdx + 8);
+              } else {
+                content = content.slice(0, openIdx);
+                isInsideThinkTag = true;
+              }
+            }
+
+            if (content) {
+              fullText += content;
+              onDelta?.(fullText);
+
+              // Incrementally detect UI blocks during streaming
+              if (onBlockDetected) {
+                const { uiBlocks } = extractUIBlocks(fullText);
+                for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
+                  onBlockDetected(uiBlocks[idx]);
+                }
+                emittedBlockCount = uiBlocks.length;
+              }
+            }
+          }
+
+          // Track tool call argument accumulation.
+          // OpenClaw delivers jarble_ui blocks as function calls in the completions API.
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              if (!toolCallBuffers[idx]) {
+                toolCallBuffers[idx] = { name: "", args: "" };
+              }
+              if (tc.function?.name) {
+                toolCallBuffers[idx].name = tc.function.name;
+              }
+              if (tc.function?.arguments) {
+                toolCallBuffers[idx].args += tc.function.arguments;
+              }
+            }
+          }
+
+          // Flush accumulated tool calls when the response finishes
+          const finishReason = chunk.choices?.[0]?.finish_reason;
+          if (finishReason === "tool_calls" || finishReason === "stop") {
+            for (const tc of Object.values(toolCallBuffers)) {
+              if (tc.name === "render_ui" || tc.name?.startsWith("show_")) {
+                try {
+                  const props = JSON.parse(tc.args);
+                  const component = props.component || tc.name.replace("show_", "");
+                  const block = { component, props: props.props || props, id: props.id };
+                  // Append as fenced block to fullText so extractAllUIBlocks picks it up
+                  fullText += `\n\`\`\`jarble_ui\n${JSON.stringify(block)}\n\`\`\`\n`;
+                } catch {
+                  // Skip unparseable tool calls
+                }
+              }
+            }
+          }
+
+          // Extract token usage from the final chunk
+          if (chunk.usage) {
+            tokenUsageFromStream = {
+              inputTokens: chunk.usage.prompt_tokens || 0,
+              outputTokens: chunk.usage.completion_tokens || 0,
+              totalTokens: chunk.usage.total_tokens || 0,
+            };
           }
         } catch {
           // Skip unparseable chunks
@@ -645,7 +724,7 @@ async function chatViaHTTPInner(
       // If we have partial text, return it gracefully (same as gateway behavior)
       if (fullText) {
         const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
-        return { rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, timedOut: true };
+        return { rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, timedOut: true, tokenUsage: tokenUsageFromStream };
       }
       throw new Error(`HTTP chat timed out after ${httpTimeoutMs / 1000}s`);
     }
@@ -667,7 +746,7 @@ async function chatViaHTTPInner(
 
   log.info({ url, textLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, remainingBlockCount: remainingBlocks.length }, "chatViaHTTP: complete");
 
-  return { rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking };
+  return { rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, tokenUsage: tokenUsageFromStream };
 }
 
 // ── Exec-based fallback ─────────────────────────────────────────────────
