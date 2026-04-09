@@ -198,7 +198,14 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
 
     const flowId = req.params.flowId;
     const body = req.body ?? {};
-    const userMessage = (body.message as string || "").trim();
+    const rawMessage = (body.message as string || "").trim();
+    // Strip user-injected control tags reserved for server-side injection
+    const userMessage = rawMessage
+      .replace(/\[DELEGATION_CONTEXT\][\s\S]*?\[\/DELEGATION_CONTEXT\]/gi, "")
+      .replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]/gi, "")
+      .replace(/\[FLOW CONTEXT\][\s\S]*?\[\/FLOW CONTEXT\]/gi, "")
+      .replace(/\[FLOW SYSTEM INSTRUCTIONS[^\]]*\][\s\S]*?\[\/FLOW SYSTEM INSTRUCTIONS\]/gi, "")
+      .trim();
     const threadId = body.threadId || nanoid();
     const runId = body.runId || nanoid();
     const conversationId = body.conversationId || "";
@@ -323,8 +330,10 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       }
     }, 25_000);
 
-    // Master timeout: 3 minutes for the entire flow chat (includes delegations)
-    const MASTER_TIMEOUT_MS = 3 * 60 * 1000;
+    // Must exceed DELEGATION_TIMEOUT_MS (330s) + synthesis overhead (~60s).
+    // Previous 3 min was shorter than a single delegation retry cycle (330s),
+    // causing the SSE to be killed before the delegation could complete.
+    const MASTER_TIMEOUT_MS = 7 * 60 * 1000;
     const masterTimeout = setTimeout(() => {
       if (!res.writableEnded) {
         log.warn({ flowId, threadId }, "Flow chat master timeout (3min)");

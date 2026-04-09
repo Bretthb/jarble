@@ -62,6 +62,25 @@ vi.mock("@/components/ErrorBoundary", () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+// Mock tRPC — ResourceMapGraph now calls getResourceGraph
+vi.mock("@/lib/trpc", () => ({
+  trpc: {
+    deployment: {
+      getResourceGraph: {
+        useQuery: () => ({ data: { edges: [] }, isLoading: false }),
+      },
+      getById: {
+        useQuery: () => ({ data: null, isLoading: false }),
+      },
+    },
+    deploymentSecrets: {
+      getByDeployment: {
+        useQuery: () => ({ data: [], isLoading: false }),
+      },
+    },
+  },
+}));
+
 import ResourceMapView from "../ResourceMapView";
 
 // ── Test data ──────────────────────────────────────────────────────────────
