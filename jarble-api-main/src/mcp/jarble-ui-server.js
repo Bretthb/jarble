@@ -860,10 +860,34 @@ const TOOLS = [
       required: ["card_id", "props"],
     },
   },
-  // ── Memory tools ──────────────────────────────────────────────────────
+  // ── Core memory tools (always available, identity/preferences) ───────
   {
-    name: "store_memory",
-    description: "Store information in long-term memory. Extracts discrete facts from the text, checks for duplicates/contradictions, and either inserts new memories or updates existing ones (compaction). Use this when the user shares personal info, preferences, important context, or anything worth remembering across conversations and platforms. Memory persists across Jarble dashboard, Telegram, Discord, WhatsApp, etc.",
+    name: "core_memory_read",
+    description: "Read core memory blocks (identity, preferences, goals, style). Call this at the start of every conversation to load your persistent identity. Returns all blocks or a specific one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        block: { type: "string", description: "Optional: specific block name to read (e.g. 'persona', 'user', 'goals', 'style'). Omit to read all blocks." },
+      },
+    },
+  },
+  {
+    name: "core_memory_write",
+    description: "Write to a core memory block. Use this to update your identity, user preferences, goals, or style notes. Total limit: ~2000 tokens across all blocks. Max 8 blocks.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        block: { type: "string", description: "Block name (e.g. 'persona', 'user', 'goals', 'style', or custom up to 32 chars alphanumeric)" },
+        value: { type: "string", description: "Content to write to the block" },
+        append: { type: "boolean", description: "If true, append to existing block content instead of replacing. Default false.", default: false },
+      },
+      required: ["block", "value"],
+    },
+  },
+  // ── Archival memory tools (long-term fact storage with semantic search) ──
+  {
+    name: "archival_insert",
+    description: "Store information in archival (long-term) memory. Extracts discrete facts from the text, checks for duplicates/contradictions, and either inserts new memories or updates existing ones (compaction). Use this when the user shares personal info, preferences, important context, or anything worth remembering across conversations and platforms. Memory persists across Jarble dashboard, Telegram, Discord, WhatsApp, etc.",
     inputSchema: {
       type: "object",
       properties: {
@@ -875,8 +899,56 @@ const TOOLS = [
     },
   },
   {
+    name: "archival_search",
+    description: "Search archival (long-term) memory for information relevant to a query. Returns the most relevant memories ranked by semantic similarity. Use this at the start of conversations or when the user asks about something you might have stored. Memory is cross-platform — recalling works regardless of which platform the info was stored from.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to search for in memory (natural language)" },
+        limit: { type: "number", description: "Max number of memories to return (default 10, max 50)", default: 10 },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "archival_list",
+    description: "List all archival memories, optionally filtered by category. Shows the full memory inventory sorted by most recently updated.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: { type: "string", description: "Optional: filter by category (general, preference, personal, context, goal)" },
+        limit: { type: "number", description: "Max memories to return (default 50, max 200)", default: 50 },
+      },
+    },
+  },
+  {
+    name: "archival_forget",
+    description: "Delete a specific archival memory by ID or by semantic search. Use when the user asks you to forget something.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Exact memory ID to delete (from archival_list)" },
+        query: { type: "string", description: "Natural language query to find the memory to delete (uses semantic search)" },
+      },
+    },
+  },
+  // ── Legacy memory tool aliases (kept for backward compatibility) ─────
+  {
+    name: "store_memory",
+    description: "[Alias for archival_insert] Store information in long-term memory.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "The text containing facts to remember." },
+        category: { type: "string", description: "Optional category: general, preference, personal, context, goal", default: "general" },
+        source_platform: { type: "string", description: "Optional: which platform this info came from" },
+      },
+      required: ["text"],
+    },
+  },
+  {
     name: "recall_memory",
-    description: "Search long-term memory for information relevant to a query. Returns the most relevant memories ranked by semantic similarity. Use this at the start of conversations or when the user asks about something you might have stored. Memory is cross-platform — recalling works regardless of which platform the info was stored from.",
+    description: "[Alias for archival_search] Search long-term memory for information.",
     inputSchema: {
       type: "object",
       properties: {
@@ -888,23 +960,23 @@ const TOOLS = [
   },
   {
     name: "list_memories",
-    description: "List all stored memories, optionally filtered by category. Shows the full memory inventory sorted by most recently updated.",
+    description: "[Alias for archival_list] List all stored memories.",
     inputSchema: {
       type: "object",
       properties: {
-        category: { type: "string", description: "Optional: filter by category (general, preference, personal, context, goal)" },
+        category: { type: "string", description: "Optional: filter by category" },
         limit: { type: "number", description: "Max memories to return (default 50, max 200)", default: 50 },
       },
     },
   },
   {
     name: "forget_memory",
-    description: "Delete a specific memory by ID or by semantic search. Use when the user asks you to forget something.",
+    description: "[Alias for archival_forget] Delete a specific memory.",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Exact memory ID to delete (from list_memories)" },
-        query: { type: "string", description: "Natural language query to find the memory to delete (uses semantic search)" },
+        query: { type: "string", description: "Natural language query to find the memory to delete" },
       },
     },
   },
@@ -3255,7 +3327,7 @@ Rendering: render_ui (new card), update_ui (edit existing), create_dashboard (gr
 Discovery: list_components (all 37+ types), component_reference (prop schema), skill_reference (guides)
 Templates: define_component (reusable templates with {{variable}} placeholders)
 Persistence: save_artifact / load_artifact / list_artifacts / delete_artifact
-Memory: store_memory / recall_memory / list_memories / forget_memory (cross-platform)
+Memory: core_memory_read/write (identity), archival_insert/search/list/forget (long-term facts)
 
 ### Multi-Platform
 - Jarble web dashboard — full canvas with rich UI. Messages contain [CANVAS_STATE] or [UI_ACTION].
@@ -4129,8 +4201,14 @@ function executeUpdateUi(args) {
 // Uses the bot's LLM provider for embeddings and fact extraction.
 
 const MEMORY_DIR = process.env.JARBLE_MEMORY_DIR || "/data/memory";
-const MEMORY_FILE = path.join(MEMORY_DIR, "store.json");
+const ARCHIVAL_FILE = path.join(MEMORY_DIR, "archival.json");
+const CORE_FILE = path.join(MEMORY_DIR, "core.json");
 const MEMORY_VERSION = 1;
+const CORE_VERSION = 1;
+const CORE_MAX_CHARS = 8000; // ~2000 tokens across all blocks
+const CORE_MAX_BLOCKS = 8;
+const CORE_BLOCK_NAME_MAX = 32;
+const CORE_DEFAULT_BLOCKS = { persona: "", user: "", goals: "", style: "" };
 const EMBEDDING_DIMS = 512;
 const SIMILARITY_THRESHOLD = 0.82; // cosine sim threshold for dedup/compaction
 const MAX_MEMORIES = 10000;
@@ -4432,10 +4510,17 @@ function cosineSim(a, b) {
 
 function loadMemoryStore() {
   try {
-    if (!fs.existsSync(MEMORY_FILE)) {
+    // Migration: rename store.json → archival.json (one-time)
+    const legacyFile = path.join(MEMORY_DIR, "store.json");
+    if (fs.existsSync(legacyFile) && !fs.existsSync(ARCHIVAL_FILE)) {
+      console.error("[MCP:Memory] Migrating store.json → archival.json");
+      fs.renameSync(legacyFile, ARCHIVAL_FILE);
+    }
+
+    if (!fs.existsSync(ARCHIVAL_FILE)) {
       return { version: MEMORY_VERSION, embeddingModel: "text-embedding-3-small", dims: EMBEDDING_DIMS, memories: [] };
     }
-    const raw = JSON.parse(fs.readFileSync(MEMORY_FILE, "utf8"));
+    const raw = JSON.parse(fs.readFileSync(ARCHIVAL_FILE, "utf8"));
     if (raw.version !== MEMORY_VERSION) {
       console.error("[MCP:Memory] Store version mismatch, starting fresh");
       return { version: MEMORY_VERSION, embeddingModel: "text-embedding-3-small", dims: EMBEDDING_DIMS, memories: [] };
@@ -4451,7 +4536,115 @@ function saveMemoryStore(store) {
   if (!fs.existsSync(MEMORY_DIR)) {
     fs.mkdirSync(MEMORY_DIR, { recursive: true });
   }
-  safeWriteFileSync(MEMORY_FILE, JSON.stringify(store), "utf8");
+  safeWriteFileSync(ARCHIVAL_FILE, JSON.stringify(store), "utf8");
+}
+
+// ── Core Memory I/O ──────────────────────────────────────────────────
+
+function loadCoreMemory() {
+  try {
+    if (!fs.existsSync(CORE_FILE)) {
+      return { version: CORE_VERSION, blocks: { ...CORE_DEFAULT_BLOCKS }, updatedAt: new Date().toISOString() };
+    }
+    const raw = JSON.parse(fs.readFileSync(CORE_FILE, "utf8"));
+    if (raw.version !== CORE_VERSION) {
+      console.error("[MCP:CoreMemory] Version mismatch, starting fresh");
+      return { version: CORE_VERSION, blocks: { ...CORE_DEFAULT_BLOCKS }, updatedAt: new Date().toISOString() };
+    }
+    return raw;
+  } catch (err) {
+    console.error("[MCP:CoreMemory] Failed to load:", err.message);
+    return { version: CORE_VERSION, blocks: { ...CORE_DEFAULT_BLOCKS }, updatedAt: new Date().toISOString() };
+  }
+}
+
+function saveCoreMemory(core) {
+  if (!fs.existsSync(MEMORY_DIR)) {
+    fs.mkdirSync(MEMORY_DIR, { recursive: true });
+  }
+  core.updatedAt = new Date().toISOString();
+  safeWriteFileSync(CORE_FILE, JSON.stringify(core, null, 2), "utf8");
+}
+
+// ── Core Memory tool implementations ─────────────────────────────────
+
+function executeCoreMemoryRead(args) {
+  const core = loadCoreMemory();
+  const blockName = args?.block;
+
+  if (blockName) {
+    if (!(blockName in core.blocks)) {
+      return { isError: true, text: `Block "${blockName}" not found. Available blocks: ${Object.keys(core.blocks).join(", ")}` };
+    }
+    const value = core.blocks[blockName];
+    return {
+      isError: false,
+      text: value
+        ? `[${blockName}]\n${value}`
+        : `[${blockName}] (empty)`,
+    };
+  }
+
+  // Return all blocks
+  const lines = Object.entries(core.blocks).map(([name, value]) =>
+    `[${name}]\n${value || "(empty)"}`
+  );
+  return {
+    isError: false,
+    text: `Core memory (${Object.keys(core.blocks).length} blocks, updated ${core.updatedAt}):\n\n${lines.join("\n\n")}`,
+  };
+}
+
+function executeCoreMemoryWrite(args) {
+  const { block, value, append } = args || {};
+  if (!block || typeof block !== "string") return { isError: true, text: "Missing 'block' parameter." };
+  if (typeof value !== "string") return { isError: true, text: "Missing 'value' parameter (string)." };
+  if (block.length > CORE_BLOCK_NAME_MAX) return { isError: true, text: `Block name too long (max ${CORE_BLOCK_NAME_MAX} chars).` };
+  if (!/^[a-zA-Z0-9_-]+$/.test(block)) return { isError: true, text: "Block name must be alphanumeric (with _ or -)." };
+
+  const core = loadCoreMemory();
+
+  // Check max blocks (only if creating a new one)
+  if (!(block in core.blocks) && Object.keys(core.blocks).length >= CORE_MAX_BLOCKS) {
+    return { isError: true, text: `Max ${CORE_MAX_BLOCKS} blocks reached. Delete a block first (set value to empty string).` };
+  }
+
+  // Compute new value
+  let newValue;
+  if (append) {
+    const existing = core.blocks[block] || "";
+    newValue = existing ? existing + "\n" + value : value;
+  } else {
+    newValue = value;
+  }
+
+  // Check total size across all blocks
+  const otherBlocksSize = Object.entries(core.blocks)
+    .filter(([name]) => name !== block)
+    .reduce((sum, [, v]) => sum + (v || "").length, 0);
+  const totalSize = otherBlocksSize + newValue.length;
+
+  if (totalSize > CORE_MAX_CHARS) {
+    return {
+      isError: true,
+      text: `Total core memory would be ${totalSize} chars (limit ${CORE_MAX_CHARS}). Trim other blocks or shorten this value.`,
+    };
+  }
+
+  // Handle empty value as block deletion (if not a default block)
+  if (newValue === "" && !(block in CORE_DEFAULT_BLOCKS)) {
+    delete core.blocks[block];
+    saveCoreMemory(core);
+    return { isError: false, text: `Deleted custom block "${block}".` };
+  }
+
+  core.blocks[block] = newValue;
+  saveCoreMemory(core);
+
+  return {
+    isError: false,
+    text: `Updated [${block}] (${newValue.length} chars). Total core memory: ${totalSize} / ${CORE_MAX_CHARS} chars.`,
+  };
 }
 
 function generateId() {
@@ -7386,6 +7579,15 @@ async function executeTool(name, args) {
     case "component_reference": return executeComponentReference(args || {});
     case "skill_reference": return executeSkillReference(args || {});
     case "update_ui": return executeUpdateUi(args || {});
+    // Core memory (always available)
+    case "core_memory_read": return executeCoreMemoryRead(args || {});
+    case "core_memory_write": return executeCoreMemoryWrite(args || {});
+    // Archival memory (new canonical names)
+    case "archival_insert": return executeStoreMemory(args || {});
+    case "archival_search": return executeRecallMemory(args || {});
+    case "archival_list": return executeListMemories(args || {});
+    case "archival_forget": return executeForgetMemory(args || {});
+    // Legacy aliases (backward compatibility)
     case "store_memory": return executeStoreMemory(args || {});
     case "recall_memory": return executeRecallMemory(args || {});
     case "list_memories": return executeListMemories(args || {});
