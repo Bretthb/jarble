@@ -130,15 +130,20 @@ export function buildDelegationTools(
 ): DelegationTool[] {
   if (node.canDelegate === false) return [];
 
-  // Find all outgoing "delegates" edges from this node
+  // Find all outgoing "delegates" edges AND bidirectional "collaborates" edges from this node.
+  // "collaborates" edges are bidirectional — both bots can delegate to each other.
   const delegateEdges = edges.filter(
-    (e) => e.source === node.id && (e.type === "delegates" || !e.type),
+    (e) =>
+      (e.source === node.id && (e.type === "delegates" || !e.type)) ||
+      (e.type === "collaborates" && (e.source === node.id || e.target === node.id)),
   );
 
   const tools: DelegationTool[] = [];
 
   for (const edge of delegateEdges) {
-    const targetNode = nodes.find((n) => n.id === edge.target);
+    // For collaborates edges, the target is whichever end ISN'T this node
+    const targetId = edge.type === "collaborates" && edge.target === node.id ? edge.source : edge.target;
+    const targetNode = nodes.find((n) => n.id === targetId);
     if (!targetNode || !targetNode.deploymentId) continue;
 
     // Build a safe function name from the target's role/label/id
