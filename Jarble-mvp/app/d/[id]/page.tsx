@@ -432,20 +432,7 @@ function WorkspacePage({
             >
               <MessageSquareText className="w-4 h-4" />
             </Button>
-            <Button
-              variant={teamSessionsOpen ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => {
-                setTeamSessionsOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setTeamsOpen(false); setDebugOpen(false); }
-                  return !v;
-                });
-              }}
-              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
-              title="Team Sessions"
-            >
-              <ArrowUpRight className="w-4 h-4" />
-            </Button>
+            {/* Team Sessions removed — now integrated into Conversation History panel */}
             <Button
               variant={filesOpen ? "secondary" : "ghost"}
               size="sm"
@@ -589,12 +576,7 @@ function WorkspacePage({
             onClose={() => setTeamsOpen(false)}
           />
         )}
-        {teamSessionsOpen && (
-          <TeamSessionsPanel
-            deploymentId={deploymentId}
-            onClose={() => setTeamSessionsOpen(false)}
-          />
-        )}
+        {/* TeamSessionsPanel removed — now integrated into ConversationHistoryPanel */}
         {debugOpen && (
           <DebugTracePanel
             deploymentId={deploymentId}
