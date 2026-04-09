@@ -95,6 +95,41 @@ variable "domain" {
   default     = "jarble.ai"
 }
 
+# ─── Longhorn Backup Target (L-09 / L-10) ───────────────────────────────────
+#
+# Longhorn ships volume backups to an S3-compatible bucket. The Hetzner
+# Cloud Terraform provider (~> 1.45) does NOT yet have a resource for
+# Hetzner Object Storage S3 buckets — only their legacy Storage Box product
+# (`hcloud_storage_box`) which is WebDAV/SSH-only and not S3-compatible.
+#
+# So the bucket itself MUST be created out-of-band (Hetzner Console or
+# `hcloud-cli` once it adds support). This Terraform module just wires up:
+#   - the cluster setting `backup-target` to point at the bucket URL
+#   - the cluster setting `backup-target-credential-secret` to point at a
+#     k8s Secret containing the S3 credentials
+#
+# The Secret itself is also created out-of-band — its values are sensitive
+# and should not live in Terraform state. See docs/audits/longhorn-backup-setup.md
+# for the exact `kubectl create secret` command and bucket creation steps.
+#
+# Leave `longhorn_backup_target = ""` (the default) to skip the backup-target
+# patches entirely — useful in dev/preview clusters where you don't want
+# the cron jobs trying (and failing) to ship to a missing bucket. The
+# RecurringJob CRs are still created (they're cheap snapshots) but the
+# weekly-backup job will log an error and move on until a target is set.
+
+variable "longhorn_backup_target" {
+  description = "Longhorn backup-target URL. For Hetzner Object Storage: s3://BUCKET_NAME@REGION/. Example: s3://jarble-longhorn-backups@fsn1/. Leave empty to skip patching the backup-target settings."
+  type        = string
+  default     = ""
+}
+
+variable "longhorn_backup_secret_name" {
+  description = "Name of the k8s Secret in longhorn-system holding S3 credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINTS). The Secret itself must be created out-of-band — see longhorn-backup-setup.md. Only used when longhorn_backup_target is non-empty."
+  type        = string
+  default     = "longhorn-backup-credentials"
+}
+
 # ─── Sandbox Isolation (Track B) ─────────────────────────────────────────────
 
 variable "enable_gvisor" {

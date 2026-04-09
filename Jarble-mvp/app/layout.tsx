@@ -44,8 +44,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+    { media: "(prefers-color-scheme: light)", color: "#fbf9f9" },
+    { media: "(prefers-color-scheme: dark)", color: "#141414" },
   ],
 };
 
@@ -56,7 +56,8 @@ export const metadata: Metadata = {
   },
   description: "Deploy powerful AI bots across WhatsApp, Discord, Slack, and more. No coding required.",
   icons: {
-    icon: "/icon.svg",
+    icon: "/favicon.png",
+    apple: "/favicon.png",
   },
   openGraph: {
     title: "Jarble",

@@ -27,8 +27,17 @@ echo "[file-watcher] Watching $WATCH_DIR for changes..."
 echo "[file-watcher] Callback: $API_URL"
 echo "[file-watcher] Deployment: ${DEPLOYMENT_ID:-unknown}"
 
-# Watch for file modifications, creations, and deletions recursively
-inotifywait -m -r --exclude '\.env$' -e modify,create,delete,moved_to "$WATCH_DIR" 2>/dev/null | while read dir event file; do
+# Watch for file modifications, creations, and deletions recursively.
+#
+# Excludes:
+#   \.env$        — env file rewritten on every secret sync, causes loop
+#   /mcp/         — platform-managed MCP server script + .version file,
+#                   rewritten by configSync.syncMcpServerToAllRunning every
+#                   tick. Never user-edited, so reverse-sync is meaningless
+#                   and the inotify loop just spammed the API webhook.
+#   \.version$    — sibling marker file for the MCP script
+#   \.tmp$        — write-atomic temp files used by configSync
+inotifywait -m -r --exclude '(\.env$|/mcp/|\.version$|\.tmp$)' -e modify,create,delete,moved_to "$WATCH_DIR" 2>/dev/null | while read dir event file; do
   # Debounce: wait for batch changes to settle (e.g., multiple files written at once)
   sleep "$DEBOUNCE_SECONDS"
 

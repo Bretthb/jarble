@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useTheme } from "@/contexts/ThemeContext";
 import { Menu } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -20,21 +22,22 @@ const NAV_LINKS = [
   { href: "/about", label: "About" },
   { href: "/pricing", label: "Pricing" },
   { href: "/marketplace", label: "Marketplace" },
-  { href: "/docs", label: "Docs" },
 ];
 
 export default function MarketingNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated } = useAuth0();
+  const { theme } = useTheme();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
 
   return (
     <nav className="fixed inset-x-0 top-0 z-50 bg-background/80 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-          <h1 className="font-serif font-bold text-2xl tracking-tight">Jarble</h1>
+        <Link href="/" className="flex items-center hover:opacity-80 transition-opacity">
+          <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" priority />
         </Link>
 
         {/* Desktop nav links */}
@@ -94,7 +97,9 @@ export default function MarketingNav() {
             </SheetTrigger>
             <SheetContent side="right" className="w-[260px] p-0">
               <SheetHeader className="px-4 pt-4 pb-2">
-                <SheetTitle className="font-serif text-left">Jarble</SheetTitle>
+                <SheetTitle className="text-left">
+                  <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-10 w-auto" />
+                </SheetTitle>
               </SheetHeader>
               <div className="flex flex-col py-2">
                 {NAV_LINKS.map(({ href, label }) => (

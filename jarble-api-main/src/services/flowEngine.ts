@@ -601,6 +601,21 @@ export class FlowExecutionEngine extends EventEmitter {
     // Mark as running
     this.state.stepResults.set(node.id, { status: "running" });
     const runningIndex = this.countCompleted() + 1;
+
+    // JAR-50: log the success path at info level so we can find slow nodes
+    // in prod. Previously only warn/error branches logged, meaning a
+    // successfully-slow 40-step flow gave no timing trail.
+    log.info(
+      {
+        executionId: this.state.executionId,
+        nodeId: node.id,
+        nodeType: node.type,
+        iteration: runningIndex,
+        total: totalNodes,
+      },
+      "flow: step started",
+    );
+
     this.emit("step:started", {
       nodeId: node.id,
       label: node.label,
@@ -659,6 +674,22 @@ export class FlowExecutionEngine extends EventEmitter {
       });
 
       const completedCount = this.countCompleted();
+
+      // JAR-50: log the success path with timing + credits so prod flame
+      // graphs are queryable even before OTel (Phase 2) is wired.
+      log.info(
+        {
+          executionId: this.state.executionId,
+          nodeId: node.id,
+          nodeType: node.type,
+          durationMs,
+          creditsCharged,
+          completed: completedCount,
+          total: totalNodes,
+        },
+        "flow: step completed",
+      );
+
       this.emit("step:finished", {
         nodeId: node.id,
         label: node.label,
@@ -987,11 +1018,17 @@ export class FlowExecutionEngine extends EventEmitter {
 
     if (childState.status === "failed") {
       const childError = childEngine["findFirstError"]?.() ?? "Subflow failed";
-      throw new Error(`Subflow "${flowId}" failed: ${childError}`);
+      // Don't include the subflow's ID in the error message — repeated
+      // subflow failures would walk the full call tree and leak internal
+      // resource identifiers to the client. Log the full chain for ops
+      // debugging via the logger (not the thrown message).
+      log.warn({ subflowId: flowId, childError }, "Subflow execution failed");
+      throw new Error(`Subflow failed: ${childError}`);
     }
 
     if (childState.status === "cancelled") {
-      throw new Error(`Subflow "${flowId}" was cancelled`);
+      log.debug({ subflowId: flowId }, "Subflow was cancelled");
+      throw new Error(`Subflow was cancelled`);
     }
 
     // Collect the final output: look for output nodes, or use all completed results

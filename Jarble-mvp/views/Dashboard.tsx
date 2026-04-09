@@ -1,6 +1,8 @@
 "use client";
 
 import { useAuth0 } from "@auth0/auth0-react";
+import Image from "next/image";
+import { useTheme } from "@/contexts/ThemeContext";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,6 +12,7 @@ import {
   Plus,
   Loader2,
   Bot,
+  Building2,
   Trash2,
   Clock,
   DollarSign,
@@ -20,6 +23,7 @@ import {
   RotateCw,
   AlertCircle,
   Download,
+  User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -49,7 +53,11 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export default function Dashboard() {
   const { user, isAuthenticated, isLoading: authLoading, error: authError } = useAuth0();
+  const { theme } = useTheme();
   const { activeOrgId, activeOrg } = useOrg();
+  // Members are read-only viewers in org context; owner/admin can manage
+  const canManageDeployments = !activeOrg || activeOrg.role === "owner" || activeOrg.role === "admin";
+  const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
 
   if (authError) {
     console.error('[Auth0] Authentication error:', authError);
@@ -234,8 +242,8 @@ export default function Dashboard() {
       {/* Navigation */}
       <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
-          <a href="/" className="flex items-center gap-2 cursor-pointer no-underline text-foreground">
-            <span className="font-serif font-bold text-2xl tracking-tight">Jarble</span>
+          <a href="/" className="flex items-center cursor-pointer no-underline">
+            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" />
           </a>
           <ProfileDropdown />
         </div>
@@ -273,17 +281,58 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* Workspace Banner */}
+        <div className={`mb-6 flex items-center gap-3 rounded-lg border px-4 py-3 ${
+          activeOrg
+            ? "border-primary/30 bg-primary/5"
+            : "border-border bg-secondary/30"
+        }`}>
+          {activeOrg ? (
+            <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Building2 className="w-5 h-5 text-primary" />
+            </div>
+          ) : (
+            <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+              <User className="w-5 h-5 text-muted-foreground" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">
+              {activeOrg ? activeOrg.name : "Personal Workspace"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {activeOrg
+                ? activeOrg.role === "member"
+                  ? "Viewing organization deployments (view only)"
+                  : `Viewing organization deployments \u00b7 ${activeOrg.role}`
+                : "Viewing your personal deployments"}
+            </p>
+          </div>
+          {activeOrg && (activeOrg.role === "owner" || activeOrg.role === "admin") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs shrink-0"
+              onClick={() => router.push(`/orgs/${activeOrg.id}`)}
+            >
+              Manage
+            </Button>
+          )}
+        </div>
+
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold">Deployments</h2>
-          <Button
-            onClick={handleCreateDeployment}
-            size="sm"
-            className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium h-8"
-          >
-            <Plus className="w-4 h-4 mr-1.5" />
-            New Deployment
-          </Button>
+          {canManageDeployments && (
+            <Button
+              onClick={handleCreateDeployment}
+              size="sm"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium h-8"
+            >
+              <Plus className="w-4 h-4 mr-1.5" />
+              New Deployment
+            </Button>
+          )}
         </div>
 
         {/* Deployments Grid */}
@@ -333,6 +382,7 @@ export default function Dashboard() {
               <DeploymentCard
                 key={deployment.id}
                 deployment={deployment}
+                readOnly={!canManageDeployments}
                 liveStatusData={getLiveStatus(deployment.id)}
                 onDelete={handleDelete}
                 onStop={handleStop}
@@ -360,14 +410,20 @@ export default function Dashboard() {
             <Bot className="w-12 h-12 mx-auto mb-4 text-muted-foreground/40" />
             <h3 className="text-lg font-semibold mb-1">No deployments yet</h3>
             <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">Create your first AI deployment in under 2 minutes</p>
-            <Button
-              onClick={handleCreateDeployment}
-              size="lg"
-              className="font-semibold bg-primary hover:bg-primary/90 text-primary-foreground"
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              Create Deployment
-            </Button>
+            {canManageDeployments ? (
+              <Button
+                onClick={handleCreateDeployment}
+                size="lg"
+                className="font-semibold bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                <Plus className="w-5 h-5 mr-2" />
+                Create Deployment
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Ask an admin to create deployments for this organization.
+              </p>
+            )}
           </motion.div>
         )}
       </div>
@@ -375,7 +431,7 @@ export default function Dashboard() {
   );
 }
 
-const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting, storageData, storageLoading }: {
+const DeploymentCard = memo(function DeploymentCard({ deployment, readOnly, liveStatusData, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting, storageData, storageLoading }: {
   deployment: {
     id: string;
     name: string;
@@ -387,6 +443,7 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData
     cancelledAt?: Date | string | null;
     cancelAtPeriodEnd?: Date | string | null;
   };
+  readOnly?: boolean;
   liveStatusData?: DeploymentStatus;
   onDelete: (id: string) => void;
   onStop: (id: string) => void;
@@ -504,133 +561,142 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData
                 );
               })()}
               {deployment.cancelledAt && deployment.cancelAtPeriodEnd && <span className="text-border">·</span>}
-              {deployment.monthlyPriceCents > 0 ? (
-                <span className="inline-flex items-center gap-1">
-                  <DollarSign className="w-3 h-3" />
-                  ${(deployment.monthlyPriceCents / 100).toFixed(0)}/mo
-                </span>
-              ) : null}
+              {/* Beta pricing — matches Home hero ($13.99/mo per agent).
+                  The deployment.monthlyPriceCents value in the DB is seeded
+                  from runtime_catalog and may still carry the pre-beta $27
+                  figure. During beta we show the canonical $13.99 string so
+                  marketing and product stay in sync. Tracked in JAR-49. */}
+              <span className="inline-flex items-center gap-1">
+                <DollarSign className="w-3 h-3" />
+                $13.99/mo
+              </span>
               <span className="text-border">·</span>
               <span>{deployment.llmMode === "byok" ? "BYOK" : "Included"} LLM</span>
             </div>
 
             {/* Action buttons */}
             <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-              {/* Stop/Start toggle */}
-              {isRunning && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => onStop(deployment.id)}
-                  disabled={isToggling}
-                  className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
-                  title="Stop"
-                  aria-label="Stop deployment"
-                >
-                  {isToggling ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Square className="w-3.5 h-3.5" />
-                  )}
-                </Button>
-              )}
-
-              {isStopped && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => onStart(deployment.id)}
-                  disabled={isToggling}
-                  className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
-                  title="Start"
-                  aria-label="Start deployment"
-                >
-                  {isToggling ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Play className="w-3.5 h-3.5" />
-                  )}
-                </Button>
-              )}
-
-              {isTransitioning && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled
-                  className="text-muted-foreground h-7 w-7 p-0"
-                  title="Starting..."
-                  aria-label="Deployment starting"
-                >
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                </Button>
-              )}
-
-              {/* Export (only for cancelled running deployments) */}
-              {deployment.cancelledAt && isRunning && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => onExport(deployment.id)}
-                  disabled={isExporting}
-                  className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
-                  title="Export configs"
-                  aria-label="Export deployment configs"
-                >
-                  {isExporting ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5" />
-                  )}
-                </Button>
-              )}
-
-              {/* Restart (only for running) */}
-              {isRunning && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => onRestart(deployment.id)}
-                  disabled={isToggling}
-                  className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
-                  title="Restart"
-                  aria-label="Restart deployment"
-                >
-                  <RotateCw className="w-3.5 h-3.5" />
-                </Button>
-              )}
-
-              {/* Delete */}
-              {confirmDelete ? (
-                <div className="flex gap-1">
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => { onDelete(deployment.id); setConfirmDelete(false); }}
-                    className="text-xs h-7 px-2"
-                  >
-                    Delete
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setConfirmDelete(false)}
-                    className="text-xs border-border h-7 px-2"
-                  >
-                    Cancel
-                  </Button>
-                </div>
+              {readOnly ? (
+                <span className="text-xs text-muted-foreground/60 px-1">View only</span>
               ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setConfirmDelete(true)}
-                  className="text-muted-foreground hover:text-red-500 h-7 w-7 p-0"
-                  title="Delete"
-                  aria-label="Delete deployment"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
+                <>
+                  {/* Stop/Start toggle */}
+                  {isRunning && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onStop(deployment.id)}
+                      disabled={isToggling}
+                      className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
+                      title="Stop"
+                      aria-label="Stop deployment"
+                    >
+                      {isToggling ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Square className="w-3.5 h-3.5" />
+                      )}
+                    </Button>
+                  )}
+
+                  {isStopped && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onStart(deployment.id)}
+                      disabled={isToggling}
+                      className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
+                      title="Start"
+                      aria-label="Start deployment"
+                    >
+                      {isToggling ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5" />
+                      )}
+                    </Button>
+                  )}
+
+                  {isTransitioning && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled
+                      className="text-muted-foreground h-7 w-7 p-0"
+                      title="Starting..."
+                      aria-label="Deployment starting"
+                    >
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    </Button>
+                  )}
+
+                  {/* Export (only for cancelled running deployments) */}
+                  {deployment.cancelledAt && isRunning && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onExport(deployment.id)}
+                      disabled={isExporting}
+                      className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
+                      title="Export configs"
+                      aria-label="Export deployment configs"
+                    >
+                      {isExporting ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                    </Button>
+                  )}
+
+                  {/* Restart (only for running) */}
+                  {isRunning && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onRestart(deployment.id)}
+                      disabled={isToggling}
+                      className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
+                      title="Restart"
+                      aria-label="Restart deployment"
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+
+                  {/* Delete */}
+                  {confirmDelete ? (
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => { onDelete(deployment.id); setConfirmDelete(false); }}
+                        className="text-xs h-7 px-2"
+                      >
+                        Delete
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setConfirmDelete(false)}
+                        className="text-xs border-border h-7 px-2"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setConfirmDelete(true)}
+                      className="text-muted-foreground hover:text-red-500 h-7 w-7 p-0"
+                      title="Delete"
+                      aria-label="Delete deployment"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+                </>
               )}
             </div>
           </div>

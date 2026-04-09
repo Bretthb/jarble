@@ -39,6 +39,13 @@ RUN npm init -y && \
 # ── Copy Jarble UI MCP server ────────────────────────────────────────
 # Zero-dependency Node.js script that exposes render_ui, define_component,
 # list_components, component_reference tools via stdio MCP protocol.
+#
+# IMPORTANT: jarble-ui-server.js is NOT committed to runtimes/openclaw/.
+# The canonical source lives at jarble-api-main/src/mcp/jarble-ui-server.js
+# and CI copies it into this build context fresh on every build (see
+# .github/workflows/deploy-runtimes.yml). For local builds run:
+#   cp jarble-api-main/src/mcp/jarble-ui-server.js runtimes/openclaw/
+# before invoking `docker build`.
 COPY jarble-ui-server.js /opt/jarble/mcp/jarble-ui-server.js
 RUN chown -R node:node /opt/jarble
 

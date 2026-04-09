@@ -46,14 +46,15 @@ function setupUpdateChain() {
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.USE_SQLITE;
+  delete process.env.NODE_ENV;
 });
 
 // ═══════════════════════════════════════════════════════════════════════
 // reconcileStatuses
 // ═══════════════════════════════════════════════════════════════════════
 describe("reconcileStatuses", () => {
-  it("skips when USE_SQLITE is true (local dev)", async () => {
-    process.env.USE_SQLITE = "true";
+  it("skips when NODE_ENV is development (local dev)", async () => {
+    process.env.NODE_ENV = "development";
     await reconcileStatuses();
     expect(mockDb.query.deployments.findMany).not.toHaveBeenCalled();
   });

@@ -1,14 +1,16 @@
 /**
  * Test database helper - creates a fresh in-memory SQLite DB per test suite.
  *
- * Uses better-sqlite3 + drizzle-orm to create the same tables as schema.sqlite.ts,
- * then exposes the db and raw connection for tests.
+ * Uses better-sqlite3 (devDependency only) + drizzle-orm to mirror the Postgres
+ * production schema. Drizzle abstracts the SQL differences so tests exercise
+ * real query logic without requiring a running Postgres server.
  */
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import * as sqliteSchema from "../../db/schema.sqlite.js";
+import * as sqliteSchema from "./testSchema.sqlite.js";
 
-// Same CREATE TABLE SQL from db/init.ts - keeps test DB schema in sync
+// Mirrors the full schema from db/init.ts — kept in sync with schema.pg.ts columns.
+// This is SQLite DDL used ONLY for tests; production uses Postgres.
 const CREATE_TABLES_SQL = `
   CREATE TABLE IF NOT EXISTS runtime_catalog (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +48,7 @@ const CREATE_TABLES_SQL = `
     name TEXT NOT NULL,
     description TEXT,
     runtime TEXT DEFAULT 'openclaw' NOT NULL,
+    deployment_type TEXT DEFAULT 'agent' NOT NULL,
     image TEXT,
     runtime_catalog_id INTEGER REFERENCES runtime_catalog(id),
     is_free INTEGER DEFAULT 0 NOT NULL,
@@ -80,6 +83,8 @@ const CREATE_TABLES_SQL = `
     specialties TEXT,
     bio TEXT,
     showcase_prompts TEXT,
+    org_id TEXT,
+    memory_scope TEXT DEFAULT 'global' NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
@@ -87,6 +92,7 @@ const CREATE_TABLES_SQL = `
   CREATE INDEX IF NOT EXISTS idx_deployments_user_id ON deployments(user_id);
   CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status);
   CREATE INDEX IF NOT EXISTS idx_deployments_is_public ON deployments(is_public);
+  CREATE INDEX IF NOT EXISTS idx_deployments_org_id ON deployments(org_id);
 
   CREATE TABLE IF NOT EXISTS platform_credentials (
     id TEXT PRIMARY KEY,
@@ -98,6 +104,18 @@ const CREATE_TABLES_SQL = `
   );
 
   CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_platform ON platform_credentials(deployment_id, platform_id);
+
+  CREATE TABLE IF NOT EXISTS deployment_secrets (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_secret_key ON deployment_secrets(deployment_id, key);
 
   CREATE TABLE IF NOT EXISTS processed_webhook_events (
     event_id TEXT PRIMARY KEY,
@@ -509,8 +527,8 @@ const CREATE_TABLES_SQL = `
 
   CREATE TABLE IF NOT EXISTS agent_calls (
     id TEXT PRIMARY KEY,
-    caller_deployment_id TEXT NOT NULL REFERENCES deployments(id),
-    callee_deployment_id TEXT NOT NULL REFERENCES deployments(id),
+    caller_deployment_id TEXT REFERENCES deployments(id),
+    callee_deployment_id TEXT REFERENCES deployments(id),
     skill_name TEXT NOT NULL,
     credits_charged INTEGER DEFAULT 0 NOT NULL,
     status TEXT DEFAULT 'pending' NOT NULL,
@@ -518,11 +536,37 @@ const CREATE_TABLES_SQL = `
     response_body TEXT,
     latency_ms INTEGER,
     error_message TEXT,
-    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    -- JAR-50 observability columns
+    parent_call_id TEXT,
+    depth INTEGER DEFAULT 0 NOT NULL,
+    kind TEXT DEFAULT 'delegation' NOT NULL,
+    trace_id TEXT,
+    span_id TEXT,
+    parent_span_id TEXT,
+    span_name TEXT,
+    span_kind TEXT DEFAULT 'internal' NOT NULL,
+    service_name TEXT,
+    pod_name TEXT,
+    user_id TEXT,
+    org_id TEXT,
+    session_id TEXT,
+    start_ms INTEGER,
+    end_ms INTEGER,
+    duration_ms INTEGER,
+    status_code TEXT DEFAULT 'ok' NOT NULL,
+    attributes TEXT DEFAULT '{}' NOT NULL
   );
 
   CREATE INDEX IF NOT EXISTS idx_agent_calls_caller ON agent_calls(caller_deployment_id);
   CREATE INDEX IF NOT EXISTS idx_agent_calls_callee ON agent_calls(callee_deployment_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_parent_call_id ON agent_calls(parent_call_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_trace_id ON agent_calls(trace_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_trace_parent ON agent_calls(trace_id, parent_span_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_parent_span_id ON agent_calls(parent_span_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_user_start ON agent_calls(user_id, start_ms);
+  CREATE INDEX IF NOT EXISTS idx_agent_calls_span_name_start ON agent_calls(span_name, start_ms);
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_calls_span_id ON agent_calls(span_id);
 
   CREATE TABLE IF NOT EXISTS chat_sessions (
     id TEXT PRIMARY KEY,
@@ -597,6 +641,76 @@ const CREATE_TABLES_SQL = `
   CREATE INDEX IF NOT EXISTS idx_flow_exec_flow_id ON flow_executions(flow_id);
   CREATE INDEX IF NOT EXISTS idx_flow_exec_user_id ON flow_executions(user_id);
   CREATE INDEX IF NOT EXISTS idx_flow_exec_status ON flow_executions(status);
+
+  CREATE TABLE IF NOT EXISTS deployment_subagents (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    description TEXT,
+    system_prompt TEXT NOT NULL,
+    model TEXT,
+    trigger_type TEXT DEFAULT 'manual' NOT NULL,
+    trigger_config TEXT,
+    tools TEXT,
+    enabled INTEGER DEFAULT 1 NOT NULL,
+    sort_order INTEGER DEFAULT 0 NOT NULL,
+    source TEXT DEFAULT 'custom' NOT NULL,
+    is_public INTEGER DEFAULT 0 NOT NULL,
+    forked_from_id TEXT,
+    fork_count INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_deployment_subagents_deployment_id ON deployment_subagents(deployment_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_subagents_deployment_slug ON deployment_subagents(deployment_id, slug);
+  CREATE INDEX IF NOT EXISTS idx_deployment_subagents_is_public ON deployment_subagents(is_public);
+
+  CREATE TABLE IF NOT EXISTS flow_deployment_memberships (
+    id TEXT PRIMARY KEY,
+    flow_id TEXT NOT NULL REFERENCES orchestration_flows(id) ON DELETE CASCADE,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    node_id TEXT NOT NULL,
+    role TEXT,
+    is_entry_point INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_flow_deployment_node ON flow_deployment_memberships(flow_id, deployment_id, node_id);
+  CREATE INDEX IF NOT EXISTS idx_flow_dep_membership_deployment_id ON flow_deployment_memberships(deployment_id);
+  CREATE INDEX IF NOT EXISTS idx_flow_dep_membership_flow_id ON flow_deployment_memberships(flow_id);
+
+  CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    avatar_url TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    role TEXT DEFAULT 'member' NOT NULL,
+    invited_by TEXT REFERENCES users(id),
+    joined_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_org_member_user ON org_members(org_id, user_id);
+
+  CREATE TABLE IF NOT EXISTS org_invites (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT DEFAULT 'member' NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    invited_by TEXT NOT NULL REFERENCES users(id),
+    status TEXT DEFAULT 'pending' NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_org_invite_email ON org_invites(org_id, email);
 `;
 
 export interface TestDbContext {

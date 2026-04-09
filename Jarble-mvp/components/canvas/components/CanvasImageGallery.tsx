@@ -52,7 +52,7 @@ function CanvasImageGalleryInner({
         onOpenChange={(open) => !open && setSelected(null)}
       >
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/80 z-50" />
+          <Dialog.Overlay className="fixed inset-0 bg-foreground/80 z-50" />
           <Dialog.Content className="fixed inset-4 z-50 flex items-center justify-center focus:outline-none">
             <Dialog.Close className="absolute top-4 right-4 text-white text-2xl hover:opacity-70 z-10" aria-label="Close">
               ✕

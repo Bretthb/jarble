@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Request, Response } from "express";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import * as sqliteSchema from "../../db/schema.sqlite.js";
+import * as sqliteSchema from "../../__tests__/helpers/testSchema.sqlite.js";
 
 // ── Test DB ────────────────────────────────────────────────────────────────
 
@@ -37,6 +37,7 @@ const CREATE_TABLES_SQL = `
     name TEXT NOT NULL,
     description TEXT,
     runtime TEXT DEFAULT 'openclaw' NOT NULL,
+    deployment_type TEXT DEFAULT 'agent' NOT NULL,
     image TEXT,
     runtime_catalog_id INTEGER,
     is_free INTEGER DEFAULT 0 NOT NULL,
@@ -71,6 +72,7 @@ const CREATE_TABLES_SQL = `
     specialties TEXT,
     bio TEXT,
     showcase_prompts TEXT,
+    org_id TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );

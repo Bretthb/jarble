@@ -5,7 +5,7 @@
  * GET  /api/deployments/:id/knowledge/collections - List collections
  * DELETE /api/deployments/:id/knowledge/collections/:collectionId - Delete collection
  *
- * In dev mode (USE_SQLITE=true), stores files locally at jarble-api-main/data/knowledge/.
+ * In dev mode, stores files locally at jarble-api-main/data/knowledge/.
  * In prod, writes to the pod PVC at /data/knowledge/.
  */
 
@@ -27,7 +27,7 @@ export const knowledgeRouter = Router();
 // ── Storage paths ────────────────────────────────────────────────────────
 
 function getKnowledgeDir(deploymentId: string): string {
-  if (env.USE_SQLITE) {
+  if (env.NODE_ENV === "development") {
     // Local dev - store under jarble-api-main/data/knowledge/{deploymentId}
     const dir = join(process.cwd(), "data", "knowledge", deploymentId);
     mkdirSync(join(dir, "chunks"), { recursive: true });

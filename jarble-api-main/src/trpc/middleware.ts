@@ -7,8 +7,25 @@ import { isAdmin } from "../utils/admin.js";
 
 const log = createModuleLogger("trpc:middleware");
 
+// Whether to include stack traces in error responses. Default is NEVER —
+// even deployed "development" environments must strip stacks because they're
+// exposed to the public internet. Only set EXPOSE_INTERNAL_ERRORS=true on
+// your LOCAL machine when debugging.
+const EXPOSE_INTERNAL_ERRORS = process.env.EXPOSE_INTERNAL_ERRORS === "true";
+
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
+  errorFormatter({ shape, error }) {
+    return {
+      ...shape,
+      data: {
+        ...shape.data,
+        // Strip stack traces unless explicitly enabled for local dev.
+        // Leaking stacks exposes internal file paths and code structure.
+        stack: EXPOSE_INTERNAL_ERRORS ? error.stack : undefined,
+      },
+    };
+  },
 });
 
 const sentryMiddleware = t.middleware(
@@ -51,7 +68,7 @@ export const protectedProcedure = t.procedure.use(sentryMiddleware).use(loggingM
 
 // Admin procedure - requires authenticated admin user
 export const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (!isAdmin(ctx.user.id)) {
+  if (!isAdmin(ctx.user.auth0Id)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Admin access required",

@@ -64,7 +64,12 @@ export function buildCRSpec(
   // Derive resource values
   const cpuLimit = config.cpuLimit || "2.0";
   const memoryMb = config.memoryMb || 3072;
-  const storageGbVal = config.storageMb || 30;
+  // Hard cap at 20 GiB — must fit on the smallest Hetzner worker (cpx11,
+  // ~30 GB root disk → ~29 GiB usable for Longhorn). Larger requests fail
+  // with LocalReplicaSchedulingFailure and pods stick on Pending forever.
+  const MAX_STORAGE_GB = 20;
+  const requestedStorageGb = config.storageMb || 20;
+  const storageGbVal = Math.min(MAX_STORAGE_GB, requestedStorageGb);
   const cpuMillicores = `${Math.round(parseFloat(cpuLimit) * 1000)}m`;
   const memoryMi = `${memoryMb}Mi`;
   const storageGi = `${Math.max(1, storageGbVal)}Gi`;
@@ -72,7 +77,7 @@ export function buildCRSpec(
   // Storage config: new PVC or existing claim
   const storageSpec: Record<string, unknown> = existingPvc
     ? { persistence: { enabled: true, existingClaim: existingPvc } }
-    : { persistence: { enabled: true, size: storageGi, storageClass: "longhorn" } };
+    : { persistence: { enabled: true, size: storageGi, storageClass: "longhorn-isolated" } };
 
   return {
     apiVersion: `${CRD_GROUP}/${CRD_VERSION}`,

@@ -90,11 +90,11 @@ botAskRouter.post("/:id/bridge/ask", async (req: Request, res: Response) => {
       return;
     }
   } catch {
-    if (process.env.USE_SQLITE !== "true" || process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production") {
       res.status(401).json({ error: "Invalid token" });
       return;
     }
-    // Dev-only: allow through when USE_SQLITE=true and not in production
+    // Dev-only: allow through when not in production
   }
 
   // Rate limit check

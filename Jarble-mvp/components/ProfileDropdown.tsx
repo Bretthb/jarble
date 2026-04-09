@@ -87,29 +87,29 @@ export default function ProfileDropdown() {
 
         {/* Navigation */}
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => router.push("/dashboard")} className="py-1.5 gap-1.5">
+          <DropdownMenuItem onSelect={() => router.push("/dashboard")} className="py-1.5 gap-1.5">
             <LayoutDashboard className="w-4 h-4" />
             Dashboard
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => router.push("/deployments")} className="py-1.5 gap-1.5">
+          <DropdownMenuItem onSelect={() => router.push("/deployments")} className="py-1.5 gap-1.5">
             <Layers className="w-4 h-4" />
             Linked Deployments
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => router.push("/marketplace")} className="py-1.5 gap-1.5">
+          <DropdownMenuItem onSelect={() => router.push("/marketplace")} className="py-1.5 gap-1.5">
             <Store className="w-4 h-4" />
             Marketplace
           </DropdownMenuItem>
           {isAdmin && (
-            <DropdownMenuItem onClick={() => router.push("/admin")} className="py-1.5 gap-1.5">
+            <DropdownMenuItem onSelect={() => router.push("/admin")} className="py-1.5 gap-1.5">
               <Shield className="w-4 h-4" />
               Admin Dashboard
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem onClick={() => router.push("/analytics")} className="py-1.5 gap-1.5">
+          <DropdownMenuItem onSelect={() => router.push("/analytics")} className="py-1.5 gap-1.5">
             <BarChart3 className="w-4 h-4" />
             Usage Analytics
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => router.push("/billing")} className="py-1.5 gap-1.5">
+          <DropdownMenuItem onSelect={() => router.push("/billing")} className="py-1.5 gap-1.5">
             <CreditCard className="w-4 h-4" />
             Billing
           </DropdownMenuItem>
@@ -119,16 +119,16 @@ export default function ProfileDropdown() {
 
         {/* Account & Org Management */}
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => router.push("/orgs")} className="py-1.5 gap-1.5">
+          <DropdownMenuItem onSelect={() => router.push("/orgs")} className="py-1.5 gap-1.5">
             <Building2 className="w-4 h-4" />
             Manage Organizations
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => router.push("/settings")} className="py-1.5 gap-1.5">
+          <DropdownMenuItem onSelect={() => router.push("/settings")} className="py-1.5 gap-1.5">
             <Settings className="w-4 h-4" />
             Settings
           </DropdownMenuItem>
           {switchable && toggleTheme && (
-            <DropdownMenuItem onClick={toggleTheme} className="py-1.5 gap-1.5 text-muted-foreground">
+            <DropdownMenuItem onSelect={toggleTheme} className="py-1.5 gap-1.5 text-muted-foreground">
               {theme === "light" ? (
                 <Moon className="w-4 h-4" />
               ) : (
@@ -145,9 +145,10 @@ export default function ProfileDropdown() {
         <DropdownMenuItem
           variant="destructive"
           className="py-1.5 gap-1.5"
-          onClick={() =>
-            logout({ logoutParams: { returnTo: window.location.origin } })
-          }
+          onSelect={(e) => {
+            e.preventDefault(); // Prevent radix from closing menu before logout completes
+            logout({ logoutParams: { returnTo: window.location.origin } });
+          }}
         >
           <LogOut className="w-4 h-4" />
           Log Out

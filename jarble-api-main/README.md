@@ -31,44 +31,26 @@ npm run build
 
 ## API Endpoints
 
-### tRPC Routers (`/trpc/*`)
+### tRPC Routers (`/trpc/*`) — 16 routers
 
-**Deployment Router:**
-- `deployment.list` - List user's deployments
-- `deployment.create` - Create new deployment + K8s resources
-- `deployment.deploy` - Deploy a pending deployment
-- `deployment.getById` - Get deployment details
-- `deployment.getStatus` - Get K8s pod status
-- `deployment.getStorageUsage` - Get PVC storage usage
-- `deployment.update` - Update deployment config
-- `deployment.delete` - Delete deployment + K8s resources
-- `deployment.stop` - Scale replicas to 0 (PVC persists)
-- `deployment.start` - Scale replicas to 1
-- `deployment.restart` - Stop then start
-- `deployment.listLinkableDeployments` - List credit pool owners for linking
-
-**User Router:**
-- `user.me` - Get current user (public)
-- `user.getProfile` - Get user profile
-- `user.updateProfile` - Update profile
-- `user.completeProfile` - Complete profile setup
-
-**OpenRouter Router:**
-- `openrouter.healthCheck` - Check OpenRouter API status
-- `openrouter.models` - List available LLM models
-- `openrouter.validateApiKey` - Validate an API key
-- `openrouter.provisionKey` - Provision tenant API key
-- `openrouter.getKeyUsage` - Get usage for deployment's key
-- `openrouter.updateKeyLimit` - Update spending limit
-- `openrouter.revokeKey` - Revoke a provisioned key
-
-**Runtime Catalog Router:**
-- `runtimeCatalog.list` - List available runtimes
-- `runtimeCatalog.getById` - Get runtime by ID
-- `runtimeCatalog.getBySlug` - Get runtime by slug
-
-**Template Router:**
-- `template.list` - List bot templates
+| Router | Procedures | Description |
+|--------|-----------|-------------|
+| `user` | 6 | Profile, email verification, account deletion |
+| `deployment` | 37 | CRUD, lifecycle (stop/start/restart), billing, canvas components, platformFork |
+| `runtimeCatalog` | 4 | List available runtimes |
+| `template` | 4 | Persona templates |
+| `openrouter` | 10 | LLM key provisioning, validation, usage, revocation |
+| `platformCredentials` | 7 | Discord/Slack/Telegram tokens, WhatsApp QR, connection testing |
+| `deploymentSecrets` | 3 | Encrypted secret CRUD per deployment |
+| `billing` | 4 | Overview, invoices, subscriptions, managed key usage |
+| `skills` | 4 | Skills catalog, install/uninstall |
+| `marketplace` | 23 | Browse, install, review, creator profiles, admin review queue |
+| `services` | 26 | Service marketplace lifecycle: draft, publish, install, admin, creator analytics |
+| `apiKeys` | 4 | Developer API key CRUD |
+| `admin` | 19 | User mgmt, deployment control, Prometheus metrics, audit logs, beta |
+| `flows` | 8 | Orchestration flow CRUD, execution history, LLM-based generation |
+| `subagents` | 9 | Child agents: CRUD, reorder, fork, public toggle |
+| `org` | 12 | Organizations: CRUD, invites, members, roles |
 
 ### REST Endpoints
 
@@ -118,11 +100,22 @@ src/
 │   ├── context.ts        # Request context
 │   ├── middleware.ts      # tRPC setup + JWT auth
 │   └── routers/
-│       ├── deployment.ts  # CRUD + K8s + linking + stop/start
-│       ├── openrouter.ts  # Key provisioning + usage
-│       ├── user.ts        # Profile management
-│       ├── runtimeCatalog.ts # Runtime listing
-│       └── template.ts    # Static templates
+│       ├── admin.ts           # User mgmt, deployment control, metrics, beta
+│       ├── apiKeys.ts         # Developer API key CRUD
+│       ├── billing.ts         # Stripe overview, invoices, subscriptions
+│       ├── deployment.ts      # CRUD + K8s + lifecycle + billing + canvas
+│       ├── deploymentSecrets.ts # Encrypted secret CRUD
+│       ├── flows.ts           # Orchestration flow CRUD + LLM generation
+│       ├── marketplace.ts     # Component marketplace full lifecycle
+│       ├── openrouter.ts      # LLM key provisioning + validation + usage
+│       ├── org.ts             # Organizations, invites, members, roles
+│       ├── platformCredentials.ts # Platform tokens + WhatsApp QR
+│       ├── runtimeCatalog.ts  # Runtime listing
+│       ├── services.ts        # Service marketplace lifecycle
+│       ├── skills.ts          # Skills catalog + install/uninstall
+│       ├── subagents.ts       # Child agents: CRUD, fork, reorder
+│       ├── template.ts        # Persona templates
+│       └── user.ts            # Profile, email verify, account deletion
 ├── db/
 │   ├── index.ts          # Drizzle client
 │   ├── init.ts           # SQLite CREATE TABLE + seed

@@ -102,11 +102,11 @@ function statusDotClass(status: string): string {
     case "stopping":
       return "bg-orange-400";
     case "stopped":
-      return "bg-gray-400";
+      return "bg-muted-foreground";
     case "failed":
       return "bg-red-500";
     default:
-      return "bg-gray-400";
+      return "bg-muted-foreground";
   }
 }
 

@@ -1,5 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
-import { db, tables, USE_SQLITE } from "../db/index.js";
+import { db, tables } from "../db/index.js";
 import { logger } from "../utils/logger.js";
 import { env } from "../utils/env.js";
 import { logAdminAction } from "./auditLog.js";
@@ -59,25 +59,21 @@ export async function deleteAccount(params: {
   }
 
   // ── 2. Delete K8s resources ───────────────────────────────────────────
-  if (!USE_SQLITE) {
-    try {
-      const { deleteDeployment } = await import("../k8s/lifecycle.js");
-      for (const depId of deploymentIds) {
-        try {
-          await deleteDeployment(depId);
-          logger.info({ userId, deploymentId: depId }, "Account deletion: K8s resources deleted");
-        } catch (err) {
-          logger.error(
-            { userId, deploymentId: depId, err },
-            "Account deletion: failed to delete K8s resources - continuing"
-          );
-        }
+  try {
+    const { deleteDeployment } = await import("../k8s/lifecycle.js");
+    for (const depId of deploymentIds) {
+      try {
+        await deleteDeployment(depId);
+        logger.info({ userId, deploymentId: depId }, "Account deletion: K8s resources deleted");
+      } catch (err) {
+        logger.error(
+          { userId, deploymentId: depId, err },
+          "Account deletion: failed to delete K8s resources - continuing"
+        );
       }
-    } catch (err) {
-      logger.error({ userId, err }, "Account deletion: failed to load K8s module - continuing");
     }
-  } else {
-    logger.info({ userId }, "Account deletion: skipping K8s cleanup (SQLite/local dev)");
+  } catch (err) {
+    logger.error({ userId, err }, "Account deletion: failed to load K8s module - continuing");
   }
 
   // ── 3. Write audit log BEFORE deleting DB records ─────────────────────
