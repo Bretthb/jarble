@@ -45,6 +45,26 @@ export interface OrchestrationStepEndEvent extends OrchestrationStepEvent {
   resultPreview?: string;  // first 200 chars of result
 }
 
+// ── Cost events ─────────────────────────────────────────────────────────────
+
+export interface CostDeltaEvent {
+  deploymentId: string;
+  callId: string;
+  stepId: string;
+  costCents: number;
+  promptTokens: number;
+  completionTokens: number;
+  modelId: string;
+  depth: number;
+}
+
+export interface CostTotalEvent {
+  deploymentId: string;
+  traceId: string;
+  totalCostCents: number;
+  hopCount: number;
+}
+
 class AgentCallEmitter extends EventEmitter {}
 
 export const agentCallEvents = new AgentCallEmitter();
@@ -56,4 +76,12 @@ export function emitOrchestrationStart(event: OrchestrationStepEvent): void {
 
 export function emitOrchestrationEnd(event: OrchestrationStepEndEvent): void {
   agentCallEvents.emit("orchestration:step:end", event);
+}
+
+export function emitCostDelta(event: CostDeltaEvent): void {
+  agentCallEvents.emit("cost:delta", event);
+}
+
+export function emitCostTotal(event: CostTotalEvent): void {
+  agentCallEvents.emit("cost:total", event);
 }
