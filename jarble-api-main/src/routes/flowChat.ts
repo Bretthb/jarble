@@ -51,6 +51,7 @@ import {
   TEXT_MESSAGE_CONTENT,
   TEXT_MESSAGE_END,
 } from "../utils/eventTypes.js";
+import { agentCallEvents } from "../utils/agentCallEvents.js";
 
 const log = createModuleLogger("flow-chat");
 
@@ -312,11 +313,56 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       }
     }, MASTER_TIMEOUT_MS);
 
+    // Fractal Piece 4 wiring: forward orchestration step events to
+    // the frontend so the OrchestrationSteps tree can render nested
+    // delegations with parentId set. Mirror of the handler in
+    // tamboAgent.ts — the backend emits these via
+    // emitOrchestrationStart/End from flowDelegation.ts on every
+    // delegation hop with parentStepId + depth pre-filled.
+    const onOrchestrationStart = (evt: import("../utils/agentCallEvents.js").OrchestrationStepEvent) => {
+      // Filter by entry deployment id — we receive events from every
+      // deployment currently mutating its call tree, but this SSE stream
+      // only cares about its own flow.
+      if (evt.deploymentId !== entryDeployment.id && evt.deploymentId !== entryNode.deploymentId) return;
+      sendEvent(res, {
+        type: CUSTOM,
+        name: "jarble.orchestration.step.start",
+        value: {
+          stepId: evt.stepId,
+          agentType: evt.agentType,
+          agentName: evt.agentName,
+          toolName: evt.toolName,
+          task: evt.task,
+          targetDeploymentId: evt.targetDeploymentId,
+          parentStepId: evt.parentStepId,
+          depth: evt.depth,
+        },
+      });
+    };
+    const onOrchestrationEnd = (evt: import("../utils/agentCallEvents.js").OrchestrationStepEndEvent) => {
+      if (evt.deploymentId !== entryDeployment.id && evt.deploymentId !== entryNode.deploymentId) return;
+      sendEvent(res, {
+        type: CUSTOM,
+        name: "jarble.orchestration.step.end",
+        value: {
+          stepId: evt.stepId,
+          success: evt.success,
+          durationMs: evt.durationMs,
+          error: evt.error,
+          resultPreview: evt.resultPreview,
+        },
+      });
+    };
+    agentCallEvents.on("orchestration:step:start", onOrchestrationStart);
+    agentCallEvents.on("orchestration:step:end", onOrchestrationEnd);
+
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
       clearInterval(keepAlive);
       clearTimeout(masterTimeout);
+      agentCallEvents.off("orchestration:step:start", onOrchestrationStart);
+      agentCallEvents.off("orchestration:step:end", onOrchestrationEnd);
       releaseConnection(user!.id);
     };
 
