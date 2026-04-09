@@ -741,12 +741,17 @@ tamboAgentRouter.post("/", async (req, res) => {
     : "";
 
   // ── Input validation ────────────────────────────────────────────────
-  // Cap message length (matching flowChat.ts) to prevent kernel ARG_MAX
-  // issues when the message is passed to kubectl exec as a CLI argument.
+  // Cap message length to prevent oversized kubectl exec arguments.
+  // SSE headers are already sent, so we send the error as an SSE event.
   const MAX_DIRECT_CHAT_MESSAGE_LENGTH = 10_000;
   if (lastUserText.length > MAX_DIRECT_CHAT_MESSAGE_LENGTH) {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: `Message too long (${lastUserText.length} chars). Maximum is ${MAX_DIRECT_CHAT_MESSAGE_LENGTH} characters.` }));
+    sendEvent(res, { type: "RUN_STARTED", runId, threadId });
+    const errMsgId = nanoid();
+    sendEvent(res, { type: "TEXT_MESSAGE_START", messageId: errMsgId, role: "assistant" });
+    sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId: errMsgId, delta: `Message too long (${lastUserText.length} chars). Maximum is ${MAX_DIRECT_CHAT_MESSAGE_LENGTH} characters. Please shorten your message.` });
+    sendEvent(res, { type: "TEXT_MESSAGE_END", messageId: errMsgId });
+    sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+    res.end();
     return;
   }
 
