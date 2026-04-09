@@ -443,6 +443,9 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     const sessionKey = `flow-${flowId}-${user.id}${conversationId ? `-${conversationId}` : ""}`;
 
     const messageId = nanoid();
+    // Generate a trace ID for the entire flow chat turn so budget checks
+    // and OTel spans can stitch all delegation hops into one trace.
+    const flowTraceId = nanoid(32);
     sendEvent(res, { type: TEXT_MESSAGE_START, messageId, role: "assistant" });
 
     const entryPodName = await findPodForDeployment(entryNode.deploymentId);
@@ -586,6 +589,9 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             parentCallId: null,
             ancestorDeploymentIds: [entryNode.deploymentId],
             flowId,
+            // flowTraceId ties all delegation hops in this chat turn
+            // into one trace for budget checks + OTel stitching
+            traceId: flowTraceId,
           });
         } catch (err) {
           delegationError =

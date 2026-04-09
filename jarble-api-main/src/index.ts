@@ -137,7 +137,7 @@ app.use("/api/deployments", filesRouter);
 app.use("/api/deployments", knowledgeRouter);
 app.use("/api/mesh", meshGatewayRouter);
 app.use("/api/mesh", meshDiscoveryRouter);
-app.use("/api/a2a", a2aGatewayRouter);
+app.use("/api/a2a", authLimiter, a2aGatewayRouter);
 app.use("/api/agent-hub", agentHubRouter);
 app.use("/api/beta-signup", betaRouter);
 app.use("/api/promo", promoRouter);

@@ -19,20 +19,18 @@ import { nanoid } from "nanoid";
 import { db, tables } from "../db/index.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { env } from "../utils/env.js";
+import { getUserFromRequest } from "../helpers/auth.js";
 
 const log = createModuleLogger("a2a-gateway");
 
 export const a2aGatewayRouter = Router();
 
 // ── Auth helper ─────────────────────────────────────────────────────────
-// Extracts userId from JWT (set by express-oauth2-jwt-bearer upstream).
-// API key auth can be layered on top in the future.
+// Uses the shared JWT verification from helpers/auth.ts (jose + JWKS).
 
-function resolveAuth(req: Request): { userId: string } | null {
-  if ((req as any).auth?.payload?.sub) {
-    return { userId: (req as any).auth.payload.sub };
-  }
-  return null;
+async function resolveAuth(req: Request): Promise<{ userId: string } | null> {
+  const user = await getUserFromRequest(req);
+  return user ? { userId: user.id } : null;
 }
 
 // ── Agent Card ──────────────────────────────────────────────────────────
@@ -47,6 +45,8 @@ a2aGatewayRouter.get("/:deploymentId/agent.json", async (req: Request, res: Resp
       where: eq(tables.deployments.id, deploymentId),
       columns: {
         id: true,
+        userId: true,
+        orgId: true,
         name: true,
         systemPrompt: true,
         status: true,
@@ -60,11 +60,23 @@ a2aGatewayRouter.get("/:deploymentId/agent.json", async (req: Request, res: Resp
       return;
     }
 
-    // Only expose agent card for public deployments or with auth
+    // Only expose agent card for public deployments or with verified ownership
     if (!deployment.isPublic) {
       const auth = await resolveAuth(req);
       if (!auth) {
         res.status(401).json({ error: "Authentication required for private deployments" });
+        return;
+      }
+      // Verify ownership (personal or org membership)
+      const memberships = await db.query.orgMembers.findMany({
+        where: eq(tables.orgMembers.userId, auth.userId),
+        columns: { orgId: true },
+      });
+      const orgIds = memberships.map((m: any) => m.orgId);
+      const isOwner = (deployment as any).userId === auth.userId;
+      const isOrgMember = (deployment as any).orgId && orgIds.includes((deployment as any).orgId);
+      if (!isOwner && !isOrgMember) {
+        res.status(404).json({ error: "Deployment not found" });
         return;
       }
     }
@@ -135,6 +147,27 @@ a2aGatewayRouter.post("/:deploymentId/tasks/send", async (req: Request, res: Res
       error: { code: -32602, message: "Message too long (max 10,000 chars)" },
     });
     return;
+  }
+
+  // Validate sessionId if provided (defense-in-depth: used as env var + CLI arg)
+  if (sessionId && (typeof sessionId !== "string" || !/^[\w\-]{1,128}$/.test(sessionId))) {
+    res.status(400).json({
+      jsonrpc: "2.0",
+      error: { code: -32602, message: "Invalid sessionId (alphanumeric/dash/underscore, max 128 chars)" },
+    });
+    return;
+  }
+
+  // Limit context object size to prevent inflating the message beyond the 10k cap
+  if (context && typeof context === "object") {
+    const contextStr = JSON.stringify(context);
+    if (contextStr.length > 5_000) {
+      res.status(400).json({
+        jsonrpc: "2.0",
+        error: { code: -32602, message: "Context too large (max 5,000 chars when serialized)" },
+      });
+      return;
+    }
   }
 
   try {
@@ -252,12 +285,13 @@ a2aGatewayRouter.post("/:deploymentId/tasks/send", async (req: Request, res: Res
       },
     });
   } catch (err: any) {
-    log.error({ deploymentId, err: err.message }, "A2A: task failed");
+    log.error({ deploymentId, err: err.message, stack: err.stack }, "A2A: task failed");
+    // Don't leak internal error details to external callers
     res.status(500).json({
       jsonrpc: "2.0",
       error: {
         code: -32000,
-        message: err.message || "Internal error during task execution",
+        message: "Internal error during task execution",
       },
     });
   }

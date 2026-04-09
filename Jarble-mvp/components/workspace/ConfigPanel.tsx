@@ -447,11 +447,14 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
                 min={0}
                 step={0.5}
                 placeholder="Unlimited"
-                value={(dep as any)?.maxBudgetCents != null ? ((dep as any).maxBudgetCents / 100).toFixed(2) : ""}
-                onChange={(e) => {
+                defaultValue={(dep as any)?.maxBudgetCents != null ? ((dep as any).maxBudgetCents / 100).toFixed(2) : ""}
+                onBlur={(e) => {
                   const val = e.target.value;
                   const cents = val ? Math.round(parseFloat(val) * 100) : null;
-                  updateMutation.mutate({ id: deploymentId, maxBudgetCents: cents });
+                  const current = (dep as any)?.maxBudgetCents ?? null;
+                  if (cents !== current) {
+                    updateMutation.mutate({ id: deploymentId, maxBudgetCents: cents });
+                  }
                 }}
                 disabled={updateMutation.isPending}
                 className="flex-1 px-2.5 py-1.5 bg-secondary/50 border border-border rounded-md text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary"
