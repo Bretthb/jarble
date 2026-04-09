@@ -165,16 +165,17 @@ else
   echo "[entrypoint] Deployment: ${DEPLOYMENT_NAME:-unknown} (${DEPLOYMENT_ID:-unknown})"
 fi
 
-# ── Remove BOOTSTRAP.md if it exists ────────────────────────────────
-# OpenClaw creates BOOTSTRAP.md on first run to guide initial setup.
-# After the bot is configured, it should be deleted — but if the bot
-# never deletes it, the bot acts "brand new" on every restart.
-# We remove it unconditionally since Jarble handles onboarding via
-# the system prompt (SOUL.md), not via BOOTSTRAP.md.
+# ── Remove stale BOOTSTRAP.md for existing deployments ──────────────
+# OpenClaw creates BOOTSTRAP.md on first run to guide initial onboarding.
+# For NEW deployments (no sessions yet), we keep it so the bot does
+# the "who am I?" onboarding flow. For EXISTING deployments (session
+# files exist), we remove it so the bot doesn't act "brand new" after
+# every pod restart.
 BOOTSTRAP_FILE="$OPENCLAW_STATE/workspace/BOOTSTRAP.md"
-if [ -f "$BOOTSTRAP_FILE" ]; then
+SESSIONS_DIR="$OPENCLAW_STATE/agents/main/sessions"
+if [ -f "$BOOTSTRAP_FILE" ] && [ -d "$SESSIONS_DIR" ] && [ "$(ls -A $SESSIONS_DIR 2>/dev/null | head -1)" ]; then
   rm -f "$BOOTSTRAP_FILE"
-  echo "[entrypoint] Removed BOOTSTRAP.md (Jarble manages onboarding via SOUL.md)"
+  echo "[entrypoint] Removed stale BOOTSTRAP.md (bot has existing sessions)"
 fi
 
 # ── jarble-ui tools: no in-pod registration ───────────────────────────
