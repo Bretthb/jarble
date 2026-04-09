@@ -646,6 +646,19 @@ export async function executeDelegation(params: {
     message = `Conversation so far:\n${history}\n\nTask: ${params.task}`;
   }
 
+  // Inject dashboard context so delegated bots know they're on the
+  // Jarble web dashboard and CAN render jarble_ui components. Without
+  // this tag, JARBLE_UI_PROMPT tells the bot "assume NOT on dashboard"
+  // and the bot refuses to render any canvas components — which is
+  // exactly what happened when t1 was delegated a stat_grid render
+  // and responded "I'm currently on webchat without dashboard/canvas
+  // capabilities."
+  //
+  // The [CANVAS_STATE] tag matches the signal that the web frontend
+  // sends on every normal chat (via tamboAgent.ts), and is what
+  // JARBLE_UI_PROMPT checks to detect the dashboard.
+  message = `[CANVAS_STATE]\nNo cards on canvas.\n[/CANVAS_STATE]\n${message}`;
+
   // Find the pod for this deployment and exec into it
   const { chatViaExec } = await import("./openclawGateway.js");
   const { findPodForDeployment } = await import("../k8s/index.js");
