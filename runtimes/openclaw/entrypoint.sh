@@ -165,6 +165,18 @@ else
   echo "[entrypoint] Deployment: ${DEPLOYMENT_NAME:-unknown} (${DEPLOYMENT_ID:-unknown})"
 fi
 
+# ── Remove BOOTSTRAP.md if it exists ────────────────────────────────
+# OpenClaw creates BOOTSTRAP.md on first run to guide initial setup.
+# After the bot is configured, it should be deleted — but if the bot
+# never deletes it, the bot acts "brand new" on every restart.
+# We remove it unconditionally since Jarble handles onboarding via
+# the system prompt (SOUL.md), not via BOOTSTRAP.md.
+BOOTSTRAP_FILE="$OPENCLAW_STATE/workspace/BOOTSTRAP.md"
+if [ -f "$BOOTSTRAP_FILE" ]; then
+  rm -f "$BOOTSTRAP_FILE"
+  echo "[entrypoint] Removed BOOTSTRAP.md (Jarble manages onboarding via SOUL.md)"
+fi
+
 # ── jarble-ui tools: no in-pod registration ───────────────────────────
 # OpenClaw has no first-class MCP integration. The previous block here ran
 # `mcporter config add jarble-ui ...` but mcporter is treated by OpenClaw
