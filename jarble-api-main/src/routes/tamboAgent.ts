@@ -796,12 +796,12 @@ tamboAgentRouter.post("/", async (req, res) => {
     orgId: deployment.orgId,
     sessionId: threadId,
     spanName: "jarble.chat.turn",
-    requestBody: lastUserText,
+    requestBody: sanitizedText,
     attributes: {
       runId,
       threadId,
       hasCanvasImage: !!canvasImage,
-      messageLength: lastUserText.length,
+      messageLength: sanitizedText.length,
     },
   });
   let rootCallFinished = false;
@@ -822,8 +822,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   // ── Slash command interception - handle /theme, /commands, etc. directly ──
   // Must run BEFORE RUN_STARTED to avoid double-emit (command handler sends its own).
   // Strip canvas state/design context prefixes to find the actual user text for slash detection.
-  const slashText = lastUserText
-    .replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]\n?/g, "")
+  const slashText = sanitizedText
     .replace(/\[DESIGN_CONTEXT\][\s\S]*?\[\/DESIGN_CONTEXT\]\n?/g, "")
     .replace(/\[EDITING [^\]]*\][\s\S]*?\[\/EDITING\]\n?/g, "")
     .trim();
@@ -929,7 +928,7 @@ tamboAgentRouter.post("/", async (req, res) => {
 
   // Empty messages (e.g. Tambo init probes or StrictMode double-mounts) -
   // return a no-op success instead of exec'ing with an empty --message flag.
-  if (!lastUserText.trim()) {
+  if (!sanitizedText.trim()) {
     const messageId = nanoid();
     sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
     sendEvent(res, { type: "TEXT_MESSAGE_CONTENT", messageId, delta: "Connected to your bot. Send a message to start chatting!" });
@@ -1065,15 +1064,15 @@ tamboAgentRouter.post("/", async (req, res) => {
           await db.insert(tables.chatSessions).values({
             id: convId,
             deploymentId,
-            title: lastUserText.slice(0, 50),
+            title: sanitizedText.slice(0, 50),
             createdAt: now,
             updatedAt: now,
           } as any);
         }
 
         // Now safe to insert message (session exists)
-        // Strip [CANVAS_STATE] prefix - it's bot context metadata, not user text
-        const cleanUserText = lastUserText.replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]\s*/g, "").trim();
+        // sanitizedText already has control tags stripped; just use it directly
+        const cleanUserText = sanitizedText;
         await db.insert(tables.chatMessages).values({
           id: nanoid(),
           sessionId: convId,
@@ -1174,7 +1173,7 @@ tamboAgentRouter.post("/", async (req, res) => {
   // it - it's cheap ($0.00005/call) and acts as the safety net.
   const reasoningMsgId = nanoid();
   let reasoningEmitted = false; // true once ANY reasoning source has been emitted
-  const reasoningPromise = generateReasoning(lastUserText);
+  const reasoningPromise = generateReasoning(sanitizedText);
 
   /** Emit reasoning events from a given source (once). */
   const emitReasoningBlock = (content: string, source: string) => {
@@ -1441,7 +1440,7 @@ tamboAgentRouter.post("/", async (req, res) => {
                   task: job.call.task,
                   context: job.call.context,
                   contextScope: job.tool.contextScope,
-                  conversationHistory: [{ role: "user", content: lastUserText }],
+                  conversationHistory: [{ role: "user", content: sanitizedText }],
                   sessionId: `team-delegation-${deploymentId}-${job.tool.targetNodeId}-${Date.now()}`,
                   depth: 1,
                   sourceDeploymentId: deploymentId,
@@ -1707,7 +1706,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     } else {
       // Secondary model call - cheap GPT-4o-mini generates contextual follow-ups
       try {
-        const generated = await generateSuggestions(lastUserText, gatewayResult.text);
+        const generated = await generateSuggestions(sanitizedText, gatewayResult.text);
         if (generated.length > 0) {
           safeSendEvent(res, {
             type: CUSTOM,
@@ -1743,7 +1742,7 @@ tamboAgentRouter.post("/", async (req, res) => {
             await db.insert(tables.chatSessions).values({
               id: convId,
               deploymentId,
-              title: lastUserText.slice(0, 50),
+              title: sanitizedText.slice(0, 50),
               createdAt: now,
               updatedAt: now,
             } as any);
