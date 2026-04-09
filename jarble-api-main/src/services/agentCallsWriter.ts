@@ -28,6 +28,7 @@
  */
 
 import { customAlphabet } from "nanoid";
+import { trace, context as otelContext } from "@opentelemetry/api";
 import { db, dbDate, tables } from "../db/index.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { eq } from "drizzle-orm";
@@ -39,6 +40,40 @@ const logger = createModuleLogger("agentCallsWriter");
 const hexAlphabet = "0123456789abcdef";
 const genTraceId = customAlphabet(hexAlphabet, 32);
 const genSpanId = customAlphabet(hexAlphabet, 16);
+
+/**
+ * JAR-51 Phase 2 OTel bridge — when an OTel span is active on the calling
+ * code path, reuse its trace_id / span_id so the agent_calls rows correlate
+ * with the exported Langfuse traces. When no active span (e.g. a background
+ * job or a test), fall back to the nanoid generator so rows still work.
+ *
+ * Returns { traceId, spanId } — the span_id is the CURRENT active span's id,
+ * which the caller will use as `parent_span_id` on downstream hops. The row
+ * itself still gets a fresh span_id per logical DB row — this lets multiple
+ * rows share a trace while remaining individually addressable.
+ */
+function resolveOtelContext(
+  fallbackTraceId: string | null,
+  fallbackParentSpanId: string | null,
+): { traceId: string; parentSpanId: string | null } {
+  const activeSpan = trace.getSpan(otelContext.active());
+  if (activeSpan) {
+    const sc = activeSpan.spanContext();
+    // valid span context has non-zero trace/span ids
+    if (sc.traceId && sc.traceId !== "00000000000000000000000000000000") {
+      return {
+        traceId: sc.traceId,
+        // If the caller explicitly passed a parentSpanId, honor it;
+        // otherwise use the active span as the parent.
+        parentSpanId: fallbackParentSpanId ?? sc.spanId,
+      };
+    }
+  }
+  return {
+    traceId: fallbackTraceId || genTraceId(),
+    parentSpanId: fallbackParentSpanId,
+  };
+}
 
 const MAX_BODY_CHARS = 10_000;
 
@@ -106,8 +141,13 @@ export async function startAgentCall(
   input: StartAgentCallInput,
 ): Promise<StartedAgentCall> {
   const callId = `acl_${Math.random().toString(36).slice(2, 14)}${Date.now().toString(36)}`;
-  const traceId = input.traceId || genTraceId();
+  // Bridge to OTel active span context when available (JAR-51 Phase 2).
+  // The resolver reuses the active trace_id and, when the caller didn't pass
+  // an explicit parent_span_id, uses the current OTel span as the parent.
+  const otelCtx = resolveOtelContext(input.traceId, input.parentSpanId);
+  const traceId = otelCtx.traceId;
   const spanId = genSpanId();
+  const resolvedParentSpanId = otelCtx.parentSpanId;
   const startedAt = Date.now();
   const spanName =
     input.spanName ||
@@ -143,7 +183,7 @@ export async function startAgentCall(
       kind: input.kind,
       traceId,
       spanId,
-      parentSpanId: input.parentSpanId,
+      parentSpanId: resolvedParentSpanId,
       spanName,
       spanKind: "internal",
       serviceName: input.serviceName || "jarble-api",
@@ -163,7 +203,7 @@ export async function startAgentCall(
     );
   }
 
-  return { callId, traceId, spanId, parentSpanId: input.parentSpanId, parentCallId: input.parentCallId, depth: input.depth, startedAt };
+  return { callId, traceId, spanId, parentSpanId: resolvedParentSpanId, parentCallId: input.parentCallId, depth: input.depth, startedAt };
 }
 
 export interface FinishAgentCallInput {
