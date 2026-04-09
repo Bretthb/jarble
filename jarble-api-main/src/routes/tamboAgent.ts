@@ -740,9 +740,29 @@ tamboAgentRouter.post("/", async (req, res) => {
         : "")
     : "";
 
+  // ── Input validation ────────────────────────────────────────────────
+  // Cap message length (matching flowChat.ts) to prevent kernel ARG_MAX
+  // issues when the message is passed to kubectl exec as a CLI argument.
+  const MAX_DIRECT_CHAT_MESSAGE_LENGTH = 10_000;
+  if (lastUserText.length > MAX_DIRECT_CHAT_MESSAGE_LENGTH) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: `Message too long (${lastUserText.length} chars). Maximum is ${MAX_DIRECT_CHAT_MESSAGE_LENGTH} characters.` }));
+    return;
+  }
+
+  // Strip user-injected control tags that are reserved for server-side
+  // injection. Prevents prompt injection where a user prepends their own
+  // [DELEGATION_CONTEXT] or [CANVAS_STATE] to manipulate bot behavior.
+  let sanitizedText = lastUserText
+    .replace(/\[DELEGATION_CONTEXT\][\s\S]*?\[\/DELEGATION_CONTEXT\]/gi, "")
+    .replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]/gi, "")
+    .replace(/\[FLOW CONTEXT\][\s\S]*?\[\/FLOW CONTEXT\]/gi, "")
+    .replace(/\[FLOW SYSTEM INSTRUCTIONS[^\]]*\][\s\S]*?\[\/FLOW SYSTEM INSTRUCTIONS\]/gi, "")
+    .trim();
+
   // If canvas image is provided, append a vision context note to the message
   // so the bot knows it can see the canvas
-  let messageWithVision = lastUserText;
+  let messageWithVision = sanitizedText;
   if (canvasImage) {
     messageWithVision += "\n\n[CANVAS_SCREENSHOT attached - you can see the current canvas layout, rendered components, and any drawings the user made. Describe what you see if relevant to the request.]";
     log.info({ deploymentId, imageSize: Math.round(canvasImage.length / 1024) + "KB" }, "Chat: canvas image attached");

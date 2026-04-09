@@ -57,6 +57,23 @@ const log = createModuleLogger("flow-chat");
 
 export const flowChatRouter = Router();
 
+// ── Per-session exec lock ────────────────────────────────────────────────────
+// Prevents concurrent chatViaExec calls on the same entry bot session,
+// which corrupts OpenClaw's session history. Same pattern as tamboAgent.ts.
+const sessionExecLocks = new Map<string, Promise<void>>();
+
+function withSessionLock(sessionKey: string, fn: () => Promise<void>): Promise<void> {
+  const prev = sessionExecLocks.get(sessionKey) || Promise.resolve();
+  const next = prev.then(fn, fn);
+  sessionExecLocks.set(sessionKey, next);
+  next.finally(() => {
+    if (sessionExecLocks.get(sessionKey) === next) {
+      sessionExecLocks.delete(sessionKey);
+    }
+  });
+  return next;
+}
+
 // ── Per-user SSE connection limiting ─────────────────────────────────────────
 
 const MAX_FLOW_CHAT_SSE_PER_USER = 3;
