@@ -123,6 +123,7 @@ export const deploymentSecrets = sqliteTable("deployment_secrets", {
   key: text("key").notNull(), // env var name, e.g. "MY_API_KEY"
   value: text("value").notNull(), // AES-256-GCM encrypted
   source: text("source").notNull().default("user"), // "user" | "agent"
+  scope: text("scope").notNull().default("shared"), // "shared" | "bot" | "user"
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 }, (table) => ({

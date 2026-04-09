@@ -4270,7 +4270,7 @@ export default function Deployments({ defaultTab, embedded }: { defaultTab?: str
             onValueChange={setActiveTab}
             className="flex flex-col flex-1"
           >
-            <TabsList className="w-fit mb-3">
+            <TabsList className={`w-fit mb-3 ${embedded ? "hidden" : ""}`}>
               <TabsTrigger value="deployments" className="gap-1.5">
                 <Share2 className="w-3.5 h-3.5" />
                 Linked Deployments

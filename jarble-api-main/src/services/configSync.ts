@@ -141,6 +141,9 @@ async function buildDeploymentFields(
       where: eq(deploymentSecrets.deploymentId, deployment.id),
     });
     for (const row of secretRows) {
+      // Skip "user" scope secrets — they're client-side encrypted and
+      // the server cannot decrypt them. They are never injected into pods.
+      if ((row as any).scope === "user") continue;
       try {
         deploymentSecretsMap[row.key] = decryptApiKey(row.value);
       } catch (err) {

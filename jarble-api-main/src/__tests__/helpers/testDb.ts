@@ -112,6 +112,7 @@ const CREATE_TABLES_SQL = `
     key TEXT NOT NULL,
     value TEXT NOT NULL,
     source TEXT NOT NULL DEFAULT 'user',
+    scope TEXT NOT NULL DEFAULT 'shared',
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
