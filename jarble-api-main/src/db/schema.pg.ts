@@ -69,6 +69,7 @@ export const deployments = pgTable("deployments", {
   bio: text("bio"),
   showcasePrompts: text("showcase_prompts"),  // JSON array of example prompts
   orgId: varchar("org_id", { length: 255 }),  // null = personal deployment, non-null = org-owned
+  visibility: varchar("visibility", { length: 20 }).default("all"),  // "all" = every org member sees it, "admin" = owner + admin only
   /**
    * JAR memory-scoping (foundation): how the bot's long-term memory layer
    * behaves across sessions. The actual enforcement of `session` mode lives

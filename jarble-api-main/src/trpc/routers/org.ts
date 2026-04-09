@@ -18,9 +18,9 @@ const generateInviteToken = () => crypto.randomBytes(32).toString("hex");
 
 // ── Role helpers ───────────────────────────────────────────────────────────
 
-type OrgRole = "owner" | "admin" | "member";
+export type OrgRole = "owner" | "admin" | "member";
 
-async function requireOrgMembership(
+export async function requireOrgMembership(
   db: any,
   userId: string,
   orgId: string,
@@ -38,7 +38,7 @@ async function requireOrgMembership(
   return { orgId: membership.orgId, userId: membership.userId, role: membership.role as OrgRole };
 }
 
-async function requireOrgRole(
+export async function requireOrgRole(
   db: any,
   userId: string,
   orgId: string,

@@ -55,6 +55,8 @@ export default function Dashboard() {
   const { user, isAuthenticated, isLoading: authLoading, error: authError } = useAuth0();
   const { theme } = useTheme();
   const { activeOrgId, activeOrg } = useOrg();
+  // Members are read-only viewers in org context; owner/admin can manage
+  const canManageDeployments = !activeOrg || activeOrg.role === "owner" || activeOrg.role === "admin";
   const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
 
   if (authError) {
@@ -300,11 +302,13 @@ export default function Dashboard() {
             </p>
             <p className="text-xs text-muted-foreground">
               {activeOrg
-                ? `Viewing organization deployments \u00b7 ${activeOrg.role}`
+                ? activeOrg.role === "member"
+                  ? "Viewing organization deployments (view only)"
+                  : `Viewing organization deployments \u00b7 ${activeOrg.role}`
                 : "Viewing your personal deployments"}
             </p>
           </div>
-          {activeOrg && (
+          {activeOrg && (activeOrg.role === "owner" || activeOrg.role === "admin") && (
             <Button
               variant="ghost"
               size="sm"
@@ -319,14 +323,16 @@ export default function Dashboard() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold">Deployments</h2>
-          <Button
-            onClick={handleCreateDeployment}
-            size="sm"
-            className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium h-8"
-          >
-            <Plus className="w-4 h-4 mr-1.5" />
-            New Deployment
-          </Button>
+          {canManageDeployments && (
+            <Button
+              onClick={handleCreateDeployment}
+              size="sm"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium h-8"
+            >
+              <Plus className="w-4 h-4 mr-1.5" />
+              New Deployment
+            </Button>
+          )}
         </div>
 
         {/* Deployments Grid */}
@@ -376,6 +382,7 @@ export default function Dashboard() {
               <DeploymentCard
                 key={deployment.id}
                 deployment={deployment}
+                readOnly={!canManageDeployments}
                 liveStatusData={getLiveStatus(deployment.id)}
                 onDelete={handleDelete}
                 onStop={handleStop}
@@ -403,14 +410,20 @@ export default function Dashboard() {
             <Bot className="w-12 h-12 mx-auto mb-4 text-muted-foreground/40" />
             <h3 className="text-lg font-semibold mb-1">No deployments yet</h3>
             <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">Create your first AI deployment in under 2 minutes</p>
-            <Button
-              onClick={handleCreateDeployment}
-              size="lg"
-              className="font-semibold bg-primary hover:bg-primary/90 text-primary-foreground"
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              Create Deployment
-            </Button>
+            {canManageDeployments ? (
+              <Button
+                onClick={handleCreateDeployment}
+                size="lg"
+                className="font-semibold bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                <Plus className="w-5 h-5 mr-2" />
+                Create Deployment
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Ask an admin to create deployments for this organization.
+              </p>
+            )}
           </motion.div>
         )}
       </div>
@@ -418,7 +431,7 @@ export default function Dashboard() {
   );
 }
 
-const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting, storageData, storageLoading }: {
+const DeploymentCard = memo(function DeploymentCard({ deployment, readOnly, liveStatusData, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting, storageData, storageLoading }: {
   deployment: {
     id: string;
     name: string;
@@ -430,6 +443,7 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData
     cancelledAt?: Date | string | null;
     cancelAtPeriodEnd?: Date | string | null;
   };
+  readOnly?: boolean;
   liveStatusData?: DeploymentStatus;
   onDelete: (id: string) => void;
   onStop: (id: string) => void;
@@ -562,121 +576,127 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, liveStatusData
 
             {/* Action buttons */}
             <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-              {/* Stop/Start toggle */}
-              {isRunning && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => onStop(deployment.id)}
-                  disabled={isToggling}
-                  className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
-                  title="Stop"
-                  aria-label="Stop deployment"
-                >
-                  {isToggling ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Square className="w-3.5 h-3.5" />
-                  )}
-                </Button>
-              )}
-
-              {isStopped && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => onStart(deployment.id)}
-                  disabled={isToggling}
-                  className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
-                  title="Start"
-                  aria-label="Start deployment"
-                >
-                  {isToggling ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Play className="w-3.5 h-3.5" />
-                  )}
-                </Button>
-              )}
-
-              {isTransitioning && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled
-                  className="text-muted-foreground h-7 w-7 p-0"
-                  title="Starting..."
-                  aria-label="Deployment starting"
-                >
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                </Button>
-              )}
-
-              {/* Export (only for cancelled running deployments) */}
-              {deployment.cancelledAt && isRunning && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => onExport(deployment.id)}
-                  disabled={isExporting}
-                  className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
-                  title="Export configs"
-                  aria-label="Export deployment configs"
-                >
-                  {isExporting ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5" />
-                  )}
-                </Button>
-              )}
-
-              {/* Restart (only for running) */}
-              {isRunning && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => onRestart(deployment.id)}
-                  disabled={isToggling}
-                  className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
-                  title="Restart"
-                  aria-label="Restart deployment"
-                >
-                  <RotateCw className="w-3.5 h-3.5" />
-                </Button>
-              )}
-
-              {/* Delete */}
-              {confirmDelete ? (
-                <div className="flex gap-1">
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => { onDelete(deployment.id); setConfirmDelete(false); }}
-                    className="text-xs h-7 px-2"
-                  >
-                    Delete
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setConfirmDelete(false)}
-                    className="text-xs border-border h-7 px-2"
-                  >
-                    Cancel
-                  </Button>
-                </div>
+              {readOnly ? (
+                <span className="text-xs text-muted-foreground/60 px-1">View only</span>
               ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setConfirmDelete(true)}
-                  className="text-muted-foreground hover:text-red-500 h-7 w-7 p-0"
-                  title="Delete"
-                  aria-label="Delete deployment"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
+                <>
+                  {/* Stop/Start toggle */}
+                  {isRunning && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onStop(deployment.id)}
+                      disabled={isToggling}
+                      className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
+                      title="Stop"
+                      aria-label="Stop deployment"
+                    >
+                      {isToggling ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Square className="w-3.5 h-3.5" />
+                      )}
+                    </Button>
+                  )}
+
+                  {isStopped && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onStart(deployment.id)}
+                      disabled={isToggling}
+                      className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
+                      title="Start"
+                      aria-label="Start deployment"
+                    >
+                      {isToggling ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5" />
+                      )}
+                    </Button>
+                  )}
+
+                  {isTransitioning && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled
+                      className="text-muted-foreground h-7 w-7 p-0"
+                      title="Starting..."
+                      aria-label="Deployment starting"
+                    >
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    </Button>
+                  )}
+
+                  {/* Export (only for cancelled running deployments) */}
+                  {deployment.cancelledAt && isRunning && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onExport(deployment.id)}
+                      disabled={isExporting}
+                      className="text-muted-foreground hover:text-orange-500 h-7 w-7 p-0"
+                      title="Export configs"
+                      aria-label="Export deployment configs"
+                    >
+                      {isExporting ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                    </Button>
+                  )}
+
+                  {/* Restart (only for running) */}
+                  {isRunning && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onRestart(deployment.id)}
+                      disabled={isToggling}
+                      className="text-muted-foreground hover:text-primary h-7 w-7 p-0"
+                      title="Restart"
+                      aria-label="Restart deployment"
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+
+                  {/* Delete */}
+                  {confirmDelete ? (
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => { onDelete(deployment.id); setConfirmDelete(false); }}
+                        className="text-xs h-7 px-2"
+                      >
+                        Delete
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setConfirmDelete(false)}
+                        className="text-xs border-border h-7 px-2"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setConfirmDelete(true)}
+                      className="text-muted-foreground hover:text-red-500 h-7 w-7 p-0"
+                      title="Delete"
+                      aria-label="Delete deployment"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+                </>
               )}
             </div>
           </div>
