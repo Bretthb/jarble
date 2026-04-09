@@ -1256,6 +1256,8 @@ export const deploymentRouter = router({
       // input just persists the user's choice so the disclosure banner
       // can read it back.
       memoryScope: z.enum(["global", "session", "off"]).optional(),
+      /** Per-deployment delegation budget cap in cents. null = unlimited. */
+      maxBudgetCents: z.number().int().min(0).nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...rawUpdates } = input;

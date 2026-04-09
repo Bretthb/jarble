@@ -11,7 +11,7 @@
  */
 
 import { db, tables, dbDate } from "../db/index.js";
-import { eq, and, or, inArray } from "drizzle-orm";
+import { eq, and, or, inArray, sql } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
 import { emitOrchestrationStart, emitOrchestrationEnd } from "../utils/agentCallEvents.js";
 import { nanoid } from "nanoid";
@@ -597,6 +597,29 @@ export async function executeDelegation(params: {
   const ancestors = params.ancestorDeploymentIds ?? [];
   if (ancestors.includes(params.targetDeploymentId)) {
     throw new DelegationCycleError(ancestors, params.targetDeploymentId);
+  }
+
+  // ── Per-deployment budget check ────────────────────────────────────────
+  // If the source deployment has a maxBudgetCents cap, check accumulated
+  // credits for this trace before allowing the delegation to proceed.
+  if (params.sourceDeploymentId && params.traceId) {
+    const sourceDeployment = await db.query.deployments.findFirst({
+      where: eq(tables.deployments.id, params.sourceDeploymentId),
+      columns: { maxBudgetCents: true },
+    });
+    if (sourceDeployment?.maxBudgetCents != null) {
+      const traceCredits = await db
+        .select({ total: sql<number>`COALESCE(SUM(credits_charged), 0)` })
+        .from(tables.agentCalls)
+        .where(eq(tables.agentCalls.traceId, params.traceId));
+      const spent = Number(traceCredits[0]?.total ?? 0);
+      if (spent >= sourceDeployment.maxBudgetCents) {
+        throw new Error(
+          `Delegation budget exceeded for this bot. Spent ${spent} cents (limit: ${sourceDeployment.maxBudgetCents} cents). ` +
+          `Increase the budget in deployment settings to allow more delegations.`,
+        );
+      }
+    }
   }
 
   const startTime = Date.now();

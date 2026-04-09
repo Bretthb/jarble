@@ -88,6 +88,8 @@ export const deployments = pgTable("deployments", {
    *                            memory tools no-op
    */
   memoryScope: varchar("memory_scope", { length: 20 }).notNull().default("global"),
+  /** Per-deployment delegation budget cap in cents. null = unlimited (falls back to global circuit breaker). */
+  maxBudgetCents: integer("max_budget_cents"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({

@@ -1986,6 +1986,7 @@ function FlowCanvas({
   flow,
   onUpdateFlow,
   executionSteps,
+  activeDelegationTargets,
   pausedNodeId,
   onResumeInput,
   selectedNodeId,
@@ -1995,6 +1996,8 @@ function FlowCanvas({
   flow: FlowDefinition;
   onUpdateFlow: (updates: Partial<FlowDefinition>) => void;
   executionSteps: Map<string, FlowStepStatus>;
+  /** Deployment IDs currently being delegated to (from chat SSE events) */
+  activeDelegationTargets?: Set<string>;
   pausedNodeId?: string;
   onResumeInput?: (nodeId: string, input: string) => void;
   selectedNodeId: string | null;
@@ -2022,13 +2025,16 @@ function FlowCanvas({
       const liveStatus = getStatus(node.id)?.status;
       const latestDep = deploymentById.get(node.id);
       const resolvedStatus = liveStatus ?? latestDep?.status ?? node.data.status;
+      // Chat-level delegation: show node as "running" when actively delegated to
+      const isDelegationTarget = activeDelegationTargets?.has(node.id) ?? false;
+      const resolvedExecStatus = stepStatus?.status ?? (isDelegationTarget ? "running" : undefined);
       return {
         ...node,
         selected: node.id === selectedNodeId,
         data: {
           ...node.data,
           status: resolvedStatus,
-          executionStatus: stepStatus?.status,
+          executionStatus: resolvedExecStatus,
           executionCredits: stepStatus?.credits,
           executionDurationMs: stepStatus?.durationMs,
           executionError: stepStatus?.error,
@@ -2043,24 +2049,29 @@ function FlowCanvas({
         },
       };
     });
-  }, [flow.nodes, executionSteps, pausedNodeId, onResumeInput, selectedNodeId, getStatus, deploymentById]);
+  }, [flow.nodes, executionSteps, activeDelegationTargets, pausedNodeId, onResumeInput, selectedNodeId, getStatus, deploymentById]);
 
   // Merge execution state into edges (preserve edgeType)
   const edgesWithExecution: Edge[] = useMemo(() => {
     return flow.edges.map((edge) => {
       const targetStatus = executionSteps.get(edge.target);
       const existingData = (edge.data as FlowEdgeData) || {};
+      // Chat-level delegation activity: if the target deployment is being
+      // actively delegated to (from flow chat SSE), show as "running" on
+      // the canvas edge even when there's no formal flow execution.
+      const isDelegatingToTarget = activeDelegationTargets?.has(edge.target) ?? false;
+      const resolvedStatus = targetStatus?.status ?? (isDelegatingToTarget ? "running" : undefined);
       return {
         ...edge,
         type: "flowEdge",
         data: {
           ...existingData,
           edgeType: existingData.edgeType || "delegates",
-          executionStatus: targetStatus?.status,
+          executionStatus: resolvedStatus,
         },
       };
     });
-  }, [flow.edges, executionSteps]);
+  }, [flow.edges, executionSteps, activeDelegationTargets]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(nodesWithExecution);
   const [edges, setEdges, onEdgesChange] = useEdgesState(edgesWithExecution);
@@ -2743,6 +2754,11 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   const [flowChatInput, setFlowChatInput] = useState("");
   const [flowChatLoading, setFlowChatLoading] = useState(false);
 
+  // ── Live delegation tracking for canvas edge animations ──
+  // Tracks which deployment IDs have active (running) delegations so the
+  // FlowCanvas can pulse/glow the corresponding edges in real time.
+  const [activeDelegationTargets, setActiveDelegationTargets] = useState<Set<string>>(new Set());
+
   // Track which (flowId, sessionId) we've already seeded from persistence
   // so the effect below doesn't clobber in-flight streaming messages
   // every time React re-runs it.
@@ -3327,6 +3343,10 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                 const value = data.value || {};
 
                 if (name === "jarble.flow.delegation.start") {
+                  // Light up the canvas edge to this target
+                  if (value.targetDeploymentId) {
+                    setActiveDelegationTargets((prev) => new Set(prev).add(value.targetDeploymentId));
+                  }
                   // Add delegation status indicator
                   setFlowChatMessages((prev) => {
                     const last = prev[prev.length - 1];
@@ -3355,6 +3375,14 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                     return prev;
                   });
                 } else if (name === "jarble.flow.delegation.end") {
+                  // Remove the canvas edge animation for this target
+                  if (value.targetDeploymentId) {
+                    setActiveDelegationTargets((prev) => {
+                      const next = new Set(prev);
+                      next.delete(value.targetDeploymentId);
+                      return next;
+                    });
+                  }
                   // Mark delegation as completed or failed
                   setFlowChatMessages((prev) => {
                     const last = prev[prev.length - 1];
@@ -3493,6 +3521,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
       if (chatStreamAbortRef.current === abortController) {
         chatStreamAbortRef.current = null;
         setFlowChatLoading(false);
+        // Clear any lingering delegation edge animations (stream ended)
+        setActiveDelegationTargets(new Set());
       }
     }
   }, [
@@ -3578,6 +3608,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
               flow={activeFlow}
               onUpdateFlow={handleUpdateFlow}
               executionSteps={execState.steps}
+              activeDelegationTargets={activeDelegationTargets}
               pausedNodeId={execState.pausedNodeId}
               onResumeInput={handleResumeInput}
               selectedNodeId={selectedNodeId}

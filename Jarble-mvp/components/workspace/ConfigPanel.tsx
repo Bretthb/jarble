@@ -436,6 +436,34 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
           </div>
         )}
 
+        {/* Per-delegation budget cap */}
+        {deployment && (
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Delegation budget</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">$</span>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                placeholder="Unlimited"
+                value={(dep as any)?.maxBudgetCents != null ? ((dep as any).maxBudgetCents / 100).toFixed(2) : ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const cents = val ? Math.round(parseFloat(val) * 100) : null;
+                  updateMutation.mutate({ id: deploymentId, maxBudgetCents: cents });
+                }}
+                disabled={updateMutation.isPending}
+                className="flex-1 px-2.5 py-1.5 bg-secondary/50 border border-border rounded-md text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <span className="text-xs text-muted-foreground">/turn</span>
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              Max cost per conversation turn when delegating to team members. Leave empty for unlimited (global circuit breaker still applies).
+            </p>
+          </div>
+        )}
+
         {/* Feedback display */}
         {feedback && (
           <div

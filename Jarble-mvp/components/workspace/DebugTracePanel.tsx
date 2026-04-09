@@ -130,6 +130,10 @@ function ExpandedTrace({ traceId }: { traceId: string }) {
 export default function DebugTracePanel({ deploymentId, onClose }: DebugTracePanelProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
+  // Fetch deployment data for budget display
+  const depQuery = trpc.deployment.getById.useQuery({ id: deploymentId }, { staleTime: 30_000 });
+  const maxBudgetCents = (depQuery.data as any)?.maxBudgetCents as number | null | undefined;
+
   const query = trpc.deployment.listRecentTraces.useQuery(
     { id: deploymentId, limit: 25 },
     {
@@ -164,7 +168,14 @@ export default function DebugTracePanel({ deploymentId, onClose }: DebugTracePan
           <Activity className="w-4 h-4 text-muted-foreground" />
           <div>
             <div className="text-sm font-medium">Debug Traces</div>
-            <div className="text-xs text-muted-foreground">Recent delegation + chat activity</div>
+            <div className="text-xs text-muted-foreground">
+              Recent delegation + chat activity
+              {maxBudgetCents != null && (
+                <span className="ml-2 text-amber-400">
+                  Budget: ${(maxBudgetCents / 100).toFixed(2)}/turn
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <Button

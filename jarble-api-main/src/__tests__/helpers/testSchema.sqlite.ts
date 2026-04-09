@@ -80,6 +80,7 @@ export const deployments = sqliteTable("deployments", {
   orgId: text("org_id"),  // null = personal deployment, non-null = org-owned
   // JAR memory-scoping: foundation column (see schema.pg.ts for details)
   memoryScope: text("memory_scope").notNull().default("global"),
+  maxBudgetCents: integer("max_budget_cents"),
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 }, (table) => ({
