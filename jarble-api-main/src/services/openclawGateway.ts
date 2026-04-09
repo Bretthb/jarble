@@ -15,11 +15,32 @@
 import crypto from "crypto";
 import WebSocket from "ws";
 import { nanoid } from "nanoid";
+import { trace, SpanStatusCode, propagation, context as otelContext } from "@opentelemetry/api";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("gateway");
 import { extractAllUIBlocks, extractUIBlocks, type JarbleUIBlock, type JarbleUIUpdate, type JarbleComponentDef } from "../utils/uiBlockParser.js";
 import { execInPod } from "../k8s/exec.js";
+
+// OTel tracer for cross-pod delegation spans (JAR-51 Phase 3).
+const tracer = trace.getTracer("jarble-api.openclaw-gateway");
+
+/**
+ * Serialize the current active OTel context to a W3C traceparent header.
+ * Used to prepend `env TRACEPARENT=...` to kubectl exec calls so that
+ * an openclaw runtime which reads the env var can attach its child
+ * spans under the same trace as the API caller. Today openclaw doesn't
+ * consume it, but shipping the env var costs nothing and is
+ * forward-compatible with Phase 3 of the observability plan.
+ *
+ * Returns an object with traceparent/tracestate that was injected.
+ * When no active span, returns an empty object.
+ */
+function getW3CTraceHeaders(): Record<string, string> {
+  const carrier: Record<string, string> = {};
+  propagation.inject(otelContext.active(), carrier);
+  return carrier;
+}
 
 // ── Device Identity ─────────────────────────────────────────────────────────
 
@@ -558,6 +579,44 @@ export async function chatViaExec(
   canvasImage?: string,
   signal?: AbortSignal,
 ): Promise<GatewayResponse> {
+  // JAR-51 Phase 3: wrap the exec in an explicit span so delegation hops
+  // show up as first-class spans in Langfuse. All the real work runs
+  // inside startActiveSpan so child spans (DB, fetch, etc.) attach
+  // automatically.
+  return tracer.startActiveSpan(
+    "jarble.delegation.exec",
+    {
+      attributes: {
+        "jarble.pod.name": podName,
+        "jarble.session.key": sessionKey,
+        "jarble.message.length": message.length,
+        "jarble.has_image": Boolean(canvasImage),
+        "jarble.runtime": "openclaw",
+      },
+    },
+    async (span) => {
+      try {
+        return await chatViaExecInner(podName, sessionKey, message, onDelta, canvasImage, signal, span);
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    },
+  );
+}
+
+async function chatViaExecInner(
+  podName: string,
+  sessionKey: string,
+  message: string,
+  onDelta?: (fullText: string) => void,
+  canvasImage?: string,
+  signal?: AbortSignal,
+  span?: import("@opentelemetry/api").Span,
+): Promise<GatewayResponse> {
   log.info({ podName, messageLen: message.length, hasImage: !!canvasImage }, "chatViaExec: starting");
 
   // Bail early if already aborted (e.g. user cancelled during WS→exec fallback transition)
@@ -590,7 +649,23 @@ export async function chatViaExec(
   // native thinking from --json output, so it's not visible in the response.
   // For user-facing reasoning display, the system prompt instructs the bot to emit
   // <think> tags which tamboAgent.ts parses into REASONING_* SSE events.
+  //
+  // JAR-51 Phase 3: prepend `env TRACEPARENT=...` (and tracestate if present)
+  // so a traceparent-aware openclaw runtime can attach its child spans
+  // to the current trace. When no active OTel context, the carrier is empty
+  // and we skip the env prefix entirely.
+  const traceHeaders = getW3CTraceHeaders();
+  const envPrefix: string[] = [];
+  if (traceHeaders.traceparent) {
+    envPrefix.push("env", `TRACEPARENT=${traceHeaders.traceparent}`);
+    if (traceHeaders.tracestate) {
+      envPrefix.push(`TRACESTATE=${traceHeaders.tracestate}`);
+    }
+    span?.setAttribute("jarble.traceparent.injected", true);
+  }
+
   const args = [
+    ...envPrefix,
     "npx", "openclaw", "agent",
     "--message", message,
     "--session-id", sessionKey,
