@@ -8,7 +8,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   chart: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
   form: "bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/20",
   media: "bg-pink-500/15 text-pink-700 dark:text-pink-400 border-pink-500/20",
-  utility: "bg-gray-500/15 text-gray-700 dark:text-gray-400 border-gray-500/20",
+  utility: "bg-secondary text-muted-foreground border-border",
   game: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/20",
   visualization: "bg-violet-500/15 text-violet-700 dark:text-violet-400 border-violet-500/20",
   layout: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-500/20",

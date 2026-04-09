@@ -45,6 +45,55 @@ export interface OrchestrationStep {
   agentType?: "subagent" | "delegation" | "platform";
   toolName?: string;
   targetDeploymentId?: string;
+  /**
+   * ID of the parent orchestration step this one is nested under
+   * (Fractal vision piece 4). When present, the UI indents this
+   * step under its parent. Sourced from agent_calls.parent_call_id
+   * or the parentStepId field on SSE delegation events.
+   */
+  parentId?: string;
+}
+
+type TreeNode = OrchestrationStep & { children: TreeNode[]; depth: number };
+
+/**
+ * Build a tree from a flat step list using parentId pointers.
+ * Steps with a missing parent become roots. Orphan-parent steps
+ * (parentId points to a step that does not exist in the list) also
+ * become roots — defensive against out-of-order streaming where
+ * a child event arrives before its parent.
+ */
+function buildTree(steps: OrchestrationStep[]): TreeNode[] {
+  const nodeById = new Map<string, TreeNode>();
+  for (const s of steps) {
+    nodeById.set(s.id, { ...s, children: [], depth: 0 });
+  }
+  const roots: TreeNode[] = [];
+  for (const node of nodeById.values()) {
+    if (node.parentId && nodeById.has(node.parentId)) {
+      nodeById.get(node.parentId)!.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  // Second pass: propagate depths so the renderer can indent.
+  const setDepth = (n: TreeNode, d: number) => {
+    n.depth = d;
+    for (const c of n.children) setDepth(c, d + 1);
+  };
+  for (const r of roots) setDepth(r, 0);
+  return roots;
+}
+
+/** Flatten a tree back into a display list in pre-order traversal, keeping depth metadata. */
+function flattenTree(roots: TreeNode[]): TreeNode[] {
+  const out: TreeNode[] = [];
+  const walk = (n: TreeNode) => {
+    out.push(n);
+    for (const c of n.children) walk(c);
+  };
+  for (const r of roots) walk(r);
+  return out;
 }
 
 interface OrchestrationStepsProps {
@@ -82,6 +131,27 @@ function OrchestrationStepsInner({ steps, title }: OrchestrationStepsProps) {
   const completedCount = steps.filter((s) => s.status === "complete").length;
   const allDone = completedCount === steps.length;
 
+  // Fractal Piece 4: if any step has a parentId, render as a tree.
+  // Otherwise keep the legacy flat render. This keeps 1-level delegation
+  // looking exactly the same while N-level fractal trees actually
+  // visualize their nesting with indentation.
+  const hasTree = steps.some((s) => s.parentId);
+  const displaySteps: Array<OrchestrationStep & { depth: number }> = hasTree
+    ? flattenTree(buildTree(steps)).map((n) => ({
+        id: n.id,
+        label: n.label,
+        status: n.status,
+        agent: n.agent,
+        detail: n.detail,
+        duration: n.duration,
+        agentType: n.agentType,
+        toolName: n.toolName,
+        targetDeploymentId: n.targetDeploymentId,
+        parentId: n.parentId,
+        depth: n.depth,
+      }))
+    : steps.map((s) => ({ ...s, depth: 0 }));
+
   return (
     <div className="flex flex-col gap-1 px-4 py-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
       {/* Header */}
@@ -100,7 +170,7 @@ function OrchestrationStepsInner({ steps, title }: OrchestrationStepsProps) {
 
       {/* Steps */}
       <div className="flex flex-col gap-0.5">
-        {steps.map((step, i) => {
+        {displaySteps.map((step, i) => {
           const Icon = AGENT_ICONS[step.agent];
           const color = AGENT_COLORS[step.agent];
 
@@ -115,6 +185,9 @@ function OrchestrationStepsInner({ steps, title }: OrchestrationStepsProps) {
               )}
               style={{
                 animationDelay: `${i * 50}ms`,
+                // Fractal tree indentation by depth. Uses left padding
+                // so the hover background still spans the full row.
+                paddingLeft: `${step.depth * 16 + 8}px`,
               }}
             >
               {/* Status indicator */}

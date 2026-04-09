@@ -1,0 +1,46 @@
+# ═══════════════════════════════════════════════════════════════════════
+# actionlint — Validate GitHub Actions workflow YAML
+# ═══════════════════════════════════════════════════════════════════════
+#
+# A bad workflow merged to main can break deployments for everyone, and
+# GitHub Actions YAML bugs (bad `if:` expressions, missing inputs, wrong
+# context refs) are easy to introduce without tooling. This job runs
+# actionlint on every PR and every push to develop/main when any file
+# under `.github/workflows/` changes.
+#
+# Rationale for a dedicated workflow (vs adding to ci.yml):
+#   - ci.yml's other jobs require pnpm/npm install + Node setup — heavy
+#     for workflow-only changes. Keeping actionlint as its own 10-second
+#     job means workflow-only PRs run only the linter.
+#   - Cleaner to configure as a required check in branch protection.
+#   - Avoids coupling workflow linting to frontend/api dependency health.
+#
+# Add "actionlint" as a required status check in GitHub branch protection
+# to block merges when workflow files fail to lint.
+# ═══════════════════════════════════════════════════════════════════════
+
+name: actionlint
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+  push:
+    branches: [main, develop]
+    paths:
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run actionlint
+        uses: raven-actions/actionlint@v2
+        with:
+          fail-on-error: true

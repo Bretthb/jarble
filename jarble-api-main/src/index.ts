@@ -15,8 +15,9 @@ import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement
 import { startStatusReconciler } from "./services/statusReconciler.js";
 import { startServiceHealthCheck } from "./services/serviceHealthCheck.js";
 import { startWebhookCleanup } from "./services/webhookCleanup.js";
+import { startStuckDeploymentMonitor } from "./services/stuckDeploymentMonitor.js";
 import helmet from "helmet";
-import { globalLimiter, authLimiter } from "./middleware/rateLimit.js";
+import { globalLimiter, authLimiter, mutationLimiter } from "./middleware/rateLimit.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { requestLoggingMiddleware } from "./middleware/requestLogging.js";
 import { trpcCacheMiddleware } from "./middleware/cache.js";
@@ -44,6 +45,7 @@ import { bridgeFetchRouter } from "./routes/bridgeFetch.js";
 import { botAskRouter } from "./routes/botAsk.js";
 import { meshGatewayRouter } from "./routes/meshGateway.js";
 import { meshDiscoveryRouter, registerAgentCard } from "./routes/meshDiscovery.js";
+import { a2aGatewayRouter } from "./routes/a2aGateway.js";
 import { agentHubRouter } from "./routes/agentHub.js";
 import { filesRouter } from "./routes/files.js";
 import { knowledgeRouter } from "./routes/knowledge.js";
@@ -53,6 +55,7 @@ import { attachChatControlWs } from "./routes/chatControl.js";
 import { attachOrchestrationWs } from "./routes/orchestration.js";
 import { flowExecutionRouter } from "./routes/flowExecution.js";
 import { flowChatRouter } from "./routes/flowChat.js";
+import { promoRouter } from "./routes/promo.js";
 
 const app = express();
 
@@ -72,18 +75,16 @@ app.use(cors({
 
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
-    } else if (origin.endsWith(".preview.jarble.ai")) {
-      // Allow all preview deployment origins
-      callback(null, true);
-    } else if (env.NODE_ENV === "development") {
+    } else if (env.NODE_ENV === "development" && (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:"))) {
       // In development, allow any localhost origin
-      if (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
+      callback(null, true);
     } else {
-      callback(new Error("Not allowed by CORS"));
+      // IMPORTANT: pass (null, false) for disallowed origins — NOT an Error.
+      // Throwing an Error here bubbles up to the Express global error handler
+      // and returns a 500, causing spurious Sentry alerts for every probe from
+      // an unlisted origin. (null, false) returns a clean response without
+      // the Access-Control-Allow-Origin header, which browsers block correctly.
+      callback(null, false);
     }
   },
   credentials: true,
@@ -104,7 +105,10 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), strip
 app.use(globalLimiter);
 
 // ─── JSON parsing (after webhook route) ───
-app.use(express.json());
+// Explicit 10mb limit so normal flow definitions / large system prompts
+// succeed, and oversized payloads return 413 not 500 (the default 100KB
+// was too small and the error bubbled to the generic 500 handler).
+app.use(express.json({ limit: "10mb" }));
 
 // ─── Request ID + logging middleware ───
 app.use(requestIdMiddleware);
@@ -133,16 +137,48 @@ app.use("/api/deployments", filesRouter);
 app.use("/api/deployments", knowledgeRouter);
 app.use("/api/mesh", meshGatewayRouter);
 app.use("/api/mesh", meshDiscoveryRouter);
+app.use("/api/a2a", authLimiter, a2aGatewayRouter);
 app.use("/api/agent-hub", agentHubRouter);
 app.use("/api/beta-signup", betaRouter);
+app.use("/api/promo", promoRouter);
 app.use("/api/flows", authLimiter, flowExecutionRouter);
 app.use("/api/flows", authLimiter, flowChatRouter);
 
-// Debug endpoints - dev only
+// Debug endpoints - gated by ADMIN role (not just NODE_ENV).
+// Even on a deployed "development" API, /debug is accessible to the public
+// internet, so a simple JWT check is not enough — any authenticated user
+// could dump the entire DB. We require the caller to be in ADMIN_USER_IDS.
 if (env.NODE_ENV === "development") {
-  app.use("/debug", debugRouter);
-  app.get("/debug-sentry", (_req, _res) => { throw new Error("Sentry test error!"); });
-  logger.info("Debug endpoints enabled: /debug/db, /debug/deployment/:id/status, /debug/seed-deployment, /debug/deployment/:id/sync-config");
+  app.use("/debug", async (req, res, next) => {
+    const { verifyToken, getUserFromToken } = await import("./services/auth.js");
+    const { isAdmin } = await import("./utils/admin.js");
+
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!token) {
+      res.status(401).json({ error: "Debug endpoints require authentication" });
+      return;
+    }
+    try {
+      const payload = await verifyToken(token);
+      const user = await getUserFromToken(payload);
+      if (!user || !isAdmin(user.id)) {
+        res.status(403).json({ error: "Admin access required" });
+        return;
+      }
+      next();
+    } catch {
+      res.status(401).json({ error: "Invalid or expired token" });
+    }
+  }, debugRouter);
+  // Sentry test route also under /debug prefix so it inherits the admin guard
+  app.get("/debug/sentry-test", (_req, _res) => { throw new Error("Sentry test error!"); });
+  logger.info("Debug endpoints enabled (admin-gated): /debug/db, /debug/deployment/:id/status, /debug/seed-deployment, /debug/deployment/:id/sync-config");
+} else {
+  // Explicitly block debug routes in production
+  app.use("/debug", (_req, res) => {
+    res.status(404).json({ error: "Not found" });
+  });
 }
 
 // A2A agent card - public discovery endpoint
@@ -159,7 +195,8 @@ app.get("/", (_req, res) => {
 });
 
 // tRPC handler - cache middleware sets Cache-Control on read-heavy queries
-app.use("/trpc", trpcCacheMiddleware(), authLimiter, createExpressMiddleware({
+// mutationLimiter (30/min) only fires on POST; authLimiter (120/min) covers all
+app.use("/trpc", trpcCacheMiddleware(), authLimiter, mutationLimiter, createExpressMiddleware({
   router: appRouter,
   createContext,
   onError: ({ error, path, ctx }) => {
@@ -181,6 +218,17 @@ Sentry.setupExpressErrorHandler(app);
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const log = req.log || logger;
 
+  // Payload too large → 413 instead of 500. express.json() throws a
+  // PayloadTooLargeError (type: "entity.too.large") when the body exceeds
+  // the configured limit. Surface this as a proper client error instead
+  // of letting it bubble to the generic 500 path.
+  if ((err as any)?.type === "entity.too.large" || (err as any)?.status === 413) {
+    if (!res.headersSent) {
+      res.status(413).json({ error: "Request body too large (max 10MB)" });
+    }
+    return;
+  }
+
   // Malformed JSON body → 400 instead of 500
   if (err instanceof SyntaxError && "body" in err) {
     if (!res.headersSent) {
@@ -197,10 +245,10 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 
 // Start server
 async function start() {
-  // Initialize database (creates tables for in-memory SQLite, optionally seeds)
+  // Initialize database (Postgres via Neon — schema managed by Drizzle migrations)
   await initDatabase();
 
-  // Start periodic enforcement services (K8s only, skips in mock/SQLite dev mode)
+  // Start periodic enforcement services
   startStorageEnforcement();
   // startSubscriptionEnforcement(); // Disabled until Stripe is fully configured
   startStatusReconciler();  // Syncs DB status with K8s reality (fixes "stuck at creating")
@@ -208,6 +256,9 @@ async function start() {
   startWebhookCleanup();      // Purges processedWebhookEvents older than 30 days (every 24h)
   startJobCleanup();          // Cleans up expired async service jobs (hourly)
   startNodeWatcher();         // Auto-scales Hetzner workers when bot pods go Pending
+  if (env.STUCK_MONITOR_ENABLED !== "false") {
+    startStuckDeploymentMonitor();  // Alerts on deployments stuck in transitional states >5 min
+  }
 
   const PORT = env.PORT;
   const server = app.listen(PORT, () => {

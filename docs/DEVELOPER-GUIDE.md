@@ -249,7 +249,7 @@ The API is an **Express.js** server with **tRPC** for structured endpoints and p
 
 ### Two Types of Endpoints
 
-**1. tRPC Procedures** (174 total across 15 routers)
+**1. tRPC Procedures** (16 routers)
 Structured, typed function calls. Protected by JWT auth. Used for all normal CRUD operations.
 
 ```
@@ -264,18 +264,18 @@ trpc.marketplace.install          → Install a component on a deployment
 trpc.skills.listCatalog           → List available skills
 trpc.services.list                → Browse service marketplace
 trpc.services.install             → Install a service bundle on a deployment
-trpc.benchmarks.rateDeployment    → Rate an agent in a domain
-trpc.benchmarks.leaderboard       → Domain leaderboard
-trpc.benchmarks.adminFeature      → Admin: feature an agent
 trpc.flows.list                   → List user's orchestration flows
 trpc.flows.create                 → Create a new orchestration flow
 trpc.flows.generateFromPrompt     → Generate a flow from natural language
+trpc.subagents.list               → List child agents for a deployment
+trpc.org.create                   → Create an organization
+trpc.org.invite                   → Invite a team member via email
 trpc.admin.getStats               → Platform-wide statistics (admin only)
 trpc.admin.listUsers              → All users with deployment counts (admin only)
 trpc.admin.sendBetaInvite         → Send beta welcome email (admin only)
 ```
 
-**2. REST Endpoints** (33 total)
+**2. REST Endpoints**
 Plain HTTP routes for things that can't use tRPC:
 - **Webhooks** (Stripe, Auth0, config-changed) — external services POST to us
 - **SSE Streams** (logs, status, WhatsApp QR, chat) — long-lived connections that push data
@@ -363,21 +363,22 @@ graph TD
     REQ["Incoming Request<br/>POST /trpc/deployment.list"] --> MW["Auth Middleware<br/>JWT verification"]
     MW --> ROUTER{"Which Router?"}
 
+    ROUTER -->|"user.*"| USER["user.ts<br/>6 procedures"]
     ROUTER -->|"deployment.*"| DEPLOY["deployment.ts<br/>37 procedures"]
     ROUTER -->|"openrouter.*"| OR["openrouter.ts<br/>10 procedures"]
-    ROUTER -->|"user.*"| USER["user.ts<br/>6 procedures"]
     ROUTER -->|"billing.*"| BILL["billing.ts<br/>4 procedures"]
     ROUTER -->|"platformCredentials.*"| PLAT["platformCredentials.ts<br/>7 procedures"]
+    ROUTER -->|"deploymentSecrets.*"| DSEC["deploymentSecrets.ts<br/>3 procedures"]
     ROUTER -->|"runtimeCatalog.*"| RUNTIME["runtimeCatalog.ts<br/>4 procedures"]
     ROUTER -->|"template.*"| TMPL["template.ts<br/>4 procedures"]
     ROUTER -->|"skills.*"| SKILLS["skills.ts<br/>4 procedures"]
     ROUTER -->|"marketplace.*"| MKT["marketplace.ts<br/>23 procedures"]
     ROUTER -->|"services.*"| SVC["services.ts<br/>26 procedures"]
-    ROUTER -->|"benchmarks.*"| BM["benchmarks.ts<br/>14 procedures"]
     ROUTER -->|"flows.*"| FLOWS["flows.ts<br/>8 procedures"]
     ROUTER -->|"admin.*"| ADMIN["admin.ts<br/>19 procedures"]
-    ROUTER -->|"agentCredits.*"| AC["agentCredits.ts<br/>4 procedures"]
     ROUTER -->|"apiKeys.*"| AK["apiKeys.ts<br/>4 procedures"]
+    ROUTER -->|"subagents.*"| SUB["subagents.ts<br/>9 procedures"]
+    ROUTER -->|"org.*"| ORG["org.ts<br/>12 procedures"]
 
     DEPLOY --> DB[("Database")]
     DEPLOY --> K8S["K8s Cluster"]
@@ -389,21 +390,22 @@ graph TD
 
 ```
 src/trpc/routers/
+  ├── user.ts                ← 6 procedures (profile, email verify, account deletion)
   ├── deployment.ts          ← 37 procedures (CRUD + canvas components + lifecycle + platformFork)
   ├── openrouter.ts          ← 10 procedures (LLM key management)
-  ├── user.ts                ← 6 procedures (profile, email verify, account deletion)
   ├── billing.ts             ← 4 procedures (overview, invoices, subscriptions, managed key usage)
   ├── platformCredentials.ts ← 7 procedures (Discord/Slack tokens, WhatsApp QR, Telegram pairing)
+  ├── deploymentSecrets.ts   ← 3 procedures (encrypted secret CRUD per deployment)
   ├── runtimeCatalog.ts      ← 4 procedures (list available runtimes)
+  ├── template.ts            ← 4 procedures (persona templates: list, getById, getByCategory, getCategories)
   ├── skills.ts              ← 4 procedures (skills catalog, install/uninstall)
   ├── marketplace.ts         ← 23 procedures (browse, install, review, creator, admin, builtin schemas)
   ├── services.ts            ← 26 procedures (full lifecycle: draft, publish, install, admin, creator analytics)
-  ├── benchmarks.ts          ← 14 procedures (domains, ratings, leaderboard, service metrics + reviews, admin curation)
-  ├── template.ts            ← 4 procedures (persona templates: list, getById, getByCategory, getCategories)
   ├── flows.ts               ← 8 procedures (orchestration flow CRUD + execution history + LLM generation)
   ├── admin.ts               ← 19 procedures (user mgmt, deployment control, Prometheus metrics, audit logs, beta)
-  ├── agentCredits.ts        ← 4 procedures (credit balance, history, purchase, call history)
-  └── apiKeys.ts             ← 4 procedures (developer API key CRUD)
+  ├── apiKeys.ts             ← 4 procedures (developer API key CRUD)
+  ├── subagents.ts           ← 9 procedures (child agents: CRUD, reorder, fork, public toggle)
+  └── org.ts                 ← 12 procedures (organizations: CRUD, invites, members, roles)
 ```
 
 ### Fire-and-Forget Pattern
@@ -2651,7 +2653,8 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **ZeroClaw** | Rust-based bot runtime (lightweight, ~3.4MB binary) |
 | **Artifact Workspace** | Pod-side `/data/workspace/` directory containing `manifest.json` + per-artifact JSON files. Accessed via `/api/deployments/:id/artifact/*` endpoints |
 | **Circuit Breaker** | `src/services/circuitBreaker.ts` — opens after 5 consecutive service proxy failures, auto-resets after 60s to prevent hammering unhealthy creator APIs |
-| **Benchmarks Router** | tRPC router (`src/trpc/routers/benchmarks.ts`) handling domain taxonomy, agent ratings, leaderboards, service metrics, and admin curation for the Agent Forking Flywheel |
+| **Subagents Router** | tRPC router (`src/trpc/routers/subagents.ts`) for managing child agents attached to deployments — CRUD, reorder, fork, public toggle |
+| **Org Router** | tRPC router (`src/trpc/routers/org.ts`) for organizations — CRUD, invites via Resend, member management, role hierarchy (owner > admin > member) |
 | **Forkability Score** | 0-100 score computed by `computeForkabilityScore()` in `src/utils/forkability.ts`. Quantifies how copy-ready a public agent is based on profile completeness and community ratings |
 | **Platform Agent** | A deployment with `isPlatform: true`. Uses Jarble's `AGENT_LLM_API_KEY` (`llmMode: "platform"`), bypasses subscription and storage enforcement, has a named `resourceTier` |
 | **Resource Tier** | Named compute preset for platform agents. `RESOURCE_TIERS` in `src/k8s/constants.ts`: small (0.5 vCPU/1GB/10GB), medium (1 vCPU/2GB/20GB), large (2 vCPU/3GB/30GB) |

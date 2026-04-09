@@ -30,7 +30,11 @@ import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
 import ConversationHistoryPanel from "@/components/workspace/ConversationHistoryPanel";
 import SubagentsPanel from "@/components/workspace/SubagentsPanel";
-import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot } from "lucide-react";
+import TeamMembershipsPanel from "@/components/workspace/TeamMembershipsPanel";
+import TeamSessionsPanel from "@/components/workspace/TeamSessionsPanel";
+import DebugTracePanel from "@/components/workspace/DebugTracePanel";
+import { MemoryDisclosureBanner, type MemoryScope } from "@/components/chat/MemoryDisclosureBanner";
+import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users, Activity, ArrowUpRight } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -118,8 +122,42 @@ function SubagentsBadgeButton({ deploymentId, isOpen, onClick }: { deploymentId:
       onClick={onClick}
       className={cn("h-8 p-0 gap-1 shrink-0 hidden sm:flex", count > 0 ? "px-2" : "w-8")}
       title="Subagents"
+      aria-label={count > 0 ? `Subagents (${count})` : "Subagents"}
     >
       <Bot className="w-4 h-4" />
+      {count > 0 && (
+        <span className="text-xs font-medium tabular-nums">
+          {count}
+        </span>
+      )}
+    </Button>
+  );
+}
+
+// ── Team Memberships Badge Button ────────────────────────────────────────────
+//
+// Shows how many teams this deployment is on. Closes the
+// "Per-deployment team membership visibility" gap from
+// docs/audits/fractal-vision-gap-audit.md — until this landed there
+// was no way from the /d/[id] page to know whether the deployment was
+// on any teams or who its teammates were.
+function TeamsBadgeButton({ deploymentId, isOpen, onClick }: { deploymentId: string; isOpen: boolean; onClick: () => void }) {
+  const listQuery = trpc.flows.listForDeployment.useQuery({ deploymentId }, {
+    staleTime: 30_000,
+  });
+  const count = listQuery.data?.length ?? 0;
+
+  return (
+    <Button
+      variant={isOpen ? "secondary" : "ghost"}
+      size="sm"
+      onClick={onClick}
+      className={cn("h-8 p-0 gap-1 shrink-0 hidden sm:flex", count > 0 ? "px-2" : "w-8")}
+      title="Team Memberships"
+      aria-label={count > 0 ? `Teams (${count})` : "Teams"}
+      type="button"
+    >
+      <Users className="w-4 h-4" />
       {count > 0 && (
         <span className="text-xs font-medium tabular-nums">
           {count}
@@ -228,10 +266,22 @@ export default function DeploymentChatPage() {
     );
   }
 
-  if (!deploymentQuery.data) {
+  // After isLoading settles, data will be undefined AND isError will be true
+  // if the deployment doesn't exist or the user doesn't own it. Show a proper
+  // not-found UI with a back-to-dashboard action so the page isn't blank.
+  if (deploymentQuery.isError || !deploymentQuery.data) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <p className="text-muted-foreground">Deployment not found</p>
+        <div className="text-center space-y-4 max-w-md px-6">
+          <Bot className="w-12 h-12 text-muted-foreground mx-auto" />
+          <h2 className="text-lg font-medium">Deployment not found</h2>
+          <p className="text-sm text-muted-foreground">
+            This deployment doesn't exist or you don't have access to it.
+          </p>
+          <Button variant="outline" onClick={() => router.push("/dashboard")}>
+            Back to Dashboard
+          </Button>
+        </div>
       </div>
     );
   }
@@ -261,6 +311,7 @@ export default function DeploymentChatPage() {
           deploymentName={deployment.name}
           liveStatus={liveStatus}
           themeConfig={(deployment as any).themeConfig}
+          memoryScope={(deployment as any).memoryScope ?? "global"}
           onRefetchDeployment={() => deploymentQuery.refetch()}
         />
       </DeploymentTamboProvider>
@@ -275,12 +326,17 @@ function WorkspacePage({
   deploymentName,
   liveStatus,
   themeConfig,
+  memoryScope,
   onRefetchDeployment,
 }: {
   deploymentId: string;
   deploymentName: string;
   liveStatus: string;
   themeConfig?: string | null;
+  /** JAR memory-scoping foundation: passed straight through to
+   *  CanvasWorkspace which renders the disclosure banner. Defaults
+   *  to "global" if the deployment record predates the column. */
+  memoryScope?: string | null;
   onRefetchDeployment?: () => void;
 }) {
   const router = useRouter();
@@ -291,6 +347,9 @@ function WorkspacePage({
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [subagentsOpen, setSubagentsOpen] = useState(false);
+  const [teamsOpen, setTeamsOpen] = useState(false);
+  const [teamSessionsOpen, setTeamSessionsOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
   // Track whether theme was set by SSE (takes priority over prop sync for 5s)
   const themeSetBySse = useRef(false);
@@ -374,6 +433,20 @@ function WorkspacePage({
               <MessageSquareText className="w-4 h-4" />
             </Button>
             <Button
+              variant={teamSessionsOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setTeamSessionsOpen((v) => {
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setTeamsOpen(false); setDebugOpen(false); }
+                  return !v;
+                });
+              }}
+              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
+              title="Team Sessions"
+            >
+              <ArrowUpRight className="w-4 h-4" />
+            </Button>
+            <Button
               variant={filesOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => {
@@ -406,7 +479,17 @@ function WorkspacePage({
               isOpen={subagentsOpen}
               onClick={() => {
                 setSubagentsOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setTeamsOpen(false); }
+                  return !v;
+                });
+              }}
+            />
+            <TeamsBadgeButton
+              deploymentId={deploymentId}
+              isOpen={teamsOpen}
+              onClick={() => {
+                setTeamsOpen((v) => {
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -435,11 +518,25 @@ function WorkspacePage({
               <Store className="w-4 h-4" />
             </Button>
             <Button
+              variant={debugOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setDebugOpen((v) => {
+                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setTeamsOpen(false); }
+                  return !v;
+                });
+              }}
+              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
+              title="Debug Traces"
+            >
+              <Activity className="w-4 h-4" />
+            </Button>
+            <Button
               variant={configOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => {
                 setConfigOpen((v) => {
-                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setDebugOpen(false); }
                   return !v;
                 });
               }}
@@ -486,12 +583,31 @@ function WorkspacePage({
             onClose={() => setSubagentsOpen(false)}
           />
         )}
+        {teamsOpen && (
+          <TeamMembershipsPanel
+            deploymentId={deploymentId}
+            onClose={() => setTeamsOpen(false)}
+          />
+        )}
+        {teamSessionsOpen && (
+          <TeamSessionsPanel
+            deploymentId={deploymentId}
+            onClose={() => setTeamSessionsOpen(false)}
+          />
+        )}
+        {debugOpen && (
+          <DebugTracePanel
+            deploymentId={deploymentId}
+            onClose={() => setDebugOpen(false)}
+          />
+        )}
         <CanvasWorkspace
           deploymentId={deploymentId}
           liveStatus={liveStatus}
           historyOpen={historyOpen}
           onHistoryClose={() => setHistoryOpen(false)}
           onRefetchDeployment={onRefetchDeployment}
+          memoryScope={memoryScope}
         />
         {marketplaceOpen && (
           <MarketplacePanel
@@ -582,12 +698,16 @@ function CanvasWorkspace({
   historyOpen,
   onHistoryClose,
   onRefetchDeployment,
+  memoryScope,
 }: {
   deploymentId: string;
   liveStatus: string;
   historyOpen: boolean;
   onHistoryClose: () => void;
   onRefetchDeployment?: () => void;
+  /** JAR memory-scoping foundation: drives the disclosure banner above
+   *  the chat. Read from the deployment record on the parent. */
+  memoryScope?: string | null;
 }) {
   const { getAccessTokenSilently } = useAuth0();
   const startMutation = trpc.deployment.start.useMutation();
@@ -610,7 +730,7 @@ function CanvasWorkspace({
         id: s.id,
         label: s.label,
         status: s.status,
-        agent: s.agentType as import("@/components/chat/OrchestrationSteps").OrchestrationStep["agent"],
+        agent: (s.agentType || "tool") as import("@/components/chat/OrchestrationSteps").OrchestrationStep["agent"],
         detail: s.detail,
         duration: s.duration,
         agentType: s.agentType,
@@ -829,6 +949,12 @@ function CanvasWorkspace({
             [style*="--chat-width"] { width: var(--chat-width) !important; }
           }
         `}</style>
+        {/* JAR memory-scoping disclosure: tells the user how memory is
+            scoped before they share anything personal. Reads the
+            memoryScope field from the deployment record (defaults to
+            "global" until set). The banner is intentionally persistent
+            in global mode — that's the privacy-loaded default. */}
+        <MemoryDisclosureBanner scope={(memoryScope ?? null) as MemoryScope | null} />
         {/* Chat messages via assistant-ui - keyed so runtime resets on conversation switch */}
         <KeyedChatPanel
           key={activeConversationId ?? "default"}

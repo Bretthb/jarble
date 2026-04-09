@@ -1,4 +1,4 @@
-import { db, tables, USE_SQLITE } from "../db/index.js";
+import { db, tables } from "../db/index.js";
 import { eq, and, isNull, or } from "drizzle-orm";
 import { stopDeployment } from "../k8s/index.js";
 import { isStripeConfigured, getSubscriptionDetails } from "./stripe.js";
@@ -19,7 +19,6 @@ const SUBSCRIPTION_ERROR_PREFIX = "Subscription";
  * 4. Past due / unpaid subscriptions → flag with error
  */
 export async function enforceSubscriptionStatus(): Promise<void> {
-  if (USE_SQLITE) return; // Skip in local dev mode
 
   try {
     const running = await db.query.deployments.findMany({
@@ -215,7 +214,6 @@ async function validateSubscriptionWithStripe(dep: {
  * Check for orphaned deployments: running without subscriptions.
  */
 export async function cleanupOrphanedDeployments(): Promise<void> {
-  if (USE_SQLITE) return;
 
   try {
     const orphaned = await db.query.deployments.findMany({

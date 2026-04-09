@@ -1,4 +1,11 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
+// Side-effect import: pulls in the `declare global { namespace Express { ... } }`
+// augmentation that adds `requestId` and `log` to the Express Request type.
+// Required so tsc programs that walk the import graph from this file (e.g. the
+// frontend's `pnpm run check`, which resolves API source via the `jarble-api`
+// path alias) include the augmentation. The API's own tsc picks it up via
+// `include: ["src/**/*"]`, so this import is a no-op there.
+import "../middleware/requestId.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { db } from "../db/index.js";
 import { createModuleLogger, createRequestLogger } from "../utils/logger.js";

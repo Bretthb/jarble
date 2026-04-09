@@ -7,6 +7,7 @@ import { createModuleLogger } from "../../utils/logger.js";
 import { customAlphabet } from "nanoid";
 import { sendOrgInviteEmail } from "../../services/email.js";
 import { env } from "../../utils/env.js";
+import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
 
 const log = createModuleLogger("trpc:org");
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
@@ -17,14 +18,14 @@ const generateInviteToken = () => crypto.randomBytes(32).toString("hex");
 
 // ── Role helpers ───────────────────────────────────────────────────────────
 
-type OrgRole = "owner" | "admin" | "member";
+export type OrgRole = "owner" | "admin" | "member";
 
-async function requireOrgMembership(
+export async function requireOrgMembership(
   db: any,
   userId: string,
   orgId: string,
 ): Promise<{ orgId: string; userId: string; role: OrgRole }> {
-  const schema = await import("../../db/schema.js");
+  const schema = await import("../../db/schema.pg.js");
   const membership = await db.query.orgMembers.findFirst({
     where: and(
       eq(schema.orgMembers.orgId, orgId),
@@ -37,7 +38,7 @@ async function requireOrgMembership(
   return { orgId: membership.orgId, userId: membership.userId, role: membership.role as OrgRole };
 }
 
-async function requireOrgRole(
+export async function requireOrgRole(
   db: any,
   userId: string,
   orgId: string,
@@ -56,12 +57,24 @@ export const orgRouter = router({
   // Create a new organization (caller becomes owner)
   create: protectedProcedure
     .input(z.object({
-      name: z.string().min(1).max(100),
+      name: z.string().min(1).max(100).refine(noHtmlTags, NO_HTML_MESSAGE),
       slug: z.string().min(2).max(50).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, "Slug must be lowercase alphanumeric with hyphens"),
     }))
     .mutation(async ({ ctx, input }) => {
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
       const { tables, dbDate } = await import("../../db/index.js");
+      // Enforce max 10 orgs per user (only orgs they own)
+      const ownedOrgs = await ctx.db.query.organizations.findMany({
+        where: eq(schema.organizations.ownerId, ctx.user.id),
+        columns: { id: true },
+      });
+
+      if (ownedOrgs.length >= 10) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You've reached the maximum of 10 organizations. Delete an unused org to create a new one.",
+        });
+      }
 
       // Check slug uniqueness
       const existing = await ctx.db.query.organizations.findFirst({
@@ -101,7 +114,7 @@ export const orgRouter = router({
 
   // List organizations the current user belongs to
   list: protectedProcedure.query(async ({ ctx }) => {
-    const schema = await import("../../db/schema.js");
+    const schema = await import("../../db/schema.pg.js");
     const memberships = await ctx.db.query.orgMembers.findMany({
       where: eq(schema.orgMembers.userId, ctx.user.id),
       with: { org: true },
@@ -123,7 +136,7 @@ export const orgRouter = router({
     .query(async ({ ctx, input }) => {
       await requireOrgMembership(ctx.db, ctx.user.id, input.orgId);
 
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
       const org = await ctx.db.query.organizations.findFirst({
         where: eq(schema.organizations.id, input.orgId),
         with: {
@@ -159,14 +172,14 @@ export const orgRouter = router({
   update: protectedProcedure
     .input(z.object({
       orgId: z.string(),
-      name: z.string().min(1).max(100).optional(),
+      name: z.string().min(1).max(100).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
       avatarUrl: z.string().url().nullish(),
     }))
     .mutation(async ({ ctx, input }) => {
       await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
 
       const { tables, dbDate } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       const updates: Record<string, any> = { updatedAt: dbDate() };
       if (input.name !== undefined) updates.name = input.name;
@@ -185,7 +198,7 @@ export const orgRouter = router({
       await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner"]);
 
       const { tables } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       // Unset orgId on all org deployments (return them to personal mode)
       await ctx.db.update(tables.deployments).set({ orgId: null }).where(eq(schema.deployments.orgId, input.orgId));
@@ -210,7 +223,7 @@ export const orgRouter = router({
       await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
 
       const { tables, dbDate } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       // Check if already a member
       const existingMember = await ctx.db.query.orgMembers.findFirst({
@@ -266,7 +279,7 @@ export const orgRouter = router({
     .input(z.object({ token: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const { tables, dbDate } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       const invite = await ctx.db.query.orgInvites.findFirst({
         where: eq(schema.orgInvites.token, input.token),
@@ -329,7 +342,7 @@ export const orgRouter = router({
     .query(async ({ ctx, input }) => {
       await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
 
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
       const invites = await ctx.db.query.orgInvites.findMany({
         where: and(
           eq(schema.orgInvites.orgId, input.orgId),
@@ -355,7 +368,7 @@ export const orgRouter = router({
     .input(z.object({ inviteId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const { tables } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       const invite = await ctx.db.query.orgInvites.findFirst({
         where: eq(schema.orgInvites.id, input.inviteId),
@@ -386,7 +399,7 @@ export const orgRouter = router({
       }
 
       const { tables } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       // Check target membership
       const targetMembership = await requireOrgMembership(ctx.db, input.userId, input.orgId);
@@ -430,7 +443,7 @@ export const orgRouter = router({
       }
 
       const { tables } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       // Verify target is a member
       await requireOrgMembership(ctx.db, input.userId, input.orgId);
@@ -441,6 +454,115 @@ export const orgRouter = router({
 
       log.info({ orgId: input.orgId, userId: input.userId, newRole: input.role }, "Member role updated");
       return { success: true };
+    }),
+
+  // ── Billing ──────────────────────────────────────────────────────────────
+
+  // Set up Stripe billing for an org (owner only)
+  setupBilling: protectedProcedure
+    .input(z.object({ orgId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner"]);
+
+      const schema = await import("../../db/schema.pg.js");
+      const { tables } = await import("../../db/index.js");
+
+      const org = await ctx.db.query.organizations.findFirst({
+        where: eq(schema.organizations.id, input.orgId),
+      });
+      if (!org) throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
+
+      // Already has billing set up
+      if (org.stripeCustomerId) {
+        return { stripeCustomerId: org.stripeCustomerId, alreadySetUp: true };
+      }
+
+      // Create Stripe customer for the org
+      const { getStripe } = await import("../../services/stripe.js");
+      const stripeClient = getStripe();
+
+      // Get owner's email for billing
+      const owner = await ctx.db.query.users.findFirst({
+        where: eq(schema.users.id, ctx.user.id),
+      });
+
+      const customer = await stripeClient.customers.create({
+        name: org.name,
+        email: owner?.email || undefined,
+        metadata: { orgId: input.orgId, type: "organization" },
+      });
+
+      await ctx.db.update(tables.organizations)
+        .set({
+          stripeCustomerId: customer.id,
+          billingEmail: owner?.email || null,
+        })
+        .where(eq(schema.organizations.id, input.orgId));
+
+      log.info({ orgId: input.orgId, stripeCustomerId: customer.id }, "Org billing set up");
+      return { stripeCustomerId: customer.id, alreadySetUp: false };
+    }),
+
+  // Get billing info for an org (owner or admin)
+  getBilling: protectedProcedure
+    .input(z.object({ orgId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
+
+      const schema = await import("../../db/schema.pg.js");
+
+      const org = await ctx.db.query.organizations.findFirst({
+        where: eq(schema.organizations.id, input.orgId),
+      });
+      if (!org) throw new TRPCError({ code: "NOT_FOUND", message: "Organization not found" });
+
+      // Get all org deployments with their subscription info
+      const orgDeployments = await ctx.db.query.deployments.findMany({
+        where: eq(schema.deployments.orgId, input.orgId),
+        columns: {
+          id: true, name: true, status: true, runtime: true,
+          monthlyPriceCents: true, stripeSubscriptionId: true,
+          cancelledAt: true, cancelAtPeriodEnd: true,
+        },
+      });
+
+      const totalMonthlyCents = orgDeployments
+        .filter((d: any) => d.status === "running" || d.status === "creating")
+        .reduce((sum: number, d: any) => sum + (d.monthlyPriceCents || 0), 0);
+
+      return {
+        hasPaymentMethod: !!org.stripeCustomerId,
+        stripeCustomerId: org.stripeCustomerId,
+        billingEmail: org.billingEmail,
+        deployments: orgDeployments,
+        totalMonthlyCents,
+      };
+    }),
+
+  // Create a Stripe billing portal session for an org (owner only)
+  createBillingPortal: protectedProcedure
+    .input(z.object({ orgId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner"]);
+
+      const schema = await import("../../db/schema.pg.js");
+
+      const org = await ctx.db.query.organizations.findFirst({
+        where: eq(schema.organizations.id, input.orgId),
+      });
+      if (!org?.stripeCustomerId) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Set up billing first" });
+      }
+
+      const { createPortalSession } = await import("../../services/stripe.js");
+      const frontendUrl = env.FRONTEND_URL || "http://localhost:3000";
+
+      const session = await createPortalSession({
+        stripeCustomerId: org.stripeCustomerId,
+        returnUrl: `${frontendUrl}/orgs/${input.orgId}`,
+      });
+
+      return { url: session.url };
     }),
 
   // Leave an org (any member except owner)
@@ -454,7 +576,7 @@ export const orgRouter = router({
       }
 
       const { tables } = await import("../../db/index.js");
-      const schema = await import("../../db/schema.js");
+      const schema = await import("../../db/schema.pg.js");
 
       // Unset orgId on user's deployments in this org
       await ctx.db.update(tables.deployments).set({ orgId: null }).where(

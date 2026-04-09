@@ -16,6 +16,7 @@ const mockDeploymentSkillsFindMany = vi.fn().mockResolvedValue([]);
 const mockSkillsCatalogFindFirst = vi.fn().mockResolvedValue(null);
 const mockServiceInstallsFindMany = vi.fn().mockResolvedValue([]);
 const mockMarketplaceServicesFindFirst = vi.fn().mockResolvedValue(null);
+const mockMarketplaceServicesFindMany = vi.fn().mockResolvedValue([]);
 const mockComponentInstallsFindMany = vi.fn().mockResolvedValue([]);
 const mockUpdate = vi.fn();
 const mockInsert = vi.fn();
@@ -31,7 +32,10 @@ vi.mock("../db/index.js", () => ({
       deploymentSkills: { findMany: (...args: any[]) => mockDeploymentSkillsFindMany(...args) },
       skillsCatalog: { findFirst: (...args: any[]) => mockSkillsCatalogFindFirst(...args) },
       serviceInstalls: { findMany: (...args: any[]) => mockServiceInstallsFindMany(...args) },
-      marketplaceServices: { findFirst: (...args: any[]) => mockMarketplaceServicesFindFirst(...args) },
+      marketplaceServices: {
+        findFirst: (...args: any[]) => mockMarketplaceServicesFindFirst(...args),
+        findMany: (...args: any[]) => mockMarketplaceServicesFindMany(...args),
+      },
       componentInstalls: { findMany: (...args: any[]) => mockComponentInstallsFindMany(...args) },
     },
     update: vi.fn(() => ({ set: mockSet })),
@@ -53,6 +57,7 @@ vi.mock("../db/index.js", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: (a: any, b: any) => ({ field: a, value: b }),
   and: (...args: any[]) => args,
+  inArray: (field: any, values: any[]) => ({ field, values, op: "inArray" }),
 }));
 
 // Mock K8s operations
@@ -174,6 +179,7 @@ describe("configSync", () => {
     mockSkillsCatalogFindFirst.mockResolvedValue(null);
     mockServiceInstallsFindMany.mockResolvedValue([]);
     mockMarketplaceServicesFindFirst.mockResolvedValue(null);
+    mockMarketplaceServicesFindMany.mockResolvedValue([]);
     mockComponentInstallsFindMany.mockResolvedValue([]);
     mockGetDeploymentPodStatus.mockResolvedValue({ status: "running" });
     mockSignalProcessRestart.mockResolvedValue(false);
@@ -976,14 +982,16 @@ describe("configSync", () => {
       mockServiceInstallsFindMany.mockResolvedValue([
         { deploymentId: "dep-1", packageId: "svc-1" },
       ]);
-      mockMarketplaceServicesFindFirst.mockResolvedValue({
+      const svc1 = {
         id: "svc-1",
         displayName: "Weather Service",
         instructionSnippet: "Use the weather tool to get weather data.",
         hostingModel: "package",
         remoteApiEndpoint: null,
         remoteApiConfig: null,
-      });
+      };
+      mockMarketplaceServicesFindFirst.mockResolvedValue(svc1);
+      mockMarketplaceServicesFindMany.mockResolvedValue([svc1]);
       mockReadCurrentSecretData.mockResolvedValue({});
       mockRenderConfigs.mockReturnValue([]);
       mockGetSecretEntries.mockReturnValue({});
@@ -1004,7 +1012,7 @@ describe("configSync", () => {
       mockServiceInstallsFindMany.mockResolvedValue([
         { deploymentId: "dep-1", packageId: "svc-remote" },
       ]);
-      mockMarketplaceServicesFindFirst.mockResolvedValue({
+      const svcRemote = {
         id: "svc-remote",
         displayName: "Remote AI",
         instructionSnippet: null,
@@ -1013,7 +1021,9 @@ describe("configSync", () => {
         remoteApiConfig: JSON.stringify({
           skills: [{ name: "image-gen" }, { name: "text-analysis" }],
         }),
-      });
+      };
+      mockMarketplaceServicesFindFirst.mockResolvedValue(svcRemote);
+      mockMarketplaceServicesFindMany.mockResolvedValue([svcRemote]);
       mockReadCurrentSecretData.mockResolvedValue({});
       mockRenderConfigs.mockReturnValue([]);
       mockGetSecretEntries.mockReturnValue({});
@@ -1035,14 +1045,16 @@ describe("configSync", () => {
       mockServiceInstallsFindMany.mockResolvedValue([
         { deploymentId: "dep-1", packageId: "svc-bad" },
       ]);
-      mockMarketplaceServicesFindFirst.mockResolvedValue({
+      const svcBad = {
         id: "svc-bad",
         displayName: "Bad Service",
         instructionSnippet: null,
         hostingModel: "remote",
         remoteApiEndpoint: "https://example.com",
         remoteApiConfig: "not-valid-json",
-      });
+      };
+      mockMarketplaceServicesFindFirst.mockResolvedValue(svcBad);
+      mockMarketplaceServicesFindMany.mockResolvedValue([svcBad]);
       mockReadCurrentSecretData.mockResolvedValue({});
       mockRenderConfigs.mockReturnValue([]);
       mockGetSecretEntries.mockReturnValue({});
@@ -1254,14 +1266,16 @@ describe("configSync", () => {
       mockServiceInstallsFindMany.mockResolvedValue([
         { deploymentId: "dep-1", packageId: "svc-hybrid" },
       ]);
-      mockMarketplaceServicesFindFirst.mockResolvedValue({
+      const svcHybrid = {
         id: "svc-hybrid",
         displayName: "Hybrid Service",
         instructionSnippet: "Use hybrid service.",
         hostingModel: "hybrid",
         remoteApiEndpoint: "https://hybrid.example.com",
         remoteApiConfig: JSON.stringify({ skills: [{ name: "hybrid-skill" }] }),
-      });
+      };
+      mockMarketplaceServicesFindFirst.mockResolvedValue(svcHybrid);
+      mockMarketplaceServicesFindMany.mockResolvedValue([svcHybrid]);
       mockReadCurrentSecretData.mockResolvedValue({});
       mockRenderConfigs.mockReturnValue([]);
       mockGetSecretEntries.mockReturnValue({});
@@ -1285,14 +1299,16 @@ describe("configSync", () => {
       mockServiceInstallsFindMany.mockResolvedValue([
         { deploymentId: "dep-1", packageId: "svc-self" },
       ]);
-      mockMarketplaceServicesFindFirst.mockResolvedValue({
+      const svcSelf = {
         id: "svc-self",
         displayName: "Self Hosted",
         instructionSnippet: "Self hosted instructions.",
         hostingModel: "package",
         remoteApiEndpoint: null,
         remoteApiConfig: null,
-      });
+      };
+      mockMarketplaceServicesFindFirst.mockResolvedValue(svcSelf);
+      mockMarketplaceServicesFindMany.mockResolvedValue([svcSelf]);
       mockReadCurrentSecretData.mockResolvedValue({});
       mockRenderConfigs.mockReturnValue([]);
       mockGetSecretEntries.mockReturnValue({});
@@ -1311,7 +1327,7 @@ describe("configSync", () => {
       mockServiceInstallsFindMany.mockResolvedValue([
         { deploymentId: "dep-1", packageId: "svc-empty-skills" },
       ]);
-      mockMarketplaceServicesFindFirst.mockResolvedValue({
+      const svcEmptySkills = {
         id: "svc-empty-skills",
         displayName: "Bad Skills",
         instructionSnippet: null,
@@ -1320,7 +1336,9 @@ describe("configSync", () => {
         remoteApiConfig: JSON.stringify({
           skills: [{ name: "" }, { name: "valid-skill" }, { name: null }],
         }),
-      });
+      };
+      mockMarketplaceServicesFindFirst.mockResolvedValue(svcEmptySkills);
+      mockMarketplaceServicesFindMany.mockResolvedValue([svcEmptySkills]);
       mockReadCurrentSecretData.mockResolvedValue({});
       mockRenderConfigs.mockReturnValue([]);
       mockGetSecretEntries.mockReturnValue({});
@@ -1374,6 +1392,7 @@ describe("compareSecrets logic (via syncConfigsToPvc tiers)", () => {
     mockSkillsCatalogFindFirst.mockResolvedValue(null);
     mockServiceInstallsFindMany.mockResolvedValue([]);
     mockMarketplaceServicesFindFirst.mockResolvedValue(null);
+    mockMarketplaceServicesFindMany.mockResolvedValue([]);
     mockComponentInstallsFindMany.mockResolvedValue([]);
     mockGetDeploymentPodStatus.mockResolvedValue({ status: "running" });
     mockSignalProcessRestart.mockResolvedValue(false);

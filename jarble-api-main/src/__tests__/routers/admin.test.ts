@@ -11,7 +11,7 @@
 import { describe, it, expect, afterAll, vi, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import * as sqliteSchema from "../../db/schema.sqlite.js";
+import * as sqliteSchema from "../helpers/testSchema.sqlite.js";
 import { createTestCaller, createAnonymousCaller } from "../helpers/testCaller.js";
 
 // ── Hoisted mutable DB reference ─────────────────────────────────────────────
@@ -73,11 +73,19 @@ vi.mock("../../db/index.js", () => ({
       chatMessages: sqliteSchema.chatMessages,
       auditLogs: sqliteSchema.auditLogs,
       betaSignups: sqliteSchema.betaSignups,
+      deploymentSecrets: sqliteSchema.deploymentSecrets,
+      orchestrationFlows: sqliteSchema.orchestrationFlows,
+      flowExecutions: sqliteSchema.flowExecutions,
+      deploymentSubagents: sqliteSchema.deploymentSubagents,
+      flowDeploymentMemberships: sqliteSchema.flowDeploymentMemberships,
+      organizations: sqliteSchema.organizations,
+      orgMembers: sqliteSchema.orgMembers,
+      orgInvites: sqliteSchema.orgInvites,
     } as any;
   },
   dbDate: (date: Date = new Date()) => date.toISOString(),
-  DB_PROVIDER: "sqlite",
-  USE_SQLITE: true,
+  DB_PROVIDER: "postgres",
+  USE_SQLITE: false,
   sqliteRaw: null,
   sqliteDb: null,
   mysqlSchema: sqliteSchema,
@@ -150,8 +158,7 @@ vi.mock("../../services/auditLog.js", () => ({
 
 vi.mock("../../utils/env.js", () => ({
   env: {
-    USE_SQLITE: "true",
-    DB_PROVIDER: "sqlite",
+    DB_PROVIDER: "postgres",
     AUTH0_DOMAIN: "test.auth0.com",
     AUTH0_AUDIENCE: "https://api.jarble.ai",
     OPENROUTER_API_KEY: "sk-test",
@@ -201,6 +208,7 @@ const CREATE_TABLES_SQL = `
     name TEXT NOT NULL,
     description TEXT,
     runtime TEXT DEFAULT 'openclaw' NOT NULL,
+    deployment_type TEXT DEFAULT 'agent' NOT NULL,
     image TEXT,
     runtime_catalog_id INTEGER REFERENCES runtime_catalog(id),
     is_free INTEGER DEFAULT 0 NOT NULL,
@@ -235,12 +243,14 @@ const CREATE_TABLES_SQL = `
     specialties TEXT,
     bio TEXT,
     showcase_prompts TEXT,
+    org_id TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_deployments_user_id ON deployments(user_id);
   CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status);
   CREATE INDEX IF NOT EXISTS idx_deployments_is_public ON deployments(is_public);
+  CREATE INDEX IF NOT EXISTS idx_deployments_org_id ON deployments(org_id);
   CREATE TABLE IF NOT EXISTS platform_credentials (
     id TEXT PRIMARY KEY,
     deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
@@ -250,6 +260,16 @@ const CREATE_TABLES_SQL = `
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
   CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_platform ON platform_credentials(deployment_id, platform_id);
+  CREATE TABLE IF NOT EXISTS deployment_secrets (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_secret_key ON deployment_secrets(deployment_id, key);
   CREATE TABLE IF NOT EXISTS processed_webhook_events (
     event_id TEXT PRIMARY KEY,
     event_type TEXT NOT NULL,
@@ -657,6 +677,90 @@ const CREATE_TABLES_SQL = `
     use_case TEXT,
     status TEXT DEFAULT 'pending' NOT NULL,
     invited_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS orchestration_flows (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    description TEXT,
+    definition TEXT NOT NULL,
+    status TEXT DEFAULT 'draft' NOT NULL,
+    is_public INTEGER DEFAULT 0 NOT NULL,
+    fork_count INTEGER DEFAULT 0 NOT NULL,
+    forked_from_id TEXT,
+    entry_node_id TEXT,
+    team_type TEXT DEFAULT 'hierarchy' NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS flow_executions (
+    id TEXT PRIMARY KEY,
+    flow_id TEXT NOT NULL REFERENCES orchestration_flows(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    status TEXT DEFAULT 'pending' NOT NULL,
+    step_results TEXT,
+    total_credits_charged INTEGER DEFAULT 0 NOT NULL,
+    error TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS deployment_subagents (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    description TEXT,
+    system_prompt TEXT NOT NULL,
+    model TEXT,
+    trigger_type TEXT DEFAULT 'manual' NOT NULL,
+    trigger_config TEXT,
+    tools TEXT,
+    enabled INTEGER DEFAULT 1 NOT NULL,
+    sort_order INTEGER DEFAULT 0 NOT NULL,
+    source TEXT DEFAULT 'custom' NOT NULL,
+    is_public INTEGER DEFAULT 0 NOT NULL,
+    forked_from_id TEXT,
+    fork_count INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS flow_deployment_memberships (
+    id TEXT PRIMARY KEY,
+    flow_id TEXT NOT NULL REFERENCES orchestration_flows(id) ON DELETE CASCADE,
+    deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+    node_id TEXT NOT NULL,
+    role TEXT,
+    is_entry_point INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    avatar_url TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    role TEXT DEFAULT 'member' NOT NULL,
+    invited_by TEXT REFERENCES users(id),
+    joined_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS org_invites (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT DEFAULT 'member' NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    invited_by TEXT NOT NULL REFERENCES users(id),
+    status TEXT DEFAULT 'pending' NOT NULL,
+    expires_at TEXT NOT NULL,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
 `;

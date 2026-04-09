@@ -4,7 +4,7 @@
  * Tests extractText, chatViaExec (exec-based fallback), and chatViaGateway
  * (WebSocket-based) by mocking ws, exec, and uiBlockParser.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -63,7 +63,7 @@ vi.mock("crypto", async () => {
   };
 });
 
-import { chatViaExec } from "../openclawGateway.js";
+import { chatViaExec, chatViaHTTP } from "../openclawGateway.js";
 import { execInPod } from "../../k8s/exec.js";
 
 const mockedExec = vi.mocked(execInPod);
@@ -213,7 +213,12 @@ describe("chatViaExec", () => {
     });
 
     await chatViaExec("my-pod", "ses-key", "Hello bot");
+    // The exec args begin with `env JARBLE_CURRENT_SESSION_ID=...` to
+    // provide a server-side fallback for memory_scope=session. They
+    // may also include TRACEPARENT when an OTel context is active (not
+    // the case in this unit test because no tracer context is set up).
     expect(mockedExec).toHaveBeenCalledWith("my-pod", [
+      "env", "JARBLE_CURRENT_SESSION_ID=ses-key",
       "npx", "openclaw", "agent",
       "--message", "Hello bot",
       "--session-id", "ses-key",
@@ -297,5 +302,190 @@ describe("extractText behavior (via chatViaExec)", () => {
 
     const result = await chatViaExec("pod-1", "session-1", "Hi");
     expect(result.rawText).toBe("block text");
+  });
+});
+
+// ── chatViaHTTP ─────────────────────────────────────────────────────────────
+
+/** Helper: build a ReadableStream from SSE data lines */
+function buildSSEStream(chunks: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+      controller.close();
+    },
+  });
+}
+
+/** Helper: build SSE text from an array of OpenAI-style chunk objects */
+function sseLines(objs: object[]): string {
+  return objs.map((o) => `data: ${JSON.stringify(o)}\n\n`).join("") + "data: [DONE]\n\n";
+}
+
+describe("chatViaHTTP", () => {
+  const opts = { ip: "10.0.0.1", port: 3000, gatewayToken: "tok", sessionKey: "test-session" };
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("streams delta.content and calls onDelta", async () => {
+    const sse = sseLines([
+      { choices: [{ delta: { content: "Hello " } }] },
+      { choices: [{ delta: { content: "world" } }] },
+      { choices: [{ finish_reason: "stop" }] },
+    ]);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      body: buildSSEStream([sse]),
+    });
+    mockExtractAllUIBlocks.mockReturnValue({
+      cleanText: "Hello world",
+      uiBlocks: [],
+      uiUpdates: [],
+      componentDefs: [],
+      suggestions: [],
+      designContext: null,
+    });
+
+    const onDelta = vi.fn();
+    const result = await chatViaHTTP(opts, "hi", "ses-1", onDelta);
+
+    expect(result.text).toBe("Hello world");
+    expect(onDelta).toHaveBeenCalledWith("Hello ");
+    expect(onDelta).toHaveBeenCalledWith("Hello world");
+  });
+
+  it("strips <think> tags from delta.content", async () => {
+    const sse = sseLines([
+      { choices: [{ delta: { content: "<think>internal reasoning</think>Visible text" } }] },
+      { choices: [{ finish_reason: "stop" }] },
+    ]);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      body: buildSSEStream([sse]),
+    });
+    mockExtractAllUIBlocks.mockReturnValue({
+      cleanText: "Visible text",
+      uiBlocks: [],
+      uiUpdates: [],
+      componentDefs: [],
+      suggestions: [],
+      designContext: null,
+    });
+
+    const result = await chatViaHTTP(opts, "hi", "ses-1");
+    // fullText (rawText) should NOT contain <think> content
+    expect(result.rawText).toBe("Visible text");
+    expect(result.rawText).not.toContain("<think>");
+  });
+
+  it("strips multi-chunk <think> tags spanning deltas", async () => {
+    const sse = sseLines([
+      { choices: [{ delta: { content: "Before<think>start of thought" } }] },
+      { choices: [{ delta: { content: " still thinking" } }] },
+      { choices: [{ delta: { content: "</think>After" } }] },
+      { choices: [{ finish_reason: "stop" }] },
+    ]);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      body: buildSSEStream([sse]),
+    });
+    mockExtractAllUIBlocks.mockReturnValue({
+      cleanText: "BeforeAfter",
+      uiBlocks: [],
+      uiUpdates: [],
+      componentDefs: [],
+      suggestions: [],
+      designContext: null,
+    });
+
+    const result = await chatViaHTTP(opts, "hi", "ses-1");
+    expect(result.rawText).toBe("BeforeAfter");
+  });
+
+  it("accumulates tool_calls and flushes as jarble_ui blocks", async () => {
+    const sse = sseLines([
+      { choices: [{ delta: { content: "Here is a chart" } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { name: "render_ui", arguments: '{"component":"bar_chart",' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"props":{"data":[1,2,3]}}' } }] } }] },
+      { choices: [{ finish_reason: "tool_calls" }] },
+    ]);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      body: buildSSEStream([sse]),
+    });
+
+    const fakeBlock = { id: "b1", component: "bar_chart", props: { data: [1, 2, 3] } };
+    mockExtractAllUIBlocks.mockReturnValue({
+      cleanText: "Here is a chart",
+      uiBlocks: [fakeBlock],
+      uiUpdates: [],
+      componentDefs: [],
+      suggestions: [],
+      designContext: null,
+    });
+
+    const result = await chatViaHTTP(opts, "hi", "ses-1");
+    // The fullText should contain the fenced jarble_ui block appended from tool calls
+    expect(result.rawText).toContain("```jarble_ui");
+    expect(result.rawText).toContain("bar_chart");
+    // extractAllUIBlocks is called with the full text including fenced blocks
+    expect(mockExtractAllUIBlocks).toHaveBeenCalled();
+  });
+
+  it("extracts token usage from final chunk", async () => {
+    const sse = sseLines([
+      { choices: [{ delta: { content: "Hi" } }] },
+      { choices: [{ finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } },
+    ]);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      body: buildSSEStream([sse]),
+    });
+    mockExtractAllUIBlocks.mockReturnValue({
+      cleanText: "Hi",
+      uiBlocks: [],
+      uiUpdates: [],
+      componentDefs: [],
+      suggestions: [],
+      designContext: null,
+    });
+
+    const result = await chatViaHTTP(opts, "hi", "ses-1");
+    expect(result.tokenUsage).toEqual({
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+    });
+  });
+
+  it("throws on non-ok HTTP response", async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => "Internal Server Error",
+    });
+
+    await expect(chatViaHTTP(opts, "hi", "ses-1")).rejects.toThrow("HTTP chat completions failed: 500");
+  });
+
+  it("throws on empty response", async () => {
+    const sse = sseLines([
+      { choices: [{ finish_reason: "stop" }] },
+    ]);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      body: buildSSEStream([sse]),
+    });
+
+    await expect(chatViaHTTP(opts, "hi", "ses-1")).rejects.toThrow("empty response");
   });
 });

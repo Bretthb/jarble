@@ -25,7 +25,7 @@ import { validateExternalUrl } from "../utils/urlValidation.js";
 const jsonSchemaSchema = z
   .object({
     type: z.literal("object"),
-    properties: z.record(z.unknown()),
+    properties: z.record(z.string(), z.unknown()),
     required: z.array(z.string()).optional(),
   })
   .passthrough();

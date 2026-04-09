@@ -26,10 +26,12 @@ export default function InviteAcceptPage() {
   const [status, setStatus] = useState<InviteStatus>("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [orgId, setOrgId] = useState<string | null>(null);
+  const utils = trpc.useUtils();
 
   const acceptInvite = trpc.org.acceptInvite.useMutation({
     onSuccess: (data) => {
       setOrgId(data.orgId);
+      utils.org.list.invalidate();
       if (data.alreadyMember) {
         setStatus("already-member");
         setActiveOrgId(data.orgId);

@@ -19,7 +19,7 @@ vi.mock("../db/index.js", () => ({
       processedAt: "processedAt",
     },
   },
-  DB_PROVIDER: "sqlite",
+  DB_PROVIDER: "postgres",
 }));
 
 vi.mock("drizzle-orm", () => ({

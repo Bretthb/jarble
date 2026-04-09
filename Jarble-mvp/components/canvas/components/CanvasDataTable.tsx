@@ -4,10 +4,56 @@ import { memo } from "react";
 import { FadeIn } from "../FadeIn";
 import { useCanvasAction } from "../CanvasActionContext";
 
+/**
+ * Column definition accepted by CanvasDataTable.
+ *
+ * The LLM may emit columns in three formats:
+ *   1. Plain strings: ["Name", "Role", "Salary"]
+ *   2. Objects with label: [{ key: "name", label: "Name" }, ...]
+ *   3. Objects with just name/title: [{ name: "Name" }, ...]
+ *
+ * All three are normalized to plain strings before rendering. Previously
+ * the component only accepted strings and crashed with React error #31
+ * ("Objects are not valid as a React child") when the LLM emitted format 2.
+ */
+export type CanvasDataTableColumn =
+  | string
+  | { key?: string; label?: string; name?: string; title?: string };
+
 export interface CanvasDataTableProps {
   title?: string;
-  columns?: string[];
+  columns?: CanvasDataTableColumn[];
   rows?: unknown[];
+}
+
+/** Normalize a column definition to a plain string label for display. */
+function columnLabel(col: CanvasDataTableColumn): string {
+  if (typeof col === "string") return col;
+  if (col && typeof col === "object") {
+    return (
+      (col as any).label ??
+      (col as any).title ??
+      (col as any).name ??
+      (col as any).key ??
+      ""
+    );
+  }
+  return String(col ?? "");
+}
+
+/** Normalize a column definition to its underlying object key (for row lookup). */
+function columnKey(col: CanvasDataTableColumn): string {
+  if (typeof col === "string") return col;
+  if (col && typeof col === "object") {
+    return (
+      (col as any).key ??
+      (col as any).name ??
+      (col as any).label ??
+      (col as any).title ??
+      ""
+    );
+  }
+  return String(col ?? "");
 }
 
 /**
@@ -15,23 +61,50 @@ export interface CanvasDataTableProps {
  * The LLM may pass rows as:
  *   - arrays: ["Alice", "Engineer"]
  *   - objects: { name: "Alice", role: "Engineer" }
+ *
+ * `columnKeys` and `columnLabels` are parallel arrays — key is used for
+ * object lookup, label is used to match case-insensitively as a fallback.
  */
-function normalizeRow(row: unknown, columns: string[]): string[] {
-  if (Array.isArray(row)) return row.map(String);
+function normalizeRow(
+  row: unknown,
+  columnKeys: string[],
+  columnLabels: string[],
+): string[] {
+  if (Array.isArray(row)) return row.map((v) => safeToString(v));
   if (row && typeof row === "object") {
     const obj = row as Record<string, unknown>;
     // If we have columns, extract values in column order
-    if (columns.length > 0) {
-      return columns.map((col) => {
-        const key = Object.keys(obj).find(
-          (k) => k.toLowerCase() === col.toLowerCase()
+    if (columnKeys.length > 0) {
+      return columnKeys.map((key, i) => {
+        // Try exact key match first
+        if (key && key in obj) return safeToString(obj[key]);
+        // Then case-insensitive match against key OR label
+        const needles = [key, columnLabels[i]].filter(Boolean).map((s) => s.toLowerCase());
+        const foundKey = Object.keys(obj).find((k) =>
+          needles.includes(k.toLowerCase())
         );
-        return key != null ? String(obj[key] ?? "") : "";
+        return foundKey != null ? safeToString(obj[foundKey]) : "";
       });
     }
-    return Object.values(obj).map(String);
+    return Object.values(obj).map((v) => safeToString(v));
   }
-  return [String(row)];
+  return [safeToString(row)];
+}
+
+/**
+ * Convert any value to a string safely. Critical: objects and arrays are
+ * JSON-stringified instead of going through String() which returns
+ * "[object Object]" — and arrays never reach React render as naked values.
+ */
+function safeToString(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
 }
 
 /** Detect if a column contains primarily numeric values */
@@ -57,29 +130,34 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
     // Not inside CanvasActionProvider -- interactivity disabled
   }
 
-  // Infer columns from first object row if not provided
-  const resolvedColumns =
-    columns.length > 0
-      ? columns
-      : rows.length > 0 && rows[0] && typeof rows[0] === "object" && !Array.isArray(rows[0])
-        ? Object.keys(rows[0] as Record<string, unknown>)
-        : [];
+  // Normalize column definitions to parallel arrays of keys + display labels.
+  // Handles strings, {key, label} objects, {name}, {title}, etc.
+  const normalizedColumns = columns.length > 0 ? columns : [];
+  let columnKeys = normalizedColumns.map(columnKey);
+  let columnLabels = normalizedColumns.map(columnLabel);
 
-  const normalizedRows = rows.map((row) => normalizeRow(row, resolvedColumns));
+  // If no columns provided, infer from the first object row
+  if (columnKeys.length === 0 && rows.length > 0 && rows[0] && typeof rows[0] === "object" && !Array.isArray(rows[0])) {
+    const inferred = Object.keys(rows[0] as Record<string, unknown>);
+    columnKeys = inferred;
+    columnLabels = inferred;
+  }
+
+  const normalizedRows = rows.map((row) => normalizeRow(row, columnKeys, columnLabels));
 
   // Detect numeric columns for right-alignment
-  const numericCols = resolvedColumns.map((_, i) => isNumericColumn(normalizedRows, i));
+  const numericCols = columnKeys.map((_, i) => isNumericColumn(normalizedRows, i));
 
   const handleRowClick = (rowIndex: number, rowCells: string[]) => {
     if (!dispatch) return;
-    // Build row data as key-value pairs using column names
+    // Build row data as key-value pairs using column keys
     const rowData: Record<string, string> = {};
-    resolvedColumns.forEach((col, i) => {
-      rowData[col] = rowCells[i] ?? "";
+    columnKeys.forEach((key, i) => {
+      rowData[key] = rowCells[i] ?? "";
     });
     dispatch({
       action: "row_click",
-      payload: { rowIndex, rowData, columns: resolvedColumns },
+      payload: { rowIndex, rowData, columns: columnLabels },
     });
   };
 
@@ -106,12 +184,12 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
       )}
       <div className="flex-1 overflow-auto min-h-0">
         <table className="w-full text-sm" aria-label={title || "Data table"}>
-          {resolvedColumns.length > 0 && (
+          {columnLabels.length > 0 && (
             <thead className="sticky top-0 z-10">
               <tr className="bg-gradient-to-r from-muted/80 via-muted/60 to-muted/40 dark:from-white/[0.06] dark:via-white/[0.04] dark:to-white/[0.02] backdrop-blur-sm">
-                {resolvedColumns.map((col, i) => (
+                {columnLabels.map((label, i) => (
                   <th
-                    key={col}
+                    key={`${columnKeys[i] || label}-${i}`}
                     scope="col"
                     className={[
                       "px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap",
@@ -120,7 +198,7 @@ function CanvasDataTableInner({ title, columns = [], rows = [] }: CanvasDataTabl
                       numericCols[i] ? "text-right" : "text-left",
                     ].join(" ")}
                   >
-                    {col}
+                    {label}
                   </th>
                 ))}
               </tr>

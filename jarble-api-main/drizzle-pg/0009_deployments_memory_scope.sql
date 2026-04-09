@@ -1,0 +1,17 @@
+-- JAR memory-scoping foundation: add a per-deployment memory_scope column
+-- so the chat surface can disclose memory behavior and give users a real
+-- opt-in switch.
+--
+-- Decision: ship Option B (disclosure + opt-in scoping) per
+-- docs/audits/memory-scoping-decision.md. This migration is the foundation
+-- column only — actual enforcement of `session` mode lives in follow-up
+-- PRs that touch the OpenClaw runtime handler + Jarble MCP server.
+--
+-- Values:
+--   global  (default) — current behavior, persists across sessions/platforms
+--   session           — bot is instructed to scope memories per session id
+--   off               — memory tools disabled entirely
+--
+-- Defaults to 'global' so existing deployments keep their current behavior
+-- with no surprise — the disclosure banner is the user-visible change.
+ALTER TABLE "deployments" ADD COLUMN "memory_scope" varchar(20) DEFAULT 'global' NOT NULL;

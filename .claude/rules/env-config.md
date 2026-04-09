@@ -12,8 +12,8 @@ globs:
 
 ## API (jarble-api-main/.env)
 ```
-DATABASE_URL=mysql://...        # Required for prod
-USE_SQLITE=true                 # Use file-based SQLite for local dev (local.db)
+DATABASE_URL=postgresql://...   # Required — Neon Postgres connection string (prod or a Neon branch for local dev)
+# USE_SQLITE and DB_PROVIDER were removed in commit 388018b (MySQL/SQLite removal)
 AUTH0_DOMAIN=xxx.auth0.com
 AUTH0_AUDIENCE=https://api.jarble.ai
 STRIPE_SECRET_KEY=sk_...
@@ -44,6 +44,9 @@ NEXT_PUBLIC_AUTH0_AUDIENCE=https://api.jarble.ai
 - `GET /debug/deployment/:id/pod-status` — K8s pod status
 - `GET /debug/platform-skills` — Platform skills for pods
 
-## SQLite Dev DB
-- File-based at `jarble-api-main/local.db` (persists across tsx watch restarts)
-- Seed data created on every startup in `db/init.ts`
+## Local Dev DB
+Use a Neon branch as your local dev database. Create a branch in the Neon console, copy the connection string, and set it as `DATABASE_URL` in `jarble-api-main/.env`.
+
+`db/init.ts` is a no-op stub. Seed data is in `seed.pg.ts` (run separately, not on startup). Schema changes use `npm run db:migrate:pg`.
+
+Note: `jarble-api-main/local.db` may still exist on disk from before the MySQL/SQLite removal. It is no longer used by the API at runtime. Safe to delete.

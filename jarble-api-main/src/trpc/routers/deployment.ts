@@ -4,7 +4,7 @@ import { router, protectedProcedure, publicProcedure } from "../middleware.js";
 import { tables, dbDate, type DbClient } from "../../db/index.js";
 import { eq, and, or, isNull, sql, inArray } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod, appsApi, NAMESPACE } from "../../k8s/index.js";
-import { ensureCapacityForDeployment, checkScaleDown, getCapacityStatus, CapacityError } from "../../k8s/nodeManager.js";
+import { ensureCapacityForDeployment, checkScaleDown, getCapacityStatus, CapacityError, SERVER_TYPES } from "../../k8s/nodeManager.js";
 import type { ManagedBy, IsolationLevel } from "../../k8s/constants.js";
 import { getPvcMountPath, getContainerName, getContainerHome } from "../../k8s/constants.js";
 import { validateComponentName, validateComponentDefinition } from "../../utils/componentResolver.js";
@@ -28,8 +28,80 @@ import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
 import { isAdmin } from "../../utils/admin.js";
 import { RESOURCE_TIERS } from "../../k8s/constants.js";
 import { validateThemeConfig, COMPONENT_MANIFEST } from "@jarble/component-manifest";
+import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
+import { requireOrgRole } from "./org.js";
+import type { OrgRole } from "./org.js";
 
 const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations } = tables;
+
+/**
+ * Find a deployment and verify the caller has access.
+ * - Personal deployments (orgId is null): only the creator (userId) can access
+ * - Org deployments: any org member can read; mutations require owner/admin role
+ *
+ * Returns the deployment + the caller's org role (null for personal deployments).
+ * Throws NOT_FOUND if deployment doesn't exist or caller has no access.
+ */
+async function findDeploymentWithAccess(
+  db: DbClient,
+  deploymentId: string,
+  userId: string,
+  opts?: { requireRole?: OrgRole[] },
+): Promise<{ deployment: any; orgRole: OrgRole | null }> {
+  // 1. First try to find by userId (personal deployment or user is creator)
+  let deployment = await db.query.deployments.findFirst({
+    where: and(eq(deployments.id, deploymentId), eq(deployments.userId, userId)),
+    with: { runtimeCatalogEntry: true },
+  });
+
+  if (deployment) {
+    // Personal deployment or user is the creator
+    if (!deployment.orgId) {
+      return { deployment, orgRole: null };
+    }
+    // Creator is also an org member — get their role
+    const membership = await db.query.orgMembers.findFirst({
+      where: and(eq(orgMembers.orgId, deployment.orgId), eq(orgMembers.userId, userId)),
+    });
+    const role = (membership?.role ?? "member") as OrgRole;
+    if (opts?.requireRole && !opts.requireRole.includes(role)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: `Requires ${opts.requireRole.join(" or ")} role` });
+    }
+    return { deployment, orgRole: role };
+  }
+
+  // 2. Not the creator — check if it's an org deployment they have access to
+  const dep = await db.query.deployments.findFirst({
+    where: eq(deployments.id, deploymentId),
+    with: { runtimeCatalogEntry: true },
+  });
+
+  if (!dep || !dep.orgId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+  }
+
+  // Verify org membership
+  const membership = await db.query.orgMembers.findFirst({
+    where: and(eq(orgMembers.orgId, dep.orgId), eq(orgMembers.userId, userId)),
+  });
+  if (!membership) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+  }
+
+  const role = membership.role as OrgRole;
+
+  // Check visibility — members can't see "admin" visibility deployments
+  if ((dep as any).visibility === "admin" && role === "member") {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+  }
+
+  // Check required role for mutations
+  if (opts?.requireRole && !opts.requireRole.includes(role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: `Requires ${opts.requireRole.join(" or ")} role` });
+  }
+
+  return { deployment: dep, orgRole: role };
+}
 
 export const deploymentRouter = router({
 
@@ -52,10 +124,10 @@ export const deploymentRouter = router({
 
   // List user's deployments (personal + org-owned)
   list: protectedProcedure.query(async ({ ctx }) => {
-    // Get user's org memberships
+    // Get user's org memberships (including role for visibility filtering)
     const memberships = await ctx.db.query.orgMembers.findMany({
       where: eq(orgMembers.userId, ctx.user.id),
-      columns: { orgId: true },
+      columns: { orgId: true, role: true },
     });
     const orgIds = memberships.map((m: any) => m.orgId);
 
@@ -67,7 +139,23 @@ export const deploymentRouter = router({
       orderBy: (d, { desc }) => [desc(d.createdAt)],
     });
 
-    return result;
+    // Filter by visibility for member-role users (members can't see "admin" visibility deployments)
+    const memberOrgIds = new Set<string>();
+    for (const m of memberships) {
+      if ((m as any).role === "member") {
+        memberOrgIds.add(m.orgId);
+      }
+    }
+
+    const filtered = result.filter((d: any) => {
+      // Personal deployments: always show
+      if (!d.orgId) return true;
+      // If user is member (not admin/owner) in this org, hide admin-only deployments
+      if (memberOrgIds.has(d.orgId) && d.visibility === "admin") return false;
+      return true;
+    });
+
+    return filtered;
   }),
 
   // List deployments that can be linked to (owner deployments with included credits)
@@ -104,14 +192,9 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      // Verify org membership if assigning
+      // Verify org role (owner/admin) if assigning
       if (input.orgId) {
-        const membership = await ctx.db.query.orgMembers.findFirst({
-          where: and(eq(orgMembers.orgId, input.orgId), eq(orgMembers.userId, ctx.user.id)),
-        });
-        if (!membership) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this organization" });
-        }
+        await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
       }
 
       await ctx.db.update(deployments).set({ orgId: input.orgId }).where(eq(deployments.id, input.deploymentId));
@@ -184,9 +267,17 @@ export const deploymentRouter = router({
     .query(async ({ ctx, input }) => {
       if (input.ids.length === 0) return {};
 
-      // Verify ownership of all requested deployments
+      // Verify access: user's own deployments + org deployments they belong to
+      const memberships = await ctx.db.query.orgMembers.findMany({
+        where: eq(orgMembers.userId, ctx.user.id),
+        columns: { orgId: true },
+      });
+      const orgIds = memberships.map((m: any) => m.orgId);
+
       const userDeps = await ctx.db.query.deployments.findMany({
-        where: and(eq(deployments.userId, ctx.user.id)),
+        where: orgIds.length > 0
+          ? or(eq(deployments.userId, ctx.user.id), inArray(deployments.orgId, orgIds))
+          : eq(deployments.userId, ctx.user.id),
         columns: { id: true, managedBy: true },
       });
       const ownedIds = new Set(userDeps.map((d: { id: string }) => d.id));
@@ -212,26 +303,16 @@ export const deploymentRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.query.deployments.findFirst({
-        where: and(
-          eq(deployments.id, input.id),
-          eq(deployments.userId, ctx.user.id)
-        ),
-        with: { runtimeCatalogEntry: true },
-      });
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id);
+      return deployment;
     }),
 
   // Get component catalog (built-in + default library + PVC custom) for a deployment
   getComponentCatalog: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Verify ownership
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      // Verify access (org members can view too)
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id);
 
       // Built-in component metadata - derived from the canonical component manifest
       const builtins = Object.entries(COMPONENT_MANIFEST).map(([name, entry]) => ({
@@ -257,19 +338,16 @@ export const deploymentRouter = router({
     .input(z.object({
       id: z.string(),
       name: z.string(),
-      description: z.string().optional(),
+      description: z.string().max(5000).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
       layout: z.array(z.object({
         component: z.string(),
         props: z.record(z.string(), z.unknown()),
       })),
     }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
       if (deployment.status !== "running") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Deployment is not running" });
       }
@@ -301,12 +379,9 @@ export const deploymentRouter = router({
       name: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
       if (deployment.status !== "running") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Deployment is not running" });
       }
@@ -322,7 +397,7 @@ export const deploymentRouter = router({
   // Create deployment (DB record only, doesn't deploy)
   create: protectedProcedure
     .input(z.object({
-      name: z.string().min(1),
+      name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE),
       runtimeCatalogId: z.number(),
       platform: z.string().optional(),
       image: z.string().optional(),
@@ -330,12 +405,17 @@ export const deploymentRouter = router({
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).default("openrouter"),
       llmModel: z.string().optional(), // e.g. "openrouter/auto", "gpt-4o", "claude-sonnet-4-20250514"
       llmApiKey: z.string().optional(),
-      systemPrompt: z.string().optional(),
+      // systemPrompt intentionally permits HTML characters (no noHtmlTags refine):
+      //   1. It's LLM input, not user-facing content — sent to the model as instructions
+      //   2. Legitimate prompts need `<` for code examples, JSX/HTML discussions, etc.
+      //   3. Only rendered in frontend <textarea value={...}> which React auto-escapes
+      // If this ever surfaces in emails/admin dashboards/logs, escape at render time there.
+      systemPrompt: z.string().max(50_000).optional(), // 50K chars max to prevent storage bloat
       creditLimitDollars: z.number().min(1).max(1000).optional(), // Monthly spending cap for "included" mode (default $5)
       linkToDeploymentId: z.string().optional(), // Link to an existing deployment's credit pool instead of provisioning a new key
       cpuLimit: z.string().optional(),    // e.g. "2.0" - overrides runtime catalog default
       memoryMb: z.number().int().positive().optional(),   // e.g. 2048 - RAM in MB
-      storageMb: z.number().int().positive().optional(),  // e.g. 30 - storage in GB (historical naming)
+      storageMb: z.number().int().positive().max(500).optional(),  // e.g. 30 - storage in GiB (historical naming). Max 500 GiB to prevent runaway provisioning.
       telegramBotToken: z.string().optional(), // Pre-validated Telegram bot token (included in initial K8s Secret)
       messagingOnly: z.boolean().optional(), // If true, omit web-chat UI prompt (~1,250 tokens saved)
       isolationLevel: z.enum(["standard", "gvisor", "kata"]).optional(), // Runtime sandbox isolation (default: "standard")
@@ -343,14 +423,35 @@ export const deploymentRouter = router({
       orgId: z.string().nullish(), // Assign to org on creation (optional)
     }))
     .mutation(async ({ ctx, input }) => {
-      // Verify org membership if orgId provided
-      if (input.orgId) {
-        const membership = await ctx.db.query.orgMembers.findFirst({
-          where: and(eq(orgMembers.orgId, input.orgId), eq(orgMembers.userId, ctx.user.id)),
+      // ── Wave 4 Layer A — pre-flight PVC size validation ─────────────
+      // PVC size larger than the largest autoscaler tier's available
+      // disk would otherwise hang at Longhorn replica scheduling
+      // forever (LocalReplicaSchedulingFailure: insufficient storage),
+      // because the volume stays detached and the pod stays Init:0/1
+      // until the create-poll times out and flips the deployment to
+      // "failed" with no actionable error. Reject early instead.
+      //
+      // Disk math: each Hetzner tier's root disk minus ~11 GiB of
+      // overhead (OS + kubelet + containerd + Longhorn DS + safety
+      // margin) is what Longhorn actually advertises as schedulable.
+      // We import SERVER_TYPES from nodeManager.ts so this stays in
+      // sync automatically when a new tier is added.
+      //
+      // DO NOT REMOVE this block: storageMb is historically named in
+      // GiB, and the slider in the wizard goes higher than what any
+      // currently-provisioned tier can host.
+      const LARGEST_TIER_USABLE_GB = SERVER_TYPES[SERVER_TYPES.length - 1]!.usableLonghornGb;
+      const requestedStorageGb = input.storageMb ?? 20; // historical: storageMb is GiB
+      if (requestedStorageGb > LARGEST_TIER_USABLE_GB) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Storage size ${requestedStorageGb} GiB exceeds the maximum available on any auto-scaled worker tier (${LARGEST_TIER_USABLE_GB} GiB). Reduce the storage slider or contact support to request a larger node tier.`,
         });
-        if (!membership) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this organization" });
-        }
+      }
+
+      // Verify org role (owner/admin) if orgId provided
+      if (input.orgId) {
+        await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
       }
 
       // Platform mode is admin-only
@@ -710,6 +811,14 @@ export const deploymentRouter = router({
       // Resolve deployment type for scheduling decisions
       const deploymentType = (deployment as any).deploymentType || "agent";
 
+      // Wave 4 Layer B: granular status. Mark "provisioning_node" before
+      // ensureCapacityForDeployment so the user can see if Hetzner is the
+      // bottleneck. nodeManager.ts (Layer D) doesn't write status itself,
+      // so the call site has to do it.
+      await ctx.db.update(deployments)
+        .set({ status: "provisioning_node" })
+        .where(eq(deployments.id, deploymentId));
+
       let targetNode: string | undefined;
       try {
         targetNode = await ensureCapacityForDeployment(
@@ -718,6 +827,9 @@ export const deploymentRouter = router({
           deployment.memoryMb || 3072,
           deploymentType,
           deploymentId,
+          // storageMb is historically named — the value is GiB. Pass it through
+          // so the autoscaler picks a tier whose root disk fits this PVC.
+          deployment.storageMb || undefined,
         );
         if (targetNode) logger.info({ deploymentId, targetNode }, "Node capacity confirmed");
       } catch (capacityErr) {
@@ -772,16 +884,37 @@ export const deploymentRouter = router({
             await new Promise((r) => setTimeout(r, 2000));
           }
 
-          // Only update if still in transitional state (don't overwrite enforcement actions)
+          // Only update if still in transitional state (don't overwrite enforcement actions).
+          // Wave 4 Layer B: includes the granular per-step statuses written by
+          // lifecycle.ts (waiting_volume, pulling_image, initializing) and the
+          // call-site write above (provisioning_node).
           await ctx.db.update(deployments)
             .set({ status: ready ? "running" : "failed", ...(ready ? { error: null } : { error: "Pod did not become ready" }) })
-            .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
+            .where(and(
+              eq(deployments.id, deploymentId),
+              inArray(deployments.status, [
+                "creating",
+                "provisioning_node",
+                "waiting_volume",
+                "pulling_image",
+                "initializing",
+              ]),
+            ));
           logger.info({ deploymentId, ready }, "Deployment create completed");
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Unknown deployment error";
           await ctx.db.update(deployments)
             .set({ status: "failed", error: message })
-            .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "creating")));
+            .where(and(
+              eq(deployments.id, deploymentId),
+              inArray(deployments.status, [
+                "creating",
+                "provisioning_node",
+                "waiting_volume",
+                "pulling_image",
+                "initializing",
+              ]),
+            ));
           logger.error({ deploymentId, err }, "Deployment failed");
         }
       })();
@@ -853,13 +986,262 @@ export const deploymentRouter = router({
       }
     }),
 
+  /**
+   * List recent traces involving this deployment (JAR-51 debug drawer).
+   *
+   * Returns the last N distinct trace_ids where this deployment is either
+   * the caller or the callee, with a short summary (timestamp, kind, skill,
+   * status, duration) for each trace. The frontend debug drawer uses this
+   * to render a list of recent activity, with the ability to drill down
+   * into a single trace via `getAgentCallsByTrace`.
+   */
+  listRecentTraces: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      limit: z.number().min(1).max(100).default(20),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Ownership check — uses findDeploymentWithAccess so org members
+      // with read access via org_members can see traces for org-owned
+      // deployments, not just the original creator. (Code-review P1-1.)
+      await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id);
+
+      // Fetch the most recent N depth-0 rows for this deployment. Depth-0
+      // is the root of each trace (chat_turn or flow_step). We'll join
+      // with the total span count per trace in a single aggregation.
+      const rootCalls = await ctx.db
+        .select({
+          traceId: agentCalls.traceId,
+          callId: agentCalls.id,
+          kind: agentCalls.kind,
+          skillName: agentCalls.skillName,
+          spanName: agentCalls.spanName,
+          status: agentCalls.status,
+          durationMs: agentCalls.durationMs,
+          createdAt: agentCalls.createdAt,
+          callerDeploymentId: agentCalls.callerDeploymentId,
+          calleeDeploymentId: agentCalls.calleeDeploymentId,
+        })
+        .from(agentCalls)
+        .where(and(
+          eq(agentCalls.depth, 0),
+          sql`(${agentCalls.callerDeploymentId} = ${input.id} OR ${agentCalls.calleeDeploymentId} = ${input.id})`,
+        ))
+        .orderBy(sql`${agentCalls.createdAt} DESC`)
+        .limit(input.limit);
+
+      if (rootCalls.length === 0) return { traces: [] };
+
+      // For each root trace, count total spans + max depth
+      const traceIds = rootCalls.map((r) => r.traceId).filter(Boolean) as string[];
+      const counts = traceIds.length > 0 ? await ctx.db
+        .select({
+          traceId: agentCalls.traceId,
+          spanCount: sql<number>`count(*)::int`,
+          maxDepth: sql<number>`max(${agentCalls.depth})::int`,
+          totalCredits: sql<number>`coalesce(sum(${agentCalls.creditsCharged}), 0)::int`,
+        })
+        .from(agentCalls)
+        .where(inArray(agentCalls.traceId, traceIds))
+        .groupBy(agentCalls.traceId)
+        : [];
+
+      const countMap = new Map(counts.map((c) => [c.traceId, { spanCount: c.spanCount, maxDepth: c.maxDepth, totalCredits: c.totalCredits }]));
+
+      return {
+        traces: rootCalls.map((r) => ({
+          traceId: r.traceId,
+          rootCallId: r.callId,
+          kind: r.kind,
+          skillName: r.skillName,
+          spanName: r.spanName,
+          status: r.status,
+          durationMs: r.durationMs,
+          createdAt: r.createdAt,
+          callerDeploymentId: r.callerDeploymentId,
+          calleeDeploymentId: r.calleeDeploymentId,
+          spanCount: countMap.get(r.traceId!)?.spanCount ?? 1,
+          totalCredits: countMap.get(r.traceId!)?.totalCredits ?? 0,
+          maxDepth: countMap.get(r.traceId!)?.maxDepth ?? 0,
+        })),
+      };
+    }),
+
+  /**
+   * List team delegation sessions involving this deployment (Fractal Piece 6).
+   *
+   * Returns recent delegation calls where this deployment is either the
+   * caller (it delegated to someone) or the callee (someone delegated to it).
+   * Each row has the task, response preview, cost, duration, and the other
+   * deployment's info — so the UI can show "t2 asked this bot to..." or
+   * "this bot asked t1 to...".
+   */
+  listTeamSessions: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      limit: z.number().min(1).max(100).default(30),
+    }))
+    .query(async ({ ctx, input }) => {
+      await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id);
+
+      const rows = await ctx.db
+        .select({
+          id: agentCalls.id,
+          kind: agentCalls.kind,
+          skillName: agentCalls.skillName,
+          callerDeploymentId: agentCalls.callerDeploymentId,
+          calleeDeploymentId: agentCalls.calleeDeploymentId,
+          requestBody: agentCalls.requestBody,
+          responseBody: agentCalls.responseBody,
+          status: agentCalls.status,
+          durationMs: agentCalls.durationMs,
+          creditsCharged: agentCalls.creditsCharged,
+          depth: agentCalls.depth,
+          createdAt: agentCalls.createdAt,
+        })
+        .from(agentCalls)
+        .where(and(
+          eq(agentCalls.kind, "delegation"),
+          sql`(${agentCalls.callerDeploymentId} = ${input.id} OR ${agentCalls.calleeDeploymentId} = ${input.id})`,
+        ))
+        .orderBy(sql`${agentCalls.createdAt} DESC`)
+        .limit(input.limit);
+
+      // Collect unique deployment IDs to look up names
+      const depIds = new Set<string>();
+      for (const r of rows) {
+        if (r.callerDeploymentId) depIds.add(r.callerDeploymentId);
+        if (r.calleeDeploymentId) depIds.add(r.calleeDeploymentId);
+      }
+      const depNames = new Map<string, string>();
+      if (depIds.size > 0) {
+        const deps = await ctx.db.query.deployments.findMany({
+          where: inArray(deployments.id, Array.from(depIds)),
+          columns: { id: true, name: true },
+        });
+        for (const d of deps) depNames.set(d.id, d.name);
+      }
+
+      return {
+        sessions: rows.map((r) => {
+          // Determine the "other" deployment from this one's perspective
+          const isCaller = r.callerDeploymentId === input.id;
+          const otherId = isCaller ? r.calleeDeploymentId : r.callerDeploymentId;
+          return {
+            id: r.id,
+            direction: isCaller ? "sent" as const : "received" as const,
+            otherDeploymentId: otherId,
+            otherDeploymentName: otherId ? depNames.get(otherId) || otherId : null,
+            skillName: r.skillName,
+            task: r.requestBody?.slice(0, 300) || null,
+            responsePreview: r.responseBody?.slice(0, 300) || null,
+            status: r.status,
+            durationMs: r.durationMs,
+            costCents: r.creditsCharged,
+            depth: r.depth,
+            createdAt: r.createdAt,
+          };
+        }),
+      };
+    }),
+
+  /**
+   * Fetch the full agent_calls tree for a single trace (JAR-51 debug drawer).
+   * Returns all rows for the given trace_id ordered by depth then created_at
+   * so the caller can reconstruct the tree.
+   *
+   * Authorization: the trace must contain at least one row where the
+   * authed user owns the caller or callee deployment.
+   */
+  getAgentCallsByTrace: protectedProcedure
+    .input(z.object({
+      traceId: z.string().regex(/^[a-f0-9]{32}$/, "traceId must be a 32-char hex W3C trace id"),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Code-review P1-2: deliberately exclude userId, spanId, parentSpanId
+      // from the tRPC response. The frontend debug drawer doesn't render
+      // these fields and they leak Auth0 ids + internal tracing ids over
+      // the wire. userId is the most sensitive — in a cross-tenant
+      // delegation trace (marketplace scenario) it would expose a
+      // different user's Auth0 id to the caller.
+      //
+      // errorMessage is allowed through but truncated to 200 chars
+      // below to avoid leaking stack traces / resource names.
+      //
+      // creditsCharged is kept since the user owns the deployment they
+      // are inspecting. If cross-tenant data exposure becomes a concern
+      // we can revisit.
+      const rawRows = await ctx.db
+        .select({
+          id: agentCalls.id,
+          parentCallId: agentCalls.parentCallId,
+          kind: agentCalls.kind,
+          skillName: agentCalls.skillName,
+          spanName: agentCalls.spanName,
+          depth: agentCalls.depth,
+          status: agentCalls.status,
+          durationMs: agentCalls.durationMs,
+          createdAt: agentCalls.createdAt,
+          callerDeploymentId: agentCalls.callerDeploymentId,
+          calleeDeploymentId: agentCalls.calleeDeploymentId,
+          traceId: agentCalls.traceId,
+          // Retained for the auth gate below but stripped before return.
+          userId: agentCalls.userId,
+          errorMessage: agentCalls.errorMessage,
+          creditsCharged: agentCalls.creditsCharged,
+        })
+        .from(agentCalls)
+        .where(eq(agentCalls.traceId, input.traceId))
+        .orderBy(sql`${agentCalls.depth} ASC, ${agentCalls.createdAt} ASC`);
+      const rows = rawRows;
+
+      if (rows.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No agent_calls rows found for this trace id" });
+      }
+
+      // Helper to strip sensitive fields from rows before sending to
+      // the client (P1-2). Kept as a local function so every return
+      // branch uses the same sanitization pass.
+      const sanitize = (list: typeof rows) =>
+        list.map(({ userId, errorMessage, ...rest }) => ({
+          ...rest,
+          errorMessage: errorMessage ? errorMessage.slice(0, 200) : null,
+        }));
+
+      // Ownership gate: the authed user must own at least one of the
+      // caller/callee deployments referenced in the trace, OR the user_id
+      // on any row must match.
+      const userIdsInTrace = new Set(rows.map((r) => r.userId).filter(Boolean));
+      if (userIdsInTrace.has(ctx.user.id)) {
+        return { rows: sanitize(rows) };
+      }
+      const deploymentIdsInTrace = new Set<string>();
+      for (const r of rows) {
+        if (r.callerDeploymentId) deploymentIdsInTrace.add(r.callerDeploymentId);
+        if (r.calleeDeploymentId) deploymentIdsInTrace.add(r.calleeDeploymentId);
+      }
+      if (deploymentIdsInTrace.size > 0) {
+        const owned = await ctx.db.query.deployments.findMany({
+          where: and(
+            inArray(deployments.id, Array.from(deploymentIdsInTrace)),
+            eq(deployments.userId, ctx.user.id),
+          ),
+          columns: { id: true },
+        });
+        if (owned.length > 0) {
+          return { rows: sanitize(rows) };
+        }
+      }
+      throw new TRPCError({ code: "FORBIDDEN", message: "You don't have access to this trace" });
+    }),
+
   // Update deployment
   update: protectedProcedure
     .input(z.object({
       id: z.string(),
-      name: z.string().min(1).optional(),
-      description: z.string().optional(),
-      systemPrompt: z.string().optional(),
+      name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
+      description: z.string().max(5000).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
+      systemPrompt: z.string().max(50_000).optional(),
       llmMode: z.enum(["included", "byok", "platform"]).optional(),
       llmProvider: z.enum(["openrouter", "openai", "anthropic", "google"]).optional(),
       llmModel: z.string().optional(),
@@ -868,6 +1250,14 @@ export const deploymentRouter = router({
       memoryMb: z.number().int().positive().optional(),
       storageMb: z.number().int().positive().optional(),
       messagingOnly: z.boolean().optional(),
+      // JAR memory-scoping foundation: see schema.pg.ts and
+      // docs/audits/memory-scoping-decision.md for the design.
+      // Enforcement of `session` mode lives in a follow-up PR — this
+      // input just persists the user's choice so the disclosure banner
+      // can read it back.
+      memoryScope: z.enum(["global", "session", "off"]).optional(),
+      /** Per-deployment delegation budget cap in cents. null = unlimited. */
+      maxBudgetCents: z.number().int().min(0).nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...rawUpdates } = input;
@@ -986,7 +1376,10 @@ export const deploymentRouter = router({
         .set(updates)
         .where(and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)));
 
-      // Config sync: push updated configs to PVC if deployment is running
+      // Config sync: push updated configs to PVC if deployment is running.
+      // memoryScope is now a Secret entry (JARBLE_MEMORY_SCOPE, wired in
+      // openclaw.ts:getSecretEntries), so a change auto-escalates configSync
+      // to tier-3 (pod restart) — no explicit restart needed here.
       if (existing.status === "running") {
         safeFireAndForget(syncConfigsToPvc(id), { operation: "syncConfigsToPvc", deploymentId: id });
       }
@@ -1001,13 +1394,9 @@ export const deploymentRouter = router({
   stop: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
 
       if (deployment.status !== "running") {
         throw new TRPCError({
@@ -1064,13 +1453,9 @@ export const deploymentRouter = router({
   start: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
 
       if (deployment.status !== "stopped" && deployment.status !== "failed") {
         throw new TRPCError({
@@ -1097,6 +1482,9 @@ export const deploymentRouter = router({
           deployment.memoryMb || 3072,
           startDeploymentType,
           input.id,
+          // storageMb is historically named — the value is GiB. Pass it through
+          // so the autoscaler picks a tier whose root disk fits this PVC.
+          deployment.storageMb || undefined,
         );
         if (targetNode) logger.info({ deploymentId: input.id, targetNode }, "Node capacity confirmed for start");
       } catch (capacityErr) {
@@ -1212,13 +1600,9 @@ export const deploymentRouter = router({
   restart: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
 
       if (deployment.status !== "running" && deployment.status !== "failed") {
         throw new TRPCError({
@@ -1628,7 +2012,7 @@ export const deploymentRouter = router({
   setTheme: protectedProcedure
     .input(z.object({
       id: z.string(),
-      themeConfig: z.record(z.unknown()),
+      themeConfig: z.record(z.string(), z.unknown()),
     }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
@@ -1657,14 +2041,9 @@ export const deploymentRouter = router({
       logger.info({ deploymentId: input.id, userId: ctx.user.id }, "delete: request received");
 
       // Fetch deployment first to get the OpenRouter key hash (for revocation)
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-
-      if (!deployment) {
-        logger.warn({ deploymentId: input.id, userId: ctx.user.id }, "delete: deployment not found");
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
 
       logger.debug({ deploymentId: input.id, status: deployment.status, llmMode: deployment.llmMode }, "delete: deployment found");
 
@@ -1712,6 +2091,118 @@ export const deploymentRouter = router({
         }
       }
 
+      // ── Strategy E: rewrite affected flow definitions ─────────────────────
+      // The FK on flow_deployment_memberships.deployment_id cascades on
+      // delete, so the join table cleans itself. But
+      // orchestration_flows.definition is a text JSON blob with no
+      // schema-aware FK — deleting a deployment leaves dead deploymentId
+      // references in those flow definitions. This block finds affected
+      // flows and rewrites them to strip the dead nodes (and any edges that
+      // reference those nodes). We run this BEFORE the deployment row is
+      // removed so a failure here doesn't orphan the deployment — the
+      // user can retry.
+      //
+      // See docs/audits/stale-flow-deployment-ids.md Strategy E.
+      try {
+        const deploymentId = input.id;
+        // PG/MySQL/SQLite all support LIKE on text columns. We quote the id
+        // to avoid matching substrings, then re-verify in JS after parsing
+        // so a coincidental string match doesn't cause a spurious rewrite.
+        const idNeedle = `%"${deploymentId}"%`;
+        const affectedFlows = await ctx.db
+          .select({
+            id: orchestrationFlows.id,
+            definition: orchestrationFlows.definition,
+          })
+          .from(orchestrationFlows)
+          .where(sql`${orchestrationFlows.definition} LIKE ${idNeedle}`);
+
+        if (affectedFlows.length > 0) {
+          logger.debug(
+            { deploymentId, candidateCount: affectedFlows.length },
+            "delete: candidate flows for stale-ref rewrite",
+          );
+        }
+
+        for (const flow of affectedFlows) {
+          let definition: { nodes?: any[]; edges?: any[] };
+          try {
+            definition =
+              typeof flow.definition === "string"
+                ? JSON.parse(flow.definition)
+                : (flow.definition as any);
+          } catch {
+            logger.warn(
+              { flowId: flow.id, deploymentId },
+              "delete: flow definition is not valid JSON, skipping rewrite",
+            );
+            continue;
+          }
+
+          const sourceNodes = Array.isArray(definition?.nodes)
+            ? definition.nodes
+            : [];
+          const sourceEdges = Array.isArray(definition?.edges)
+            ? definition.edges
+            : [];
+
+          const removedNodeIds = new Set<string>();
+          const keptNodes = sourceNodes.filter((n: any) => {
+            const matches =
+              n?.deploymentId === deploymentId ||
+              n?.config?.deploymentId === deploymentId;
+            if (matches && n?.id) removedNodeIds.add(n.id);
+            return !matches;
+          });
+
+          // Re-verify: if no nodes were actually removed, the LIKE matched
+          // a coincidental substring (e.g. an id appearing in a label).
+          // Skip the write so we don't churn the updatedAt timestamp.
+          if (removedNodeIds.size === 0) continue;
+
+          const keptEdges = sourceEdges.filter(
+            (e: any) =>
+              !removedNodeIds.has(e?.source) && !removedNodeIds.has(e?.target),
+          );
+
+          const newDefinition = {
+            ...definition,
+            nodes: keptNodes,
+            edges: keptEdges,
+          };
+
+          await ctx.db
+            .update(orchestrationFlows)
+            .set({
+              definition: JSON.stringify(newDefinition),
+              updatedAt: dbDate(),
+            })
+            .where(eq(orchestrationFlows.id, flow.id));
+
+          logger.info(
+            {
+              flowId: flow.id,
+              deploymentId,
+              nodesRemoved: sourceNodes.length - keptNodes.length,
+              edgesRemoved: sourceEdges.length - keptEdges.length,
+            },
+            "delete: rewrote affected flow definition",
+          );
+        }
+      } catch (err) {
+        // Non-fatal — deployment delete proceeds even if flow rewrite fails.
+        // The cascading FK on flow_deployment_memberships still cleans the
+        // join table, and any leftover orphans will be caught by the
+        // periodic sweep (Strategy A).
+        logger.error(
+          {
+            deploymentId: input.id,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          "delete: failed to rewrite affected flow definitions (non-fatal)",
+        );
+      }
+
       // Delete K8s resources first - if this throws, we abort and leave the DB record intact
       // so the user can retry. Step-by-step logs are inside deleteDeployment.
       const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
@@ -1720,7 +2211,7 @@ export const deploymentRouter = router({
       logger.info({ deploymentId: input.id }, "delete: K8s cleanup complete, removing DB records");
 
       // Check if any auto-scaled nodes are now empty and can be removed
-      void checkScaleDown(ctx.db).catch((err) => {
+      void checkScaleDown().catch((err) => {
         logger.warn({ err }, "Scale-down check failed (non-blocking)");
       });
 
@@ -1748,7 +2239,7 @@ export const deploymentRouter = router({
   fork: protectedProcedure
     .input(z.object({
       sourceId: z.string(),
-      name: z.string().min(1),
+      name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE),
     }))
     .mutation(async ({ ctx, input }) => {
       // 1. Fetch source deployment - must be isPublic=true OR owned by user
@@ -1878,7 +2369,7 @@ export const deploymentRouter = router({
   platformFork: protectedProcedure
     .input(z.object({
       sourceId: z.string(),
-      name: z.string().min(1).optional(),
+      name: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
       resourceTier: z.enum(["small", "medium", "large"]).default("small"),
       llmProvider: z.string().optional(),
       llmModel: z.string().optional(),
@@ -2025,18 +2516,36 @@ export const deploymentRouter = router({
       isPublic: z.boolean(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Verify ownership
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      // Verify access (owner/admin can toggle public visibility)
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
 
       await ctx.db.update(deployments)
         .set({ isPublic: input.isPublic } as any)
-        .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
+        .where(eq(deployments.id, input.id));
+
+      return { success: true };
+    }),
+
+  // Set org-level deployment visibility ("all" = every member sees it, "admin" = owner + admin only)
+  setOrgVisibility: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      visibility: z.enum(["all", "admin"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
+      });
+
+      if (!deployment.orgId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Visibility only applies to org deployments" });
+      }
+
+      await ctx.db.update(deployments)
+        .set({ visibility: input.visibility })
+        .where(eq(deployments.id, input.id));
 
       return { success: true };
     }),

@@ -15,11 +15,32 @@
 import crypto from "crypto";
 import WebSocket from "ws";
 import { nanoid } from "nanoid";
+import { trace, SpanStatusCode, propagation, context as otelContext } from "@opentelemetry/api";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("gateway");
 import { extractAllUIBlocks, extractUIBlocks, type JarbleUIBlock, type JarbleUIUpdate, type JarbleComponentDef } from "../utils/uiBlockParser.js";
 import { execInPod } from "../k8s/exec.js";
+
+// OTel tracer for cross-pod delegation spans (JAR-51 Phase 3).
+const tracer = trace.getTracer("jarble-api.openclaw-gateway");
+
+/**
+ * Serialize the current active OTel context to a W3C traceparent header.
+ * Used to prepend `env TRACEPARENT=...` to kubectl exec calls so that
+ * an openclaw runtime which reads the env var can attach its child
+ * spans under the same trace as the API caller. Today openclaw doesn't
+ * consume it, but shipping the env var costs nothing and is
+ * forward-compatible with Phase 3 of the observability plan.
+ *
+ * Returns an object with traceparent/tracestate that was injected.
+ * When no active span, returns an empty object.
+ */
+function getW3CTraceHeaders(): Record<string, string> {
+  const carrier: Record<string, string> = {};
+  propagation.inject(otelContext.active(), carrier);
+  return carrier;
+}
 
 // ── Device Identity ─────────────────────────────────────────────────────────
 
@@ -98,9 +119,61 @@ export interface GatewayResponse {
   nativeThinking: string;
   /** True when the response was cut short by a timeout (partial text returned) */
   timedOut?: boolean;
+  /**
+   * Token usage from the LLM call (Cost Transparency Phase 1).
+   * Extracted from the exec response's agentMeta.usage or the HTTP
+   * streaming final chunk's usage object. Used by flowDelegation to
+   * populate creditsCharged with real token costs instead of the
+   * hardcoded value of 1.
+   */
+  tokenUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    model?: string;
+  };
 }
 
 export async function chatViaGateway(
+  opts: GatewayOptions,
+  message: string,
+  onDelta?: (text: string) => void,
+  signal?: AbortSignal,
+  onBlockDetected?: (block: JarbleUIBlock) => void,
+): Promise<GatewayResponse> {
+  // JAR-51 Phase 3: wrap the gateway call in an OTel span so the WS
+  // hot path shows up in Langfuse alongside the chatViaExec fallback.
+  // This is the primary delegation path — chatViaExec only runs when
+  // the WS connection fails.
+  return tracer.startActiveSpan(
+    "jarble.delegation.gateway",
+    {
+      attributes: {
+        "jarble.pod.ip": opts.ip,
+        "jarble.pod.port": opts.port,
+        "jarble.session.key": opts.sessionKey,
+        "jarble.message.length": message.length,
+        "jarble.runtime": "openclaw",
+        "jarble.transport": "ws",
+      },
+    },
+    async (span) => {
+      try {
+        return await chatViaGatewayInner(opts, message, onDelta, signal, onBlockDetected);
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    },
+  );
+}
+
+async function chatViaGatewayInner(
   opts: GatewayOptions,
   message: string,
   onDelta?: (text: string) => void,
@@ -432,6 +505,47 @@ export async function chatViaHTTP(
   signal?: AbortSignal,
   onBlockDetected?: (block: JarbleUIBlock) => void,
 ): Promise<GatewayResponse> {
+  // JAR-51 Phase 3 follow-up: wrap chatViaHTTP in an OTel span. This is
+  // actually the PRIMARY delegation path (tamboAgent tries HTTP first,
+  // then falls back to WS gateway, then to exec). Before this wrapper,
+  // every successful chat turn was invisible in Langfuse at the delegation
+  // layer — only the rare fallback-to-exec traces showed jarble.delegation.*
+  // spans. Now every primary-path chat produces a "jarble.delegation.http"
+  // span with pod/session/message attributes.
+  return tracer.startActiveSpan(
+    "jarble.delegation.http",
+    {
+      attributes: {
+        "jarble.pod.ip": opts.ip,
+        "jarble.pod.port": opts.port,
+        "jarble.session.key": sessionKey,
+        "jarble.message.length": message.length,
+        "jarble.runtime": "openclaw",
+        "jarble.transport": "http",
+      },
+    },
+    async (span) => {
+      try {
+        return await chatViaHTTPInner(opts, message, sessionKey, onDelta, signal, onBlockDetected);
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    },
+  );
+}
+
+async function chatViaHTTPInner(
+  opts: GatewayOptions,
+  message: string,
+  sessionKey: string,
+  onDelta?: (fullText: string) => void,
+  signal?: AbortSignal,
+  onBlockDetected?: (block: JarbleUIBlock) => void,
+): Promise<GatewayResponse> {
   const { ip, port, gatewayToken } = opts;
   const url = `http://${ip}:${port}/v1/chat/completions`;
 
@@ -445,12 +559,23 @@ export async function chatViaHTTP(
     ? AbortSignal.any([signal, timeoutSignal])
     : timeoutSignal;
 
+  // Inject W3C traceparent as an HTTP header so an OpenClaw gateway
+  // that understands context propagation can root its server-side span
+  // under our trace. Also include JARBLE_CURRENT_SESSION_ID as a
+  // custom header so server-side code can consult it. OpenClaw today
+  // doesn't read either of these, but sending them is free and is
+  // forward-compatible with Phase 6 of the observability plan.
+  const traceHeaders = getW3CTraceHeaders();
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${gatewayToken}`,
       "X-Session-Key": sessionKey,
+      "X-Jarble-Session-Id": sessionKey,
+      ...(traceHeaders.traceparent ? { "traceparent": traceHeaders.traceparent } : {}),
+      ...(traceHeaders.tracestate ? { "tracestate": traceHeaders.tracestate } : {}),
     },
     body: JSON.stringify({
       model: "default",
@@ -468,6 +593,9 @@ export async function chatViaHTTP(
   let fullText = "";
   let nativeThinking = "";
   let emittedBlockCount = 0;
+  let isInsideThinkTag = false;
+  const toolCallBuffers: Record<number, { name: string; args: string }> = {};
+  let tokenUsageFromStream: { inputTokens: number; outputTokens: number; totalTokens: number } | undefined;
 
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No response body");
@@ -494,18 +622,91 @@ export async function chatViaHTTP(
         try {
           const chunk = JSON.parse(data);
           const delta = chunk.choices?.[0]?.delta;
-          if (delta?.content) {
-            fullText += delta.content;
-            onDelta?.(fullText);
 
-            // Incrementally detect UI blocks during streaming
-            if (onBlockDetected) {
-              const { uiBlocks } = extractUIBlocks(fullText);
-              for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
-                onBlockDetected(uiBlocks[idx]);
+          if (delta?.content) {
+            let content = delta.content;
+
+            // Strip thinking tags using a depth counter to handle nesting
+            // and unclosed tags. Processes the string char-by-char scanning
+            // for <think> and </think> markers, keeping only content at
+            // depth 0 (visible to the user).
+            {
+              let cleaned = "";
+              let i = 0;
+              let thinkDepth: number = isInsideThinkTag ? 1 : 0;
+              while (i < content.length) {
+                if (content.startsWith("<think>", i)) {
+                  thinkDepth++;
+                  i += 7;
+                } else if (content.startsWith("</think>", i)) {
+                  if (thinkDepth > 0) thinkDepth--;
+                  i += 8;
+                } else {
+                  if (thinkDepth === 0) cleaned += content[i];
+                  i++;
+                }
               }
-              emittedBlockCount = uiBlocks.length;
+              isInsideThinkTag = thinkDepth > 0;
+              content = cleaned;
             }
+
+            if (content) {
+              fullText += content;
+              onDelta?.(fullText);
+
+              // Incrementally detect UI blocks during streaming
+              if (onBlockDetected) {
+                const { uiBlocks } = extractUIBlocks(fullText);
+                for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
+                  onBlockDetected(uiBlocks[idx]);
+                }
+                emittedBlockCount = uiBlocks.length;
+              }
+            }
+          }
+
+          // Track tool call argument accumulation.
+          // OpenClaw delivers jarble_ui blocks as function calls in the completions API.
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              if (!toolCallBuffers[idx]) {
+                toolCallBuffers[idx] = { name: "", args: "" };
+              }
+              if (tc.function?.name) {
+                toolCallBuffers[idx].name = tc.function.name;
+              }
+              if (tc.function?.arguments) {
+                toolCallBuffers[idx].args += tc.function.arguments;
+              }
+            }
+          }
+
+          // Flush accumulated tool calls when the response finishes
+          const finishReason = chunk.choices?.[0]?.finish_reason;
+          if (finishReason === "tool_calls" || finishReason === "stop") {
+            for (const tc of Object.values(toolCallBuffers)) {
+              if (tc.name === "render_ui" || tc.name?.startsWith("show_")) {
+                try {
+                  const props = JSON.parse(tc.args);
+                  const component = props.component || tc.name.replace("show_", "");
+                  const block = { component, props: props.props || props, id: props.id };
+                  // Append as fenced block to fullText so extractAllUIBlocks picks it up
+                  fullText += `\n\`\`\`jarble_ui\n${JSON.stringify(block)}\n\`\`\`\n`;
+                } catch {
+                  // Skip unparseable tool calls
+                }
+              }
+            }
+          }
+
+          // Extract token usage from the final chunk
+          if (chunk.usage) {
+            tokenUsageFromStream = {
+              inputTokens: chunk.usage.prompt_tokens || 0,
+              outputTokens: chunk.usage.completion_tokens || 0,
+              totalTokens: chunk.usage.total_tokens || 0,
+            };
           }
         } catch {
           // Skip unparseable chunks
@@ -520,12 +721,18 @@ export async function chatViaHTTP(
       // If we have partial text, return it gracefully (same as gateway behavior)
       if (fullText) {
         const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
-        return { rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, timedOut: true };
+        return { rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, timedOut: true, tokenUsage: tokenUsageFromStream };
       }
       throw new Error(`HTTP chat timed out after ${httpTimeoutMs / 1000}s`);
     }
     // Re-throw caller aborts and other errors as-is
     throw err;
+  }
+
+  // Warn if the stream ended inside an unclosed <think> tag — model
+  // output was silently suppressed, which looks like an empty response.
+  if (isInsideThinkTag) {
+    log.warn({ url, textLength: fullText.length }, "chatViaHTTP: stream ended with unclosed <think> tag — some content may have been suppressed");
   }
 
   if (!fullText) {
@@ -534,9 +741,15 @@ export async function chatViaHTTP(
 
   const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
 
-  log.info({ url, textLength: fullText.length, blockCount: uiBlocks.length }, "chatViaHTTP: complete");
+  // Skip blocks already emitted during streaming deltas (they appear in order).
+  // This mirrors the WS gateway path which returns uiBlocks.slice(emittedBlockCount).
+  // Without this, emitGatewayResult re-emits TOOL_CALL events for blocks that
+  // onBlockDetected already sent, causing duplicate cards on the canvas.
+  const remainingBlocks = uiBlocks.slice(emittedBlockCount);
 
-  return { rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking };
+  log.info({ url, textLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, remainingBlockCount: remainingBlocks.length }, "chatViaHTTP: complete");
+
+  return { rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, tokenUsage: tokenUsageFromStream };
 }
 
 // ── Exec-based fallback ─────────────────────────────────────────────────
@@ -557,6 +770,44 @@ export async function chatViaExec(
   onDelta?: (fullText: string) => void,
   canvasImage?: string,
   signal?: AbortSignal,
+): Promise<GatewayResponse> {
+  // JAR-51 Phase 3: wrap the exec in an explicit span so delegation hops
+  // show up as first-class spans in Langfuse. All the real work runs
+  // inside startActiveSpan so child spans (DB, fetch, etc.) attach
+  // automatically.
+  return tracer.startActiveSpan(
+    "jarble.delegation.exec",
+    {
+      attributes: {
+        "jarble.pod.name": podName,
+        "jarble.session.key": sessionKey,
+        "jarble.message.length": message.length,
+        "jarble.has_image": Boolean(canvasImage),
+        "jarble.runtime": "openclaw",
+      },
+    },
+    async (span) => {
+      try {
+        return await chatViaExecInner(podName, sessionKey, message, onDelta, canvasImage, signal, span);
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    },
+  );
+}
+
+async function chatViaExecInner(
+  podName: string,
+  sessionKey: string,
+  message: string,
+  onDelta?: (fullText: string) => void,
+  canvasImage?: string,
+  signal?: AbortSignal,
+  span?: import("@opentelemetry/api").Span,
 ): Promise<GatewayResponse> {
   log.info({ podName, messageLen: message.length, hasImage: !!canvasImage }, "chatViaExec: starting");
 
@@ -590,7 +841,33 @@ export async function chatViaExec(
   // native thinking from --json output, so it's not visible in the response.
   // For user-facing reasoning display, the system prompt instructs the bot to emit
   // <think> tags which tamboAgent.ts parses into REASONING_* SSE events.
+  //
+  // JAR-51 Phase 3: prepend `env TRACEPARENT=...` (and tracestate if present)
+  // so a traceparent-aware openclaw runtime can attach its child spans
+  // to the current trace. Also inject JARBLE_CURRENT_SESSION_ID so the
+  // jarble-ui MCP server (which spawns fresh node processes via mcporter)
+  // can resolve memory-scope=session calls without bot-side compliance
+  // on session_id. The env var cascades: env → openclaw → mcporter → node.
+  // When no active OTel context, the carrier is empty and we skip
+  // TRACEPARENT; SESSION_ID is injected unconditionally because the bot
+  // always has a session at this point.
+  const traceHeaders = getW3CTraceHeaders();
+  const envPrefix: string[] = [];
+  const envAssignments: string[] = [];
+  if (traceHeaders.traceparent) {
+    envAssignments.push(`TRACEPARENT=${traceHeaders.traceparent}`);
+    if (traceHeaders.tracestate) {
+      envAssignments.push(`TRACESTATE=${traceHeaders.tracestate}`);
+    }
+    span?.setAttribute("jarble.traceparent.injected", true);
+  }
+  envAssignments.push(`JARBLE_CURRENT_SESSION_ID=${sessionKey}`);
+  if (envAssignments.length > 0) {
+    envPrefix.push("env", ...envAssignments);
+  }
+
   const args = [
+    ...envPrefix,
     "npx", "openclaw", "agent",
     "--message", message,
     "--session-id", sessionKey,
@@ -673,6 +950,21 @@ export async function chatViaExec(
   log.debug({ podName, hasJarbleUiFence, endsWithClosingFence, tail: rawText.slice(-200) }, "chatViaExec: raw text tail");
 
   const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(rawText);
-  log.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length, hasNativeThinking: !!nativeThinking }, "chatViaExec: response summary");
-  return { rawText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking };
+
+  // Cost Transparency Phase 1: extract token usage from the exec response.
+  // OpenClaw's --json output includes `result.meta.agentMeta.usage` with
+  // input/output/cacheRead/cacheWrite/total token counts. This lets
+  // flowDelegation calculate real cost instead of hardcoding 1.
+  const agentMeta = parsed.result?.meta?.agentMeta;
+  const tokenUsage = agentMeta?.usage ? {
+    inputTokens: Number(agentMeta.usage.input ?? agentMeta.usage.promptTokens ?? 0),
+    outputTokens: Number(agentMeta.usage.output ?? agentMeta.usage.completionTokens ?? 0),
+    totalTokens: Number(agentMeta.usage.total ?? 0),
+    cacheReadTokens: Number(agentMeta.usage.cacheRead ?? 0),
+    cacheWriteTokens: Number(agentMeta.usage.cacheWrite ?? 0),
+    model: agentMeta.model || undefined,
+  } : undefined;
+
+  log.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length, hasNativeThinking: !!nativeThinking, tokenUsage: tokenUsage ? { in: tokenUsage.inputTokens, out: tokenUsage.outputTokens } : null }, "chatViaExec: response summary");
+  return { rawText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, tokenUsage };
 }

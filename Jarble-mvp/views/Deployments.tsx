@@ -1,7 +1,12 @@
 "use client";
 
+import { toast } from "sonner";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useTheme } from "@/contexts/ThemeContext";
+import Image from "next/image";
 import { trpc, API_URL } from "@/lib/trpc";
+import { vanillaClient } from "@/lib/trpc-vanilla";
+import { useStatusStream } from "@/hooks/useStatusStream";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +52,7 @@ import {
   MessageSquare,
   Users,
   ChevronDown,
+  ChevronUp,
   Network,
   Zap,
   Shield,
@@ -64,6 +70,9 @@ import FlowNodeConfigPanel from "@/components/workspace/FlowNodeConfigPanel";
 import type { FlowNodeConfig } from "@/components/workspace/FlowNodeConfigPanel";
 import FlowExecutionTimeline from "@/components/workspace/FlowExecutionTimeline";
 import type { FlowExecutionStep } from "@/components/workspace/FlowExecutionTimeline";
+import TeamChatCanvasCard, {
+  type TeamCanvasCardData,
+} from "@/components/workspace/TeamChatCanvasCard";
 import { runtimeNeedsLlm } from "./onboarding/wizardStepConfig";
 import {
   ReactFlow,
@@ -159,6 +168,12 @@ type FlowNodeData = DeploymentData & {
   executionSubsteps?: FlowStepStatus[];
   /** Callback for resuming paused nodes */
   onResumeInput?: (input: string) => void;
+  /** Capabilities: subagents and skills this deployment has */
+  capabilities?: {
+    supportsSubagents: boolean;
+    subagents: Array<{ slug: string; name: string; source: string }>;
+    skills: Array<{ name: string }>;
+  };
   [key: string]: unknown;
 };
 
@@ -273,12 +288,12 @@ function statusDotColor(status: string): string {
     case "stopping":
       return "bg-orange-400";
     case "stopped":
-      return "bg-gray-400";
+      return "bg-muted-foreground";
     case "failed":
       return "bg-red-500";
     case "pending":
     default:
-      return "bg-gray-400";
+      return "bg-muted-foreground";
   }
 }
 
@@ -644,6 +659,7 @@ function DeploymentDetailPanel({
           {deployment.name}
         </h3>
         <button
+          type="button"
           onClick={onClose}
           className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary"
           aria-label="Close panel"
@@ -924,7 +940,7 @@ function contextScopeColor(scope?: ContextScope): string {
   switch (scope) {
     case "full": return "bg-red-500/10 text-red-400 border-red-500/20";
     case "summary": return "bg-amber-500/10 text-amber-400 border-amber-500/20";
-    default: return "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
+    default: return "bg-muted text-muted-foreground border-border";
   }
 }
 
@@ -1041,7 +1057,14 @@ function FlowDeploymentNode({
           {data.isEntryPoint && (
             <Star className="w-3.5 h-3.5 text-blue-400 fill-blue-400 shrink-0" />
           )}
-          <Bot className="w-4 h-4 text-muted-foreground shrink-0" />
+          {data.capabilities?.supportsSubagents && data.capabilities.subagents?.length > 0 ? (
+            <svg className="w-4 h-4 text-violet-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="8" r="3" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" />
+              <line x1="12" y1="11" x2="6" y2="15.5" /><line x1="12" y1="11" x2="18" y2="15.5" />
+            </svg>
+          ) : (
+            <Bot className="w-4 h-4 text-muted-foreground shrink-0" />
+          )}
           <span className="text-base font-semibold text-foreground truncate flex-1 leading-tight">
             {data.name}
           </span>
@@ -1080,7 +1103,7 @@ function FlowDeploymentNode({
             className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium border ${
               data.canDelegate !== false
                 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                : "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
+                : "bg-muted text-muted-foreground border-border"
             }`}
           >
             {data.canDelegate !== false ? (
@@ -1102,6 +1125,30 @@ function FlowDeploymentNode({
             {contextScopeLabel(data.contextScope)}
           </span>
         </div>
+
+        {/* Row 6: Subagent cluster pills */}
+        {data.capabilities?.subagents && data.capabilities.subagents.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-[9px] text-muted-foreground mr-0.5">Agents:</span>
+            {data.capabilities.subagents.slice(0, 4).map((sa) => (
+              <span
+                key={sa.slug}
+                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-medium border ${
+                  sa.source === "platform"
+                    ? "bg-violet-500/10 text-violet-400 border-violet-500/20"
+                    : "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                }`}
+              >
+                {sa.name.replace(/ Agent$/, "")}
+              </span>
+            ))}
+            {data.capabilities.subagents.length > 4 && (
+              <span className="text-[8px] text-muted-foreground">
+                +{data.capabilities.subagents.length - 4}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Execution info row */}
         {(data.executionCredits != null && data.executionCredits > 0 || data.executionDurationMs != null) && (
@@ -1349,6 +1396,7 @@ function FlowEdge({
           }}
         >
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               setShowDropdown((v) => !v);
@@ -1374,6 +1422,7 @@ function FlowEdge({
             <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 bg-card border border-border rounded-lg shadow-xl py-1 min-w-[130px]">
               {(["delegates", "reports", "collaborates"] as FlowEdgeType[]).map((type) => (
                 <button
+                  type="button"
                   key={type}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -1452,6 +1501,7 @@ function FlowPaletteSidebar({
             <div className="space-y-1">
               {available.map((dep) => (
                 <button
+                  type="button"
                   key={dep.id}
                   onClick={() => onAddNode(dep)}
                   className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg border border-border/40 bg-card/60 hover:bg-secondary/60 hover:border-primary/30 transition-all text-left group"
@@ -1628,6 +1678,7 @@ function FlowToolbar({
           />
         ) : (
           <button
+            type="button"
             onClick={() => { if (hasFlow) setIsEditing(true); }}
             className="flex items-center gap-1 text-sm font-semibold text-foreground hover:text-primary transition-colors truncate max-w-[180px]"
             disabled={!hasFlow}
@@ -1655,6 +1706,7 @@ function FlowToolbar({
       {hasFlow && (
         <div ref={teamTypeRef} className="relative shrink-0">
           <button
+            type="button"
             onClick={() => setShowTeamTypeDropdown((v) => !v)}
             className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-border bg-card hover:bg-secondary/50 transition-colors text-sm font-medium text-foreground hover:text-foreground shadow-sm"
           >
@@ -1669,6 +1721,7 @@ function FlowToolbar({
                 const Icon = opt.icon;
                 return (
                   <button
+                    type="button"
                     key={opt.value}
                     onClick={() => { onTeamTypeChange(opt.value); setShowTeamTypeDropdown(false); }}
                     className={`w-full flex items-start gap-2.5 px-3.5 py-2.5 text-left transition-colors rounded-md mx-0.5 ${
@@ -1797,32 +1850,131 @@ function FlowListSidebar({
   flows,
   activeFlowId,
   onSelectFlow,
+  deployments,
+  executingFlowId,
 }: {
   flows: FlowDefinition[];
   activeFlowId: string | null;
   onSelectFlow: (id: string) => void;
+  /** Latest deployments list — used to compute per-team health (running/total). */
+  deployments: DeploymentData[];
+  /** Flow id whose execution is currently in flight (if any). Drives the
+   *  pulsing "active" indicator on its pill. */
+  executingFlowId: string | null;
 }) {
   if (flows.length === 0) return null;
 
+  // Lookup for fast per-team health rollup. Subscribes to live SSE status
+  // so the badge updates within seconds of a bot transitioning state.
+  const { getStatus } = useStatusStream({ enabled: true });
+  const depById = useMemo(() => {
+    const m = new Map<string, DeploymentData>();
+    for (const d of deployments) m.set(d.id, d);
+    return m;
+  }, [deployments]);
+
+  // For each flow, compute (a) how many member deployments are Running,
+  // (b) how many total, (c) whether the flow is currently executing.
+  const flowHealth = useMemo(() => {
+    return flows.map((flow) => {
+      const memberIds = flow.nodes
+        .map((n) => (n as any).deploymentId || n.id)
+        .filter(Boolean) as string[];
+      let running = 0;
+      let stopped = 0;
+      let other = 0;
+      for (const id of memberIds) {
+        const liveStatus = getStatus(id)?.status;
+        const status = liveStatus ?? depById.get(id)?.status ?? "unknown";
+        if (status === "running") running++;
+        else if (status === "stopped") stopped++;
+        else other++;
+      }
+      return {
+        flowId: flow.id,
+        total: memberIds.length,
+        running,
+        stopped,
+        other,
+        isExecuting: flow.id === executingFlowId,
+        // Derived state used for the pill color
+        // - executing: blue pulse, currently in flight
+        // - all running: emerald, healthy
+        // - some stopped/pending/failed: amber, partially healthy
+        // - all stopped: red, idle
+        // - empty: gray, no members
+        derivedState:
+          flow.id === executingFlowId
+            ? "executing"
+            : memberIds.length === 0
+              ? "empty"
+              : running === memberIds.length
+                ? "healthy"
+                : running === 0
+                  ? "idle"
+                  : "partial",
+      };
+    });
+  }, [flows, depById, executingFlowId, getStatus]);
+  const healthByFlow = useMemo(() => {
+    const m = new Map<string, (typeof flowHealth)[number]>();
+    for (const h of flowHealth) m.set(h.flowId, h);
+    return m;
+  }, [flowHealth]);
+
   return (
     <div className="flex gap-1.5 overflow-x-auto pb-1">
-      {flows.map((flow) => (
-        <button
-          key={flow.id}
-          onClick={() => onSelectFlow(flow.id)}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all whitespace-nowrap ${
-            flow.id === activeFlowId
-              ? "bg-primary/10 border-primary/30 text-primary"
-              : "bg-secondary/80 border-border text-muted-foreground hover:text-foreground hover:border-primary/20"
-          }`}
-        >
-          <Users className="w-3 h-3" />
-          {flow.name}
-          <span className="text-muted-foreground/70">
-            ({flow.nodes.length})
-          </span>
-        </button>
-      ))}
+      {flows.map((flow) => {
+        const isActive = flow.id === activeFlowId;
+        const health = healthByFlow.get(flow.id);
+        const state = health?.derivedState ?? "empty";
+        // Status dot color per derived state
+        const dotClass =
+          state === "executing"
+            ? "bg-blue-500 animate-pulse"
+            : state === "healthy"
+              ? "bg-emerald-500"
+              : state === "partial"
+                ? "bg-amber-500"
+                : state === "idle"
+                  ? "bg-red-500/80"
+                  : "bg-muted-foreground/40";
+        // Tooltip-friendly summary string ("3/3 running" / "1/3 running, 2 stopped" / "executing now")
+        const summary =
+          state === "executing"
+            ? "executing now"
+            : health
+              ? `${health.running}/${health.total} running` +
+                (health.stopped > 0 ? `, ${health.stopped} stopped` : "") +
+                (health.other > 0 ? `, ${health.other} other` : "")
+              : "";
+
+        return (
+          <button
+            type="button"
+            key={flow.id}
+            onClick={() => onSelectFlow(flow.id)}
+            title={summary}
+            aria-label={`${flow.name}, ${summary}`}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all whitespace-nowrap ${
+              isActive
+                ? "bg-primary/10 border-primary/30 text-primary"
+                : "bg-secondary/80 border-border text-muted-foreground hover:text-foreground hover:border-primary/20"
+            }`}
+          >
+            {/* Status dot — color encodes per-team health, animates when executing */}
+            <span
+              className={`inline-block w-1.5 h-1.5 rounded-full ${dotClass}`}
+              aria-hidden="true"
+            />
+            <Users className="w-3 h-3" />
+            {flow.name}
+            <span className="text-muted-foreground/70">
+              {health ? `${health.running}/${health.total}` : `(${flow.nodes.length})`}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1834,6 +1986,7 @@ function FlowCanvas({
   flow,
   onUpdateFlow,
   executionSteps,
+  activeDelegationTargets,
   pausedNodeId,
   onResumeInput,
   selectedNodeId,
@@ -1843,6 +1996,8 @@ function FlowCanvas({
   flow: FlowDefinition;
   onUpdateFlow: (updates: Partial<FlowDefinition>) => void;
   executionSteps: Map<string, FlowStepStatus>;
+  /** Deployment IDs currently being delegated to (from chat SSE events) */
+  activeDelegationTargets?: Set<string>;
   pausedNodeId?: string;
   onResumeInput?: (nodeId: string, input: string) => void;
   selectedNodeId: string | null;
@@ -1850,17 +2005,36 @@ function FlowCanvas({
 }) {
   const { fitView } = useReactFlow();
 
+  // Subscribe to live deployment status so node badges reflect real-time state
+  // (fixes Bot Teams canvas showing stale "Running" when a bot is Stopped).
+  const { getStatus } = useStatusStream({ enabled: true });
+
+  // Build a quick lookup from the latest deployments list for fallback
+  const deploymentById = useMemo(() => {
+    const map = new Map<string, DeploymentData>();
+    for (const d of deployments) map.set(d.id, d);
+    return map;
+  }, [deployments]);
+
   // Merge execution state into node data
   const nodesWithExecution: Node<FlowNodeData>[] = useMemo(() => {
     return flow.nodes.map((node) => {
       const stepStatus = executionSteps.get(node.id);
       const isPaused = pausedNodeId === node.id;
+      // Live status wins; fall back to latest deployments query, then stored snapshot
+      const liveStatus = getStatus(node.id)?.status;
+      const latestDep = deploymentById.get(node.id);
+      const resolvedStatus = liveStatus ?? latestDep?.status ?? node.data.status;
+      // Chat-level delegation: show node as "running" when actively delegated to
+      const isDelegationTarget = activeDelegationTargets?.has(node.id) ?? false;
+      const resolvedExecStatus = stepStatus?.status ?? (isDelegationTarget ? "running" : undefined);
       return {
         ...node,
         selected: node.id === selectedNodeId,
         data: {
           ...node.data,
-          executionStatus: stepStatus?.status,
+          status: resolvedStatus,
+          executionStatus: resolvedExecStatus,
           executionCredits: stepStatus?.credits,
           executionDurationMs: stepStatus?.durationMs,
           executionError: stepStatus?.error,
@@ -1875,24 +2049,29 @@ function FlowCanvas({
         },
       };
     });
-  }, [flow.nodes, executionSteps, pausedNodeId, onResumeInput, selectedNodeId]);
+  }, [flow.nodes, executionSteps, activeDelegationTargets, pausedNodeId, onResumeInput, selectedNodeId, getStatus, deploymentById]);
 
   // Merge execution state into edges (preserve edgeType)
   const edgesWithExecution: Edge[] = useMemo(() => {
     return flow.edges.map((edge) => {
       const targetStatus = executionSteps.get(edge.target);
       const existingData = (edge.data as FlowEdgeData) || {};
+      // Chat-level delegation activity: if the target deployment is being
+      // actively delegated to (from flow chat SSE), show as "running" on
+      // the canvas edge even when there's no formal flow execution.
+      const isDelegatingToTarget = activeDelegationTargets?.has(edge.target) ?? false;
+      const resolvedStatus = targetStatus?.status ?? (isDelegatingToTarget ? "running" : undefined);
       return {
         ...edge,
         type: "flowEdge",
         data: {
           ...existingData,
           edgeType: existingData.edgeType || "delegates",
-          executionStatus: targetStatus?.status,
+          executionStatus: resolvedStatus,
         },
       };
     });
-  }, [flow.edges, executionSteps]);
+  }, [flow.edges, executionSteps, activeDelegationTargets]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(nodesWithExecution);
   const [edges, setEdges, onEdgesChange] = useEdgesState(edgesWithExecution);
@@ -2189,6 +2368,36 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     staleTime: 30_000,
   });
 
+  // Load subagent data for all deployments (for cluster/flat visual)
+  const [capabilitiesMap, setCapabilitiesMap] = useState<Map<string, { supportsSubagents: boolean; subagents: Array<{ slug: string; name: string; source: string }>; skills: Array<{ name: string }> }>>(new Map());
+
+  useEffect(() => {
+    if (deployments.length === 0) return;
+    const fetchCapabilities = async () => {
+      const map = new Map<string, { supportsSubagents: boolean; subagents: Array<{ slug: string; name: string; source: string }>; skills: Array<{ name: string }> }>();
+      const results = await Promise.allSettled(
+        deployments.map(async (d) => {
+          try {
+            const subagents = await vanillaClient.subagents.list.query({ deploymentId: d.id });
+            return { id: d.id, subagents: (subagents || []).filter((s: any) => s.enabled) };
+          } catch { return { id: d.id, subagents: [] as any[] }; }
+        })
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value) {
+          const { id, subagents } = r.value;
+          map.set(id, {
+            supportsSubagents: subagents.length > 0,
+            subagents: subagents.map((s: any) => ({ slug: s.slug, name: s.name, source: s.source || "custom" })),
+            skills: [],
+          });
+        }
+      }
+      setCapabilitiesMap(map);
+    };
+    fetchCapabilities();
+  }, [deployments]);
+
   const flows: FlowDefinition[] = useMemo(() => {
     if (!flowsQuery.data) return [];
     // Build a lookup map for enriching flow nodes with deployment data
@@ -2202,7 +2411,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
           const depId = (n as any).deploymentId || n.data?.id || n.id;
           const dep = depMap.get(depId);
           if (dep) {
-            return { ...n, data: { ...dep, ...n.data } as FlowNodeData };
+            const caps = capabilitiesMap.get(depId);
+            return { ...n, data: { ...dep, ...n.data, capabilities: caps } as FlowNodeData };
           }
           // Fallback: construct minimal data from stored fields
           return {
@@ -2216,7 +2426,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         });
         return flow;
       });
-  }, [flowsQuery.data, deployments]);
+  }, [flowsQuery.data, deployments, capabilitiesMap]);
 
   const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
 
@@ -2243,24 +2453,89 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
 
   // ── Mutations ─────────────────────────────────────────────────────
 
+  // Mutations use setData-based optimistic cache updates instead of
+  // invalidate+refetch. The refetch approach races with DB write propagation
+  // (especially on Neon Postgres), causing stale reads to overwrite local
+  // state — the root cause of multiple QA-reported data loss bugs:
+  //   - "Save wipes added node" — new definition lost to stale refetch
+  //   - "Rename lost on Save" — new name lost to stale refetch
+  //   - "New button no-op until next Save" — new flow invisible until refetch
+  //   - "Ghost tabs after server-side delete" — failed 404 not reconciled
+  //
+  // By writing directly to the cache with what we know the server now has,
+  // we eliminate the race entirely.
+
   const createFlowMutation = trpc.flows.create.useMutation({
-    onSuccess: (data) => {
-      utils.flows.list.invalidate();
+    onSuccess: (data, input) => {
+      // Insert the newly-created flow into the list cache directly. We
+      // construct the ApiFlow shape from the input + server-returned id.
+      utils.flows.list.setData(undefined, (old: any) => {
+        const newFlow = {
+          id: data.id,
+          name: input.name,
+          description: input.description ?? null,
+          definition: JSON.stringify(input.definition),
+          status: input.status ?? "draft",
+          isPublic: false,
+          forkCount: 0,
+          forkedFromId: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        return old ? [newFlow, ...old] : [newFlow];
+      });
       setActiveFlowId(data.id);
       setIsSaved(true);
     },
   });
 
   const updateFlowMutation = trpc.flows.update.useMutation({
-    onSuccess: () => {
-      utils.flows.list.invalidate();
+    onSuccess: (_data, input) => {
+      // Merge the input fields into the cached flow directly. The server
+      // just persisted these exact values, so writing them to the cache is
+      // authoritative. No refetch needed.
+      utils.flows.list.setData(undefined, (old: any) => {
+        if (!old) return old;
+        return old.map((f: any) => {
+          if (f.id !== input.id) return f;
+          const merged: any = { ...f, updatedAt: new Date().toISOString() };
+          if (input.name !== undefined) merged.name = input.name;
+          if (input.description !== undefined) merged.description = input.description;
+          if (input.definition !== undefined) merged.definition = JSON.stringify(input.definition);
+          if (input.status !== undefined) merged.status = input.status;
+          if (input.isPublic !== undefined) merged.isPublic = input.isPublic;
+          if (input.entryNodeId !== undefined) merged.entryNodeId = input.entryNodeId;
+          if (input.teamType !== undefined) merged.teamType = input.teamType;
+          return merged;
+        });
+      });
       setIsSaved(true);
+    },
+    onError: (err) => {
+      // Show a toast so the user knows the save failed — previously it was
+      // silent and the user thought their work saved.
+      toast.error(`Failed to save flow: ${err.message}`);
     },
   });
 
   const deleteFlowMutation = trpc.flows.delete.useMutation({
-    onSuccess: () => {
-      utils.flows.list.invalidate();
+    onSuccess: (_data, input) => {
+      // Remove the flow from the cache directly instead of invalidating.
+      utils.flows.list.setData(undefined, (old: any) =>
+        old ? old.filter((f: any) => f.id !== input.id) : old
+      );
+    },
+    onError: (err, input) => {
+      // Reconcile: if the server says the flow is already gone, remove it
+      // from the local cache anyway (ghost tab bug). Otherwise show an error.
+      if (err.data?.code === "NOT_FOUND") {
+        utils.flows.list.setData(undefined, (old: any) =>
+          old ? old.filter((f: any) => f.id !== input.id) : old
+        );
+        toast.info("Flow was already removed on the server — cleaned up locally");
+      } else {
+        toast.error(`Failed to delete flow: ${err.message}`);
+      }
     },
   });
 
@@ -2362,7 +2637,11 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
 
     updateFlowMutation.mutate(mutation, {
       onSuccess: () => {
-        // Clear local overrides for this flow after successful save
+        // The global updateFlowMutation.onSuccess handler already merged the
+        // input into the query cache. We can safely clear the local override
+        // now — the cache contains the authoritative post-save data, so
+        // activeFlow (which reads from flows which reads from cache) will
+        // show the saved state.
         setLocalOverrides((prev) => {
           const next = { ...prev };
           delete next[activeFlowId];
@@ -2453,14 +2732,564 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   // ── Chat with team ────────────────────────────────────────────────
   const { getAccessTokenSilently } = useAuth0();
   const [showFlowChat, setShowFlowChat] = useState(false);
-  const [flowChatMessages, setFlowChatMessages] = useState<Array<{ role: string; content: string }>>([]);
+  const [flowChatMessages, setFlowChatMessages] = useState<Array<{
+    role: string;
+    content: string;
+    delegations?: Array<{
+      toolName: string;
+      targetRole: string;
+      status: "running" | "completed" | "failed";
+      elapsedMs?: number;
+      uiBlockCount?: number;
+      error?: string;
+    }>;
+    skip?: {
+      reason: "no_tools_available" | "tool_call_not_emitted" | "mentioned_but_not_emitted";
+      availableToolCount: number;
+      availableTools: string[];
+    };
+    /** Canvas cards produced by the team during this assistant turn. */
+    canvasCards?: TeamCanvasCardData[];
+  }>>([]);
   const [flowChatInput, setFlowChatInput] = useState("");
   const [flowChatLoading, setFlowChatLoading] = useState(false);
+
+  // ── Live delegation tracking for canvas edge animations ──
+  // Tracks which deployment IDs have active (running) delegations so the
+  // FlowCanvas can pulse/glow the corresponding edges in real time.
+  // Uses a rAF-batched updater to prevent render storms from rapid SSE events.
+  const [activeDelegationTargets, setActiveDelegationTargets] = useState<Set<string>>(new Set());
+  const delegationPendingAdds = useRef<Set<string>>(new Set());
+  const delegationPendingRemoves = useRef<Set<string>>(new Set());
+  const delegationRafId = useRef<number | null>(null);
+  const flushDelegationTargets = useCallback(() => {
+    if (delegationRafId.current != null) return; // already scheduled
+    delegationRafId.current = requestAnimationFrame(() => {
+      delegationRafId.current = null;
+      const adds = delegationPendingAdds.current;
+      const removes = delegationPendingRemoves.current;
+      if (adds.size === 0 && removes.size === 0) return;
+      setActiveDelegationTargets((prev) => {
+        const next = new Set(prev);
+        for (const id of adds) next.add(id);
+        for (const id of removes) next.delete(id);
+        return next;
+      });
+      adds.clear();
+      removes.clear();
+    });
+  }, []);
+
+  // Track which (flowId, sessionId) we've already seeded from persistence
+  // so the effect below doesn't clobber in-flight streaming messages
+  // every time React re-runs it.
+  const seededChatKeyRef = useRef<string | null>(null);
+
+  // ── Session picker / new conversation / pagination state ─────────
+  // `activeSessionId` is the session the user is currently looking at.
+  //   - null while sessions are loading or after "New conversation"
+  //   - set to the latest session when sessions first arrive (default
+  //     behavior matches the prior single-session wire-up)
+  // `pendingNewSessionId` is set when the user clicks "New conversation"
+  // — it's the client-side id we'll pass to the write path so the next
+  // sent message creates a fresh DB row. It's separate from
+  // activeSessionId so that the seed effect doesn't try to fetch a
+  // session that doesn't exist yet on the server.
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isSessionPickerOpen, setIsSessionPickerOpen] = useState(false);
+  const [pendingNewSessionId, setPendingNewSessionId] = useState<string | null>(
+    null
+  );
+
+  // ── Session picker a11y + rename/delete state ────────────────────
+  // `focusedSessionIdx` tracks the keyboard-focused row inside the
+  // picker dropdown. -1 means "no row focused" (the picker just
+  // opened, nothing highlighted yet). We use a separate state from
+  // activeSessionId so arrow-key browsing doesn't mutate the session
+  // the user is actually looking at.
+  const [focusedSessionIdx, setFocusedSessionIdx] = useState<number>(-1);
+  // Inline rename state — which session id is currently being renamed
+  // and the draft title the user is typing. `null` = not renaming.
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
+    null
+  );
+  const [renameDraft, setRenameDraft] = useState("");
+  // Refs used by keyboard nav to keep the focused row visible in a
+  // scrollable list and by the inline rename input for auto-focus.
+  const sessionRowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Pagination state for "Load older messages". `hasMoreOlder` is true
+  // when the most recent fetch returned exactly `limit` rows — meaning
+  // there might be more older history we haven't seen yet.
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+
+  // Aborts an in-flight chat stream when the user switches sessions or
+  // starts a new conversation mid-generation. Without this, the prior
+  // stream would keep mutating `flowChatMessages` after the user has
+  // already moved on.
+  const chatStreamAbortRef = useRef<AbortController | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+
+  // Load persisted chat sessions for the active flow. Gated on
+  // showFlowChat so we don't fire the query when the panel isn't
+  // open (avoids wasted requests when the user is just editing the
+  // graph). The tRPC procedures tolerate the tables not existing
+  // (migration 0007 may not be applied) and return an empty array,
+  // so we don't need a separate feature flag.
+  const chatSessionsQuery = trpc.flows.getChatSessions.useQuery(
+    { flowId: activeFlowId ?? "" },
+    {
+      enabled: !!activeFlowId && showFlowChat,
+      // Sessions are append-mostly — don't refetch aggressively.
+      staleTime: 30_000,
+      retry: false,
+    }
+  );
+
+  // The current effective session id we're loading messages for. When
+  // the user has clicked "New conversation" we deliberately don't fetch
+  // (the session doesn't exist yet) — `pendingNewSessionId` becomes the
+  // sessionId on the first message via the write path's
+  // `conversationId || threadId` fallback.
+  const chatMessagesQuery = trpc.flows.getChatMessages.useQuery(
+    { sessionId: activeSessionId ?? "" },
+    {
+      enabled: !!activeSessionId && showFlowChat,
+      staleTime: 30_000,
+      retry: false,
+    }
+  );
+
+  // Initialize activeSessionId to the most recent session when sessions
+  // first load for a flow. Sessions are already ordered DESC by
+  // updatedAt, so [0] is the latest. This preserves the prior
+  // single-session "continue latest" default behavior so anyone opening
+  // the panel still sees their last conversation.
+  useEffect(() => {
+    if (!showFlowChat) return;
+    if (activeSessionId !== null) return; // user already picked one
+    if (pendingNewSessionId !== null) return; // user explicitly started new
+    const sessions = chatSessionsQuery.data;
+    if (!sessions || sessions.length === 0) return;
+    setActiveSessionId(sessions[0].id);
+  }, [
+    showFlowChat,
+    activeSessionId,
+    pendingNewSessionId,
+    chatSessionsQuery.data,
+  ]);
+
+  // Seed the local flowChatMessages state from persistence the first
+  // time we have data for a given (flowId, sessionId) combination.
+  // We intentionally DO NOT overwrite state on subsequent renders —
+  // otherwise an in-flight streaming reply could get wiped out when
+  // the query re-runs. `seededChatKeyRef` is our idempotency key.
+  useEffect(() => {
+    if (!showFlowChat || !activeFlowId) {
+      // Reset so re-opening the panel re-seeds.
+      seededChatKeyRef.current = null;
+      return;
+    }
+    // Nothing to seed with yet.
+    if (chatSessionsQuery.isLoading || chatMessagesQuery.isLoading) return;
+
+    const key = `${activeFlowId}::${activeSessionId ?? "none"}`;
+    if (seededChatKeyRef.current === key) return;
+
+    const historyRows = chatMessagesQuery.data ?? [];
+    if (historyRows.length > 0) {
+      // Map DB rows into the local chat bubble shape. Only role and
+      // content are displayed today; the other columns (sourceNodeId,
+      // delegationToolName, etc.) are preserved on the server for
+      // future UI needs.
+      const mapped = historyRows.map((row) => ({
+        role: row.role,
+        content: row.content,
+      }));
+      setFlowChatMessages(mapped);
+      // If the initial fetch came back full (200), more history may
+      // exist — show the "Load older" button.
+      setHasMoreOlder(historyRows.length >= 200);
+    } else if (activeSessionId === null) {
+      // No sessions at all for this flow — start with a clean slate.
+      // Only clear if the current messages don't include any freshly
+      // typed but unpersisted content (we use the ref to track that).
+      setFlowChatMessages([]);
+      setHasMoreOlder(false);
+    } else {
+      // Session is selected but came back empty — also clear.
+      setFlowChatMessages([]);
+      setHasMoreOlder(false);
+    }
+    seededChatKeyRef.current = key;
+  }, [
+    showFlowChat,
+    activeFlowId,
+    activeSessionId,
+    chatSessionsQuery.isLoading,
+    chatMessagesQuery.isLoading,
+    chatMessagesQuery.data,
+  ]);
+
+  // When the user switches flows, clear the chat pane and force a
+  // re-seed on the next open. Without this, opening a second flow
+  // would briefly show the previous flow's messages. We also clear
+  // the picker selection so the init effect picks the new flow's
+  // latest session.
+  useEffect(() => {
+    setFlowChatMessages([]);
+    setActiveSessionId(null);
+    setPendingNewSessionId(null);
+    setHasMoreOlder(false);
+    seededChatKeyRef.current = null;
+    // Abort any in-flight stream from the previous flow.
+    chatStreamAbortRef.current?.abort();
+    chatStreamAbortRef.current = null;
+  }, [activeFlowId]);
 
   const handleChatWithTeam = useCallback(() => {
     if (!activeFlowId) return;
     setShowFlowChat(true);
   }, [activeFlowId]);
+
+  // ── Session picker actions ──────────────────────────────────────
+  // Switching to a different session aborts any in-flight stream
+  // (otherwise the streaming reply would keep mutating state under
+  // the new session's seeded history) and resets the seeding key so
+  // the seed effect re-runs against the new session.
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      if (sessionId === activeSessionId) {
+        setIsSessionPickerOpen(false);
+        return;
+      }
+      chatStreamAbortRef.current?.abort();
+      chatStreamAbortRef.current = null;
+      setFlowChatLoading(false);
+      setFlowChatMessages([]);
+      setHasMoreOlder(false);
+      setPendingNewSessionId(null);
+      setActiveSessionId(sessionId);
+      seededChatKeyRef.current = null;
+      setIsSessionPickerOpen(false);
+    },
+    [activeSessionId]
+  );
+
+  // "New conversation" — clears local state and assigns a fresh client
+  // -side session id which the next sent message will use as the
+  // sessionId on the write path. We do NOT create a DB row here; the
+  // write path's `convId = conversationId || threadId` upsert handles
+  // that on first send.
+  const handleNewConversation = useCallback(() => {
+    chatStreamAbortRef.current?.abort();
+    chatStreamAbortRef.current = null;
+    setFlowChatLoading(false);
+    setFlowChatMessages([]);
+    setHasMoreOlder(false);
+    setActiveSessionId(null);
+    // Mint a fresh client-side session id. The server upsert at
+    // routes/flowChat.ts uses `conversationId || threadId` as the row
+    // id so this becomes the persisted session id on first send.
+    const newId = `fcs_${Math.random().toString(36).slice(2, 14)}`;
+    setPendingNewSessionId(newId);
+    seededChatKeyRef.current = `${activeFlowId}::${newId}`;
+    setIsSessionPickerOpen(false);
+  }, [activeFlowId]);
+
+  // ── Rename / delete mutations ───────────────────────────────────
+  // Both mutations `refetch()` the sessions query on success so the
+  // picker reflects the new title / the removed row immediately.
+  // renameChatSession also keeps the inline edit UI in sync.
+  const renameSessionMutation = trpc.flows.renameChatSession.useMutation({
+    onSuccess: () => {
+      void chatSessionsQuery.refetch();
+      setRenamingSessionId(null);
+      setRenameDraft("");
+    },
+  });
+  const deleteSessionMutation = trpc.flows.deleteChatSession.useMutation({
+    onSuccess: () => {
+      void chatSessionsQuery.refetch();
+    },
+  });
+
+  const commitRename = useCallback(
+    (sessionId: string) => {
+      const trimmed = renameDraft.trim();
+      if (!trimmed) {
+        // Empty title — cancel instead of firing a validation error.
+        setRenamingSessionId(null);
+        setRenameDraft("");
+        return;
+      }
+      renameSessionMutation.mutate({ sessionId, title: trimmed.slice(0, 255) });
+    },
+    [renameDraft, renameSessionMutation]
+  );
+
+  const cancelRename = useCallback(() => {
+    setRenamingSessionId(null);
+    setRenameDraft("");
+  }, []);
+
+  const startRename = useCallback(
+    (sessionId: string, currentTitle: string | null) => {
+      setRenamingSessionId(sessionId);
+      setRenameDraft(currentTitle ?? "Team Chat");
+      // Focus the input on the next frame so it's actually in the DOM.
+      requestAnimationFrame(() => {
+        renameInputRef.current?.focus();
+        renameInputRef.current?.select();
+      });
+    },
+    []
+  );
+
+  // Deletes a session. If the deleted session was the one the user is
+  // currently viewing, we switch to the next newest remaining session
+  // (or fall back to a "new conversation" empty state if this was the
+  // only one). The sessions query is refetched in the mutation's
+  // onSuccess handler above.
+  const handleDeleteSession = useCallback(
+    (sessionId: string) => {
+      // Simple modal-free confirm — picker is a small dropdown so a
+      // heavyweight AlertDialog would be visually overkill.
+      if (
+        !window.confirm(
+          "Delete this conversation? This cannot be undone."
+        )
+      ) {
+        return;
+      }
+
+      const sessions = chatSessionsQuery.data ?? [];
+      const wasActive = sessionId === activeSessionId;
+
+      deleteSessionMutation.mutate({ sessionId });
+
+      if (wasActive) {
+        // Find the next newest session other than the one being
+        // deleted. Sessions are already ordered DESC by updatedAt.
+        const remaining = sessions.filter((s) => s.id !== sessionId);
+        // Abort any in-flight stream bound to the deleted session so
+        // its result doesn't bleed into whatever we switch to.
+        chatStreamAbortRef.current?.abort();
+        chatStreamAbortRef.current = null;
+        setFlowChatLoading(false);
+        setFlowChatMessages([]);
+        setHasMoreOlder(false);
+        seededChatKeyRef.current = null;
+
+        if (remaining.length > 0) {
+          setActiveSessionId(remaining[0].id);
+          setPendingNewSessionId(null);
+        } else {
+          // Last session — fall back to the new-conversation state.
+          setActiveSessionId(null);
+          const newId = `fcs_${Math.random().toString(36).slice(2, 14)}`;
+          setPendingNewSessionId(newId);
+          seededChatKeyRef.current = `${activeFlowId}::${newId}`;
+        }
+      }
+    },
+    [
+      activeFlowId,
+      activeSessionId,
+      chatSessionsQuery.data,
+      deleteSessionMutation,
+    ]
+  );
+
+  // Keep `focusedSessionIdx` within bounds when sessions change
+  // (e.g. after a delete). -1 means "no row focused".
+  useEffect(() => {
+    const count = chatSessionsQuery.data?.length ?? 0;
+    if (count === 0) {
+      setFocusedSessionIdx(-1);
+      return;
+    }
+    setFocusedSessionIdx((idx) => (idx >= count ? count - 1 : idx));
+  }, [chatSessionsQuery.data]);
+
+  // Reset the focused idx whenever the picker opens — start with no
+  // highlighted row so the first ArrowDown lands on idx 0.
+  useEffect(() => {
+    if (!isSessionPickerOpen) {
+      setFocusedSessionIdx(-1);
+    }
+  }, [isSessionPickerOpen]);
+
+  // Scroll the focused row into view when it changes via keyboard nav.
+  useEffect(() => {
+    if (focusedSessionIdx < 0) return;
+    const sessions = chatSessionsQuery.data ?? [];
+    const session = sessions[focusedSessionIdx];
+    if (!session) return;
+    const el = sessionRowRefs.current[session.id];
+    el?.scrollIntoView({ block: "nearest" });
+  }, [focusedSessionIdx, chatSessionsQuery.data]);
+
+  // Keyboard handler wired to the listbox container. The branching
+  // order matters: Escape always closes, Enter/ArrowUp/ArrowDown only
+  // fire when not in rename mode (so typing into the rename input
+  // doesn't get hijacked), and Delete/Backspace need a modifier so a
+  // stray keypress doesn't nuke a session without confirmation.
+  const handleSessionPickerKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (renamingSessionId !== null) {
+        // Renaming — let the input's own handler take over.
+        return;
+      }
+      const sessions = chatSessionsQuery.data ?? [];
+      const count = sessions.length;
+      if (count === 0) return;
+
+      switch (event.key) {
+        case "ArrowDown": {
+          event.preventDefault();
+          setFocusedSessionIdx((idx) => (idx + 1) % count);
+          break;
+        }
+        case "ArrowUp": {
+          event.preventDefault();
+          setFocusedSessionIdx((idx) =>
+            idx <= 0 ? count - 1 : idx - 1
+          );
+          break;
+        }
+        case "Enter": {
+          if (focusedSessionIdx >= 0 && focusedSessionIdx < count) {
+            event.preventDefault();
+            handleSelectSession(sessions[focusedSessionIdx].id);
+          }
+          break;
+        }
+        case "Escape": {
+          event.preventDefault();
+          setIsSessionPickerOpen(false);
+          break;
+        }
+        case "Delete":
+        case "Backspace": {
+          // Require a modifier so a stray keypress can't delete a
+          // session. Shift+Delete is the canonical "destructive
+          // shortcut" idiom in most desktop UIs.
+          if (!(event.shiftKey || event.metaKey || event.ctrlKey)) return;
+          if (focusedSessionIdx < 0 || focusedSessionIdx >= count) return;
+          event.preventDefault();
+          handleDeleteSession(sessions[focusedSessionIdx].id);
+          break;
+        }
+      }
+    },
+    [
+      chatSessionsQuery.data,
+      focusedSessionIdx,
+      handleSelectSession,
+      handleDeleteSession,
+      renamingSessionId,
+    ]
+  );
+
+  // ── Load older messages (cursor-based) ──────────────────────────
+  // Fires only when we have a session id and at least one message in
+  // local state (so we have a cursor). Calls the tRPC procedure
+  // directly via the vanilla client to avoid creating a separate query
+  // — this is a fire-and-forget read whose result we prepend manually
+  // to preserve scroll position.
+  const handleLoadOlder = useCallback(async () => {
+    if (!activeSessionId || loadingOlder || flowChatMessages.length === 0)
+      return;
+    // We need a stable cursor — the oldest currently-loaded message id.
+    // The seed effect maps DB rows into local shape losing the id, so
+    // we have to look it up from the chatMessagesQuery cache.
+    const dbRows = chatMessagesQuery.data ?? [];
+    if (dbRows.length === 0) {
+      setHasMoreOlder(false);
+      return;
+    }
+    const oldestId = dbRows[0].id;
+    if (!oldestId) {
+      setHasMoreOlder(false);
+      return;
+    }
+
+    setLoadingOlder(true);
+    // Snapshot scroll metrics so we can restore position after prepend.
+    const list = messageListRef.current;
+    const prevScrollHeight = list?.scrollHeight ?? 0;
+    const prevScrollTop = list?.scrollTop ?? 0;
+
+    try {
+      const olderRows = await vanillaClient.flows.getChatMessages.query({
+        sessionId: activeSessionId,
+        limit: 200,
+        beforeId: oldestId,
+      });
+
+      if (olderRows.length === 0) {
+        setHasMoreOlder(false);
+        return;
+      }
+
+      // Prepend to BOTH the cache-shaped list (for future cursor
+      // lookups via the React-Query cache) and the local UI state.
+      const mappedOlder = olderRows.map((row) => ({
+        role: row.role,
+        content: row.content,
+      }));
+      setFlowChatMessages((prev) => [...mappedOlder, ...prev]);
+      setHasMoreOlder(olderRows.length >= 200);
+
+      // Mutate the React-Query cache so subsequent "load older" clicks
+      // use the new oldest id as their cursor. Without this, we'd
+      // re-paginate from the same anchor and create duplicates.
+      utils.flows.getChatMessages.setData(
+        { sessionId: activeSessionId },
+        (existing) => {
+          if (!existing) return olderRows as any;
+          return [...olderRows, ...existing] as any;
+        }
+      );
+
+      // Restore scroll: keep the user's viewport anchored to the same
+      // message they were looking at, not jumping to the top.
+      requestAnimationFrame(() => {
+        const next = messageListRef.current;
+        if (!next) return;
+        const newScrollHeight = next.scrollHeight;
+        next.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+      });
+    } catch (err) {
+      // Soft fail — just log and let the user retry. The button stays
+      // visible so they can try again.
+      console.warn("[flow-chat] load older failed", err);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [
+    activeSessionId,
+    loadingOlder,
+    flowChatMessages.length,
+    chatMessagesQuery.data,
+  ]);
+
+  // Remove a canvas card from its assistant message. Used by the X button
+  // on each inline TeamChatCanvasCard. Matches the dedupe-by-id semantics
+  // used when the card is added from a uiblock event.
+  const handleRemoveCanvasCard = useCallback((cardId: string) => {
+    setFlowChatMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.role !== "assistant" || !msg.canvasCards?.length) return msg;
+        const next = msg.canvasCards.filter((c) => c.id !== cardId);
+        if (next.length === msg.canvasCards.length) return msg;
+        return { ...msg, canvasCards: next };
+      }),
+    );
+  }, []);
 
   const handleFlowChatSend = useCallback(async () => {
     if (!flowChatInput.trim() || !activeFlowId || flowChatLoading) return;
@@ -2469,12 +3298,36 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     setFlowChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
     setFlowChatLoading(true);
 
+    // Determine which session this message should bind to. Priority:
+    //   1. activeSessionId (user is continuing an existing session)
+    //   2. pendingNewSessionId (user clicked "New conversation")
+    //   3. mint a fresh id (first-ever message for this flow, or user
+    //      reopened the panel after a flow switch)
+    // The server uses `conversationId || threadId` as the persisted
+    // session row id, so passing conversationId is what locks the
+    // write path to a single session row across multiple sends.
+    const sessionIdForSend =
+      activeSessionId ??
+      pendingNewSessionId ??
+      `fcs_${Math.random().toString(36).slice(2, 14)}`;
+    const wasNewSession = activeSessionId === null;
+
+    // Wire up an AbortController so session-switch / new-conversation /
+    // panel-close can interrupt the stream.
+    const abortController = new AbortController();
+    chatStreamAbortRef.current?.abort();
+    chatStreamAbortRef.current = abortController;
+
     try {
       const token = await getAccessTokenSilently();
       const res = await fetch(`${API_URL}/api/flows/${activeFlowId}/chat`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg }),
+        body: JSON.stringify({
+          message: userMsg,
+          conversationId: sessionIdForSend,
+        }),
+        signal: abortController.signal,
       });
 
       if (!res.ok) {
@@ -2506,6 +3359,144 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                   }
                   return msgs;
                 });
+              } else if (data.type === "CUSTOM" || data.type === "custom") {
+                const name = data.name || data.value?.name;
+                const value = data.value || {};
+
+                if (name === "jarble.flow.delegation.start") {
+                  // Light up the canvas edge to this target (rAF-batched)
+                  if (value.targetDeploymentId) {
+                    delegationPendingAdds.current.add(value.targetDeploymentId);
+                    flushDelegationTargets();
+                  }
+                  // Add delegation status indicator
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === "assistant") {
+                      const delegations = [...(last.delegations || []), {
+                        toolName: value.toolName,
+                        targetRole: value.targetRole || "Team member",
+                        status: "running" as const,
+                      }];
+                      return [...prev.slice(0, -1), { ...last, delegations }];
+                    }
+                    return prev;
+                  });
+                } else if (name === "jarble.flow.delegation.heartbeat") {
+                  // Update elapsed time on running delegation
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === "assistant" && last.delegations) {
+                      const delegations = last.delegations.map((d) =>
+                        d.toolName === value.toolName && d.status === "running"
+                          ? { ...d, elapsedMs: value.elapsedMs }
+                          : d
+                      );
+                      return [...prev.slice(0, -1), { ...last, delegations }];
+                    }
+                    return prev;
+                  });
+                } else if (name === "jarble.flow.delegation.end") {
+                  // Remove the canvas edge animation for this target (rAF-batched)
+                  if (value.targetDeploymentId) {
+                    delegationPendingRemoves.current.add(value.targetDeploymentId);
+                    flushDelegationTargets();
+                  }
+                  // Mark delegation as completed or failed
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === "assistant" && last.delegations) {
+                      const delegations = last.delegations.map((d) =>
+                        d.toolName === value.toolName
+                          ? {
+                              ...d,
+                              status: (value.success ? "completed" : "failed") as "completed" | "failed",
+                              uiBlockCount: value.uiBlockCount,
+                              error: value.error,
+                            }
+                          : d
+                      );
+                      return [...prev.slice(0, -1), { ...last, delegations }];
+                    }
+                    return prev;
+                  });
+                } else if (name === "jarble.flow.delegation.skipped") {
+                  // Surface WHY delegation didn't happen. See Fix #6 in
+                  // docs/audits/qa-bot-teams-2026-04-07.md — the key case is
+                  // `mentioned_but_not_emitted` where the bot claims to delegate
+                  // but never emits a valid tool_call JSON block.
+                  const skip = {
+                    reason: value.reason as "no_tools_available" | "tool_call_not_emitted" | "mentioned_but_not_emitted",
+                    availableToolCount: value.availableToolCount ?? 0,
+                    availableTools: Array.isArray(value.availableTools) ? value.availableTools : [],
+                  };
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === "assistant") {
+                      return [...prev.slice(0, -1), { ...last, skip }];
+                    }
+                    return [...prev, { role: "assistant", content: "", skip }];
+                  });
+                } else if (name === "jarble.flow.delegation.uiblock") {
+                  // A delegated specialist produced a UI block. Backend
+                  // already extracted the JarbleUIBlock and tagged it with
+                  // the producer's deploymentId + role — see
+                  // jarble-api-main/src/routes/flowChat.ts:591-604.
+                  // Attach it to the current assistant bubble as a
+                  // canvas card with producer attribution. This is the
+                  // team-chat counterpart of the TOOL_CALL_* rail used by
+                  // the individual deployment chat (useCanvasChat.ts).
+                  const rawBlock = value.block;
+                  if (rawBlock && typeof rawBlock === "object" && rawBlock.component) {
+                    // Compute the id fallback exactly once so card.id and
+                    // block.id stay in lockstep — the dedupe guard below
+                    // keys off card.id while CanvasRenderer keys off
+                    // block.id, and any drift between them would break
+                    // reconnect/replay dedupe.
+                    const stableId =
+                      rawBlock.id || `team-card-${Math.random().toString(36).slice(2, 10)}`;
+                    const newCard: TeamCanvasCardData = {
+                      id: stableId,
+                      block: {
+                        id: stableId,
+                        component: rawBlock.component,
+                        props: rawBlock.props ?? {},
+                        editable: rawBlock.editable,
+                        fileId: rawBlock.fileId,
+                        saveMethod: rawBlock.saveMethod,
+                      },
+                      producerDeploymentId: String(value.sourceDeploymentId ?? ""),
+                      producerRole: String(value.sourceRole ?? "Team member"),
+                      delegationToolName: value.delegationToolName
+                        ? String(value.delegationToolName)
+                        : undefined,
+                      origin: "delegation",
+                    };
+                    setFlowChatMessages((prev) => {
+                      const last = prev[prev.length - 1];
+                      // Mirror the delegation.start pattern: create an
+                      // assistant bubble if none exists yet, so a uiblock
+                      // event arriving before any text delta doesn't get
+                      // silently dropped.
+                      if (!last || last.role !== "assistant") {
+                        return [
+                          ...prev,
+                          { role: "assistant", content: "", canvasCards: [newCard] },
+                        ];
+                      }
+                      // Deduplicate by card id so a reconnect / replay
+                      // doesn't stack the same card twice.
+                      const existing = last.canvasCards ?? [];
+                      if (existing.some((c) => c.id === newCard.id)) {
+                        return prev;
+                      }
+                      return [
+                        ...prev.slice(0, -1),
+                        { ...last, canvasCards: [...existing, newCard] },
+                      ];
+                    });
+                  }
+                }
               }
             } catch {
               // skip non-JSON lines
@@ -2517,12 +3508,51 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
           setFlowChatMessages((prev) => [...prev, { role: "assistant", content: "(No response)" }]);
         }
       }
+
+      // ── Post-success bookkeeping ────────────────────────────────
+      // If this was a new session (either a fresh "New conversation"
+      // or first message ever), the server has now created the row
+      // with id = sessionIdForSend. Bind activeSessionId so future
+      // sends + the messages query target the right row, then
+      // refetch the session list so it shows up in the picker.
+      if (wasNewSession) {
+        setActiveSessionId(sessionIdForSend);
+        setPendingNewSessionId(null);
+        // Mark as already-seeded so the seed effect doesn't try to
+        // wipe the just-streamed messages with whatever the new
+        // chatMessagesQuery returns.
+        seededChatKeyRef.current = `${activeFlowId}::${sessionIdForSend}`;
+      }
+      // Refresh the sidebar/picker — the session's updatedAt and
+      // possibly its title may have changed.
+      void chatSessionsQuery.refetch();
     } catch (err: any) {
+      // Aborted streams (session switch / new conversation / unmount)
+      // are intentional — don't surface as an error message.
+      if (err?.name === "AbortError") {
+        return;
+      }
       setFlowChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${err.message}` }]);
     } finally {
-      setFlowChatLoading(false);
+      // Only clear loading + the abort ref if WE are still the
+      // current stream — a session switch may have already started
+      // a new send and we don't want to clobber its state.
+      if (chatStreamAbortRef.current === abortController) {
+        chatStreamAbortRef.current = null;
+        setFlowChatLoading(false);
+        // Clear any lingering delegation edge animations (stream ended)
+        setActiveDelegationTargets(new Set());
+      }
     }
-  }, [flowChatInput, activeFlowId, flowChatLoading, getAccessTokenSilently]);
+  }, [
+    flowChatInput,
+    activeFlowId,
+    flowChatLoading,
+    getAccessTokenSilently,
+    activeSessionId,
+    pendingNewSessionId,
+    chatSessionsQuery,
+  ]);
 
   // ── Derived state ──────────────────────────────────────────────────
   const entryNode = activeFlow?.nodes.find((n) => n.data?.isEntryPoint);
@@ -2559,6 +3589,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
           flows={flows}
           activeFlowId={activeFlowId}
           onSelectFlow={setActiveFlowId}
+          deployments={deployments}
+          executingFlowId={execState.steps.size > 0 ? activeFlowId : null}
         />
       </div>
 
@@ -2582,15 +3614,20 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         entryNodeName={entryNodeName}
       />
 
-      {/* Canvas or empty state */}
+      {/* Canvas or empty state. Use flex-row so Chat panel docks beside the
+          canvas (pushes it, doesn't overlay it). showFlowChat adds a sibling
+          on the right — the ReactFlow canvas shrinks to fit. */}
       {activeFlow ? (
-        <div className="flex-1 flex flex-col min-h-0 relative">
+        <div className="flex-1 flex flex-row min-h-0 relative">
+          {/* Canvas column: holds the flow canvas + execution timeline */}
+          <div className="flex-1 flex flex-col min-w-0 relative">
           <ReactFlowProvider>
             <FlowCanvas
               deployments={deployments}
               flow={activeFlow}
               onUpdateFlow={handleUpdateFlow}
               executionSteps={execState.steps}
+              activeDelegationTargets={activeDelegationTargets}
               pausedNodeId={execState.pausedNodeId}
               onResumeInput={handleResumeInput}
               selectedNodeId={selectedNodeId}
@@ -2618,17 +3655,260 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
               }}
             />
           )}
+          </div>
+          {/* /canvas column */}
 
-          {/* Chat with Team panel overlay (right side of canvas) */}
+          {/* Chat with Team panel — docked side drawer. Previously used
+              `absolute right-0 top-0 bottom-0` which overlaid the canvas
+              and hid nodes on the right side of the graph. Now it's a
+              sibling flex child that takes up its own space. */}
           {showFlowChat && (
-            <div className="absolute right-0 top-0 bottom-0 w-96 bg-card border-l border-border z-50 flex flex-col">
+            <div className="relative w-96 shrink-0 bg-card border-l border-border z-10 flex flex-col">
               <div className="flex items-center justify-between p-3 border-b border-border">
-                <h3 className="text-sm font-semibold">Chat with Team</h3>
-                <button onClick={() => setShowFlowChat(false)} className="p-1 rounded hover:bg-secondary">
+                {/* Session picker — replaces the static "Chat with Team"
+                    title with a dropdown that lists persisted sessions
+                    for this flow. The dropdown is rendered absolutely
+                    so it doesn't push the chat panel layout around. */}
+                <div className="relative flex-1 min-w-0 mr-2">
+                  {chatSessionsQuery.data && chatSessionsQuery.data.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsSessionPickerOpen((v) => !v)}
+                      className="flex items-center gap-1.5 text-sm font-semibold hover:text-foreground/80 transition-colors min-w-0 max-w-full"
+                      title="Switch conversation"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">
+                        {(() => {
+                          const sessions = chatSessionsQuery.data;
+                          const active =
+                            sessions.find((s) => s.id === activeSessionId) ??
+                            sessions[0];
+                          return active?.title || "Team Chat";
+                        })()}
+                      </span>
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 shrink-0 text-muted-foreground transition-transform ${isSessionPickerOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                  ) : (
+                    <h3 className="text-sm font-semibold flex items-center gap-1.5 truncate">
+                      <MessageSquare className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">
+                        {chatSessionsQuery.isLoading
+                          ? "Loading…"
+                          : "Start your first conversation"}
+                      </span>
+                    </h3>
+                  )}
+
+                  {isSessionPickerOpen &&
+                    chatSessionsQuery.data &&
+                    chatSessionsQuery.data.length > 0 && (
+                      <>
+                        {/* Click-outside backdrop */}
+                        <div
+                          className="fixed inset-0 z-[60]"
+                          onClick={() => setIsSessionPickerOpen(false)}
+                        />
+                        <div
+                          role="listbox"
+                          aria-label="Chat sessions"
+                          tabIndex={0}
+                          onKeyDown={handleSessionPickerKeyDown}
+                          // Autofocus the listbox on open so keyboard nav
+                          // works without the user having to click inside
+                          // it first.
+                          ref={(el) => {
+                            if (el && isSessionPickerOpen) {
+                              // Only focus if no child (e.g. rename input)
+                              // is already focused.
+                              if (!el.contains(document.activeElement)) {
+                                el.focus();
+                              }
+                            }
+                          }}
+                          className="absolute left-0 top-full mt-1 w-72 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg z-[61] outline-none focus:ring-1 focus:ring-ring/40"
+                        >
+                          <button
+                            type="button"
+                            onClick={handleNewConversation}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-secondary transition-colors border-b border-border"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>New conversation</span>
+                          </button>
+                          {chatSessionsQuery.data.map((session, idx) => {
+                            const isActive = session.id === activeSessionId;
+                            const isFocused = idx === focusedSessionIdx;
+                            const isRenaming = renamingSessionId === session.id;
+                            // Inline relative-time formatter — no
+                            // dependency on date-fns, kept tiny.
+                            const ts = session.updatedAt
+                              ? new Date(session.updatedAt as any).getTime()
+                              : 0;
+                            const diffMs = ts ? Date.now() - ts : 0;
+                            const diffMin = Math.floor(diffMs / 60_000);
+                            const diffHr = Math.floor(diffMin / 60);
+                            const diffDay = Math.floor(diffHr / 24);
+                            let rel = "";
+                            if (!ts) rel = "";
+                            else if (diffMin < 1) rel = "just now";
+                            else if (diffMin < 60) rel = `${diffMin}m ago`;
+                            else if (diffHr < 24) rel = `${diffHr}h ago`;
+                            else if (diffDay === 1) rel = "yesterday";
+                            else if (diffDay < 7) rel = `${diffDay}d ago`;
+                            else
+                              rel = new Date(
+                                session.updatedAt as any
+                              ).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                              });
+                            const msgCount = (session as any).messageCount ?? 0;
+                            return (
+                              <div
+                                key={session.id}
+                                role="option"
+                                aria-selected={isActive}
+                                className={`group relative flex items-center justify-between gap-2 px-3 py-2 text-xs text-left transition-colors ${
+                                  isActive
+                                    ? "bg-primary/10 text-foreground"
+                                    : isFocused
+                                      ? "bg-secondary text-foreground"
+                                      : "text-muted-foreground hover:bg-secondary"
+                                }`}
+                              >
+                                {isRenaming ? (
+                                  <input
+                                    ref={renameInputRef}
+                                    value={renameDraft}
+                                    onChange={(e) =>
+                                      setRenameDraft(e.target.value)
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        commitRename(session.id);
+                                      } else if (e.key === "Escape") {
+                                        e.preventDefault();
+                                        cancelRename();
+                                      }
+                                      // Stop the listbox's keyboard handler
+                                      // from hijacking these keys.
+                                      e.stopPropagation();
+                                    }}
+                                    onBlur={() => commitRename(session.id)}
+                                    maxLength={255}
+                                    className="flex-1 min-w-0 bg-background border border-border rounded px-1.5 py-0.5 text-xs outline-none focus:ring-1 focus:ring-ring"
+                                  />
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      ref={(el) => {
+                                        sessionRowRefs.current[session.id] =
+                                          el;
+                                      }}
+                                      onClick={() =>
+                                        handleSelectSession(session.id)
+                                      }
+                                      onMouseEnter={() =>
+                                        setFocusedSessionIdx(idx)
+                                      }
+                                      className="truncate flex-1 text-left min-w-0"
+                                    >
+                                      <span className="truncate block">
+                                        {session.title || "Team Chat"}
+                                      </span>
+                                    </button>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <span className="text-[10px] text-muted-foreground/70">
+                                        {rel}
+                                        {msgCount > 0 && (
+                                          <>
+                                            {" "}
+                                            <span className="text-muted-foreground/50">
+                                              · {msgCount} msg
+                                              {msgCount === 1 ? "" : "s"}
+                                            </span>
+                                          </>
+                                        )}
+                                      </span>
+                                      {/* Rename + delete icons — visible
+                                          on hover or when the row is
+                                          keyboard-focused. Kept small so
+                                          they don't dominate the row. */}
+                                      <div
+                                        className={`flex items-center gap-0.5 transition-opacity ${
+                                          isFocused
+                                            ? "opacity-100"
+                                            : "opacity-0 group-hover:opacity-100"
+                                        }`}
+                                      >
+                                        <button
+                                          type="button"
+                                          aria-label="Rename conversation"
+                                          title="Rename"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            startRename(
+                                              session.id,
+                                              session.title
+                                            );
+                                          }}
+                                          className="p-1 rounded hover:bg-foreground/10 text-muted-foreground hover:text-foreground"
+                                        >
+                                          <Pencil className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          aria-label="Delete conversation"
+                                          title="Delete"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteSession(session.id);
+                                          }}
+                                          className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                </div>
+                <button type="button" onClick={() => setShowFlowChat(false)} className="p-1 rounded hover:bg-secondary shrink-0">
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              <div ref={messageListRef} className="flex-1 overflow-y-auto p-3 space-y-3">
+                {/* Load older messages — visible only when there's a
+                    session selected, at least one message loaded, and
+                    the most recent fetch hinted at more history. */}
+                {hasMoreOlder && flowChatMessages.length > 0 && (
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      onClick={handleLoadOlder}
+                      disabled={loadingOlder}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-50 border border-border/60"
+                    >
+                      {loadingOlder ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <ChevronUp className="w-3 h-3" />
+                      )}
+                      {loadingOlder ? "Loading…" : "Load older messages"}
+                    </button>
+                  </div>
+                )}
                 {flowChatMessages.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <MessageSquare className="w-8 h-8 text-muted-foreground/30 mb-3" />
@@ -2642,11 +3922,76 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                 )}
                 {flowChatMessages.map((msg, i) => (
                   <div key={i} className={`text-sm ${msg.role === "user" ? "text-right" : ""}`}>
+                    {(msg.content || msg.delegations?.length || msg.skip || msg.role === "user") && (
                     <div className={`inline-block max-w-[85%] rounded-lg px-3 py-2 ${
                       msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary"
                     }`}>
                       {msg.content}
+                      {/* Delegation status indicators */}
+                      {msg.delegations && msg.delegations.length > 0 && (
+                        <div className="mt-2 space-y-1 border-t border-border/30 pt-2">
+                          {msg.delegations.map((d, di) => (
+                            <div key={di} className="flex items-center gap-2 text-[10px]">
+                              {d.status === "running" && (
+                                <span className="inline-flex items-center gap-1 text-blue-400">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                                  Delegating to {d.targetRole}...
+                                  {d.elapsedMs && <span className="text-muted-foreground">{Math.round(d.elapsedMs / 1000)}s</span>}
+                                </span>
+                              )}
+                              {d.status === "completed" && (
+                                <span className="inline-flex items-center gap-1 text-emerald-400">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                  {d.targetRole} responded
+                                  {d.uiBlockCount ? ` (${d.uiBlockCount} components)` : ""}
+                                </span>
+                              )}
+                              {d.status === "failed" && (
+                                <span className="inline-flex items-center gap-1 text-red-400">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                                  {d.targetRole} failed{d.error ? `: ${d.error}` : ""}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* Delegation skipped indicator (Fix #6 — surface silent failure) */}
+                      {msg.skip && msg.skip.reason === "mentioned_but_not_emitted" && (
+                        <div className="mt-2 p-2 rounded border border-amber-400/30 bg-amber-500/5 text-[10px] text-amber-300">
+                          <div className="font-medium">Delegation didn't actually run</div>
+                          <div className="text-amber-300/80 mt-0.5">
+                            The entry bot claimed to delegate but never emitted a valid tool call.
+                            {msg.skip.availableTools.length > 0 && (
+                              <> Available: {msg.skip.availableTools.join(", ")}.</>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {msg.skip && msg.skip.reason === "tool_call_not_emitted" && msg.skip.availableToolCount > 0 && (
+                        <div className="mt-2 text-[10px] text-muted-foreground italic">
+                          Entry bot answered directly ({msg.skip.availableToolCount} team tool{msg.skip.availableToolCount === 1 ? "" : "s"} available, none used)
+                        </div>
+                      )}
                     </div>
+                    )}
+                    {/* Inline canvas cards — one per UI block produced by a
+                        delegated specialist during this assistant turn. Cards
+                        render below the bubble so their full-width layout
+                        doesn't fight the 85% bubble cap. Each card carries
+                        the producer attribution (deployment + role) from
+                        jarble.flow.delegation.uiblock. */}
+                    {msg.role === "assistant" && msg.canvasCards && msg.canvasCards.length > 0 && (
+                      <div className="mt-1 space-y-1.5" data-testid="team-chat-canvas-cards">
+                        {msg.canvasCards.map((card) => (
+                          <TeamChatCanvasCard
+                            key={card.id}
+                            card={card}
+                            onRemove={handleRemoveCanvasCard}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
                 {flowChatLoading && (
@@ -2665,6 +4010,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                     className="flex-1 bg-secondary rounded-lg px-3 py-2 text-sm outline-none"
                   />
                   <button
+                    type="button"
                     onClick={handleFlowChatSend}
                     disabled={flowChatLoading}
                     className="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
@@ -2781,6 +4127,8 @@ function FlowAnimationStyles() {
 export default function Deployments() {
   const { isAuthenticated, isLoading: authLoading } = useAuth0();
   const router = useRouter();
+  const { theme } = useTheme();
+  const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
   const [activeRuntime, setActiveRuntime] = useState("all");
   const [showCreditPools, setShowCreditPools] = useState(true);
   const [selectedDeploymentId, setSelectedDeploymentId] = useState<
@@ -2857,7 +4205,7 @@ export default function Deployments() {
             href="/"
             className="flex items-center gap-2 cursor-pointer no-underline text-foreground"
           >
-            <span className="font-semibold">Jarble</span>
+            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" />
           </a>
           <ProfileDropdown />
         </div>
@@ -2930,6 +4278,7 @@ export default function Deployments() {
                   {/* Filter Bar */}
                   <div className="flex items-center gap-2 sm:gap-3 flex-wrap pb-4 overflow-x-auto scrollbar-none">
                     <button
+                      type="button"
                       onClick={() => setShowCreditPools((v) => !v)}
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
                         showCreditPools
@@ -2942,6 +4291,7 @@ export default function Deployments() {
                     </button>
 
                     <button
+                      type="button"
                       disabled
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-secondary/50 border-border text-muted-foreground-subtle cursor-not-allowed"
                     >
@@ -2960,6 +4310,7 @@ export default function Deployments() {
                         </span>
                         <div className="flex gap-1">
                           <button
+                            type="button"
                             onClick={() => setActiveRuntime("all")}
                             className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
                               activeRuntime === "all"
@@ -2971,6 +4322,7 @@ export default function Deployments() {
                           </button>
                           {runtimeSlugs.map((slug) => (
                             <button
+                              type="button"
                               key={slug}
                               onClick={() => setActiveRuntime(slug)}
                               className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
