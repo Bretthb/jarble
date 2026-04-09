@@ -1001,22 +1001,39 @@ export async function executeDelegation(params: {
       // Non-fatal
     }
 
+    // Cost Transparency Phase 1: calculate real cost from token usage
+    // instead of the hardcoded value of 1. This makes the circuit breaker
+    // (MAX_CREDITS_PER_TRACE_CENTS) and the Debug Traces drawer meaningful.
+    let hopCostCents = 1; // fallback if no token data
+    if (result.tokenUsage) {
+      try {
+        const { getModelPricing, calculateHopCostCents } = await import("./modelPricing.js");
+        const modelId = result.tokenUsage.model || deployment.llmModel || "anthropic/claude-sonnet-4";
+        const pricing = await getModelPricing(modelId);
+        hopCostCents = calculateHopCostCents(result.tokenUsage, pricing);
+        log.debug({ callId, modelId, hopCostCents, tokens: result.tokenUsage }, "Delegation cost calculated");
+      } catch (err) {
+        log.warn({ err: err instanceof Error ? err.message : err }, "Cost calculation failed — using fallback 1 cent");
+      }
+    }
+
     await finishAgentCall({
       call: agentCallHandle,
       status: "completed",
       responseBody: finalResponse || "",
-      creditsCharged: 1,
+      creditsCharged: hopCostCents,
       attributes: {
         responseLen: (finalResponse || "").length,
         childCount: childResults.length,
         uiBlocks: aggregatedUiBlocks.length,
         componentDefs: aggregatedComponentDefs.length,
+        tokenUsage: result.tokenUsage || undefined,
       },
     });
 
     return {
       response: finalResponse,
-      creditsUsed: 1, // 1 credit per delegation call (children add their own)
+      creditsUsed: hopCostCents,
       durationMs,
       targetNodeId: params.targetNodeId,
       targetDeploymentId: params.targetDeploymentId,

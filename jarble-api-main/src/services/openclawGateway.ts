@@ -119,6 +119,21 @@ export interface GatewayResponse {
   nativeThinking: string;
   /** True when the response was cut short by a timeout (partial text returned) */
   timedOut?: boolean;
+  /**
+   * Token usage from the LLM call (Cost Transparency Phase 1).
+   * Extracted from the exec response's agentMeta.usage or the HTTP
+   * streaming final chunk's usage object. Used by flowDelegation to
+   * populate creditsCharged with real token costs instead of the
+   * hardcoded value of 1.
+   */
+  tokenUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    model?: string;
+  };
 }
 
 export async function chatViaGateway(
@@ -644,9 +659,15 @@ async function chatViaHTTPInner(
 
   const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(fullText);
 
-  log.info({ url, textLength: fullText.length, blockCount: uiBlocks.length }, "chatViaHTTP: complete");
+  // Skip blocks already emitted during streaming deltas (they appear in order).
+  // This mirrors the WS gateway path which returns uiBlocks.slice(emittedBlockCount).
+  // Without this, emitGatewayResult re-emits TOOL_CALL events for blocks that
+  // onBlockDetected already sent, causing duplicate cards on the canvas.
+  const remainingBlocks = uiBlocks.slice(emittedBlockCount);
 
-  return { rawText: fullText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking };
+  log.info({ url, textLength: fullText.length, blockCount: uiBlocks.length, streamedBlockCount: emittedBlockCount, remainingBlockCount: remainingBlocks.length }, "chatViaHTTP: complete");
+
+  return { rawText: fullText, text: cleanText, uiBlocks: remainingBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking };
 }
 
 // ── Exec-based fallback ─────────────────────────────────────────────────
@@ -847,6 +868,21 @@ async function chatViaExecInner(
   log.debug({ podName, hasJarbleUiFence, endsWithClosingFence, tail: rawText.slice(-200) }, "chatViaExec: raw text tail");
 
   const { cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext } = extractAllUIBlocks(rawText);
-  log.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length, hasNativeThinking: !!nativeThinking }, "chatViaExec: response summary");
-  return { rawText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking };
+
+  // Cost Transparency Phase 1: extract token usage from the exec response.
+  // OpenClaw's --json output includes `result.meta.agentMeta.usage` with
+  // input/output/cacheRead/cacheWrite/total token counts. This lets
+  // flowDelegation calculate real cost instead of hardcoding 1.
+  const agentMeta = parsed.result?.meta?.agentMeta;
+  const tokenUsage = agentMeta?.usage ? {
+    inputTokens: Number(agentMeta.usage.input ?? agentMeta.usage.promptTokens ?? 0),
+    outputTokens: Number(agentMeta.usage.output ?? agentMeta.usage.completionTokens ?? 0),
+    totalTokens: Number(agentMeta.usage.total ?? 0),
+    cacheReadTokens: Number(agentMeta.usage.cacheRead ?? 0),
+    cacheWriteTokens: Number(agentMeta.usage.cacheWrite ?? 0),
+    model: agentMeta.model || undefined,
+  } : undefined;
+
+  log.debug({ podName, rawTextLength: rawText.length, blockCount: uiBlocks.length, updateCount: uiUpdates.length, hasNativeThinking: !!nativeThinking, tokenUsage: tokenUsage ? { in: tokenUsage.inputTokens, out: tokenUsage.outputTokens } : null }, "chatViaExec: response summary");
+  return { rawText, text: cleanText, uiBlocks, uiUpdates, componentDefs, suggestions, designContext, nativeThinking, tokenUsage };
 }
