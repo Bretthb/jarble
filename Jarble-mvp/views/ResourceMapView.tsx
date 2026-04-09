@@ -27,9 +27,10 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { Bot, Key, Cpu, MessageSquare, Zap, Network } from "lucide-react";
+import { Bot, Key, Cpu, MessageSquare, Zap, Network, X } from "lucide-react";
 import { motion } from "framer-motion";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { trpc } from "@/lib/trpc";
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -472,6 +473,77 @@ function buildResourceEdges(deployments: DeploymentData[]): Edge[] {
 
 // ─── Inner graph (requires ReactFlowProvider) ─────────────────────────
 
+function DeploymentEnvPanel({ deploymentId, deployment, onClose }: {
+  deploymentId: string;
+  deployment: DeploymentData;
+  onClose: () => void;
+}) {
+  const envQuery = trpc.deployment.getById.useQuery({ id: deploymentId }, { staleTime: 30_000 });
+  const dep = envQuery.data as any;
+  return (
+    <div className="absolute top-0 right-0 bottom-0 w-80 bg-card/98 backdrop-blur-md border-l border-border z-20 overflow-y-auto shadow-2xl">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border/60">
+        <div>
+          <h3 className="text-sm font-semibold">{deployment.name}</h3>
+          <p className="text-[10px] text-muted-foreground">{deployment.runtime} &middot; {deployment.status}</p>
+        </div>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1 rounded">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="p-4 space-y-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">Environment</p>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between py-1 border-b border-border/30">
+              <span className="text-muted-foreground">LLM Mode</span>
+              <span className="font-medium">{dep?.llmMode ?? deployment.llmMode ?? "—"}</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-border/30">
+              <span className="text-muted-foreground">Provider</span>
+              <span className="font-medium">{dep?.llmProvider ?? "—"}</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-border/30">
+              <span className="text-muted-foreground">Model</span>
+              <span className="font-medium">{dep?.llmModel ?? "auto"}</span>
+            </div>
+            {dep?.llmApiKeySourceDeploymentId && (
+              <div className="flex justify-between py-1 border-b border-border/30">
+                <span className="text-muted-foreground">API Key From</span>
+                <span className="font-medium text-emerald-400">{dep.llmApiKeySourceDeploymentId.slice(0, 12)}...</span>
+              </div>
+            )}
+            <div className="flex justify-between py-1 border-b border-border/30">
+              <span className="text-muted-foreground">Memory Scope</span>
+              <span className="font-medium">{dep?.memoryScope ?? "global"}</span>
+            </div>
+            {dep?.maxBudgetCents != null && (
+              <div className="flex justify-between py-1 border-b border-border/30">
+                <span className="text-muted-foreground">Budget Cap</span>
+                <span className="font-medium text-amber-400">${(dep.maxBudgetCents / 100).toFixed(2)}/turn</span>
+              </div>
+            )}
+            <div className="flex justify-between py-1 border-b border-border/30">
+              <span className="text-muted-foreground">CPU / Memory</span>
+              <span className="font-medium">{dep?.cpuLimit ?? "—"} / {dep?.memoryMb ? `${dep.memoryMb}MB` : "—"}</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-border/30">
+              <span className="text-muted-foreground">Storage</span>
+              <span className="font-medium">{dep?.storageMb ? `${(dep.storageMb / 1024).toFixed(1)}GB` : "—"}</span>
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => window.location.href = `/d/${deploymentId}`}
+          className="w-full text-xs font-medium py-2 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+        >
+          Open Deployment
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ResourceMapGraph({
   deployments,
 }: {
@@ -480,6 +552,7 @@ function ResourceMapGraph({
   const router = useRouter();
   const { fitView } = useReactFlow();
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
+  const [selectedDeploymentId, setSelectedDeploymentId] = useState<string | null>(null);
 
   const { nodes, edges, hasEdges } = useMemo(() => {
     const rawEdges = buildResourceEdges(deployments);
@@ -505,9 +578,9 @@ function ResourceMapGraph({
 
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node<ResourceMapNodeData>) => {
-      router.push(`/d/${node.id}`);
+      setSelectedDeploymentId((prev) => prev === node.id ? null : node.id);
     },
-    [router],
+    [],
   );
 
   const onInit = useCallback(() => {
@@ -571,6 +644,19 @@ function ResourceMapGraph({
         />
       </ReactFlow>
       <ResourceMapLegend />
+
+      {/* Env var detail panel — slides in when a node is clicked */}
+      {selectedDeploymentId && (() => {
+        const dep = deployments.find((d) => d.id === selectedDeploymentId);
+        if (!dep) return null;
+        return (
+          <DeploymentEnvPanel
+            deploymentId={selectedDeploymentId}
+            deployment={dep}
+            onClose={() => setSelectedDeploymentId(null)}
+          />
+        );
+      })()}
 
       {/* CSS animation for dashed edge movement */}
       <style>{`
