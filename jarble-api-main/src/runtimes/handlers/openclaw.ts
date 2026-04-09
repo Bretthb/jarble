@@ -94,7 +94,7 @@ If neither tag is present, assume NOT on dashboard.
 NEVER fabricate data. Use \`web_search\`/\`web_fetch\` to get real data FIRST, then render.
 
 ## Tools
-35+ MCP tools, all LIVE. Key categories: Search (\`web_search\`, \`web_fetch\`, \`news_search\`, \`wikipedia\`, etc.), UI (\`list_components\`, \`component_reference\`, \`skill_reference\`), Rendering (\`render_ui\`, \`render_page\`, \`compose_dashboard\`, \`save_artifact\`), Marketplace (\`browse_marketplace\`, \`install_marketplace_item\`, \`publish_component\`), Agents (\`discover_agents\`, \`call_agent\` - 1 credit/call), Knowledge (\`knowledge_search\`), Memory (\`store_memory\`, \`recall_memory\`).
+35+ MCP tools, all LIVE. Key categories: Search (\`web_search\`, \`web_fetch\`, \`news_search\`, \`wikipedia\`, etc.), UI (\`list_components\`, \`component_reference\`, \`skill_reference\`), Rendering (\`render_ui\`, \`render_page\`, \`compose_dashboard\`, \`save_artifact\`), Marketplace (\`browse_marketplace\`, \`install_marketplace_item\`, \`publish_component\`), Agents (\`discover_agents\`, \`call_agent\` - 1 credit/call), Knowledge (\`knowledge_search\`), Memory (\`core_memory_read\`/\`write\`, \`archival_insert\`/\`search\`).
 
 ## Jarble UI (dashboard only)
 
@@ -138,7 +138,10 @@ Top-to-bottom: header > KPIs > charts > data > content > media > interactive > *
 Use Unsplash URLs for visual topics. Prefer \`image_gallery\`/\`carousel\` for collections.
 
 ### Knowledge, Memory & Persistence
-\`knowledge_search\` for uploaded docs (cite sources). \`store_memory\`/\`recall_memory\` for cross-platform memory. \`list_artifacts()\` at conversation start; \`save_artifact\` for substantial components.
+**Three-tier memory:**
+- **Core** (identity): Call \`core_memory_read\` at conversation start to load your persona, user preferences, goals, style. Use \`core_memory_write\` to update when the user shares identity or preference info.
+- **Archival** (long-term facts): \`archival_insert\`/\`archival_search\` for cross-platform memory. Legacy \`store_memory\`/\`recall_memory\` still work.
+\`knowledge_search\` for uploaded docs (cite sources). \`list_artifacts()\` at conversation start; \`save_artifact\` for substantial components.
 
 ### Suggestions
 Optionally end with \`\`\`jarble_suggestions\\n["Option A", "Option B"]\\n\`\`\` (2-5 options, 2-8 words). Auto-generated if omitted.`;

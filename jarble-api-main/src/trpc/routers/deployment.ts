@@ -1068,6 +1068,84 @@ export const deploymentRouter = router({
     }),
 
   /**
+   * List team delegation sessions involving this deployment (Fractal Piece 6).
+   *
+   * Returns recent delegation calls where this deployment is either the
+   * caller (it delegated to someone) or the callee (someone delegated to it).
+   * Each row has the task, response preview, cost, duration, and the other
+   * deployment's info — so the UI can show "t2 asked this bot to..." or
+   * "this bot asked t1 to...".
+   */
+  listTeamSessions: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      limit: z.number().min(1).max(100).default(30),
+    }))
+    .query(async ({ ctx, input }) => {
+      await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id);
+
+      const rows = await ctx.db
+        .select({
+          id: agentCalls.id,
+          kind: agentCalls.kind,
+          skillName: agentCalls.skillName,
+          callerDeploymentId: agentCalls.callerDeploymentId,
+          calleeDeploymentId: agentCalls.calleeDeploymentId,
+          requestBody: agentCalls.requestBody,
+          responseBody: agentCalls.responseBody,
+          status: agentCalls.status,
+          durationMs: agentCalls.durationMs,
+          creditsCharged: agentCalls.creditsCharged,
+          depth: agentCalls.depth,
+          createdAt: agentCalls.createdAt,
+        })
+        .from(agentCalls)
+        .where(and(
+          eq(agentCalls.kind, "delegation"),
+          sql`(${agentCalls.callerDeploymentId} = ${input.id} OR ${agentCalls.calleeDeploymentId} = ${input.id})`,
+        ))
+        .orderBy(sql`${agentCalls.createdAt} DESC`)
+        .limit(input.limit);
+
+      // Collect unique deployment IDs to look up names
+      const depIds = new Set<string>();
+      for (const r of rows) {
+        if (r.callerDeploymentId) depIds.add(r.callerDeploymentId);
+        if (r.calleeDeploymentId) depIds.add(r.calleeDeploymentId);
+      }
+      const depNames = new Map<string, string>();
+      if (depIds.size > 0) {
+        const deps = await ctx.db.query.deployments.findMany({
+          where: inArray(deployments.id, Array.from(depIds)),
+          columns: { id: true, name: true },
+        });
+        for (const d of deps) depNames.set(d.id, d.name);
+      }
+
+      return {
+        sessions: rows.map((r) => {
+          // Determine the "other" deployment from this one's perspective
+          const isCaller = r.callerDeploymentId === input.id;
+          const otherId = isCaller ? r.calleeDeploymentId : r.callerDeploymentId;
+          return {
+            id: r.id,
+            direction: isCaller ? "sent" as const : "received" as const,
+            otherDeploymentId: otherId,
+            otherDeploymentName: otherId ? depNames.get(otherId) || otherId : null,
+            skillName: r.skillName,
+            task: r.requestBody?.slice(0, 300) || null,
+            responsePreview: r.responseBody?.slice(0, 300) || null,
+            status: r.status,
+            durationMs: r.durationMs,
+            costCents: r.creditsCharged,
+            depth: r.depth,
+            createdAt: r.createdAt,
+          };
+        }),
+      };
+    }),
+
+  /**
    * Fetch the full agent_calls tree for a single trace (JAR-51 debug drawer).
    * Returns all rows for the given trace_id ordered by depth then created_at
    * so the caller can reconstruct the tree.

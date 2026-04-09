@@ -31,9 +31,10 @@ import { Button } from "@/components/ui/button";
 import ConversationHistoryPanel from "@/components/workspace/ConversationHistoryPanel";
 import SubagentsPanel from "@/components/workspace/SubagentsPanel";
 import TeamMembershipsPanel from "@/components/workspace/TeamMembershipsPanel";
+import TeamSessionsPanel from "@/components/workspace/TeamSessionsPanel";
 import DebugTracePanel from "@/components/workspace/DebugTracePanel";
 import { MemoryDisclosureBanner, type MemoryScope } from "@/components/chat/MemoryDisclosureBanner";
-import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users, Activity, DollarSign } from "lucide-react";
+import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users, Activity, ArrowUpRight, DollarSign } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -347,6 +348,7 @@ function WorkspacePage({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [subagentsOpen, setSubagentsOpen] = useState(false);
   const [teamsOpen, setTeamsOpen] = useState(false);
+  const [teamSessionsOpen, setTeamSessionsOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [headerCostCents, setHeaderCostCents] = useState<number | null>(null);
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
@@ -436,6 +438,20 @@ function WorkspacePage({
               title="Conversation history"
             >
               <MessageSquareText className="w-4 h-4" />
+            </Button>
+            <Button
+              variant={teamSessionsOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setTeamSessionsOpen((v) => {
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setTeamsOpen(false); setDebugOpen(false); }
+                  return !v;
+                });
+              }}
+              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
+              title="Team Sessions"
+            >
+              <ArrowUpRight className="w-4 h-4" />
             </Button>
             <Button
               variant={filesOpen ? "secondary" : "ghost"}
@@ -578,6 +594,12 @@ function WorkspacePage({
           <TeamMembershipsPanel
             deploymentId={deploymentId}
             onClose={() => setTeamsOpen(false)}
+          />
+        )}
+        {teamSessionsOpen && (
+          <TeamSessionsPanel
+            deploymentId={deploymentId}
+            onClose={() => setTeamSessionsOpen(false)}
           />
         )}
         {debugOpen && (
