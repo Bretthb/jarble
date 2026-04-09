@@ -47,11 +47,21 @@ import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentation
 const otelEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 const otelExporterFlag = (process.env.OTEL_EXPORTER || "").toLowerCase();
 
+// Langfuse Cloud support (JAR-51 Phase 2 — first real exporter).
+// Setting LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY is enough — we auto-derive
+// the OTLP endpoint (Langfuse accepts OTLP/HTTP on /api/public/otel) and add
+// Basic auth headers. An explicit OTEL_EXPORTER_OTLP_ENDPOINT still wins
+// so users can swap to Tempo/Jaeger/a collector without unsetting Langfuse.
+const langfusePublicKey = process.env.LANGFUSE_PUBLIC_KEY;
+const langfuseSecretKey = process.env.LANGFUSE_SECRET_KEY;
+const langfuseHost = (process.env.LANGFUSE_HOST || "https://cloud.langfuse.com").replace(/\/+$/, "");
+const langfuseEnabled = Boolean(langfusePublicKey && langfuseSecretKey);
+
 // Pick the exporter:
-//   - If an OTLP endpoint is set, ship there over HTTP/JSON.
-//   - Else if OTEL_EXPORTER=console, log spans to stdout (dev only).
-//   - Else: undefined → no exporter, spans go nowhere (no overhead beyond
-//     allocation, which is what we want by default until Langfuse is wired).
+//   - Explicit OTEL_EXPORTER_OTLP_ENDPOINT → ship there (wins over Langfuse)
+//   - LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY → ship to Langfuse Cloud
+//   - OTEL_EXPORTER=console → log spans to stdout (dev only)
+//   - else: undefined → no exporter, spans allocated but never shipped
 let traceExporter: ConsoleSpanExporter | OTLPTraceExporter | undefined;
 if (otelEndpoint) {
   traceExporter = new OTLPTraceExporter({
@@ -59,6 +69,17 @@ if (otelEndpoint) {
     // Drop spans rather than blocking the application path on a slow backend.
     // BatchSpanProcessor will retry once and then drop on the second failure.
     // 5s is generous; the default is 10s which is too long.
+    timeoutMillis: 5_000,
+  });
+} else if (langfuseEnabled) {
+  // Langfuse accepts OTLP/HTTP at /api/public/otel/v1/traces with
+  // Basic auth where user = public key and password = secret key.
+  const basicAuth = Buffer.from(`${langfusePublicKey}:${langfuseSecretKey}`).toString("base64");
+  traceExporter = new OTLPTraceExporter({
+    url: `${langfuseHost}/api/public/otel/v1/traces`,
+    headers: {
+      Authorization: `Basic ${basicAuth}`,
+    },
     timeoutMillis: 5_000,
   });
 } else if (otelExporterFlag === "console") {
