@@ -32,7 +32,7 @@ import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
 import { requireOrgRole } from "./org.js";
 import type { OrgRole } from "./org.js";
 
-const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations, deploymentSecrets } = tables;
 
 /**
  * Find a deployment and verify the caller has access.
@@ -2841,7 +2841,30 @@ export const deploymentRouter = router({
       }
     }
 
-    // 6. Return the graph
+    // 6. Build shared secret key edges (key NAMES only, never values)
+    const secrets = await ctx.db.query.deploymentSecrets.findMany({
+      where: inArray(deploymentSecrets.deploymentId, userDepIds),
+      columns: { deploymentId: true, key: true },
+    });
+
+    const secretGroups = new Map<string, string[]>();
+    for (const s of secrets) {
+      const group = secretGroups.get(s.key) || [];
+      group.push(s.deploymentId);
+      secretGroups.set(s.key, group);
+    }
+
+    const secretEdges: { source: string; target: string; type: "shared_secret"; secretKey: string }[] = [];
+    for (const [key, depIds] of secretGroups) {
+      if (depIds.length > 1) {
+        // Star topology to limit edge count
+        for (let i = 1; i < depIds.length; i++) {
+          secretEdges.push({ source: depIds[0], target: depIds[i], type: "shared_secret", secretKey: key });
+        }
+      }
+    }
+
+    // 7. Return the graph
     return {
       nodes: userDeps.map(d => ({
         id: d.id,
@@ -2856,6 +2879,7 @@ export const deploymentRouter = router({
         ...agentCallEdges,
         ...flowEdges,
         ...platformEdges,
+        ...secretEdges,
       ],
     };
   }),
