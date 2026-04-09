@@ -41,7 +41,7 @@ import StepDeploy from "./onboarding/steps/StepDeploy";
 export default function OnboardingWizard() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
+  const { user, isAuthenticated, isLoading: authLoading, getAccessTokenSilently } = useAuth0();
   const { activeOrgId, activeOrg } = useOrg();
   const { theme } = useTheme();
   const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
@@ -560,9 +560,38 @@ export default function OnboardingWizard() {
                   checkoutConfirmed={checkoutConfirmed}
                   stripeClientSecret={stripeClientSecret}
                   isLoadingCheckout={isLoadingCheckout}
-                  onInitCheckout={() => {
-                    // TODO: Call stripe checkout endpoint
+                  onInitCheckout={async () => {
                     setIsLoadingCheckout(true);
+                    try {
+                      const token = await getAccessTokenSilently();
+                      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/stripe/checkout`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({
+                          inline: true,
+                          runtimeSlug: selectedRuntimeSlug,
+                          llmMode,
+                          creditLimitDollars: llmMode === "included" ? creditLimitDollars : 0,
+                          linkToDeploymentId: linkToDeploymentId || undefined,
+                          promoCode: promoValid ? promoCode.trim() : undefined,
+                          orgId: activeOrgId || undefined,
+                        }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) {
+                        toast.error(data.error || "Failed to start checkout");
+                        setIsLoadingCheckout(false);
+                        return;
+                      }
+                      setStripeClientSecret(data.clientSecret);
+                      setIsLoadingCheckout(false);
+                    } catch (err) {
+                      toast.error("Failed to initialize payment");
+                      setIsLoadingCheckout(false);
+                    }
                   }}
                   onCheckoutComplete={() => {
                     setCheckoutConfirmed(true);
