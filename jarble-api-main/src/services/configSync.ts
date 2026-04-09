@@ -52,22 +52,30 @@ const { deployments, platformCredentials, deploymentSecrets, deploymentSkills, s
 // deploymentSubagents may not exist yet (schema created by separate agent)
 const deploymentSubagents = (tables as any).deploymentSubagents;
 
-// ── MCP server registration: intentionally no-op ──────────────────────────────
-// OpenClaw 2026.x has no first-class MCP server registration — verified live in
-// docs/audits/qa-bot-teams-2026-04-07.md. The previous reRegisterMcpServer()
-// helper exec'd `mcporter config add jarble-ui` inside the pod, but mcporter is
-// only consumed by OpenClaw as a *skill* (and reports `✗ missing` on the live
-// pod), not as a first-class tool source. The bot's tool list never contained
-// any Jarble tools.
+// ── MCP server registration notes ─────────────────────────────────────────────
+// Updated after PR #72 (feat: register Jarble MCP server with mcporter).
 //
-// The PVC copy of jarble-ui-server.js IS still used — but via the Jarble API's
-// proxy path (POST /api/deployments/:id/mcp/invoke at canvasFiles.ts), which
-// `kubectl exec`s `node -e require('/data/config/mcp/jarble-ui-server.js')`
-// directly inside the pod. No mcporter, no OpenClaw involvement, no MCP stdio.
+// The Jarble MCP server (jarble-ui-server.js) is now actually reachable from
+// running bots via two parallel paths:
 //
-// stageMcpServer / syncMcpServer / syncMcpServerToAllRunning still update the
-// PVC copy on a schedule so the proxy reads the newest tools — but they no
-// longer pretend to "register" anything with OpenClaw.
+//   1. mcporter + mcporter skill (the primary runtime path)
+//      openclaw.ts:renderConfigs writes ${home}/.mcporter/mcporter.json with
+//      a "jarble-ui" entry pointing at the PVC copy of jarble-ui-server.js.
+//      OpenClaw ships the `mcporter` skill enabled by default — it teaches
+//      the bot to call `mcporter call jarble-ui.<tool>` via the exec tool.
+//      This is how render_ui / define_component / store_memory / etc. land
+//      in the bot's tool vocabulary at runtime.
+//
+//   2. Jarble API proxy (POST /api/deployments/:id/mcp/invoke in canvasFiles.ts)
+//      `kubectl exec`s `node -e require('/data/config/mcp/jarble-ui-server.js')`
+//      directly. Used by the backend for synchronous tool calls that don't
+//      need the bot in the loop.
+//
+// stageMcpServer / syncMcpServer / syncMcpServerToAllRunning still keep the
+// PVC copy of jarble-ui-server.js up to date. Both of the above paths read
+// from that same file, so updating it is sufficient — no explicit
+// re-registration step is needed because mcporter spawns the script fresh
+// on every tool call.
 
 /**
  * Retry a function once after a delay for transient failures.
@@ -650,10 +658,10 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
           log.debug({ deploymentId, filePath: f.path, contentLength: f.content.length }, "ConfigSync: writing file to PVC");
         }
 
-        // (Removed: reRegisterMcpServer call — see comment near top of file.
-        // The PVC copy is updated above; OpenClaw does not need any
-        // re-registration step because it never consumed the MCP server
-        // through mcporter in the first place.)
+        // No explicit mcporter re-registration step is needed: mcporter
+        // spawns the script fresh on every tool call, so updating the PVC
+        // copy above is sufficient for bots to see the newest tools.
+        // See the comment at the top of this file for the full picture.
 
         const durationMs = Date.now() - syncStartMs;
         log.info(
@@ -1214,9 +1222,9 @@ export async function syncMcpServer(
     return { updated: false, fromHash: stageResult.fromHash, toHash: stageResult.toHash };
   }
 
-  // (Removed: reRegisterMcpServer call — see comment near top of file.
-  // OpenClaw never consumed jarble-ui through mcporter; the PVC copy
-  // updated by stageMcpServer above is read directly by canvasFiles.ts.)
+  // No explicit mcporter re-registration needed: mcporter spawns
+  // jarble-ui-server.js fresh on every tool call, reading the PVC
+  // copy that stageMcpServer just updated. See top-of-file comment.
 
   // Restart gateway so it re-reads the tool list
   const podName = await findPodForDeployment(deploymentId, { managedBy });
