@@ -162,6 +162,8 @@ interface DelegationTraceEntry {
   creditsUsed: number;
   success: boolean;
   error?: string;
+  /** Number of UI blocks produced by this delegation (for compose detection) */
+  uiBlockCount: number;
 }
 
 // ── POST /:flowId/chat ──────────────────────────────────────────────────────
@@ -639,6 +641,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           creditsUsed: delegationResult?.creditsUsed ?? 0,
           success: !!delegationResult,
           error: delegationError ?? undefined,
+          uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
         });
 
         // Stream the delegation result into the chat
@@ -678,15 +681,15 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       // tell the coordinator it can merge them into a unified dashboard.
       // This is the "logic gate" pattern: each specialist produces a
       // component output, the compose step wires them together.
-      const successfulDelegations = delegationTrace.filter((d) => d.success);
-      const hasComposableBlocks = successfulDelegations.length >= 2;
+      const delegationsWithBlocks = delegationTrace.filter((d) => d.success && d.uiBlockCount > 0);
+      const hasComposableBlocks = delegationsWithBlocks.length >= 2;
       if (hasComposableBlocks) {
         sendEvent(res, {
           type: CUSTOM,
           name: "jarble.flow.compose.available",
           value: {
-            delegationCount: successfulDelegations.length,
-            sources: successfulDelegations.map((d) => d.toolName.replace(/^delegate_to_/, "")),
+            delegationCount: delegationsWithBlocks.length,
+            sources: delegationsWithBlocks.map((d) => d.toolName.replace(/^delegate_to_/, "")),
           },
         });
       }
@@ -721,18 +724,18 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             // Build compose instruction if multiple specialists produced components
             let composeInstruction = "";
             if (hasComposableBlocks) {
-              const blockSpecs = delegationTrace
-                .filter((d) => d.success && d.fullResponse)
+              const blockSpecs = delegationsWithBlocks
                 .map((d) => {
                   const slug = d.toolName.replace(/^delegate_to_/, "");
-                  return `  - From ${slug}: produced UI component(s)`;
+                  return `  - From ${slug}: ${d.uiBlockCount} UI component(s)`;
                 })
                 .join("\n");
               composeInstruction =
                 `\n\nCOMPOSE OPPORTUNITY: Multiple team members produced UI components:\n${blockSpecs}\n` +
-                `You MAY render a single unified dashboard (sandbox component) that combines all these ` +
-                `results into one cohesive view. Use the compose_dashboard or sandbox tool to merge them. ` +
-                `This is optional — only do it if the user would benefit from seeing everything in one place.`;
+                `You MAY render a single unified sandbox that combines all their results into one ` +
+                `cohesive dashboard view. Use render_ui with a "sandbox" component containing HTML/CSS/JS ` +
+                `that inlines the data from each member's reply. This is optional — only compose if the ` +
+                `user would benefit from seeing everything in one place.`;
             }
 
             const synthResult = await chatViaExec(
@@ -786,6 +789,8 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             }
           } catch (err) {
             log.warn({ flowId, err: err instanceof Error ? err.message : err }, "Synthesis call failed (non-fatal)");
+            // Prevent empty message bubble — send minimal content on failure
+            sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId: synthMessageId, delta: "\n\n---\n*Team results shown above.*" });
           }
 
           sendEvent(res, { type: TEXT_MESSAGE_END, messageId: synthMessageId });
