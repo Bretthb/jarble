@@ -2903,8 +2903,8 @@ export const deploymentRouter = router({
         const envVar = providerEnvMap[(deployment as any).llmProvider ?? "openrouter"] ?? "OPENROUTER_API_KEY";
         vars.push({ key: envVar, source: "llm", visible: "system" });
       }
-      if ((deployment as any).llmProvider) vars.push({ key: "LLM_PROVIDER", source: "llm", visible: "bot" });
-      if ((deployment as any).llmModel) vars.push({ key: "LLM_MODEL", source: "llm", visible: "bot" });
+      if ((deployment as any).llmProvider) vars.push({ key: "LLM_PROVIDER", source: "llm", visible: "system" });
+      if ((deployment as any).llmModel) vars.push({ key: "LLM_MODEL", source: "llm", visible: "system" });
 
       // System vars (always injected)
       vars.push({ key: "JARBLE_MEMORY_SCOPE", source: "system", visible: "bot" });
