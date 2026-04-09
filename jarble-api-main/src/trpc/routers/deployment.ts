@@ -2883,4 +2883,52 @@ export const deploymentRouter = router({
       ],
     };
   }),
+
+  // ── Env Var Map ─────────────────────────────────────────────────────
+  // Returns all env vars that would be injected into the pod, categorized
+  // by source. Values are masked for security — only key names and sources shown.
+  getEnvVarMap: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const vars: Array<{ key: string; source: "llm" | "platform" | "system" | "user" | "agent"; visible: "bot" | "system" }> = [];
+
+      // LLM credentials
+      const providerEnvMap: Record<string, string> = { openrouter: "OPENROUTER_API_KEY", anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", google: "GOOGLE_API_KEY" };
+      if (deployment.llmApiKey || (deployment as any).llmMode === "platform") {
+        const envVar = providerEnvMap[(deployment as any).llmProvider ?? "openrouter"] ?? "OPENROUTER_API_KEY";
+        vars.push({ key: envVar, source: "llm", visible: "system" });
+      }
+      if ((deployment as any).llmProvider) vars.push({ key: "LLM_PROVIDER", source: "llm", visible: "bot" });
+      if ((deployment as any).llmModel) vars.push({ key: "LLM_MODEL", source: "llm", visible: "bot" });
+
+      // System vars (always injected)
+      vars.push({ key: "JARBLE_MEMORY_SCOPE", source: "system", visible: "bot" });
+      if ((deployment as any).gatewayToken) vars.push({ key: "OPENCLAW_GATEWAY_TOKEN", source: "system", visible: "system" });
+
+      // Platform credentials
+      const platformCreds = await ctx.db.query.platformCredentials.findMany({
+        where: eq(platformCredentials.deploymentId, input.id),
+        columns: { platformId: true },
+      });
+      for (const cred of platformCreds) {
+        const platformUpper = cred.platformId.toUpperCase();
+        vars.push({ key: `${platformUpper}_BOT_TOKEN`, source: "platform", visible: "system" });
+      }
+
+      // User/agent custom secrets
+      const secrets = await ctx.db.query.deploymentSecrets.findMany({
+        where: eq(deploymentSecrets.deploymentId, input.id),
+        columns: { key: true, source: true },
+      });
+      for (const s of secrets) {
+        vars.push({ key: s.key, source: s.source === "agent" ? "agent" : "user", visible: "bot" });
+      }
+
+      return { vars };
+    }),
 });

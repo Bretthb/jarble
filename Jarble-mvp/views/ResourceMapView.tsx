@@ -487,11 +487,11 @@ function DeploymentEnvPanel({ deploymentId, deployment, onClose, sharedSecretKey
 }) {
   const router = useRouter();
   const envQuery = trpc.deployment.getById.useQuery({ id: deploymentId }, { staleTime: 30_000 });
-  const secretsQuery = trpc.deploymentSecrets.getByDeployment.useQuery({ deploymentId }, { staleTime: 30_000 });
-  const platformQuery = trpc.platformCredentials.getByDeployment.useQuery({ deploymentId }, { staleTime: 30_000 });
+  const envVarQuery = trpc.deployment.getEnvVarMap.useQuery({ id: deploymentId }, { staleTime: 30_000 });
   const dep = envQuery.data as any;
-  const secrets = secretsQuery.data ?? [];
-  const platforms = platformQuery.data ?? [];
+  const allVars = envVarQuery.data?.vars ?? [];
+  const botVars = allVars.filter((v: any) => v.visible === "bot");
+  const systemVars = allVars.filter((v: any) => v.visible === "system");
   return (
     <div className="absolute top-0 right-0 bottom-0 w-80 bg-card/98 backdrop-blur-md border-l border-border z-20 overflow-y-auto shadow-2xl">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/60">
@@ -545,65 +545,55 @@ function DeploymentEnvPanel({ deploymentId, deployment, onClose, sharedSecretKey
             </div>
           </div>
         </div>
-        {/* LLM Credential (from deployments table) */}
-        {dep?.llmApiKey && (
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">LLM API Key</p>
-            <div className="flex items-center justify-between py-1 border-b border-border/30 text-xs">
-              <div className="flex items-center gap-1.5">
-                <Key className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span className="font-mono text-[11px]">{dep.llmProvider?.toUpperCase() || "LLM"}_API_KEY</span>
-              </div>
-              <span className="text-muted-foreground text-[10px]">configured</span>
-            </div>
-          </div>
-        )}
-
-        {/* Platform Credentials (from platform_credentials table) */}
-        {platforms.length > 0 && (
+        {/* Bot-visible env vars (the bot can access these) */}
+        {botVars.length > 0 && (
           <div>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-              Platform Credentials ({platforms.length})
+              Bot Environment ({botVars.length})
             </p>
             <div className="space-y-1 text-xs">
-              {platforms.map((p: any) => (
-                <div key={p.id} className="flex items-center justify-between py-1 border-b border-border/30">
+              {botVars.map((v: any) => (
+                <div key={v.key} className="flex items-center justify-between py-1 border-b border-border/30">
                   <div className="flex items-center gap-1.5">
-                    <Key className="w-3 h-3 text-blue-400 shrink-0" />
-                    <span className="font-medium capitalize">{p.platformId}</span>
+                    <Key className={`w-3 h-3 shrink-0 ${v.source === "user" || v.source === "agent" ? "text-amber-400" : "text-emerald-400"}`} />
+                    <span className="font-mono text-[11px]">{v.key}</span>
                   </div>
-                  <span className="text-muted-foreground text-[10px]">
-                    {Object.keys(p.maskedCredentials || {}).length} token{Object.keys(p.maskedCredentials || {}).length !== 1 ? "s" : ""}
-                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                    v.source === "user" ? "bg-amber-500/10 text-amber-400" :
+                    v.source === "agent" ? "bg-purple-500/10 text-purple-400" :
+                    "bg-emerald-500/10 text-emerald-400"
+                  }`}>{v.source}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* Custom Secrets (from deployment_secrets table) */}
-        {secrets.length > 0 && (
+        {/* System env vars (bot can't see, used by runtime) */}
+        {systemVars.length > 0 && (
           <div>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-              Custom Secrets ({secrets.length})
+              System Credentials ({systemVars.length})
             </p>
             <div className="space-y-1 text-xs">
-              {secrets.map((s: any) => (
-                <div key={s.id} className="flex items-center justify-between py-1 border-b border-border/30">
+              {systemVars.map((v: any) => (
+                <div key={v.key} className="flex items-center justify-between py-1 border-b border-border/30 opacity-60">
                   <div className="flex items-center gap-1.5">
-                    <Key className="w-3 h-3 text-amber-400 shrink-0" />
-                    <span className="font-mono text-[11px]">{s.key}</span>
+                    <Key className="w-3 h-3 text-muted-foreground shrink-0" />
+                    <span className="font-mono text-[11px]">{v.key}</span>
                   </div>
-                  <span className="text-muted-foreground text-[10px]">{s.maskedValue}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">{v.source}</span>
                 </div>
               ))}
             </div>
+            <p className="text-[10px] text-muted-foreground mt-1">System credentials are used by the runtime. The bot cannot read these directly.</p>
           </div>
         )}
-        {secrets.length === 0 && !dep?.llmApiKey && platforms.length === 0 && !secretsQuery.isLoading && (
+
+        {allVars.length === 0 && !envVarQuery.isLoading && (
           <div>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">Credentials</p>
-            <p className="text-[10px] text-muted-foreground">No credentials configured. Add API keys in the deployment config.</p>
+            <p className="text-[10px] text-muted-foreground">No credentials configured.</p>
           </div>
         )}
 

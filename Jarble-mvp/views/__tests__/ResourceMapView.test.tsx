@@ -72,6 +72,9 @@ vi.mock("@/lib/trpc", () => ({
       getById: {
         useQuery: () => ({ data: null, isLoading: false }),
       },
+      getEnvVarMap: {
+        useQuery: () => ({ data: { vars: [] }, isLoading: false }),
+      },
     },
     deploymentSecrets: {
       getByDeployment: {
