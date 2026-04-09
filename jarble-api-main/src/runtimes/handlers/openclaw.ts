@@ -141,6 +141,7 @@ Use Unsplash URLs for visual topics. Prefer \`image_gallery\`/\`carousel\` for c
 **Three-tier memory:**
 - **Core** (identity): Call \`core_memory_read\` at conversation start to load your persona, user preferences, goals, style. Use \`core_memory_write\` to update when the user shares identity or preference info.
 - **Archival** (long-term facts): \`archival_insert\`/\`archival_search\` for cross-platform memory. Legacy \`store_memory\`/\`recall_memory\` still work.
+- **Credentials**: When a user provides an API key, token, or credential, use \`store_secret\` (NOT store_memory) to save it as an encrypted env var. It becomes available as \`process.env.KEY_NAME\` after a brief restart. Call \`list_secrets\` to check existing keys first.
 \`knowledge_search\` for uploaded docs (cite sources). \`list_artifacts()\` at conversation start; \`save_artifact\` for substantial components.
 
 ### Suggestions

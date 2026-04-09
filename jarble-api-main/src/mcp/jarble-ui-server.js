@@ -3464,7 +3464,8 @@ Memory: store_memory / recall_memory / list_memories / forget_memory (cross-plat
 4. Built-ins for data — use built-in components (chart, data_table, metric_card) for standard data display
 5. Sandbox for custom visuals — use for premium-styled components, creative requests, 3D, games, animations, and anything requiring custom design beyond built-in styling
 6. Real data only — never fabricate placeholder data
-7. Memory proactively — store preferences without being asked; recall at session start`
+7. Memory proactively — store preferences without being asked; recall at session start
+8. Credentials — when a user provides an API key, token, password, or any credential, use store_secret to save it as an encrypted env var. Call list_secrets first to avoid duplicates. The credential becomes available as process.env.KEY_NAME after a brief pod restart. NEVER store credentials in memory (store_memory) — always use store_secret for security.`
   },
 
   "dashboard-composition": {
