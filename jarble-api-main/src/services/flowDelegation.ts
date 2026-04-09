@@ -78,9 +78,10 @@ export function getMaxDelegationDepth(): number {
 }
 
 /** Timeout for a single delegation call (ms) */
-// Must be > exec timeout (150s) to avoid racing. The CLI gets 120s,
-// exec gets 150s, this outer abort fires at 180s as the last resort.
-const DELEGATION_TIMEOUT_MS = 180_000;
+// Must accommodate a full retry: 150s first attempt + 5s wait + 150s retry = 305s worst case.
+// Set to 330s to give 25s buffer. Without this headroom, the abort fires mid-retry
+// when the first attempt hits its full exec timeout.
+const DELEGATION_TIMEOUT_MS = 330_000;
 
 // ── Custom errors ────────────────────────────────────────────────────────────
 
