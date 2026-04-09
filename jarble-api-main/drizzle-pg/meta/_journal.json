@@ -61,15 +61,8 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1775836800000,
-      "tag": "0008_agent_calls_observability",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1775683200000,
-      "tag": "0009_deployments_memory_scope",
+      "when": 1775723499906,
+      "tag": "0008_furry_major_mapleleaf",
       "breakpoints": true
     }
   ]

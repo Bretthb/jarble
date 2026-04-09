@@ -1,165 +1,111 @@
-# Conversation-Scoped Bot Memory — Decision
+# Memory Scoping Decision
 
-**Status:** Decided
-**Date:** 2026-04-08
-**Branch:** `feature/memory-scoping`
-**Initiative:** Conversation-Scoped Bot Memory
+**Date:** 2026-04-09
+**Status:** Implemented
+**PR:** feature/memory-scoping
 
 ## Problem
 
-QA reproduced a cross-session bot memory leak: a user told bot **t2** in a new
-Team Chat session "my favorite color is blue", then the SAME bot recalled it in:
+QA Scenario 10 (`docs/audits/deep-bot-teams-qa.md`) discovered that bot long-term memory leaks across what the UI presents as isolated sessions:
 
-  (a) An older conversation in the same team flow.
-  (b) t2's individual chat at `/d/[id]`.
+1. User told bot t2 in a new Team Chat session "my favorite color is blue"
+2. The bot recalled "blue" in an **older conversation** in the same team
+3. The bot recalled "blue" in t2's **individual chat** at `/d/[id]`
 
-The UI presents these sessions as completely isolated (separate conversation
-panels, distinct thread history, distinct sessionKeys), but the bot's
-long-term memory crosses the session boundary because memory is keyed
-**per-pod**, not per-conversation.
+Root cause: the Jarble MCP memory tools (`store_memory`, `recall_memory`, `list_memories`, `forget_memory`) store all memories in a single `/data/memory/store.json` file on the pod PVC. There is no per-session partitioning. The UI presents conversations as isolated (separate history, separate canvas cards), but the bot's long-term memory is globally shared.
 
-## Where memory actually lives
+## Memory Layers
 
-There are three independent memory layers in a Jarble bot pod:
+| Layer | Storage | Scope Before Fix |
+|-------|---------|------------------|
+| OpenClaw native session history | OpenClaw workspace, keyed by `sessionKey` | Per session (already isolated) |
+| Jarble MCP `store_memory`/`recall_memory` | `/data/memory/store.json` | Per pod (leaks across sessions) |
 
-| Layer | Code | Storage | Scope today |
-|---|---|---|---|
-| OpenClaw native session history | `openclaw` runtime | OpenClaw workspace, keyed by `sessionKey` (`jarble-web-${userId}-${convId}` or `flow-${flowId}-${userId}-${convId}`) | **Per session** ✅ — already isolated |
-| OpenClaw native `memory_search` tool | `openclaw` runtime (closed-source) | OpenClaw memory dir | **Per pod** ⚠ — leaks across sessions |
-| Jarble MCP `store_memory` / `recall_memory` | `jarble-api-main/src/mcp/jarble-ui-server.js:4112-4762` | `JARBLE_MEMORY_DIR/store.json` (defaults `/data/memory/store.json`) | **Per pod** ⚠ — leaks across sessions |
+## Options Considered
 
-The `JARBLE_MEMORY_DIR` env var is set in `runtimes/handlers/openclaw.ts:713`
-and defaults to `/home/openclaw/.openclaw/memory`. Both memory layers store
-state on the pod's PVC, with one global `store.json` per deployment. Neither
-layer accepts a `sessionKey` or `conversationId`, and the bot's `soul.md`
-prompt actively encourages cross-platform persistence:
+### Option A: Scope memory per conversation by default
 
-> "Memory persists across Jarble dashboard, Telegram, Discord, WhatsApp, etc."
-> — `jarble-ui-server.js:865-878`
+Change the default behavior so memories are partitioned by `conversationId`/`sessionKey`. Each conversation would have its own memory namespace.
 
-So the leak is **real, intentional, and expected by the product** — but
-**not disclosed** to the user, who reasonably assumes a fresh chat session is
-a fresh slate.
+**Pros:**
+- Immediately fixes the privacy concern
+- Matches user mental model of isolated sessions
 
-## Options considered
+**Cons:**
+- **Breaking change** for existing deployments that rely on cross-session memory (personal assistants, CRM bots)
+- Bot Teams need shared context across sessions by design (specialists should know the user)
+- Incomplete fix: OpenClaw's native `memory_search` tool (closed-source runtime) cannot be scoped by us, so memories stored by that tool would still leak
 
-### Option A — Force per-conversation memory scoping
+### Option B: Disclose user-scoped memory + per-deployment opt-in scoping toggle
 
-Pipe `conversationId` into every memory write/read, partition `store.json`
-per session, restrict the LLM to only see same-session memories.
+Keep the default behavior (`global`) but:
+1. Add an **unmissable disclosure banner** at the top of every chat session
+2. Add a **per-deployment memory scope toggle** (global / session / off) in the config panel
+3. When set to `session`, partition memory by session key in the MCP server
 
-**Pros**
+**Pros:**
+- Non-breaking: existing deployments work as before
+- Respects that cross-session memory is the correct default for most agent use cases
+- Gives deployment owners explicit control
+- Honest about the limitation (OpenClaw native memory can't be scoped)
 
-- Strongest privacy default — what's said in one chat stays in that chat.
-- Matches the UI's "isolated session" mental model.
-- Removes the "WTF, how does it know that?" reaction users get today.
+**Cons:**
+- Privacy concern remains for the default (global) mode, mitigated by disclosure
 
-**Cons**
+## Decision: Option B
 
-- **Breaks the cross-platform memory feature on purpose.** Web → Telegram and
-  flow-orchestrator → specialist hand-offs all stop sharing context. Soul.md
-  and the system prompt actively advertise this feature ("cross-platform
-  memory" is mentioned in 4 places).
-- **We don't control all the memory layers.** OpenClaw's native `memory_search`
-  is part of the closed runtime, doesn't accept a session key, and per the
-  `qa-bot-teams-2026-04-07` audit OpenClaw "ignores all configured MCP
-  servers" — we can't reach into the runtime to scope it.
-- **Specialist delegation in Bot Teams legitimately needs shared context.**
-  The orchestrator passes a task to a specialist; if the specialist can't see
-  global memory, every delegation has to re-explain who the user is.
-- A "scope by session" enforcement that only covers the Jarble MCP layer
-  would be a half-fix — OpenClaw native memory keeps leaking.
-- Larger implementation surface; touches the MCP server, the runtime handler,
-  the chat route, the flow chat route, the delegation path, and potentially
-  the runtime image entrypoint.
+**Rationale:**
 
-### Option B — Disclose user-scoped memory + per-deployment opt-in scoping
+1. **Cross-session memory is the more useful default.** Personal assistants, CRM bots, customer support agents all benefit from remembering user context across sessions. Changing the default would degrade the product for the majority of use cases.
 
-Treat the existing behavior as a feature, but make it **unmissable**:
+2. **Incomplete scoping is worse than honest disclosure.** Even with Option A, OpenClaw's native `memory_search` would still leak per-pod. Better to disclose honestly than give a false sense of privacy.
 
-1. New `memoryScope` field on the deployment with three modes:
-   - `global` (default) — current behavior, persists across sessions and
-     platforms. The bot's prompt continues to advertise the memory tools.
-   - `session` — bot is instructed to scope memories per `[SESSION_ID]`,
-     and the Jarble MCP store partitions `store.json` by session key. The
-     bot's prompt is rewritten to forbid cross-session recall.
-   - `off` — memory tools are removed from the prompt entirely, the MCP
-     memory tools no-op.
-2. The current `[CANVAS_STATE]` block already injected at message time gets
-   a `Memory: <mode>` line (and a `Session: <id>` line for `session` mode)
-   so the bot's per-turn prompt is the source of truth.
-3. The `JARBLE_MEMORY_SCOPE` env var is wired into the pod via
-   `getSecretEntries()` so the MCP server actually enforces the partition
-   when invoked.
-4. **An unmissable banner at the top of every chat session** ("Memory: ON
-   across all your conversations · Manage") that links to the deployment
-   config. Hidden behind a tooltip is **not** acceptable here.
-5. The deployment configuration sidebar (`ConfigPanel.tsx`) gets a Memory
-   section with a 3-way toggle, a one-line explainer, and a "Reset memory"
-   action.
+3. **Bot Teams need cross-session context.** Specialists in a team need to know the user across sessions to provide coherent service.
 
-**Pros**
+4. **Lower implementation risk.** Additive changes (new column, new UI) rather than changing defaults.
 
-- Doesn't break the cross-platform memory feature for users who want it.
-- Surfaces the existing behavior — fixes the surprise, which is the actual
-  bug per the QA report.
-- Gives privacy-conscious users a real opt-in (the `session` and `off` modes
-  do something).
-- Implementation lands cleanly in the layers we own — the MCP server, the
-  runtime handler prompt rendering, one new tRPC mutation, one frontend
-  banner, one config toggle.
-- Doesn't pretend we control OpenClaw's native memory layer. We can't, and
-  the disclosure is honest about the boundary: "global" mode is documented
-  as "everything the bot saves about you", and "session" mode is documented
-  as "Jarble-managed memory only — the underlying runtime may still recall
-  things across sessions".
+## Implementation
 
-**Cons**
+### Backend
 
-- The `session` mode is best-effort: it controls the Jarble MCP layer and
-  the prompt, but OpenClaw's native `memory_search` is still per-pod. The
-  banner copy and decision doc explicitly call this out so users aren't
-  misled.
-- More moving parts than just hiding the feature (DB column, prompt
-  rendering, banner, toggle, MCP partition).
+- **DB:** `memoryScope` column on `deployments` table (varchar(20), default "global")
+- **Utility:** `jarble-api-main/src/utils/memoryScope.ts` with scope helpers and prompt rendering
+- **Runtime handler:** `openclaw.ts` injects memory scope section into `soul.md` and sets `JARBLE_MEMORY_SCOPE` env var
+- **MCP server:** `jarble-ui-server.js` reads `JARBLE_MEMORY_SCOPE` and `JARBLE_CURRENT_SESSION_ID`, filters memory operations by session ID in "session" mode, disables tools in "off" mode
+- **Session ID injection:** `chatViaExec` passes `JARBLE_CURRENT_SESSION_ID` env var per-call
+- **Router:** `deployment.update` accepts `memoryScope` enum field
 
-## Decision
+### Frontend
 
-**Ship Option B.**
+- **MemoryBanner:** Disclosure banner at top of chat panel (amber for global, green for session, hidden for off)
+- **ConfigPanel:** Memory scope dropdown with explanatory text
 
-The bug isn't that memory persists — that's the feature. The bug is that
-the UI lies to the user about it. Disclosure-first matches both the product
-stance ("memory persists across platforms") and the user's privacy
-expectations (give them a real switch to flip).
+### Three Modes
 
-A pure Option A "scope everything by conversationId" can't be implemented
-honestly without modifying OpenClaw's closed runtime, would gut a feature
-the product promotes, and would silently break specialist delegation in
-Bot Teams. Half-fixing it on the Jarble MCP layer alone would be worse than
-the current behavior because users would believe scoping was working when
-it isn't.
+| Mode | Behavior | Banner |
+|------|----------|--------|
+| `global` (default) | Memory shared across all sessions and platforms | Amber: "This bot remembers information across all your conversations and platforms." |
+| `session` | Memory partitioned per `sessionKey` in MCP layer | Green: "Memory is scoped to this conversation only." |
+| `off` | Memory tools disabled entirely (removed from tool list, return error at runtime) | Hidden |
 
-## Implementation plan (this PR)
+### Known Limitations
 
-| Layer | File | Change |
-|---|---|---|
-| Schema | `jarble-api-main/src/db/schema.pg.ts` | Add `memory_scope varchar(20) DEFAULT 'global' NOT NULL` to `deployments`. |
-| Schema | `jarble-api-main/src/__tests__/helpers/testSchema.sqlite.ts` | Mirror the column for tests. |
-| Migration | `jarble-api-main/drizzle-pg/0008_memory_scope.sql` | `ALTER TABLE deployments ADD COLUMN memory_scope...`. |
-| Runtime handler | `jarble-api-main/src/runtimes/handlers/openclaw.ts` | `renderConfigs()` appends a Memory section to soul.md per scope; `getSecretEntries()` exports `JARBLE_MEMORY_SCOPE`. |
-| MCP server | `jarble-api-main/src/mcp/jarble-ui-server.js` | `loadMemoryStore`/`saveMemoryStore` honor `JARBLE_MEMORY_SCOPE` and an optional `scope_id` arg, partitioning `store.<sha>.json` for `session` mode and no-op'ing for `off`. |
-| Chat route | `jarble-api-main/src/routes/tamboAgent.ts` | Inject `Memory: <mode>` and `Session: <id>` into the existing `[CANVAS_STATE]` block. |
-| tRPC | `jarble-api-main/src/trpc/routers/deployment.ts` | Accept `memoryScope` in the `create` and `update` inputs (Zod enum). |
-| Frontend banner | `Jarble-mvp/components/chat/MemoryDisclosureBanner.tsx` | NEW. Always-visible strip at the top of the chat panel. |
-| Frontend chat host | `Jarble-mvp/app/d/[id]/page.tsx` | Render `<MemoryDisclosureBanner>` immediately above `<KeyedChatPanel>`. |
-| Frontend config | `Jarble-mvp/components/workspace/ConfigPanel.tsx` | Add a Memory section with a 3-mode select + Save. |
-| Tests | `jarble-api-main/src/runtimes/handlers/openclaw.test.ts` + new test for the MCP store partition | Cover `renderConfigs` outputs and store partition behavior. |
+- **OpenClaw native `memory_search`:** The closed-source OpenClaw runtime has its own memory system that cannot be scoped by us. In `session` mode, only the Jarble MCP memory tools are scoped. The bot is instructed via `soul.md` to prefer Jarble memory tools over native ones.
+- **WS/HTTP chat paths:** The `JARBLE_CURRENT_SESSION_ID` env var is only injected in the `chatViaExec` path. For WS and HTTP paths, the bot must pass `session_id` explicitly as a tool argument (instructed via `soul.md`).
 
-## Out of scope (follow-ups)
+## Files Changed
 
-- A "Reset memory" button that wipes the pod's memory store. Easy to add but
-  better as a follow-up since it touches the pod-exec MCP proxy.
-- Surfacing stored memories in the UI ("Memory inventory"). Lots of design
-  work, not part of the leak fix.
-- Coordinating with OpenClaw upstream on a `--memory-scope=session` flag so
-  the native `memory_search` can also be scoped honestly.
+| File | Change |
+|------|--------|
+| `jarble-api-main/src/db/schema.pg.ts` | Added `memoryScope` column |
+| `jarble-api-main/src/__tests__/helpers/testSchema.sqlite.ts` | Mirror column for tests |
+| `jarble-api-main/src/runtimes/types.ts` | Added `memoryScope` to `DeploymentFields` |
+| `jarble-api-main/src/services/configSync.ts` | Pass `memoryScope` in `buildDeploymentFields` |
+| `jarble-api-main/src/utils/memoryScope.ts` | New utility module |
+| `jarble-api-main/src/runtimes/handlers/openclaw.ts` | Memory scope in soul.md + env var |
+| `jarble-api-main/src/services/openclawGateway.ts` | Session ID env var in chatViaExec |
+| `jarble-api-main/src/mcp/jarble-ui-server.js` | Session filtering + scope enforcement |
+| `jarble-api-main/src/trpc/routers/deployment.ts` | `memoryScope` in update schema |
+| `Jarble-mvp/components/workspace/MemoryBanner.tsx` | New disclosure banner |
+| `Jarble-mvp/components/workspace/ConfigPanel.tsx` | Memory scope toggle |
+| `Jarble-mvp/app/d/[id]/page.tsx` | Wire banner into chat page |
