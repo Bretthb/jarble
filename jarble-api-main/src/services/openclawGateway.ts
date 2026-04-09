@@ -128,6 +128,43 @@ export async function chatViaGateway(
   signal?: AbortSignal,
   onBlockDetected?: (block: JarbleUIBlock) => void,
 ): Promise<GatewayResponse> {
+  // JAR-51 Phase 3: wrap the gateway call in an OTel span so the WS
+  // hot path shows up in Langfuse alongside the chatViaExec fallback.
+  // This is the primary delegation path — chatViaExec only runs when
+  // the WS connection fails.
+  return tracer.startActiveSpan(
+    "jarble.delegation.gateway",
+    {
+      attributes: {
+        "jarble.pod.ip": opts.ip,
+        "jarble.pod.port": opts.port,
+        "jarble.session.key": opts.sessionKey,
+        "jarble.message.length": message.length,
+        "jarble.runtime": "openclaw",
+        "jarble.transport": "ws",
+      },
+    },
+    async (span) => {
+      try {
+        return await chatViaGatewayInner(opts, message, onDelta, signal, onBlockDetected);
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    },
+  );
+}
+
+async function chatViaGatewayInner(
+  opts: GatewayOptions,
+  message: string,
+  onDelta?: (text: string) => void,
+  signal?: AbortSignal,
+  onBlockDetected?: (block: JarbleUIBlock) => void,
+): Promise<GatewayResponse> {
   const { ip, port, gatewayToken, sessionKey } = opts;
   const wsUrl = `ws://${ip}:${port}`;
 
