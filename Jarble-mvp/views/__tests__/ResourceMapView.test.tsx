@@ -78,6 +78,11 @@ vi.mock("@/lib/trpc", () => ({
         useQuery: () => ({ data: [], isLoading: false }),
       },
     },
+    platformCredentials: {
+      getByDeployment: {
+        useQuery: () => ({ data: [], isLoading: false }),
+      },
+    },
   },
 }));
 
