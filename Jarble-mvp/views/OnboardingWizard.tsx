@@ -42,7 +42,7 @@ export default function OnboardingWizard() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const { activeOrgId } = useOrg();
   const { theme } = useTheme();
-  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
+  const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
 
   // Step navigation
   const [currentStepIndex, setCurrentStepIndex] = useState(0);

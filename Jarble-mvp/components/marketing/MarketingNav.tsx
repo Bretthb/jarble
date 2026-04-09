@@ -30,7 +30,7 @@ export default function MarketingNav() {
   const { isAuthenticated } = useAuth0();
   const { theme } = useTheme();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
+  const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
 
   return (
     <nav className="fixed inset-x-0 top-0 z-50 bg-background/80 backdrop-blur-md">

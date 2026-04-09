@@ -14,7 +14,7 @@ const FOOTER_LINKS = [
 
 export default function MarketingFooter() {
   const { theme } = useTheme();
-  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
+  const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
 
   return (
     <footer className="py-12 border-t border-border relative z-10">

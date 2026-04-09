@@ -14,7 +14,7 @@ export default function Login() {
   const router = useRouter();
   const { loginWithRedirect, isLoading, isAuthenticated } = useAuth0();
   const { theme } = useTheme();
-  const logoSrc = theme === "dark" ? "/logo.png" : "/logodark.png";
+  const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
 
   // Redirect to dashboard if already authenticated
   useEffect(() => {
