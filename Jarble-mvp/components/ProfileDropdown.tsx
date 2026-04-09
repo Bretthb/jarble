@@ -20,7 +20,7 @@ import {
   Building2,
   CreditCard,
   LayoutDashboard,
-  Layers,
+  // Layers removed — Linked Deployments nav item removed
   LogOut,
   Moon,
   Settings,
@@ -91,10 +91,7 @@ export default function ProfileDropdown() {
             <LayoutDashboard className="w-4 h-4" />
             Dashboard
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => router.push("/deployments")} className="py-1.5 gap-1.5">
-            <Layers className="w-4 h-4" />
-            Linked Deployments
-          </DropdownMenuItem>
+          {/* Linked Deployments removed — now a tab on the dashboard */}
           <DropdownMenuItem onSelect={() => router.push("/marketplace")} className="py-1.5 gap-1.5">
             <Store className="w-4 h-4" />
             Marketplace
