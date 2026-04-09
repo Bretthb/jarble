@@ -617,10 +617,10 @@ export async function executeDelegation(params: {
         .where(eq(tables.agentCalls.traceId, params.traceId));
       const spent = Number(traceCredits[0]?.total ?? 0);
       if (spent >= sourceDeployment.maxBudgetCents) {
-        throw new Error(
-          `Delegation budget exceeded for this bot. Spent ${spent} cents (limit: ${sourceDeployment.maxBudgetCents} cents). ` +
-          `Increase the budget in deployment settings to allow more delegations.`,
-        );
+        const msg = sourceDeployment.maxBudgetCents === 0
+          ? `Delegation is disabled for this bot (budget set to $0). Set a positive budget in deployment settings to enable delegations.`
+          : `Delegation budget exceeded. Spent $${(spent / 100).toFixed(2)} (limit: $${(sourceDeployment.maxBudgetCents / 100).toFixed(2)}). Increase the budget in deployment settings to allow more delegations.`;
+        throw new Error(msg);
       }
     }
   }

@@ -1441,7 +1441,7 @@ tamboAgentRouter.post("/", async (req, res) => {
                   context: job.call.context,
                   contextScope: job.tool.contextScope,
                   conversationHistory: [{ role: "user", content: sanitizedText }],
-                  sessionId: `team-delegation-${deploymentId}-${job.tool.targetNodeId}-${Date.now()}`,
+                  sessionId: `team-delegation-${deploymentId}-${job.tool.targetNodeId}-${Date.now()}-${nanoid(4)}`,
                   depth: 1,
                   sourceDeploymentId: deploymentId,
                   toolName: job.call.toolName,
