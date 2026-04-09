@@ -90,18 +90,15 @@ describe("openclawHandler metadata", () => {
   });
 
   it("declares config file specs", () => {
-    // 4 entries: soul.md, openclaw.json, skills/*, subagent-tools.json.
-    // delegation-tools.json was removed (no consumer on the pod — Bot Team
-    // delegation now goes through `jarble_delegate` JSON blocks parsed by
-    // flowDelegation.ts on the platform side).
+    // Base spec has 4 entries. delegation-tools.json is generated
+    // dynamically by renderConfigs only when teamMembers exist (A2A
+    // Phase 1), so it's not in the static configFiles list.
     expect(openclawHandler.configFiles).toHaveLength(4);
     expect(openclawHandler.configFiles[0].path).toBe("soul.md");
     expect(openclawHandler.configFiles[1].path).toBe("openclaw.json");
     expect(openclawHandler.configFiles[2].path).toBe("skills/*");
     expect(openclawHandler.configFiles[2].isGlob).toBe(true);
     expect(openclawHandler.configFiles[3].path).toBe("subagent-tools.json");
-    // delegation-tools.json must NOT be in the spec — confirms the cleanup.
-    expect(openclawHandler.configFiles.find((f) => f.path === "delegation-tools.json")).toBeUndefined();
   });
 });
 
@@ -814,9 +811,9 @@ describe("openclawHandler.renderConfigs - Team Context (Bot Teams)", () => {
     expect(soulMd.content).not.toContain("**no_role_bot** ()");
   });
 
-  it("does NOT write delegation-tools.json (dead code removed)", () => {
-    // Even with teamContext + legacy teamMembers populated, delegation-tools.json
-    // must not appear in the rendered file list — its consumer never existed.
+  it("writes delegation-tools.json with a2a_delegate when teamMembers exist (A2A Phase 1)", () => {
+    // A2A Phase 1: delegation-tools.json is now generated dynamically
+    // with the a2a_delegate tool + legacy per-member tools.
     const files = openclawHandler.renderConfigs(
       makeDeployment({
         teamMembers: [
@@ -834,13 +831,15 @@ describe("openclawHandler.renderConfigs - Team Context (Bot Teams)", () => {
       })
     );
 
-    expect(files.find((f) => f.path === "delegation-tools.json")).toBeUndefined();
+    const delegationFile = files.find((f) => f.path === "delegation-tools.json");
+    expect(delegationFile).toBeDefined();
+    const tools = JSON.parse(delegationFile!.content);
+    expect(tools[0].name).toBe("a2a_delegate");
   });
 
-  it("removes the legacy 'delegate_to_*' Agent Pool subsection", () => {
-    // The old Agent Pool block listed `delegate_to_{slug}` as a fake MCP tool.
-    // It must NOT appear in the rendered soul.md any more — the new Team Context
-    // section is the single source of truth and uses `jarble_delegate` blocks.
+  it("includes a2a_delegate instructions in Agent Pool Team Members section", () => {
+    // A2A Phase 1: the Agent Pool block now teaches a2a_delegate as the
+    // preferred delegation method, with legacy tools as fallback.
     const files = openclawHandler.renderConfigs(
       makeDeployment({
         teamMembers: [
@@ -859,8 +858,9 @@ describe("openclawHandler.renderConfigs - Team Context (Bot Teams)", () => {
     );
     const soulMd = files.find((f) => f.path === "soul.md")!;
 
-    expect(soulMd.content).not.toContain("delegate_to_specialist");
-    expect(soulMd.content).not.toContain("### Team Members");
+    // A2A Phase 1: soul.md now includes Team Members section with a2a_delegate
+    expect(soulMd.content).toContain("a2a_delegate");
+    expect(soulMd.content).toContain("### Team Members");
   });
 
   it("renders Team Context to BOTH soul.md and the workspace SOUL.md path", () => {
@@ -968,5 +968,55 @@ describe("openclawHandler.getSecretEntries - platform mode", () => {
     );
     expect(entries["LLM_PROVIDER"]).toBe("anthropic");
     expect(entries["LLM_MODEL"]).toBe("claude-opus-4-6");
+  });
+});
+
+// ── A2A Delegation ────────────────────────────────────────────────────────────
+
+describe("a2a_delegate tool generation", () => {
+  it("generates delegation-tools.json with a2a_delegate and legacy tools", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamMembers: [
+          { deploymentId: "dep-researcher", slug: "researcher", name: "Research Bot", role: "researcher" },
+          { deploymentId: "dep-writer", slug: "writer", name: "Writer Bot", role: "writer" },
+        ],
+      })
+    );
+    const delegationFile = files.find((f) => f.path === "delegation-tools.json");
+    expect(delegationFile).toBeDefined();
+    const tools = JSON.parse(delegationFile!.content);
+    expect(tools).toHaveLength(3); // 1 a2a_delegate + 2 legacy
+
+    // a2a_delegate tool
+    const a2a = tools[0];
+    expect(a2a.name).toBe("a2a_delegate");
+    expect(a2a.inputSchema.properties.to.enum).toEqual(["researcher", "writer"]);
+    expect(a2a.inputSchema.required).toContain("to");
+    expect(a2a.inputSchema.required).toContain("task");
+
+    // Legacy tools
+    expect(tools[1].name).toBe("delegate_to_researcher");
+    expect(tools[2].name).toBe("delegate_to_writer");
+  });
+
+  it("does not generate delegation-tools.json when no teamMembers", () => {
+    const files = openclawHandler.renderConfigs(makeDeployment({ teamMembers: undefined }));
+    const delegationFile = files.find((f) => f.path === "delegation-tools.json");
+    expect(delegationFile).toBeUndefined();
+  });
+
+  it("includes a2a_delegate instructions in soul.md when teamMembers present", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamMembers: [
+          { deploymentId: "dep-analyst", slug: "analyst", name: "Analyst Bot", role: null },
+        ],
+      })
+    );
+    const soulMd = files.find((f) => f.path === "soul.md");
+    expect(soulMd).toBeDefined();
+    expect(soulMd!.content).toContain("a2a_delegate");
+    expect(soulMd!.content).toContain("analyst");
   });
 });

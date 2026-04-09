@@ -334,12 +334,21 @@ export const openclawHandler: RuntimeHandler = {
         poolSections.push(`### Custom Subagents\n${lines.join("\n")}`);
       }
 
-      // NOTE: Team members were previously rendered here as a subsection of
-      // the Agent Pool, referencing nonexistent `delegate_to_{slug}` MCP tools.
-      // That code lied to the LLM (the tools never existed at runtime) and is
-      // now replaced by the top-level "Team Context" section above, which
-      // teaches the bot the `jarble_delegate` JSON-block protocol that the
-      // platform actually parses (see flowDelegation.ts).
+      // 3. Team members - other deployments linked via Bot Teams flows
+      // A2A Phase 1: teach the bot to use a2a_delegate tool for team delegation
+      if (deployment.teamMembers && deployment.teamMembers.length > 0) {
+        const lines = deployment.teamMembers.map((m) =>
+          `- **${m.slug}** - ${m.name}${m.role ? `: ${m.role}` : ""}`
+        );
+        poolSections.push(
+          `### Team Members\n` +
+          `**Preferred**: Use the \`a2a_delegate\` tool to delegate tasks to teammates. It accepts a \`to\` (teammate slug), \`task\` (what to do), and optional \`context\` (extra data).\n` +
+          `Example: \`a2a_delegate({ to: "${deployment.teamMembers[0].slug}", task: "Analyze the Q1 revenue data", context: "Focus on month-over-month growth" })\`\n\n` +
+          `Legacy \`delegate_to_{slug}\` tools and \`jarble_delegate\` fenced blocks also work but prefer \`a2a_delegate\` for new delegations.\n\n` +
+          `Available teammates:\n` +
+          lines.join("\n")
+        );
+      }
 
       if (poolSections.length > 0) {
         soulParts.push(
@@ -659,17 +668,65 @@ export const openclawHandler: RuntimeHandler = {
       log.info({ toolCount: subagentTools.length }, "renderConfigs: wrote subagent-tools.json");
     }
 
-    // NOTE: `delegation-tools.json` was previously written here, but no
-    // consumer on the pod loads it. `jarble-ui-server.js` statically hardcodes
-    // AGENT_TOOLS at module init and only registers the two platform agents
-    // (`delegate_to_data_agent`, `delegate_to_workflow_agent`). Bot Team
-    // delegation is now handled by the platform: the bot emits
-    // `jarble_delegate` JSON blocks (taught in the soul.md "Team Context"
-    // section above), `flowChat.ts` parses them via `flowDelegation.ts`, and
-    // the platform invokes the teammates and feeds results back as
-    // `[DELEGATION_RESULTS]`. If we ever wire dynamic MCP tool registration in
-    // the MCP server, reintroduce this writer here sourced from
-    // `deployment.teamContext.teammates`.
+    // Write delegation-tools.json - MCP tool definitions for Bot Teams delegation.
+    // Phase 1 (A2A): single `a2a_delegate` tool with a `to` enum of teammate slugs,
+    // plus legacy per-member `delegate_to_{slug}` tools for backward compatibility.
+    if (deployment.teamMembers && deployment.teamMembers.length > 0) {
+      const slugs = deployment.teamMembers.map((m) => m.slug);
+      const memberDescriptions = deployment.teamMembers
+        .map((m) => `  - "${m.slug}": ${m.name}${m.role ? ` (${m.role})` : ""}`)
+        .join("\n");
+
+      // New structured A2A delegate tool
+      const a2aDelegateTool = {
+        name: "a2a_delegate",
+        description:
+          "Delegate a task to a teammate. Use this tool to send structured task requests to other agents in your team.\n\nAvailable teammates:\n" +
+          memberDescriptions,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            to: {
+              type: "string" as const,
+              enum: slugs,
+              description: "The slug of the teammate to delegate to",
+            },
+            task: {
+              type: "string" as const,
+              description: "Clear description of the task to delegate",
+            },
+            context: {
+              type: "string" as const,
+              description: "Additional context, data, or constraints for the delegate",
+            },
+          },
+          required: ["to", "task"] as const,
+        },
+      };
+
+      // Legacy per-member tools for backward compatibility
+      const legacyTools = deployment.teamMembers.map((m) => ({
+        name: `delegate_to_${m.slug}`,
+        slug: m.slug,
+        description: `Delegate to ${m.name}${m.role ? ` (${m.role})` : ""}`,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            task: { type: "string" as const, description: "The task to delegate" },
+            context: { type: "string" as const, description: "Relevant context for the delegate" },
+          },
+          required: ["task"],
+        },
+      }));
+
+      const delegationTools = [a2aDelegateTool, ...legacyTools];
+
+      files.push({
+        path: "delegation-tools.json",
+        content: JSON.stringify(delegationTools, null, 2),
+      });
+      log.info({ toolCount: delegationTools.length }, "renderConfigs: wrote delegation-tools.json");
+    }
 
     log.info({ fileCount: files.length }, "renderConfigs complete");
     return files;
