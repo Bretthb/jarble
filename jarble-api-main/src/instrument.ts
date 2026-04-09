@@ -54,7 +54,13 @@ const otelExporterFlag = (process.env.OTEL_EXPORTER || "").toLowerCase();
 // so users can swap to Tempo/Jaeger/a collector without unsetting Langfuse.
 const langfusePublicKey = process.env.LANGFUSE_PUBLIC_KEY;
 const langfuseSecretKey = process.env.LANGFUSE_SECRET_KEY;
-const langfuseHost = (process.env.LANGFUSE_HOST || "https://cloud.langfuse.com").replace(/\/+$/, "");
+// Support both LANGFUSE_BASE_URL (official Langfuse SDK name) and
+// LANGFUSE_HOST (shorter alias). LANGFUSE_BASE_URL takes precedence.
+const langfuseHost = (
+  process.env.LANGFUSE_BASE_URL ||
+  process.env.LANGFUSE_HOST ||
+  "https://cloud.langfuse.com"
+).replace(/\/+$/, "");
 const langfuseEnabled = Boolean(langfusePublicKey && langfuseSecretKey);
 
 // Pick the exporter:
