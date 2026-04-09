@@ -31,8 +31,9 @@ import { Button } from "@/components/ui/button";
 import ConversationHistoryPanel from "@/components/workspace/ConversationHistoryPanel";
 import SubagentsPanel from "@/components/workspace/SubagentsPanel";
 import TeamMembershipsPanel from "@/components/workspace/TeamMembershipsPanel";
+import DebugTracePanel from "@/components/workspace/DebugTracePanel";
 import { MemoryDisclosureBanner, type MemoryScope } from "@/components/chat/MemoryDisclosureBanner";
-import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users } from "lucide-react";
+import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users, Activity } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -346,6 +347,7 @@ function WorkspacePage({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [subagentsOpen, setSubagentsOpen] = useState(false);
   const [teamsOpen, setTeamsOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
   // Track whether theme was set by SSE (takes priority over prop sync for 5s)
   const themeSetBySse = useRef(false);
@@ -500,11 +502,25 @@ function WorkspacePage({
               <Store className="w-4 h-4" />
             </Button>
             <Button
+              variant={debugOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setDebugOpen((v) => {
+                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setTeamsOpen(false); }
+                  return !v;
+                });
+              }}
+              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
+              title="Debug Traces"
+            >
+              <Activity className="w-4 h-4" />
+            </Button>
+            <Button
               variant={configOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => {
                 setConfigOpen((v) => {
-                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setDebugOpen(false); }
                   return !v;
                 });
               }}
@@ -555,6 +571,12 @@ function WorkspacePage({
           <TeamMembershipsPanel
             deploymentId={deploymentId}
             onClose={() => setTeamsOpen(false)}
+          />
+        )}
+        {debugOpen && (
+          <DebugTracePanel
+            deploymentId={deploymentId}
+            onClose={() => setDebugOpen(false)}
           />
         )}
         <CanvasWorkspace

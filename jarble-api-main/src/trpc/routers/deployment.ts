@@ -986,6 +986,154 @@ export const deploymentRouter = router({
       }
     }),
 
+  /**
+   * List recent traces involving this deployment (JAR-51 debug drawer).
+   *
+   * Returns the last N distinct trace_ids where this deployment is either
+   * the caller or the callee, with a short summary (timestamp, kind, skill,
+   * status, duration) for each trace. The frontend debug drawer uses this
+   * to render a list of recent activity, with the ability to drill down
+   * into a single trace via `getAgentCallsByTrace`.
+   */
+  listRecentTraces: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      limit: z.number().min(1).max(100).default(20),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Ownership check
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      // Fetch the most recent N depth-0 rows for this deployment. Depth-0
+      // is the root of each trace (chat_turn or flow_step). We'll join
+      // with the total span count per trace in a single aggregation.
+      const rootCalls = await ctx.db
+        .select({
+          traceId: agentCalls.traceId,
+          callId: agentCalls.id,
+          kind: agentCalls.kind,
+          skillName: agentCalls.skillName,
+          spanName: agentCalls.spanName,
+          status: agentCalls.status,
+          durationMs: agentCalls.durationMs,
+          createdAt: agentCalls.createdAt,
+          callerDeploymentId: agentCalls.callerDeploymentId,
+          calleeDeploymentId: agentCalls.calleeDeploymentId,
+        })
+        .from(agentCalls)
+        .where(and(
+          eq(agentCalls.depth, 0),
+          sql`(${agentCalls.callerDeploymentId} = ${input.id} OR ${agentCalls.calleeDeploymentId} = ${input.id})`,
+        ))
+        .orderBy(sql`${agentCalls.createdAt} DESC`)
+        .limit(input.limit);
+
+      if (rootCalls.length === 0) return { traces: [] };
+
+      // For each root trace, count total spans + max depth
+      const traceIds = rootCalls.map((r) => r.traceId).filter(Boolean) as string[];
+      const counts = traceIds.length > 0 ? await ctx.db
+        .select({
+          traceId: agentCalls.traceId,
+          spanCount: sql<number>`count(*)::int`,
+          maxDepth: sql<number>`max(${agentCalls.depth})::int`,
+        })
+        .from(agentCalls)
+        .where(inArray(agentCalls.traceId, traceIds))
+        .groupBy(agentCalls.traceId)
+        : [];
+
+      const countMap = new Map(counts.map((c) => [c.traceId, { spanCount: c.spanCount, maxDepth: c.maxDepth }]));
+
+      return {
+        traces: rootCalls.map((r) => ({
+          traceId: r.traceId,
+          rootCallId: r.callId,
+          kind: r.kind,
+          skillName: r.skillName,
+          spanName: r.spanName,
+          status: r.status,
+          durationMs: r.durationMs,
+          createdAt: r.createdAt,
+          callerDeploymentId: r.callerDeploymentId,
+          calleeDeploymentId: r.calleeDeploymentId,
+          spanCount: countMap.get(r.traceId!)?.spanCount ?? 1,
+          maxDepth: countMap.get(r.traceId!)?.maxDepth ?? 0,
+        })),
+      };
+    }),
+
+  /**
+   * Fetch the full agent_calls tree for a single trace (JAR-51 debug drawer).
+   * Returns all rows for the given trace_id ordered by depth then created_at
+   * so the caller can reconstruct the tree.
+   *
+   * Authorization: the trace must contain at least one row where the
+   * authed user owns the caller or callee deployment.
+   */
+  getAgentCallsByTrace: protectedProcedure
+    .input(z.object({
+      traceId: z.string().regex(/^[a-f0-9]{32}$/, "traceId must be a 32-char hex W3C trace id"),
+    }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({
+          id: agentCalls.id,
+          parentCallId: agentCalls.parentCallId,
+          kind: agentCalls.kind,
+          skillName: agentCalls.skillName,
+          spanName: agentCalls.spanName,
+          depth: agentCalls.depth,
+          status: agentCalls.status,
+          durationMs: agentCalls.durationMs,
+          createdAt: agentCalls.createdAt,
+          callerDeploymentId: agentCalls.callerDeploymentId,
+          calleeDeploymentId: agentCalls.calleeDeploymentId,
+          traceId: agentCalls.traceId,
+          spanId: agentCalls.spanId,
+          parentSpanId: agentCalls.parentSpanId,
+          userId: agentCalls.userId,
+          errorMessage: agentCalls.errorMessage,
+          creditsCharged: agentCalls.creditsCharged,
+        })
+        .from(agentCalls)
+        .where(eq(agentCalls.traceId, input.traceId))
+        .orderBy(sql`${agentCalls.depth} ASC, ${agentCalls.createdAt} ASC`);
+
+      if (rows.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No agent_calls rows found for this trace id" });
+      }
+
+      // Ownership gate: the authed user must own at least one of the
+      // caller/callee deployments referenced in the trace, OR the user_id
+      // on any row must match.
+      const userIdsInTrace = new Set(rows.map((r) => r.userId).filter(Boolean));
+      if (userIdsInTrace.has(ctx.user.id)) {
+        return { rows };
+      }
+      const deploymentIdsInTrace = new Set<string>();
+      for (const r of rows) {
+        if (r.callerDeploymentId) deploymentIdsInTrace.add(r.callerDeploymentId);
+        if (r.calleeDeploymentId) deploymentIdsInTrace.add(r.calleeDeploymentId);
+      }
+      if (deploymentIdsInTrace.size > 0) {
+        const owned = await ctx.db.query.deployments.findMany({
+          where: and(
+            inArray(deployments.id, Array.from(deploymentIdsInTrace)),
+            eq(deployments.userId, ctx.user.id),
+          ),
+          columns: { id: true },
+        });
+        if (owned.length > 0) return { rows };
+      }
+      throw new TRPCError({ code: "FORBIDDEN", message: "You don't have access to this trace" });
+    }),
+
   // Update deployment
   update: protectedProcedure
     .input(z.object({
