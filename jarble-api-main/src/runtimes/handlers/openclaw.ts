@@ -265,11 +265,14 @@ export const openclawHandler: RuntimeHandler = {
       // 3. Team members - other deployments linked via Bot Teams flows
       if (deployment.teamMembers && deployment.teamMembers.length > 0) {
         const lines = deployment.teamMembers.map((m) =>
-          `- **delegate_to_${m.slug}** - ${m.name}${m.role ? `: ${m.role}` : ""}`
+          `- **${m.slug}** - ${m.name}${m.role ? `: ${m.role}` : ""}`
         );
         poolSections.push(
           `### Team Members\n` +
-          `When you need to delegate a task to a team member, call the tool directly with a "task" argument.\n` +
+          `**Preferred**: Use the \`a2a_delegate\` tool to delegate tasks to teammates. It accepts a \`to\` (teammate slug), \`task\` (what to do), and optional \`context\` (extra data).\n` +
+          `Example: \`a2a_delegate({ to: "${deployment.teamMembers[0].slug}", task: "Analyze the Q1 revenue data", context: "Focus on month-over-month growth" })\`\n\n` +
+          `Legacy \`delegate_to_{slug}\` tools also work but prefer \`a2a_delegate\` for new delegations.\n\n` +
+          `Available teammates:\n` +
           lines.join("\n")
         );
       }
@@ -514,9 +517,43 @@ export const openclawHandler: RuntimeHandler = {
     }
 
     // Write delegation-tools.json - MCP tool definitions for Bot Teams delegation.
-    // The MCP server reads this file to dynamically register delegate_to_{slug} tools.
+    // Phase 1 (A2A): single `a2a_delegate` tool with a `to` enum of teammate slugs,
+    // plus legacy per-member `delegate_to_{slug}` tools for backward compatibility.
     if (deployment.teamMembers && deployment.teamMembers.length > 0) {
-      const delegationTools = deployment.teamMembers.map((m) => ({
+      const slugs = deployment.teamMembers.map((m) => m.slug);
+      const memberDescriptions = deployment.teamMembers
+        .map((m) => `  - "${m.slug}": ${m.name}${m.role ? ` (${m.role})` : ""}`)
+        .join("\n");
+
+      // New structured A2A delegate tool
+      const a2aDelegateTool = {
+        name: "a2a_delegate",
+        description:
+          "Delegate a task to a teammate. Use this tool to send structured task requests to other agents in your team.\n\nAvailable teammates:\n" +
+          memberDescriptions,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            to: {
+              type: "string" as const,
+              enum: slugs,
+              description: "The slug of the teammate to delegate to",
+            },
+            task: {
+              type: "string" as const,
+              description: "Clear description of the task to delegate",
+            },
+            context: {
+              type: "string" as const,
+              description: "Additional context, data, or constraints for the delegate",
+            },
+          },
+          required: ["to", "task"] as const,
+        },
+      };
+
+      // Legacy per-member tools for backward compatibility
+      const legacyTools = deployment.teamMembers.map((m) => ({
         name: `delegate_to_${m.slug}`,
         slug: m.slug,
         description: `Delegate to ${m.name}${m.role ? ` (${m.role})` : ""}`,
@@ -529,6 +566,8 @@ export const openclawHandler: RuntimeHandler = {
           required: ["task"],
         },
       }));
+
+      const delegationTools = [a2aDelegateTool, ...legacyTools];
 
       files.push({
         path: "delegation-tools.json",

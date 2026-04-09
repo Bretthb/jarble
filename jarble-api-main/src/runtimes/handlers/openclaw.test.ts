@@ -90,11 +90,13 @@ describe("openclawHandler metadata", () => {
   });
 
   it("declares config file specs", () => {
-    expect(openclawHandler.configFiles).toHaveLength(3);
+    expect(openclawHandler.configFiles).toHaveLength(5);
     expect(openclawHandler.configFiles[0].path).toBe("soul.md");
     expect(openclawHandler.configFiles[1].path).toBe("openclaw.json");
     expect(openclawHandler.configFiles[2].path).toBe("skills/*");
     expect(openclawHandler.configFiles[2].isGlob).toBe(true);
+    expect(openclawHandler.configFiles[3].path).toBe("subagent-tools.json");
+    expect(openclawHandler.configFiles[4].path).toBe("delegation-tools.json");
   });
 });
 
@@ -724,5 +726,55 @@ describe("openclawHandler.getSecretEntries - platform mode", () => {
     );
     expect(entries["LLM_PROVIDER"]).toBe("anthropic");
     expect(entries["LLM_MODEL"]).toBe("claude-opus-4-6");
+  });
+});
+
+// ── A2A Delegation ────────────────────────────────────────────────────────────
+
+describe("a2a_delegate tool generation", () => {
+  it("generates delegation-tools.json with a2a_delegate and legacy tools", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamMembers: [
+          { slug: "researcher", name: "Research Bot", role: "researcher" },
+          { slug: "writer", name: "Writer Bot", role: "writer" },
+        ],
+      })
+    );
+    const delegationFile = files.find((f) => f.path === "delegation-tools.json");
+    expect(delegationFile).toBeDefined();
+    const tools = JSON.parse(delegationFile!.content);
+    expect(tools).toHaveLength(3); // 1 a2a_delegate + 2 legacy
+
+    // a2a_delegate tool
+    const a2a = tools[0];
+    expect(a2a.name).toBe("a2a_delegate");
+    expect(a2a.inputSchema.properties.to.enum).toEqual(["researcher", "writer"]);
+    expect(a2a.inputSchema.required).toContain("to");
+    expect(a2a.inputSchema.required).toContain("task");
+
+    // Legacy tools
+    expect(tools[1].name).toBe("delegate_to_researcher");
+    expect(tools[2].name).toBe("delegate_to_writer");
+  });
+
+  it("does not generate delegation-tools.json when no teamMembers", () => {
+    const files = openclawHandler.renderConfigs(makeDeployment({ teamMembers: undefined }));
+    const delegationFile = files.find((f) => f.path === "delegation-tools.json");
+    expect(delegationFile).toBeUndefined();
+  });
+
+  it("includes a2a_delegate instructions in soul.md when teamMembers present", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamMembers: [
+          { slug: "analyst", name: "Analyst Bot" },
+        ],
+      })
+    );
+    const soulMd = files.find((f) => f.path === "soul.md");
+    expect(soulMd).toBeDefined();
+    expect(soulMd!.content).toContain("a2a_delegate");
+    expect(soulMd!.content).toContain("analyst");
   });
 });

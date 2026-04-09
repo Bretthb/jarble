@@ -308,6 +308,88 @@ try {
   console.error("[MCP] Could not watch for subagent-tools.json changes:", e.message);
 }
 
+// ── Delegation tools — loaded from delegation-tools.json (Bot Teams) ──
+// Phase 1 (A2A): includes `a2a_delegate` (structured, preferred) and
+// legacy `delegate_to_{slug}` tools for backward compat.
+let DELEGATION_TOOLS = []; // Array of MCP tool definitions
+const DELEGATION_TOOLS_PATH = process.env.JARBLE_DELEGATION_TOOLS_PATH || "/data/config/delegation-tools.json";
+
+function loadDelegationTools() {
+  try {
+    if (fs.existsSync(DELEGATION_TOOLS_PATH)) {
+      const raw = JSON.parse(fs.readFileSync(DELEGATION_TOOLS_PATH, "utf-8"));
+      if (Array.isArray(raw)) {
+        DELEGATION_TOOLS = raw.map(function(t) {
+          return {
+            name: t.name,
+            slug: t.slug || null,
+            description: t.description || "Delegation tool: " + t.name,
+            inputSchema: t.inputSchema || {
+              type: "object",
+              properties: {
+                task: { type: "string", description: "Task to delegate" },
+              },
+              required: ["task"],
+            },
+          };
+        });
+        console.error("[MCP] Loaded " + DELEGATION_TOOLS.length + " delegation tools from " + DELEGATION_TOOLS_PATH);
+      }
+    }
+  } catch (e) {
+    console.error("[MCP] Failed to load delegation tools:", e.message);
+  }
+}
+loadDelegationTools();
+
+// Watch for changes to delegation-tools.json
+try {
+  const delegationToolsDir = path.dirname(DELEGATION_TOOLS_PATH);
+  if (fs.existsSync(delegationToolsDir)) {
+    fs.watch(delegationToolsDir, function(eventType, filename) {
+      if (filename === path.basename(DELEGATION_TOOLS_PATH)) {
+        console.error("[MCP] delegation-tools.json changed, reloading...");
+        loadDelegationTools();
+      }
+    });
+  }
+} catch (e) {
+  console.error("[MCP] Could not watch for delegation-tools.json changes:", e.message);
+}
+
+/**
+ * Execute a delegation tool call.
+ * For a2a_delegate: returns the parsed args (to, task, context) — actual execution
+ * happens API-side when the gateway forwards the tool result.
+ * For legacy delegate_to_{slug}: routes to /api/pod/agent/{slug} like subagents.
+ */
+async function executeDelegationTool(tool, args) {
+  // a2a_delegate: structured delegation — return args for API-side execution
+  if (tool.name === "a2a_delegate") {
+    const to = args.to;
+    const task = args.task;
+    const context = args.context || "";
+    console.error("[MCP] a2a_delegate: to=" + to + " task=" + (task || "").slice(0, 100));
+    return {
+      isError: false,
+      text: JSON.stringify({
+        type: "a2a_delegate",
+        to: to,
+        task: task,
+        context: context,
+        status: "delegated",
+      }),
+    };
+  }
+
+  // Legacy delegate_to_{slug}: route through agent endpoint
+  if (tool.slug) {
+    return executeSubagentTool({ slug: tool.slug, name: tool.name }, args);
+  }
+
+  return { isError: true, text: "Unknown delegation tool: " + tool.name };
+}
+
 /**
  * Execute a subagent delegation by POSTing to the API server's agent endpoint.
  * Mirrors executeAgentTool() but routes to /api/pod/agent/{slug} for dynamic subagents.
@@ -7183,8 +7265,21 @@ async function executeTool(name, args) {
         }
       }
 
+      // A2A structured delegation tool (Phase 1)
+      if (name === "a2a_delegate") {
+        const delegationTool = DELEGATION_TOOLS.find(function(t) { return t.name === "a2a_delegate"; });
+        if (delegationTool) {
+          return executeDelegationTool(delegationTool, args || {});
+        }
+      }
+
       // Agent delegation tools: delegate_to_data_agent, delegate_to_workflow_agent, etc.
+      // Check dynamic delegation tools first (from delegation-tools.json), then static AGENT_TOOLS.
       if (name.startsWith("delegate_to_")) {
+        const dynamicDelegation = DELEGATION_TOOLS.find(function(t) { return t.name === name; });
+        if (dynamicDelegation) {
+          return executeDelegationTool(dynamicDelegation, args || {});
+        }
         const agentTool = AGENT_TOOLS.find(function(t) { return t.name === name; });
         if (agentTool) {
           return executeAgentTool(agentTool, args || {});
@@ -7253,10 +7348,18 @@ async function handleMessage(msg) {
         inputSchema: t.inputSchema,
       };
     });
+    // Build delegation tool definitions (Bot Teams — a2a_delegate + legacy delegate_to_{slug})
+    const delegationToolDefs = DELEGATION_TOOLS.map(function(t) {
+      return {
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      };
+    });
     return {
       jsonrpc: "2.0",
       id,
-      result: { tools: [...TOOLS, ...PER_COMPONENT_TOOLS, ...serviceToolDefs, ...agentToolDefs, ...subagentToolDefs] },
+      result: { tools: [...TOOLS, ...PER_COMPONENT_TOOLS, ...serviceToolDefs, ...agentToolDefs, ...subagentToolDefs, ...delegationToolDefs] },
     };
   }
 
