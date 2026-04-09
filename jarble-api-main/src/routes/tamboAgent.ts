@@ -23,6 +23,14 @@ import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("chat");
 
+// ── Parallel delegation concurrency ─────────────────────────────────────────
+// Controls how many specialist delegations fan out concurrently within a
+// single chat turn.  Env-configurable so operators can tune for pod capacity.
+const MAX_CONCURRENT_DELEGATIONS = Math.max(
+  1,
+  parseInt(process.env.MAX_CONCURRENT_DELEGATIONS ?? "5", 10) || 5,
+);
+
 // ── Per-session exec lock ────────────────────────────────────────────────────
 // Prevents concurrent `npx openclaw agent` calls on the same session, which
 // corrupts OpenClaw's session history (duplicate/out-of-order entries).
@@ -1342,64 +1350,118 @@ tamboAgentRouter.post("/", async (req, res) => {
             "Chat: processing delegation calls from bot response",
           );
 
-          for (const call of delegationCalls) {
+          // ── Phase 1: Pre-resolve all delegation jobs ────────────────────
+          // Build the full list of { call, tool, roleName } upfront so we
+          // can emit all start events before any I/O begins.
+          interface DelegationJob {
+            call: typeof delegationCalls[number];
+            tool: DelegationTool;
+            roleName: string;
+            index: number;
+          }
+
+          const jobs: DelegationJob[] = [];
+          for (let i = 0; i < delegationCalls.length; i++) {
+            const call = delegationCalls[i];
             const tool = teamDelegationTools.find((t) => t.name === call.toolName);
             if (!tool) {
               log.warn({ deploymentId, toolName: call.toolName }, "Chat: delegation tool not found");
               continue;
             }
-
             const targetNode = teamFlowDefinition!.nodes.find(
               (n) => n.id === tool.targetNodeId,
             );
             const roleName = targetNode?.role || targetNode?.label || "Team member";
+            jobs.push({ call, tool, roleName, index: i });
+          }
 
-            // Emit delegation start event via SSE
+          // ── Phase 2: Emit all delegation.start events upfront ───────────
+          // The frontend can show all specialists as "in progress"
+          // simultaneously, giving a responsive multi-agent feel.
+          for (const job of jobs) {
             safeSendEvent(res, {
               type: CUSTOM,
               name: "jarble.flow.delegation.start",
               value: {
-                toolName: call.toolName,
-                targetNodeId: tool.targetNodeId,
-                targetDeploymentId: tool.targetDeploymentId,
-                targetRole: roleName,
-                task: call.task.slice(0, 200),
+                toolName: job.call.toolName,
+                targetNodeId: job.tool.targetNodeId,
+                targetDeploymentId: job.tool.targetDeploymentId,
+                targetRole: job.roleName,
+                task: job.call.task.slice(0, 200),
               },
             });
+          }
 
-            // Execute the delegation
-            try {
-              const delegationResult = await executeDelegation({
-                targetDeploymentId: tool.targetDeploymentId,
-                targetNodeId: tool.targetNodeId,
-                task: call.task,
-                context: call.context,
-                contextScope: tool.contextScope,
-                conversationHistory: [{ role: "user", content: lastUserText }],
-                sessionId: `team-delegation-${deploymentId}-${tool.targetNodeId}-${Date.now()}`,
-                depth: 1,
-                sourceDeploymentId: deploymentId,
-                toolName: call.toolName,
-                userId: authenticatedUserId ?? undefined,
-                // ── JAR-50 + JAR-51: stitch this delegation into the
-                // root chat-turn span and seed the recursion ancestor
-                // chain so a downstream attempt to route back to this
-                // entry bot is refused by DelegationCycleError.
-                parentCallId: rootAgentCall.callId,
-                parentSpanId: rootAgentCall.spanId,
-                traceId: rootAgentCall.traceId,
-                ancestorDeploymentIds: [deploymentId],
-                flowId: teamFlowId ?? undefined,
-              });
+          // ── Phase 3: Fan out with Promise.allSettled in chunks ──────────
+          // Each chunk of MAX_CONCURRENT_DELEGATIONS runs in parallel.
+          // Chunks execute sequentially to cap overall concurrency.
+          type SettledDelegation =
+            | { status: "fulfilled"; result: Awaited<ReturnType<typeof executeDelegation>>; job: DelegationJob }
+            | { status: "rejected"; reason: string; job: DelegationJob };
+
+          const settled: SettledDelegation[] = [];
+
+          for (let chunkStart = 0; chunkStart < jobs.length; chunkStart += MAX_CONCURRENT_DELEGATIONS) {
+            const chunk = jobs.slice(chunkStart, chunkStart + MAX_CONCURRENT_DELEGATIONS);
+
+            const chunkResults = await Promise.allSettled(
+              chunk.map((job) =>
+                executeDelegation({
+                  targetDeploymentId: job.tool.targetDeploymentId,
+                  targetNodeId: job.tool.targetNodeId,
+                  task: job.call.task,
+                  context: job.call.context,
+                  contextScope: job.tool.contextScope,
+                  conversationHistory: [{ role: "user", content: lastUserText }],
+                  sessionId: `team-delegation-${deploymentId}-${job.tool.targetNodeId}-${Date.now()}`,
+                  depth: 1,
+                  sourceDeploymentId: deploymentId,
+                  toolName: job.call.toolName,
+                  userId: authenticatedUserId ?? undefined,
+                  // ── JAR-50 + JAR-51: stitch this delegation into the
+                  // root chat-turn span and seed the recursion ancestor
+                  // chain so a downstream attempt to route back to this
+                  // entry bot is refused by DelegationCycleError.
+                  parentCallId: rootAgentCall.callId,
+                  parentSpanId: rootAgentCall.spanId,
+                  traceId: rootAgentCall.traceId,
+                  ancestorDeploymentIds: [deploymentId],
+                  flowId: teamFlowId ?? undefined,
+                }),
+              ),
+            );
+
+            // Pair settled results with their jobs
+            for (let j = 0; j < chunkResults.length; j++) {
+              const r = chunkResults[j];
+              if (r.status === "fulfilled") {
+                settled.push({ status: "fulfilled", result: r.value, job: chunk[j] });
+              } else {
+                const errMsg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+                settled.push({ status: "rejected", reason: errMsg, job: chunk[j] });
+              }
+            }
+          }
+
+          // ── Phase 4: Emit results in original delegation order ──────────
+          // Sort by original index so SSE events are deterministic
+          // regardless of which specialist finished first.
+          settled.sort((a, b) => a.job.index - b.job.index);
+
+          for (const entry of settled) {
+            const { job } = entry;
+
+            if (entry.status === "fulfilled") {
+              const delegationResult = entry.result;
 
               // Emit delegation end event
               safeSendEvent(res, {
                 type: CUSTOM,
                 name: "jarble.flow.delegation.end",
                 value: {
-                  toolName: call.toolName,
-                  targetNodeId: tool.targetNodeId,
-                  targetDeploymentId: tool.targetDeploymentId,
+                  toolName: job.call.toolName,
+                  targetNodeId: job.tool.targetNodeId,
+                  targetDeploymentId: job.tool.targetDeploymentId,
                   success: true,
                   durationMs: delegationResult.durationMs,
                   creditsUsed: delegationResult.creditsUsed,
@@ -1411,22 +1473,14 @@ tamboAgentRouter.post("/", async (req, res) => {
                 safeSendEvent(res, {
                   type: "TEXT_MESSAGE_CONTENT",
                   messageId,
-                  delta: `\n\n**${roleName}:** ${delegationResult.response}`,
+                  delta: `\n\n**${job.roleName}:** ${delegationResult.response}`,
                 });
               }
 
               // Forward UI blocks produced by the delegated specialist to
-              // the caller's canvas (Fractal vision piece 5 — audit said
-              // this was "the highest-ROI task: biggest visible impact for
-              // smallest code change"). Before this fix, tamboAgent.ts
-              // dropped delegationResult.uiBlocks on the floor and any
-              // chart/table/component the specialist rendered never made
-              // it back to the user.
-              //
-              // Emit each block as its own CUSTOM event with
-              // producerDeploymentId + producerRole so the frontend can
-              // show an attribution footer. The event name matches the
-              // one flowChat.ts already uses (jarble.flow.delegation.uiblock)
+              // the caller's canvas so charts/tables/components rendered
+              // by specialists reach the user. Event name matches the one
+              // flowChat.ts already uses (jarble.flow.delegation.uiblock)
               // so the frontend can share the handler.
               if (delegationResult.uiBlocks?.length) {
                 for (const block of delegationResult.uiBlocks) {
@@ -1434,38 +1488,37 @@ tamboAgentRouter.post("/", async (req, res) => {
                     type: CUSTOM,
                     name: "jarble.flow.delegation.uiblock",
                     value: {
-                      delegationToolName: call.toolName,
-                      sourceDeploymentId: tool.targetDeploymentId,
-                      sourceRole: roleName,
+                      delegationToolName: job.call.toolName,
+                      sourceDeploymentId: job.tool.targetDeploymentId,
+                      sourceRole: job.roleName,
                       block,
                     },
                   });
                 }
               }
-            } catch (delegErr) {
-              const errMsg = delegErr instanceof Error ? delegErr.message : String(delegErr);
+            } else {
+              // Rejected delegation
               log.error(
-                { deploymentId, targetNodeId: tool.targetNodeId, error: errMsg },
+                { deploymentId, targetNodeId: job.tool.targetNodeId, error: entry.reason },
                 "Chat: delegation failed",
               );
 
-              // Emit delegation end with error
               safeSendEvent(res, {
                 type: CUSTOM,
                 name: "jarble.flow.delegation.end",
                 value: {
-                  toolName: call.toolName,
-                  targetNodeId: tool.targetNodeId,
-                  targetDeploymentId: tool.targetDeploymentId,
+                  toolName: job.call.toolName,
+                  targetNodeId: job.tool.targetNodeId,
+                  targetDeploymentId: job.tool.targetDeploymentId,
                   success: false,
-                  error: errMsg,
+                  error: entry.reason,
                 },
               });
 
               safeSendEvent(res, {
                 type: "TEXT_MESSAGE_CONTENT",
                 messageId,
-                delta: `\n\n*Delegation to ${roleName} failed: ${errMsg}*`,
+                delta: `\n\n*Delegation to ${job.roleName} failed: ${entry.reason}*`,
               });
             }
           }
