@@ -368,32 +368,50 @@ export const openclawHandler: RuntimeHandler = {
       }
     }
 
-    // Memory scope guidance (PR C follow-up).
-    // Tell the bot how the memory tool suite is scoped so it can decide
-    // whether to use memory proactively. In "global" mode nothing is
-    // mentioned (default behavior, all memories are cross-session).
-    // In "session" mode we tell the bot that memory is auto-scoped to
-    // the current conversation via an env-var fallback injected by
-    // chatViaExec, and that if it needs to scope explicitly (e.g. from
-    // the WS gateway path where env-var injection is not possible),
-    // it should pass session_id as a tool argument.
-    // In "off" mode the memory tools are hidden from tools/list entirely
-    // (enforced in jarble-ui-server.js), so we tell the bot not to
-    // mention memory at all.
+    // Memory scope guidance.
+    //
+    // Context: openclaw ships with NATIVE memory tools (memory_search,
+    // memory_get) that bypass Jarble's memory scope enforcement (the
+    // Jarble MCP server at jarble-ui.store_memory / recall_memory does
+    // respect it). If the bot defaults to the native tools, everything
+    // tonight's memory scope trilogy (#67/#69/#75/#81) shipped is
+    // functionally dormant. This section explicitly tells the bot to
+    // prefer the jarble-ui MCP tools over the native ones whenever the
+    // user's data privacy matters — which is always.
+    //
+    // The `mcporter` skill is already enabled by default on every
+    // deployment, and PR #72 registers jarble-ui with mcporter. So
+    // the bot has everything it needs to obey this prompt directly.
     const memoryScope = deployment.memoryScope ?? "global";
+    if (memoryScope !== "off") {
+      soulParts.push(
+        `## Long-Term Memory — Use Jarble's Scope-Aware Tools\n` +
+        `You have two memory tool sets available:\n` +
+        `  1. **openclaw's native** \`memory_search\` / \`memory_get\` — fast, built-in, but BYPASSES this deployment's memory scope setting. Do NOT use these for anything the user might consider private or conversational.\n` +
+        `  2. **Jarble's scope-aware** \`store_memory\` / \`recall_memory\` / \`list_memories\` / \`forget_memory\` via mcporter — respects the deployment-level memory scope (global / per-session / off) the user configured.\n\n` +
+        `**ALWAYS use the Jarble tools for user-facing long-term memory.** Call them via mcporter:\n` +
+        `  \`\`\`\n` +
+        `  mcporter call jarble-ui.store_memory text="user's favorite color is blue"\n` +
+        `  mcporter call jarble-ui.recall_memory query="favorite color"\n` +
+        `  \`\`\`\n` +
+        `You may still use openclaw's native memory tools for code-level state (workspace facts, project metadata, etc) where scope doesn't matter.\n`
+      );
+    }
+
     if (memoryScope === "session") {
       soulParts.push(
-        `## Long-Term Memory — Per-Session Scope\n` +
-        `This deployment's memory is scoped to individual conversations. ` +
-        `Anything you store via \`store_memory\` is only visible in the current chat — you will not recall it in other conversations with this user. ` +
-        `The MCP server auto-resolves the current session from the runtime environment in most cases, so you can call memory tools without a \`session_id\` argument and it will work correctly. ` +
-        `If a memory call returns a "session mode — you MUST pass session_id" error, re-run it with \`session_id\` set to your current openclaw session id (visible in your session context).`
+        `### Memory Scope — Per-Session\n` +
+        `Jarble's memory for this deployment is scoped to individual conversations. Anything you store via \`mcporter call jarble-ui.store_memory\` is only visible in the current chat — you will not recall it in other conversations with this user. ` +
+        `The Jarble MCP server auto-resolves the current session from the runtime environment in most cases, so you can call memory tools without a \`session_id\` argument and it will work correctly. ` +
+        `If a memory call returns a "session mode — you MUST pass session_id" error, re-run it with \`session_id\` set to your current openclaw session id.`
       );
     } else if (memoryScope === "off") {
       soulParts.push(
-        `## Long-Term Memory — Disabled\n` +
+        `## Long-Term Memory — DISABLED\n` +
         `Long-term memory tools (\`store_memory\`, \`recall_memory\`, \`list_memories\`, \`forget_memory\`) are disabled for this deployment. ` +
-        `Do not attempt to use them, and do not promise the user that you will remember anything after this chat ends.`
+        `Do not call them via mcporter — the calls will return an error. ` +
+        `Do NOT fall back to openclaw's native \`memory_search\` / \`memory_get\` as a workaround — the user explicitly turned off long-term memory. ` +
+        `Do not promise the user that you will remember anything after this chat ends.`
       );
     }
 
