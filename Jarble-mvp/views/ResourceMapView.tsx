@@ -485,6 +485,7 @@ function DeploymentEnvPanel({ deploymentId, deployment, onClose, sharedSecretKey
   onClose: () => void;
   sharedSecretKeys?: string[];
 }) {
+  const router = useRouter();
   const envQuery = trpc.deployment.getById.useQuery({ id: deploymentId }, { staleTime: 30_000 });
   const dep = envQuery.data as any;
   return (
@@ -555,7 +556,7 @@ function DeploymentEnvPanel({ deploymentId, deployment, onClose, sharedSecretKey
         )}
 
         <button
-          onClick={() => window.location.href = `/d/${deploymentId}`}
+          onClick={() => router.push(`/d/${deploymentId}`)}
           className="w-full text-xs font-medium py-2 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
         >
           Open Deployment
