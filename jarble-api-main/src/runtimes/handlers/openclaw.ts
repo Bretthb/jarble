@@ -475,6 +475,38 @@ export const openclawHandler: RuntimeHandler = {
     // Relative path so writeConfigsToPvc prefixes with correct PVC mount.
     if (MCP_SERVER_SCRIPT) {
       files.push({ path: "mcp/jarble-ui-server.js", content: MCP_SERVER_SCRIPT });
+
+      // Register the Jarble MCP server with mcporter so the `mcporter` skill
+      // (already enabled by default) can spawn it and the agent can call its
+      // tools via `mcporter call jarble-ui.<tool>`. Without this file, the
+      // jarble-ui-server.js just sits on disk and nothing invokes it —
+      // render_ui / define_component / store_memory / skill_reference / etc.
+      // have never been reachable from a real bot.
+      //
+      // mcporter's "system" config path is ${HOME}/.mcporter/mcporter.json.
+      // HOME=/data in legacy mode and /home/openclaw in operator mode.
+      //
+      // The server script path differs by mode because configSync writes
+      // the MCP server to {pvcMount}/mcp/jarble-ui-server.js, and the PVC
+      // is mounted at different places in legacy vs operator pods.
+      const mcpScriptPath =
+        managedBy === "operator"
+          ? "/home/openclaw/.openclaw/mcp/jarble-ui-server.js"
+          : "/data/config/mcp/jarble-ui-server.js";
+
+      const mcporterConfig = {
+        mcpServers: {
+          "jarble-ui": {
+            command: "node",
+            args: [mcpScriptPath],
+          },
+        },
+      };
+      const mcporterJson = JSON.stringify(mcporterConfig, null, 2) + "\n";
+      files.push({
+        path: `${home}/.mcporter/mcporter.json`,
+        content: mcporterJson,
+      });
     }
 
     // Render installed skills as individual JSON files under /data/skills/
