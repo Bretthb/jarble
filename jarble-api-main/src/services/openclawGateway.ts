@@ -626,31 +626,28 @@ async function chatViaHTTPInner(
           if (delta?.content) {
             let content = delta.content;
 
-            // Strip thinking tags that OpenClaw may include in streaming deltas.
-            // Handle complete <think>...</think> pairs within a single delta.
-            content = content.replace(/<think>[\s\S]*?<\/think>/g, "");
-
-            // Handle unclosed think tag from a previous delta
-            if (isInsideThinkTag) {
-              const closeIdx = content.indexOf("</think>");
-              if (closeIdx >= 0) {
-                content = content.slice(closeIdx + 8);
-                isInsideThinkTag = false;
-              } else {
-                content = ""; // Still inside think tag, skip all content
+            // Strip thinking tags using a depth counter to handle nesting
+            // and unclosed tags. Processes the string char-by-char scanning
+            // for <think> and </think> markers, keeping only content at
+            // depth 0 (visible to the user).
+            {
+              let cleaned = "";
+              let i = 0;
+              let thinkDepth: number = isInsideThinkTag ? 1 : 0;
+              while (i < content.length) {
+                if (content.startsWith("<think>", i)) {
+                  thinkDepth++;
+                  i += 7;
+                } else if (content.startsWith("</think>", i)) {
+                  if (thinkDepth > 0) thinkDepth--;
+                  i += 8;
+                } else {
+                  if (thinkDepth === 0) cleaned += content[i];
+                  i++;
+                }
               }
-            }
-
-            // Handle think tag opened in this delta but not yet closed
-            if (content.includes("<think>")) {
-              const openIdx = content.indexOf("<think>");
-              const closeIdx = content.indexOf("</think>", openIdx);
-              if (closeIdx >= 0) {
-                content = content.slice(0, openIdx) + content.slice(closeIdx + 8);
-              } else {
-                content = content.slice(0, openIdx);
-                isInsideThinkTag = true;
-              }
+              isInsideThinkTag = thinkDepth > 0;
+              content = cleaned;
             }
 
             if (content) {
@@ -730,6 +727,12 @@ async function chatViaHTTPInner(
     }
     // Re-throw caller aborts and other errors as-is
     throw err;
+  }
+
+  // Warn if the stream ended inside an unclosed <think> tag — model
+  // output was silently suppressed, which looks like an empty response.
+  if (isInsideThinkTag) {
+    log.warn({ url, textLength: fullText.length }, "chatViaHTTP: stream ended with unclosed <think> tag — some content may have been suppressed");
   }
 
   if (!fullText) {

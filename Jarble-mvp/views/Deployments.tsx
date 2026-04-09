@@ -2757,7 +2757,28 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   // ── Live delegation tracking for canvas edge animations ──
   // Tracks which deployment IDs have active (running) delegations so the
   // FlowCanvas can pulse/glow the corresponding edges in real time.
+  // Uses a rAF-batched updater to prevent render storms from rapid SSE events.
   const [activeDelegationTargets, setActiveDelegationTargets] = useState<Set<string>>(new Set());
+  const delegationPendingAdds = useRef<Set<string>>(new Set());
+  const delegationPendingRemoves = useRef<Set<string>>(new Set());
+  const delegationRafId = useRef<number | null>(null);
+  const flushDelegationTargets = useCallback(() => {
+    if (delegationRafId.current != null) return; // already scheduled
+    delegationRafId.current = requestAnimationFrame(() => {
+      delegationRafId.current = null;
+      const adds = delegationPendingAdds.current;
+      const removes = delegationPendingRemoves.current;
+      if (adds.size === 0 && removes.size === 0) return;
+      setActiveDelegationTargets((prev) => {
+        const next = new Set(prev);
+        for (const id of adds) next.add(id);
+        for (const id of removes) next.delete(id);
+        return next;
+      });
+      adds.clear();
+      removes.clear();
+    });
+  }, []);
 
   // Track which (flowId, sessionId) we've already seeded from persistence
   // so the effect below doesn't clobber in-flight streaming messages
@@ -3343,9 +3364,10 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                 const value = data.value || {};
 
                 if (name === "jarble.flow.delegation.start") {
-                  // Light up the canvas edge to this target
+                  // Light up the canvas edge to this target (rAF-batched)
                   if (value.targetDeploymentId) {
-                    setActiveDelegationTargets((prev) => new Set(prev).add(value.targetDeploymentId));
+                    delegationPendingAdds.current.add(value.targetDeploymentId);
+                    flushDelegationTargets();
                   }
                   // Add delegation status indicator
                   setFlowChatMessages((prev) => {
@@ -3375,13 +3397,10 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                     return prev;
                   });
                 } else if (name === "jarble.flow.delegation.end") {
-                  // Remove the canvas edge animation for this target
+                  // Remove the canvas edge animation for this target (rAF-batched)
                   if (value.targetDeploymentId) {
-                    setActiveDelegationTargets((prev) => {
-                      const next = new Set(prev);
-                      next.delete(value.targetDeploymentId);
-                      return next;
-                    });
+                    delegationPendingRemoves.current.add(value.targetDeploymentId);
+                    flushDelegationTargets();
                   }
                   // Mark delegation as completed or failed
                   setFlowChatMessages((prev) => {

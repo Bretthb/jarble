@@ -450,7 +450,8 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
                 defaultValue={(dep as any)?.maxBudgetCents != null ? ((dep as any).maxBudgetCents / 100).toFixed(2) : ""}
                 onBlur={(e) => {
                   const val = e.target.value;
-                  const cents = val ? Math.round(parseFloat(val) * 100) : null;
+                  const raw = val ? Math.round(parseFloat(val) * 100) : null;
+                  const cents = raw !== null ? Math.max(0, raw) : null;
                   const current = (dep as any)?.maxBudgetCents ?? null;
                   if (cents !== current) {
                     updateMutation.mutate({ id: deploymentId, maxBudgetCents: cents });
