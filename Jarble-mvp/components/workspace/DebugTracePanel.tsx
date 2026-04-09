@@ -227,6 +227,12 @@ export default function DebugTracePanel({ deploymentId, onClose }: DebugTracePan
                         <span>depth {t.maxDepth}</span>
                         <span>•</span>
                         <span>{formatDuration(t.durationMs)}</span>
+                        {(t as any).totalCredits > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-amber-400">${((t as any).totalCredits / 100).toFixed(2)}</span>
+                          </>
+                        )}
                       </div>
                     </div>
                     {langfuseBase && t.traceId && (

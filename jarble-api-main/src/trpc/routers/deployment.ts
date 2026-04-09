@@ -1039,13 +1039,14 @@ export const deploymentRouter = router({
           traceId: agentCalls.traceId,
           spanCount: sql<number>`count(*)::int`,
           maxDepth: sql<number>`max(${agentCalls.depth})::int`,
+          totalCredits: sql<number>`coalesce(sum(${agentCalls.creditsCharged}), 0)::int`,
         })
         .from(agentCalls)
         .where(inArray(agentCalls.traceId, traceIds))
         .groupBy(agentCalls.traceId)
         : [];
 
-      const countMap = new Map(counts.map((c) => [c.traceId, { spanCount: c.spanCount, maxDepth: c.maxDepth }]));
+      const countMap = new Map(counts.map((c) => [c.traceId, { spanCount: c.spanCount, maxDepth: c.maxDepth, totalCredits: c.totalCredits }]));
 
       return {
         traces: rootCalls.map((r) => ({
@@ -1060,6 +1061,7 @@ export const deploymentRouter = router({
           callerDeploymentId: r.callerDeploymentId,
           calleeDeploymentId: r.calleeDeploymentId,
           spanCount: countMap.get(r.traceId!)?.spanCount ?? 1,
+          totalCredits: countMap.get(r.traceId!)?.totalCredits ?? 0,
           maxDepth: countMap.get(r.traceId!)?.maxDepth ?? 0,
         })),
       };
