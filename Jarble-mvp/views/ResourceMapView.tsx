@@ -487,7 +487,9 @@ function DeploymentEnvPanel({ deploymentId, deployment, onClose, sharedSecretKey
 }) {
   const router = useRouter();
   const envQuery = trpc.deployment.getById.useQuery({ id: deploymentId }, { staleTime: 30_000 });
+  const secretsQuery = trpc.deploymentSecrets.getByDeployment.useQuery({ deploymentId }, { staleTime: 30_000 });
   const dep = envQuery.data as any;
+  const secrets = secretsQuery.data ?? [];
   return (
     <div className="absolute top-0 right-0 bottom-0 w-80 bg-card/98 backdrop-blur-md border-l border-border z-20 overflow-y-auto shadow-2xl">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/60">
@@ -541,6 +543,32 @@ function DeploymentEnvPanel({ deploymentId, deployment, onClose, sharedSecretKey
             </div>
           </div>
         </div>
+        {/* API Keys & Tokens stored for this deployment */}
+        {secrets.length > 0 && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
+              Secrets & API Keys ({secrets.length})
+            </p>
+            <div className="space-y-1 text-xs">
+              {secrets.map((s: any) => (
+                <div key={s.id} className="flex items-center justify-between py-1 border-b border-border/30">
+                  <div className="flex items-center gap-1.5">
+                    <Key className="w-3 h-3 text-amber-400 shrink-0" />
+                    <span className="font-mono text-[11px]">{s.key}</span>
+                  </div>
+                  <span className="text-muted-foreground text-[10px]">{s.maskedValue}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {secrets.length === 0 && !secretsQuery.isLoading && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">Secrets & API Keys</p>
+            <p className="text-[10px] text-muted-foreground">No secrets configured. Add API keys in the deployment config.</p>
+          </div>
+        )}
+
         {/* Shared secret key names (never values) */}
         {sharedSecretKeys && sharedSecretKeys.length > 0 && (
           <div>
