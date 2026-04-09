@@ -693,8 +693,12 @@ export async function executeDelegation(params: {
     );
   }
 
+  // Use a unique session ID per delegation call to prevent stale context.
+  // Previously used Date.now() which could collide on concurrent delegations.
+  // Fresh sessions ensure the specialist doesn't carry over context from
+  // a previous delegation (e.g., "I'm on webchat" from an old session).
   const sessionId =
-    params.sessionId || `flow-delegation-${params.targetDeploymentId}-${Date.now()}`;
+    params.sessionId || `flow-delegation-${params.targetDeploymentId}-${Date.now()}-${nanoid(6)}`;
 
   log.info(
     {

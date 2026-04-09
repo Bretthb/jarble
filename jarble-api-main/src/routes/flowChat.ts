@@ -577,7 +577,10 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             context: call.context,
             contextScope: tool.contextScope,
             conversationHistory: [{ role: "user", content: userMessage }],
-            sessionId: `flow-${flowId}-${tool.targetNodeId}-${user.id}-${conversationId || threadId}`,
+            // Fresh session per delegation call — prevents stale context from
+            // previous delegations in the same conversation causing issues like
+            // "I'm on webchat without dashboard capabilities" refusals.
+            sessionId: `flow-${flowId}-${tool.targetNodeId}-${user.id}-${nanoid(6)}`,
             depth: 1,
             userId: user.id,
             // ── N-level delegation wiring ──────────────────────────────
