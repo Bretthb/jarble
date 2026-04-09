@@ -18,6 +18,10 @@ import { EventEmitter } from "events";
 import { db, tables, dbDate } from "../db/index.js";
 import { eq, and, or } from "drizzle-orm";
 import { executeAgentCall } from "./marketplaceHub.js";
+import {
+  buildDelegationTools,
+  executeDelegation,
+} from "./flowDelegation.js";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("flow-engine");
@@ -741,18 +745,30 @@ export class FlowExecutionEngine extends EventEmitter {
   private async executeDeploymentNode(
     node: FlowNode
   ): Promise<{ result: unknown; creditsCharged: number }> {
-    const serviceId = node.serviceId;
-    const skillName = node.skillName || "default";
-
-    if (!serviceId) {
-      throw new Error(`Deployment node "${node.id}" has no serviceId`);
-    }
-
     // Resolve template variables in config/args
     const resolvedArgs = this.resolveTemplateVars(
       node.config ?? {},
       this.state.stepResults
     );
+
+    // ── Team delegation path ────────────────────────────────────────────
+    // If the node has a deploymentId AND a role, it's a team node — use the
+    // delegation system which gives it full team awareness (role, goal,
+    // delegation tools for connected bots, system prompt augmentation).
+    if (node.deploymentId && node.role) {
+      return this.executeDeploymentViaDelegation(node, resolvedArgs);
+    }
+
+    // ── Legacy marketplace-hub path ─────────────────────────────────────
+    // Nodes without a role use the existing executeAgentCall via serviceId.
+    const serviceId = node.serviceId;
+    const skillName = node.skillName || "default";
+
+    if (!serviceId) {
+      throw new Error(
+        `Deployment node "${node.id}" has no serviceId and no deploymentId+role for delegation`
+      );
+    }
 
     const callResult = await executeAgentCall({
       callerDeploymentId: this.callerDeploymentId || `flow_${this.state.flowId}`,
@@ -766,6 +782,97 @@ export class FlowExecutionEngine extends EventEmitter {
       result: callResult.result,
       creditsCharged: callResult.creditsCharged,
     };
+  }
+
+  /**
+   * Execute a deployment node via the delegation system.
+   * Builds delegation tools from outgoing edges, augments the system prompt
+   * with team context, and calls executeDelegation.
+   */
+  private async executeDeploymentViaDelegation(
+    node: FlowNode,
+    resolvedArgs: Record<string, unknown>
+  ): Promise<{ result: unknown; creditsCharged: number }> {
+    // Build the task string from resolved args — use "task", "message", or
+    // "prompt" field, falling back to a JSON serialization of all args.
+    const task =
+      typeof resolvedArgs.task === "string"
+        ? resolvedArgs.task
+        : typeof resolvedArgs.message === "string"
+          ? resolvedArgs.message
+          : typeof resolvedArgs.prompt === "string"
+            ? resolvedArgs.prompt
+            : JSON.stringify(resolvedArgs);
+
+    // Gather context from completed prior steps
+    const priorContext = this.buildPriorStepContext(node);
+
+    // Build delegation tools from outgoing "delegates" edges
+    const delegationTools = buildDelegationTools(
+      node,
+      this.definition.nodes,
+      this.definition.edges,
+    );
+
+    log.info(
+      {
+        nodeId: node.id,
+        deploymentId: node.deploymentId,
+        role: node.role,
+        delegationToolCount: delegationTools.length,
+        flowId: this.state.flowId,
+      },
+      "Executing deployment node via delegation system"
+    );
+
+    const delegationResult = await executeDelegation({
+      targetDeploymentId: node.deploymentId!,
+      targetNodeId: node.id,
+      task,
+      context: priorContext || undefined,
+      contextScope: node.contextScope || "task",
+      userId: this.userId,
+      flowId: this.state.flowId,
+      sourceDeploymentId: this.callerDeploymentId || undefined,
+    });
+
+    return {
+      result: {
+        response: delegationResult.response,
+        uiBlocks: delegationResult.uiBlocks,
+        componentDefs: delegationResult.componentDefs,
+        suggestions: delegationResult.suggestions,
+        children: delegationResult.children,
+        callId: delegationResult.callId,
+        depth: delegationResult.depth,
+      },
+      creditsCharged: delegationResult.creditsUsed,
+    };
+  }
+
+  /**
+   * Build a context string from completed prior steps that feed into this node.
+   * Uses incoming edges to find parent nodes and includes their results.
+   */
+  private buildPriorStepContext(node: FlowNode): string {
+    const incoming = this.incomingEdges.get(node.id) ?? [];
+    if (incoming.length === 0) return "";
+
+    const contextParts: string[] = [];
+    for (const edge of incoming) {
+      const sourceResult = this.state.stepResults.get(edge.source);
+      if (sourceResult?.status === "completed" && sourceResult.result != null) {
+        const sourceNode = this.nodeMap.get(edge.source);
+        const label = sourceNode?.label || edge.source;
+        const resultStr =
+          typeof sourceResult.result === "string"
+            ? sourceResult.result
+            : JSON.stringify(sourceResult.result);
+        contextParts.push(`[${label}]: ${resultStr}`);
+      }
+    }
+
+    return contextParts.join("\n\n");
   }
 
   private executeTransformNode(node: FlowNode): unknown {
