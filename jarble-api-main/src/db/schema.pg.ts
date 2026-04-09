@@ -1,6 +1,24 @@
 import { pgTable, varchar, text, integer, timestamp, boolean, serial, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { customType } from "drizzle-orm/pg-core/columns/custom";
 import { relations } from "drizzle-orm";
 import { customAlphabet } from "nanoid";
+
+// pgvector column type for embedding storage (Phase 3 memory)
+const vector = customType<{ data: number[]; driverParam: string }>({
+  dataType() {
+    return "vector(512)";
+  },
+  toDriver(value: number[]): string {
+    return `[${value.join(",")}]`;
+  },
+  fromDriver(value: string): number[] {
+    // Postgres returns vectors as "[0.1,0.2,...]"
+    return value
+      .slice(1, -1)
+      .split(",")
+      .map(Number);
+  },
+});
 
 // Prefixed ID generator for marketplace tables
 const alphanumeric = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
@@ -374,6 +392,7 @@ export const chatMessages = pgTable("chat_messages", {
   role: varchar("role", { length: 20 }).notNull(),
   content: text("content").notNull(),
   thinkingText: text("thinking_text"),
+  embedding: vector("embedding"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
