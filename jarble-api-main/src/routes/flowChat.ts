@@ -674,6 +674,23 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         }
       }
 
+      // 9b. Compose step — if multiple specialists produced UI components,
+      // tell the coordinator it can merge them into a unified dashboard.
+      // This is the "logic gate" pattern: each specialist produces a
+      // component output, the compose step wires them together.
+      const successfulDelegations = delegationTrace.filter((d) => d.success);
+      const hasComposableBlocks = successfulDelegations.length >= 2;
+      if (hasComposableBlocks) {
+        sendEvent(res, {
+          type: CUSTOM,
+          name: "jarble.flow.compose.available",
+          value: {
+            delegationCount: successfulDelegations.length,
+            sources: successfulDelegations.map((d) => d.toolName.replace(/^delegate_to_/, "")),
+          },
+        });
+      }
+
       // 10. Send delegation results back to entry bot for synthesis.
       // The coordinator gets the FULL specialist replies (not the 300-char
       // wire-format previews) wrapped in explicit BEGIN/END markers so it
@@ -701,6 +718,23 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           sendEvent(res, { type: TEXT_MESSAGE_START, messageId: synthMessageId, role: "assistant" });
 
           try {
+            // Build compose instruction if multiple specialists produced components
+            let composeInstruction = "";
+            if (hasComposableBlocks) {
+              const blockSpecs = delegationTrace
+                .filter((d) => d.success && d.fullResponse)
+                .map((d) => {
+                  const slug = d.toolName.replace(/^delegate_to_/, "");
+                  return `  - From ${slug}: produced UI component(s)`;
+                })
+                .join("\n");
+              composeInstruction =
+                `\n\nCOMPOSE OPPORTUNITY: Multiple team members produced UI components:\n${blockSpecs}\n` +
+                `You MAY render a single unified dashboard (sandbox component) that combines all these ` +
+                `results into one cohesive view. Use the compose_dashboard or sandbox tool to merge them. ` +
+                `This is optional — only do it if the user would benefit from seeing everything in one place.`;
+            }
+
             const synthResult = await chatViaExec(
               entryPodName,
               sessionKey,
@@ -713,7 +747,8 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
                 `member chose to stop there, not because it was truncated by the system.\n\n` +
                 `Briefly weave these replies into a cohesive response for the user. Be concise — ` +
                 `the raw replies were already streamed to the user above, so your job is just to ` +
-                `add a short framing summary, not to repeat the contents.`,
+                `add a short framing summary, not to repeat the contents.` +
+                composeInstruction,
               undefined,
               undefined,
               abortController.signal,
@@ -730,6 +765,24 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
                 messageId: synthMessageId,
                 delta: `\n\n---\n**Summary:** ${synthText}`,
               });
+            }
+
+            // Forward composed UI blocks from the synthesis response.
+            // When the coordinator renders a unified dashboard from the
+            // specialists' outputs, these blocks carry the merged result.
+            if (synthResult.uiBlocks?.length) {
+              for (const block of synthResult.uiBlocks) {
+                sendEvent(res, {
+                  type: CUSTOM,
+                  name: "jarble.flow.delegation.uiblock",
+                  value: {
+                    delegationToolName: "compose",
+                    sourceDeploymentId: entryNode.deploymentId,
+                    sourceRole: "Coordinator (composed)",
+                    block,
+                  },
+                });
+              }
             }
           } catch (err) {
             log.warn({ flowId, err: err instanceof Error ? err.message : err }, "Synthesis call failed (non-fatal)");
