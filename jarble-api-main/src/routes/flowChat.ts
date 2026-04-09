@@ -44,6 +44,15 @@ import {
 
 const log = createModuleLogger("flow-chat");
 
+/**
+ * Maximum number of delegations to fan out in parallel.
+ * Controlled via env var; defaults to 5. Minimum of 2 to be meaningful.
+ */
+const MAX_CONCURRENT_DELEGATIONS = Math.max(
+  2,
+  parseInt(process.env.MAX_CONCURRENT_DELEGATIONS ?? "5", 10) || 5,
+);
+
 export const flowChatRouter = Router();
 
 // ── Per-user SSE connection limiting ─────────────────────────────────────────
@@ -429,9 +438,20 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         });
       }
 
-      // Execute each delegation
-      for (const call of delegationCalls) {
-        // Find the matching tool
+      // ── Phase 1: Pre-resolve all delegation jobs ──────────────────────
+      // Build the full list of { call, tool, targetNode, roleName } upfront
+      // so we can emit all start events before any I/O begins.
+      interface DelegationJob {
+        call: typeof delegationCalls[number];
+        tool: DelegationTool;
+        targetNode: FlowNode | undefined;
+        roleName: string;
+        index: number;
+      }
+
+      const jobs: DelegationJob[] = [];
+      for (let i = 0; i < delegationCalls.length; i++) {
+        const call = delegationCalls[i];
         const tool = delegationTools.find((t) => t.name === call.toolName);
         if (!tool) {
           log.warn(
@@ -440,93 +460,153 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           );
           continue;
         }
-
-        // Emit delegation start event
         const targetNode = definition.nodes.find(
           (n) => n.id === tool.targetNodeId,
         );
+        const roleName = targetNode?.role || targetNode?.label || "Team member";
+        jobs.push({ call, tool, targetNode, roleName, index: i });
+      }
+
+      // ── Phase 2: Emit all delegation.start events upfront ───────────
+      // The frontend can show all specialists as "in progress"
+      // simultaneously, giving a responsive multi-agent feel.
+      for (const job of jobs) {
         sendEvent(res, {
           type: CUSTOM,
           name: "jarble.flow.delegation.start",
           value: {
-            toolName: call.toolName,
-            targetNodeId: tool.targetNodeId,
-            targetDeploymentId: tool.targetDeploymentId,
-            targetRole: targetNode?.role || targetNode?.label || "Unknown",
-            task: call.task.slice(0, 200),
+            toolName: job.call.toolName,
+            targetNodeId: job.tool.targetNodeId,
+            targetDeploymentId: job.tool.targetDeploymentId,
+            targetRole: job.roleName,
+            task: job.call.task.slice(0, 200),
           },
         });
+      }
 
-        // Execute the delegation
-        let delegationResult: DelegationResult | null = null;
-        let delegationError: string | null = null;
+      // ── Phase 3: Fan out with Promise.allSettled in chunks ──────────
+      // Each chunk of MAX_CONCURRENT_DELEGATIONS runs in parallel.
+      // Chunks execute sequentially to cap overall concurrency.
+      type SettledDelegation =
+        | { status: "fulfilled"; result: DelegationResult; job: DelegationJob }
+        | { status: "rejected"; reason: string; job: DelegationJob };
 
-        try {
-          delegationResult = await executeDelegation({
-            targetDeploymentId: tool.targetDeploymentId,
-            targetNodeId: tool.targetNodeId,
-            task: call.task,
-            context: call.context,
-            contextScope: tool.contextScope,
-            conversationHistory: [{ role: "user", content: userMessage }],
-            sessionId: `flow-delegation-${flowId}-${tool.targetNodeId}-${Date.now()}`,
-            depth: 1,
-          });
-        } catch (err) {
-          delegationError =
-            err instanceof Error ? err.message : String(err);
-          log.error(
-            {
-              flowId,
-              targetNodeId: tool.targetNodeId,
-              error: delegationError,
-            },
-            "Delegation failed",
-          );
+      const settled: SettledDelegation[] = [];
+
+      for (let chunkStart = 0; chunkStart < jobs.length; chunkStart += MAX_CONCURRENT_DELEGATIONS) {
+        const chunk = jobs.slice(chunkStart, chunkStart + MAX_CONCURRENT_DELEGATIONS);
+
+        const chunkResults = await Promise.allSettled(
+          chunk.map((job) =>
+            executeDelegation({
+              targetDeploymentId: job.tool.targetDeploymentId,
+              targetNodeId: job.tool.targetNodeId,
+              task: job.call.task,
+              context: job.call.context,
+              contextScope: job.tool.contextScope,
+              conversationHistory: [{ role: "user", content: userMessage }],
+              sessionId: `flow-delegation-${flowId}-${job.tool.targetNodeId}-${Date.now()}`,
+              depth: 1,
+              sourceDeploymentId: entryNode.deploymentId,
+              toolName: job.call.toolName,
+            }),
+          ),
+        );
+
+        // Pair settled results with their jobs
+        for (let j = 0; j < chunkResults.length; j++) {
+          const r = chunkResults[j];
+          if (r.status === "fulfilled") {
+            settled.push({ status: "fulfilled", result: r.value, job: chunk[j] });
+          } else {
+            const errMsg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+            log.error(
+              { flowId, targetNodeId: chunk[j].tool.targetNodeId, error: errMsg },
+              "Delegation failed",
+            );
+            settled.push({ status: "rejected", reason: errMsg, job: chunk[j] });
+          }
         }
+      }
 
-        // Emit delegation end event
-        sendEvent(res, {
-          type: CUSTOM,
-          name: "jarble.flow.delegation.end",
-          value: {
-            toolName: call.toolName,
-            targetNodeId: tool.targetNodeId,
-            targetDeploymentId: tool.targetDeploymentId,
-            success: !!delegationResult,
-            durationMs: delegationResult?.durationMs ?? 0,
-            creditsUsed: delegationResult?.creditsUsed ?? 0,
-            error: delegationError,
-            responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
-          },
-        });
+      // ── Phase 4: Emit results in original delegation order ──────────
+      // Sort by original index so SSE events are deterministic
+      // regardless of which specialist finished first.
+      settled.sort((a, b) => a.job.index - b.job.index);
 
-        // Record in trace
-        delegationTrace.push({
-          toolName: call.toolName,
-          targetNodeId: tool.targetNodeId,
-          targetDeploymentId: tool.targetDeploymentId,
-          task: call.task,
-          responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
-          durationMs: delegationResult?.durationMs ?? 0,
-          creditsUsed: delegationResult?.creditsUsed ?? 0,
-          success: !!delegationResult,
-          error: delegationError ?? undefined,
-        });
+      for (const entry of settled) {
+        const { job } = entry;
 
-        // Stream the delegation result into the chat
-        if (delegationResult?.response) {
-          const roleName = targetNode?.role || targetNode?.label || "Team member";
+        if (entry.status === "fulfilled") {
+          const delegationResult = entry.result;
+
+          // Emit delegation end event
           sendEvent(res, {
-            type: TEXT_MESSAGE_CONTENT,
-            messageId,
-            delta: `**${roleName}:** ${delegationResult.response}\n\n`,
+            type: CUSTOM,
+            name: "jarble.flow.delegation.end",
+            value: {
+              toolName: job.call.toolName,
+              targetNodeId: job.tool.targetNodeId,
+              targetDeploymentId: job.tool.targetDeploymentId,
+              success: true,
+              durationMs: delegationResult.durationMs,
+              creditsUsed: delegationResult.creditsUsed,
+              responsePreview: delegationResult.response?.slice(0, 300) ?? "",
+            },
           });
-        } else if (delegationError) {
+
+          // Record in trace
+          delegationTrace.push({
+            toolName: job.call.toolName,
+            targetNodeId: job.tool.targetNodeId,
+            targetDeploymentId: job.tool.targetDeploymentId,
+            task: job.call.task,
+            responsePreview: delegationResult.response?.slice(0, 300) ?? "",
+            durationMs: delegationResult.durationMs,
+            creditsUsed: delegationResult.creditsUsed,
+            success: true,
+          });
+
+          // Stream the delegation result into the chat
+          if (delegationResult.response) {
+            sendEvent(res, {
+              type: TEXT_MESSAGE_CONTENT,
+              messageId,
+              delta: `**${job.roleName}:** ${delegationResult.response}\n\n`,
+            });
+          }
+        } else {
+          // Rejected delegation
+          sendEvent(res, {
+            type: CUSTOM,
+            name: "jarble.flow.delegation.end",
+            value: {
+              toolName: job.call.toolName,
+              targetNodeId: job.tool.targetNodeId,
+              targetDeploymentId: job.tool.targetDeploymentId,
+              success: false,
+              error: entry.reason,
+              responsePreview: "",
+            },
+          });
+
+          // Record in trace
+          delegationTrace.push({
+            toolName: job.call.toolName,
+            targetNodeId: job.tool.targetNodeId,
+            targetDeploymentId: job.tool.targetDeploymentId,
+            task: job.call.task,
+            responsePreview: "",
+            durationMs: 0,
+            creditsUsed: 0,
+            success: false,
+            error: entry.reason,
+          });
+
           sendEvent(res, {
             type: TEXT_MESSAGE_CONTENT,
             messageId,
-            delta: `*Delegation to ${targetNode?.role || call.toolName} failed: ${delegationError}*\n\n`,
+            delta: `*Delegation to ${job.roleName} failed: ${entry.reason}*\n\n`,
           });
         }
       }
