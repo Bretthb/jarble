@@ -165,18 +165,12 @@ else
   echo "[entrypoint] Deployment: ${DEPLOYMENT_NAME:-unknown} (${DEPLOYMENT_ID:-unknown})"
 fi
 
-# ── Remove stale BOOTSTRAP.md for existing deployments ──────────────
-# OpenClaw creates BOOTSTRAP.md on first run to guide initial onboarding.
-# For NEW deployments (no sessions yet), we keep it so the bot does
-# the "who am I?" onboarding flow. For EXISTING deployments (session
-# files exist), we remove it so the bot doesn't act "brand new" after
-# every pod restart.
-BOOTSTRAP_FILE="$OPENCLAW_STATE/workspace/BOOTSTRAP.md"
-SESSIONS_DIR="$OPENCLAW_STATE/agents/main/sessions"
-if [ -f "$BOOTSTRAP_FILE" ] && [ -d "$SESSIONS_DIR" ] && [ "$(ls -A $SESSIONS_DIR 2>/dev/null | head -1)" ]; then
-  rm -f "$BOOTSTRAP_FILE"
-  echo "[entrypoint] Removed stale BOOTSTRAP.md (bot has existing sessions)"
-fi
+# ── Always remove BOOTSTRAP.md ──────────────────────────────────────
+# OpenClaw's default BOOTSTRAP.md makes the bot act "brand new" on
+# every restart. Jarble handles the bot's personality and onboarding
+# entirely through SOUL.md (the system prompt set by the user).
+# No bootstrap script needed — the user's system prompt IS the identity.
+rm -f "$OPENCLAW_STATE/workspace/BOOTSTRAP.md" 2>/dev/null
 
 # ── jarble-ui tools: no in-pod registration ───────────────────────────
 # OpenClaw has no first-class MCP integration. The previous block here ran
