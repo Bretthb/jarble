@@ -39,6 +39,8 @@ export interface OrchestrationStep {
   detail?: string;
   /** Duration in ms (set on complete) */
   duration?: number;
+  /** Cost in cents (set via jarble.cost.delta) */
+  costCents?: number;
   /** WS orchestration fields - present when step comes from useOrchestration */
   agentType?: "subagent" | "delegation" | "platform";
   toolName?: string;
@@ -222,10 +224,15 @@ function OrchestrationStepsInner({ steps, title }: OrchestrationStepsProps) {
                 </span>
               )}
 
-              {/* Duration */}
-              {step.status === "complete" && step.duration && (
-                <span className="text-[10px] text-muted-foreground/30 ml-auto shrink-0">
-                  {step.duration < 1000 ? `${step.duration}ms` : `${(step.duration / 1000).toFixed(1)}s`}
+              {/* Duration + Cost */}
+              {step.status === "complete" && (step.duration || step.costCents) && (
+                <span className="text-[10px] text-muted-foreground/30 ml-auto shrink-0 flex items-center gap-1.5">
+                  {step.duration != null && (
+                    <span>{step.duration < 1000 ? `${step.duration}ms` : `${(step.duration / 1000).toFixed(1)}s`}</span>
+                  )}
+                  {step.costCents != null && step.costCents > 0 && (
+                    <span className="text-amber-500/60">{step.costCents < 100 ? `${step.costCents}c` : `$${(step.costCents / 100).toFixed(2)}`}</span>
+                  )}
                 </span>
               )}
             </div>

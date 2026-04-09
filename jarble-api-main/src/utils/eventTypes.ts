@@ -56,3 +56,7 @@ export const CUSTOM_AGENT_HANDOFF = "jarble.agent.handoff";
 export const CUSTOM_FLOW_DELEGATION_START = "jarble.flow.delegation.start";
 export const CUSTOM_FLOW_DELEGATION_END = "jarble.flow.delegation.end";
 export const CUSTOM_FLOW_CHAT_MESSAGE = "jarble.flow.chat.message";
+
+// ── Cost Transparency Events ────────────────────────────────────────────
+export const CUSTOM_COST_DELTA = "jarble.cost.delta";
+export const CUSTOM_COST_TOTAL = "jarble.cost.total";
