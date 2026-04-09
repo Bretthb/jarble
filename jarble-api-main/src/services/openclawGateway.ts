@@ -490,6 +490,47 @@ export async function chatViaHTTP(
   signal?: AbortSignal,
   onBlockDetected?: (block: JarbleUIBlock) => void,
 ): Promise<GatewayResponse> {
+  // JAR-51 Phase 3 follow-up: wrap chatViaHTTP in an OTel span. This is
+  // actually the PRIMARY delegation path (tamboAgent tries HTTP first,
+  // then falls back to WS gateway, then to exec). Before this wrapper,
+  // every successful chat turn was invisible in Langfuse at the delegation
+  // layer — only the rare fallback-to-exec traces showed jarble.delegation.*
+  // spans. Now every primary-path chat produces a "jarble.delegation.http"
+  // span with pod/session/message attributes.
+  return tracer.startActiveSpan(
+    "jarble.delegation.http",
+    {
+      attributes: {
+        "jarble.pod.ip": opts.ip,
+        "jarble.pod.port": opts.port,
+        "jarble.session.key": sessionKey,
+        "jarble.message.length": message.length,
+        "jarble.runtime": "openclaw",
+        "jarble.transport": "http",
+      },
+    },
+    async (span) => {
+      try {
+        return await chatViaHTTPInner(opts, message, sessionKey, onDelta, signal, onBlockDetected);
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    },
+  );
+}
+
+async function chatViaHTTPInner(
+  opts: GatewayOptions,
+  message: string,
+  sessionKey: string,
+  onDelta?: (fullText: string) => void,
+  signal?: AbortSignal,
+  onBlockDetected?: (block: JarbleUIBlock) => void,
+): Promise<GatewayResponse> {
   const { ip, port, gatewayToken } = opts;
   const url = `http://${ip}:${port}/v1/chat/completions`;
 
@@ -503,12 +544,23 @@ export async function chatViaHTTP(
     ? AbortSignal.any([signal, timeoutSignal])
     : timeoutSignal;
 
+  // Inject W3C traceparent as an HTTP header so an OpenClaw gateway
+  // that understands context propagation can root its server-side span
+  // under our trace. Also include JARBLE_CURRENT_SESSION_ID as a
+  // custom header so server-side code can consult it. OpenClaw today
+  // doesn't read either of these, but sending them is free and is
+  // forward-compatible with Phase 6 of the observability plan.
+  const traceHeaders = getW3CTraceHeaders();
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${gatewayToken}`,
       "X-Session-Key": sessionKey,
+      "X-Jarble-Session-Id": sessionKey,
+      ...(traceHeaders.traceparent ? { "traceparent": traceHeaders.traceparent } : {}),
+      ...(traceHeaders.tracestate ? { "tracestate": traceHeaders.tracestate } : {}),
     },
     body: JSON.stringify({
       model: "default",
