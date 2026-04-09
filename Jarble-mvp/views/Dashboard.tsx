@@ -24,10 +24,19 @@ import {
   AlertCircle,
   Download,
   User,
+  Users,
+  Network,
 } from "lucide-react";
+import dynamic from "next/dynamic";
+
+// Lazy-load heavy views to avoid loading ReactFlow on initial dashboard render
+const LazyDeployments = dynamic(() => import("@/views/Deployments"), { ssr: false });
+const LazyResourceMap = dynamic(() => import("@/views/ResourceMapView"), { ssr: false });
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import { useState, useCallback, memo } from "react";
+import { useState, useCallback, memo, useMemo } from "react";
+
+type DashboardTab = "deployments" | "botteams" | "resources";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import { useOrg } from "@/contexts/OrgContext";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -167,6 +176,7 @@ export default function Dashboard() {
   );
 
   const [isResendingVerification, setIsResendingVerification] = useState(false);
+  const [activeTab, setActiveTab] = useState<DashboardTab>("deployments");
 
   const resendVerificationMutation = trpc.user.resendVerificationEmail.useMutation({
     onSuccess: () => {
@@ -320,10 +330,10 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        {/* Header with tabs */}
+        <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Deployments</h2>
-          {canManageDeployments && (
+          {canManageDeployments && activeTab === "deployments" && (
             <Button
               onClick={handleCreateDeployment}
               size="sm"
@@ -335,8 +345,43 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Deployments Grid */}
-        {deploymentsQuery.isLoading ? (
+        {/* Dashboard tabs */}
+        <div className="flex items-center gap-1 mb-6 border-b border-border/60 pb-px">
+          {([
+            { key: "deployments" as DashboardTab, label: "My Bots", icon: Bot },
+            { key: "botteams" as DashboardTab, label: "Bot Teams", icon: Users },
+            { key: "resources" as DashboardTab, label: "Resource Map", icon: Network },
+          ]).map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-t-md transition-colors ${
+                activeTab === key
+                  ? "text-foreground border-b-2 border-primary -mb-px bg-secondary/30"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/20"
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        {activeTab === "botteams" && (
+          <div className="flex-1 min-h-[500px] -mx-6 -mb-6">
+            <LazyDeployments />
+          </div>
+        )}
+
+        {activeTab === "resources" && (
+          <div className="flex-1 min-h-[500px] -mx-6 -mb-6">
+            <LazyResourceMap deployments={filteredDeployments as any} />
+          </div>
+        )}
+
+        {/* Deployments Grid (only visible on deployments tab) */}
+        {activeTab === "deployments" && (deploymentsQuery.isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {Array.from({ length: 3 }).map((_, i) => (
               <Card key={i} className="bg-card border-border overflow-hidden">
@@ -425,7 +470,7 @@ export default function Dashboard() {
               </p>
             )}
           </motion.div>
-        )}
+        ))}
       </div>
     </div>
   );

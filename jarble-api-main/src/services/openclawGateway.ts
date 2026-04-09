@@ -873,14 +873,16 @@ async function chatViaExecInner(
     "--session-id", sessionKey,
     "--thinking", "medium",
     "--json",
-    "--timeout", "60",
+    "--timeout", "120",
   ];
   // If image was written, add --image flag (OpenClaw 2026.2.25+ supports this)
   if (canvasImage) {
     args.push("--image", "/tmp/canvas-screenshot.jpg");
   }
-  // Race the exec against the abort signal so user cancellation stops it promptly
-  const execPromise = execInPod(podName, args, undefined, 90_000); // 90s - cold start + LLM generation can take 30-60s
+  // Race the exec against the abort signal so user cancellation stops it promptly.
+  // 150s = 120s CLI timeout + 30s buffer for cold start and exec overhead.
+  // Previous 60s/90s timeouts caused delegation failures on complex rendering tasks.
+  const execPromise = execInPod(podName, args, undefined, 150_000);
   let output: string;
   if (signal) {
     output = await Promise.race([
@@ -915,10 +917,37 @@ async function chatViaExecInner(
     parsedKeys: Object.keys(parsed.result || parsed),
   }, "chatViaExec: response structure");
 
-  const rawText = payloads.map((p: any) => p.text || "").join("\n").trim();
+  let rawText = payloads.map((p: any) => p.text || "").join("\n").trim();
 
   if (!rawText) {
     throw new Error("Bot returned an empty response");
+  }
+
+  // Strip inline <think>...</think> tags from the exec response text.
+  // OpenClaw's --thinking flag puts reasoning in agentMeta, but some models
+  // (especially via OpenRouter) emit <think> tags inline in the text field.
+  // The depth-based parser handles nesting and unclosed tags.
+  {
+    let cleaned = "";
+    let i = 0;
+    let thinkDepth = 0;
+    while (i < rawText.length) {
+      if (rawText.startsWith("<think>", i) || rawText.startsWith("<think\n", i) || rawText.startsWith("<think ", i)) {
+        thinkDepth++;
+        const closeTag = rawText.indexOf(">", i);
+        i = closeTag >= 0 ? closeTag + 1 : i + 7;
+      } else if (rawText.startsWith("</think>", i)) {
+        if (thinkDepth > 0) thinkDepth--;
+        i += 8;
+      } else {
+        if (thinkDepth === 0) cleaned += rawText[i];
+        i++;
+      }
+    }
+    if (cleaned !== rawText) {
+      log.debug({ podName, originalLen: rawText.length, cleanedLen: cleaned.length }, "chatViaExec: stripped inline think tags");
+      rawText = cleaned.trim();
+    }
   }
 
   // Extract native thinking from the OpenClaw JSON response.

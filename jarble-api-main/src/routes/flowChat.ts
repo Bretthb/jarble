@@ -162,6 +162,8 @@ interface DelegationTraceEntry {
   creditsUsed: number;
   success: boolean;
   error?: string;
+  /** Number of UI blocks produced by this delegation (for compose detection) */
+  uiBlockCount: number;
 }
 
 // ── POST /:flowId/chat ──────────────────────────────────────────────────────
@@ -575,7 +577,10 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             context: call.context,
             contextScope: tool.contextScope,
             conversationHistory: [{ role: "user", content: userMessage }],
-            sessionId: `flow-${flowId}-${tool.targetNodeId}-${user.id}-${conversationId || threadId}`,
+            // Fresh session per delegation call — prevents stale context from
+            // previous delegations in the same conversation causing issues like
+            // "I'm on webchat without dashboard capabilities" refusals.
+            sessionId: `flow-${flowId}-${tool.targetNodeId}-${user.id}-${nanoid(6)}`,
             depth: 1,
             userId: user.id,
             // ── N-level delegation wiring ──────────────────────────────
@@ -639,6 +644,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           creditsUsed: delegationResult?.creditsUsed ?? 0,
           success: !!delegationResult,
           error: delegationError ?? undefined,
+          uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
         });
 
         // Stream the delegation result into the chat
@@ -674,6 +680,23 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         }
       }
 
+      // 9b. Compose step — if multiple specialists produced UI components,
+      // tell the coordinator it can merge them into a unified dashboard.
+      // This is the "logic gate" pattern: each specialist produces a
+      // component output, the compose step wires them together.
+      const delegationsWithBlocks = delegationTrace.filter((d) => d.success && d.uiBlockCount > 0);
+      const hasComposableBlocks = delegationsWithBlocks.length >= 2;
+      if (hasComposableBlocks) {
+        sendEvent(res, {
+          type: CUSTOM,
+          name: "jarble.flow.compose.available",
+          value: {
+            delegationCount: delegationsWithBlocks.length,
+            sources: delegationsWithBlocks.map((d) => d.toolName.replace(/^delegate_to_/, "")),
+          },
+        });
+      }
+
       // 10. Send delegation results back to entry bot for synthesis.
       // The coordinator gets the FULL specialist replies (not the 300-char
       // wire-format previews) wrapped in explicit BEGIN/END markers so it
@@ -701,6 +724,23 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           sendEvent(res, { type: TEXT_MESSAGE_START, messageId: synthMessageId, role: "assistant" });
 
           try {
+            // Build compose instruction if multiple specialists produced components
+            let composeInstruction = "";
+            if (hasComposableBlocks) {
+              const blockSpecs = delegationsWithBlocks
+                .map((d) => {
+                  const slug = d.toolName.replace(/^delegate_to_/, "");
+                  return `  - From ${slug}: ${d.uiBlockCount} UI component(s)`;
+                })
+                .join("\n");
+              composeInstruction =
+                `\n\nCOMPOSE OPPORTUNITY: Multiple team members produced UI components:\n${blockSpecs}\n` +
+                `You MAY render a single unified sandbox that combines all their results into one ` +
+                `cohesive dashboard view. Use render_ui with a "sandbox" component containing HTML/CSS/JS ` +
+                `that inlines the data from each member's reply. This is optional — only compose if the ` +
+                `user would benefit from seeing everything in one place.`;
+            }
+
             const synthResult = await chatViaExec(
               entryPodName,
               sessionKey,
@@ -713,7 +753,8 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
                 `member chose to stop there, not because it was truncated by the system.\n\n` +
                 `Briefly weave these replies into a cohesive response for the user. Be concise — ` +
                 `the raw replies were already streamed to the user above, so your job is just to ` +
-                `add a short framing summary, not to repeat the contents.`,
+                `add a short framing summary, not to repeat the contents.` +
+                composeInstruction,
               undefined,
               undefined,
               abortController.signal,
@@ -731,8 +772,28 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
                 delta: `\n\n---\n**Summary:** ${synthText}`,
               });
             }
+
+            // Forward composed UI blocks from the synthesis response.
+            // When the coordinator renders a unified dashboard from the
+            // specialists' outputs, these blocks carry the merged result.
+            if (synthResult.uiBlocks?.length) {
+              for (const block of synthResult.uiBlocks) {
+                sendEvent(res, {
+                  type: CUSTOM,
+                  name: "jarble.flow.delegation.uiblock",
+                  value: {
+                    delegationToolName: "compose",
+                    sourceDeploymentId: entryNode.deploymentId,
+                    sourceRole: "Coordinator (composed)",
+                    block,
+                  },
+                });
+              }
+            }
           } catch (err) {
             log.warn({ flowId, err: err instanceof Error ? err.message : err }, "Synthesis call failed (non-fatal)");
+            // Prevent empty message bubble — send minimal content on failure
+            sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId: synthMessageId, delta: "\n\n---\n*Team results shown above.*" });
           }
 
           sendEvent(res, { type: TEXT_MESSAGE_END, messageId: synthMessageId });

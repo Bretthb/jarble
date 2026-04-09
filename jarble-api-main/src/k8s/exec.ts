@@ -50,7 +50,7 @@ export async function execInPod(
           if (status.status === "Success") {
             resolve();
           } else {
-            reject(new Error(`exec failed: ${status.message || stderrData || "unknown"}`));
+            reject(new Error(`exec failed: ${status.message || "unknown"}${stderrData ? ` | stderr: ${stderrData.slice(0, 500)}` : ""}`));
           }
         }
       ).catch((err) => {

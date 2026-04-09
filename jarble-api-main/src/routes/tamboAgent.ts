@@ -321,7 +321,11 @@ function findPartialCloseTag(text: string): number {
  */
 function stripReasoningTags(text: string): string {
   return text
+    // Well-formed pairs: <think>...</think> or <reasoning>...</reasoning>
     .replace(/<(think|reasoning)>[\s\S]*?<\/\1>/gi, "")
+    // Malformed/partial tags: <think without closing >, bare </think>, etc.
+    // Catches cases where the model starts <think but switches context mid-token.
+    .replace(/<\/?(?:think|reasoning)\b[^>]*>?/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
