@@ -187,26 +187,53 @@ function buildCloudInit(nodeIp: string, hasVolume: boolean): string {
   const k3sToken = process.env.K3S_JOIN_TOKEN;
   if (!k3sToken) throw new Error("K3S_JOIN_TOKEN not set");
 
-  // Volume mount section - waits for Hetzner block storage device to appear
-  // The volume ID isn't known at cloud-init time, so we find it by scanning /dev/disk/by-id/
+  // Volume mount section - waits for Hetzner block storage device to appear.
+  // The volume ID isn't known at cloud-init time, so we scan /dev/disk/by-id/.
+  //
+  // Key design decisions:
+  //  - `|| true` on the ls pipeline prevents `set -euo pipefail` from killing the
+  //    script when the glob doesn't match (ls exits 2, pipefail propagates it).
+  //  - `if mount ...` wraps mount so a failure doesn't trigger set -e either.
+  //  - blkid + mkfs fallback handles the edge case where Hetzner's async format
+  //    hasn't completed by the time the device appears.
+  //  - Post-loop check logs a clear status file for remote diagnosis.
   const volumeMount = hasVolume ? `
 # Mount Hetzner block storage for Longhorn
 MOUNT_PATH="/var/lib/longhorn"
 mkdir -p "$MOUNT_PATH"
 echo "Waiting for block storage device..."
+VOLUME_MOUNTED=false
 for i in $(seq 1 60); do
-  VOLUME_DEVICE=$(ls /dev/disk/by-id/scsi-0HC_Volume_* 2>/dev/null | head -1)
+  VOLUME_DEVICE=$(ls /dev/disk/by-id/scsi-0HC_Volume_* 2>/dev/null | head -1 || true)
   if [ -n "$VOLUME_DEVICE" ]; then
-    echo "Volume device found: $VOLUME_DEVICE"
-    mount -o discard,defaults "$VOLUME_DEVICE" "$MOUNT_PATH"
-    if ! grep -q "$VOLUME_DEVICE" /etc/fstab; then
-      echo "$VOLUME_DEVICE $MOUNT_PATH ext4 discard,nofail,defaults 0 0" >> /etc/fstab
+    echo "Found volume device: $VOLUME_DEVICE (attempt $i/60)"
+    # Ensure filesystem exists — Hetzner format=ext4 should pre-format, but verify
+    if ! blkid -s TYPE -o value "$VOLUME_DEVICE" 2>/dev/null | grep -q .; then
+      echo "No filesystem detected on $VOLUME_DEVICE, formatting as ext4..."
+      mkfs.ext4 -F "$VOLUME_DEVICE"
     fi
-    echo "Block storage mounted at $MOUNT_PATH"
-    break
+    if mount -o discard,defaults "$VOLUME_DEVICE" "$MOUNT_PATH" 2>&1; then
+      if ! grep -q "$VOLUME_DEVICE" /etc/fstab; then
+        echo "$VOLUME_DEVICE $MOUNT_PATH ext4 discard,nofail,defaults 0 0" >> /etc/fstab
+      fi
+      VOLUME_MOUNTED=true
+      echo "Block storage mounted at $MOUNT_PATH ($(df -h "$MOUNT_PATH" | tail -1 | awk '{print $2}'))"
+      break
+    else
+      echo "Mount failed on attempt $i, retrying in 5s..."
+    fi
+  else
+    [ "$i" -eq 1 ] && echo "Device not yet available, polling every 5s (up to 5 min)..."
   fi
   sleep 5
 done
+
+if [ "$VOLUME_MOUNTED" = "false" ]; then
+  echo "ERROR: Block storage failed to mount after 60 attempts. Longhorn will use root disk only."
+  echo "VOLUME_MOUNT_FAILED $(date -u +%Y-%m-%dT%H:%M:%SZ)" > /var/log/jarble-volume-status.log
+else
+  echo "VOLUME_MOUNT_OK $(date -u +%Y-%m-%dT%H:%M:%SZ)" > /var/log/jarble-volume-status.log
+fi
 ` : "";
 
   return `#!/bin/bash
