@@ -25,6 +25,11 @@ playwright-report/
 *.jpg
 *.jpeg
 *.gif
+
+# Allow logo/favicon assets
+!Jarble-mvp/public/logo.png
+!Jarble-mvp/public/logodark.png
+!Jarble-mvp/public/favicon.png
 tmp_db.json
 
 # IDE
@@ -78,6 +83,11 @@ scripts/nightly-qa/reports/
 
 # Playwright MCP logs
 .playwright-mcp/
+
+# Runtime build artifacts — copied fresh from jarble-api-main/src/mcp/ at
+# CI build time (see .github/workflows/deploy-runtimes.yml). Do not commit:
+# the canonical source lives under jarble-api-main/.
+runtimes/openclaw/jarble-ui-server.js
 
 # Claude Code — ignore session data, keep agents, settings, and memory
 .claude/*

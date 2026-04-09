@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { eq } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("k8s:lifecycle");
@@ -11,6 +12,25 @@ import {
   createOpenClawInstance,
   deleteOpenClawInstance,
 } from "./operator.js";
+import { db, tables } from "../db/index.js";
+
+// ── Per-step status writes (Wave 4 Layer B) ─────────────────────────────
+//
+// Granular per-step lifecycle statuses replace the opaque "creating" so
+// users (and stuckDeploymentMonitor) can see EXACTLY which step is hung.
+// Writes are best-effort: a DB hiccup must NOT abort the K8s create flow.
+async function setDeploymentStatus(deploymentId: string, status: string): Promise<void> {
+  try {
+    await db
+      .update(tables.deployments)
+      .set({ status })
+      .where(eq(tables.deployments.id, deploymentId));
+    log.debug({ deploymentId, status }, "K8s: status transition");
+  } catch (err) {
+    // Don't let a status-write failure break the actual deployment work.
+    log.warn({ deploymentId, status, err }, "K8s: failed to write transitional status");
+  }
+}
 
 // ── Security Context Builder ─────────────────────────────────────────────
 
@@ -68,14 +88,35 @@ export function buildSecurityContext(isolationLevel: IsolationLevel = "standard"
 /**
  * Build K8s affinity rules based on deployment type.
  *
- * - "agent": Prefers auto-scaled VPS nodes (`jarble.ai/auto-scaled=true`),
- *   with pod anti-affinity to spread agents across nodes (1 per VPS).
+ * - "agent": REQUIRES an auto-scaled VPS node (`jarble.ai/auto-scaled=true`)
+ *   AND REQUIRES hard pod anti-affinity so each agent is the only bot on its
+ *   VPS. This is the "my deployment = my VPS = my agent = my data" model —
+ *   the `nodeManager.ts` autoscaler even names each VPS after its deployment
+ *   (`jarble-auto-{deploymentId}`), which reflects that 1:1 intent. If no
+ *   auto-worker is available, the pod stays Pending until the autoscaler
+ *   provisions one — agents must NEVER fall back to the control plane or
+ *   share a VPS with another bot under resource pressure.
+ *
+ *   Why REQUIRED instead of PREFERRED:
+ *   1. Tenant isolation — a bot's data lives on its VPS's Longhorn backing
+ *      storage; sharing a VPS would co-locate two tenants' replica files on
+ *      the same node filesystem. Container escape → cross-tenant data
+ *      exposure. Hard anti-affinity eliminates this vector.
+ *   2. Hetzner is a hypervisor (KVM), so each VPS IS a VM. With 1 bot per
+ *      VPS, the hypervisor boundary walls off tenants even if a bot escapes
+ *      its container. Nested virtualization is disabled on Hetzner Cloud, so
+ *      gVisor/Kata would be a redundant 3rd layer; the VPS boundary is the
+ *      primary sandbox.
+ *   3. Bots must never land on master (the K3s control plane). Since master
+ *      lacks the `jarble.ai/auto-scaled=true` label, a hard node-affinity
+ *      requirement makes this physically impossible.
+ *
  * - "container"/"website": Prefers shared container-pool nodes
  *   (`jarble.ai/role=container-pool`). Uses `preferredDuringScheduling` so
  *   pods can still schedule on any node while the pool is being built out.
- *   No pod anti-affinity - multiple containers can share a node.
+ *   No pod anti-affinity - multiple containers can share a node by design.
  */
-function buildAffinityForType(deploymentType: DeploymentType) {
+export function buildAffinityForType(deploymentType: DeploymentType) {
   if (deploymentType === "container" || deploymentType === "website") {
     return {
       nodeAffinity: {
@@ -98,13 +139,13 @@ function buildAffinityForType(deploymentType: DeploymentType) {
     };
   }
 
-  // Agent type: dedicated VPS nodes with anti-affinity
+  // Agent type: HARD isolation — required auto-scaled node + required
+  // anti-affinity against other bots. See function doc for rationale.
   return {
     nodeAffinity: {
-      preferredDuringSchedulingIgnoredDuringExecution: [
-        {
-          weight: 80,
-          preference: {
+      requiredDuringSchedulingIgnoredDuringExecution: {
+        nodeSelectorTerms: [
+          {
             matchExpressions: [
               {
                 key: "jarble.ai/auto-scaled",
@@ -113,19 +154,16 @@ function buildAffinityForType(deploymentType: DeploymentType) {
               },
             ],
           },
-        },
-      ],
+        ],
+      },
     },
     podAntiAffinity: {
-      preferredDuringSchedulingIgnoredDuringExecution: [
+      requiredDuringSchedulingIgnoredDuringExecution: [
         {
-          weight: 50,
-          podAffinityTerm: {
-            labelSelector: {
-              matchLabels: { "jarble.ai/type": "bot" },
-            },
-            topologyKey: "kubernetes.io/hostname",
+          labelSelector: {
+            matchLabels: { "jarble.ai/type": "bot" },
           },
+          topologyKey: "kubernetes.io/hostname",
         },
       ],
     },
@@ -141,7 +179,7 @@ function buildAffinityForType(deploymentType: DeploymentType) {
  * - "container"/"website": No toleration for the agent taint - they will
  *   never be placed on agent VPS nodes.
  */
-function buildTolerationsForType(deploymentType: DeploymentType) {
+export function buildTolerationsForType(deploymentType: DeploymentType) {
   if (deploymentType === "agent") {
     return [
       {
@@ -184,6 +222,11 @@ async function createDeploymentOperator(
   let configMapCreated = false;
 
   try {
+    // Operator mode: PVC is created by the operator's controller from the CR
+    // spec, so "waiting_volume" tracks both the secret/configmap setup and
+    // the operator's volume provisioning step.
+    await setDeploymentStatus(deploymentId, "waiting_volume");
+
     // 1. Create Secret (with `token` key for operator's gateway discovery)
     const baseSecretData: Record<string, string> = {
       DEPLOYMENT_ID: deploymentId,
@@ -218,8 +261,14 @@ async function createDeploymentOperator(
       log.info({ deploymentId, fileCount: config.initialConfigs.length }, "K8s: created ConfigMap (operator)");
     }
 
-    // 3. Create OpenClawInstance CR
+    // 3. Create OpenClawInstance CR — operator will pull the image and
+    //    schedule the pod. We can't observe pull progress from here, so
+    //    "pulling_image" is the closest milestone we can mark.
+    await setDeploymentStatus(deploymentId, "pulling_image");
     await createOpenClawInstance(deploymentId, userId, config);
+
+    // CR created — pod is scheduling and the runtime is initializing.
+    await setDeploymentStatus(deploymentId, "initializing");
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -257,7 +306,14 @@ async function createDeploymentLegacy(
   const isSharedPool = deploymentType === "container" || deploymentType === "website";
   const cpuLimit = config.cpuLimit || (isSharedPool ? "0.5" : "2.0");
   const memoryMb = config.memoryMb || (isSharedPool ? 512 : 3072);
-  const storageGbVal = config.storageMb || (isSharedPool ? 10 : 30); // "storageMb" is actually GB (historical naming)
+  // "storageMb" is actually GB (historical naming). Hard cap at 20 GiB:
+  // the smallest Hetzner worker (cpx11) ships with ~30 GB root disk and
+  // Longhorn only exposes ~29 GiB of that. A request larger than the node
+  // disk results in `LocalReplicaSchedulingFailure: insufficient storage`
+  // and the pod sticks on Pending forever. 20 GiB fits every node type.
+  const MAX_STORAGE_GB = 20;
+  const requestedStorageGb = config.storageMb || (isSharedPool ? 10 : 20);
+  const storageGbVal = Math.min(MAX_STORAGE_GB, requestedStorageGb);
 
   // Convert to K8s resource units
   const cpuMillicores = `${Math.round(parseFloat(cpuLimit) * 1000)}m`;
@@ -270,12 +326,18 @@ async function createDeploymentLegacy(
   let configMapCreated = false;
 
   try {
+  // Status: waiting on Longhorn to provision the underlying volume.
+  // Hetzner provisioning (provisioning_node) is set by the caller in the
+  // router BEFORE ensureCapacityForDeployment runs, since that lives in
+  // nodeManager.ts and completes before we get here.
+  await setDeploymentStatus(deploymentId, "waiting_volume");
+
   // 1. Create PVC for deployment storage
   await coreApi.createNamespacedPersistentVolumeClaim(NAMESPACE, {
     metadata: { name: `pvc-${deploymentId}` },
     spec: {
       accessModes: ["ReadWriteOnce"],
-      storageClassName: "longhorn",
+      storageClassName: "longhorn-isolated",
       resources: { requests: { storage: storageGi } },
     },
   });
@@ -383,6 +445,11 @@ async function createDeploymentLegacy(
   const affinity = buildAffinityForType(deploymentType);
   const tolerations = buildTolerationsForType(deploymentType);
 
+  // Status: K8s Deployment is being applied. Once the pod schedules, the
+  // kubelet pulls the image — we can't observe pull progress directly from
+  // the API, so this status covers both the apply and the image pull.
+  await setDeploymentStatus(deploymentId, "pulling_image");
+
   await appsApi.createNamespacedDeployment(NAMESPACE, {
     metadata: {
       name: `dep-${deploymentId}`,
@@ -433,7 +500,7 @@ async function createDeploymentLegacy(
           containers: [{
             name: "runtime",
             image: containerImage,
-            imagePullPolicy: process.env.USE_SQLITE === "true" ? "IfNotPresent" : "Always",
+            imagePullPolicy: process.env.NODE_ENV === "development" ? "IfNotPresent" : "Always",
             ports: [{
               containerPort: gatewayPort,
               name: "gateway",
@@ -482,6 +549,12 @@ async function createDeploymentLegacy(
       },
     },
   });
+
+  // Status: K8s Deployment created. Pod is now being scheduled and the
+  // init container (config-init) will copy ConfigMap files into the PVC
+  // before the runtime container starts. The readiness poll loop in the
+  // caller (deployment.ts) takes over from here and flips to "running".
+  await setDeploymentStatus(deploymentId, "initializing");
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);

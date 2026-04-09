@@ -7,6 +7,7 @@ import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
 import { syncConfigsToPvc } from "../../services/configSync.js";
 import { safeFireAndForget } from "../../utils/safeAsync.js";
+import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
 
 const { deployments, deploymentSubagents } = tables;
 
@@ -98,9 +99,9 @@ export const subagentsRouter = router({
     .input(
       z.object({
         deploymentId: z.string(),
-        name: z.string().min(1).max(100),
-        description: z.string().optional(),
-        systemPrompt: z.string().min(1),
+        name: z.string().min(1).max(100).refine(noHtmlTags, NO_HTML_MESSAGE),
+        description: z.string().max(2000).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
+        systemPrompt: z.string().min(1).max(50_000),
         model: z.string().max(100).optional(),
         triggerType: z.enum(["manual", "auto", "conditional"]).default("manual"),
         triggerConfig: z.string().optional(),
@@ -177,8 +178,8 @@ export const subagentsRouter = router({
     .input(
       z.object({
         id: z.string(),
-        name: z.string().min(1).max(100).optional(),
-        description: z.string().optional(),
+        name: z.string().min(1).max(100).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
+        description: z.string().max(2000).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),
         systemPrompt: z.string().min(1).optional(),
         model: z.string().max(100).nullable().optional(),
         triggerType: z.enum(["manual", "auto", "conditional"]).optional(),

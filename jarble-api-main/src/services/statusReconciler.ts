@@ -35,7 +35,7 @@ interface StatusMismatch {
  */
 export async function reconcileStatuses(): Promise<void> {
   // Skip in local dev mode - no real K8s cluster to reconcile against
-  if (process.env.USE_SQLITE === "true") return;
+  if (process.env.NODE_ENV === "development") return;
 
   try {
     // Find deployments that might have drifted
@@ -55,7 +55,7 @@ export async function reconcileStatuses(): Promise<void> {
 
     for (const dep of driftCandidates) {
       try {
-        const mismatch = await checkDeploymentStatus(dep as { id: string; status: DbStatus; name: string; managedBy: string | null });
+        const mismatch = await checkDeploymentStatus(dep as { id: string; status: DbStatus; name: string; updatedAt: Date | null; managedBy: string | null });
         if (mismatch) {
           mismatches.push(mismatch);
         }
@@ -89,6 +89,7 @@ async function checkDeploymentStatus(dep: {
   id: string;
   status: DbStatus;
   name: string;
+  updatedAt: Date | null;
   managedBy: string | null;
 }): Promise<StatusMismatch | null> {
   const managedBy = (dep.managedBy ?? "legacy") as ManagedBy;
@@ -121,8 +122,18 @@ async function checkDeploymentStatus(dep: {
     case "not_found":
       // No pod exists
       if (dep.status === "creating" || dep.status === "restarting" || dep.status === "reloading") {
-        // Deployment is in progress but pod doesn't exist yet - could be normal
-        // Only flag as issue if we've been waiting too long (handled elsewhere)
+        // Check if stuck: if updatedAt is more than 10 minutes ago, the pod never appeared
+        const updatedAt = dep.updatedAt ? new Date(dep.updatedAt).getTime() : 0;
+        const stuckMs = Date.now() - updatedAt;
+        if (updatedAt > 0 && stuckMs > 10 * 60 * 1000) {
+          return {
+            deploymentId: dep.id,
+            dbStatus: dep.status as any,
+            k8sStatus,
+            newStatus: "failed" as any,
+            error: "Deployment timed out: pod never appeared after 10 minutes",
+          };
+        }
         return null;
       }
       // DB says running but pod is gone
@@ -207,21 +218,42 @@ async function applyStatusFix(mismatch: StatusMismatch): Promise<void> {
  * Start the periodic status reconciliation.
  * Runs immediately on startup, then every `intervalMs` (default 30 seconds).
  *
- * Also starts a slower MCP server auto-sync (every 5 minutes) that pushes
+ * Also starts a slower MCP server auto-sync (every 15 minutes) that pushes
  * the latest MCP server to any running pods that have an outdated version.
  * This ensures users get new tools (set_theme, etc.) without needing to
  * restart their deployment after an API update.
+ *
+ * The MCP loop is gated on a top-level hash check: if the in-memory MCP
+ * server file hasn't changed since the last sync, we skip the per-pod loop
+ * entirely. This avoids paying ~N kubectl-exec round trips per cycle when
+ * nothing has actually changed (the common case between API deploys).
  */
 export function startStatusReconciler(intervalMs: number = 30 * 1000): NodeJS.Timeout {
   logger.info({ intervalMs }, "statusReconciler: starting periodic status reconciliation");
   safeFireAndForget(reconcileStatuses(), { operation: "reconcileStatuses" });
 
-  // MCP server auto-sync - runs every 5 minutes, pushes latest MCP server to outdated pods
-  const mcpSyncIntervalMs = 5 * 60 * 1000;
+  // MCP server auto-sync - runs every 15 minutes, pushes latest MCP server to outdated pods
+  const mcpSyncIntervalMs = 15 * 60 * 1000;
+  // Track the last hash we synced so we can skip the per-pod loop entirely
+  // when the API source hasn't changed since the previous tick.
+  let lastSyncedMcpHash: string | null = null;
   setInterval(async () => {
     try {
+      // Top-level hash gate: read the current API hash and skip the
+      // per-pod fan-out if it matches what we synced last time.
+      const { getMcpServerInfo } = await import("../runtimes/handlers/openclaw.js");
+      const { hash: currentHash } = getMcpServerInfo();
+      if (currentHash && currentHash === lastSyncedMcpHash) {
+        logger.debug(
+          { hash: currentHash },
+          "statusReconciler: MCP auto-sync skipped (API hash unchanged since last run)",
+        );
+        return;
+      }
+
       const { syncMcpServerToAllRunning } = await import("./configSync.js");
       await syncMcpServerToAllRunning();
+      lastSyncedMcpHash = currentHash || lastSyncedMcpHash;
     } catch (err) {
       logger.warn({ err }, "statusReconciler: MCP auto-sync failed (non-fatal)");
     }

@@ -2,6 +2,8 @@
 
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import Image from "next/image";
+import { useTheme } from "@/contexts/ThemeContext";
 import { ArrowRight, Github, Chrome, Loader2 } from "lucide-react";
 
 import { useAuth0 } from "@auth0/auth0-react";
@@ -11,6 +13,8 @@ import { useRouter } from "next/navigation";
 export default function Login() {
   const router = useRouter();
   const { loginWithRedirect, isLoading, isAuthenticated } = useAuth0();
+  const { theme } = useTheme();
+  const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
 
   // Redirect to dashboard if already authenticated
   useEffect(() => {
@@ -58,8 +62,8 @@ export default function Login() {
       <div className="w-full max-w-md relative z-10">
         {/* Logo */}
         <div className="text-center mb-8 animate-fade-in-up">
-          <Link href="/" className="inline-flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <span className="font-serif font-bold text-2xl tracking-tight">Jarble</span>
+          <Link href="/" className="inline-flex items-center hover:opacity-80 transition-opacity">
+            <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" />
           </Link>
           <h1 className="text-2xl font-serif font-medium mt-6 mb-2">Welcome back</h1>
           <p className="text-muted-foreground">Sign in to your account to continue</p>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc } from "@/lib/trpc";
 import { useTheme } from "@/contexts/ThemeContext";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ export default function SettingsView() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const { theme, toggleTheme, switchable } = useTheme();
+  const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -191,7 +193,7 @@ export default function SettingsView() {
               <ChevronLeft className="w-4 h-4" />
             </Button>
             <a href="/" className="flex items-center gap-2 cursor-pointer no-underline text-foreground">
-              <span className="font-semibold">Jarble</span>
+              <Image src={logoSrc} alt="Jarble" width={120} height={36} className="h-12 w-auto" />
             </a>
           </div>
           <ProfileDropdown />
@@ -305,7 +307,7 @@ export default function SettingsView() {
                   }`}
                 >
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-white dark:bg-zinc-100 border border-border flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-full bg-card border border-border flex items-center justify-center">
                       <Sun className="w-4 h-4 text-amber-500" />
                     </div>
                     <span className="font-medium text-sm">Light</span>
@@ -321,7 +323,7 @@ export default function SettingsView() {
                   }`}
                 >
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-zinc-900 dark:bg-zinc-800 border border-border flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-full bg-foreground border border-border flex items-center justify-center">
                       <Moon className="w-4 h-4 text-blue-400" />
                     </div>
                     <span className="font-medium text-sm">Dark</span>

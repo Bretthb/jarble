@@ -75,24 +75,24 @@ describe("Home", () => {
     // Should render an empty placeholder
     expect(container.querySelector(".min-h-screen.bg-background")).toBeTruthy();
     // Should NOT render the hero heading
-    expect(screen.queryByText(/Launch an AI agent/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Build\. Deploy\./)).not.toBeInTheDocument();
   });
 
   it("renders the hero heading", () => {
     render(<Home />);
-    expect(screen.getByText(/Launch an AI agent/)).toBeInTheDocument();
-    expect(screen.getByText(/in minutes\./)).toBeInTheDocument();
+    expect(screen.getByText(/Build\. Deploy\./)).toBeInTheDocument();
+    expect(screen.getByText(/Earn\./)).toBeInTheDocument();
   });
 
   it("renders the CTA button", () => {
     render(<Home />);
-    const cta = screen.getByRole("button", { name: /Launch Your First Agent/i });
+    const cta = screen.getByRole("button", { name: /Start Building/i });
     expect(cta).toBeInTheDocument();
   });
 
   it("CTA redirects to /login when unauthenticated", () => {
     render(<Home />);
-    const cta = screen.getByRole("button", { name: /Launch Your First Agent/i });
+    const cta = screen.getByRole("button", { name: /Start Building/i });
     fireEvent.click(cta);
     expect(mockPush).toHaveBeenCalledWith("/login");
   });
@@ -100,7 +100,7 @@ describe("Home", () => {
   it("CTA redirects to /dashboard when authenticated", () => {
     mockAuth0 = { isAuthenticated: true, isLoading: false };
     render(<Home />);
-    const cta = screen.getByRole("button", { name: /Launch Your First Agent/i });
+    const cta = screen.getByRole("button", { name: /Start Building/i });
     fireEvent.click(cta);
     expect(mockPush).toHaveBeenCalledWith("/dashboard");
   });
@@ -117,24 +117,16 @@ describe("Home", () => {
     expect(root.className).toContain("overflow-x-hidden");
   });
 
-  it("renders the beta banner with apply link", () => {
+  it("renders the three value proposition sections", () => {
     render(<Home />);
-    expect(screen.getByText(/Beta Testing/i)).toBeInTheDocument();
-    const applyLink = screen.getByText(/Apply Now/i);
-    expect(applyLink.closest("a")).toHaveAttribute("href", "/beta");
+    expect(screen.getByText(/Builders: create, publish, and earn/)).toBeInTheDocument();
+    expect(screen.getByText(/Businesses: deploy in one click/)).toBeInTheDocument();
+    expect(screen.getByText(/Infrastructure that runs it all/)).toBeInTheDocument();
   });
 
-  it("renders the 'Why Jarble' feature cards", () => {
+  it("renders the feature cards section", () => {
     render(<Home />);
-    expect(screen.getByText(/Any model, swappable anytime/)).toBeInTheDocument();
-    expect(screen.getByText(/One agent, every platform/)).toBeInTheDocument();
     expect(screen.getByText(/Transparent pricing/)).toBeInTheDocument();
-    expect(screen.getByText(/No code, no infrastructure/)).toBeInTheDocument();
-  });
-
-  it("renders the integrations search input", () => {
-    render(<Home />);
-    const searchInput = screen.getByPlaceholderText(/Search integrations/i);
-    expect(searchInput).toBeInTheDocument();
+    expect(screen.getByText(/\$13\.99\/mo/)).toBeInTheDocument();
   });
 });

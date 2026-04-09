@@ -44,6 +44,110 @@ const PROTECTED_PATHS = [
   `${PVC_MOUNT}/.npm`,
 ];
 
+// ── Structured logger ────────────────────────────────────────────────────
+//
+// Zero-deps replacement for the previous `console.error("[MCP] X")` calls.
+// We can't import pino because the MCP server is bundled into the OpenClaw
+// runtime image without npm install (only the single file is copied), but
+// we DO want structured JSON logs so K8s log aggregators (Loki, Elastic,
+// Sentry's log integration) can parse + index them.
+//
+// Format mirrors pino's default shape ({level, time, pid, hostname,
+// module, msg, ...fields}) so any pino-aware tooling on the receiving
+// end processes these without special-casing the MCP server.
+//
+// ── Where logs go ──
+// Output is written to TWO sinks:
+//
+//   1. stderr — preserves the legacy `console.error` behavior. Stdout is
+//      reserved for the MCP JSON-RPC protocol; anything written there
+//      would corrupt the wire format and disconnect the client.
+//
+//   2. A file at MCP_LOG_FILE (default `/tmp/mcp-jarble-ui.log`).
+//      THIS IS THE LOAD-BEARING SINK in production. Verified empirically
+//      that openclaw discards MCP child stderr entirely (no MCP records
+//      ever appear in /tmp/openclaw/openclaw-*.log nor in container
+//      stdout/stderr), so without the file sink the structured records
+//      are invisible to anyone outside the MCP child process. The file
+//      is appended to on every log call; a fluent-bit sidecar or
+//      `kubectl exec ... cat` can ship it to log aggregation later.
+//      Set MCP_LOG_FILE="" to disable the file sink (e.g. in tests).
+const fs_logger = require("fs");
+const PINO_LEVELS = { trace: 10, debug: 20, info: 30, warn: 40, error: 50, fatal: 60 };
+const HOSTNAME = (() => {
+  try { return require("os").hostname(); } catch { return "unknown"; }
+})();
+// Resolve the file sink path:
+//   - unset → default `/tmp/mcp-jarble-ui.log`
+//   - empty string → default (NOT opt-out — openclaw passes empty env vars
+//     when spawning MCP children, which would silently disable the sink)
+//   - whitespace-only → default
+//   - "off" → explicit opt-out (used by tests)
+//   - any other value → that path
+const MCP_LOG_FILE = (() => {
+  const v = process.env.MCP_LOG_FILE;
+  if (v === "off") return null;
+  const trimmed = (v || "").trim();
+  return trimmed || "/tmp/mcp-jarble-ui.log";
+})();
+let _fileSinkBroken = false; // flip if the file sink errors so we don't spam
+function _emitLog(level, arg1, arg2) {
+  // Two call shapes, mirroring pino:
+  //   log.info("message")
+  //   log.info({field: value, err: e}, "message")
+  let fields = {};
+  let msg;
+  if (typeof arg1 === "string") {
+    msg = arg1;
+  } else if (arg1 && typeof arg1 === "object") {
+    fields = arg1;
+    msg = arg2 || "";
+  }
+  // Coerce Error objects in `err` field so the message + stack survive JSON.
+  if (fields.err instanceof Error) {
+    fields.err = { message: fields.err.message, stack: fields.err.stack, name: fields.err.name };
+  }
+  const record = {
+    level: PINO_LEVELS[level] || 30,
+    time: Date.now(),
+    pid: process.pid,
+    hostname: HOSTNAME,
+    module: "mcp:jarble-ui",
+    ...fields,
+    msg,
+  };
+  let line;
+  try {
+    line = JSON.stringify(record) + "\n";
+  } catch {
+    // last-resort fallback if JSON.stringify chokes on a circular ref
+    line = `{"level":${PINO_LEVELS[level] || 30},"time":${Date.now()},"module":"mcp:jarble-ui","msg":${JSON.stringify(String(msg))}}\n`;
+  }
+  // sink 1: stderr (legacy + dev usage)
+  try { process.stderr.write(line); } catch { /* ignore */ }
+  // sink 2: file (load-bearing in prod — openclaw discards MCP stderr)
+  if (MCP_LOG_FILE && !_fileSinkBroken) {
+    try {
+      fs_logger.appendFileSync(MCP_LOG_FILE, line);
+    } catch (err) {
+      // If the file sink breaks (e.g. /tmp is read-only) flip the flag
+      // so we don't try every call. Stderr sink keeps working.
+      _fileSinkBroken = true;
+      try { process.stderr.write(`[mcp:jarble-ui] file sink disabled: ${err.message}\n`); } catch {}
+    }
+  }
+}
+const log = {
+  info: (a, b) => _emitLog("info", a, b),
+  warn: (a, b) => _emitLog("warn", a, b),
+  error: (a, b) => _emitLog("error", a, b),
+  debug: (a, b) => _emitLog("debug", a, b),
+};
+
+// Emit a startup heartbeat so we can confirm the file sink works on every
+// new pod even when no tool calls have happened yet.
+log.info({ pid: process.pid, file_sink: MCP_LOG_FILE || "(disabled)" }, "mcp server logger initialized");
+
 /**
  * Returns true if the given absolute path is platform-protected.
  * Checks for exact match or prefix match (directory containment).
@@ -126,12 +230,12 @@ try {
           } catch { /* skip malformed */ }
         }
         fs.writeFileSync(wsManifestPath, JSON.stringify({ version: 1, artifacts: manifestArtifacts }, null, 2), "utf-8");
-        if (migrated > 0) console.error(`[MCP] Migrated ${migrated} old canvas files to workspace artifacts`);
+        if (migrated > 0) log.info(`Migrated ${migrated} old canvas files to workspace artifacts`);
       }
     }
   }
 } catch (e) {
-  console.error("[MCP] Migration failed:", e.message);
+  log.warn("Migration failed:", e.message);
 }
 const MAX_FILE_SIZE = 1_000_000; // 1MB
 
@@ -153,11 +257,11 @@ try {
   BUILTIN_DESCRIPTIONS = manifestData.descriptions;
   if (manifestData.schemas) {
     BUILTIN_SCHEMAS = manifestData.schemas;
-    console.error(`[MCP] Loaded ${Object.keys(BUILTIN_SCHEMAS).length} component JSON schemas`);
+    log.info(`Loaded ${Object.keys(BUILTIN_SCHEMAS).length} component JSON schemas`);
   }
   if (Array.isArray(manifestData.tools)) {
     PER_COMPONENT_TOOLS = manifestData.tools;
-    console.error(`[MCP] Loaded ${PER_COMPONENT_TOOLS.length} per-component tools`);
+    log.info(`Loaded ${PER_COMPONENT_TOOLS.length} per-component tools`);
   }
 } catch {
   // Fallback: inline list for first boot / when JSON not yet generated
@@ -202,11 +306,11 @@ try {
       }
     }
     if (MARKETPLACE_COMPONENT_NAMES.size > 0) {
-      console.error(`[MCP] Found ${MARKETPLACE_COMPONENT_NAMES.size} marketplace components (resolved via /data/components/)`);
+      log.info(`Found ${MARKETPLACE_COMPONENT_NAMES.size} marketplace components (resolved via /data/components/)`);
     }
   }
 } catch (e) {
-  console.error("[MCP] Failed to scan marketplace dir:", e.message);
+  log.warn("Failed to scan marketplace dir:", e.message);
 }
 
 // ── Load service tools from /data/config/service-tools.json ───────────
@@ -231,11 +335,11 @@ function loadServiceTools() {
             _serviceId: t.serviceId,
           };
         });
-        console.error("[MCP] Loaded " + SERVICE_TOOLS.length + " service tools from " + SERVICE_TOOLS_PATH);
+        log.info("Loaded " + SERVICE_TOOLS.length + " service tools from " + SERVICE_TOOLS_PATH);
       }
     }
   } catch (e) {
-    console.error("[MCP] Failed to load service tools:", e.message);
+    log.warn("Failed to load service tools:", e.message);
   }
 }
 loadServiceTools();
@@ -246,14 +350,14 @@ try {
   if (fs.existsSync(serviceToolsDir)) {
     fs.watch(serviceToolsDir, function(eventType, filename) {
       if (filename === path.basename(SERVICE_TOOLS_PATH)) {
-        console.error("[MCP] service-tools.json changed, reloading...");
+        log.info("service-tools.json changed, reloading...");
         loadServiceTools();
       }
     });
   }
 } catch (e) {
   // fs.watch may fail on some platforms — non-fatal, tools reload on MCP restart
-  console.error("[MCP] Could not watch for service-tools.json changes:", e.message);
+  log.warn("Could not watch for service-tools.json changes:", e.message);
 }
 
 // ── Subagent tools — user-configured specialist agents ─────────────────
@@ -283,11 +387,11 @@ function loadSubagentTools() {
             },
           };
         });
-        console.error("[MCP] Loaded " + SUBAGENT_TOOLS.length + " subagent tools from " + SUBAGENT_TOOLS_PATH);
+        log.info("Loaded " + SUBAGENT_TOOLS.length + " subagent tools from " + SUBAGENT_TOOLS_PATH);
       }
     }
   } catch (e) {
-    console.error("[MCP] Failed to load subagent tools:", e.message);
+    log.warn("Failed to load subagent tools:", e.message);
   }
 }
 loadSubagentTools();
@@ -298,14 +402,96 @@ try {
   if (fs.existsSync(subagentToolsDir)) {
     fs.watch(subagentToolsDir, function(eventType, filename) {
       if (filename === path.basename(SUBAGENT_TOOLS_PATH)) {
-        console.error("[MCP] subagent-tools.json changed, reloading...");
+        log.info("subagent-tools.json changed, reloading...");
         loadSubagentTools();
       }
     });
   }
 } catch (e) {
   // fs.watch may fail on some platforms — non-fatal, tools reload on MCP restart
-  console.error("[MCP] Could not watch for subagent-tools.json changes:", e.message);
+  log.warn("Could not watch for subagent-tools.json changes:", e.message);
+}
+
+// ── Delegation tools — loaded from delegation-tools.json (Bot Teams) ──
+// Phase 1 (A2A): includes `a2a_delegate` (structured, preferred) and
+// legacy `delegate_to_{slug}` tools for backward compat.
+let DELEGATION_TOOLS = []; // Array of MCP tool definitions
+const DELEGATION_TOOLS_PATH = process.env.JARBLE_DELEGATION_TOOLS_PATH || "/data/config/delegation-tools.json";
+
+function loadDelegationTools() {
+  try {
+    if (fs.existsSync(DELEGATION_TOOLS_PATH)) {
+      const raw = JSON.parse(fs.readFileSync(DELEGATION_TOOLS_PATH, "utf-8"));
+      if (Array.isArray(raw)) {
+        DELEGATION_TOOLS = raw.map(function(t) {
+          return {
+            name: t.name,
+            slug: t.slug || null,
+            description: t.description || "Delegation tool: " + t.name,
+            inputSchema: t.inputSchema || {
+              type: "object",
+              properties: {
+                task: { type: "string", description: "Task to delegate" },
+              },
+              required: ["task"],
+            },
+          };
+        });
+        console.error("[MCP] Loaded " + DELEGATION_TOOLS.length + " delegation tools from " + DELEGATION_TOOLS_PATH);
+      }
+    }
+  } catch (e) {
+    console.error("[MCP] Failed to load delegation tools:", e.message);
+  }
+}
+loadDelegationTools();
+
+// Watch for changes to delegation-tools.json
+try {
+  const delegationToolsDir = path.dirname(DELEGATION_TOOLS_PATH);
+  if (fs.existsSync(delegationToolsDir)) {
+    fs.watch(delegationToolsDir, function(eventType, filename) {
+      if (filename === path.basename(DELEGATION_TOOLS_PATH)) {
+        console.error("[MCP] delegation-tools.json changed, reloading...");
+        loadDelegationTools();
+      }
+    });
+  }
+} catch (e) {
+  console.error("[MCP] Could not watch for delegation-tools.json changes:", e.message);
+}
+
+/**
+ * Execute a delegation tool call.
+ * For a2a_delegate: returns the parsed args (to, task, context) — actual execution
+ * happens API-side when the gateway forwards the tool result.
+ * For legacy delegate_to_{slug}: routes to /api/pod/agent/{slug} like subagents.
+ */
+async function executeDelegationTool(tool, args) {
+  // a2a_delegate: structured delegation — return args for API-side execution
+  if (tool.name === "a2a_delegate") {
+    const to = args.to;
+    const task = args.task;
+    const context = args.context || "";
+    console.error("[MCP] a2a_delegate: to=" + to + " task=" + (task || "").slice(0, 100));
+    return {
+      isError: false,
+      text: JSON.stringify({
+        type: "a2a_delegate",
+        to: to,
+        task: task,
+        context: context,
+        status: "delegated",
+      }),
+    };
+  }
+
+  // Legacy delegate_to_{slug}: route through agent endpoint
+  if (tool.slug) {
+    return executeSubagentTool({ slug: tool.slug, name: tool.name }, args);
+  }
+
+  return { isError: true, text: "Unknown delegation tool: " + tool.name };
 }
 
 /**
@@ -679,10 +865,10 @@ function readComponent(name) {
   const fp = path.join(COMPONENTS_DIR, `${name}.json`);
   if (!fs.existsSync(fp)) return null;
   try {
-    console.error("[MCP] File read:", fp);
+    log.info("File read:", fp);
     return JSON.parse(fs.readFileSync(fp, "utf8"));
   } catch (err) {
-    console.error("[MCP] Failed to parse JSON from file:", fp, err.message);
+    log.warn("Failed to parse JSON from file:", fp, err.message);
     return null;
   }
 }
@@ -690,7 +876,7 @@ function readComponent(name) {
 function writeComponent(name, def) {
   ensureDir();
   const fp = path.join(COMPONENTS_DIR, `${name}.json`);
-  console.error("[MCP] File write:", fp);
+  log.info("File write:", fp);
   safeWriteFileSync(fp, JSON.stringify(def, null, 2), "utf8");
 }
 
@@ -704,7 +890,7 @@ function listCustomComponents() {
       const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
       results.push({ name: parsed.name || file.replace(".json", ""), description: parsed.description || "" });
     } catch (err) {
-      console.error("[MCP] Failed to parse JSON from file:", filePath, err.message);
+      log.warn("Failed to parse JSON from file:", filePath, err.message);
     }
   }
   return results;
@@ -863,48 +1049,52 @@ const TOOLS = [
   // ── Memory tools ──────────────────────────────────────────────────────
   {
     name: "store_memory",
-    description: "Store information in long-term memory. Extracts discrete facts from the text, checks for duplicates/contradictions, and either inserts new memories or updates existing ones (compaction). Use this when the user shares personal info, preferences, important context, or anything worth remembering across conversations and platforms. Memory persists across Jarble dashboard, Telegram, Discord, WhatsApp, etc.",
+    description: "Store information in long-term memory. Extracts discrete facts from the text, checks for duplicates/contradictions, and either inserts new memories or updates existing ones (compaction). Use this when the user shares personal info, preferences, important context, or anything worth remembering across conversations and platforms. Memory persists across Jarble dashboard, Telegram, Discord, WhatsApp, etc. SESSION MODE: when memory_scope is 'session', you MUST pass session_id (from your current conversation context) — memories are then scoped to that conversation only and cannot be recalled from other chats.",
     inputSchema: {
       type: "object",
       properties: {
         text: { type: "string", description: "The text containing facts to remember. Can be conversational — facts will be automatically extracted." },
         category: { type: "string", description: "Optional category: general, preference, personal, context, goal", default: "general" },
         source_platform: { type: "string", description: "Optional: which platform this info came from (jarble, telegram, discord, whatsapp, slack)" },
+        session_id: { type: "string", description: "REQUIRED when memory_scope=session — the current conversation's session id. Ignored in global mode." },
       },
       required: ["text"],
     },
   },
   {
     name: "recall_memory",
-    description: "Search long-term memory for information relevant to a query. Returns the most relevant memories ranked by semantic similarity. Use this at the start of conversations or when the user asks about something you might have stored. Memory is cross-platform — recalling works regardless of which platform the info was stored from.",
+    description: "Search long-term memory for information relevant to a query. Returns the most relevant memories ranked by semantic similarity. Use this at the start of conversations or when the user asks about something you might have stored. Memory is cross-platform — recalling works regardless of which platform the info was stored from. SESSION MODE: when memory_scope is 'session', you MUST pass session_id — only memories stored under the same session_id will be returned.",
     inputSchema: {
       type: "object",
       properties: {
         query: { type: "string", description: "What to search for in memory (natural language)" },
         limit: { type: "number", description: "Max number of memories to return (default 10, max 50)", default: 10 },
+        session_id: { type: "string", description: "REQUIRED when memory_scope=session — filters results to the current conversation only. Ignored in global mode." },
       },
       required: ["query"],
     },
   },
   {
     name: "list_memories",
-    description: "List all stored memories, optionally filtered by category. Shows the full memory inventory sorted by most recently updated.",
+    description: "List all stored memories, optionally filtered by category. Shows the full memory inventory sorted by most recently updated. SESSION MODE: when memory_scope=session, pass session_id to see only memories from the current conversation.",
     inputSchema: {
       type: "object",
       properties: {
         category: { type: "string", description: "Optional: filter by category (general, preference, personal, context, goal)" },
         limit: { type: "number", description: "Max memories to return (default 50, max 200)", default: 50 },
+        session_id: { type: "string", description: "REQUIRED when memory_scope=session — filters to the current conversation. Ignored in global mode." },
       },
     },
   },
   {
     name: "forget_memory",
-    description: "Delete a specific memory by ID or by semantic search. Use when the user asks you to forget something.",
+    description: "Delete a specific memory by ID or by semantic search. Use when the user asks you to forget something. SESSION MODE: only deletes memories from the current session when session_id is passed.",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Exact memory ID to delete (from list_memories)" },
         query: { type: "string", description: "Natural language query to find the memory to delete (uses semantic search)" },
+        session_id: { type: "string", description: "REQUIRED when memory_scope=session — scopes the delete to this conversation. Ignored in global mode." },
       },
     },
   },
@@ -1726,7 +1916,7 @@ function readServiceManifest() {
       return JSON.parse(fs.readFileSync(SERVICE_MANIFEST_PATH, "utf-8"));
     }
   } catch (e) {
-    console.error("[MCP] Failed to read service manifest:", e.message);
+    log.warn("Failed to read service manifest:", e.message);
   }
   return { services: {} };
 }
@@ -1782,11 +1972,11 @@ function spawnService(name, port, codeFilePath) {
     detached: false,
   });
 
-  child.stdout.on("data", (d) => console.error(`[service:${name}] ${d.toString().trim()}`));
-  child.stderr.on("data", (d) => console.error(`[service:${name}:err] ${d.toString().trim()}`));
+  child.stdout.on("data", (d) => log.info(`[service:${name}] ${d.toString().trim()}`));
+  child.stderr.on("data", (d) => log.info(`[service:${name}:err] ${d.toString().trim()}`));
 
   child.on("exit", (code, signal) => {
-    console.error(`[MCP] Service "${name}" exited (code=${code}, signal=${signal})`);
+    log.info(`Service "${name}" exited (code=${code}, signal=${signal})`);
     runningServices.delete(name);
   });
 
@@ -1797,7 +1987,7 @@ function spawnService(name, port, codeFilePath) {
     startedAt: new Date().toISOString(),
   });
 
-  console.error(`[MCP] Service "${name}" started on port ${port} (PID ${child.pid})`);
+  log.info(`Service "${name}" started on port ${port} (PID ${child.pid})`);
   return child.pid;
 }
 
@@ -1810,18 +2000,18 @@ function autoRestartServices() {
   for (const [name, svc] of Object.entries(manifest.services)) {
     const codeFile = path.join(SERVICES_DIR, name, "server.js");
     if (!fs.existsSync(codeFile)) {
-      console.error(`[MCP] Service "${name}" code missing at ${codeFile}, skipping auto-restart`);
+      log.info(`Service "${name}" code missing at ${codeFile}, skipping auto-restart`);
       continue;
     }
     try {
       spawnService(name, svc.port, codeFile);
       restarted++;
     } catch (e) {
-      console.error(`[MCP] Failed to auto-restart service "${name}":`, e.message);
+      log.warn(`Failed to auto-restart service "${name}":`, e.message);
     }
   }
   if (restarted > 0) {
-    console.error(`[MCP] Auto-restarted ${restarted} service(s) from manifest`);
+    log.info(`Auto-restarted ${restarted} service(s) from manifest`);
   }
 
   // Re-register platform-managed services from saved registrations
@@ -1852,11 +2042,11 @@ function autoRestartServices() {
           skills,
         }).then(res => {
           if (res.status === 200) {
-            console.error(`[service-recovery] Re-registered platform service: ${registration.name}`);
+            log.info(`[service-recovery] Re-registered platform service: ${registration.name}`);
           }
         }).catch(() => {});
       } catch (err) {
-        console.error(`[service-recovery] Failed to re-register ${dir}: ${err.message}`);
+        log.warn(`[service-recovery] Failed to re-register ${dir}: ${err.message}`);
       }
     }
   } catch (err) {
@@ -1889,7 +2079,7 @@ function executeRenderUi(args) {
     if (schema && props && typeof props === "object") {
       const result = validateJsonSchema(props, schema, "props");
       if (!result.valid) {
-        console.error(`[MCP] render_ui validation failed for "${component}":`, result.errors.length, "errors");
+        log.warn(`render_ui validation failed for "${component}":`, result.errors.length, "errors");
         return { isError: true, text: _formatValidationErrors(component, result.errors) };
       }
     }
@@ -2000,7 +2190,7 @@ function executeCreateDashboard(args) {
     output += "\n\nNote: " + errors.length + " component(s) skipped due to errors:\n" + errors.join("\n");
   }
 
-  console.error(`[MCP] create_dashboard: "${title}" (layout=${layout || "auto"}) with ${blocks.length} components (dashboardId=${dashboardId})`);
+  log.info(`create_dashboard: "${title}" (layout=${layout || "auto"}) with ${blocks.length} components (dashboardId=${dashboardId})`);
   return { isError: false, text: output };
 }
 
@@ -2014,7 +2204,7 @@ async function executeComposeDashboard(args) {
   }
 
   const composeMode = mode || "auto";
-  console.error(`[MCP] compose_dashboard: "${title}" with ${components.length} components (mode=${composeMode})`);
+  log.info(`compose_dashboard: "${title}" with ${components.length} components (mode=${composeMode})`);
 
   try {
     const res = await apiRequest("POST", "/api/pod/compose", {
@@ -2044,10 +2234,10 @@ async function executeComposeDashboard(args) {
       output += "\n\nNote: " + errors.length + " component(s) failed:\n" + errors.join("\n");
     }
 
-    console.error(`[MCP] compose_dashboard: "${title}" completed — ${blocks.length} components, ${(errors || []).length} errors (dashboardId=${dashboardId})`);
+    log.warn(`compose_dashboard: "${title}" completed — ${blocks.length} components, ${(errors || []).length} errors (dashboardId=${dashboardId})`);
     return { isError: false, text: output };
   } catch (err) {
-    console.error(`[MCP] compose_dashboard error:`, err.message || err);
+    log.warn(`compose_dashboard error:`, err.message || err);
     return { isError: true, text: `compose_dashboard failed: ${err.message || String(err)}` };
   }
 }
@@ -2294,7 +2484,7 @@ function executeDebugComponent(args) {
     lines.push("If the component still isn't rendering, the issue may be in the JavaScript logic.");
   }
 
-  console.error("[MCP] debug_component: " + component + " — " + (allPassed ? "passed" : "issues found"));
+  log.info("debug_component: " + component + " — " + (allPassed ? "passed" : "issues found"));
   return { isError: false, text: lines.join("\n") };
 }
 
@@ -2304,7 +2494,7 @@ function executeTestDashboard(args) {
     return { isError: true, text: "Missing or empty cards array." };
   }
 
-  console.error("[MCP] test_dashboard: validating " + cards.length + " cards");
+  log.info("test_dashboard: validating " + cards.length + " cards");
 
   var lines = [];
   lines.push("## Dashboard Test Report");
@@ -2370,7 +2560,7 @@ function executeTestDashboard(args) {
   var overallStatus = failedCards === 0 ? "✅ All cards passed" : "⚠️ " + failedCards + "/" + cards.length + " cards have issues";
   lines.push("**Overall:** " + overallStatus + " (" + totalWarnings + " warnings)");
 
-  console.error("[MCP] test_dashboard: " + cards.length + " cards, " + totalWarnings + " warnings, " + failedCards + " failed");
+  log.warn("test_dashboard: " + cards.length + " cards, " + totalWarnings + " warnings, " + failedCards + " failed");
   return { isError: false, text: lines.join("\n") };
 }
 
@@ -2436,7 +2626,7 @@ function executeRenderPage(args) {
     output += "\n\nNote: " + errors.length + " issue(s) found:\n" + errors.join("\n");
   }
 
-  console.error("[MCP] render_page: \"" + title + "\" (type=" + type + ") with " + totalChildren + " children across " + Object.keys(sections).length + " sections");
+  log.info("render_page: \"" + title + "\" (type=" + type + ") with " + totalChildren + " children across " + Object.keys(sections).length + " sections");
   return { isError: false, text: output };
 }
 
@@ -2463,7 +2653,7 @@ async function executeCreateComponent(args) {
       return { isError: true, text: "Component Agent returned empty HTML." };
     }
 
-    console.error(`[MCP] create_component: "${intent}" (${html.length} chars)`);
+    log.info(`create_component: "${intent}" (${html.length} chars)`);
 
     if (render) {
       // Auto-render via render_ui as a sandbox component
@@ -2494,10 +2684,10 @@ function executeDefineComponent(args) {
 
   try {
     writeComponent(name, def);
-    console.error("[MCP] Component defined:", name);
+    log.info("Component defined:", name);
     return { isError: false, text: `Component "${name}" saved. Use render_ui with component="${name}" to display it.\n\nTip: To share this component with other bots, use the publish_component tool.` };
   } catch (err) {
-    console.error("[MCP] Failed to define component:", name, err.message);
+    log.warn("Failed to define component:", name, err.message);
     return { isError: true, text: `Failed to save: ${err.message}` };
   }
 }
@@ -2554,12 +2744,12 @@ function executeSaveCanvasFile(args) {
       fs.mkdirSync(FILES_DIR, { recursive: true });
     }
     const filePath = path.join(FILES_DIR, `${fileId}.json`);
-    console.error("[MCP] File write:", filePath);
+    log.info("File write:", filePath);
     safeWriteFileSync(filePath, payload, "utf8");
     const displayName = name || fileId;
     return { isError: false, text: `Saved "${displayName}" (${component}) to library as "${fileId}".` };
   } catch (err) {
-    console.error("[MCP] Failed to save canvas file:", fileId, err.message);
+    log.warn("Failed to save canvas file:", fileId, err.message);
     return { isError: true, text: `Failed to save: ${err.message}` };
   }
 }
@@ -2576,7 +2766,7 @@ function executeLoadCanvasFile(args) {
     const content = JSON.parse(fs.readFileSync(fp, "utf8"));
     return { isError: false, text: JSON.stringify(content) };
   } catch (err) {
-    console.error("[MCP] Failed to parse JSON from file:", fp, err.message);
+    log.warn("Failed to parse JSON from file:", fp, err.message);
     return { isError: true, text: `Failed to read: ${err.message}` };
   }
 }
@@ -2603,7 +2793,7 @@ function executeListCanvasFiles(args) {
         savedAt: parsed.savedAt || null,
       });
     } catch (err) {
-      console.error("[MCP] Failed to parse JSON from file:", filePath, err.message);
+      log.warn("Failed to parse JSON from file:", filePath, err.message);
     }
   }
 
@@ -2766,7 +2956,7 @@ function executeSaveArtifact(args) {
   }
   writeArtifactManifest(manifest);
 
-  console.error("[MCP] Artifact saved:", id, component);
+  log.info("Artifact saved:", id, component);
   return { isError: false, text: `Saved artifact "${title}" (${id}) — ${artifact.pinned ? "pinned" : "not pinned"}` };
 }
 
@@ -2824,7 +3014,7 @@ function executeDeleteArtifact(args) {
   if (idx !== -1) {
     manifest.artifacts.splice(idx, 1);
     writeArtifactManifest(manifest);
-    console.error("[MCP] Artifact deleted:", id);
+    log.info("Artifact deleted:", id);
     return { isError: false, text: `Deleted artifact "${id}" from workspace.` };
   }
 
@@ -3808,20 +3998,20 @@ async function fetchAndMergeSkills() {
   const url = `${apiUrl}/debug/platform-skills`;
 
   try {
-    console.error("[MCP] Fetching latest platform skills from", url);
+    log.info("Fetching latest platform skills from", url);
     const resp = await fetch(url, {
       signal: AbortSignal.timeout(10000), // 10s timeout
       headers: { "Accept": "application/json" },
     });
 
     if (!resp.ok) {
-      console.error("[MCP] Skills fetch failed:", resp.status, resp.statusText);
+      log.warn("Skills fetch failed:", resp.status, resp.statusText);
       return loadCachedSkills();
     }
 
     const data = await resp.json();
     if (!data.skills || typeof data.skills !== "object") {
-      console.error("[MCP] Invalid skills response — missing skills object");
+      log.warn("Invalid skills response — missing skills object");
       return loadCachedSkills();
     }
 
@@ -3834,18 +4024,18 @@ async function fetchAndMergeSkills() {
       }
     }
 
-    console.error(`[MCP] Merged ${updated} skills from API (version ${data.version || "?"})`);
+    log.info(`Merged ${updated} skills from API (version ${data.version || "?"})`);
 
     // Cache to PVC for offline fallback
     try {
       fs.mkdirSync(path.dirname(SKILLS_CACHE_PATH), { recursive: true });
       safeWriteFileSync(SKILLS_CACHE_PATH, JSON.stringify(data, null, 2));
-      console.error("[MCP] Cached skills to", SKILLS_CACHE_PATH);
+      log.info("Cached skills to", SKILLS_CACHE_PATH);
     } catch (cacheErr) {
-      console.error("[MCP] Failed to cache skills:", cacheErr.message);
+      log.warn("Failed to cache skills:", cacheErr.message);
     }
   } catch (err) {
-    console.error("[MCP] Skills fetch error:", err.message || err);
+    log.warn("Skills fetch error:", err.message || err);
     return loadCachedSkills();
   }
 }
@@ -3862,13 +4052,13 @@ function loadCachedSkills() {
             updated++;
           }
         }
-        console.error(`[MCP] Loaded ${updated} cached skills from PVC (version ${cached.version || "?"})`);
+        log.info(`Loaded ${updated} cached skills from PVC (version ${cached.version || "?"})`);
       }
     } else {
-      console.error("[MCP] No cached skills on PVC, using baked-in defaults");
+      log.info("No cached skills on PVC, using baked-in defaults");
     }
   } catch (err) {
-    console.error("[MCP] Failed to load cached skills:", err.message);
+    log.warn("Failed to load cached skills:", err.message);
   }
 }
 
@@ -4079,7 +4269,7 @@ function executeUpdateUi(args) {
   if (!card_id) return { isError: true, text: "Missing 'card_id' parameter." };
   if (!props || typeof props !== "object") return { isError: true, text: "Missing or invalid 'props' parameter." };
 
-  console.error("[MCP] update_ui:", card_id, "merge:", merge !== false);
+  log.info("update_ui:", card_id, "merge:", merge !== false);
 
   // Validate props if a component is specified (for merge mode, skip required-field checks)
   const targetComponent = component || null;
@@ -4091,7 +4281,7 @@ function executeUpdateUi(args) {
       : schema;
     const result = validateJsonSchema(props, effectiveSchema, "props");
     if (!result.valid) {
-      console.error(`[MCP] update_ui validation failed for "${targetComponent}":`, result.errors.length, "errors");
+      log.warn(`update_ui validation failed for "${targetComponent}":`, result.errors.length, "errors");
       return { isError: true, text: _formatValidationErrors(targetComponent, result.errors) };
     }
   }
@@ -4117,6 +4307,81 @@ function executeUpdateUi(args) {
 const MEMORY_DIR = process.env.JARBLE_MEMORY_DIR || "/data/memory";
 const MEMORY_FILE = path.join(MEMORY_DIR, "store.json");
 const MEMORY_VERSION = 1;
+
+// Memory scope enforcement (JAR memory-scoping enforcement PR B).
+// Values: "global" (default, cross-session), "session" (advisory for now),
+// "off" (memory tools hidden + dispatch-blocked).
+const MEMORY_SCOPE = (process.env.JARBLE_MEMORY_SCOPE || "global").toLowerCase();
+const MEMORY_TOOL_NAMES = new Set([
+  "store_memory",
+  "recall_memory",
+  "list_memories",
+  "forget_memory",
+]);
+
+function isMemoryScopeOff() {
+  return MEMORY_SCOPE === "off";
+}
+
+function filterToolsForMemoryScope(toolList) {
+  if (!isMemoryScopeOff()) return toolList;
+  return toolList.filter((t) => !MEMORY_TOOL_NAMES.has(t.name));
+}
+
+function memoryOffResponse() {
+  return {
+    isError: true,
+    text: "Long-term memory is disabled for this deployment (memory_scope=off). Ask the user to re-enable it in the deployment configuration if they want the bot to remember anything.",
+  };
+}
+
+function isMemoryScopeSession() {
+  return MEMORY_SCOPE === "session";
+}
+
+// Resolve the effective session_id for a memory call. Precedence:
+//   1. Explicit session_id argument from the bot (preferred)
+//   2. JARBLE_CURRENT_SESSION_ID env var (injected per-call by chatViaExec)
+//   3. null (caller must handle — triggers session-scope guard below)
+//
+// The env fallback exists because chatViaExec prepends
+//   env TRACEPARENT=... JARBLE_CURRENT_SESSION_ID=<key> npx openclaw agent ...
+// and those env vars cascade down to the openclaw child → mcporter →
+// node (jarble-ui-server.js). The chatViaGateway (WS) path does NOT get
+// this fallback because its env is fixed at pod boot. For WS mode, the
+// bot MUST pass session_id explicitly — the system prompt section added
+// by openclaw.ts when memoryScope=session tells the bot to do so.
+function resolveEffectiveSessionId(argSessionId) {
+  if (typeof argSessionId === "string" && argSessionId.trim().length > 0) {
+    return argSessionId.trim();
+  }
+  const envSessionId = process.env.JARBLE_CURRENT_SESSION_ID;
+  if (typeof envSessionId === "string" && envSessionId.trim().length > 0) {
+    return envSessionId.trim();
+  }
+  return null;
+}
+
+// Session-scope enforcement helper (PR C).
+// Returns a bot-readable error response if no session id can be
+// resolved while memory_scope=session, otherwise returns null.
+// The returned effectiveSessionId should be used for all subsequent
+// read/write scoping in this call.
+function requireSessionIdForSessionScope(sessionId) {
+  if (!isMemoryScopeSession()) return { ok: true, effective: null };
+  const effective = resolveEffectiveSessionId(sessionId);
+  if (effective !== null) return { ok: true, effective };
+  return {
+    ok: false,
+    response: {
+      isError: true,
+      text:
+        "Memory is in session mode for this deployment — you MUST pass session_id on this call. " +
+        "Use your current conversation's session id. " +
+        "Memories stored/recalled without session_id would leak across chats, so the call was blocked.",
+    },
+  };
+}
 const EMBEDDING_DIMS = 512;
 const SIMILARITY_THRESHOLD = 0.82; // cosine sim threshold for dedup/compaction
 const MAX_MEMORIES = 10000;
@@ -4198,7 +4463,7 @@ function getLLMConfig() {
     // Claude Max (sk-ant-oat*) tokens can't be used for direct API calls
     // They only work through the Claude app. Skip for memory operations.
     if (key.startsWith("sk-ant-oat")) {
-      console.error("[MCP:Memory] Claude Max token detected — using simple extraction (no API access for memory ops)");
+      log.info("[MCP:Memory] Claude Max token detected — using simple extraction (no API access for memory ops)");
       // Fall through to try other providers
     } else {
       return {
@@ -4245,7 +4510,7 @@ async function embed(text) {
   const config = getEmbeddingConfig();
   if (!config) {
     // Fallback to local embedding when no API is available (e.g. Anthropic-only)
-    console.error("[MCP:Memory] Using local embedding fallback (no embedding API available)");
+    log.info("[MCP:Memory] Using local embedding fallback (no embedding API available)");
     return localEmbed(text);
   }
 
@@ -4423,12 +4688,12 @@ function loadMemoryStore() {
     }
     const raw = JSON.parse(fs.readFileSync(MEMORY_FILE, "utf8"));
     if (raw.version !== MEMORY_VERSION) {
-      console.error("[MCP:Memory] Store version mismatch, starting fresh");
+      log.info("[MCP:Memory] Store version mismatch, starting fresh");
       return { version: MEMORY_VERSION, embeddingModel: "text-embedding-3-small", dims: EMBEDDING_DIMS, memories: [] };
     }
     return raw;
   } catch (err) {
-    console.error("[MCP:Memory] Failed to load store:", err.message);
+    log.warn("[MCP:Memory] Failed to load store:", err.message);
     return { version: MEMORY_VERSION, embeddingModel: "text-embedding-3-small", dims: EMBEDDING_DIMS, memories: [] };
   }
 }
@@ -4471,13 +4736,13 @@ Return ONLY the JSON array, no other text.`;
         }
       }
     } catch (err) {
-      console.error("[MCP:Memory] LLM extraction failed, using simple extraction:", err.message);
+      log.warn("[MCP:Memory] LLM extraction failed, using simple extraction:", err.message);
     }
   }
 
   // Fallback: simple sentence-based extraction (no LLM needed)
   // Split into sentences and filter out questions/greetings
-  console.error("[MCP:Memory] Using simple fact extraction (no LLM available)");
+  log.info("[MCP:Memory] Using simple fact extraction (no LLM available)");
   const sentences = text
     .replace(/\n+/g, ". ")
     .split(/[.!]+/)
@@ -4524,7 +4789,7 @@ resulting memory text (or empty for SKIP)`;
         return { action, result: result || newFact };
       }
     } catch (err) {
-      console.error("[MCP:Memory] Compaction LLM call failed, using simple compaction:", err.message);
+      log.warn("[MCP:Memory] Compaction LLM call failed, using simple compaction:", err.message);
     }
   }
 
@@ -4542,23 +4807,31 @@ resulting memory text (or empty for SKIP)`;
 // ── Memory tool implementations ───────────────────────────────────────
 
 async function executeStoreMemory(args) {
-  const { text, category, source_platform } = args;
+  const { text, category, source_platform, session_id } = args;
   if (!text || typeof text !== "string") return { isError: true, text: "Missing 'text' parameter." };
   if (text.length > 5000) return { isError: true, text: "Text too long (max 5000 chars). Summarize first." };
 
+  const sessionGuard = requireSessionIdForSessionScope(session_id);
+  if (!sessionGuard.ok) return sessionGuard.response;
+
   const store = loadMemoryStore();
   const platform = source_platform || process.env.RUNTIME || "unknown";
+  // In session mode every stored memory carries the effective session id
+  // (bot arg OR env fallback). In global mode this field is undefined
+  // (backward compatible — existing memories have no sessionId and
+  // recall_memory in global mode ignores the field entirely).
+  const writeSessionId = sessionGuard.effective;
   const actions = [];
 
   try {
     // 1. Extract discrete facts from the text
-    console.error("[MCP:Memory] Extracting facts from text...");
+    log.info("[MCP:Memory] Extracting facts from text...");
     const facts = await extractFacts(text);
 
     if (facts.length === 0) {
       return { isError: false, text: "No memorable facts found in the text. Nothing stored." };
     }
-    console.error(`[MCP:Memory] Extracted ${facts.length} fact(s)`);
+    log.info(`[MCP:Memory] Extracted ${facts.length} fact(s)`);
 
     // 2. Embed all facts in one batch call
     const embeddings = await embedBatch(facts);
@@ -4577,6 +4850,13 @@ async function executeStoreMemory(args) {
       const simThreshold = hasEmbeddingAPI ? SIMILARITY_THRESHOLD : 0.45; // Lower threshold for local embeddings
 
       for (let j = 0; j < store.memories.length; j++) {
+        // Session isolation: in session mode, dedup/compact only compares
+        // against memories from the same session so a fact from conv A
+        // cannot merge into conv B. In global mode this filter is skipped.
+        if (isMemoryScopeSession() && store.memories[j].sessionId !== writeSessionId) {
+          continue;
+        }
+
         let sim = cosineSim(factEmb, store.memories[j].embedding);
 
         // Boost similarity with word overlap for local embeddings
@@ -4599,7 +4879,7 @@ async function executeStoreMemory(args) {
       if (bestSim >= simThreshold && bestIdx >= 0) {
         // Similar memory found — ask LLM to decide
         const existing = store.memories[bestIdx];
-        console.error(`[MCP:Memory] Similar memory found (sim=${bestSim.toFixed(3)}): "${existing.text.slice(0, 60)}"`);
+        log.info(`[MCP:Memory] Similar memory found (sim=${bestSim.toFixed(3)}): "${existing.text.slice(0, 60)}"`);
 
         const decision = await compactDecision(existing.text, fact);
 
@@ -4617,6 +4897,7 @@ async function executeStoreMemory(args) {
             embedding: newEmb,
             updatedAt: new Date().toISOString(),
             sourcePlatform: platform,
+            sessionId: writeSessionId,
           };
           actions.push(`${decision.action === "REPLACE" ? "Updated" : "Merged"}: "${decision.result.slice(0, 60)}"`);
           continue;
@@ -4638,6 +4919,7 @@ async function executeStoreMemory(args) {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         sourcePlatform: platform,
+        sessionId: writeSessionId,
       });
       actions.push(`Stored: "${fact.slice(0, 60)}"`);
     }
@@ -4651,18 +4933,33 @@ async function executeStoreMemory(args) {
       text: `Memory updated (${store.memories.length} total memories):\n${summary}`,
     };
   } catch (err) {
-    console.error("[MCP:Memory] store_memory failed:", err.message);
+    log.warn("[MCP:Memory] store_memory failed:", err.message);
     return { isError: true, text: `Memory store failed: ${err.message}` };
   }
 }
 
 async function executeRecallMemory(args) {
-  const { query, limit } = args;
+  const { query, limit, session_id } = args;
   if (!query || typeof query !== "string") return { isError: true, text: "Missing 'query' parameter." };
+
+  const sessionGuard = requireSessionIdForSessionScope(session_id);
+  if (!sessionGuard.ok) return sessionGuard.response;
+  const effectiveSessionId = sessionGuard.effective;
 
   const store = loadMemoryStore();
   if (store.memories.length === 0) {
     return { isError: false, text: "No memories stored yet." };
+  }
+
+  // Session isolation: in session mode, only consider memories tagged
+  // with the matching effective session id. In global mode, all memories
+  // are in scope.
+  const candidateMemories = isMemoryScopeSession()
+    ? store.memories.filter((m) => m.sessionId === effectiveSessionId)
+    : store.memories;
+
+  if (candidateMemories.length === 0) {
+    return { isError: false, text: "No memories stored for this conversation yet." };
   }
 
   const maxResults = Math.min(limit || 10, 50);
@@ -4672,7 +4969,7 @@ async function executeRecallMemory(args) {
     const queryEmb = await embed(query);
 
     // Compute similarities
-    const scored = store.memories.map((m, idx) => ({
+    const scored = candidateMemories.map((m, idx) => ({
       ...m,
       score: cosineSim(queryEmb, m.embedding),
       idx,
@@ -4695,17 +4992,25 @@ async function executeRecallMemory(args) {
       text: `Found ${relevant.length} relevant memory/memories:\n${lines.join("\n")}`,
     };
   } catch (err) {
-    console.error("[MCP:Memory] recall_memory failed:", err.message);
+    log.warn("[MCP:Memory] recall_memory failed:", err.message);
     return { isError: true, text: `Memory recall failed: ${err.message}` };
   }
 }
 
 async function executeListMemories(args) {
+  const sessionGuard = requireSessionIdForSessionScope(args?.session_id);
+  if (!sessionGuard.ok) return sessionGuard.response;
+  const effectiveSessionId = sessionGuard.effective;
+
   const store = loadMemoryStore();
   const category = args?.category;
   const limit = Math.min(args?.limit || 50, 200);
 
   let memories = store.memories;
+  // Session isolation (uses effective session id: bot arg OR env fallback)
+  if (isMemoryScopeSession()) {
+    memories = memories.filter((m) => m.sessionId === effectiveSessionId);
+  }
   if (category) {
     memories = memories.filter(m => m.category === category);
   }
@@ -4729,14 +5034,22 @@ async function executeListMemories(args) {
 }
 
 async function executeForgetMemory(args) {
-  const { id, query } = args;
+  const { id, query, session_id } = args;
   if (!id && !query) return { isError: true, text: "Provide either 'id' (exact) or 'query' (semantic search) to find the memory to delete." };
+
+  const sessionGuard = requireSessionIdForSessionScope(session_id);
+  if (!sessionGuard.ok) return sessionGuard.response;
+  const effectiveSessionId = sessionGuard.effective;
 
   const store = loadMemoryStore();
 
   if (id) {
     const idx = store.memories.findIndex(m => m.id === id);
     if (idx === -1) return { isError: true, text: `Memory "${id}" not found.` };
+    // Session isolation: prevent cross-session deletes in session mode.
+    if (isMemoryScopeSession() && store.memories[idx].sessionId !== effectiveSessionId) {
+      return { isError: true, text: `Memory "${id}" is not in the current conversation's scope.` };
+    }
     const removed = store.memories.splice(idx, 1)[0];
     saveMemoryStore(store);
     return { isError: false, text: `Deleted memory: "${removed.text.slice(0, 80)}"` };
@@ -4747,6 +5060,8 @@ async function executeForgetMemory(args) {
     const queryEmb = await embed(query);
     let bestSim = 0, bestIdx = -1;
     for (let i = 0; i < store.memories.length; i++) {
+      // Session isolation (uses effective session id)
+      if (isMemoryScopeSession() && store.memories[i].sessionId !== effectiveSessionId) continue;
       const sim = cosineSim(queryEmb, store.memories[i].embedding);
       if (sim > bestSim) { bestSim = sim; bestIdx = i; }
     }
@@ -4989,7 +5304,7 @@ function executeStartHttpService(args) {
     const old = runningServices.get(name);
     try { old.process.kill("SIGTERM"); } catch { /* already dead */ }
     runningServices.delete(name);
-    console.error(`[MCP] Stopped old instance of "${name}" (PID ${old.pid}) for update`);
+    log.info(`Stopped old instance of "${name}" (PID ${old.pid}) for update`);
   }
 
   const manifest = readServiceManifest();
@@ -5725,7 +6040,7 @@ async function executeSetTheme(args) {
     fs.mkdirSync(path.dirname(themeFile), { recursive: true });
     safeWriteFileSync(themeFile, JSON.stringify(body, null, 2));
   } catch (err) {
-    console.error("[MCP] Failed to write theme file:", err.message);
+    log.warn("Failed to write theme file:", err.message);
   }
 
   // Also try API call (works when JARBLE_API_URL is configured)
@@ -5828,7 +6143,7 @@ function writeDesignContext(ctx) {
     fs.mkdirSync(path.dirname(DESIGN_CONTEXT_PATH), { recursive: true });
     safeWriteFileSync(DESIGN_CONTEXT_PATH, JSON.stringify(ctx, null, 2));
   } catch (err) {
-    console.error("[MCP] Failed to write design context:", err.message);
+    log.warn("Failed to write design context:", err.message);
   }
 }
 
@@ -6371,7 +6686,7 @@ async function executeImageSearch(args) {
         };
       }
     } catch (err) {
-      console.error("[MCP] Unsplash search failed, falling back to Wikimedia:", err.message);
+      log.warn("Unsplash search failed, falling back to Wikimedia:", err.message);
     }
   }
 
@@ -6983,7 +7298,7 @@ function saveConfirmations(data) {
     fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
     safeWriteFileSync(CONFIRMATIONS_PATH, JSON.stringify(data, null, 2), "utf-8");
   } catch (e) {
-    console.error("[MCP] Failed to save confirmations:", e.message);
+    log.warn("Failed to save confirmations:", e.message);
   }
 }
 
@@ -7106,10 +7421,10 @@ async function executeTool(name, args) {
     case "component_reference": return executeComponentReference(args || {});
     case "skill_reference": return executeSkillReference(args || {});
     case "update_ui": return executeUpdateUi(args || {});
-    case "store_memory": return executeStoreMemory(args || {});
-    case "recall_memory": return executeRecallMemory(args || {});
-    case "list_memories": return executeListMemories(args || {});
-    case "forget_memory": return executeForgetMemory(args || {});
+    case "store_memory": return isMemoryScopeOff() ? memoryOffResponse() : executeStoreMemory(args || {});
+    case "recall_memory": return isMemoryScopeOff() ? memoryOffResponse() : executeRecallMemory(args || {});
+    case "list_memories": return isMemoryScopeOff() ? memoryOffResponse() : executeListMemories(args || {});
+    case "forget_memory": return isMemoryScopeOff() ? memoryOffResponse() : executeForgetMemory(args || {});
     case "create_dashboard": return executeCreateDashboard(args || {});
     case "compose_dashboard": return executeComposeDashboard(args || {});
     case "render_page": return executeRenderPage(args || {});
@@ -7183,8 +7498,21 @@ async function executeTool(name, args) {
         }
       }
 
+      // A2A structured delegation tool (Phase 1)
+      if (name === "a2a_delegate") {
+        const delegationTool = DELEGATION_TOOLS.find(function(t) { return t.name === "a2a_delegate"; });
+        if (delegationTool) {
+          return executeDelegationTool(delegationTool, args || {});
+        }
+      }
+
       // Agent delegation tools: delegate_to_data_agent, delegate_to_workflow_agent, etc.
+      // Check dynamic delegation tools first (from delegation-tools.json), then static AGENT_TOOLS.
       if (name.startsWith("delegate_to_")) {
+        const dynamicDelegation = DELEGATION_TOOLS.find(function(t) { return t.name === name; });
+        if (dynamicDelegation) {
+          return executeDelegationTool(dynamicDelegation, args || {});
+        }
         const agentTool = AGENT_TOOLS.find(function(t) { return t.name === name; });
         if (agentTool) {
           return executeAgentTool(agentTool, args || {});
@@ -7253,10 +7581,27 @@ async function handleMessage(msg) {
         inputSchema: t.inputSchema,
       };
     });
+    // Build delegation tool definitions (Bot Teams — a2a_delegate + legacy delegate_to_{slug})
+    const delegationToolDefs = DELEGATION_TOOLS.map(function(t) {
+      return {
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      };
+    });
     return {
       jsonrpc: "2.0",
       id,
-      result: { tools: [...TOOLS, ...PER_COMPONENT_TOOLS, ...serviceToolDefs, ...agentToolDefs, ...subagentToolDefs] },
+      result: {
+        tools: filterToolsForMemoryScope([
+          ...TOOLS,
+          ...PER_COMPONENT_TOOLS,
+          ...serviceToolDefs,
+          ...agentToolDefs,
+          ...subagentToolDefs,
+          ...delegationToolDefs,
+        ]),
+      },
     };
   }
 
@@ -7265,11 +7610,11 @@ async function handleMessage(msg) {
     const toolName = params?.name;
     const toolArgs = params?.arguments || {};
 
-    console.error("[MCP] Tool called:", toolName, "args:", JSON.stringify(toolArgs).slice(0, 200));
+    log.info("Tool called:", toolName, "args:", JSON.stringify(toolArgs).slice(0, 200));
 
     const result = await executeTool(toolName, toolArgs);
     if (!result) {
-      console.error("[MCP] Unknown tool:", toolName);
+      log.info("Unknown tool:", toolName);
       return {
         jsonrpc: "2.0",
         id,
@@ -7277,7 +7622,7 @@ async function handleMessage(msg) {
       };
     }
 
-    console.error("[MCP] Tool result:", toolName, result.isError ? "ERROR" : "OK");
+    log.warn("Tool result:", toolName, result.isError ? "ERROR" : "OK");
 
     return {
       jsonrpc: "2.0",
@@ -7329,7 +7674,7 @@ process.stdin.on("data", (chunk) => {
           process.stdout.write(JSON.stringify(response) + "\n");
         }
       }).catch((err) => {
-        console.error("[MCP] Handler error:", err.message);
+        log.warn("Handler error:", err.message);
         if (msg.id !== undefined) {
           process.stdout.write(JSON.stringify({
             jsonrpc: "2.0",

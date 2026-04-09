@@ -66,8 +66,8 @@ export const openrouterRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      // Dev bypass: accept any "dev-*" key when running in SQLite/dev mode
-      const isDevMode = env.USE_SQLITE === "true" || env.USE_SQLITE === "1" || env.DB_PROVIDER === "sqlite";
+      // Dev bypass: accept any "dev-*" key in development mode
+      const isDevMode = env.NODE_ENV === "development";
       if (isDevMode && input.apiKey.startsWith("dev-")) {
         return { valid: true };
       }

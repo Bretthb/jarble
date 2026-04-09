@@ -711,6 +711,27 @@ export function useCanvasChat(
           scheduleTypewriter();
         }
 
+        // Response timeout: if no SSE events arrive within 30 seconds, show an error.
+        // This catches cases where the bot pod is reachable but not generating (e.g., expired key).
+        const RESPONSE_TIMEOUT_MS = 30_000;
+        let responseTimeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+          if (eventCount === 0) {
+            console.error("[Jarble:Chat] Response timeout: no events received in 30s");
+            controller.abort();
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `${messageId}-timeout`,
+                role: "assistant",
+                content: "The bot didn't respond in time. It may be starting up or experiencing an issue. Please try again.",
+                createdAt: Date.now(),
+              },
+            ]);
+            setIsStreaming(false);
+            isStreamingRef.current = false;
+          }
+        }, RESPONSE_TIMEOUT_MS);
+
         // Labeled outer loop so RUN_FINISHED can break out of both loops cleanly
         outer: while (true) {
           const { done, value } = await reader.read();
@@ -727,6 +748,12 @@ export function useCanvasChat(
             try {
               const event = JSON.parse(trimmed.slice(6));
               eventCount++;
+              // Clear response timeout on first PARSED event (not raw bytes,
+              // since heartbeat comments like ": connected" don't count)
+              if (responseTimeoutId && eventCount === 1) {
+                clearTimeout(responseTimeoutId);
+                responseTimeoutId = null;
+              }
 
               if (event.type === "TEXT_MESSAGE_CONTENT" && event.delta) {
                 textContentCount++;
@@ -937,6 +964,59 @@ export function useCanvasChat(
                   setOrchestrationSteps(steps);
                   isDev && console.log(`[Jarble:Chat] Orchestration: ${steps.length} steps`);
                 }
+                // Fractal Piece 4 wiring: individual delegation step start
+                // events (one per hop in a fractal chain) with parentStepId
+                // so the tree renderer can nest them. Backend emitter:
+                // jarble-api-main/src/routes/tamboAgent.ts onOrchestrationStart.
+                if (event.name === "jarble.orchestration.step.start" && event.value) {
+                  const v = event.value as {
+                    stepId: string;
+                    agentType?: "subagent" | "delegation" | "platform";
+                    agentName?: string;
+                    toolName?: string;
+                    task?: string;
+                    targetDeploymentId?: string;
+                    parentStepId?: string;
+                    depth?: number;
+                  };
+                  const agentKey = (v.agentType || "delegation") as
+                    | "subagent" | "delegation" | "platform";
+                  const newStep: import("@/components/chat/OrchestrationSteps").OrchestrationStep = {
+                    id: v.stepId,
+                    label: v.agentName || v.toolName || "Delegation",
+                    status: "running",
+                    agent: agentKey,
+                    detail: v.task?.slice(0, 80),
+                    agentType: v.agentType,
+                    toolName: v.toolName,
+                    targetDeploymentId: v.targetDeploymentId,
+                    parentId: v.parentStepId,
+                  };
+                  setOrchestrationSteps((prev) => {
+                    // dedupe by id (events can replay on reconnect)
+                    if (prev.some((s) => s.id === newStep.id)) return prev;
+                    return [...prev, newStep];
+                  });
+                }
+                if (event.name === "jarble.orchestration.step.end" && event.value) {
+                  const v = event.value as {
+                    stepId: string;
+                    success?: boolean;
+                    durationMs?: number;
+                    error?: string;
+                  };
+                  setOrchestrationSteps((prev) =>
+                    prev.map((s) =>
+                      s.id === v.stepId
+                        ? {
+                            ...s,
+                            status: v.success === false ? "error" : "complete",
+                            duration: v.durationMs,
+                          }
+                        : s,
+                    ),
+                  );
+                }
                 if (event.name === "jarble.card.update" && event.value) {
                   const { cardId, props, merge, component } = event.value;
                   isDev && console.log(`[Jarble:Chat] Card updated (AG-UI): ${cardId} (merge=${merge ?? true})`);
@@ -1024,6 +1104,46 @@ export function useCanvasChat(
                   messagesRef.current = [];
                   dispatch({ type: "CLEAR_CANVAS" });
                 }
+                // Fractal Piece 5: delegated specialist produced a UI block.
+                // Attach it to the canvas as a card with producer attribution
+                // so the user knows which team member produced it.
+                // Backend emitter: jarble-api-main/src/routes/tamboAgent.ts
+                if (event.name === "jarble.flow.delegation.uiblock" && event.value?.block) {
+                  const v = event.value as {
+                    block: { id?: string; component?: string; props?: Record<string, unknown>; editable?: boolean; fileId?: string; saveMethod?: "mcp" | "chat"; layoutHint?: LayoutHint; dashboardId?: string };
+                    sourceDeploymentId?: string;
+                    sourceRole?: string;
+                    delegationToolName?: string;
+                  };
+                  const rawBlock = v.block;
+                  if (rawBlock?.component) {
+                    const blockId = rawBlock.id || `delegation-${Math.random().toString(36).slice(2, 10)}`;
+                    const pending: UIBlockPending = {
+                      id: blockId,
+                      component: rawBlock.component,
+                      props: rawBlock.props ?? {},
+                      editable: rawBlock.editable,
+                      fileId: rawBlock.fileId,
+                      saveMethod: rawBlock.saveMethod,
+                      layoutHint: rawBlock.layoutHint,
+                      dashboardId: rawBlock.dashboardId,
+                    };
+                    addComponentCard(
+                      pending,
+                      messageId,
+                      stateRef.current,
+                      dispatch,
+                      [],
+                      currentLlmRef.current,
+                      null, // no parent card
+                      {
+                        producerDeploymentId: v.sourceDeploymentId,
+                        producerRole: v.sourceRole,
+                        delegationToolName: v.delegationToolName,
+                      },
+                    );
+                  }
+                }
               }
 
               // Break both the for loop and the outer while loop cleanly
@@ -1033,6 +1153,9 @@ export function useCanvasChat(
             }
           }
         }
+
+        // Clear the response timeout since the stream completed
+        if (responseTimeoutId) { clearTimeout(responseTimeoutId); responseTimeoutId = null; }
 
         isDev && console.log(`[Jarble:Chat] SSE stream ended (${eventCount} events, ${Date.now() - streamStart}ms)`);
 
@@ -1405,7 +1528,14 @@ function addComponentCard(
   dispatch: React.Dispatch<CanvasAction>,
   extraCards: CanvasCard[] = [],
   llmInfo: { provider?: string; model?: string } = {},
-  parentCardId?: string | null
+  parentCardId?: string | null,
+  // Attribution for cards produced by a delegated team member
+  // (Fractal vision piece 5). When set, the canvas renders a footer.
+  delegationAttribution?: {
+    producerDeploymentId?: string;
+    producerRole?: string;
+    delegationToolName?: string;
+  },
 ): CanvasCard {
   const size = getDefaultSize(block.component);
   const container = getContainerSize();
@@ -1440,6 +1570,9 @@ function addComponentCard(
     llmModel: llmInfo.model,
     groupId: block.dashboardId || undefined,
     parentCardId: parentCardId || undefined,
+    producerDeploymentId: delegationAttribution?.producerDeploymentId,
+    producerRole: delegationAttribution?.producerRole,
+    delegationToolName: delegationAttribution?.delegationToolName,
   };
 
   if (state.cards.length >= MAX_CANVAS_CARDS) {

@@ -1,6 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────
+// lifecycle.ts imports `db` from ../db/index.js at module load time to
+// write granular per-step statuses (Wave 4 Layer B). The real db/index.js
+// throws when DATABASE_URL is unset, so we replace it with a no-op fake
+// here. setDeploymentStatus() in lifecycle.ts already swallows DB errors,
+// so we just need the module to load — the update() builder chain below
+// returns a thenable so `await db.update(...).set(...).where(...)` resolves.
+vi.mock("../db/index.js", () => {
+  const chain: any = {
+    set: () => chain,
+    where: () => Promise.resolve({ rowCount: 1 }),
+  };
+  return {
+    db: { update: () => chain },
+    tables: { deployments: { id: "id", status: "status" } },
+    dbDate: () => new Date(),
+  };
+});
+
 vi.mock("./client.js", () => ({
   coreApi: {
     createNamespacedPersistentVolumeClaim: vi.fn(),
@@ -153,26 +171,32 @@ describe("createDeployment (legacy)", () => {
   });
 
   it("configures storage with minimum 1Gi (Math.max enforced)", async () => {
-    // storageMb uses || 30 so 0 falls through to default 30; use -1 to verify Math.max(1, ...)
-    // Actually, || 30 means falsy values always get 30. Test that the default is reasonable:
+    // storageMb uses || 20 so 0 falls through to default 20; use -1 to verify Math.max(1, ...)
+    // Actually, || 20 means falsy values always get 20. Test that the default is reasonable:
     await createDeployment("dep-1", "user-1", baseConfig);
 
     const pvcSpec = mockCoreApi.createNamespacedPersistentVolumeClaim.mock.calls[0][1];
-    expect(pvcSpec.spec?.resources?.requests?.storage).toBe("30Gi"); // default
+    expect(pvcSpec.spec?.resources?.requests?.storage).toBe("20Gi"); // default
   });
 
-  it("uses custom storage size", async () => {
+  it("caps custom storage size at 20 GiB (fits on smallest Hetzner worker)", async () => {
+    // Requests larger than 20 GiB can't be scheduled on cpx11 (~29 GiB usable
+    // for Longhorn). We hard-cap so pods never stick on Pending.
     await createDeployment("dep-1", "user-1", { ...baseConfig, storageMb: 50 });
 
     const pvcSpec = mockCoreApi.createNamespacedPersistentVolumeClaim.mock.calls[0][1];
-    expect(pvcSpec.spec?.resources?.requests?.storage).toBe("50Gi");
+    expect(pvcSpec.spec?.resources?.requests?.storage).toBe("20Gi");
   });
 
-  it("sets correct storage class", async () => {
+  it("sets correct storage class (longhorn-isolated for tenant isolation)", async () => {
+    // Bot PVCs MUST use longhorn-isolated (numberOfReplicas=1, dataLocality=strict-local)
+    // so that each bot's data lives only on its own VPS. Using the default `longhorn`
+    // class would spread replicas across other tenant VPSes, breaking the
+    // 1:1 VPS-per-agent isolation enforced by required nodeAffinity in commit bc8735b.
     await createDeployment("dep-1", "user-1", baseConfig);
 
     const pvcSpec = mockCoreApi.createNamespacedPersistentVolumeClaim.mock.calls[0][1];
-    expect(pvcSpec.spec?.storageClassName).toBe("longhorn");
+    expect(pvcSpec.spec?.storageClassName).toBe("longhorn-isolated");
   });
 
   it("includes base secret entries", async () => {
@@ -574,5 +598,131 @@ describe("deleteDeployment (operator)", () => {
 
     await deleteDeployment("dep-1", "operator");
     expect(mockGetPodStatus).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── Scheduling Affinity Tests (Phase 5 hardening) ───────────────────────────
+// These tests lock down the "my deployment = my VPS = my agent = my data"
+// model. An agent bot MUST require an auto-scaled VPS (hard nodeAffinity)
+// AND MUST require hard anti-affinity with other bots. If either of these
+// regresses to `preferredDuringSchedulingIgnoredDuringExecution`, tenant
+// isolation breaks and bots can share VPSes or land on master.
+// See docs/audits/qa-bot-teams-2026-04-07.md for the full security rationale.
+
+import { buildAffinityForType, buildTolerationsForType } from "./lifecycle.js";
+
+describe("buildAffinityForType — agent isolation contract", () => {
+  describe('agent type: "my VPS, my agent, my data" hard isolation', () => {
+    const affinity = buildAffinityForType("agent");
+
+    it("REQUIRES an auto-scaled node (not preferred)", () => {
+      // If this assertion fails and you see "preferredDuringScheduling" instead,
+      // someone softened the isolation contract. DO NOT MERGE without security review.
+      expect(affinity.nodeAffinity).toHaveProperty(
+        "requiredDuringSchedulingIgnoredDuringExecution",
+      );
+      expect(affinity.nodeAffinity).not.toHaveProperty(
+        "preferredDuringSchedulingIgnoredDuringExecution",
+      );
+    });
+
+    it("matches only nodes with jarble.ai/auto-scaled=true", () => {
+      const terms = (affinity.nodeAffinity as any)
+        .requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms;
+      expect(terms).toHaveLength(1);
+      const exprs = terms[0].matchExpressions;
+      expect(exprs).toContainEqual({
+        key: "jarble.ai/auto-scaled",
+        operator: "In",
+        values: ["true"],
+      });
+    });
+
+    it("REQUIRES hard anti-affinity with other bots (not preferred)", () => {
+      // Same regression guard — a preferred anti-affinity lets multiple bots
+      // pack onto one VPS under resource pressure, breaking 1:1 isolation.
+      expect(affinity).toHaveProperty("podAntiAffinity");
+      expect(affinity.podAntiAffinity).toHaveProperty(
+        "requiredDuringSchedulingIgnoredDuringExecution",
+      );
+      expect(affinity.podAntiAffinity).not.toHaveProperty(
+        "preferredDuringSchedulingIgnoredDuringExecution",
+      );
+    });
+
+    it("anti-affinity targets jarble.ai/type=bot at hostname topology", () => {
+      const terms = (affinity.podAntiAffinity as any)
+        .requiredDuringSchedulingIgnoredDuringExecution;
+      expect(terms).toHaveLength(1);
+      expect(terms[0].topologyKey).toBe("kubernetes.io/hostname");
+      expect(terms[0].labelSelector.matchLabels).toEqual({
+        "jarble.ai/type": "bot",
+      });
+    });
+
+    it("physically cannot schedule on master (master lacks auto-scaled label)", () => {
+      // Sanity: the nodeAffinity terms are satisfied ONLY by nodes carrying
+      // the `jarble.ai/auto-scaled=true` label. Master has no such label, so
+      // it CANNOT match. This is the defense against bots landing on the
+      // K3s control plane.
+      const terms = (affinity.nodeAffinity as any)
+        .requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms;
+      const masterLabels = { "kubernetes.io/hostname": "jarble-master" };
+      const matchesMaster = terms.some((term: any) =>
+        term.matchExpressions.every((expr: any) =>
+          expr.operator === "In"
+            ? (masterLabels as any)[expr.key] &&
+              expr.values.includes((masterLabels as any)[expr.key])
+            : false,
+        ),
+      );
+      expect(matchesMaster).toBe(false);
+    });
+  });
+
+  describe("container type: shared pool, soft preference", () => {
+    const affinity = buildAffinityForType("container");
+
+    it("prefers (not requires) container-pool nodes", () => {
+      expect(affinity.nodeAffinity).toHaveProperty(
+        "preferredDuringSchedulingIgnoredDuringExecution",
+      );
+      expect(affinity.nodeAffinity).not.toHaveProperty(
+        "requiredDuringSchedulingIgnoredDuringExecution",
+      );
+    });
+
+    it("has NO podAntiAffinity (containers share nodes by design)", () => {
+      expect(affinity).not.toHaveProperty("podAntiAffinity");
+    });
+  });
+
+  describe("website type: same shape as container", () => {
+    it("matches container semantics", () => {
+      const containerAffinity = buildAffinityForType("container");
+      const websiteAffinity = buildAffinityForType("website");
+      expect(websiteAffinity).toEqual(containerAffinity);
+    });
+  });
+});
+
+describe("buildTolerationsForType", () => {
+  it("agent tolerates jarble.ai/workload=agent:NoSchedule", () => {
+    const tolerations = buildTolerationsForType("agent");
+    expect(tolerations).toHaveLength(1);
+    expect(tolerations[0]).toEqual({
+      key: "jarble.ai/workload",
+      operator: "Equal",
+      value: "agent",
+      effect: "NoSchedule",
+    });
+  });
+
+  it("container type has NO tolerations (blocks landing on agent VPS)", () => {
+    expect(buildTolerationsForType("container")).toEqual([]);
+  });
+
+  it("website type has NO tolerations (blocks landing on agent VPS)", () => {
+    expect(buildTolerationsForType("website")).toEqual([]);
   });
 });

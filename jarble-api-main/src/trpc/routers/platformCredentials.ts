@@ -93,7 +93,7 @@ export const platformCredentialsRouter = router({
     .input(z.object({
       deploymentId: z.string(),
       platformId: z.string(),
-      credentials: z.record(z.string()), // { botToken: "xoxb-...", appToken: "xapp-..." }
+      credentials: z.record(z.string(), z.string()), // { botToken: "xoxb-...", appToken: "xapp-..." }
     }))
     .mutation(async ({ ctx, input }) => {
       // Verify deployment ownership
@@ -353,7 +353,7 @@ export const platformCredentialsRouter = router({
     .input(z.object({
       deploymentId: z.string(),
       platformId: z.string(),
-      credentials: z.record(z.string()),
+      credentials: z.record(z.string(), z.string()),
     }))
     .mutation(async ({ ctx, input }) => {
       // Verify deployment ownership

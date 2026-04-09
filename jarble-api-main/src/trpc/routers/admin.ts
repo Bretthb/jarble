@@ -206,7 +206,18 @@ const listAllDeployments = adminProcedure
     z.object({
       page: z.number().int().min(1).default(1),
       limit: z.number().int().min(1).max(100).default(20),
-      status: z.enum(["creating", "running", "stopped", "failed", "pending", "error"]).optional(),
+      status: z.enum([
+        "creating",
+        "provisioning_node",
+        "waiting_volume",
+        "pulling_image",
+        "initializing",
+        "running",
+        "stopped",
+        "failed",
+        "pending",
+        "error",
+      ]).optional(),
       search: z.string().max(100).optional(),
     })
   )

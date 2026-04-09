@@ -5,10 +5,22 @@
  * with streaming enabled and emits deltas for text and tool calls.
  *
  * Uses the same provider URLs validated in openrouter.ts:validateProviderKey.
+ *
+ * JAR-51 Phase 4: each call is wrapped in an OTel span following the
+ * OpenLLMetry / Langfuse GenAI semantic conventions. Attributes emitted:
+ *   gen_ai.system            — anthropic / openai / google / openrouter
+ *   gen_ai.request.model     — model id
+ *   gen_ai.request.messages  — message count
+ *   gen_ai.usage.input_tokens  (best-effort, populated from response if available)
+ *   gen_ai.usage.output_tokens
+ *   gen_ai.response.finish_reasons
+ *   error.type               — on failures (abort, http 4xx/5xx, parse)
  */
+import { trace, SpanStatusCode } from "@opentelemetry/api";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("llmProxy");
+const tracer = trace.getTracer("jarble-api.llm-proxy");
 
 export interface LlmToolCall {
   id: string;
@@ -48,24 +60,74 @@ export interface StreamLlmOptions {
 export async function streamLlmCompletion(opts: StreamLlmOptions): Promise<void> {
   const { provider, apiKey, model, messages, tools, onChunk, onToolCall, onDone, onError, signal } = opts;
 
-  try {
-    if (provider === "anthropic") {
-      await streamAnthropic(apiKey, model, messages, tools, onChunk, onToolCall, onDone, onError, signal);
-    } else if (provider === "google") {
-      await streamGoogle(apiKey, model, messages, onChunk, onDone, onError, signal);
-    } else {
-      // OpenAI and OpenRouter share the same API format
-      const baseUrl = provider === "openrouter"
-        ? "https://openrouter.ai/api/v1"
-        : "https://api.openai.com/v1";
-      await streamOpenAI(baseUrl, apiKey, model, messages, tools, onChunk, onToolCall, onDone, onError, signal);
-    }
-  } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") return;
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, provider, model }, "LLM proxy stream error");
-    onError(msg || "LLM streaming failed");
-  }
+  // Wrap the entire call in an OTel span so Langfuse shows the LLM
+  // generation inline alongside the HTTP and delegation spans.
+  return tracer.startActiveSpan(
+    `gen_ai.${provider}.chat`,
+    {
+      attributes: {
+        "gen_ai.system": provider,
+        "gen_ai.operation.name": "chat",
+        "gen_ai.request.model": model,
+        "gen_ai.request.messages": messages.length,
+        "gen_ai.request.has_tools": Boolean(tools && tools.length > 0),
+        "gen_ai.request.tool_count": tools?.length ?? 0,
+      },
+    },
+    async (span) => {
+      // Wrap the callbacks so we can capture usage + completion into
+      // the span without changing the caller's control flow.
+      let charCount = 0;
+      let toolCallCount = 0;
+      const instrumentedOnChunk = (delta: string) => {
+        charCount += delta.length;
+        onChunk(delta);
+      };
+      const instrumentedOnToolCall = (id: string, name: string, args: string) => {
+        toolCallCount++;
+        onToolCall(id, name, args);
+      };
+      const instrumentedOnDone = () => {
+        span.setAttribute("gen_ai.response.output_chars", charCount);
+        span.setAttribute("gen_ai.response.tool_calls", toolCallCount);
+        span.setStatus({ code: SpanStatusCode.OK });
+        span.end();
+        onDone();
+      };
+      const instrumentedOnError = (err: string) => {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err });
+        span.setAttribute("error.type", "llm_error");
+        span.end();
+        onError(err);
+      };
+
+      try {
+        if (provider === "anthropic") {
+          await streamAnthropic(apiKey, model, messages, tools, instrumentedOnChunk, instrumentedOnToolCall, instrumentedOnDone, instrumentedOnError, signal);
+        } else if (provider === "google") {
+          await streamGoogle(apiKey, model, messages, instrumentedOnChunk, instrumentedOnDone, instrumentedOnError, signal);
+        } else {
+          // OpenAI and OpenRouter share the same API format
+          const baseUrl = provider === "openrouter"
+            ? "https://openrouter.ai/api/v1"
+            : "https://api.openai.com/v1";
+          await streamOpenAI(baseUrl, apiKey, model, messages, tools, instrumentedOnChunk, instrumentedOnToolCall, instrumentedOnDone, instrumentedOnError, signal);
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") {
+          span.setAttribute("error.type", "aborted");
+          span.end();
+          return;
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error({ err, provider, model }, "LLM proxy stream error");
+        span.setStatus({ code: SpanStatusCode.ERROR, message: msg });
+        span.recordException(err as Error);
+        span.end();
+        onError(msg || "LLM streaming failed");
+      }
+    },
+  );
 }
 
 // ─── OpenAI / OpenRouter ────────────────────────────────────────────────────

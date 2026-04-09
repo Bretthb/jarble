@@ -39,6 +39,34 @@ output "dns_records" {
   }
 }
 
+# ─── Firewall IDs (for nodeManager.ts auto-scaling) ─────────────────────────
+
+output "agent_egress_firewall_id" {
+  description = "ID of the agent_egress firewall — set as HETZNER_AGENT_EGRESS_FIREWALL_ID env var on the API deployment so nodeManager.ts attaches it to auto-scaled agent VPSes."
+  value       = hcloud_firewall.agent_egress.id
+}
+
+output "cluster_firewall_id" {
+  description = "ID of the shared cluster firewall — set as HETZNER_FIREWALL_ID env var on the API deployment."
+  value       = hcloud_firewall.cluster.id
+}
+
+# ─── Longhorn Backup Configuration (L-09 / L-10) ────────────────────────────
+
+output "longhorn_backups_enabled" {
+  description = "True iff a backup-target URL is configured. When false, RecurringJob CRs still install (snapshots work) but the weekly off-cluster backup job will log an error until a target is set."
+  value       = var.longhorn_backup_target != ""
+}
+
+output "longhorn_backup_target" {
+  description = "Configured Longhorn backup-target URL (empty if disabled). The bucket must exist out-of-band — see docs/audits/longhorn-backup-setup.md."
+  value       = var.longhorn_backup_target
+}
+
+output "longhorn_backup_secret_name" {
+  description = "Name of the k8s Secret in longhorn-system holding S3 credentials. Create it out-of-band BEFORE setting longhorn_backup_target — see docs/audits/longhorn-backup-setup.md."
+  value       = var.longhorn_backup_secret_name
+}
 
 # ─── Coolify (Frontend Hosting) ─────────────────────────────────────────────
 

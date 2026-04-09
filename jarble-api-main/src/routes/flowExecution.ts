@@ -16,7 +16,7 @@ import {
   type FlowExecutionState,
 } from "../services/flowEngine.js";
 import { db, tables } from "../db/index.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 const log = createModuleLogger("flow-execution");
 
@@ -174,6 +174,40 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
       return;
     }
 
+    // For ad-hoc definitions (not from DB), validate deployment ownership
+    if (dbFlow.length === 0 && definition) {
+      // Collect deployment IDs from BOTH n.deploymentId AND n.config.deploymentId.
+      // A previous bypass was reported where placing the ID in node.config let
+      // the check pass silently. Scan both locations to close the gap.
+      const deploymentIds = definition.nodes
+        .flatMap((n: any) => [
+          n.deploymentId,
+          n.config?.deploymentId,
+        ])
+        .filter(Boolean) as string[];
+
+      if (deploymentIds.length > 0) {
+        const uniqueIds = [...new Set(deploymentIds)];
+        const owned = await db
+          .select({ id: tables.deployments.id })
+          .from(tables.deployments)
+          .where(
+            and(
+              inArray(tables.deployments.id, uniqueIds),
+              eq(tables.deployments.userId, user.id)
+            )
+          );
+        const ownedSet = new Set(owned.map((d) => d.id));
+        const unowned = uniqueIds.filter((id) => !ownedSet.has(id));
+        if (unowned.length > 0) {
+          res.status(403).json({
+            error: "Flow references deployments you do not own",
+          });
+          return;
+        }
+      }
+    }
+
     // ── Validate callerDeploymentId ownership ────────────────────────
     let callerDeploymentId: string | undefined = (body.callerDeploymentId as string) || undefined;
 
@@ -215,6 +249,29 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
       user.id,
       callerDeploymentId
     );
+
+    // Persist execution row to DB so checkpointState/persistState UPDATEs work.
+    // Only for saved flows (dbFlow exists) — ad-hoc executions have no FK target.
+    if (dbFlow.length > 0) {
+      try {
+        const nowTs = new Date();
+        await db.insert(tables.flowExecutions).values({
+          id: executionId,
+          flowId,
+          userId: user.id,
+          status: "running",
+          stepResults: JSON.stringify({}),
+          totalCreditsCharged: 0,
+          startedAt: nowTs,
+          createdAt: nowTs,
+        } as any);
+      } catch (insertErr) {
+        log.error({ insertErr, executionId }, "Failed to insert flow execution row");
+        releaseConnection(user.id);
+        res.status(500).json({ error: "Failed to initialize execution" });
+        return;
+      }
+    }
 
     // Register for reconnection and SSE streaming
     runningExecutions.set(executionId, { engine, userId: user.id });

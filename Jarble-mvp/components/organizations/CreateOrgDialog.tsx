@@ -4,7 +4,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useOrg } from "@/contexts/OrgContext";
 import { toast } from "sonner";
-import { Building2, Loader2 } from "lucide-react";
+import { Building2, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,8 +35,10 @@ export default function CreateOrgDialog({
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
-  const { setActiveOrgId } = useOrg();
+  const { setActiveOrgId, orgs } = useOrg();
   const utils = trpc.useUtils();
+  const ownedCount = orgs.filter((o) => o.role === "owner").length;
+  const atLimit = ownedCount >= 10;
 
   const createOrg = trpc.org.create.useMutation({
     onSuccess: (data) => {
@@ -79,6 +81,14 @@ export default function CreateOrgDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {atLimit && (
+            <div className="flex items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3">
+              <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
+              <p className="text-sm text-destructive">
+                You've reached the maximum of 10 organizations. Delete an unused org to create a new one.
+              </p>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="org-name">Name</Label>
             <Input
@@ -117,7 +127,7 @@ export default function CreateOrgDialog({
             </Button>
             <Button
               type="submit"
-              disabled={!name.trim() || !slug.trim() || createOrg.isPending}
+              disabled={atLimit || !name.trim() || !slug.trim() || createOrg.isPending}
             >
               {createOrg.isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />

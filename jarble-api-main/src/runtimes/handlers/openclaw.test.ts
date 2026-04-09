@@ -90,11 +90,15 @@ describe("openclawHandler metadata", () => {
   });
 
   it("declares config file specs", () => {
-    expect(openclawHandler.configFiles).toHaveLength(3);
+    // Base spec has 4 entries. delegation-tools.json is generated
+    // dynamically by renderConfigs only when teamMembers exist (A2A
+    // Phase 1), so it's not in the static configFiles list.
+    expect(openclawHandler.configFiles).toHaveLength(4);
     expect(openclawHandler.configFiles[0].path).toBe("soul.md");
     expect(openclawHandler.configFiles[1].path).toBe("openclaw.json");
     expect(openclawHandler.configFiles[2].path).toBe("skills/*");
     expect(openclawHandler.configFiles[2].isGlob).toBe(true);
+    expect(openclawHandler.configFiles[3].path).toBe("subagent-tools.json");
   });
 });
 
@@ -640,6 +644,246 @@ describe("Phase 1 - sandbox-first prompt language", () => {
   });
 });
 
+// ── Bot Teams: soul.md Team Context section ──────────────────────────────────
+
+describe("openclawHandler.renderConfigs - Team Context (Bot Teams)", () => {
+  it("does NOT render Team Context for solo deployments", () => {
+    // No teamContext field set → solo bot → no Team Context block at all.
+    const files = openclawHandler.renderConfigs(makeDeployment());
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+
+    expect(soulMd.content).not.toContain("BEGIN JARBLE_FLOW_CONTEXT");
+    expect(soulMd.content).not.toContain("## Team Context");
+  });
+
+  it("renders Team Context block when deployment.teamContext is set", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamContext: {
+          flowId: "flw_abc123",
+          flowName: "Pricing Squad",
+          selfRole: "Entry Point",
+          isEntryPoint: true,
+          teammates: [
+            { deploymentId: "dep_pricer", name: "Pricer Bot", role: "Pricing Specialist", slug: "pricing_specialist" },
+            { deploymentId: "dep_cat", name: "Catalog Bot", role: "Catalog Lookup", slug: "catalog_lookup" },
+          ],
+        },
+      })
+    );
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+
+    // Delimiters must wrap the section so we can find/remove it later.
+    expect(soulMd.content).toContain("<!-- BEGIN JARBLE_FLOW_CONTEXT v1 -->");
+    expect(soulMd.content).toContain("<!-- END JARBLE_FLOW_CONTEXT v1 -->");
+    expect(soulMd.content).toContain("## Team Context");
+
+    // Flow name and self role appear authoritatively.
+    expect(soulMd.content).toContain("\"Pricing Squad\"");
+    expect(soulMd.content).toContain("**Your team role:** Entry Point");
+
+    // Entry-point note only fires when isEntryPoint=true.
+    expect(soulMd.content).toContain("**You are the entry point**");
+
+    // Teammates render as bullet list with slug + role + name.
+    expect(soulMd.content).toContain("- **pricing_specialist** (Pricing Specialist) — Pricer Bot");
+    expect(soulMd.content).toContain("- **catalog_lookup** (Catalog Lookup) — Catalog Bot");
+  });
+
+  it("omits the entry-point note when isEntryPoint=false", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamContext: {
+          flowId: "flw_x",
+          flowName: "Team A",
+          selfRole: "Specialist",
+          isEntryPoint: false,
+          teammates: [
+            { deploymentId: "dep_lead", name: "Lead Bot", role: "Coordinator", slug: "coordinator" },
+          ],
+        },
+      })
+    );
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+
+    expect(soulMd.content).toContain("## Team Context");
+    expect(soulMd.content).not.toContain("**You are the entry point**");
+  });
+
+  it("teaches the exact jarble_delegate JSON block format with one-shot example", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamContext: {
+          flowId: "flw_x",
+          flowName: "Demo Team",
+          selfRole: null,
+          isEntryPoint: false,
+          teammates: [
+            { deploymentId: "dep_specialist", name: "Specialist", role: null, slug: "specialist" },
+          ],
+        },
+      })
+    );
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+
+    // Must reference the language-tagged fence by exact name.
+    expect(soulMd.content).toContain("`jarble_delegate`");
+    // Must include a one-shot example with the agreed example payload.
+    expect(soulMd.content).toContain('"to": "specialist"');
+    expect(soulMd.content).toContain('"task": "Describe primary colors"');
+    expect(soulMd.content).toContain('"context": ""');
+  });
+
+  it("includes the hard rule against fabricating delegations", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamContext: {
+          flowId: "flw_x",
+          flowName: "Team",
+          selfRole: "Member",
+          isEntryPoint: true,
+          teammates: [
+            { deploymentId: "dep_a", name: "A", role: null, slug: "a" },
+          ],
+        },
+      })
+    );
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+
+    expect(soulMd.content).toContain("Never claim you delegated unless you actually emitted a `jarble_delegate` block");
+    expect(soulMd.content).toContain("If you cannot accomplish the task and have no appropriate teammate, say so plainly");
+  });
+
+  it("renders a polite empty-team note when teammates is empty", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamContext: {
+          flowId: "flw_solo",
+          flowName: "One-Bot Team",
+          selfRole: "Entry Point",
+          isEntryPoint: true,
+          teammates: [],
+        },
+      })
+    );
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+
+    expect(soulMd.content).toContain("## Team Context");
+    expect(soulMd.content).toContain("You have no teammates configured");
+  });
+
+  it("falls back to '(unspecified)' messaging when selfRole is null", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamContext: {
+          flowId: "flw_x",
+          flowName: "Team",
+          selfRole: null,
+          isEntryPoint: false,
+          teammates: [
+            { deploymentId: "dep_a", name: "A", role: null, slug: "a" },
+          ],
+        },
+      })
+    );
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+    expect(soulMd.content).toContain("**Your team role:** (unspecified");
+  });
+
+  it("renders teammates without role suffix when role is null", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamContext: {
+          flowId: "flw_x",
+          flowName: "Team",
+          selfRole: "Lead",
+          isEntryPoint: true,
+          teammates: [
+            { deploymentId: "dep_unrole", name: "No Role Bot", role: null, slug: "no_role_bot" },
+          ],
+        },
+      })
+    );
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+    // Format: `- **slug** — name` (no parenthesized role suffix)
+    expect(soulMd.content).toContain("- **no_role_bot** — No Role Bot");
+    // No empty parens
+    expect(soulMd.content).not.toContain("**no_role_bot** ()");
+  });
+
+  it("writes delegation-tools.json with a2a_delegate when teamMembers exist (A2A Phase 1)", () => {
+    // A2A Phase 1: delegation-tools.json is now generated dynamically
+    // with the a2a_delegate tool + legacy per-member tools.
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamMembers: [
+          { deploymentId: "dep_a", name: "A", role: "Specialist", slug: "specialist" },
+        ],
+        teamContext: {
+          flowId: "flw_x",
+          flowName: "Team",
+          selfRole: "Lead",
+          isEntryPoint: true,
+          teammates: [
+            { deploymentId: "dep_a", name: "A", role: "Specialist", slug: "specialist" },
+          ],
+        },
+      })
+    );
+
+    const delegationFile = files.find((f) => f.path === "delegation-tools.json");
+    expect(delegationFile).toBeDefined();
+    const tools = JSON.parse(delegationFile!.content);
+    expect(tools[0].name).toBe("a2a_delegate");
+  });
+
+  it("includes a2a_delegate instructions in Agent Pool Team Members section", () => {
+    // A2A Phase 1: the Agent Pool block now teaches a2a_delegate as the
+    // preferred delegation method, with legacy tools as fallback.
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamMembers: [
+          { deploymentId: "dep_a", name: "A", role: "Specialist", slug: "specialist" },
+        ],
+        teamContext: {
+          flowId: "flw_x",
+          flowName: "Team",
+          selfRole: "Lead",
+          isEntryPoint: true,
+          teammates: [
+            { deploymentId: "dep_a", name: "A", role: "Specialist", slug: "specialist" },
+          ],
+        },
+      })
+    );
+    const soulMd = files.find((f) => f.path === "soul.md")!;
+
+    // A2A Phase 1: soul.md now includes Team Members section with a2a_delegate
+    expect(soulMd.content).toContain("a2a_delegate");
+    expect(soulMd.content).toContain("### Team Members");
+  });
+
+  it("renders Team Context to BOTH soul.md and the workspace SOUL.md path", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamContext: {
+          flowId: "flw_x",
+          flowName: "Team",
+          selfRole: "Lead",
+          isEntryPoint: true,
+          teammates: [],
+        },
+      })
+    );
+
+    const soulFiles = files.filter((f) => f.path === "soul.md" || f.path.endsWith("SOUL.md"));
+    expect(soulFiles).toHaveLength(2);
+    for (const f of soulFiles) {
+      expect(f.content).toContain("BEGIN JARBLE_FLOW_CONTEXT v1");
+    }
+  });
+});
+
 // ── Phase 2: Agent Forking - platform LLM key injection ─────────────────────
 
 describe("openclawHandler.getSecretEntries - platform mode", () => {
@@ -724,5 +968,55 @@ describe("openclawHandler.getSecretEntries - platform mode", () => {
     );
     expect(entries["LLM_PROVIDER"]).toBe("anthropic");
     expect(entries["LLM_MODEL"]).toBe("claude-opus-4-6");
+  });
+});
+
+// ── A2A Delegation ────────────────────────────────────────────────────────────
+
+describe("a2a_delegate tool generation", () => {
+  it("generates delegation-tools.json with a2a_delegate and legacy tools", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamMembers: [
+          { deploymentId: "dep-researcher", slug: "researcher", name: "Research Bot", role: "researcher" },
+          { deploymentId: "dep-writer", slug: "writer", name: "Writer Bot", role: "writer" },
+        ],
+      })
+    );
+    const delegationFile = files.find((f) => f.path === "delegation-tools.json");
+    expect(delegationFile).toBeDefined();
+    const tools = JSON.parse(delegationFile!.content);
+    expect(tools).toHaveLength(3); // 1 a2a_delegate + 2 legacy
+
+    // a2a_delegate tool
+    const a2a = tools[0];
+    expect(a2a.name).toBe("a2a_delegate");
+    expect(a2a.inputSchema.properties.to.enum).toEqual(["researcher", "writer"]);
+    expect(a2a.inputSchema.required).toContain("to");
+    expect(a2a.inputSchema.required).toContain("task");
+
+    // Legacy tools
+    expect(tools[1].name).toBe("delegate_to_researcher");
+    expect(tools[2].name).toBe("delegate_to_writer");
+  });
+
+  it("does not generate delegation-tools.json when no teamMembers", () => {
+    const files = openclawHandler.renderConfigs(makeDeployment({ teamMembers: undefined }));
+    const delegationFile = files.find((f) => f.path === "delegation-tools.json");
+    expect(delegationFile).toBeUndefined();
+  });
+
+  it("includes a2a_delegate instructions in soul.md when teamMembers present", () => {
+    const files = openclawHandler.renderConfigs(
+      makeDeployment({
+        teamMembers: [
+          { deploymentId: "dep-analyst", slug: "analyst", name: "Analyst Bot", role: null },
+        ],
+      })
+    );
+    const soulMd = files.find((f) => f.path === "soul.md");
+    expect(soulMd).toBeDefined();
+    expect(soulMd!.content).toContain("a2a_delegate");
+    expect(soulMd!.content).toContain("analyst");
   });
 });

@@ -30,6 +30,9 @@ export default function Home() {
     <div className="min-h-screen bg-background text-foreground relative overflow-x-hidden">
       <MarketingNav />
 
+      {/* Main landmark for screen readers and SEO. Wraps all page content
+          except the nav (above) and footer (below). */}
+      <main>
       {/* Hero Section */}
       <div className="relative pt-16">
         <section className="relative z-10 pt-32 pb-20 lg:pt-44 lg:pb-32 px-4 scroll-mt-20">
@@ -56,10 +59,10 @@ export default function Home() {
                   <span className="inline-flex items-center px-3 py-1 rounded-full bg-secondary/80 backdrop-blur-sm text-xs font-medium text-muted-foreground border border-border/50">
                     Infrastructure for AI Agents
                   </span>
-                  <h2 className="text-5xl lg:text-7xl font-serif font-medium leading-[1.1] tracking-tight">
+                  <h1 className="text-5xl lg:text-7xl font-serif font-medium leading-[1.1] tracking-tight">
                     Build. Deploy.
                     <span className="block text-primary">Earn.</span>
-                  </h2>
+                  </h1>
                   <p className="text-xl text-muted-foreground">
                     The platform where builders create and monetize agents, and businesses deploy them into the tools their teams already use.
                   </p>
@@ -292,7 +295,7 @@ export default function Home() {
               <DollarSign className="w-8 h-8 text-primary mb-4" />
               <h3 className="text-lg font-semibold mb-2">Transparent pricing</h3>
               <p className="text-muted-foreground text-sm">
-                Hosting starts at $32/mo. AI model costs go straight to your provider with zero margin from us. No hidden fees, no usage surprises.
+                Beta pricing: $13.99/mo per agent. AI model costs go straight to your provider with zero margin from us. No hidden fees, no usage surprises.
               </p>
             </div>
             <div className="p-6 rounded-xl bg-card/80 backdrop-blur-md border border-border shadow-sm animate-fade-in-up-fast">
@@ -312,6 +315,7 @@ export default function Home() {
           </div>
         </div>
       </section>
+      </main>
 
       <MarketingFooter />
     </div>

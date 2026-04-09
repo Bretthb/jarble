@@ -108,6 +108,25 @@ export const authLimiter = rateLimit({
 });
 
 /**
+ * Mutation limiter: 30 req/min per user ID.
+ * Prevents creation spam (deployments, flows, orgs, subagents).
+ * Applied selectively to POST tRPC mutations in index.ts.
+ */
+export const mutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: userKeyGenerator,
+  skip: (req) => req.method !== "POST",
+  message: { error: "Too many write operations. Please slow down." },
+  handler: (req, res, _next, options) => {
+    log.warn({ ip: req.ip, path: req.path, user: extractSubFromToken(req) }, `Mutation rate limited`);
+    res.status(options.statusCode).json(options.message);
+  },
+});
+
+/**
  * Stripe action limiter: 10 req/min per user ID.
  * Prevents checkout spam and duplicate session creation.
  */

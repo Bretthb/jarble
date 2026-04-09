@@ -213,7 +213,12 @@ describe("chatViaExec", () => {
     });
 
     await chatViaExec("my-pod", "ses-key", "Hello bot");
+    // The exec args begin with `env JARBLE_CURRENT_SESSION_ID=...` to
+    // provide a server-side fallback for memory_scope=session. They
+    // may also include TRACEPARENT when an OTel context is active (not
+    // the case in this unit test because no tracer context is set up).
     expect(mockedExec).toHaveBeenCalledWith("my-pod", [
+      "env", "JARBLE_CURRENT_SESSION_ID=ses-key",
       "npx", "openclaw", "agent",
       "--message", "Hello bot",
       "--session-id", "ses-key",

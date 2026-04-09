@@ -45,10 +45,25 @@ function openIDB(): Promise<IDBDatabase> {
   });
 }
 
-/** Save large props for a deployment's cards into IndexedDB. */
+/**
+ * Compute the IDB key for a conversation's large props.
+ *
+ * CRITICAL: this MUST match the scoping of localStorage (see getStorageKey below).
+ * Previously the IDB key was only scoped by deploymentId, which meant a save
+ * for conversation B would overwrite the large-prop map for conversation A.
+ * Switching back to conversation A would then restore empty shells because
+ * the IDB entry under `${PREFIX}${deploymentId}` was the conversation B snapshot.
+ */
+function getIdbKey(deploymentId: string, conversationId?: string | null): string {
+  if (conversationId) return `${STORAGE_PREFIX}${deploymentId}-${conversationId}`;
+  return `${STORAGE_PREFIX}${deploymentId}`;
+}
+
+/** Save large props for a conversation's cards into IndexedDB. */
 async function saveLargeProps(
   deploymentId: string,
-  cards: CanvasCard[]
+  cards: CanvasCard[],
+  conversationId?: string | null,
 ): Promise<void> {
   try {
     const db = await openIDB();
@@ -62,7 +77,7 @@ async function saveLargeProps(
       }
     }
 
-    store.put(propsMap, `${STORAGE_PREFIX}${deploymentId}`);
+    store.put(propsMap, getIdbKey(deploymentId, conversationId));
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -73,9 +88,10 @@ async function saveLargeProps(
   }
 }
 
-/** Load large props for a deployment from IndexedDB. Returns map of cardId -> props. */
+/** Load large props for a conversation from IndexedDB. Returns map of cardId -> props. */
 async function loadLargeProps(
-  deploymentId: string
+  deploymentId: string,
+  conversationId?: string | null,
 ): Promise<Record<string, { component: string; props: Record<string, unknown> }>> {
   try {
     const db = await openIDB();
@@ -83,12 +99,26 @@ async function loadLargeProps(
     const store = tx.objectStore(IDB_STORE);
 
     const result = await new Promise<Record<string, { component: string; props: Record<string, unknown> }> | undefined>((resolve, reject) => {
-      const req = store.get(`${STORAGE_PREFIX}${deploymentId}`);
+      const req = store.get(getIdbKey(deploymentId, conversationId));
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
     db.close();
-    return result || {};
+    // Fallback to legacy deployment-only key for migration
+    if (result) return result;
+    if (conversationId) {
+      const db2 = await openIDB();
+      const tx2 = db2.transaction(IDB_STORE, "readonly");
+      const store2 = tx2.objectStore(IDB_STORE);
+      const legacy = await new Promise<Record<string, { component: string; props: Record<string, unknown> }> | undefined>((resolve) => {
+        const req = store2.get(`${STORAGE_PREFIX}${deploymentId}`);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(undefined);
+      });
+      db2.close();
+      return legacy || {};
+    }
+    return {};
   } catch {
     return {};
   }
@@ -249,7 +279,9 @@ function saveCanvasState(deploymentId: string, state: CanvasState, conversationI
   }
 
   // Save large props to IndexedDB (fire-and-forget)
-  saveLargeProps(deploymentId, state.cards);
+  // IMPORTANT: pass conversationId so the IDB entry is scoped correctly and
+  // switching conversations doesn't clobber other conversations' large props.
+  saveLargeProps(deploymentId, state.cards, conversationId);
 }
 
 /**
@@ -333,7 +365,7 @@ function restoreCanvas(
     // Hydrate large props from IndexedDB (async)
     const hasLargeCards = saved.cards.some((c) => c.propsLost);
     if (hasLargeCards) {
-      loadLargeProps(deploymentId).then((largeProps) => {
+      loadLargeProps(deploymentId, conversationId).then((largeProps) => {
         for (const card of saved.cards) {
           if (card.propsLost && largeProps[card.id]) {
             dispatch({

@@ -36,6 +36,17 @@ export interface OrchestrationStepEvent {
   toolName: string;        // MCP tool name: "agent_research"
   task?: string;           // truncated task (max 200 chars)
   targetDeploymentId?: string; // for delegations
+  /**
+   * Parent step id in the delegation tree. For recursive delegations this
+   * mirrors `agent_calls.parent_call_id` on the row for this step. Absent
+   * on top-level (entry bot → first specialist) steps.
+   */
+  parentStepId?: string;
+  /**
+   * Delegation depth — 1 for entry → first specialist, 2 for the next hop,
+   * etc. 0 is reserved for non-delegation agent calls (subagent/platform).
+   */
+  depth?: number;
 }
 
 export interface OrchestrationStepEndEvent extends OrchestrationStepEvent {

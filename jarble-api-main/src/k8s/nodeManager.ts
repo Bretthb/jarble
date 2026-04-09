@@ -21,7 +21,7 @@ import { NAMESPACE } from "./constants.js";
 import { createModuleLogger } from "../utils/logger.js";
 import { db } from "../db/index.js";
 import { eq, and, inArray, lt } from "drizzle-orm";
-import { managedNodes } from "../db/schema.js";
+import { managedNodes } from "../db/schema.pg.js";
 import { customAlphabet } from "nanoid";
 
 const logger = createModuleLogger("nodeManager");
@@ -39,26 +39,97 @@ const NODE_JOIN_TIMEOUT_MS = 240_000; // 4 min
 const POLL_INTERVAL_MS = 15_000;
 const SCALE_DOWN_GRACE_MS = 5 * 60 * 1000; // 5 min
 
+// Disk overhead per worker that is NOT available to Longhorn replicas:
+//   ~3 GiB Ubuntu base + kubelet/containerd images
+//   ~2 GiB OpenClaw runtime image cache
+//   ~1 GiB Longhorn DaemonSet binaries + engine images
+//   ~5 GiB Longhorn 25% safety reservation (cushion against running OOD)
+// Empirically a fresh cpx11 reports ~31.5 GiB total to Longhorn / ~29.4 GiB free
+// out of a 40 GiB root disk, which lines up with ~11 GiB unavailable.
+//
+// Layer A may import this constant for pre-flight validation in deployment.ts.
+export const LONGHORN_DISK_OVERHEAD_GB = 11;
+
 // Hetzner server types mapped to deployment resources.
-// Pick the smallest server that fits the pod's CPU + RAM requirements.
-// Each entry: { vCPU, memoryGb, diskGb, monthlyCents }
-const SERVER_TYPES = [
-  { name: "cpx11", cores: 2, memGb: 2,  diskGb: 40,  monthlyCents: 499 },
-  { name: "cpx21", cores: 3, memGb: 4,  diskGb: 80,  monthlyCents: 999 },
-  { name: "cpx31", cores: 4, memGb: 8,  diskGb: 160, monthlyCents: 1799 },
-  { name: "cpx41", cores: 8, memGb: 16, diskGb: 240, monthlyCents: 3349 },
-  { name: "cpx51", cores: 16, memGb: 32, diskGb: 360, monthlyCents: 6699 },
+// Pick the smallest server that fits the pod's CPU + RAM + PVC disk requirements.
+// `usableLonghornGb` is what remains for the bot's PVC after subtracting overhead.
+// Each entry: { name, vCPU, memoryGb, diskGb, usableLonghornGb, monthlyCents }
+//
+// Exported so test code (and Layer A's deployment-router validation) can import
+// the canonical tier table. Do NOT mutate at runtime — treat as readonly data.
+export const SERVER_TYPES = [
+  { name: "cpx11", cores: 2,  memGb: 2,  diskGb: 40,  usableLonghornGb: 40  - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 499 },
+  { name: "cpx21", cores: 3,  memGb: 4,  diskGb: 80,  usableLonghornGb: 80  - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 999 },
+  { name: "cpx31", cores: 4,  memGb: 8,  diskGb: 160, usableLonghornGb: 160 - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 1799 },
+  { name: "cpx41", cores: 8,  memGb: 16, diskGb: 240, usableLonghornGb: 240 - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 3349 },
+  { name: "cpx51", cores: 16, memGb: 32, diskGb: 360, usableLonghornGb: 360 - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 6699 },
 ] as const;
 
-function pickServerType(cpuCores: number, memGb: number): typeof SERVER_TYPES[number] {
+export type ServerType = typeof SERVER_TYPES[number];
+
+/**
+ * Pick the smallest Hetzner server type that fits the pod's CPU, RAM, and PVC.
+ *
+ * The PVC dimension is critical: a 30 GiB PVC on a cpx11 (40 GiB root, ~29 GiB
+ * usable for Longhorn after overhead) would leave the volume unschedulable
+ * forever. Filtering by `pvcGb <= usableLonghornGb` prevents that.
+ *
+ * @param cpuCores Required vCPU (e.g. 2.0)
+ * @param memGb    Required RAM in GiB (e.g. 3.0)
+ * @param pvcGb    Required PVC size in GiB (defaults to 20 if undefined)
+ * @param tierOverride Optional explicit tier name (e.g. "cpx31"). If supplied,
+ *                     validates the tier exists AND fits the PVC; throws otherwise.
+ *
+ * @throws Error if no tier in the table is large enough for the requested PVC,
+ *               or if `tierOverride` is supplied and doesn't fit.
+ */
+export function pickServerType(
+  cpuCores: number,
+  memGb: number,
+  pvcGb: number = 20,
+  tierOverride?: string,
+): ServerType {
+  // Phase 3: honor explicit override but validate it fits the PVC
+  if (tierOverride) {
+    const override = SERVER_TYPES.find((t) => t.name === tierOverride);
+    if (!override) {
+      throw new Error(
+        `Unknown Hetzner server type override "${tierOverride}". ` +
+        `Valid tiers: ${SERVER_TYPES.map((t) => t.name).join(", ")}.`,
+      );
+    }
+    if (pvcGb > override.usableLonghornGb) {
+      throw new Error(
+        `Hetzner tier override "${tierOverride}" only has ` +
+        `${override.usableLonghornGb} GiB usable for Longhorn, but the bot's ` +
+        `PVC requests ${pvcGb} GiB. Pick a larger tier or shrink the PVC.`,
+      );
+    }
+    return override;
+  }
+
   for (const st of SERVER_TYPES) {
-    // Server needs headroom for K3s agent + system (~0.5 vCPU, ~0.5GB RAM)
-    if (st.cores >= cpuCores + 0.5 && st.memGb >= memGb + 0.5) {
+    // Server needs headroom for K3s agent + system (~0.5 vCPU, ~0.5GB RAM).
+    // PVC must fit within the tier's Longhorn-usable disk.
+    if (
+      st.cores >= cpuCores + 0.5 &&
+      st.memGb >= memGb + 0.5 &&
+      pvcGb <= st.usableLonghornGb
+    ) {
       return st;
     }
   }
-  // Fall back to largest
-  return SERVER_TYPES[SERVER_TYPES.length - 1];
+
+  // Nothing in the table fits — surface a clear error rather than silently
+  // falling back to the largest tier (which would still fail for huge PVCs
+  // and waste a cpx51 on a small bot whose PVC happens to be enormous).
+  const largest = SERVER_TYPES[SERVER_TYPES.length - 1];
+  throw new Error(
+    `No Hetzner server type fits the requested resources: ` +
+    `${cpuCores} vCPU, ${memGb} GiB RAM, ${pvcGb} GiB PVC. ` +
+    `Largest available is ${largest.name} ` +
+    `(${largest.cores} vCPU, ${largest.memGb} GiB RAM, ${largest.usableLonghornGb} GiB usable disk).`,
+  );
 }
 
 function getHetznerToken(): string {
@@ -116,36 +187,90 @@ function buildCloudInit(nodeIp: string, hasVolume: boolean): string {
   const k3sToken = process.env.K3S_JOIN_TOKEN;
   if (!k3sToken) throw new Error("K3S_JOIN_TOKEN not set");
 
-  // Volume mount section - waits for Hetzner block storage device to appear
-  // The volume ID isn't known at cloud-init time, so we find it by scanning /dev/disk/by-id/
+  // Volume mount section - waits for Hetzner block storage device to appear.
+  // The volume ID isn't known at cloud-init time, so we scan /dev/disk/by-id/.
+  //
+  // Key design decisions:
+  //  - `|| true` on the ls pipeline prevents `set -euo pipefail` from killing the
+  //    script when the glob doesn't match (ls exits 2, pipefail propagates it).
+  //  - `if mount ...` wraps mount so a failure doesn't trigger set -e either.
+  //  - blkid + mkfs fallback handles the edge case where Hetzner's async format
+  //    hasn't completed by the time the device appears.
+  //  - Post-loop check logs a clear status file for remote diagnosis.
   const volumeMount = hasVolume ? `
 # Mount Hetzner block storage for Longhorn
 MOUNT_PATH="/var/lib/longhorn"
 mkdir -p "$MOUNT_PATH"
 echo "Waiting for block storage device..."
+VOLUME_MOUNTED=false
 for i in $(seq 1 60); do
-  VOLUME_DEVICE=$(ls /dev/disk/by-id/scsi-0HC_Volume_* 2>/dev/null | head -1)
+  VOLUME_DEVICE=$(ls /dev/disk/by-id/scsi-0HC_Volume_* 2>/dev/null | head -1 || true)
   if [ -n "$VOLUME_DEVICE" ]; then
-    echo "Volume device found: $VOLUME_DEVICE"
-    mount -o discard,defaults "$VOLUME_DEVICE" "$MOUNT_PATH"
-    if ! grep -q "$VOLUME_DEVICE" /etc/fstab; then
-      echo "$VOLUME_DEVICE $MOUNT_PATH ext4 discard,nofail,defaults 0 0" >> /etc/fstab
+    echo "Found volume device: $VOLUME_DEVICE (attempt $i/60)"
+    # Ensure filesystem exists — Hetzner format=ext4 should pre-format, but verify
+    if ! blkid -s TYPE -o value "$VOLUME_DEVICE" 2>/dev/null | grep -q .; then
+      echo "No filesystem detected on $VOLUME_DEVICE, formatting as ext4..."
+      mkfs.ext4 -F "$VOLUME_DEVICE"
     fi
-    echo "Block storage mounted at $MOUNT_PATH"
-    break
+    if mount -o discard,defaults "$VOLUME_DEVICE" "$MOUNT_PATH" 2>&1; then
+      if ! grep -q "$VOLUME_DEVICE" /etc/fstab; then
+        echo "$VOLUME_DEVICE $MOUNT_PATH ext4 discard,nofail,defaults 0 0" >> /etc/fstab
+      fi
+      VOLUME_MOUNTED=true
+      echo "Block storage mounted at $MOUNT_PATH ($(df -h "$MOUNT_PATH" | tail -1 | awk '{print $2}'))"
+      break
+    else
+      echo "Mount failed on attempt $i, retrying in 5s..."
+    fi
+  else
+    [ "$i" -eq 1 ] && echo "Device not yet available, polling every 5s (up to 5 min)..."
   fi
   sleep 5
 done
+
+if [ "$VOLUME_MOUNTED" = "false" ]; then
+  echo "ERROR: Block storage failed to mount after 60 attempts. Longhorn will use root disk only."
+  echo "VOLUME_MOUNT_FAILED $(date -u +%Y-%m-%dT%H:%M:%SZ)" > /var/log/jarble-volume-status.log
+else
+  echo "VOLUME_MOUNT_OK $(date -u +%Y-%m-%dT%H:%M:%SZ)" > /var/log/jarble-volume-status.log
+fi
 ` : "";
 
   return `#!/bin/bash
 set -euo pipefail
 sleep 5
 
-# Install Longhorn prerequisites
+# Install Longhorn prerequisites + iptables persistence
+# DEBIAN_FRONTEND=noninteractive prevents iptables-persistent install prompts
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq open-iscsi nfs-common curl
+apt-get install -y -qq open-iscsi nfs-common curl iptables iptables-persistent
 systemctl enable iscsid && systemctl start iscsid
+
+# ─── Network egress hardening (belt-and-suspenders alongside hcloud_firewall.agent_egress) ───
+#
+# Block the Hetzner Cloud metadata service at 169.254.169.254. A compromised bot
+# pod could otherwise issue an SSRF call to this address and read instance metadata
+# (cloud-init user-data, network config, region info). The Hetzner metadata service
+# does not expose IAM credentials like AWS, but it does leak the K3S_JOIN_TOKEN
+# baked into our cloud-init user-data — which would let an attacker join arbitrary
+# nodes to the cluster. Drop ALL traffic to that address from this host outright.
+#
+# This runs BEFORE K3s joins so the rules are active for the entire pod lifetime.
+iptables -I OUTPUT -d 169.254.169.254/32 -j DROP
+# IPv6 link-local equivalent (Hetzner does not currently expose metadata over v6,
+# but block link-local destinations defensively in case that changes).
+if command -v ip6tables >/dev/null 2>&1; then
+  ip6tables -I OUTPUT -d fe80::/10 -j DROP || true
+fi
+
+# Persist rules across reboots via iptables-persistent (netfilter-persistent service)
+mkdir -p /etc/iptables
+iptables-save > /etc/iptables/rules.v4
+if command -v ip6tables-save >/dev/null 2>&1; then
+  ip6tables-save > /etc/iptables/rules.v6 || true
+fi
+systemctl enable netfilter-persistent || true
 ${volumeMount}
 # Join K3s cluster
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - agent \\
@@ -164,10 +289,26 @@ let provisioning = false;
 let lastFailureTime = 0;
 const FAILURE_COOLDOWN_MS = 5 * 60 * 1000; // 5 min cooldown after a failure
 
-async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb: number, deploymentId?: string): Promise<string> {
+async function provisionNode(
+  podCpuCores: number,
+  podMemGb: number,
+  podStorageGb: number,
+  deploymentId?: string,
+  tierOverride?: string,
+): Promise<string> {
   provisioning = true;
 
-  const serverType = pickServerType(podCpuCores, podMemGb);
+  // pickServerType now also filters by usable Longhorn disk so a 30 GiB PVC
+  // never lands on a cpx11 (which only has ~29 GiB usable). May throw if no
+  // tier fits — propagate that out so the deploy fails fast instead of
+  // silently provisioning a server that will leave the PVC unschedulable.
+  let serverType: ServerType;
+  try {
+    serverType = pickServerType(podCpuCores, podMemGb, podStorageGb, tierOverride);
+  } catch (err) {
+    provisioning = false;
+    throw err;
+  }
   const nodeName = deploymentId
     ? `${NODE_NAME_PREFIX}-${deploymentId.slice(0, 12)}`
     : `${NODE_NAME_PREFIX}-${nanoid()}`;
@@ -202,6 +343,11 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
   try {
     const networkId = parseInt(process.env.HETZNER_NETWORK_ID || "0");
     const firewallId = parseInt(process.env.HETZNER_FIREWALL_ID || "0");
+    // Optional second firewall locking down outbound traffic for agent VPSes only.
+    // Created by infrastructure/terraform/main.tf as `hcloud_firewall.agent_egress`.
+    // Attached ONLY to auto-scaled workers — never to master or Coolify (they need
+    // unrestricted egress for cert-manager, Let's Encrypt, GHCR, etc).
+    const agentEgressFirewallId = parseInt(process.env.HETZNER_AGENT_EGRESS_FIREWALL_ID || "0");
     const sshKeyId = parseInt(process.env.HETZNER_SSH_KEY_ID || "0");
     const hasVolume = podStorageGb > 0;
 
@@ -225,13 +371,23 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
     }
 
     // 2. Create server with network + volume attached (so cloud-init can mount it at boot)
+    // Hetzner Cloud firewalls combine additively when multiple are attached: ingress
+    // is the UNION of allow rules across all attached firewalls, and egress is the
+    // INTERSECTION (restrictions stack). So attaching agent_egress alongside the
+    // shared cluster firewall keeps existing inbound K3s traffic working while
+    // tightening outbound traffic to a small allowlist.
+    const firewallsToAttach: Array<{ firewall: number }> = [
+      { firewall: firewallId },
+      ...(agentEgressFirewallId ? [{ firewall: agentEgressFirewallId }] : []),
+    ];
+
     const serverRes = await hetznerRequest<any>("POST", "/servers", {
       name: nodeName,
       server_type: serverType.name,
       image: OS_IMAGE,
       location: LOCATION,
       ssh_keys: [sshKeyId],
-      firewalls: [{ firewall: firewallId }],
+      firewalls: firewallsToAttach,
       networks: [networkId],
       user_data: buildCloudInit(nodeIp, hasVolume),
       labels: { cluster: "jarble", role: "agent", managed: "true" },
@@ -239,7 +395,14 @@ async function provisionNode(podCpuCores: number, podMemGb: number, podStorageGb
       ...(volumeId ? { volumes: [volumeId] } : {}),
     });
     const serverId = serverRes.server.id;
-    logger.info({ nodeName, serverId, volumeId: volumeId || "none" }, "Hetzner server created");
+    logger.info({
+      nodeName,
+      serverId,
+      volumeId: volumeId || "none",
+      egressFirewallAttached: agentEgressFirewallId > 0,
+    }, agentEgressFirewallId > 0
+      ? "Hetzner server created with cluster + agent_egress firewalls"
+      : "Hetzner server created (WARNING: HETZNER_AGENT_EGRESS_FIREWALL_ID not set — egress lockdown disabled)");
 
     await db.update(managedNodes)
       .set({ hetznerServerId: serverId })
@@ -441,6 +604,111 @@ async function getPodResources(pod: any): Promise<{ cpuCores: number; memGb: num
   };
 }
 
+/**
+ * Scan managed Hetzner worker nodes and deprovision any that are empty
+ * (no bot K8s Deployments or bare pods referencing them) AND have been
+ * ready longer than SCALE_DOWN_GRACE_MS.
+ *
+ * IMPORTANT: A stopped bot (replicas=0) still has a K8s Deployment with a
+ * nodeSelector pointing at the managed node. We must NOT deprovision nodes
+ * that have any K8s Deployment (even replicas=0) referencing them. This
+ * preserves the VPS so restarting a stopped bot is instant.
+ *
+ * Used by both the background watcher (poll) and checkScaleDown.
+ *
+ * Race note: poll() and checkScaleDown() may run concurrently. Both could
+ * observe the same "ready" node and call deprovisionNode on it. deprovisionNode's
+ * first action is to flip status to "draining", and subsequent K8s/Hetzner
+ * delete calls are wrapped in .catch(() => {}), so the duplicate is harmless
+ * (a few extra 404s). We do not add a mutex here.
+ *
+ * @param podList - Pre-fetched pod list from coreApi.listNamespacedPod
+ */
+async function scaleDownEmptyNodes(podList: any): Promise<void> {
+  const readyNodes = await db.select().from(managedNodes)
+    .where(eq(managedNodes.status, "ready"));
+
+  if (readyNodes.length === 0) return;
+
+  // CRITICAL: Deployment objects use labels `jarble.ai/deployment-id` and
+  // `jarble.ai/deployment-type: agent`. The `jarble.ai/type: bot` label lives
+  // on the Pod template, NOT the Deployment — so filtering Deployments by
+  // `type=bot` returned an empty list, silently bypassing the "node in use"
+  // guard. We now query ALL deployments in the namespace without a label
+  // filter so the guard actually protects user workloads. (JAR data-loss fix.)
+  const { body: depList } = await appsApi.listNamespacedDeployment(NAMESPACE);
+  const k8sDeployments = depList.items || [];
+
+  // Also fetch ALL pods (unfiltered) so we don't miss pods whose label is
+  // stale, missing, or applied by a different controller path.
+  const { body: allPodsResp } = await coreApi.listNamespacedPod(NAMESPACE);
+  const allPods = allPodsResp.items || [];
+
+  for (const managedNode of readyNodes) {
+    // Extract the deployment ID encoded in the node name
+    // (nodeName format: `${NODE_NAME_PREFIX}-${deploymentId.slice(0, 12)}`).
+    // If ANY K8s Deployment exists that was provisioned for this node, keep
+    // the node alive — even if it has 0 replicas or no nodeSelector. The
+    // user's deployment row is the source of truth for "this node belongs
+    // to someone".
+    const nodeDeploymentIdHint = managedNode.nodeName.replace(
+      new RegExp(`^${NODE_NAME_PREFIX}-`), ""
+    );
+    const ownerDeploymentExists = k8sDeployments.some((dep: any) => {
+      const depIdLabel = dep.metadata?.labels?.["jarble.ai/deployment-id"];
+      const depName = dep.metadata?.name;
+      return (
+        (depIdLabel && depIdLabel.startsWith(nodeDeploymentIdHint)) ||
+        (depName && depName === `dep-${nodeDeploymentIdHint}`) ||
+        (depName && depName.startsWith(`dep-${nodeDeploymentIdHint}`))
+      );
+    });
+    if (ownerDeploymentExists) {
+      logger.debug({ nodeName: managedNode.nodeName },
+        "Owner deployment still exists - keeping VPS alive");
+      continue;
+    }
+
+    // Legacy guard: any Deployment with a nodeSelector pinning this node
+    const nodeInUse = k8sDeployments.some((dep: any) => {
+      const selector = dep.spec?.template?.spec?.nodeSelector || {};
+      return selector["kubernetes.io/hostname"] === managedNode.nodeName;
+    });
+
+    if (!nodeInUse) {
+      // Match any pod whose spec.nodeName OR nodeSelector targets this node.
+      // Pending pods that were scheduled here but failed to attach a volume
+      // still have spec.nodeName set; pods stuck in earlier scheduling may
+      // only have a nodeSelector hint. Catch both.
+      const podsOnNode = allPods.filter((p: any) => {
+        if (p.spec?.nodeName === managedNode.nodeName) return true;
+        const selector = p.spec?.nodeSelector || {};
+        if (selector["kubernetes.io/hostname"] === managedNode.nodeName) return true;
+        return false;
+      });
+      if (podsOnNode.length === 0) {
+        const readyTime = managedNode.readyAt ? new Date(managedNode.readyAt).getTime() : 0;
+        const ageMs = Date.now() - readyTime;
+        if (ageMs > SCALE_DOWN_GRACE_MS) {
+          logger.info({ nodeName: managedNode.nodeName },
+            "No deployments or pods reference this node - eligible for scale-down");
+          void deprovisionNode(managedNode);
+        } else {
+          logger.debug({
+            nodeName: managedNode.nodeName,
+            ageMs,
+            graceMs: SCALE_DOWN_GRACE_MS,
+            remainingMs: SCALE_DOWN_GRACE_MS - ageMs,
+          }, "Node is empty but still within scale-down grace period - keeping VPS alive");
+        }
+      }
+    } else {
+      logger.debug({ nodeName: managedNode.nodeName },
+        "Node has K8s Deployments referencing it (may be stopped) - keeping VPS alive");
+    }
+  }
+}
+
 async function poll(): Promise<void> {
   try {
     const { body: podList } = await coreApi.listNamespacedPod(
@@ -490,48 +758,8 @@ async function poll(): Promise<void> {
         "Pending pods detected but provisioning already in progress - skipping scale-up");
     }
 
-    // 2. Scale DOWN: check for auto-scaled nodes with no deployments referencing them.
-    // IMPORTANT: A stopped bot (replicas=0) still has a K8s Deployment with a nodeSelector
-    // pointing at the managed node. We must NOT deprovision nodes that have any K8s Deployment
-    // (even replicas=0) referencing them. Only deprovision if NO deployments reference the node.
-    // This preserves the VPS so restarting a stopped bot is instant (no re-provisioning).
-    const readyNodes = await db.select().from(managedNodes)
-      .where(eq(managedNodes.status, "ready"));
-
-    if (readyNodes.length > 0) {
-      // Get all bot K8s Deployments (including stopped ones with replicas=0)
-      const { body: depList } = await appsApi.listNamespacedDeployment(
-        NAMESPACE, undefined, undefined, undefined, undefined,
-        "jarble.ai/type=bot"
-      );
-      const k8sDeployments = depList.items || [];
-
-      for (const managedNode of readyNodes) {
-        // Check if any K8s Deployment has a nodeSelector pointing at this managed node
-        const nodeInUse = k8sDeployments.some((dep: any) => {
-          const selector = dep.spec?.template?.spec?.nodeSelector || {};
-          return selector["kubernetes.io/hostname"] === managedNode.nodeName;
-        });
-
-        if (!nodeInUse) {
-          // Also check for pods on the node (catch deployments without nodeSelector)
-          const podsOnNode = (podList.items || []).filter(
-            (p: any) => p.spec?.nodeName === managedNode.nodeName
-          );
-          if (podsOnNode.length === 0) {
-            const readyTime = managedNode.readyAt ? new Date(managedNode.readyAt).getTime() : 0;
-            if (Date.now() - readyTime > SCALE_DOWN_GRACE_MS) {
-              logger.info({ nodeName: managedNode.nodeName },
-                "No deployments or pods reference this node - eligible for scale-down");
-              void deprovisionNode(managedNode);
-            }
-          }
-        } else {
-          logger.debug({ nodeName: managedNode.nodeName },
-            "Node has K8s Deployments referencing it (may be stopped) - keeping VPS alive");
-        }
-      }
-    }
+    // 2. Scale DOWN: deprovision empty managed nodes past the grace period.
+    await scaleDownEmptyNodes(podList);
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : err }, "Poll cycle error");
   }
@@ -633,7 +861,11 @@ function releaseProvisionSlot(): void {
  * Throws CapacityError if at the managed server limit.
  */
 async function checkCapacityAndProvision(
-  requiredCpuMillis: number, requiredMemMi: number, deploymentId?: string
+  requiredCpuMillis: number,
+  requiredMemMi: number,
+  deploymentId?: string,
+  requiredStorageGb: number = 20,
+  tierOverride?: string,
 ): Promise<string | undefined> {
   // 1. Get all nodes and their allocatable resources
   const { body: nodeList } = await coreApi.listNode();
@@ -729,7 +961,13 @@ async function checkCapacityAndProvision(
 
   const cpuCores = requiredCpuMillis / 1000;
   const memGb = requiredMemMi / 1024;
-  const nodeName = await provisionNode(cpuCores, memGb, 30, deploymentId);
+  const nodeName = await provisionNode(
+    cpuCores,
+    memGb,
+    requiredStorageGb,
+    deploymentId,
+    tierOverride,
+  );
   return nodeName;
 }
 
@@ -753,7 +991,13 @@ async function checkCapacityAndProvision(
  * rejection and other errors for transient failures.
  */
 export async function ensureCapacityForDeployment(
-  _db: any, cpuLimit?: string, memoryMb?: number, deploymentType?: string, deploymentId?: string
+  _db: any,
+  cpuLimit?: string,
+  memoryMb?: number,
+  deploymentType?: string,
+  deploymentId?: string,
+  storageGb?: number,
+  tierOverride?: string,
 ): Promise<string | undefined> {
   // Container/website types share existing pool nodes - no VPS provisioning needed.
   if (deploymentType === "container" || deploymentType === "website") {
@@ -768,10 +1012,13 @@ export async function ensureCapacityForDeployment(
 
   const requiredCpuMillis = cpuLimit ? parseCpuMillis(cpuLimit) : 2000;   // default 2 cores
   const requiredMemMi = memoryMb ?? 3072;                                  // default 3Gi
+  const requiredStorageGb = storageGb ?? 20;                               // default 20 GiB PVC
 
   logger.info({
     requiredCpu: `${requiredCpuMillis}m`,
     requiredMem: `${requiredMemMi}Mi`,
+    requiredStorageGb,
+    tierOverride: tierOverride ?? "(none)",
     activeProvisions,
     maxConcurrent: MAX_CONCURRENT_PROVISIONS,
   }, "Acquiring provision slot before checking cluster capacity");
@@ -780,7 +1027,13 @@ export async function ensureCapacityForDeployment(
   await acquireProvisionSlot();
 
   try {
-    return await checkCapacityAndProvision(requiredCpuMillis, requiredMemMi, deploymentId);
+    return await checkCapacityAndProvision(
+      requiredCpuMillis,
+      requiredMemMi,
+      deploymentId,
+      requiredStorageGb,
+      tierOverride,
+    );
   } finally {
     releaseProvisionSlot();
   }
@@ -898,7 +1151,31 @@ export async function getCapacityStatus(): Promise<CapacityStatus> {
   };
 }
 
-export async function checkScaleDown(_db: any): Promise<void> {}
+/**
+ * On-demand scale-down check. Called fire-and-forget after events that may
+ * have freed up a Hetzner worker (deployment deletion, orphan cleanup) so
+ * empty nodes are torn down immediately instead of waiting up to 15s for
+ * the next watcher poll.
+ *
+ * Honors SCALE_DOWN_GRACE_MS — a freshly-provisioned node will not be torn
+ * down even if invoked immediately after an unrelated deletion.
+ *
+ * Errors are caught and logged but never re-thrown — both callers use
+ * fire-and-forget invocation.
+ */
+export async function checkScaleDown(): Promise<void> {
+  if (!isEnabled()) return;
+  try {
+    const { body: podList } = await coreApi.listNamespacedPod(
+      NAMESPACE, undefined, undefined, undefined, undefined,
+      "jarble.ai/type=bot"
+    );
+    await scaleDownEmptyNodes(podList);
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : err },
+      "checkScaleDown failed");
+  }
+}
 
 export async function cleanupFailedNodes(): Promise<void> {
   if (!isEnabled()) return;
