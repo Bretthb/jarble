@@ -930,6 +930,7 @@ function CanvasWorkspace({
           onDeleteConversation={deleteConversation}
           onClose={onHistoryClose}
           isStreaming={isStreaming}
+          deploymentId={deploymentId}
         />
       )}
 

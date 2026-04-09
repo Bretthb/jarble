@@ -1,9 +1,10 @@
 "use client";
 
 import { memo } from "react";
-import { Plus, MessageSquare, Trash2, X } from "lucide-react";
+import { Plus, MessageSquare, Trash2, X, ArrowUpRight, ArrowDownLeft, Clock, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { trpc } from "@/lib/trpc";
 import type { ConversationMeta } from "@/lib/conversationStorage";
 
 interface ConversationHistoryPanelProps {
@@ -14,6 +15,7 @@ interface ConversationHistoryPanelProps {
   onDeleteConversation: (id: string) => void;
   onClose: () => void;
   isStreaming: boolean;
+  deploymentId?: string;
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -29,6 +31,15 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function formatTeamTime(date: Date | string | null): string {
+  if (!date) return "";
+  const ms = Date.now() - new Date(date).getTime();
+  if (ms < 60_000) return "just now";
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
+  return `${Math.floor(ms / 86_400_000)}d ago`;
+}
+
 function ConversationHistoryPanel({
   conversations,
   activeConversationId,
@@ -37,7 +48,13 @@ function ConversationHistoryPanel({
   onDeleteConversation,
   onClose,
   isStreaming,
+  deploymentId,
 }: ConversationHistoryPanelProps) {
+  const teamQuery = trpc.deployment.listTeamSessions.useQuery(
+    { id: deploymentId!, limit: 15 },
+    { enabled: !!deploymentId, staleTime: 15_000, refetchInterval: 30_000 },
+  );
+  const teamSessions = teamQuery.data?.sessions ?? [];
   return (
     <div className="h-full w-[360px] shrink-0 border-r border-border/60 bg-background flex flex-col">
       {/* Header */}
@@ -72,13 +89,19 @@ function ConversationHistoryPanel({
 
       {/* Conversation list */}
       <div className="flex-1 overflow-y-auto py-1">
-        {conversations.length === 0 ? (
+        {conversations.length === 0 && teamSessions.length === 0 ? (
           <div className="px-3 py-8 text-center">
             <MessageSquare className="w-8 h-8 mx-auto mb-2 text-muted-foreground/30" />
             <p className="text-xs text-muted-foreground">No conversations yet</p>
             <p className="text-[10px] text-muted-foreground/60 mt-1">Start chatting to create one</p>
           </div>
-        ) : (
+        ) : (<>
+        {conversations.length > 0 && (
+          <div className="px-3 pt-1 pb-1">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">Personal</span>
+          </div>
+        )}
+        {conversations.length > 0 && (
           conversations.map((conv) => (
             <div
               key={conv.id}
@@ -129,6 +152,39 @@ function ConversationHistoryPanel({
             </div>
           ))
         )}
+
+        {/* Team Sessions (agent-to-agent, read-only) */}
+        {teamSessions.length > 0 && (
+          <>
+            <div className="px-3 pt-3 pb-1">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">Team Delegations</span>
+            </div>
+            {teamSessions.map((s: any) => (
+              <div key={s.id} className="px-3 py-2 text-xs">
+                <div className="flex items-center gap-1.5">
+                  {s.direction === "sent" ? (
+                    <ArrowUpRight className="w-3 h-3 text-sky-400 shrink-0" />
+                  ) : (
+                    <ArrowDownLeft className="w-3 h-3 text-violet-400 shrink-0" />
+                  )}
+                  <span className="font-medium truncate text-[11px]">
+                    {s.direction === "sent" ? `To ${s.otherDeploymentName || "bot"}` : `From ${s.otherDeploymentName || "bot"}`}
+                  </span>
+                  <span className={cn("text-[10px] ml-auto", s.status === "completed" ? "text-emerald-400" : s.status === "failed" ? "text-rose-400" : "text-muted-foreground")}>
+                    {s.status}
+                  </span>
+                </div>
+                {s.task && <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">{typeof s.task === "string" ? s.task.slice(0, 80) : ""}</p>}
+                <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground/50">
+                  <span>{formatTeamTime(s.createdAt)}</span>
+                  {s.durationMs != null && <span><Clock className="w-2 h-2 inline mr-0.5" />{s.durationMs < 1000 ? `${s.durationMs}ms` : `${(s.durationMs / 1000).toFixed(1)}s`}</span>}
+                  {s.costCents > 0 && <span className="text-amber-400/60"><DollarSign className="w-2 h-2 inline mr-0.5" />${(s.costCents / 100).toFixed(2)}</span>}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+        </>)}
       </div>
     </div>
   );
