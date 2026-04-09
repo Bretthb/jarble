@@ -130,8 +130,15 @@ export const deploymentSecrets = pgTable("deployment_secrets", {
   id: varchar("id", { length: 255 }).primaryKey(),
   deploymentId: varchar("deployment_id", { length: 255 }).notNull().references(() => deployments.id, { onDelete: "cascade" }),
   key: varchar("key", { length: 128 }).notNull(), // env var name, e.g. "MY_API_KEY"
-  value: text("value").notNull(), // AES-256-GCM encrypted
+  value: text("value").notNull(), // AES-256-GCM encrypted (server-side for shared/bot, client-side for user scope)
   source: varchar("source", { length: 20 }).notNull().default("user"), // "user" | "agent"
+  /**
+   * Credential scope:
+   * - "shared" (default): both bot and user can access. Server-side encrypted. Injected as pod env var.
+   * - "bot": only the bot can access. Server-side encrypted. Injected as pod env var but hidden from user dashboard.
+   * - "user": user-only. Client-side encrypted with Web Crypto API. Server stores opaque blob it CANNOT decrypt. NOT injected into pod.
+   */
+  scope: varchar("scope", { length: 20 }).notNull().default("shared"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({

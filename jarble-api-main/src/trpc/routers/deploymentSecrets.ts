@@ -73,17 +73,25 @@ export const deploymentSecretsRouter = router({
       });
 
       return secrets.map((s) => {
+        const scope = (s as any).scope || "shared";
         let maskedValue = "****";
-        try {
-          maskedValue = maskValue(decryptApiKey(s.value));
-        } catch {
-          logger.warn({ secretId: s.id }, "Failed to decrypt deployment secret");
+        // User-scope secrets are client-encrypted — server can't decrypt them.
+        // Show a placeholder instead of trying to decrypt.
+        if (scope === "user") {
+          maskedValue = "[client-encrypted]";
+        } else {
+          try {
+            maskedValue = maskValue(decryptApiKey(s.value));
+          } catch {
+            logger.warn({ secretId: s.id }, "Failed to decrypt deployment secret");
+          }
         }
         return {
           id: s.id,
           key: s.key,
           maskedValue,
           source: s.source,
+          scope,
           createdAt: s.createdAt,
           updatedAt: s.updatedAt,
         };
@@ -95,6 +103,8 @@ export const deploymentSecretsRouter = router({
       deploymentId: z.string(),
       key: z.string(),
       value: z.string().min(1).max(10240),
+      /** Credential scope: shared (bot+user), bot (bot-only), user (client-encrypted, server can't decrypt) */
+      scope: z.enum(["shared", "bot", "user"]).default("shared"),
     }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
@@ -106,7 +116,9 @@ export const deploymentSecretsRouter = router({
 
       validateSecretKey(input.key);
 
-      const encrypted = encryptApiKey(input.value);
+      // For "user" scope: the value is already client-side encrypted — store as-is.
+      // For "shared"/"bot" scope: server-side encrypt with AES-256-GCM.
+      const encrypted = input.scope === "user" ? input.value : encryptApiKey(input.value);
 
       const existing = await ctx.db.query.deploymentSecrets.findFirst({
         where: and(
@@ -117,9 +129,9 @@ export const deploymentSecretsRouter = router({
 
       if (existing) {
         await ctx.db.update(deploymentSecrets)
-          .set({ value: encrypted, source: "user", updatedAt: dbDate() })
+          .set({ value: encrypted, source: "user", scope: input.scope, updatedAt: dbDate() })
           .where(eq(deploymentSecrets.id, existing.id));
-        logger.info({ deploymentId: input.deploymentId, key: input.key }, "Deployment secret updated");
+        logger.info({ deploymentId: input.deploymentId, key: input.key, scope: input.scope }, "Deployment secret updated");
       } else {
         await checkSecretCount(input.deploymentId);
         await ctx.db.insert(deploymentSecrets).values({
@@ -128,6 +140,7 @@ export const deploymentSecretsRouter = router({
           key: input.key,
           value: encrypted,
           source: "user",
+          scope: input.scope,
         });
         logger.info({ deploymentId: input.deploymentId, key: input.key }, "Deployment secret created");
       }
