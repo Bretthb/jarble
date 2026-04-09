@@ -1001,13 +1001,10 @@ export const deploymentRouter = router({
       limit: z.number().min(1).max(100).default(20),
     }))
     .query(async ({ ctx, input }) => {
-      // Ownership check
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      // Ownership check — uses findDeploymentWithAccess so org members
+      // with read access via org_members can see traces for org-owned
+      // deployments, not just the original creator. (Code-review P1-1.)
+      await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id);
 
       // Fetch the most recent N depth-0 rows for this deployment. Depth-0
       // is the root of each trace (chat_turn or flow_step). We'll join
@@ -1081,7 +1078,20 @@ export const deploymentRouter = router({
       traceId: z.string().regex(/^[a-f0-9]{32}$/, "traceId must be a 32-char hex W3C trace id"),
     }))
     .query(async ({ ctx, input }) => {
-      const rows = await ctx.db
+      // Code-review P1-2: deliberately exclude userId, spanId, parentSpanId
+      // from the tRPC response. The frontend debug drawer doesn't render
+      // these fields and they leak Auth0 ids + internal tracing ids over
+      // the wire. userId is the most sensitive — in a cross-tenant
+      // delegation trace (marketplace scenario) it would expose a
+      // different user's Auth0 id to the caller.
+      //
+      // errorMessage is allowed through but truncated to 200 chars
+      // below to avoid leaking stack traces / resource names.
+      //
+      // creditsCharged is kept since the user owns the deployment they
+      // are inspecting. If cross-tenant data exposure becomes a concern
+      // we can revisit.
+      const rawRows = await ctx.db
         .select({
           id: agentCalls.id,
           parentCallId: agentCalls.parentCallId,
@@ -1095,8 +1105,7 @@ export const deploymentRouter = router({
           callerDeploymentId: agentCalls.callerDeploymentId,
           calleeDeploymentId: agentCalls.calleeDeploymentId,
           traceId: agentCalls.traceId,
-          spanId: agentCalls.spanId,
-          parentSpanId: agentCalls.parentSpanId,
+          // Retained for the auth gate below but stripped before return.
           userId: agentCalls.userId,
           errorMessage: agentCalls.errorMessage,
           creditsCharged: agentCalls.creditsCharged,
@@ -1104,17 +1113,27 @@ export const deploymentRouter = router({
         .from(agentCalls)
         .where(eq(agentCalls.traceId, input.traceId))
         .orderBy(sql`${agentCalls.depth} ASC, ${agentCalls.createdAt} ASC`);
+      const rows = rawRows;
 
       if (rows.length === 0) {
         throw new TRPCError({ code: "NOT_FOUND", message: "No agent_calls rows found for this trace id" });
       }
+
+      // Helper to strip sensitive fields from rows before sending to
+      // the client (P1-2). Kept as a local function so every return
+      // branch uses the same sanitization pass.
+      const sanitize = (list: typeof rows) =>
+        list.map(({ userId, errorMessage, ...rest }) => ({
+          ...rest,
+          errorMessage: errorMessage ? errorMessage.slice(0, 200) : null,
+        }));
 
       // Ownership gate: the authed user must own at least one of the
       // caller/callee deployments referenced in the trace, OR the user_id
       // on any row must match.
       const userIdsInTrace = new Set(rows.map((r) => r.userId).filter(Boolean));
       if (userIdsInTrace.has(ctx.user.id)) {
-        return { rows };
+        return { rows: sanitize(rows) };
       }
       const deploymentIdsInTrace = new Set<string>();
       for (const r of rows) {
@@ -1129,7 +1148,9 @@ export const deploymentRouter = router({
           ),
           columns: { id: true },
         });
-        if (owned.length > 0) return { rows };
+        if (owned.length > 0) {
+          return { rows: sanitize(rows) };
+        }
       }
       throw new TRPCError({ code: "FORBIDDEN", message: "You don't have access to this trace" });
     }),

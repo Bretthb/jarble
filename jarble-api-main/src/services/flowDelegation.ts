@@ -683,32 +683,68 @@ export async function executeDelegation(params: {
   // PR #56 — delegation rows in prod were landing with span_name/start_ms/
   // duration_ms = null because the inline writer didn't set them.
   //
-  // The writer is fire-and-forget: it logs warnings on DB failure and
-  // never throws, so an audit-store outage cannot break the delegation
-  // path.
-  const { startAgentCall, finishAgentCall } = await import("./agentCallsWriter.js");
-  const agentCallHandle = await startAgentCall({
-    kind: "delegation",
-    skillName: params.toolName || `delegate_to_${params.targetNodeId}`,
-    callerDeploymentId: params.sourceDeploymentId || null,
-    calleeDeploymentId: params.targetDeploymentId,
-    parentCallId: params.parentCallId ?? null,
-    parentSpanId: params.parentSpanId ?? null,
-    traceId: params.traceId ?? null,
-    depth,
-    userId: params.userId ?? null,
-    orgId: params.orgId ?? null,
-    sessionId,
-    podName,
-    spanName: "jarble.delegation.hop",
-    requestBody: { task: params.task, contextScope: params.contextScope },
-    attributes: {
-      targetNodeId: params.targetNodeId,
-      targetDeploymentId: params.targetDeploymentId,
-      contextScope: params.contextScope,
-      messageLen: message.length,
-    },
-  });
+  // The writer is fire-and-forget for DB errors: an audit-store outage
+  // cannot break the delegation path. HOWEVER — since the JAR-51 Phase 6
+  // runaway cost circuit breaker was added to agentCallsWriter,
+  // startAgentCall now throws RunawayTraceError when the trace has
+  // exceeded MAX_SPANS_PER_TRACE or MAX_CREDITS_PER_TRACE_CENTS. That
+  // throw is INTENTIONAL and must propagate up so the flow engine / chat
+  // router treats it as a terminal step failure (the whole POINT of the
+  // circuit breaker is to stop the runaway). We catch non-runaway errors
+  // here and fall back to a synthetic handle to preserve the original
+  // "DB outage doesn't break the delegation" contract.
+  const { startAgentCall, finishAgentCall, RunawayTraceError } = await import("./agentCallsWriter.js");
+  let agentCallHandle;
+  try {
+    agentCallHandle = await startAgentCall({
+      kind: "delegation",
+      skillName: params.toolName || `delegate_to_${params.targetNodeId}`,
+      callerDeploymentId: params.sourceDeploymentId || null,
+      calleeDeploymentId: params.targetDeploymentId,
+      parentCallId: params.parentCallId ?? null,
+      parentSpanId: params.parentSpanId ?? null,
+      traceId: params.traceId ?? null,
+      depth,
+      userId: params.userId ?? null,
+      orgId: params.orgId ?? null,
+      sessionId,
+      podName,
+      spanName: "jarble.delegation.hop",
+      requestBody: { task: params.task, contextScope: params.contextScope },
+      attributes: {
+        targetNodeId: params.targetNodeId,
+        targetDeploymentId: params.targetDeploymentId,
+        contextScope: params.contextScope,
+        messageLen: message.length,
+      },
+    });
+  } catch (err) {
+    if (err instanceof RunawayTraceError) {
+      // Circuit breaker trip — intentional. Let the error propagate up
+      // so the flow engine / chat router surfaces it as a terminal
+      // delegation failure. The user sees the human-readable message.
+      throw err;
+    }
+    // Any other error from startAgentCall must not break the delegation
+    // path (DB outage, transient network, etc.). Fall back to a
+    // synthetic handle so the call proceeds without audit coverage.
+    // This preserves the contract predating the circuit breaker.
+    log.warn(
+      { err: err instanceof Error ? err.message : err, depth, targetDeploymentId: params.targetDeploymentId },
+      "startAgentCall failed non-fatally — proceeding with synthetic handle so delegation continues",
+    );
+    // Use a minimal handle that downstream code can key off; the row
+    // will simply be missing from agent_calls.
+    agentCallHandle = {
+      callId: `acl_synth_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`,
+      traceId: params.traceId || "synthetic-no-trace",
+      spanId: "0000000000000000",
+      parentSpanId: params.parentSpanId ?? null,
+      parentCallId: params.parentCallId ?? null,
+      depth,
+      startedAt: Date.now(),
+    };
+  }
   // Pull the call id back out so the existing recursion threading
   // (`parentCallId: callId` at the sub-delegation site) keeps working
   // unchanged. The writer also generates a stable trace_id we propagate
