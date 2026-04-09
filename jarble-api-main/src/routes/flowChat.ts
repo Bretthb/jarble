@@ -60,11 +60,11 @@ export const flowChatRouter = Router();
 // ── Per-session exec lock ────────────────────────────────────────────────────
 // Prevents concurrent chatViaExec calls on the same entry bot session,
 // which corrupts OpenClaw's session history. Same pattern as tamboAgent.ts.
-const sessionExecLocks = new Map<string, Promise<void>>();
+const sessionExecLocks = new Map<string, Promise<unknown>>();
 
-function withSessionLock(sessionKey: string, fn: () => Promise<void>): Promise<void> {
+function withSessionLock<T>(sessionKey: string, fn: () => Promise<T>): Promise<T> {
   const prev = sessionExecLocks.get(sessionKey) || Promise.resolve();
-  const next = prev.then(fn, fn);
+  const next = prev.then(fn, fn) as Promise<T>;
   sessionExecLocks.set(sessionKey, next);
   next.finally(() => {
     if (sessionExecLocks.get(sessionKey) === next) {
@@ -482,7 +482,9 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
 
     let entryResult: GatewayResponse;
     try {
-      entryResult = await chatViaExec(
+      // Serialize entry bot exec calls on the same session to prevent
+      // OpenClaw session history corruption from concurrent requests.
+      entryResult = await withSessionLock(sessionKey, () => chatViaExec(
         entryPodName,
         sessionKey,
         entryMessage,
@@ -492,7 +494,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         },
         undefined,
         abortController.signal,
-      );
+      ));
     } catch (err) {
       const errMsg =
         err instanceof Error ? err.message : String(err);

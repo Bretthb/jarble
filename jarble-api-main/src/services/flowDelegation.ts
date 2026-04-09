@@ -840,9 +840,11 @@ export async function executeDelegation(params: {
         abortController.signal,
       );
     } catch (firstErr) {
-      // Don't retry if deliberately aborted (user cancelled or budget exceeded)
+      // Don't retry on intentional/deterministic failures
       if (abortController.signal.aborted) throw firstErr;
       if (firstErr instanceof Error && firstErr.message.includes("budget exceeded")) throw firstErr;
+      if (firstErr instanceof DelegationCycleError) throw firstErr;
+      if (firstErr instanceof DelegationDepthExceededError) throw firstErr;
 
       log.warn(
         { targetDeploymentId: params.targetDeploymentId, err: firstErr instanceof Error ? firstErr.message : String(firstErr), depth },

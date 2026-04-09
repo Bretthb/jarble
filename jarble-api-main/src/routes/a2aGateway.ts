@@ -233,8 +233,17 @@ a2aGatewayRouter.post("/:deploymentId/tasks/send", async (req: Request, res: Res
       fullMessage = `[A2A Context]\n${JSON.stringify(context, null, 2)}\n[/A2A Context]\n${message}`;
     }
 
+    // Timeout: abort after 120s to prevent hanging connections
+    const a2aAbort = new AbortController();
+    const a2aTimeout = setTimeout(() => a2aAbort.abort(), 120_000);
+
     const startMs = Date.now();
-    const response = await chatViaExec(podName, session, fullMessage);
+    let response;
+    try {
+      response = await chatViaExec(podName, session, fullMessage, undefined, undefined, a2aAbort.signal);
+    } finally {
+      clearTimeout(a2aTimeout);
+    }
     const durationMs = Date.now() - startMs;
 
     log.info({
