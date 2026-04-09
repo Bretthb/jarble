@@ -1061,6 +1061,21 @@ export function useCanvasChat(
                     component,
                   });
                 }
+                if (event.name === "jarble.cost.delta" && event.value) {
+                  const { stepId, costCents } = event.value as { stepId: string; costCents: number };
+                  isDev && console.log(`[Jarble:Chat] Cost delta: ${costCents}c for step ${stepId}`);
+                  setOrchestrationSteps((prev) => {
+                    if (prev.length === 0) return prev;
+                    const idx = prev.findIndex((s) => s.id === stepId);
+                    if (idx === -1) return prev;
+                    const updated = [...prev];
+                    updated[idx] = { ...updated[idx], costCents };
+                    return updated;
+                  });
+                }
+                if (event.name === "jarble.cost.total" && event.value) {
+                  isDev && console.log(`[Jarble:Chat] Cost total: ${event.value.totalCostCents}c (${event.value.hopCount} hops)`);
+                }
                 if (event.name === "jarble.tool.status" && event.value?.status) {
                   isDev && console.log(`[Jarble:Chat] Tool status: ${event.value.status}`);
                   setToolStatus(event.value.status as string);

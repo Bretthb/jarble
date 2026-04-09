@@ -13,7 +13,7 @@
 import { db, tables, dbDate } from "../db/index.js";
 import { eq, and, or, inArray } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
-import { emitOrchestrationStart, emitOrchestrationEnd } from "../utils/agentCallEvents.js";
+import { emitOrchestrationStart, emitOrchestrationEnd, emitCostDelta, emitCostTotal } from "../utils/agentCallEvents.js";
 import { nanoid } from "nanoid";
 import type { FlowNode, FlowEdge } from "./flowEngine.js";
 import type { DeploymentCapabilities } from "./deploymentCapabilities.js";
@@ -587,6 +587,10 @@ export async function executeDelegation(params: {
   traceId?: string | null;
   /** JAR-50: Org scope for audit rollups. */
   orgId?: string | null;
+  /** Running cost accumulator (cents) across the trace */
+  traceCostCents?: number;
+  /** Running hop count across the trace */
+  traceHopCount?: number;
 }): Promise<DelegationResult> {
   const depth = params.depth ?? 0;
   if (depth > MAX_DELEGATION_DEPTH) {
@@ -1030,6 +1034,34 @@ export async function executeDelegation(params: {
         tokenUsage: result.tokenUsage || undefined,
       },
     });
+
+    // ── Emit cost:delta + cost:total events ───────────────────────────────
+    const traceId = params.traceId || `trace-${nanoid(8)}`;
+    const hopCount = (params.traceHopCount ?? 0) + 1;
+    const totalCostCents = (params.traceCostCents ?? 0) + hopCostCents;
+
+    try {
+      emitCostDelta({
+        deploymentId: orchestrationDeploymentId,
+        callId: callId || `delegation-${params.targetDeploymentId}-${Date.now()}`,
+        stepId,
+        costCents: hopCostCents,
+        promptTokens: result.tokenUsage?.promptTokens ?? 0,
+        completionTokens: result.tokenUsage?.completionTokens ?? 0,
+        modelId: result.tokenUsage?.model || deployment.llmModel || "openclaw-delegation",
+        depth,
+      });
+
+      emitCostTotal({
+        deploymentId: orchestrationDeploymentId,
+        traceId: traceId || "",
+        totalCostCents,
+        hopCount,
+      });
+    } catch {
+      // Non-fatal - cost events are nice-to-have
+    }
+
 
     return {
       response: finalResponse,

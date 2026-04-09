@@ -81,11 +81,13 @@ import {
   CUSTOM_TOOL_STATUS,
   CUSTOM_AGENT_CALL_START,
   CUSTOM_AGENT_CALL_END,
+  CUSTOM_COST_DELTA,
+  CUSTOM_COST_TOTAL,
   REASONING_START,
   REASONING_CONTENT,
   REASONING_END,
 } from "../utils/eventTypes.js";
-import { agentCallEvents, type AgentCallStartEvent, type AgentCallEndEvent } from "../utils/agentCallEvents.js";
+import { agentCallEvents, type AgentCallStartEvent, type AgentCallEndEvent, type CostDeltaEvent, type CostTotalEvent } from "../utils/agentCallEvents.js";
 import {
   buildDelegationTools,
   buildFlowSystemPrompt,
@@ -1003,12 +1005,45 @@ tamboAgentRouter.post("/", async (req, res) => {
   agentCallEvents.on("orchestration:step:start", onOrchestrationStart);
   agentCallEvents.on("orchestration:step:end", onOrchestrationEnd);
 
+  // ── Cost event listeners ──────────────────────────────────────────────────
+  const onCostDelta = (evt: CostDeltaEvent) => {
+    if (evt.deploymentId !== deploymentId) return;
+    safeSendEvent(res, {
+      type: CUSTOM,
+      name: CUSTOM_COST_DELTA,
+      value: {
+        stepId: evt.stepId,
+        costCents: evt.costCents,
+        promptTokens: evt.promptTokens,
+        completionTokens: evt.completionTokens,
+        modelId: evt.modelId,
+        depth: evt.depth,
+      },
+    });
+  };
+  const onCostTotal = (evt: CostTotalEvent) => {
+    if (evt.deploymentId !== deploymentId) return;
+    safeSendEvent(res, {
+      type: CUSTOM,
+      name: CUSTOM_COST_TOTAL,
+      value: {
+        traceId: evt.traceId,
+        totalCostCents: evt.totalCostCents,
+        hopCount: evt.hopCount,
+      },
+    });
+  };
+  agentCallEvents.on("cost:delta", onCostDelta);
+  agentCallEvents.on("cost:total", onCostTotal);
+
   // Clean up agent call listeners when the SSE stream closes
   const cleanupAgentListeners = () => {
     agentCallEvents.off("start", onAgentCallStart);
     agentCallEvents.off("end", onAgentCallEnd);
     agentCallEvents.off("orchestration:step:start", onOrchestrationStart);
     agentCallEvents.off("orchestration:step:end", onOrchestrationEnd);
+    agentCallEvents.off("cost:delta", onCostDelta);
+    agentCallEvents.off("cost:total", onCostTotal);
   };
   res.on("close", cleanupAgentListeners);
 
