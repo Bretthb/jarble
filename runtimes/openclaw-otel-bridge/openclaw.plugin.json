@@ -1,0 +1,11 @@
+{
+  "id": "jarble-otel-bridge",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpoint": { "type": "string", "description": "OTLP/HTTP collector endpoint. Defaults to LANGFUSE_BASE_URL or OTEL_EXPORTER_OTLP_ENDPOINT env vars." },
+      "serviceName": { "type": "string", "description": "OTel service.name. Defaults to 'jarble-openclaw-runtime'." }
+    }
+  }
+}
