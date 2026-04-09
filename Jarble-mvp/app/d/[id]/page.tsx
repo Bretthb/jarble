@@ -33,7 +33,7 @@ import SubagentsPanel from "@/components/workspace/SubagentsPanel";
 import TeamMembershipsPanel from "@/components/workspace/TeamMembershipsPanel";
 import DebugTracePanel from "@/components/workspace/DebugTracePanel";
 import { MemoryDisclosureBanner, type MemoryScope } from "@/components/chat/MemoryDisclosureBanner";
-import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users, Activity } from "lucide-react";
+import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users, Activity, DollarSign } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -348,6 +348,7 @@ function WorkspacePage({
   const [subagentsOpen, setSubagentsOpen] = useState(false);
   const [teamsOpen, setTeamsOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
+  const [headerCostCents, setHeaderCostCents] = useState<number | null>(null);
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
   // Track whether theme was set by SSE (takes priority over prop sync for 5s)
   const themeSetBySse = useRef(false);
@@ -410,6 +411,12 @@ function WorkspacePage({
             <div className="flex items-center gap-2">
               <span className="font-semibold text-sm">{deploymentName}</span>
               <StatusBadge status={liveStatus} />
+              {headerCostCents != null && headerCostCents > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-mono">
+                  <DollarSign className="w-2.5 h-2.5" />
+                  {(headerCostCents / 100).toFixed(2)}
+                </span>
+              )}
             </div>
           </div>
 
@@ -586,6 +593,7 @@ function WorkspacePage({
           onHistoryClose={() => setHistoryOpen(false)}
           onRefetchDeployment={onRefetchDeployment}
           memoryScope={memoryScope}
+          onCostUpdate={setHeaderCostCents}
         />
         {marketplaceOpen && (
           <MarketplacePanel
@@ -677,6 +685,7 @@ function CanvasWorkspace({
   onHistoryClose,
   onRefetchDeployment,
   memoryScope,
+  onCostUpdate,
 }: {
   deploymentId: string;
   liveStatus: string;
@@ -686,6 +695,8 @@ function CanvasWorkspace({
   /** JAR memory-scoping foundation: drives the disclosure banner above
    *  the chat. Read from the deployment record on the parent. */
   memoryScope?: string | null;
+  /** Callback to push running cost to the header */
+  onCostUpdate?: (cents: number | null) => void;
 }) {
   const { getAccessTokenSilently } = useAuth0();
   const startMutation = trpc.deployment.start.useMutation();
@@ -693,9 +704,12 @@ function CanvasWorkspace({
   const {
     sendMessage, isStreaming, streamingCardIds, messages, streamingText, streamingReasoning,
     lastChatError, lastUserMessage, clearChatError, suggestions, toolStatus, activeAgentCall, orchestrationSteps,
-    stopGeneration, editMessage,
+    traceCostCents, stopGeneration, editMessage,
     conversations, activeConversationId, switchConversation, newConversation, deleteConversation,
   } = useCanvasChat(deploymentId, state, dispatch, liveStatus, onRefetchDeployment);
+
+  // Forward running cost to parent header
+  useEffect(() => { onCostUpdate?.(traceCostCents); }, [traceCostCents, onCostUpdate]);
 
   // Real-time orchestration events via WebSocket - supersedes legacy predictive steps
   const { steps: wsOrchestrationSteps, isConnected: orchWsConnected, clearSteps: clearOrchSteps } = useOrchestration(deploymentId);

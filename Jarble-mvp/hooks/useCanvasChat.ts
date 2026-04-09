@@ -100,6 +100,7 @@ export function useCanvasChat(
   const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [activeAgentCall, setActiveAgentCall] = useState<{ serviceId: string; skillName: string; agentName?: string } | null>(null);
   const [orchestrationSteps, setOrchestrationSteps] = useState<Array<import("@/components/chat/OrchestrationSteps").OrchestrationStep>>([]);
+  const [traceCostCents, setTraceCostCents] = useState<number | null>(null);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -515,6 +516,7 @@ export function useCanvasChat(
       setLastUserMessage(text);
       setSuggestions([]); // Clear suggestions when user sends a new message
       setToolStatus(null); // Clear tool status from previous run
+      setTraceCostCents(null); // Reset running cost for this new turn
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -1074,7 +1076,9 @@ export function useCanvasChat(
                   });
                 }
                 if (event.name === "jarble.cost.total" && event.value) {
-                  isDev && console.log(`[Jarble:Chat] Cost total: ${event.value.totalCostCents}c (${event.value.hopCount} hops)`);
+                  const totalCents = (event.value as { totalCostCents: number }).totalCostCents;
+                  isDev && console.log(`[Jarble:Chat] Cost total: ${totalCents}c (${(event.value as { hopCount: number }).hopCount} hops)`);
+                  setTraceCostCents(totalCents);
                 }
                 if (event.name === "jarble.tool.status" && event.value?.status) {
                   isDev && console.log(`[Jarble:Chat] Tool status: ${event.value.status}`);
@@ -1524,6 +1528,7 @@ export function useCanvasChat(
     toolStatus,
     activeAgentCall,
     orchestrationSteps,
+    traceCostCents,
     stopGeneration,
     editMessage,
     conversations,

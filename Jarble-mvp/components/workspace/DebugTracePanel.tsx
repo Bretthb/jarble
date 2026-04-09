@@ -46,6 +46,7 @@ type TraceRow = {
   calleeDeploymentId: string | null;
   spanCount: number;
   maxDepth: number;
+  totalCredits: number;
 };
 
 function truncate(s: string | null | undefined, n: number): string {
@@ -58,6 +59,11 @@ function formatDuration(ms: number | null | undefined): string {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
+}
+
+function formatCost(cents: number | null | undefined): string {
+  if (cents == null || cents <= 0) return "";
+  return `$${(cents / 100).toFixed(2)}`;
 }
 
 function statusClass(status: string | null): string {
@@ -81,7 +87,9 @@ function TraceTreeRow({ row, depth }: { row: {
   durationMs: number | null;
   callerDeploymentId: string | null;
   calleeDeploymentId: string | null;
+  creditsCharged?: number | null;
 }; depth: number }) {
+  const cost = formatCost(row.creditsCharged);
   return (
     <div
       className="flex items-center gap-2 py-1 text-xs"
@@ -94,6 +102,7 @@ function TraceTreeRow({ row, depth }: { row: {
       <span className={cn("px-1.5 py-0.5 rounded border text-[10px] uppercase tracking-wide", statusClass(row.status))}>
         {row.status}
       </span>
+      {cost && <span className="text-amber-400 font-mono text-[10px]">{cost}</span>}
       <span className="text-muted-foreground ml-auto">{formatDuration(row.durationMs)}</span>
     </div>
   );
@@ -227,6 +236,12 @@ export default function DebugTracePanel({ deploymentId, onClose }: DebugTracePan
                         <span>depth {t.maxDepth}</span>
                         <span>•</span>
                         <span>{formatDuration(t.durationMs)}</span>
+                        {t.totalCredits > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-amber-400">{formatCost(t.totalCredits)}</span>
+                          </>
+                        )}
                       </div>
                     </div>
                     {langfuseBase && t.traceId && (
