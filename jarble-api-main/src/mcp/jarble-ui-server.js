@@ -2981,17 +2981,37 @@ function executeLoadArtifact(args) {
   }
 }
 
-function executeListArtifacts() {
+function executeListArtifacts(args) {
   const manifest = readArtifactManifest();
   const sorted = [...manifest.artifacts].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
   if (sorted.length === 0) {
+    // Return empty array for JSON format, text message for markdown
+    if (args && args.format === "json") {
+      return { isError: false, text: JSON.stringify([]) };
+    }
     return { isError: false, text: "No saved artifacts in workspace." };
   }
 
+  // JSON format: return array of {fileId, component, name, tags, savedAt}
+  // This is what the frontend ComponentGallery expects.
+  if (args && args.format === "json") {
+    const items = sorted.map(a => ({
+      fileId: a.id,
+      component: a.component,
+      name: a.title,
+      description: "",
+      tags: [a.component],
+      savedAt: a.updatedAt || a.createdAt || null,
+      pinned: !!a.pinned,
+    }));
+    return { isError: false, text: JSON.stringify(items) };
+  }
+
+  // Markdown format (for bot/human readability)
   const lines = [`**${sorted.length} artifact(s) in workspace:**`, ""];
   for (const a of sorted) {
-    let line = `- **${a.title}** (\`${a.id}\`) — ${a.component}`;
+    let line = `- **${a.title}** (\`${a.id}\`) - ${a.component}`;
     if (a.pinned) line += " [pinned]";
     if (a.updatedAt) line += ` _(updated ${a.updatedAt.split("T")[0]})_`;
     lines.push(line);
@@ -7406,7 +7426,7 @@ async function executeTool(name, args) {
     // New artifact tools
     case "save_artifact": return executeSaveArtifact(args || {});
     case "load_artifact": return executeLoadArtifact(args || {});
-    case "list_artifacts": return executeListArtifacts();
+    case "list_artifacts": return executeListArtifacts(args);
     case "delete_artifact": return executeDeleteArtifact(args || {});
     // Legacy canvas file tools — redirect to artifact system
     case "save_canvas_file": return executeSaveArtifact({
@@ -7416,7 +7436,7 @@ async function executeTool(name, args) {
       title: (args || {}).name || (args || {}).fileId,
     });
     case "load_canvas_file": return executeLoadArtifact({ id: (args || {}).fileId });
-    case "list_canvas_files": return executeListArtifacts();
+    case "list_canvas_files": return executeListArtifacts(args);
     case "delete_canvas_file": return executeDeleteArtifact({ id: (args || {}).fileId });
     case "component_reference": return executeComponentReference(args || {});
     case "skill_reference": return executeSkillReference(args || {});
