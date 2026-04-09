@@ -964,6 +964,59 @@ export function useCanvasChat(
                   setOrchestrationSteps(steps);
                   isDev && console.log(`[Jarble:Chat] Orchestration: ${steps.length} steps`);
                 }
+                // Fractal Piece 4 wiring: individual delegation step start
+                // events (one per hop in a fractal chain) with parentStepId
+                // so the tree renderer can nest them. Backend emitter:
+                // jarble-api-main/src/routes/tamboAgent.ts onOrchestrationStart.
+                if (event.name === "jarble.orchestration.step.start" && event.value) {
+                  const v = event.value as {
+                    stepId: string;
+                    agentType?: "subagent" | "delegation" | "platform";
+                    agentName?: string;
+                    toolName?: string;
+                    task?: string;
+                    targetDeploymentId?: string;
+                    parentStepId?: string;
+                    depth?: number;
+                  };
+                  const agentKey = (v.agentType || "delegation") as
+                    | "subagent" | "delegation" | "platform";
+                  const newStep: import("@/components/chat/OrchestrationSteps").OrchestrationStep = {
+                    id: v.stepId,
+                    label: v.agentName || v.toolName || "Delegation",
+                    status: "running",
+                    agent: agentKey,
+                    detail: v.task?.slice(0, 80),
+                    agentType: v.agentType,
+                    toolName: v.toolName,
+                    targetDeploymentId: v.targetDeploymentId,
+                    parentId: v.parentStepId,
+                  };
+                  setOrchestrationSteps((prev) => {
+                    // dedupe by id (events can replay on reconnect)
+                    if (prev.some((s) => s.id === newStep.id)) return prev;
+                    return [...prev, newStep];
+                  });
+                }
+                if (event.name === "jarble.orchestration.step.end" && event.value) {
+                  const v = event.value as {
+                    stepId: string;
+                    success?: boolean;
+                    durationMs?: number;
+                    error?: string;
+                  };
+                  setOrchestrationSteps((prev) =>
+                    prev.map((s) =>
+                      s.id === v.stepId
+                        ? {
+                            ...s,
+                            status: v.success === false ? "error" : "complete",
+                            duration: v.durationMs,
+                          }
+                        : s,
+                    ),
+                  );
+                }
                 if (event.name === "jarble.card.update" && event.value) {
                   const { cardId, props, merge, component } = event.value;
                   isDev && console.log(`[Jarble:Chat] Card updated (AG-UI): ${cardId} (merge=${merge ?? true})`);

@@ -955,10 +955,52 @@ tamboAgentRouter.post("/", async (req, res) => {
   agentCallEvents.on("start", onAgentCallStart);
   agentCallEvents.on("end", onAgentCallEnd);
 
+  // Fractal Piece 4 wiring: forward orchestration step events to the
+  // frontend so the OrchestrationSteps tree can render nested
+  // delegations with parentId set. The backend emits these via
+  // emitOrchestrationStart/End from flowDelegation.ts on every
+  // delegation hop (including recursive sub-delegations), and the
+  // events already carry parentStepId + depth.
+  const onOrchestrationStart = (evt: import("../utils/agentCallEvents.js").OrchestrationStepEvent) => {
+    if (evt.deploymentId !== deploymentId) return;
+    safeSendEvent(res, {
+      type: CUSTOM,
+      name: "jarble.orchestration.step.start",
+      value: {
+        stepId: evt.stepId,
+        agentType: evt.agentType,
+        agentName: evt.agentName,
+        toolName: evt.toolName,
+        task: evt.task,
+        targetDeploymentId: evt.targetDeploymentId,
+        parentStepId: evt.parentStepId,
+        depth: evt.depth,
+      },
+    });
+  };
+  const onOrchestrationEnd = (evt: import("../utils/agentCallEvents.js").OrchestrationStepEndEvent) => {
+    if (evt.deploymentId !== deploymentId) return;
+    safeSendEvent(res, {
+      type: CUSTOM,
+      name: "jarble.orchestration.step.end",
+      value: {
+        stepId: evt.stepId,
+        success: evt.success,
+        durationMs: evt.durationMs,
+        error: evt.error,
+        resultPreview: evt.resultPreview,
+      },
+    });
+  };
+  agentCallEvents.on("orchestration:step:start", onOrchestrationStart);
+  agentCallEvents.on("orchestration:step:end", onOrchestrationEnd);
+
   // Clean up agent call listeners when the SSE stream closes
   const cleanupAgentListeners = () => {
     agentCallEvents.off("start", onAgentCallStart);
     agentCallEvents.off("end", onAgentCallEnd);
+    agentCallEvents.off("orchestration:step:start", onOrchestrationStart);
+    agentCallEvents.off("orchestration:step:end", onOrchestrationEnd);
   };
   res.on("close", cleanupAgentListeners);
 
