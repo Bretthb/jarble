@@ -1046,8 +1046,8 @@ export async function executeDelegation(params: {
         callId: callId || `delegation-${params.targetDeploymentId}-${Date.now()}`,
         stepId,
         costCents: hopCostCents,
-        promptTokens: result.tokenUsage?.promptTokens ?? 0,
-        completionTokens: result.tokenUsage?.completionTokens ?? 0,
+        promptTokens: result.tokenUsage?.inputTokens ?? 0,
+        completionTokens: result.tokenUsage?.outputTokens ?? 0,
         modelId: result.tokenUsage?.model || deployment.llmModel || "openclaw-delegation",
         depth,
       });
