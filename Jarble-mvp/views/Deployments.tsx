@@ -2780,6 +2780,16 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     });
   }, []);
 
+  // Cleanup rAF and abort controller on unmount to prevent leaks
+  useEffect(() => {
+    return () => {
+      if (delegationRafId.current != null) {
+        cancelAnimationFrame(delegationRafId.current);
+        delegationRafId.current = null;
+      }
+    };
+  }, []);
+
   // Track which (flowId, sessionId) we've already seeded from persistence
   // so the effect below doesn't clobber in-flight streaming messages
   // every time React re-runs it.

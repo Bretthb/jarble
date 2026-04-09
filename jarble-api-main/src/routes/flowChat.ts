@@ -974,14 +974,14 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           });
         }
 
-        // Save delegation results
+        // Save delegation results (full response, not truncated preview)
         for (const d of delegationTrace) {
-          if (d.success && d.responsePreview) {
+          if (d.success && d.fullResponse) {
             await db.insert(tables.flowChatMessages).values({
               id: genId(),
               sessionId: convId,
               role: "delegation_result",
-              content: d.responsePreview,
+              content: d.fullResponse.slice(0, 50_000),
               sourceNodeId: d.targetNodeId,
               sourceDeploymentId: d.targetDeploymentId,
               delegationToolName: d.toolName,

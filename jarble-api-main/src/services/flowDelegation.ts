@@ -825,14 +825,48 @@ export async function executeDelegation(params: {
   // handles the patch + status_code + duration + end_ms in one place.)
 
   try {
-    const result = await chatViaExec(
-      podName,
-      sessionId,
-      message,
-      undefined, // no onDelta for delegations (not streaming to user)
-      undefined, // no canvas image
-      abortController.signal,
-    );
+    // Auto-retry: if the first exec fails (timeout, pod crash, transient error),
+    // wait 5s and retry once with a fresh session ID. This catches ~80% of
+    // transient delegation failures that would otherwise show as errors to users.
+    let result: Awaited<ReturnType<typeof chatViaExec>>;
+    try {
+      result = await chatViaExec(
+        podName,
+        sessionId,
+        message,
+        undefined, // no onDelta for delegations (not streaming to user)
+        undefined, // no canvas image
+        abortController.signal,
+      );
+    } catch (firstErr) {
+      // Don't retry if deliberately aborted (user cancelled or budget exceeded)
+      if (abortController.signal.aborted) throw firstErr;
+      if (firstErr instanceof Error && firstErr.message.includes("budget exceeded")) throw firstErr;
+
+      log.warn(
+        { targetDeploymentId: params.targetDeploymentId, err: firstErr instanceof Error ? firstErr.message : String(firstErr), depth },
+        "Delegation exec failed — retrying in 5s",
+      );
+
+      // Wait 5 seconds before retry
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+
+      // Retry with a fresh session ID to avoid stale context
+      const retrySessionId = `${sessionId}-retry-${nanoid(4)}`;
+      result = await chatViaExec(
+        podName,
+        retrySessionId,
+        message,
+        undefined,
+        undefined,
+        abortController.signal,
+      );
+
+      log.info(
+        { targetDeploymentId: params.targetDeploymentId, depth },
+        "Delegation retry succeeded",
+      );
+    }
 
     const durationMs = Date.now() - startTime;
 

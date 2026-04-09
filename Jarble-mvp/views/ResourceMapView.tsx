@@ -50,7 +50,8 @@ type ResourceEdgeType =
   | "api_key_share"
   | "agent_call"
   | "flow_connection"
-  | "shared_platform";
+  | "shared_platform"
+  | "shared_secret";
 
 interface ResourceMapNodeData extends DeploymentData {
   [key: string]: unknown;
@@ -88,6 +89,11 @@ const EDGE_CONFIG: Record<
     color: "#f97316",
     label: "Shared Platform",
     dashArray: "2 4", // dotted
+  },
+  shared_secret: {
+    color: "#ec4899",
+    label: "Shared Secret",
+    dashArray: "4 2", // short dash
   },
 };
 
@@ -473,10 +479,11 @@ function buildResourceEdges(deployments: DeploymentData[]): Edge[] {
 
 // ─── Inner graph (requires ReactFlowProvider) ─────────────────────────
 
-function DeploymentEnvPanel({ deploymentId, deployment, onClose }: {
+function DeploymentEnvPanel({ deploymentId, deployment, onClose, sharedSecretKeys }: {
   deploymentId: string;
   deployment: DeploymentData;
   onClose: () => void;
+  sharedSecretKeys?: string[];
 }) {
   const envQuery = trpc.deployment.getById.useQuery({ id: deploymentId }, { staleTime: 30_000 });
   const dep = envQuery.data as any;
@@ -533,6 +540,20 @@ function DeploymentEnvPanel({ deploymentId, deployment, onClose }: {
             </div>
           </div>
         </div>
+        {/* Shared secret key names (never values) */}
+        {sharedSecretKeys && sharedSecretKeys.length > 0 && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">Shared Secrets</p>
+            <div className="flex flex-wrap gap-1">
+              {sharedSecretKeys.map((k) => (
+                <span key={k} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-pink-500/10 text-pink-400 border border-pink-500/20">
+                  {k}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         <button
           onClick={() => window.location.href = `/d/${deploymentId}`}
           className="w-full text-xs font-medium py-2 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
@@ -554,8 +575,39 @@ function ResourceMapGraph({
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
   const [selectedDeploymentId, setSelectedDeploymentId] = useState<string | null>(null);
 
+  // Fetch server-side resource graph (flow connections, agent calls, platform + secret sharing)
+  const graphQuery = trpc.deployment.getResourceGraph.useQuery(undefined, { staleTime: 30_000 });
+  const serverEdges = graphQuery.data?.edges ?? [];
+
   const { nodes, edges, hasEdges } = useMemo(() => {
-    const rawEdges = buildResourceEdges(deployments);
+    // Client-side edges (API key sharing from deployment data)
+    const clientEdges = buildResourceEdges(deployments);
+
+    // Merge server-side edges (flow, agent_call, platform, secret) with client edges
+    const depIdSet = new Set(deployments.map((d) => d.id));
+    const mergedServerEdges: Edge[] = serverEdges
+      .filter((e: any) => depIdSet.has(e.source) && depIdSet.has(e.target))
+      .map((e: any, i: number) => {
+        const edgeType = (e.type || "api_key_share") as ResourceEdgeType;
+        const config = EDGE_CONFIG[edgeType] || EDGE_CONFIG.api_key_share;
+        return {
+          id: `server-${edgeType}-${e.source}-${e.target}-${i}`,
+          source: e.source,
+          target: e.target,
+          type: "resourceEdge",
+          data: {
+            edgeType,
+            label: e.secretKey ? `Secret: ${e.secretKey}` : e.flowName ? `Flow: ${e.flowName}` : config.label,
+            active: false,
+          } satisfies ResourceMapEdgeData,
+        };
+      });
+
+    // Dedupe: server edges may duplicate client edges for api_key_share
+    const edgeKeySet = new Set(clientEdges.map((e) => `${e.source}-${e.target}`));
+    const uniqueServerEdges = mergedServerEdges.filter((e) => !edgeKeySet.has(`${e.source}-${e.target}`));
+
+    const allEdges = [...clientEdges, ...uniqueServerEdges];
 
     const nodeList: Node<ResourceMapNodeData>[] = deployments.map((dep) => ({
       id: dep.id,
@@ -568,13 +620,13 @@ function ResourceMapGraph({
       return { nodes: [], edges: [], hasEdges: false };
     }
 
-    const layouted = layoutResourceGraph(nodeList, rawEdges);
+    const layouted = layoutResourceGraph(nodeList, allEdges);
     return {
       nodes: layouted.nodes,
       edges: layouted.edges,
-      hasEdges: rawEdges.length > 0,
+      hasEdges: allEdges.length > 0,
     };
-  }, [deployments]);
+  }, [deployments, serverEdges]);
 
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node<ResourceMapNodeData>) => {
@@ -649,11 +701,17 @@ function ResourceMapGraph({
       {selectedDeploymentId && (() => {
         const dep = deployments.find((d) => d.id === selectedDeploymentId);
         if (!dep) return null;
+        // Extract shared secret keys for this deployment from server edges
+        const secretKeys = serverEdges
+          .filter((e: any) => e.type === "shared_secret" && (e.source === selectedDeploymentId || e.target === selectedDeploymentId))
+          .map((e: any) => e.secretKey)
+          .filter(Boolean);
         return (
           <DeploymentEnvPanel
             deploymentId={selectedDeploymentId}
             deployment={dep}
             onClose={() => setSelectedDeploymentId(null)}
+            sharedSecretKeys={[...new Set(secretKeys)]}
           />
         );
       })()}
