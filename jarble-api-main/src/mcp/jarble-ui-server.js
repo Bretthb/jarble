@@ -967,48 +967,52 @@ const TOOLS = [
   // ── Memory tools ──────────────────────────────────────────────────────
   {
     name: "store_memory",
-    description: "Store information in long-term memory. Extracts discrete facts from the text, checks for duplicates/contradictions, and either inserts new memories or updates existing ones (compaction). Use this when the user shares personal info, preferences, important context, or anything worth remembering across conversations and platforms. Memory persists across Jarble dashboard, Telegram, Discord, WhatsApp, etc.",
+    description: "Store information in long-term memory. Extracts discrete facts from the text, checks for duplicates/contradictions, and either inserts new memories or updates existing ones (compaction). Use this when the user shares personal info, preferences, important context, or anything worth remembering across conversations and platforms. Memory persists across Jarble dashboard, Telegram, Discord, WhatsApp, etc. SESSION MODE: when memory_scope is 'session', you MUST pass session_id (from your current conversation context) — memories are then scoped to that conversation only and cannot be recalled from other chats.",
     inputSchema: {
       type: "object",
       properties: {
         text: { type: "string", description: "The text containing facts to remember. Can be conversational — facts will be automatically extracted." },
         category: { type: "string", description: "Optional category: general, preference, personal, context, goal", default: "general" },
         source_platform: { type: "string", description: "Optional: which platform this info came from (jarble, telegram, discord, whatsapp, slack)" },
+        session_id: { type: "string", description: "REQUIRED when memory_scope=session — the current conversation's session id. Ignored in global mode." },
       },
       required: ["text"],
     },
   },
   {
     name: "recall_memory",
-    description: "Search long-term memory for information relevant to a query. Returns the most relevant memories ranked by semantic similarity. Use this at the start of conversations or when the user asks about something you might have stored. Memory is cross-platform — recalling works regardless of which platform the info was stored from.",
+    description: "Search long-term memory for information relevant to a query. Returns the most relevant memories ranked by semantic similarity. Use this at the start of conversations or when the user asks about something you might have stored. Memory is cross-platform — recalling works regardless of which platform the info was stored from. SESSION MODE: when memory_scope is 'session', you MUST pass session_id — only memories stored under the same session_id will be returned.",
     inputSchema: {
       type: "object",
       properties: {
         query: { type: "string", description: "What to search for in memory (natural language)" },
         limit: { type: "number", description: "Max number of memories to return (default 10, max 50)", default: 10 },
+        session_id: { type: "string", description: "REQUIRED when memory_scope=session — filters results to the current conversation only. Ignored in global mode." },
       },
       required: ["query"],
     },
   },
   {
     name: "list_memories",
-    description: "List all stored memories, optionally filtered by category. Shows the full memory inventory sorted by most recently updated.",
+    description: "List all stored memories, optionally filtered by category. Shows the full memory inventory sorted by most recently updated. SESSION MODE: when memory_scope=session, pass session_id to see only memories from the current conversation.",
     inputSchema: {
       type: "object",
       properties: {
         category: { type: "string", description: "Optional: filter by category (general, preference, personal, context, goal)" },
         limit: { type: "number", description: "Max memories to return (default 50, max 200)", default: 50 },
+        session_id: { type: "string", description: "REQUIRED when memory_scope=session — filters to the current conversation. Ignored in global mode." },
       },
     },
   },
   {
     name: "forget_memory",
-    description: "Delete a specific memory by ID or by semantic search. Use when the user asks you to forget something.",
+    description: "Delete a specific memory by ID or by semantic search. Use when the user asks you to forget something. SESSION MODE: only deletes memories from the current session when session_id is passed.",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Exact memory ID to delete (from list_memories)" },
         query: { type: "string", description: "Natural language query to find the memory to delete (uses semantic search)" },
+        session_id: { type: "string", description: "REQUIRED when memory_scope=session — scopes the delete to this conversation. Ignored in global mode." },
       },
     },
   },
@@ -4248,6 +4252,25 @@ function memoryOffResponse() {
     text: "Long-term memory is disabled for this deployment (memory_scope=off). Ask the user to re-enable it in the deployment configuration if they want the bot to remember anything.",
   };
 }
+
+function isMemoryScopeSession() {
+  return MEMORY_SCOPE === "session";
+}
+
+// Session-scope enforcement helper (PR C).
+// Returns a bot-readable error response if session_id is missing while
+// memory_scope=session, otherwise returns null (success; caller proceeds).
+function requireSessionIdForSessionScope(sessionId) {
+  if (!isMemoryScopeSession()) return null;
+  if (typeof sessionId === "string" && sessionId.trim().length > 0) return null;
+  return {
+    isError: true,
+    text:
+      "Memory is in session mode for this deployment — you MUST pass session_id on this call. " +
+      "Use your current conversation's session id (openclaw exposes it as `{session_id}` in the system prompt context). " +
+      "Memories stored/recalled without session_id would leak across chats, so the call was blocked.",
+  };
+}
 const EMBEDDING_DIMS = 512;
 const SIMILARITY_THRESHOLD = 0.82; // cosine sim threshold for dedup/compaction
 const MAX_MEMORIES = 10000;
@@ -4673,12 +4696,20 @@ resulting memory text (or empty for SKIP)`;
 // ── Memory tool implementations ───────────────────────────────────────
 
 async function executeStoreMemory(args) {
-  const { text, category, source_platform } = args;
+  const { text, category, source_platform, session_id } = args;
   if (!text || typeof text !== "string") return { isError: true, text: "Missing 'text' parameter." };
   if (text.length > 5000) return { isError: true, text: "Text too long (max 5000 chars). Summarize first." };
 
+  const sessionGuard = requireSessionIdForSessionScope(session_id);
+  if (sessionGuard) return sessionGuard;
+
   const store = loadMemoryStore();
   const platform = source_platform || process.env.RUNTIME || "unknown";
+  // In session mode every stored memory carries the session id it was
+  // written under. In global mode this field is simply omitted (backward
+  // compatible — existing memories have no sessionId and recall_memory in
+  // global mode ignores the field entirely).
+  const writeSessionId = isMemoryScopeSession() ? session_id : undefined;
   const actions = [];
 
   try {
@@ -4708,6 +4739,13 @@ async function executeStoreMemory(args) {
       const simThreshold = hasEmbeddingAPI ? SIMILARITY_THRESHOLD : 0.45; // Lower threshold for local embeddings
 
       for (let j = 0; j < store.memories.length; j++) {
+        // Session isolation: in session mode, dedup/compact only compares
+        // against memories from the same session so a fact from conv A
+        // cannot merge into conv B. In global mode this filter is skipped.
+        if (isMemoryScopeSession() && store.memories[j].sessionId !== writeSessionId) {
+          continue;
+        }
+
         let sim = cosineSim(factEmb, store.memories[j].embedding);
 
         // Boost similarity with word overlap for local embeddings
@@ -4748,6 +4786,7 @@ async function executeStoreMemory(args) {
             embedding: newEmb,
             updatedAt: new Date().toISOString(),
             sourcePlatform: platform,
+            sessionId: writeSessionId,
           };
           actions.push(`${decision.action === "REPLACE" ? "Updated" : "Merged"}: "${decision.result.slice(0, 60)}"`);
           continue;
@@ -4769,6 +4808,7 @@ async function executeStoreMemory(args) {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         sourcePlatform: platform,
+        sessionId: writeSessionId,
       });
       actions.push(`Stored: "${fact.slice(0, 60)}"`);
     }
@@ -4788,12 +4828,25 @@ async function executeStoreMemory(args) {
 }
 
 async function executeRecallMemory(args) {
-  const { query, limit } = args;
+  const { query, limit, session_id } = args;
   if (!query || typeof query !== "string") return { isError: true, text: "Missing 'query' parameter." };
+
+  const sessionGuard = requireSessionIdForSessionScope(session_id);
+  if (sessionGuard) return sessionGuard;
 
   const store = loadMemoryStore();
   if (store.memories.length === 0) {
     return { isError: false, text: "No memories stored yet." };
+  }
+
+  // Session isolation: in session mode, only consider memories tagged
+  // with the matching session id. In global mode, all memories are in scope.
+  const candidateMemories = isMemoryScopeSession()
+    ? store.memories.filter((m) => m.sessionId === session_id)
+    : store.memories;
+
+  if (candidateMemories.length === 0) {
+    return { isError: false, text: "No memories stored for this conversation yet." };
   }
 
   const maxResults = Math.min(limit || 10, 50);
@@ -4803,7 +4856,7 @@ async function executeRecallMemory(args) {
     const queryEmb = await embed(query);
 
     // Compute similarities
-    const scored = store.memories.map((m, idx) => ({
+    const scored = candidateMemories.map((m, idx) => ({
       ...m,
       score: cosineSim(queryEmb, m.embedding),
       idx,
@@ -4832,11 +4885,18 @@ async function executeRecallMemory(args) {
 }
 
 async function executeListMemories(args) {
+  const sessionGuard = requireSessionIdForSessionScope(args?.session_id);
+  if (sessionGuard) return sessionGuard;
+
   const store = loadMemoryStore();
   const category = args?.category;
   const limit = Math.min(args?.limit || 50, 200);
 
   let memories = store.memories;
+  // Session isolation
+  if (isMemoryScopeSession()) {
+    memories = memories.filter((m) => m.sessionId === args?.session_id);
+  }
   if (category) {
     memories = memories.filter(m => m.category === category);
   }
@@ -4860,14 +4920,21 @@ async function executeListMemories(args) {
 }
 
 async function executeForgetMemory(args) {
-  const { id, query } = args;
+  const { id, query, session_id } = args;
   if (!id && !query) return { isError: true, text: "Provide either 'id' (exact) or 'query' (semantic search) to find the memory to delete." };
+
+  const sessionGuard = requireSessionIdForSessionScope(session_id);
+  if (sessionGuard) return sessionGuard;
 
   const store = loadMemoryStore();
 
   if (id) {
     const idx = store.memories.findIndex(m => m.id === id);
     if (idx === -1) return { isError: true, text: `Memory "${id}" not found.` };
+    // Session isolation: prevent cross-session deletes in session mode.
+    if (isMemoryScopeSession() && store.memories[idx].sessionId !== session_id) {
+      return { isError: true, text: `Memory "${id}" is not in the current conversation's scope.` };
+    }
     const removed = store.memories.splice(idx, 1)[0];
     saveMemoryStore(store);
     return { isError: false, text: `Deleted memory: "${removed.text.slice(0, 80)}"` };
@@ -4878,6 +4945,8 @@ async function executeForgetMemory(args) {
     const queryEmb = await embed(query);
     let bestSim = 0, bestIdx = -1;
     for (let i = 0; i < store.memories.length; i++) {
+      // Session isolation
+      if (isMemoryScopeSession() && store.memories[i].sessionId !== session_id) continue;
       const sim = cosineSim(queryEmb, store.memories[i].embedding);
       if (sim > bestSim) { bestSim = sim; bestIdx = i; }
     }
