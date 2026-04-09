@@ -31,7 +31,7 @@ import { customAlphabet } from "nanoid";
 import { trace, context as otelContext } from "@opentelemetry/api";
 import { db, dbDate, tables } from "../db/index.js";
 import { createModuleLogger } from "../utils/logger.js";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 const logger = createModuleLogger("agentCallsWriter");
 
@@ -40,6 +40,106 @@ const logger = createModuleLogger("agentCallsWriter");
 const hexAlphabet = "0123456789abcdef";
 const genTraceId = customAlphabet(hexAlphabet, 32);
 const genSpanId = customAlphabet(hexAlphabet, 16);
+
+/**
+ * Runaway cost circuit breaker (JAR-51 Phase 6).
+ *
+ * Prevents a single chat turn from producing an unbounded number of
+ * fractal delegation hops. Two safety rails:
+ *
+ *   1. MAX_SPANS_PER_TRACE — total agent_calls rows per trace_id.
+ *      Default 50 (plenty of headroom for 4-level delegation trees).
+ *      Override: JARBLE_MAX_SPANS_PER_TRACE
+ *
+ *   2. MAX_CREDITS_PER_TRACE_CENTS — cumulative credits_charged across
+ *      all completed rows in a trace. Default 500 (= $5). When the
+ *      running total exceeds this, the next startAgentCall is rejected
+ *      with a bot-readable error.
+ *      Override: JARBLE_MAX_CREDITS_PER_TRACE_CENTS
+ *
+ * The cost check only fires for depth >= 1 (delegation hops), not
+ * depth 0 chat_turns, so every root call gets to run at least once.
+ *
+ * Both checks are best-effort: the SELECT runs in parallel with the
+ * critical path, and if the query fails we LET THE CALL THROUGH and
+ * log a warning. Observability must never break the app.
+ */
+const MAX_SPANS_PER_TRACE = (() => {
+  const raw = process.env.JARBLE_MAX_SPANS_PER_TRACE;
+  const n = raw ? Number(raw) : NaN;
+  if (Number.isFinite(n) && n > 0 && n < 10_000) return Math.floor(n);
+  return 50;
+})();
+
+const MAX_CREDITS_PER_TRACE_CENTS = (() => {
+  const raw = process.env.JARBLE_MAX_CREDITS_PER_TRACE_CENTS;
+  const n = raw ? Number(raw) : NaN;
+  if (Number.isFinite(n) && n >= 0 && n < 1_000_000) return Math.floor(n);
+  return 500; // $5.00 per trace
+})();
+
+export class RunawayTraceError extends Error {
+  public readonly reason: "spans" | "credits";
+  public readonly limit: number;
+  public readonly actual: number;
+  constructor(reason: "spans" | "credits", limit: number, actual: number) {
+    super(
+      reason === "spans"
+        ? `Runaway delegation detected — this conversation has already produced ${actual} spans (limit: ${limit}). The call was blocked to prevent infinite loops. If this is unexpected, check for a bot delegating in a cycle.`
+        : `Runaway cost detected — this conversation has already charged ${actual} credit cents (limit: ${limit}). The call was blocked to prevent runaway cost. If you need a higher limit, increase JARBLE_MAX_CREDITS_PER_TRACE_CENTS.`,
+    );
+    this.name = "RunawayTraceError";
+    this.reason = reason;
+    this.limit = limit;
+    this.actual = actual;
+  }
+}
+
+/**
+ * Query cumulative stats for a trace. Returns a best-effort snapshot
+ * and NEVER throws. When DB is wedged this returns zeros, which is
+ * the "let the call through" fallback.
+ */
+async function getTraceStats(traceId: string): Promise<{ spanCount: number; creditsCents: number }> {
+  try {
+    // Intentionally no postgres-specific casts so the SQLite test mirror
+    // executes the same query. drizzle returns count() as a string in
+    // postgres so we Number() coerce defensively.
+    const rows = await db
+      .select({
+        spanCount: sql<number>`count(*)`,
+        creditsCents: sql<number>`coalesce(sum(${tables.agentCalls.creditsCharged}), 0)`,
+      })
+      .from(tables.agentCalls)
+      .where(eq(tables.agentCalls.traceId, traceId));
+    const row = rows[0];
+    return {
+      spanCount: Number(row?.spanCount ?? 0),
+      creditsCents: Number(row?.creditsCents ?? 0),
+    };
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : err, traceId },
+      "getTraceStats query failed — letting the call through (fail-open)",
+    );
+    return { spanCount: 0, creditsCents: 0 };
+  }
+}
+
+/**
+ * Runaway circuit breaker check. Throws RunawayTraceError when tripped.
+ * Only fires for non-zero depth so root calls always succeed.
+ */
+async function checkRunawayLimits(traceId: string, depth: number): Promise<void> {
+  if (depth <= 0) return;
+  const { spanCount, creditsCents } = await getTraceStats(traceId);
+  if (spanCount >= MAX_SPANS_PER_TRACE) {
+    throw new RunawayTraceError("spans", MAX_SPANS_PER_TRACE, spanCount);
+  }
+  if (creditsCents >= MAX_CREDITS_PER_TRACE_CENTS) {
+    throw new RunawayTraceError("credits", MAX_CREDITS_PER_TRACE_CENTS, creditsCents);
+  }
+}
 
 /**
  * JAR-51 Phase 2 OTel bridge — when an OTel span is active on the calling
@@ -149,6 +249,14 @@ export async function startAgentCall(
   const spanId = genSpanId();
   const resolvedParentSpanId = otelCtx.parentSpanId;
   const startedAt = Date.now();
+
+  // Runaway circuit breaker (JAR-51 Phase 6). Rejects calls in
+  // traces that have exceeded per-trace span count or cumulative
+  // credits. Only fires for depth >= 1 so root calls always succeed.
+  // Throws RunawayTraceError on trip — callers should treat this as
+  // a terminal failure of the delegation and surface the error text
+  // to the user.
+  await checkRunawayLimits(traceId, input.depth);
   const spanName =
     input.spanName ||
     (input.kind === "chat_turn"
