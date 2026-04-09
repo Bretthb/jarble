@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import {
+  AlertTriangle,
+  Building2,
   ChevronRight,
   ChevronLeft,
   CheckCircle2,
@@ -40,7 +42,7 @@ export default function OnboardingWizard() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
-  const { activeOrgId } = useOrg();
+  const { activeOrgId, activeOrg } = useOrg();
   const { theme } = useTheme();
   const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
 
@@ -199,6 +201,12 @@ export default function OnboardingWizard() {
   const linkableQuery = trpc.deployment.listLinkableDeployments.useQuery(undefined, {
     enabled: isAuthenticated && !authLoading && llmMode === "included",
   });
+
+  // Fetch org billing status when creating in an org context
+  const orgBillingQuery = trpc.org.getBilling.useQuery(
+    { orgId: activeOrgId! },
+    { enabled: !!activeOrgId, retry: false },
+  );
 
   // Key validation mutation
   const validateKeyMutation = trpc.openrouter.validateProviderKey.useMutation({
@@ -440,6 +448,30 @@ export default function OnboardingWizard() {
             );
           })}
         </nav>
+
+        {/* Org billing context banner */}
+        {activeOrgId && activeOrg && (
+          <div className="mb-4">
+            {orgBillingQuery.isLoading ? null : orgBillingQuery.data?.hasPaymentMethod ? (
+              <div className="flex items-center gap-2.5 rounded-lg border border-border bg-secondary/30 px-4 py-2.5 text-sm">
+                <Building2 className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-muted-foreground">
+                  This deployment will be billed to{" "}
+                  <span className="font-medium text-foreground">{activeOrg.name}</span>
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2.5 text-sm">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                <span className="text-muted-foreground">
+                  Set up billing in{" "}
+                  <span className="font-medium text-foreground">{activeOrg.name}</span>{" "}
+                  org settings before creating a deployment
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Step Content */}
         <div className="mb-8">

@@ -69,6 +69,7 @@ export const deployments = pgTable("deployments", {
   bio: text("bio"),
   showcasePrompts: text("showcase_prompts"),  // JSON array of example prompts
   orgId: varchar("org_id", { length: 255 }),  // null = personal deployment, non-null = org-owned
+  visibility: varchar("visibility", { length: 20 }).default("all"),  // "all" = every org member sees it, "admin" = owner + admin only
   /**
    * JAR memory-scoping (foundation): how the bot's long-term memory layer
    * behaves across sessions. The actual enforcement of `session` mode lives
@@ -981,6 +982,8 @@ export const organizations = pgTable("organizations", {
   slug: varchar("slug", { length: 100 }).notNull().unique(),
   ownerId: varchar("owner_id", { length: 255 }).notNull().references(() => users.id),
   avatarUrl: varchar("avatar_url", { length: 512 }),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+  billingEmail: varchar("billing_email", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

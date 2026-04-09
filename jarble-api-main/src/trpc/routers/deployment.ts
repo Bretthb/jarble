@@ -29,8 +29,79 @@ import { isAdmin } from "../../utils/admin.js";
 import { RESOURCE_TIERS } from "../../k8s/constants.js";
 import { validateThemeConfig, COMPONENT_MANIFEST } from "@jarble/component-manifest";
 import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
+import { requireOrgRole } from "./org.js";
+import type { OrgRole } from "./org.js";
 
 const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations } = tables;
+
+/**
+ * Find a deployment and verify the caller has access.
+ * - Personal deployments (orgId is null): only the creator (userId) can access
+ * - Org deployments: any org member can read; mutations require owner/admin role
+ *
+ * Returns the deployment + the caller's org role (null for personal deployments).
+ * Throws NOT_FOUND if deployment doesn't exist or caller has no access.
+ */
+async function findDeploymentWithAccess(
+  db: DbClient,
+  deploymentId: string,
+  userId: string,
+  opts?: { requireRole?: OrgRole[] },
+): Promise<{ deployment: any; orgRole: OrgRole | null }> {
+  // 1. First try to find by userId (personal deployment or user is creator)
+  let deployment = await db.query.deployments.findFirst({
+    where: and(eq(deployments.id, deploymentId), eq(deployments.userId, userId)),
+    with: { runtimeCatalogEntry: true },
+  });
+
+  if (deployment) {
+    // Personal deployment or user is the creator
+    if (!deployment.orgId) {
+      return { deployment, orgRole: null };
+    }
+    // Creator is also an org member — get their role
+    const membership = await db.query.orgMembers.findFirst({
+      where: and(eq(orgMembers.orgId, deployment.orgId), eq(orgMembers.userId, userId)),
+    });
+    const role = (membership?.role ?? "member") as OrgRole;
+    if (opts?.requireRole && !opts.requireRole.includes(role)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: `Requires ${opts.requireRole.join(" or ")} role` });
+    }
+    return { deployment, orgRole: role };
+  }
+
+  // 2. Not the creator — check if it's an org deployment they have access to
+  const dep = await db.query.deployments.findFirst({
+    where: eq(deployments.id, deploymentId),
+    with: { runtimeCatalogEntry: true },
+  });
+
+  if (!dep || !dep.orgId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+  }
+
+  // Verify org membership
+  const membership = await db.query.orgMembers.findFirst({
+    where: and(eq(orgMembers.orgId, dep.orgId), eq(orgMembers.userId, userId)),
+  });
+  if (!membership) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+  }
+
+  const role = membership.role as OrgRole;
+
+  // Check visibility — members can't see "admin" visibility deployments
+  if ((dep as any).visibility === "admin" && role === "member") {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+  }
+
+  // Check required role for mutations
+  if (opts?.requireRole && !opts.requireRole.includes(role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: `Requires ${opts.requireRole.join(" or ")} role` });
+  }
+
+  return { deployment: dep, orgRole: role };
+}
 
 export const deploymentRouter = router({
 
@@ -53,10 +124,10 @@ export const deploymentRouter = router({
 
   // List user's deployments (personal + org-owned)
   list: protectedProcedure.query(async ({ ctx }) => {
-    // Get user's org memberships
+    // Get user's org memberships (including role for visibility filtering)
     const memberships = await ctx.db.query.orgMembers.findMany({
       where: eq(orgMembers.userId, ctx.user.id),
-      columns: { orgId: true },
+      columns: { orgId: true, role: true },
     });
     const orgIds = memberships.map((m: any) => m.orgId);
 
@@ -68,7 +139,23 @@ export const deploymentRouter = router({
       orderBy: (d, { desc }) => [desc(d.createdAt)],
     });
 
-    return result;
+    // Filter by visibility for member-role users (members can't see "admin" visibility deployments)
+    const memberOrgIds = new Set<string>();
+    for (const m of memberships) {
+      if ((m as any).role === "member") {
+        memberOrgIds.add(m.orgId);
+      }
+    }
+
+    const filtered = result.filter((d: any) => {
+      // Personal deployments: always show
+      if (!d.orgId) return true;
+      // If user is member (not admin/owner) in this org, hide admin-only deployments
+      if (memberOrgIds.has(d.orgId) && d.visibility === "admin") return false;
+      return true;
+    });
+
+    return filtered;
   }),
 
   // List deployments that can be linked to (owner deployments with included credits)
@@ -105,14 +192,9 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
       }
 
-      // Verify org membership if assigning
+      // Verify org role (owner/admin) if assigning
       if (input.orgId) {
-        const membership = await ctx.db.query.orgMembers.findFirst({
-          where: and(eq(orgMembers.orgId, input.orgId), eq(orgMembers.userId, ctx.user.id)),
-        });
-        if (!membership) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this organization" });
-        }
+        await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
       }
 
       await ctx.db.update(deployments).set({ orgId: input.orgId }).where(eq(deployments.id, input.deploymentId));
@@ -185,9 +267,17 @@ export const deploymentRouter = router({
     .query(async ({ ctx, input }) => {
       if (input.ids.length === 0) return {};
 
-      // Verify ownership of all requested deployments
+      // Verify access: user's own deployments + org deployments they belong to
+      const memberships = await ctx.db.query.orgMembers.findMany({
+        where: eq(orgMembers.userId, ctx.user.id),
+        columns: { orgId: true },
+      });
+      const orgIds = memberships.map((m: any) => m.orgId);
+
       const userDeps = await ctx.db.query.deployments.findMany({
-        where: and(eq(deployments.userId, ctx.user.id)),
+        where: orgIds.length > 0
+          ? or(eq(deployments.userId, ctx.user.id), inArray(deployments.orgId, orgIds))
+          : eq(deployments.userId, ctx.user.id),
         columns: { id: true, managedBy: true },
       });
       const ownedIds = new Set(userDeps.map((d: { id: string }) => d.id));
@@ -213,16 +303,7 @@ export const deploymentRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(
-          eq(deployments.id, input.id),
-          eq(deployments.userId, ctx.user.id)
-        ),
-        with: { runtimeCatalogEntry: true },
-      });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id);
       return deployment;
     }),
 
@@ -230,13 +311,8 @@ export const deploymentRouter = router({
   getComponentCatalog: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Verify ownership
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      // Verify access (org members can view too)
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id);
 
       // Built-in component metadata - derived from the canonical component manifest
       const builtins = Object.entries(COMPONENT_MANIFEST).map(([name, entry]) => ({
@@ -269,12 +345,9 @@ export const deploymentRouter = router({
       })),
     }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
       if (deployment.status !== "running") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Deployment is not running" });
       }
@@ -306,12 +379,9 @@ export const deploymentRouter = router({
       name: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
       if (deployment.status !== "running") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Deployment is not running" });
       }
@@ -379,14 +449,9 @@ export const deploymentRouter = router({
         });
       }
 
-      // Verify org membership if orgId provided
+      // Verify org role (owner/admin) if orgId provided
       if (input.orgId) {
-        const membership = await ctx.db.query.orgMembers.findFirst({
-          where: and(eq(orgMembers.orgId, input.orgId), eq(orgMembers.userId, ctx.user.id)),
-        });
-        if (!membership) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this organization" });
-        }
+        await requireOrgRole(ctx.db, ctx.user.id, input.orgId, ["owner", "admin"]);
       }
 
       // Platform mode is admin-only
@@ -1078,13 +1143,9 @@ export const deploymentRouter = router({
   stop: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
 
       if (deployment.status !== "running") {
         throw new TRPCError({
@@ -1141,13 +1202,9 @@ export const deploymentRouter = router({
   start: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
 
       if (deployment.status !== "stopped" && deployment.status !== "failed") {
         throw new TRPCError({
@@ -1292,13 +1349,9 @@ export const deploymentRouter = router({
   restart: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
 
       if (deployment.status !== "running" && deployment.status !== "failed") {
         throw new TRPCError({
@@ -1737,14 +1790,9 @@ export const deploymentRouter = router({
       logger.info({ deploymentId: input.id, userId: ctx.user.id }, "delete: request received");
 
       // Fetch deployment first to get the OpenRouter key hash (for revocation)
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-
-      if (!deployment) {
-        logger.warn({ deploymentId: input.id, userId: ctx.user.id }, "delete: deployment not found");
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
 
       logger.debug({ deploymentId: input.id, status: deployment.status, llmMode: deployment.llmMode }, "delete: deployment found");
 
@@ -2217,18 +2265,36 @@ export const deploymentRouter = router({
       isPublic: z.boolean(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Verify ownership
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      // Verify access (owner/admin can toggle public visibility)
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
       });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
 
       await ctx.db.update(deployments)
         .set({ isPublic: input.isPublic } as any)
-        .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
+        .where(eq(deployments.id, input.id));
+
+      return { success: true };
+    }),
+
+  // Set org-level deployment visibility ("all" = every member sees it, "admin" = owner + admin only)
+  setOrgVisibility: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      visibility: z.enum(["all", "admin"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id, {
+        requireRole: ["owner", "admin"],
+      });
+
+      if (!deployment.orgId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Visibility only applies to org deployments" });
+      }
+
+      await ctx.db.update(deployments)
+        .set({ visibility: input.visibility })
+        .where(eq(deployments.id, input.id));
 
       return { success: true };
     }),
