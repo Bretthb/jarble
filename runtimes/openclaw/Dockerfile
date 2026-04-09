@@ -52,6 +52,14 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY file-watcher.sh /usr/local/bin/file-watcher.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/file-watcher.sh
 
+# ── OTel bridge plugin (Langfuse span export) ────────────────────────
+# Pod-side plugin that reads TRACEPARENT env, initializes OTel SDK, and
+# hooks into OpenClaw lifecycle to produce spans in the same Langfuse
+# trace as the API-side delegation spans.
+COPY runtimes/openclaw-otel-bridge /opt/openclaw-otel-bridge
+RUN cd /opt/openclaw-otel-bridge && npm install --production \
+    && chown -R node:node /opt/openclaw-otel-bridge
+
 # ── Environment defaults ─────────────────────────────────────────────
 ENV NODE_ENV=production
 ENV HOME=/data

@@ -392,6 +392,19 @@ export const openclawHandler: RuntimeHandler = {
     // kubectl exec (not as a live stdio process). Component knowledge is also
     // baked into JARBLE_UI_PROMPT in soul.md for the bot's own awareness.
 
+    // Enable the OTel bridge plugin so pod-side LLM calls and tool
+    // invocations produce spans in the same Langfuse trace as the
+    // API-side delegation spans.
+    openclawConfig.plugins = {
+      enabled: true,
+      load: {
+        paths: ["/opt/openclaw-otel-bridge/index.js"],
+      },
+      entries: {
+        "jarble-otel-bridge": { enabled: true },
+      },
+    };
+
     // Always write openclaw.json if we have any config
     if (Object.keys(openclawConfig).length > 0) {
       const configContent = JSON.stringify(openclawConfig, null, 2) + "\n";
@@ -658,6 +671,14 @@ export const openclawHandler: RuntimeHandler = {
       entries["JARBLE_MEMORY_DIR"] = "/home/openclaw/.openclaw/memory";
       entries["JARBLE_KNOWLEDGE_DIR"] = "/home/openclaw/.openclaw/knowledge";
     }
+
+    // Forward Langfuse credentials to the pod so the OTel bridge
+    // plugin can export spans to the same project as the API.
+    if (process.env.LANGFUSE_BASE_URL) entries["LANGFUSE_BASE_URL"] = process.env.LANGFUSE_BASE_URL;
+    if (process.env.LANGFUSE_PUBLIC_KEY) entries["LANGFUSE_PUBLIC_KEY"] = process.env.LANGFUSE_PUBLIC_KEY;
+    if (process.env.LANGFUSE_SECRET_KEY) entries["LANGFUSE_SECRET_KEY"] = process.env.LANGFUSE_SECRET_KEY;
+    entries["JARBLE_POD_NAME"] = `dep-${deployment.id}`;
+    entries["JARBLE_DEPLOYMENT_ID"] = deployment.id;
 
     // Platform credential env var fallbacks (OpenClaw reads these as backup)
     if (deployment.platformCredentials) {

@@ -90,11 +90,13 @@ describe("openclawHandler metadata", () => {
   });
 
   it("declares config file specs", () => {
-    expect(openclawHandler.configFiles).toHaveLength(3);
+    expect(openclawHandler.configFiles).toHaveLength(5);
     expect(openclawHandler.configFiles[0].path).toBe("soul.md");
     expect(openclawHandler.configFiles[1].path).toBe("openclaw.json");
     expect(openclawHandler.configFiles[2].path).toBe("skills/*");
     expect(openclawHandler.configFiles[2].isGlob).toBe(true);
+    expect(openclawHandler.configFiles[3].path).toBe("subagent-tools.json");
+    expect(openclawHandler.configFiles[4].path).toBe("delegation-tools.json");
   });
 });
 

@@ -1,0 +1,22 @@
+{
+  "name": "@jarble/openclaw-otel-bridge",
+  "version": "0.1.0",
+  "description": "OpenClaw plugin that bridges DiagnosticEvents + lifecycle hooks to OTel spans, rooted under the caller's TRACEPARENT env var. Closes the cross-pod observability gap for JAR-51.",
+  "type": "module",
+  "main": "./index.js",
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-node": "^0.55.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.55.0",
+    "@opentelemetry/sdk-trace-node": "^1.28.0",
+    "@opentelemetry/resources": "^1.28.0",
+    "@opentelemetry/semantic-conventions": "^1.28.0"
+  },
+  "openclaw": {
+    "extensions": ["./index.js"],
+    "install": {
+      "npmSpec": "@jarble/openclaw-otel-bridge",
+      "localPath": "runtimes/openclaw-otel-bridge"
+    }
+  }
+}
