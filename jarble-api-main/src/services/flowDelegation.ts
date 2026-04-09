@@ -680,7 +680,7 @@ export async function executeDelegation(params: {
   // The [CANVAS_STATE] tag matches the signal that the web frontend
   // sends on every normal chat (via tamboAgent.ts), and is what
   // JARBLE_UI_PROMPT checks to detect the dashboard.
-  message = `[CANVAS_STATE]\nNo cards on canvas.\n[/CANVAS_STATE]\n${message}`;
+  message = `[CANVAS_STATE]\nNo cards on canvas.\n[/CANVAS_STATE]\n[DELEGATION_CONTEXT]\nYou are being delegated a task by a coordinator bot. Render your response as jarble_ui components.\nIMPORTANT RENDERING RULES FOR DELEGATION:\n- Prefer SIMPLE built-in components (stat_grid, data_table, chart, metric_card) over sandbox\n- Use sandbox ONLY when explicitly asked for a full dashboard or interactive widget\n- For tables: use data_table (NOT sandbox with HTML tables)\n- For charts: use the built-in chart component with recharts format (NOT sandbox with Chart.js)\n- For metrics: use stat_grid or metric_card\n- Keep responses focused — render ONE component per delegated task\n- Use realistic data, never placeholders\n- Include layout_hint: "full-width" for tables/charts, "half" for metrics\n[/DELEGATION_CONTEXT]\n${message}`;
 
   // Find the pod for this deployment and exec into it
   const { chatViaExec } = await import("./openclawGateway.js");
