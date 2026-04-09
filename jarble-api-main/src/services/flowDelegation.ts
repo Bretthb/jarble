@@ -13,7 +13,7 @@
 import { db, tables } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
-import { emitOrchestrationStart, emitOrchestrationEnd } from "../utils/agentCallEvents.js";
+import { emitOrchestrationStart, emitOrchestrationEnd, emitCostDelta, emitCostTotal } from "../utils/agentCallEvents.js";
 import { nanoid } from "nanoid";
 import type { FlowNode, FlowEdge } from "./flowEngine.js";
 
@@ -200,6 +200,12 @@ export async function executeDelegation(params: {
   sourceDeploymentId?: string;
   /** Tool name for orchestration event (e.g. "delegate_to_cto") */
   toolName?: string;
+  /** Trace ID for cost aggregation across a delegation chain */
+  traceId?: string;
+  /** Running cost accumulator (cents) across the trace */
+  traceCostCents?: number;
+  /** Running hop count across the trace */
+  traceHopCount?: number;
 }): Promise<DelegationResult> {
   const depth = params.depth ?? 0;
   if (depth >= MAX_DELEGATION_DEPTH) {
@@ -325,6 +331,34 @@ export async function executeDelegation(params: {
       });
     } catch {
       // Non-fatal
+    }
+
+    // ── Emit cost:delta + cost:total events ───────────────────────────────
+    const hopCostCents = 1; // 1 credit = 1 cent per delegation call
+    const traceId = params.traceId || `trace-${nanoid(8)}`;
+    const hopCount = (params.traceHopCount ?? 0) + 1;
+    const totalCostCents = (params.traceCostCents ?? 0) + hopCostCents;
+
+    try {
+      emitCostDelta({
+        deploymentId: orchestrationDeploymentId,
+        callId: `delegation-${params.targetDeploymentId}-${Date.now()}`,
+        stepId,
+        costCents: hopCostCents,
+        promptTokens: 0, // Token counts not available from exec path
+        completionTokens: 0,
+        modelId: "openclaw-delegation",
+        depth,
+      });
+
+      emitCostTotal({
+        deploymentId: orchestrationDeploymentId,
+        traceId,
+        totalCostCents,
+        hopCount,
+      });
+    } catch {
+      // Non-fatal - cost events are nice-to-have
     }
 
     return {
