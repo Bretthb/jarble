@@ -5,6 +5,7 @@ import { tables } from "../../db/index.js";
 import { eq, and } from "drizzle-orm";
 import {
   isStripeConfigured,
+  getStripe,
   listInvoices,
   getSubscriptionDetails,
   sumSubscriptionItemsCents,
@@ -75,11 +76,30 @@ export const billingRouter = router({
       activeCount = paidDeps.length;
     }
 
+    let upcomingInvoiceCents: number | null = null;
+    if (isStripeConfigured()) {
+      const currentUser = await ctx.db.query.users.findFirst({
+        where: eq(users.id, ctx.user.id),
+      });
+      if (currentUser?.stripeCustomerId) {
+        try {
+          const s = getStripe();
+          const upcoming = await s.invoices.createPreview({
+            customer: currentUser.stripeCustomerId,
+          });
+          upcomingInvoiceCents = upcoming.amount_due;
+        } catch {
+          // No upcoming invoice (no active subscriptions)
+        }
+      }
+    }
+
     return {
       totalMonthlyCents,
       activeSubscriptionCount: activeCount,
       nextBillingDate,
       paymentMethodLast4,
+      upcomingInvoiceCents,
     };
   }),
 
@@ -203,5 +223,69 @@ export const billingRouter = router({
       if (!keyId) return null;
 
       return getOpenRouterKeyUsage(keyId);
+    }),
+
+  getDeploymentPrice: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const dep = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!dep) return null;
+      if (!dep.stripeSubscriptionId || !isStripeConfigured()) {
+        return { monthlyPriceCents: dep.monthlyPriceCents || 0, source: "db" as const };
+      }
+      try {
+        const sub = await getSubscriptionDetails(dep.stripeSubscriptionId);
+        const total = sumSubscriptionItemsCents(sub);
+        return { monthlyPriceCents: total, source: "stripe" as const };
+      } catch {
+        return { monthlyPriceCents: dep.monthlyPriceCents || 0, source: "db" as const };
+      }
+    }),
+
+  getDeploymentPrices: protectedProcedure
+    .input(z.object({ deploymentIds: z.array(z.string()).max(50) }))
+    .query(async ({ ctx, input }) => {
+      if (input.deploymentIds.length === 0) return {};
+
+      const deps = await ctx.db.query.deployments.findMany({
+        where: eq(deployments.userId, ctx.user.id),
+        columns: { id: true, stripeSubscriptionId: true, monthlyPriceCents: true, cancelledAt: true, cancelAtPeriodEnd: true },
+      });
+
+      const depMap = new Map(deps.map((d) => [d.id, d]));
+      const results: Record<string, { monthlyPriceCents: number; source: "stripe" | "db"; stripeStatus?: string }> = {};
+
+      if (!isStripeConfigured()) {
+        for (const id of input.deploymentIds) {
+          const dep = depMap.get(id);
+          if (dep) results[id] = { monthlyPriceCents: dep.monthlyPriceCents || 0, source: "db" };
+        }
+        return results;
+      }
+
+      // Batch fetch from Stripe for deployments that have subscriptions
+      const fetchPromises = input.deploymentIds.map(async (id) => {
+        const dep = depMap.get(id);
+        if (!dep) return;
+        if (!dep.stripeSubscriptionId) {
+          results[id] = { monthlyPriceCents: dep.monthlyPriceCents || 0, source: "db" };
+          return;
+        }
+        try {
+          const sub = await getSubscriptionDetails(dep.stripeSubscriptionId);
+          results[id] = {
+            monthlyPriceCents: sumSubscriptionItemsCents(sub),
+            source: "stripe",
+            stripeStatus: (sub as any).status,
+          };
+        } catch {
+          results[id] = { monthlyPriceCents: dep.monthlyPriceCents || 0, source: "db" };
+        }
+      });
+
+      await Promise.allSettled(fetchPromises);
+      return results;
     }),
 });
