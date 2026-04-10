@@ -44,6 +44,10 @@ import { StorageMeter, StorageMeterSkeleton } from "@/components/StorageMeter";
 import { ResourceMetrics } from "@/components/ResourceMetrics";
 import { useStatusStream, type DeploymentStatus } from "@/hooks/useStatusStream";
 
+function formatCents(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 function base64ToBlob(b64: string, mime = "application/zip"): Blob {
   const bytes = atob(b64);
   const arr = new Uint8Array(bytes.length);
@@ -173,6 +177,13 @@ export default function Dashboard() {
   const storageBatchQuery = trpc.deployment.getStorageUsageBatch.useQuery(
     { ids: runningIds },
     { enabled: runningIds.length > 0, staleTime: 30_000, refetchInterval: 60_000 }
+  );
+
+  // Batch price query - fetch real Stripe prices for all deployments
+  const deploymentIds = filteredDeployments.map((d: any) => d.id);
+  const pricesQuery = trpc.billing.getDeploymentPrices.useQuery(
+    { deploymentIds },
+    { enabled: deploymentIds.length > 0, staleTime: 60_000 }
   );
 
   const [isResendingVerification, setIsResendingVerification] = useState(false);
@@ -427,6 +438,7 @@ export default function Dashboard() {
               <DeploymentCard
                 key={deployment.id}
                 deployment={deployment}
+                priceData={pricesQuery.data?.[deployment.id]}
                 readOnly={!canManageDeployments}
                 liveStatusData={getLiveStatus(deployment.id)}
                 onDelete={handleDelete}
@@ -476,7 +488,7 @@ export default function Dashboard() {
   );
 }
 
-const DeploymentCard = memo(function DeploymentCard({ deployment, readOnly, liveStatusData, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting, storageData, storageLoading }: {
+const DeploymentCard = memo(function DeploymentCard({ deployment, priceData, readOnly, liveStatusData, onDelete, onStop, onStart, onRestart, onExport, isToggling, isExporting, storageData, storageLoading }: {
   deployment: {
     id: string;
     name: string;
@@ -488,6 +500,7 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, readOnly, live
     cancelledAt?: Date | string | null;
     cancelAtPeriodEnd?: Date | string | null;
   };
+  priceData?: { monthlyPriceCents: number; source: "stripe" | "db"; stripeStatus?: string } | null;
   readOnly?: boolean;
   liveStatusData?: DeploymentStatus;
   onDelete: (id: string) => void;
@@ -606,14 +619,11 @@ const DeploymentCard = memo(function DeploymentCard({ deployment, readOnly, live
                 );
               })()}
               {deployment.cancelledAt && deployment.cancelAtPeriodEnd && <span className="text-border">·</span>}
-              {/* Beta pricing — matches Home hero ($13.99/mo per agent).
-                  The deployment.monthlyPriceCents value in the DB is seeded
-                  from runtime_catalog and may still carry the pre-beta $27
-                  figure. During beta we show the canonical $13.99 string so
-                  marketing and product stay in sync. Tracked in JAR-49. */}
               <span className="inline-flex items-center gap-1">
                 <DollarSign className="w-3 h-3" />
-                $13.99/mo
+                {priceData
+                  ? `${formatCents(priceData.monthlyPriceCents)}/mo`
+                  : `${formatCents(deployment.monthlyPriceCents)}/mo`}
               </span>
               <span className="text-border">·</span>
               <span>{deployment.llmMode === "byok" ? "BYOK" : "Included"} LLM</span>
