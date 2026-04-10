@@ -1509,6 +1509,13 @@ tamboAgentRouter.post("/", async (req, res) => {
                   messageId,
                   delta: `\n\n**${job.roleName}:** ${delegationResult.response}`,
                 });
+              } else if (delegationResult.uiBlocks?.length) {
+                // Specialist rendered a component but had no text response
+                safeSendEvent(res, {
+                  type: "TEXT_MESSAGE_CONTENT",
+                  messageId,
+                  delta: `\n\n**${job.roleName}** rendered ${delegationResult.uiBlocks.length} component${delegationResult.uiBlocks.length > 1 ? "s" : ""}.`,
+                });
               }
 
               // Forward UI blocks produced by the delegated specialist to

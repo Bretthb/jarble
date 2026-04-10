@@ -642,9 +642,14 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           error: delegationError ?? undefined, uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
         });
 
-        if (delegationResult?.response) {
+        if (delegationResult?.response || delegationResult?.uiBlocks?.length) {
           const roleName = targetNode?.role || targetNode?.label || "Team member";
-          sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId, delta: `**${roleName}:** ${delegationResult.response}\n\n` });
+          if (delegationResult.response) {
+            sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId, delta: `**${roleName}:** ${delegationResult.response}\n\n` });
+          } else if (delegationResult.uiBlocks?.length) {
+            // Specialist rendered a component but had no text response
+            sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId, delta: `**${roleName}** rendered ${delegationResult.uiBlocks.length} component${delegationResult.uiBlocks.length > 1 ? "s" : ""}.\n\n` });
+          }
           if (delegationResult.uiBlocks?.length) {
             for (const block of delegationResult.uiBlocks) {
               sendEvent(res, { type: CUSTOM, name: "jarble.flow.delegation.uiblock",
