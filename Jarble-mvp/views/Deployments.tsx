@@ -1680,7 +1680,7 @@ function FlowToolbar({
   const TeamTypeIcon = currentTeamType.icon;
 
   return (
-    <div className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 border-b border-border/60 bg-card/80 backdrop-blur-sm overflow-visible">
+    <div className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 border-b border-border/60 bg-card/80 backdrop-blur-sm overflow-visible relative z-[50]">
       {/* Flow name (editable) */}
       <div className="flex items-center gap-1.5 min-w-0 shrink-0">
         <GitBranch className="w-4 h-4 text-primary shrink-0" />
