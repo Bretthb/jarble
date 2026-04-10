@@ -2587,6 +2587,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
       target: string;
       sourceHandle?: string;
       targetHandle?: string;
+      type?: "delegates" | "reports" | "collaborates";
       label?: string;
       condition?: string;
     };
@@ -2621,13 +2622,15 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
       })),
       edges: activeFlow.edges.map((e) => {
         const edgeData = (e.data as FlowEdgeData) || {};
+        const edgeType = edgeData.edgeType || "delegates";
         return {
           id: e.id,
           source: e.source,
           target: e.target,
           sourceHandle: e.sourceHandle ?? undefined,
           targetHandle: e.targetHandle ?? undefined,
-          label: edgeData.edgeType || "delegates",
+          type: edgeType as "delegates" | "reports" | "collaborates",
+          label: edgeType,
           condition: undefined,
         };
       }),

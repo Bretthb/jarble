@@ -136,23 +136,33 @@ export function buildDelegationTools(
   // - "delegates" (or unset): one-way, source can delegate to target
   // - "collaborates": bidirectional, both ends can delegate to each other
   // - "reports": one-way, source reports to target — target can delegate down, source can send up
+  //
+  // IMPORTANT: The frontend stores edge type in the `label` field (not `type`)
+  // when saving flows. We check both to handle all persisted formats.
+  const getEdgeType = (e: FlowEdge): string | undefined => e.type || (e.label as string) || undefined;
+
   const delegateEdges = edges.filter(
-    (e) =>
-      // Outgoing delegates/reports edges
-      (e.source === node.id && (e.type === "delegates" || e.type === "reports" || !e.type)) ||
-      // Reports edge where we're the target (manager can delegate to reporter)
-      (e.type === "reports" && e.target === node.id) ||
-      // Collaborates edges are bidirectional
-      (e.type === "collaborates" && (e.source === node.id || e.target === node.id)),
+    (e) => {
+      const et = getEdgeType(e);
+      return (
+        // Outgoing delegates/reports edges
+        (e.source === node.id && (et === "delegates" || et === "reports" || !et)) ||
+        // Reports edge where we're the target (manager can delegate to reporter)
+        (et === "reports" && e.target === node.id) ||
+        // Collaborates edges are bidirectional
+        (et === "collaborates" && (e.source === node.id || e.target === node.id))
+      );
+    },
   );
 
   const tools: DelegationTool[] = [];
 
   for (const edge of delegateEdges) {
+    const et = getEdgeType(edge);
     // For collaborates/reports-as-manager, the delegation target is whichever end ISN'T this node
     const targetId =
-      (edge.type === "collaborates" && edge.target === node.id) ||
-      (edge.type === "reports" && edge.target === node.id)
+      (et === "collaborates" && edge.target === node.id) ||
+      (et === "reports" && edge.target === node.id)
         ? edge.source   // We're the manager — delegate down to the reporter
         : edge.target;  // Normal direction — delegate to the target
     if (targetId === node.id) continue; // Skip self-loops
