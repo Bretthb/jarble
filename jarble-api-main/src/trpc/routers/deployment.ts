@@ -1376,11 +1376,31 @@ export const deploymentRouter = router({
         .where(and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)));
 
       // Config sync: push updated configs to PVC if deployment is running.
-      // memoryScope is now a Secret entry (JARBLE_MEMORY_SCOPE, wired in
-      // openclaw.ts:getSecretEntries), so a change auto-escalates configSync
-      // to tier-3 (pod restart) — no explicit restart needed here.
+      // Memory scope is enforced at the MCP server level: 'off' hides tools, 'session' guards on session_id.
       if (existing.status === "running") {
         safeFireAndForget(syncConfigsToPvc(id), { operation: "syncConfigsToPvc", deploymentId: id });
+
+        // API key, provider, model, or memory scope changes require a pod restart
+        // to take effect. ConfigSync should auto-escalate for secret changes, but
+        // as a safety net, explicitly restart if any of these critical fields changed.
+        const needsRestart = !!(
+          updates.llmApiKey ||
+          updates.llmProvider ||
+          updates.llmModel ||
+          updates.memoryScope
+        );
+        if (needsRestart) {
+          // Delay restart slightly to let configSync push the new secret first
+          setTimeout(async () => {
+            try {
+              const { restartDeployment } = await import("../../k8s/lifecycle.js");
+              await restartDeployment(id);
+              logger.info({ deploymentId: id }, "Auto-restart after critical config change (API key/provider/model/memory)");
+            } catch (err) {
+              logger.warn({ err, deploymentId: id }, "Auto-restart failed after config change — user may need to restart manually");
+            }
+          }, 3000);
+        }
       }
 
       return ctx.db.query.deployments.findFirst({
