@@ -31,7 +31,7 @@ import {
 
 const TerminalPanel = lazy(() => import("./TerminalPanel"));
 
-// ── ConfigPanel (outer shell) ───────────────────────────────────────────────
+// ── ConfigPanel (outer shell) ──────────────────────────────────────────────
 
 interface ConfigPanelProps {
   deploymentId: string;
@@ -115,7 +115,7 @@ function ConfigPanelInner({ deploymentId, liveStatus, onClose }: ConfigPanelProp
 
 export default memo(ConfigPanelInner);
 
-// ── Config Actions ──────────────────────────────────────────────────────────
+// ── Config Actions ───────────────────────────────────────────────
 
 function ConfigActions({ deploymentId }: { deploymentId: string }) {
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -474,7 +474,7 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
         )}
 
         {/* Credentials overview */}
-        {deployment && <CredentialsSection deploymentId={deploymentId} deployment={dep} onUpdate={(updates: any) => updateMutation.mutate(updates)} isSaving={updateMutation.isPending} />}
+        {deployment && <CredentialsSection deploymentId={deploymentId} deployment={dep} onUpdate={(updates: any) => { if (updates.llmApiKey) pendingRestartRef.current = true; updateMutation.mutate(updates); }} isSaving={updateMutation.isPending} />}
 
         {/* Feedback display */}
         {feedback && (
@@ -493,7 +493,7 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
   );
 }
 
-// ── Credentials Section ────────────────────────────────────────────────────
+// ── Credentials Section ──────────────────────────────────────────────
 
 const SOURCE_ICONS: Record<string, typeof Key> = { llm: Key, platform: Shield, user: Key, agent: Bot, system: Settings2 };
 const SOURCE_LABELS: Record<string, string> = { llm: "LLM", platform: "Platform", user: "Custom", agent: "Bot-stored", system: "System" };
