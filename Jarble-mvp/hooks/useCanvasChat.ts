@@ -582,7 +582,11 @@ export function useCanvasChat(
         const index = loadConversationIndex(deploymentId);
         const meta = index.conversations.find((c) => c.id === activeConvRef.current);
         if (meta && meta.title === "New Conversation") {
-          meta.title = text.slice(0, 50);
+          meta.title = text
+            .replace(/\[CANVAS_STATE\][\s\S]*?\[\/CANVAS_STATE\]/gi, "")
+            .replace(/\[DELEGATION_CONTEXT\][\s\S]*?\[\/DELEGATION_CONTEXT\]/gi, "")
+            .trim()
+            .slice(0, 50) || "New Conversation";
           saveConversationIndex(deploymentId, index);
           setConversations([...index.conversations]);
         }

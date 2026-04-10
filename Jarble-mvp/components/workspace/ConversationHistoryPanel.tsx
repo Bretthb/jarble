@@ -31,6 +31,12 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function stripControlTags(text: string): string {
+  return text
+    .replace(/\[(?:CANVAS_STATE|DELEGATION_CONTEXT|FLOW CONTEXT|FLOW SYSTEM INSTRUCTIONS[^\]]*)\][\s\S]*?\[\/(?:CANVAS_STATE|DELEGATION_CONTEXT|FLOW CONTEXT|FLOW SYSTEM INSTRUCTIONS)\]/gi, "")
+    .trim();
+}
+
 function formatTeamTime(date: Date | string | null): string {
   if (!date) return "";
   const ms = Date.now() - new Date(date).getTime();
@@ -95,7 +101,8 @@ function ConversationHistoryPanel({
             <p className="text-xs text-muted-foreground">No conversations yet</p>
             <p className="text-[10px] text-muted-foreground/60 mt-1">Start chatting to create one</p>
           </div>
-        ) : (<>
+        ) : (
+        <div>
         {conversations.length > 0 && (
           <div className="px-3 pt-1 pb-1">
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">Personal</span>
@@ -121,11 +128,11 @@ function ConversationHistoryPanel({
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="truncate text-xs font-medium leading-relaxed">
-                    {conv.title}
+                    {stripControlTags(conv.title || "") || "New Conversation"}
                   </div>
                   {conv.preview && (
                     <div className="truncate text-[10px] text-muted-foreground/60 mt-0.5">
-                      {conv.preview}
+                      {stripControlTags(conv.preview || "")}
                     </div>
                   )}
                   <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground/50">
@@ -177,14 +184,19 @@ function ConversationHistoryPanel({
                 {s.task && <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">{typeof s.task === "string" ? s.task.slice(0, 80) : ""}</p>}
                 <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground/50">
                   <span>{formatTeamTime(s.createdAt)}</span>
-                  {s.durationMs != null && <span><Clock className="w-2 h-2 inline mr-0.5" />{s.durationMs < 1000 ? `${s.durationMs}ms` : `${(s.durationMs / 1000).toFixed(1)}s`}</span>}
-                  {s.costCents > 0 && <span className="text-amber-400/60"><DollarSign className="w-2 h-2 inline mr-0.5" />${(s.costCents / 100).toFixed(2)}</span>}
+                  {s.durationMs != null && (
+                    <span><Clock className="w-2 h-2 inline mr-0.5" />{s.durationMs < 1000 ? s.durationMs + "ms" : (s.durationMs / 1000).toFixed(1) + "s"}</span>
+                  )}
+                  {s.costCents > 0 && (
+                    <span className="text-amber-400/60"><DollarSign className="w-2 h-2 inline mr-0.5" />{"$" + (s.costCents / 100).toFixed(2)}</span>
+                  )}
                 </div>
               </div>
             ))}
           </>
         )}
-        </>)}
+        </div>
+        )}
       </div>
     </div>
   );
