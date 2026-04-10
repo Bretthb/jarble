@@ -28,3 +28,13 @@ The `as any` casts on `.values({...} as any)` in insert calls are a known Drizzl
 
 **MCP server changes are high-risk.**
 `jarble-ui-server.js` is 7,110 lines of CJS with no module boundaries. Any change to tool dispatch or the `executeTool` switch can silently break other tools. Treat all MCP server PRs as requiring extra scrutiny.
+
+**Root span `finishFlowRoot` pattern in flowChat.ts — watch for early-return leaks.**
+`finishFlowRoot` is set at handler scope so the outer `catch` can close it. BUT inner early-return paths (`!entryPodName`, `chatViaExec` failure) call `res.end()` and `return` without calling `finishFlowRoot`, leaving the root `agent_calls` row stuck in `pending`. The nightly reaper handles this, but it's a completeness gap. Any new early-return paths after `finishFlowRoot` is set must call it explicitly.
+Compare: `tamboAgent.ts` uses `cleanupChat()` which calls `finishRoot("completed")`, so every path including disconnect goes through cleanup properly.
+
+**Dynamic import of `agentCallsWriter.js` is intentional (mirrors tamboAgent.ts).**
+Both `tamboAgent.ts` and `flowChat.ts` use `await import("../services/agentCallsWriter.js")` instead of a static top-level import. This is consistent (not a bug) — the module is cached after first load. Do not flag.
+
+**`agentCallsWriter.finishAgentCall` attributes REPLACE, not merge.**
+The `attributes` parameter on `finishAgentCall` replaces the entire `attributes` JSONB column — it does NOT merge with start-time attributes. If start-time attributes need to survive to finish, callers must explicitly re-pass them. For root flow-chat spans: start attributes are `{ flowId, entryNodeId }`, finish attributes are `{ delegationCount, totalCredits }` — start attributes are overwritten.
