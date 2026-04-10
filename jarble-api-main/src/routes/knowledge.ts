@@ -6,7 +6,9 @@
  * DELETE /api/deployments/:id/knowledge/collections/:collectionId - Delete collection
  *
  * In dev mode, stores files locally at jarble-api-main/data/knowledge/.
- * In prod, writes to the pod PVC at /data/knowledge/.
+ * In prod, stores under /tmp/knowledge/ on the API pod (ephemeral — not a PVC).
+ * NOTE: Knowledge files are lost on API pod restart. Persistent storage requires
+ * migrating to a PVC or object storage (e.g., S3/R2). Track via JAR-TODO.
  */
 
 import { Router } from "express";
@@ -24,7 +26,7 @@ const log = createModuleLogger("knowledge");
 
 export const knowledgeRouter = Router();
 
-// ── Storage paths ────────────────────────────────────────────────────────
+// ── Storage paths ────────────────────────────────────────────
 
 function getKnowledgeDir(deploymentId: string): string {
   // Always store per-deployment under the API's local data dir
@@ -68,7 +70,7 @@ function writeManifest(knowledgeDir: string, manifest: CollectionManifest): void
   writeFileSync(getManifestPath(knowledgeDir), JSON.stringify(manifest, null, 2), "utf-8");
 }
 
-// ── Auth helper ──────────────────────────────────────────────────────────
+// ── Auth helper ────────────────────────────────────────────
 
 async function authenticateAndAuthorize(req: any, res: any): Promise<{ userId: string } | null> {
   const authHeader = req.headers.authorization;
@@ -114,7 +116,7 @@ async function authenticateAndAuthorize(req: any, res: any): Promise<{ userId: s
   return { userId: user.id };
 }
 
-// ── POST /ingest ─────────────────────────────────────────────────────────
+// ── POST /ingest ───────────────────────────────────────────────
 
 const MAX_CONTENT_SIZE = 5 * 1024 * 1024; // 5MB max
 
@@ -137,6 +139,12 @@ knowledgeRouter.post("/:id/knowledge/ingest", async (req, res) => {
 
     if (!filename || typeof filename !== "string") {
       res.status(400).json({ error: "Missing 'filename' field (string)" });
+      return;
+    }
+
+    // Reject filenames with path traversal characters or absolute paths
+    if (filename.includes("..") || filename.startsWith("/") || /[<>:"|?*\x00-\x1f]/.test(filename)) {
+      res.status(400).json({ error: "Invalid filename: contains disallowed characters" });
       return;
     }
 
@@ -203,7 +211,7 @@ knowledgeRouter.post("/:id/knowledge/ingest", async (req, res) => {
   }
 });
 
-// ── GET /collections ─────────────────────────────────────────────────────
+// ── GET /collections ───────────────────────────────────────────────
 
 knowledgeRouter.get("/:id/knowledge/collections", async (req, res) => {
   try {
@@ -226,7 +234,7 @@ knowledgeRouter.get("/:id/knowledge/collections", async (req, res) => {
   }
 });
 
-// ── DELETE /collections/:collectionId ────────────────────────────────────
+// ── DELETE /collections/:collectionId ─────────────────────────────────────────
 
 knowledgeRouter.delete("/:id/knowledge/collections/:collectionId", async (req, res) => {
   try {
