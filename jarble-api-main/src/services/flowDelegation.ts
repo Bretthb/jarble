@@ -143,8 +143,11 @@ export function buildDelegationTools(
   for (const edge of delegateEdges) {
     // For collaborates edges, the target is whichever end ISN'T this node
     const targetId = edge.type === "collaborates" && edge.target === node.id ? edge.source : edge.target;
+    if (targetId === node.id) continue; // Skip self-loops
     const targetNode = nodes.find((n) => n.id === targetId);
     if (!targetNode || !targetNode.deploymentId) continue;
+    // Skip if we already have a tool for this target (delegates takes priority over collaborates)
+    if (tools.some((t) => t.targetNodeId === targetId)) continue;
 
     // Build a safe function name from the target's role/label/id
     let safeName = (targetNode.role || targetNode.label || targetNode.id)

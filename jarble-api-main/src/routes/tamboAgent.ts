@@ -1444,7 +1444,7 @@ tamboAgentRouter.post("/", async (req, res) => {
                   // Session continuity: same conversation + same specialist = same session.
                   // The specialist remembers earlier delegations in this conversation.
                   // Different conversations get different sessions (convId changes on "New Chat").
-                  sessionId: `team-${deploymentId}-${job.tool.targetNodeId}-${convId || nanoid(6)}`,
+                  sessionId: `team-${deploymentId}-${authenticatedUserId}-${job.tool.targetNodeId}-${convId || nanoid(6)}`,
                   depth: 1,
                   sourceDeploymentId: deploymentId,
                   toolName: job.call.toolName,

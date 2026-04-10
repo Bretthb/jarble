@@ -603,7 +603,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             context: call.context,
             contextScope: tool.contextScope,
             conversationHistory: [{ role: "user", content: userMessage }],
-            sessionId: `flow-${flowId}-${tool.targetNodeId}-${conversationId || threadId}`,
+            sessionId: `flow-${flowId}-${user!.id}-${tool.targetNodeId}-${conversationId || threadId}`,
             depth: 1,
             userId: user!.id,
             sourceDeploymentId: entryNode.deploymentId!,
