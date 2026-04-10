@@ -986,7 +986,7 @@ function FlowDeploymentNode({
     <div
       className={`
         relative rounded-xl border border-border/80 bg-card backdrop-blur-sm transition-all duration-200
-        w-[260px] overflow-hidden border-l-[3px]
+        w-[320px] overflow-hidden border-l-[3px]
         ${borderLeftClass}
         ${execStatus && execStatus !== "pending" ? executionStatusColor(execStatus) : "border-border/80"}
         ${selected ? "ring-2 ring-primary/40 shadow-xl scale-[1.02]" : "shadow-lg hover:shadow-xl hover:scale-[1.01]"}
@@ -1051,7 +1051,7 @@ function FlowDeploymentNode({
       </div>
 
       {/* Content */}
-      <div className="relative z-10 p-3 space-y-2">
+      <div className="relative z-10 p-4 space-y-2.5">
         {/* Row 1: Entry star + Icon + Bot Name + Execution status */}
         <div className="flex items-center gap-2">
           {data.isEntryPoint && (
@@ -1712,7 +1712,7 @@ function FlowToolbar({
           <button
             type="button"
             onClick={() => setShowTeamTypeDropdown((v) => !v)}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-border bg-card hover:bg-secondary/50 transition-colors text-sm font-medium text-foreground hover:text-foreground shadow-sm"
+            className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-border/80 bg-card hover:bg-secondary/60 transition-colors text-sm font-semibold text-foreground hover:text-foreground shadow-md"
           >
             <TeamTypeIcon className="w-4 h-4" />
             <span>{currentTeamType.label}</span>
@@ -1720,7 +1720,7 @@ function FlowToolbar({
           </button>
 
           {showTeamTypeDropdown && (
-            <div className="absolute top-full left-0 mt-1.5 z-[100] bg-popover border border-border rounded-lg shadow-2xl py-1.5 min-w-[240px]">
+            <div className="absolute top-full left-0 mt-1.5 z-[200] bg-popover border-2 border-border/80 rounded-lg shadow-2xl shadow-black/20 py-1.5 min-w-[260px] backdrop-blur-xl">
               {TEAM_TYPE_OPTIONS.map((opt) => {
                 const Icon = opt.icon;
                 return (
