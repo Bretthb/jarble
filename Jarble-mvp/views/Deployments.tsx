@@ -1468,10 +1468,12 @@ function FlowPaletteSidebar({
   deployments,
   nodesOnCanvas,
   onAddNode,
+  onRemoveNode,
 }: {
   deployments: DeploymentData[];
   nodesOnCanvas: Set<string>;
   onAddNode: (deployment: DeploymentData) => void;
+  onRemoveNode?: (deploymentId: string) => void;
 }) {
   const available = deployments.filter((d) => !nodesOnCanvas.has(d.id));
   const onCanvas = deployments.filter((d) => nodesOnCanvas.has(d.id));
@@ -1539,7 +1541,7 @@ function FlowPaletteSidebar({
               {onCanvas.map((dep) => (
                 <div
                   key={dep.id}
-                  className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-border/20 bg-secondary/20 text-left opacity-60"
+                  className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-border/20 bg-secondary/20 text-left group"
                 >
                   <div className="relative shrink-0">
                     <div className="w-8 h-8 rounded-lg bg-secondary/50 flex items-center justify-center">
@@ -1550,14 +1552,25 @@ function FlowPaletteSidebar({
                     />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium truncate text-foreground/60">
+                    <p className="text-xs font-medium truncate text-foreground/70">
                       {dep.name}
                     </p>
                     <p className="text-[10px] text-muted-foreground/60 truncate">
                       {dep.runtime}
                     </p>
                   </div>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500/50 shrink-0" />
+                  {onRemoveNode ? (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveNode(dep.id)}
+                      className="shrink-0 p-1 rounded hover:bg-red-500/20 text-muted-foreground/50 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                      title={`Remove ${dep.name} from canvas`}
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500/50 shrink-0" />
+                  )}
                 </div>
               ))}
             </div>
@@ -1600,6 +1613,8 @@ function FlowToolbar({
   onNewFlow,
   onDeleteFlow,
   onChatWithTeam,
+  onSetActiveTeam,
+  isActiveTeam,
   isExecuting,
   isSaved,
   totalCredits,
@@ -1619,6 +1634,8 @@ function FlowToolbar({
   onNewFlow: () => void;
   onDeleteFlow: () => void;
   onChatWithTeam: () => void;
+  onSetActiveTeam?: () => void;
+  isActiveTeam?: boolean;
   isExecuting: boolean;
   isSaved: boolean;
   totalCredits: number;
@@ -1797,6 +1814,43 @@ function FlowToolbar({
             </Tooltip>
 
             <div className="w-px h-6 bg-border mx-1" />
+
+            {/* Set Active Team button */}
+            {onSetActiveTeam && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {isActiveTeam ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={onSetActiveTeam}
+                      className="h-9 px-3 text-sm border-emerald-500/40 text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 font-medium"
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-1" />
+                      Active
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={onSetActiveTeam}
+                      disabled={!entryNodeName}
+                      className="h-9 px-3 text-sm font-medium"
+                    >
+                      <Zap className="w-4 h-4 mr-1" />
+                      Set Active
+                    </Button>
+                  )}
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isActiveTeam
+                    ? "This team is active for delegation. Click to deactivate."
+                    : entryNodeName
+                      ? `Set this team as active for ${entryNodeName}'s delegation`
+                      : "Set an entry point first"}
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             {/* Chat with Team button - prominent blue */}
             <Tooltip>
@@ -2244,6 +2298,23 @@ function FlowCanvas({
     [flow.nodes, onUpdateFlow]
   );
 
+  const handleRemoveNode = useCallback(
+    (deploymentId: string) => {
+      // Remove the node and any edges connected to it
+      const newNodes = flow.nodes.filter((n) => n.id !== deploymentId && (n.data as any)?.id !== deploymentId);
+      const removedIds = new Set(
+        flow.nodes
+          .filter((n) => n.id === deploymentId || (n.data as any)?.id === deploymentId)
+          .map((n) => n.id)
+      );
+      const newEdges = flow.edges.filter(
+        (e) => !removedIds.has(e.source) && !removedIds.has(e.target)
+      );
+      onUpdateFlow({ nodes: newNodes, edges: newEdges });
+    },
+    [flow.nodes, flow.edges, onUpdateFlow]
+  );
+
   return (
     <div className="flex flex-1 min-h-0">
       {/* Palette sidebar */}
@@ -2251,6 +2322,7 @@ function FlowCanvas({
         deployments={deployments}
         nodesOnCanvas={nodesOnCanvas}
         onAddNode={handleAddNode}
+        onRemoveNode={handleRemoveNode}
       />
 
       {/* Canvas */}
@@ -2463,6 +2535,9 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   }, [flows, activeFlowId, localOverrides]);
 
   const { state: execState, startExecution, resumeExecution, cancel } = useFlowExecution();
+
+  // ── Set Active Team mutation ──────────────────────────────────────
+  const setActiveTeamMutation = trpc.deployment.setActiveFlow.useMutation();
 
   // ── Mutations ─────────────────────────────────────────────────────
 
@@ -3635,6 +3710,17 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         onNewFlow={handleNewFlow}
         onDeleteFlow={handleDeleteFlow}
         onChatWithTeam={handleChatWithTeam}
+        onSetActiveTeam={entryNode ? () => {
+          const entryDepId = entryNode.data?.id;
+          if (!entryDepId || !activeFlowId) return;
+          const entryDep = deployments.find((d) => d.id === entryDepId);
+          const isAlreadyActive = (entryDep as any)?.activeFlowId === activeFlowId;
+          setActiveTeamMutation.mutate(
+            { id: entryDepId, flowId: isAlreadyActive ? null : activeFlowId },
+            { onSuccess: () => utils.deployment.list.invalidate() }
+          );
+        } : undefined}
+        isActiveTeam={entryNode?.data?.id ? (deployments.find((d) => d.id === entryNode?.data?.id) as any)?.activeFlowId === activeFlowId : false}
         isExecuting={isExecuting}
         isSaved={isSaved && !isMutating}
         totalCredits={execState.totalCredits}
