@@ -986,7 +986,7 @@ function FlowDeploymentNode({
     <div
       className={`
         relative rounded-xl border border-border/80 bg-card backdrop-blur-sm transition-all duration-200
-        w-[320px] overflow-hidden border-l-[3px]
+        w-[280px] overflow-hidden border-l-[3px]
         ${borderLeftClass}
         ${execStatus && execStatus !== "pending" ? executionStatusColor(execStatus) : "border-border/80"}
         ${selected ? "ring-2 ring-primary/40 shadow-xl scale-[1.02]" : "shadow-lg hover:shadow-xl hover:scale-[1.01]"}
@@ -1680,7 +1680,7 @@ function FlowToolbar({
   const TeamTypeIcon = currentTeamType.icon;
 
   return (
-    <div className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 border-b border-border/60 bg-card/80 backdrop-blur-sm overflow-x-auto scrollbar-none">
+    <div className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 border-b border-border/60 bg-card/80 backdrop-blur-sm overflow-visible">
       {/* Flow name (editable) */}
       <div className="flex items-center gap-1.5 min-w-0 shrink-0">
         <GitBranch className="w-4 h-4 text-primary shrink-0" />

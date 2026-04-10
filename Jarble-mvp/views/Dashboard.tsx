@@ -270,8 +270,8 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      {/* Main Content */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+      {/* Main Content — full width for canvas tabs (Bot Teams, Resource Map), constrained for My Bots */}
+      <div className={`mx-auto py-8 ${activeTab === "botteams" || activeTab === "resources" ? "max-w-[1600px] px-4" : "max-w-5xl px-4 sm:px-6"}`}>
         {/* Email Verification Banner */}
         {!emailVerified && (
           <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center gap-3 rounded-lg border border-border bg-secondary/50 px-4 py-3">
