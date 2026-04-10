@@ -550,161 +550,110 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         });
       }
 
-      // Execute each delegation
+      // ── Phase 1: Pre-resolve all delegation jobs ────────────────────
+      interface DelegationJob {
+        call: typeof delegationCalls[number];
+        tool: DelegationTool;
+        targetNode: FlowNode | undefined;
+      }
+      const jobs: DelegationJob[] = [];
       for (const call of delegationCalls) {
-        // Find the matching tool
         const tool = delegationTools.find((t) => t.name === call.toolName);
         if (!tool) {
-          log.warn(
-            { flowId, toolName: call.toolName },
-            "Delegation tool not found in available tools",
-          );
+          log.warn({ flowId, toolName: call.toolName }, "Delegation tool not found");
           continue;
         }
+        const targetNode = definition.nodes.find((n) => n.id === tool.targetNodeId);
+        jobs.push({ call, tool, targetNode });
+      }
 
-        // Emit delegation start event
-        const targetNode = definition.nodes.find(
-          (n) => n.id === tool.targetNodeId,
-        );
+      // ── Phase 2: Emit all delegation.start events upfront ──────────
+      for (const job of jobs) {
         sendEvent(res, {
           type: CUSTOM,
           name: "jarble.flow.delegation.start",
           value: {
-            toolName: call.toolName,
-            targetNodeId: tool.targetNodeId,
-            targetDeploymentId: tool.targetDeploymentId,
-            targetRole: targetNode?.role || targetNode?.label || "Unknown",
-            task: call.task.slice(0, 200),
+            toolName: job.call.toolName,
+            targetNodeId: job.tool.targetNodeId,
+            targetDeploymentId: job.tool.targetDeploymentId,
+            targetRole: job.targetNode?.role || job.targetNode?.label || "Unknown",
+            task: job.call.task.slice(0, 200),
           },
         });
+      }
 
-        // Execute the delegation (with heartbeat during long-running calls)
-        let delegationResult: DelegationResult | null = null;
-        let delegationError: string | null = null;
+      // ── Phase 3: Fan out all delegations in parallel ───────────────
+      const settled = await Promise.allSettled(jobs.map(async (job) => {
+        const { call, tool, targetNode } = job;
+
+        // Execute delegation with heartbeat
         const delegationStartMs = Date.now();
-
         const heartbeat = setInterval(() => {
           if (!res.writableEnded) {
-            sendEvent(res, {
-              type: CUSTOM,
-              name: "jarble.flow.delegation.heartbeat",
-              value: {
-                toolName: call.toolName,
-                targetDeploymentId: tool.targetDeploymentId,
-                elapsedMs: Date.now() - delegationStartMs,
-              },
-            });
+            sendEvent(res, { type: CUSTOM, name: "jarble.flow.delegation.heartbeat",
+              value: { toolName: call.toolName, targetDeploymentId: tool.targetDeploymentId, elapsedMs: Date.now() - delegationStartMs } });
           }
         }, 5_000);
 
         try {
-          delegationResult = await executeDelegation({
+          const result = await executeDelegation({
             targetDeploymentId: tool.targetDeploymentId,
             targetNodeId: tool.targetNodeId,
             task: call.task,
             context: call.context,
             contextScope: tool.contextScope,
             conversationHistory: [{ role: "user", content: userMessage }],
-            // Session continuity: same conversation + same specialist = same session.
-            // Specialists remember context from earlier delegations in this chat.
-            // Different conversations (conversationId changes) get fresh sessions.
             sessionId: `flow-${flowId}-${tool.targetNodeId}-${conversationId || threadId}`,
             depth: 1,
-            userId: user.id,
-            // ── N-level delegation wiring ──────────────────────────────
-            // The entry bot is depth 0 and has no `agent_calls` row of
-            // its own, so this first hop has `parentCallId: null`. The
-            // ancestor chain begins with the entry deployment so any
-            // nested sub-delegation that tries to route back to it is
-            // rejected by `DelegationCycleError`.
-            sourceDeploymentId: entryNode.deploymentId,
+            userId: user!.id,
+            sourceDeploymentId: entryNode.deploymentId!,
             toolName: call.toolName,
             parentCallId: null,
-            ancestorDeploymentIds: [entryNode.deploymentId],
+            ancestorDeploymentIds: [entryNode.deploymentId!],
             flowId,
-            // flowTraceId ties all delegation hops in this chat turn
-            // into one trace for budget checks + OTel stitching
             traceId: flowTraceId,
           });
+          return { result, error: null };
         } catch (err) {
-          delegationError =
-            err instanceof Error ? err.message : String(err);
-          log.error(
-            {
-              flowId,
-              targetNodeId: tool.targetNodeId,
-              error: delegationError,
-            },
-            "Delegation failed",
-          );
+          return { result: null, error: err instanceof Error ? err.message : String(err) };
         } finally {
           clearInterval(heartbeat);
         }
+      }));
 
-        // Emit delegation end event
-        sendEvent(res, {
-          type: CUSTOM,
-          name: "jarble.flow.delegation.end",
-          value: {
-            toolName: call.toolName,
-            targetNodeId: tool.targetNodeId,
-            targetDeploymentId: tool.targetDeploymentId,
-            success: !!delegationResult,
-            durationMs: delegationResult?.durationMs ?? 0,
-            creditsUsed: delegationResult?.creditsUsed ?? 0,
-            error: delegationError,
-            responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
-            uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
-          },
-        });
+      // ── Phase 4: Process results sequentially (SSE events + trace) ──
+      for (let i = 0; i < jobs.length; i++) {
+        const job = jobs[i];
+        const entry = settled[i];
+        const { call, tool, targetNode } = job;
+        const delegationResult = entry.status === "fulfilled" ? entry.value.result : null;
+        const delegationError = entry.status === "fulfilled" ? entry.value.error : (entry.status === "rejected" ? String(entry.reason) : null);
 
-        // Record in trace. responsePreview is the wire-format slice (300 chars)
-        // shipped on the SSE event; fullResponse is kept server-side and fed
-        // into the coordinator's synthesis turn so it sees the full reply.
+        sendEvent(res, { type: CUSTOM, name: "jarble.flow.delegation.end",
+          value: { toolName: call.toolName, targetNodeId: tool.targetNodeId, targetDeploymentId: tool.targetDeploymentId,
+            success: !!delegationResult, durationMs: delegationResult?.durationMs ?? 0, creditsUsed: delegationResult?.creditsUsed ?? 0,
+            error: delegationError, responsePreview: delegationResult?.response?.slice(0, 300) ?? "", uiBlockCount: delegationResult?.uiBlocks?.length ?? 0 } });
+
         delegationTrace.push({
-          toolName: call.toolName,
-          targetNodeId: tool.targetNodeId,
-          targetDeploymentId: tool.targetDeploymentId,
-          task: call.task,
-          responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
-          fullResponse: delegationResult?.response ?? "",
-          durationMs: delegationResult?.durationMs ?? 0,
-          creditsUsed: delegationResult?.creditsUsed ?? 0,
-          success: !!delegationResult,
-          error: delegationError ?? undefined,
-          uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
+          toolName: call.toolName, targetNodeId: tool.targetNodeId, targetDeploymentId: tool.targetDeploymentId,
+          task: call.task, responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
+          fullResponse: delegationResult?.response ?? "", durationMs: delegationResult?.durationMs ?? 0,
+          creditsUsed: delegationResult?.creditsUsed ?? 0, success: !!delegationResult,
+          error: delegationError ?? undefined, uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
         });
 
-        // Stream the delegation result into the chat
         if (delegationResult?.response) {
           const roleName = targetNode?.role || targetNode?.label || "Team member";
-          sendEvent(res, {
-            type: TEXT_MESSAGE_CONTENT,
-            messageId,
-            delta: `**${roleName}:** ${delegationResult.response}\n\n`,
-          });
-
-          // Forward UI blocks from delegated bot to the frontend
+          sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId, delta: `**${roleName}:** ${delegationResult.response}\n\n` });
           if (delegationResult.uiBlocks?.length) {
             for (const block of delegationResult.uiBlocks) {
-              sendEvent(res, {
-                type: CUSTOM,
-                name: "jarble.flow.delegation.uiblock",
-                value: {
-                  delegationToolName: call.toolName,
-                  sourceDeploymentId: tool.targetDeploymentId,
-                  sourceRole: targetNode?.role || targetNode?.label || "Team member",
-                  block,
-                },
-              });
+              sendEvent(res, { type: CUSTOM, name: "jarble.flow.delegation.uiblock",
+                value: { delegationToolName: call.toolName, sourceDeploymentId: tool.targetDeploymentId,
+                  sourceRole: targetNode?.role || targetNode?.label || "Team member", block } });
             }
           }
         } else if (delegationError) {
-          sendEvent(res, {
-            type: TEXT_MESSAGE_CONTENT,
-            messageId,
-            delta: `*Delegation to ${targetNode?.role || call.toolName} failed: ${delegationError}*\n\n`,
-          });
+          sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId, delta: `*Delegation to ${targetNode?.role || call.toolName} failed: ${delegationError}*\n\n` });
         }
       }
 
