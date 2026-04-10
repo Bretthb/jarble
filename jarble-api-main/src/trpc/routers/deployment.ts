@@ -1133,7 +1133,7 @@ export const deploymentRouter = router({
             otherDeploymentId: otherId,
             otherDeploymentName: otherId ? depNames.get(otherId) || otherId : null,
             skillName: r.skillName,
-            task: r.requestBody?.slice(0, 300) || null,
+            task: (() => { try { return JSON.parse(r.requestBody || "{}").task?.slice(0, 300) || r.requestBody?.slice(0, 300); } catch { return r.requestBody?.slice(0, 300) || null; } })(),
             responsePreview: r.responseBody?.slice(0, 300) || null,
             status: r.status,
             durationMs: r.durationMs,

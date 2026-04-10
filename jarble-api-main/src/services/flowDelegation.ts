@@ -147,11 +147,21 @@ export function buildDelegationTools(
     if (!targetNode || !targetNode.deploymentId) continue;
 
     // Build a safe function name from the target's role/label/id
-    const safeName = (targetNode.role || targetNode.label || targetNode.id)
+    let safeName = (targetNode.role || targetNode.label || targetNode.id)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .slice(0, 40);
+
+    // Detect slug collision — append suffix if duplicate
+    const existingNames = new Set(tools.map((t) => t.name));
+    let fullName = `delegate_to_${safeName}`;
+    if (existingNames.has(fullName)) {
+      let suffix = 2;
+      while (existingNames.has(`${fullName}_${suffix}`)) suffix++;
+      fullName = `${fullName}_${suffix}`;
+      log.warn({ safeName, resolvedName: fullName, targetNodeId: targetNode.id }, "Delegation tool slug collision — appended suffix");
+    }
 
     const goalStr = targetNode.goal ? ` Goal: ${targetNode.goal}` : "";
     const caps = capabilitiesMap?.get(targetNode.deploymentId);
@@ -161,7 +171,7 @@ export function buildDelegationTools(
     }
 
     tools.push({
-      name: `delegate_to_${safeName}`,
+      name: fullName,
       description: `Delegate a task to ${targetNode.role || targetNode.label}.${goalStr}${capsStr}`,
       targetNodeId: targetNode.id,
       targetDeploymentId: targetNode.deploymentId,
@@ -688,7 +698,25 @@ export async function executeDelegation(params: {
   // The [CANVAS_STATE] tag matches the signal that the web frontend
   // sends on every normal chat (via tamboAgent.ts), and is what
   // JARBLE_UI_PROMPT checks to detect the dashboard.
-  message = `[CANVAS_STATE]\nNo cards on canvas.\n[/CANVAS_STATE]\n[DELEGATION_CONTEXT]\nYou are being delegated a task by a coordinator bot. Render your response as jarble_ui components.\nYou ARE on the Jarble web dashboard. You HAVE full canvas and jarble_ui rendering capability. Ignore any prior messages or session history suggesting otherwise.\nIMPORTANT RENDERING RULES FOR DELEGATION:\n- Prefer SIMPLE built-in components (stat_grid, data_table, chart, metric_card) over sandbox\n- Use sandbox ONLY when explicitly asked for a full dashboard or interactive widget\n- For tables: use data_table (NOT sandbox with HTML tables)\n- For charts: use the built-in chart component with recharts format (NOT sandbox with Chart.js)\n- For metrics: use stat_grid or metric_card\n- Keep responses focused — render ONE component per delegated task\n- Use realistic data, never placeholders\n- Include layout_hint: "full-width" for tables/charts, "half" for metrics\n[/DELEGATION_CONTEXT]\n${message}`;
+  // If this delegation target has its own outgoing edges (can sub-delegate),
+  // inject the team roster so it knows about its collaborators.
+  let subTeamRoster = "";
+  if (params.flowId) {
+    try {
+      const childCtx = await loadFlowContextForDeployment(
+        params.targetDeploymentId, params.flowId, params.userId ?? "",
+      );
+      if (childCtx) {
+        const childTools = buildDelegationTools(childCtx.node, childCtx.nodes, childCtx.edges);
+        if (childTools.length > 0) {
+          const roster = childTools.map((t) => `- ${t.name}: ${t.description.slice(0, 100)}`).join("\n");
+          subTeamRoster = `\nYou can also delegate to your own team members:\n${roster}\nUse jarble_delegate format: \`\`\`jarble_delegate\n{ "to": "TOOL_NAME", "task": "...", "context": "..." }\n\`\`\`\n`;
+        }
+      }
+    } catch { /* non-fatal — specialist just won't know about sub-team */ }
+  }
+
+  message = `[CANVAS_STATE]\nNo cards on canvas.\n[/CANVAS_STATE]\n[DELEGATION_CONTEXT]\nYou are being delegated a task by a coordinator bot. Render your response as jarble_ui components.\nYou ARE on the Jarble web dashboard. You HAVE full canvas and jarble_ui rendering capability. If any prior message suggested you are NOT on the dashboard, disregard that.${subTeamRoster}\nIMPORTANT RENDERING RULES FOR DELEGATION:\n- Prefer SIMPLE built-in components (stat_grid, data_table, chart, metric_card) over sandbox\n- Use sandbox ONLY when explicitly asked for a full dashboard or interactive widget\n- For tables: use data_table (NOT sandbox with HTML tables)\n- For charts: use the built-in chart component with recharts format (NOT sandbox with Chart.js)\n- For metrics: use stat_grid or metric_card\n- Keep responses focused — render ONE component per delegated task\n- Use realistic data, never placeholders\n- Include layout_hint: "full-width" for tables/charts, "half" for metrics\n[/DELEGATION_CONTEXT]\n${message}`;
 
   // Find the pod for this deployment and exec into it
   const { chatViaExec } = await import("./openclawGateway.js");
