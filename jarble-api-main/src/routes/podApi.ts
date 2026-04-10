@@ -1207,3 +1207,220 @@ podApiRouter.delete("/secrets/:key", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to delete secret" });
   }
 });
+
+// ── Platform Bridge Routes ──────────────────────────────────────────────────
+// Called by the MCP server inside bot pods to make bot actions visible on the platform.
+
+// POST /api/pod/platform/register-agent — Register a subagent created by the bot
+podApiRouter.post("/platform/register-agent", async (req: Request, res: Response) => {
+  const deploymentId = (req as any).podDeploymentId as string;
+
+  try {
+    const { name, slug, description, model, systemPrompt } = req.body;
+
+    if (!name || typeof name !== "string") {
+      res.status(400).json({ error: "Missing or invalid 'name'" });
+      return;
+    }
+    if (!slug || typeof slug !== "string") {
+      res.status(400).json({ error: "Missing or invalid 'slug'" });
+      return;
+    }
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(slug)) {
+      res.status(400).json({
+        error: "Invalid slug: must start with a lowercase letter, contain only lowercase letters, digits, and hyphens, max 64 chars",
+      });
+      return;
+    }
+
+    const now = dbDate();
+
+    // Upsert: update if slug already exists for this deployment, otherwise insert
+    const existing = await db.query.deploymentSubagents.findFirst({
+      where: and(
+        eq(tables.deploymentSubagents.deploymentId, deploymentId),
+        eq(tables.deploymentSubagents.slug, slug),
+      ),
+    });
+
+    let agentId: string;
+
+    if (existing) {
+      agentId = existing.id;
+      await db.update(tables.deploymentSubagents)
+        .set({
+          name,
+          description: description || existing.description,
+          systemPrompt: systemPrompt || existing.systemPrompt,
+          model: model || existing.model,
+          source: "delegation",
+          updatedAt: now,
+        })
+        .where(eq(tables.deploymentSubagents.id, agentId));
+
+      logger.info({ deploymentId, agentId, slug }, "Pod API: subagent updated");
+    } else {
+      agentId = `sa_${nanoid(12)}`;
+      await db.insert(tables.deploymentSubagents).values({
+        id: agentId,
+        deploymentId,
+        name,
+        slug,
+        description: description || null,
+        systemPrompt: systemPrompt || "",
+        model: model || null,
+        triggerType: "manual",
+        source: "delegation",
+        enabled: true,
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      logger.info({ deploymentId, agentId, slug }, "Pod API: subagent registered");
+    }
+
+    res.json({ success: true, agentId });
+  } catch (err) {
+    logger.error({ err, deploymentId }, "Pod API: register-agent failed");
+    res.status(500).json({ error: "Failed to register agent", details: String(err) });
+  }
+});
+
+// GET /api/pod/platform/team — Return the bot's team members (flow membership)
+podApiRouter.get("/platform/team", async (req: Request, res: Response) => {
+  const deploymentId = (req as any).podDeploymentId as string;
+
+  try {
+    // Find all flows this deployment belongs to
+    const memberships = await db.query.flowDeploymentMemberships.findMany({
+      where: eq(tables.flowDeploymentMemberships.deploymentId, deploymentId),
+    });
+
+    if (memberships.length === 0) {
+      res.json({
+        teamName: null,
+        role: null,
+        members: [],
+        edges: [],
+      });
+      return;
+    }
+
+    // Use the first flow membership (a deployment may be in multiple flows;
+    // the primary team is the first one found)
+    const membership = memberships[0];
+
+    const flow = await db.query.orchestrationFlows.findFirst({
+      where: eq(tables.orchestrationFlows.id, membership.flowId),
+    });
+
+    if (!flow) {
+      res.json({ teamName: null, role: null, members: [], edges: [] });
+      return;
+    }
+
+    // Parse the flow definition to extract nodes and edges
+    let definition: { nodes?: any[]; edges?: any[] };
+    try {
+      definition = JSON.parse(flow.definition);
+    } catch {
+      definition = { nodes: [], edges: [] };
+    }
+
+    const nodes = definition.nodes || [];
+    const edges = definition.edges || [];
+
+    // Get all deployment memberships for this flow to map nodeId -> deployment info
+    const allMemberships = await db.query.flowDeploymentMemberships.findMany({
+      where: eq(tables.flowDeploymentMemberships.flowId, flow.id),
+    });
+
+    // Build a map of deploymentId -> deployment for batch lookup
+    const deploymentIds = [...new Set(allMemberships.map((m) => m.deploymentId))];
+    const deploymentRows = await Promise.all(
+      deploymentIds.map((id) =>
+        db.query.deployments.findFirst({
+          where: eq(tables.deployments.id, id),
+        }),
+      ),
+    );
+    const deploymentMap = new Map(
+      deploymentRows.filter(Boolean).map((d: any) => [d.id, d]),
+    );
+
+    // Build a map of nodeId -> membership for role lookup
+    const nodeToMembership = new Map(
+      allMemberships.map((m) => [m.nodeId, m]),
+    );
+
+    // Build the members list from flow nodes
+    const members = nodes
+      .filter((n: any) => n.type === "deployment" && n.data?.deploymentId)
+      .map((n: any) => {
+        const dep = deploymentMap.get(n.data.deploymentId);
+        const mem = nodeToMembership.get(n.id);
+        return {
+          name: dep ? (dep as any).name : n.data.label || n.id,
+          deploymentId: n.data.deploymentId,
+          role: mem?.role || n.data.role || null,
+          status: dep ? (dep as any).status : "unknown",
+        };
+      });
+
+    // Build the edges list
+    const edgeList = edges.map((e: any) => ({
+      from: e.source,
+      to: e.target,
+      type: e.type || e.data?.type || "default",
+    }));
+
+    res.json({
+      teamName: flow.name,
+      role: membership.role || null,
+      members,
+      edges: edgeList,
+    });
+  } catch (err) {
+    logger.error({ err, deploymentId }, "Pod API: team lookup failed");
+    res.status(500).json({ error: "Failed to get team info", details: String(err) });
+  }
+});
+
+// POST /api/pod/platform/log-action — Log a bot action visible in Debug Traces
+podApiRouter.post("/platform/log-action", async (req: Request, res: Response) => {
+  const deploymentId = (req as any).podDeploymentId as string;
+
+  try {
+    const { action, details, status } = req.body;
+
+    if (!action || typeof action !== "string") {
+      res.status(400).json({ error: "Missing or invalid 'action'" });
+      return;
+    }
+
+    const now = Date.now();
+    const id = `acl_${nanoid(12)}`;
+
+    await db.insert(tables.agentCalls).values({
+      id,
+      callerDeploymentId: deploymentId,
+      calleeDeploymentId: deploymentId,  // self-action
+      skillName: action,
+      kind: "bot_action",
+      status: status || "completed",
+      requestBody: details ? (typeof details === "string" ? details : JSON.stringify(details)) : null,
+      creditsCharged: 0,
+      startMs: now,
+      endMs: now,
+      durationMs: 0,
+      createdAt: dbDate(),
+    });
+
+    logger.info({ deploymentId, action }, "Pod API: bot action logged");
+    res.json({ success: true });
+  } catch (err) {
+    logger.error({ err, deploymentId }, "Pod API: log-action failed");
+    res.status(500).json({ error: "Failed to log action", details: String(err) });
+  }
+});

@@ -1235,6 +1235,57 @@ const TOOLS = [
       required: ["key"],
     },
   },
+  // ── Platform Bridge tools — register actions on the Jarble platform ──
+  {
+    name: "platform_register_agent",
+    description: "Register a subagent on the Jarble platform so it appears in the user's Subagents panel. Use when you create or configure a specialist agent that should be visible and manageable from the dashboard.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Human-readable agent name (e.g. 'Lead Scorer')" },
+        slug: { type: "string", description: "Unique slug for the agent (lowercase, alphanumeric, hyphens, e.g. 'lead-scorer')" },
+        description: { type: "string", description: "What this agent does (1-2 sentences)" },
+        model: { type: "string", description: "LLM model the agent uses (e.g. 'claude-sonnet-4-20250514')" },
+        systemPrompt: { type: "string", description: "The agent's system prompt" },
+      },
+      required: ["name", "slug", "description"],
+    },
+  },
+  {
+    name: "platform_store_secret",
+    description: "Store a credential or API key on the Jarble platform so it shows in the Config credentials panel. Unlike store_secret (which sets a pod env var), this registers the credential as a platform-managed entry visible in the dashboard. Use for credentials the user should be able to see and rotate from the UI.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "Credential key name (uppercase, e.g. OPENAI_API_KEY)" },
+        value: { type: "string", description: "The credential value" },
+        source: { type: "string", enum: ["agent", "user"], description: "Who provided this credential. Default: 'agent'" },
+      },
+      required: ["key", "value"],
+    },
+  },
+  {
+    name: "platform_list_team",
+    description: "List this bot's team members and their roles. Returns the team name and all members with status. Use to understand the team context, check who's online, or report team composition to the user.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "platform_log_action",
+    description: "Log a significant action for visibility in the Debug Traces panel on the Jarble dashboard. Use for important operations like API calls, data processing steps, or decisions that the user might want to audit later.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", description: "Short action name (e.g. 'Fetched stock data', 'Sent email', 'Processed CSV')" },
+        details: { type: "string", description: "Additional details or context (optional)" },
+        status: { type: "string", enum: ["completed", "failed"], description: "Action outcome. Default: 'completed'" },
+      },
+      required: ["action"],
+    },
+  },
   {
     name: "update_design_context",
     description: "Save your current design choices (color palette, chart style, typography, layout preferences) so they persist across the session. Call this after rendering your first charts/components to lock in a consistent visual style. The saved context is automatically included in subsequent messages via [DESIGN_CONTEXT] so you can maintain consistency without re-specifying styles.",
@@ -6138,6 +6189,107 @@ async function executeDeleteSecret(args) {
   }
 }
 
+// ── Platform Bridge helpers ──────────────────────────────────────────────
+// Shared HTTP caller for platform bridge tools. Reuses the same apiRequest()
+// pattern but provides a friendlier wrapper for the platform_* tools.
+
+async function callPlatformApi(path, method, body) {
+  try {
+    const result = await apiRequest(method, path, body);
+    if (result.status >= 200 && result.status < 300) {
+      return { ok: true, data: result.data };
+    }
+    const errMsg = (result.data && result.data.error) || JSON.stringify(result.data).slice(0, 300);
+    return { ok: false, error: `HTTP ${result.status}: ${errMsg}` };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+async function executePlatformRegisterAgent(args) {
+  const name = (args.name || "").trim();
+  const slug = (args.slug || "").trim();
+  const description = (args.description || "").trim();
+
+  if (!name) return { isError: true, text: "Missing required 'name' parameter" };
+  if (!slug) return { isError: true, text: "Missing required 'slug' parameter" };
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(slug)) {
+    return { isError: true, text: "Invalid slug format. Must be lowercase alphanumeric with hyphens (e.g. 'lead-scorer')" };
+  }
+  if (!description) return { isError: true, text: "Missing required 'description' parameter" };
+
+  const body = { name, slug, description };
+  if (args.model) body.model = args.model;
+  if (args.systemPrompt) body.systemPrompt = args.systemPrompt;
+
+  const res = await callPlatformApi("/api/pod/platform/register-agent", "POST", body);
+  if (!res.ok) return { isError: true, text: `Failed to register agent: ${res.error}` };
+
+  const agentId = (res.data && res.data.agentId) || "unknown";
+  return {
+    isError: false,
+    text: `Agent "${name}" (${slug}) registered successfully. Agent ID: ${agentId}. It now appears in the Subagents panel on the Jarble dashboard.`,
+  };
+}
+
+async function executePlatformStoreSecret(args) {
+  const key = (args.key || "").trim();
+  const value = args.value || "";
+  const source = args.source || "agent";
+
+  if (!key) return { isError: true, text: "Missing required 'key' parameter" };
+  if (!value) return { isError: true, text: "Missing required 'value' parameter" };
+  if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key)) {
+    return { isError: true, text: "Invalid key format. Must be uppercase letters, digits, and underscores (e.g. MY_API_KEY)" };
+  }
+
+  const res = await callPlatformApi("/api/pod/secrets", "POST", { key, value, source });
+  if (!res.ok) return { isError: true, text: `Failed to store secret: ${res.error}` };
+
+  return {
+    isError: false,
+    text: `Credential "${key}" stored on the platform (source: ${source}). It will appear in the Config credentials panel and be available as an env var after pod restart.`,
+  };
+}
+
+async function executePlatformListTeam() {
+  const res = await callPlatformApi("/api/pod/platform/team", "GET");
+  if (!res.ok) return { isError: true, text: `Failed to list team: ${res.error}` };
+
+  const data = res.data || {};
+  const teamName = data.teamName || "Unknown Team";
+  const members = data.members || [];
+
+  if (members.length === 0) {
+    return { isError: false, text: `Team: ${teamName}\nNo team members found. This bot is operating independently.` };
+  }
+
+  const lines = members.map(function(m) {
+    return `- ${m.name} (role: ${m.role || "member"}, status: ${m.status || "unknown"}, id: ${m.deploymentId || "n/a"})`;
+  });
+  return {
+    isError: false,
+    text: `Team: ${teamName}\n${members.length} member(s):\n${lines.join("\n")}`,
+  };
+}
+
+async function executePlatformLogAction(args) {
+  const action = (args.action || "").trim();
+  if (!action) return { isError: true, text: "Missing required 'action' parameter" };
+
+  const body = { action };
+  if (args.details) body.details = args.details;
+  body.status = args.status || "completed";
+
+  const res = await callPlatformApi("/api/pod/platform/log-action", "POST", body);
+  if (!res.ok) return { isError: true, text: `Failed to log action: ${res.error}` };
+
+  return {
+    isError: false,
+    text: `Action logged: "${action}" (${body.status}). Visible in Debug Traces on the dashboard.`,
+  };
+}
+
 // ── Design Context (session-level style tracking) ───────────────────────
 
 const DESIGN_CONTEXT_PATH = (() => {
@@ -7473,6 +7625,11 @@ async function executeTool(name, args) {
     case "store_secret": return executeStoreSecret(args || {});
     case "list_secrets": return executeListSecrets();
     case "delete_secret": return executeDeleteSecret(args || {});
+    // Platform Bridge tools
+    case "platform_register_agent": return executePlatformRegisterAgent(args || {});
+    case "platform_store_secret": return executePlatformStoreSecret(args || {});
+    case "platform_list_team": return executePlatformListTeam();
+    case "platform_log_action": return executePlatformLogAction(args || {});
     case "update_design_context": return executeUpdateDesignContext(args || {});
     // Web & Search tools
     case "web_fetch": return executeWebFetch(args || {});

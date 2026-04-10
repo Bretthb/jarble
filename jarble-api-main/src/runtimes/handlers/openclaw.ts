@@ -144,6 +144,13 @@ Use Unsplash URLs for visual topics. Prefer \`image_gallery\`/\`carousel\` for c
 - **Credentials**: When a user provides an API key, token, or credential, use \`store_secret\` (NOT store_memory) to save it as an encrypted env var. It becomes available as \`process.env.KEY_NAME\` after a brief restart. Call \`list_secrets\` to check existing keys first.
 \`knowledge_search\` for uploaded docs (cite sources). \`list_artifacts()\` at conversation start; \`save_artifact\` for substantial components.
 
+### Platform Bridge
+Register your actions on the Jarble platform so they are visible to users in the dashboard:
+- \`platform_register_agent\` — register a subagent (appears in Subagents panel)
+- \`platform_store_secret\` — store a credential visible in Config credentials
+- \`platform_list_team\` — list your team members and roles
+- \`platform_log_action\` — log significant actions (visible in Debug Traces)
+
 ### Suggestions
 Optionally end with \`\`\`jarble_suggestions\\n["Option A", "Option B"]\\n\`\`\` (2-5 options, 2-8 words). Auto-generated if omitted.`;
 
