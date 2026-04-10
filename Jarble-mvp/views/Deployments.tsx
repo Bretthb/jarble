@@ -1898,7 +1898,7 @@ function FlowToolbar({
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={onDeleteFlow} className="h-9 px-2.5 text-muted-foreground hover:text-red-400">
+                <Button variant="ghost" size="sm" onClick={onDeleteFlow} className="h-9 px-2.5 text-muted-foreground hover:text-red-400" aria-label="Delete team">
                   <Trash2 className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
@@ -2753,6 +2753,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   // ── Delete flow ───────────────────────────────────────────────────
   const handleDeleteFlow = useCallback(() => {
     if (!activeFlowId) return;
+    const teamName = flows.find((f) => f.id === activeFlowId)?.name ?? "this team";
+    if (!window.confirm(`Delete "${teamName}"? This cannot be undone.`)) return;
     deleteFlowMutation.mutate(
       { id: activeFlowId, hard: true },
       {
