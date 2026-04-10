@@ -21,7 +21,7 @@ import DashboardCanvas from "@/components/workspace/DashboardCanvas";
 import EssentialControls from "@/components/workspace/EssentialControls";
 import ConfigPanel from "@/components/workspace/ConfigPanel";
 import MarketplacePanel from "@/components/workspace/MarketplacePanel";
-import HostedServicesPanel from "@/components/workspace/HostedServicesPanel";
+// HostedServicesPanel removed — feature deferred to a later release
 import FilePanel from "@/components/workspace/FilePanel";
 import KnowledgePanel from "@/components/workspace/KnowledgePanel";
 import CanvasRenderer from "@/components/canvas/CanvasRenderer";
@@ -34,7 +34,7 @@ import TeamMembershipsPanel from "@/components/workspace/TeamMembershipsPanel";
 import TeamSessionsPanel from "@/components/workspace/TeamSessionsPanel";
 import DebugTracePanel from "@/components/workspace/DebugTracePanel";
 import { MemoryDisclosureBanner, type MemoryScope } from "@/components/chat/MemoryDisclosureBanner";
-import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users, Activity, ArrowUpRight } from "lucide-react";
+import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users, Activity, ArrowUpRight } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -342,7 +342,7 @@ function WorkspacePage({
   const router = useRouter();
   const [configOpen, setConfigOpen] = useState(false);
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
-  const [hostedServicesOpen, setHostedServicesOpen] = useState(false);
+  // hostedServicesOpen removed — feature deferred
   const [filesOpen, setFilesOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -426,7 +426,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setHistoryOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -441,7 +441,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setFilesOpen((v) => {
-                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setConfigOpen(false); setHistoryOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -455,7 +455,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setKnowledgeOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -469,7 +469,7 @@ function WorkspacePage({
               isOpen={subagentsOpen}
               onClick={() => {
                 setSubagentsOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setTeamsOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHistoryOpen(false); setTeamsOpen(false); }
                   return !v;
                 });
               }}
@@ -479,25 +479,11 @@ function WorkspacePage({
               isOpen={teamsOpen}
               onClick={() => {
                 setTeamsOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
             />
-            <Button
-              variant={hostedServicesOpen ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => {
-                setHostedServicesOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
-                  return !v;
-                });
-              }}
-              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
-              title="Hosted Services"
-            >
-              <Server className="w-4 h-4" />
-            </Button>
             <Button
               variant={marketplaceOpen ? "secondary" : "ghost"}
               size="sm"
@@ -512,7 +498,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setDebugOpen((v) => {
-                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setTeamsOpen(false); }
+                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setTeamsOpen(false); }
                   return !v;
                 });
               }}
@@ -526,7 +512,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setConfigOpen((v) => {
-                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setDebugOpen(false); }
+                  if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setDebugOpen(false); }
                   return !v;
                 });
               }}
@@ -559,12 +545,6 @@ function WorkspacePage({
             deploymentId={deploymentId}
             liveStatus={liveStatus}
             onClose={() => setConfigOpen(false)}
-          />
-        )}
-        {hostedServicesOpen && (
-          <HostedServicesPanel
-            deploymentId={deploymentId}
-            onClose={() => setHostedServicesOpen(false)}
           />
         )}
         {subagentsOpen && (
