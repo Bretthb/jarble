@@ -4061,7 +4061,13 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                     <div className={`inline-block max-w-[85%] rounded-lg px-3 py-2 ${
                       msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary"
                     }`}>
-                      {msg.content}
+                      {msg.content
+                        ? msg.content
+                            .replace(/```jarble_delegate\s*\n?\s*\{[^}]*"to"\s*:\s*"([^"]+)"[^}]*"task"\s*:\s*"([^"]*)"[^}]*\}\s*\n?```/g,
+                              (_, to, task) => `Delegating to ${to}: ${task.slice(0, 100)}${task.length > 100 ? "..." : ""}`)
+                            .replace(/```json\s*\n?\s*\{[^}]*"tool"\s*:\s*"delegate_to_([^"]+)"[^}]*"task"\s*:\s*"([^"]*)"[^}]*\}\s*\n?```/g,
+                              (_, to, task) => `Delegating to ${to}: ${task.slice(0, 100)}${task.length > 100 ? "..." : ""}`)
+                        : null}
                       {/* Delegation status indicators */}
                       {msg.delegations && msg.delegations.length > 0 && (
                         <div className="mt-2 space-y-1 border-t border-border/30 pt-2">
