@@ -2537,7 +2537,15 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   const { state: execState, startExecution, resumeExecution, cancel } = useFlowExecution();
 
   // ── Set Active Team mutation ──────────────────────────────────────
-  const setActiveTeamMutation = trpc.deployment.setActiveFlow.useMutation();
+  // Track which flow is the "active team" for the entry deployment.
+  // Keyed by deploymentId so switching teams shows the correct state.
+  const [activeTeamByDep, setActiveTeamByDep] = useState<Record<string, string | null>>({});
+  const setActiveTeamMutation = trpc.deployment.setActiveFlow.useMutation({
+    onSuccess: (data, variables) => {
+      setActiveTeamByDep((prev) => ({ ...prev, [variables.id]: data.activeFlowId ?? null }));
+      utils.deployment.list.invalidate();
+    },
+  });
 
   // ── Mutations ─────────────────────────────────────────────────────
 
@@ -3713,14 +3721,23 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         onSetActiveTeam={entryNode ? () => {
           const entryDepId = entryNode.data?.id;
           if (!entryDepId || !activeFlowId) return;
-          const entryDep = deployments.find((d) => d.id === entryDepId);
-          const isAlreadyActive = (entryDep as any)?.activeFlowId === activeFlowId;
+          // Check local state first, then fall back to deployment data
+          const localActive = activeTeamByDep[entryDepId];
+          const dbActive = (deployments.find((d) => d.id === entryDepId) as any)?.activeFlowId;
+          const currentActive = localActive !== undefined ? localActive : dbActive;
+          const isAlreadyActive = currentActive === activeFlowId;
           setActiveTeamMutation.mutate(
             { id: entryDepId, flowId: isAlreadyActive ? null : activeFlowId },
-            { onSuccess: () => utils.deployment.list.invalidate() }
           );
         } : undefined}
-        isActiveTeam={entryNode?.data?.id ? (deployments.find((d) => d.id === entryNode?.data?.id) as any)?.activeFlowId === activeFlowId : false}
+        isActiveTeam={(() => {
+          const entryDepId = entryNode?.data?.id;
+          if (!entryDepId || !activeFlowId) return false;
+          const localActive = activeTeamByDep[entryDepId];
+          const dbActive = (deployments.find((d) => d.id === entryDepId) as any)?.activeFlowId;
+          const currentActive = localActive !== undefined ? localActive : dbActive;
+          return currentActive === activeFlowId;
+        })()}
         isExecuting={isExecuting}
         isSaved={isSaved && !isMutating}
         totalCredits={execState.totalCredits}
