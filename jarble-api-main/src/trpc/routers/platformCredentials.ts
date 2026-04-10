@@ -184,10 +184,10 @@ export const platformCredentialsRouter = router({
         platformId: input.platformId,
       }, "Platform credentials deleted");
 
-      // Config sync: push updated configs to PVC if deployment is running
-      if (deployment.status === "running") {
-        safeFireAndForget(syncConfigsToPvc(input.deploymentId), { operation: "syncConfigsToPvc", deploymentId: input.deploymentId });
-      }
+      // Always fire config sync regardless of deployment status so that
+      // a credential removed while the deployment is restarting/creating
+      // doesn't leave a stale platform token active after the pod starts.
+      safeFireAndForget(syncConfigsToPvc(input.deploymentId), { operation: "syncConfigsToPvc", deploymentId: input.deploymentId });
 
       return { success: true };
     }),
