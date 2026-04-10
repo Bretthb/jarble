@@ -24,14 +24,20 @@ const VARIANT_STYLES: Record<string, string> = {
 };
 
 function CanvasButtonGroupInner({ buttons }: CanvasButtonGroupProps) {
-  const { dispatch } = useCanvasAction();
+  let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
+  try {
+    const ctx = useCanvasAction();
+    dispatch = ctx.dispatch;
+  } catch {
+    // Not inside CanvasActionProvider -- interactivity disabled
+  }
   const [clicked, setClicked] = useState<string | null>(null);
 
   if (!Array.isArray(buttons) || buttons.length === 0) return null;
 
   const handleClick = (buttonId: string) => {
     setClicked(buttonId);
-    dispatch({ action: "click", payload: { buttonId } });
+    dispatch?.({ action: "click", payload: { buttonId } });
   };
 
   return (

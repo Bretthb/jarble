@@ -327,7 +327,31 @@ function CanvasChartInner({
       }
 
       default:
-        return null;
+        // Fallback to bar chart for unknown types
+        return (
+          <BarChart data={data} margin={{ top: 4, right: 8, bottom: needsAngle ? 20 : 4, left: 0 }}>
+            {showGrid && <CartesianGrid {...gridProps} />}
+            <XAxis dataKey={xKey} {...axisProps} {...xAxisExtra} tickFormatter={xAxisTickFormatter} />
+            <YAxis {...axisProps} tickFormatter={(v: number) => formatValue(v)} width={48} />
+            <ChartTooltip
+              cursor={{ fill: "var(--color-muted)", opacity: 0.2, rx: 4 }}
+              content={<ChartTooltipContent formatter={(value) => formatTooltipValue(Number(value))} />}
+            />
+            {showLegend && dataKeys.length > 1 && (
+              <ChartLegend content={<ChartLegendContent />} />
+            )}
+            {dataKeys.map((key, i) => (
+              <Bar
+                key={key}
+                dataKey={key}
+                fill={resolvedColors[i]}
+                radius={[4, 4, 0, 0]}
+                className="cursor-pointer"
+                onClick={(entry) => handleClick(key, entry)}
+              />
+            ))}
+          </BarChart>
+        );
     }
   };
 

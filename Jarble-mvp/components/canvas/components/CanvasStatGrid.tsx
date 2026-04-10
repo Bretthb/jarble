@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import { icons } from "lucide-react";
+import { FadeIn } from "../FadeIn";
 import { useCanvasAction } from "../CanvasActionContext";
 
 /** Resolve an icon name string (e.g. "activity", "arrow-up") to a Lucide component. */
@@ -90,8 +91,16 @@ function CanvasStatGridInner({
     });
   };
 
+  if (!stats || stats.length === 0) {
+    return (
+      <FadeIn className="p-6 h-full flex items-center justify-center">
+        <span className="text-sm text-muted-foreground/60">No statistics available</span>
+      </FadeIn>
+    );
+  }
+
   return (
-    <div className="relative p-4 h-full">
+    <FadeIn className="relative p-4 h-full">
       {/* Header row: live indicator + timestamp */}
       {(live || lastUpdated) && (
         <div className="flex items-center justify-end gap-2 mb-3">
@@ -182,7 +191,7 @@ function CanvasStatGridInner({
           );
         })}
       </div>
-    </div>
+    </FadeIn>
   );
 }
 

@@ -25,7 +25,13 @@ function CanvasFormInner({
   fields,
   submitLabel = "Submit",
 }: CanvasFormProps) {
-  const { dispatch } = useCanvasAction();
+  let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
+  try {
+    const ctx = useCanvasAction();
+    dispatch = ctx.dispatch;
+  } catch {
+    // Not inside CanvasActionProvider -- interactivity disabled
+  }
   const [submitted, setSubmitted] = useState(false);
 
   // Initialize form values from defaults
@@ -52,7 +58,7 @@ function CanvasFormInner({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitted(true);
-    dispatch({ action: "submit", payload: { fields: values } });
+    dispatch?.({ action: "submit", payload: { fields: values } });
   };
 
   if (!Array.isArray(fields) || fields.length === 0) return null;

@@ -73,7 +73,13 @@ function CanvasConfirmationInner({
   status: initialStatus,
   selectedActionId: initialSelectedId,
 }: CanvasConfirmationProps) {
-  const { dispatch } = useCanvasAction();
+  let dispatch: ReturnType<typeof useCanvasAction>["dispatch"] | null = null;
+  try {
+    const ctx = useCanvasAction();
+    dispatch = ctx.dispatch;
+  } catch {
+    // Not inside CanvasActionProvider -- interactivity disabled
+  }
   const [status, setStatus] = useState<"pending" | "approved" | "rejected" | "expired">(initialStatus || "pending");
   const [selectedActionId, setSelectedActionId] = useState<string | null>(initialSelectedId || null);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(timeout ?? null);
@@ -101,7 +107,7 @@ function CanvasConfirmationInner({
         if (prev === null || prev <= 1) {
           if (timerRef.current) clearInterval(timerRef.current);
           setStatus("expired");
-          dispatch({
+          dispatch?.({
             action: "confirmation_response",
             payload: { confirmationId, actionId: null, status: "expired" },
           });
@@ -125,7 +131,7 @@ function CanvasConfirmationInner({
       const newStatus = isApprove ? "approved" : "rejected";
       setStatus(newStatus);
       if (timerRef.current) clearInterval(timerRef.current);
-      dispatch({
+      dispatch?.({
         action: "confirmation_response",
         payload: { confirmationId, actionId, status: newStatus },
       });

@@ -1252,9 +1252,8 @@ export const deploymentRouter = router({
       messagingOnly: z.boolean().optional(),
       // JAR memory-scoping foundation: see schema.pg.ts and
       // docs/audits/memory-scoping-decision.md for the design.
-      // Enforcement of `session` mode lives in a follow-up PR — this
-      // input just persists the user's choice so the disclosure banner
-      // can read it back.
+      // Memory scope is enforced at the MCP server level: 'off' hides tools,
+      // 'session' guards on session_id.
       memoryScope: z.enum(["global", "session", "off"]).optional(),
       /** Per-deployment delegation budget cap in cents. null = unlimited. */
       maxBudgetCents: z.number().int().min(0).nullable().optional(),

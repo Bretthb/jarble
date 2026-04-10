@@ -120,6 +120,11 @@ const MAX_CONTENT_SIZE = 5 * 1024 * 1024; // 5MB max
 
 knowledgeRouter.post("/:id/knowledge/ingest", async (req, res) => {
   try {
+    if (!/^[a-z0-9]+$/.test(req.params.id)) {
+      res.status(400).json({ error: "Invalid deployment ID format" });
+      return;
+    }
+
     const auth = await authenticateAndAuthorize(req, res);
     if (!auth) return;
 
@@ -202,6 +207,11 @@ knowledgeRouter.post("/:id/knowledge/ingest", async (req, res) => {
 
 knowledgeRouter.get("/:id/knowledge/collections", async (req, res) => {
   try {
+    if (!/^[a-z0-9]+$/.test(req.params.id)) {
+      res.status(400).json({ error: "Invalid deployment ID format" });
+      return;
+    }
+
     const auth = await authenticateAndAuthorize(req, res);
     if (!auth) return;
 
@@ -220,6 +230,15 @@ knowledgeRouter.get("/:id/knowledge/collections", async (req, res) => {
 
 knowledgeRouter.delete("/:id/knowledge/collections/:collectionId", async (req, res) => {
   try {
+    if (!/^[a-z0-9]+$/.test(req.params.id)) {
+      res.status(400).json({ error: "Invalid deployment ID format" });
+      return;
+    }
+    if (!/^[a-f0-9]+$/.test(req.params.collectionId)) {
+      res.status(400).json({ error: "Invalid collection ID format" });
+      return;
+    }
+
     const auth = await authenticateAndAuthorize(req, res);
     if (!auth) return;
 
