@@ -32,7 +32,7 @@ import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
 import { requireOrgRole } from "./org.js";
 import type { OrgRole } from "./org.js";
 
-const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations, deploymentSecrets } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations, deploymentSecrets, promoRedemptions } = tables;
 
 /**
  * Find a deployment and verify the caller has access.
@@ -2215,7 +2215,9 @@ export const deploymentRouter = router({
         logger.warn({ err }, "Scale-down check failed (non-blocking)");
       });
 
-      // Explicitly clean up child rows - SQLite doesn't enforce FK cascades by default
+      // Explicitly clean up child rows before deleting the deployment.
+      // Most FKs have ON DELETE CASCADE, but agent_calls and promo_redemptions
+      // do NOT — they block the delete with a constraint violation if not cleaned first.
       const credResult = await ctx.db.delete(platformCredentials)
         .where(eq(platformCredentials.deploymentId, input.id));
       logger.debug({ deploymentId: input.id, rows: (credResult as any)?.changes ?? (credResult as any)?.rowsAffected ?? "?" }, "delete: platform_credentials removed");
@@ -2223,6 +2225,16 @@ export const deploymentRouter = router({
       const skillsResult = await ctx.db.delete(deploymentSkills)
         .where(eq(deploymentSkills.deploymentId, input.id));
       logger.debug({ deploymentId: input.id, rows: (skillsResult as any)?.changes ?? (skillsResult as any)?.rowsAffected ?? "?" }, "delete: deployment_skills removed");
+
+      // Clean up agent_calls (no ON DELETE CASCADE on caller/callee FKs)
+      await ctx.db.delete(agentCalls)
+        .where(or(eq(agentCalls.callerDeploymentId, input.id), eq(agentCalls.calleeDeploymentId, input.id)));
+      logger.debug({ deploymentId: input.id }, "delete: agent_calls removed");
+
+      // Clean up promo_redemptions (no ON DELETE CASCADE on deployment FK)
+      await ctx.db.delete(promoRedemptions)
+        .where(eq(promoRedemptions.deploymentId, input.id));
+      logger.debug({ deploymentId: input.id }, "delete: promo_redemptions removed");
 
       await ctx.db.delete(deployments)
         .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
