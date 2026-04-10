@@ -409,9 +409,12 @@ function WorkspacePage({
             >
               <ArrowLeft className="w-4 h-4" />
             </Button>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-sm">{deploymentName}</span>
-              <StatusBadge status={liveStatus} />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm">{deploymentName}</span>
+                <StatusBadge status={liveStatus} />
+              </div>
+              <TeamIndicator deploymentId={deploymentId} />
             </div>
           </div>
 
@@ -673,6 +676,40 @@ function KeyedChatPanel({
 }
 
 // ── Canvas Workspace ──────────────────────────────────────────────────────────
+
+/** Compact inline team membership indicator — shows under bot name */
+function TeamIndicator({ deploymentId }: { deploymentId: string }) {
+  const query = trpc.flows.listForDeployment.useQuery(
+    { deploymentId },
+    { staleTime: 60_000 },
+  );
+  const flows = query.data ?? [];
+  if (flows.length === 0) return null;
+
+  // Show the first team with member names
+  const flow = flows[0] as any;
+  const members = (flow.members ?? [])
+    .filter((m: any) => m.deploymentId !== deploymentId)
+    .map((m: any) => m.name || m.deploymentId?.slice(0, 8))
+    .slice(0, 3);
+
+  if (members.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-1.5 mt-0.5">
+      <span className="text-[10px] text-muted-foreground">
+        Team: {flow.name || "Unnamed"} with {members.join(", ")}
+        {flows.length > 1 && ` (+${flows.length - 1} more)`}
+      </span>
+      <a
+        href={`/deployments?tab=botteams&flow=${flow.id}`}
+        className="text-[10px] text-primary/70 hover:text-primary"
+      >
+        View →
+      </a>
+    </div>
+  );
+}
 
 function CanvasWorkspace({
   deploymentId,
