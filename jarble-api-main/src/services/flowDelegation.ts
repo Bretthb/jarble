@@ -116,11 +116,13 @@ export class DelegationCycleError extends Error {
 // ── Build delegation tools ───────────────────────────────────────────────────
 
 /**
- * Build delegation tools for a node based on its outgoing "delegates" edges.
+ * Build delegation tools for a node based on its connected edges.
  *
- * Only considers edges where type === "delegates" (or unset, defaulting to
- * "delegates" for backward compatibility). Target nodes must have a valid
- * deploymentId.
+ * All three edge types enable delegation:
+ * - "delegates" (or unset): source → target (one-way)
+ * - "collaborates": bidirectional (both ends can delegate to each other)
+ * - "reports": source reports to target — both directions enabled
+ *   (reporter sends info up, manager delegates tasks down)
  */
 export function buildDelegationTools(
   node: FlowNode,
@@ -130,19 +132,29 @@ export function buildDelegationTools(
 ): DelegationTool[] {
   if (node.canDelegate === false) return [];
 
-  // Find all outgoing "delegates" edges AND bidirectional "collaborates" edges from this node.
-  // "collaborates" edges are bidirectional — both bots can delegate to each other.
+  // Find all edges that enable delegation from this node:
+  // - "delegates" (or unset): one-way, source can delegate to target
+  // - "collaborates": bidirectional, both ends can delegate to each other
+  // - "reports": one-way, source reports to target — target can delegate down, source can send up
   const delegateEdges = edges.filter(
     (e) =>
-      (e.source === node.id && (e.type === "delegates" || !e.type)) ||
+      // Outgoing delegates/reports edges
+      (e.source === node.id && (e.type === "delegates" || e.type === "reports" || !e.type)) ||
+      // Reports edge where we're the target (manager can delegate to reporter)
+      (e.type === "reports" && e.target === node.id) ||
+      // Collaborates edges are bidirectional
       (e.type === "collaborates" && (e.source === node.id || e.target === node.id)),
   );
 
   const tools: DelegationTool[] = [];
 
   for (const edge of delegateEdges) {
-    // For collaborates edges, the target is whichever end ISN'T this node
-    const targetId = edge.type === "collaborates" && edge.target === node.id ? edge.source : edge.target;
+    // For collaborates/reports-as-manager, the delegation target is whichever end ISN'T this node
+    const targetId =
+      (edge.type === "collaborates" && edge.target === node.id) ||
+      (edge.type === "reports" && edge.target === node.id)
+        ? edge.source   // We're the manager — delegate down to the reporter
+        : edge.target;  // Normal direction — delegate to the target
     if (targetId === node.id) continue; // Skip self-loops
     const targetNode = nodes.find((n) => n.id === targetId);
     if (!targetNode || !targetNode.deploymentId) continue;

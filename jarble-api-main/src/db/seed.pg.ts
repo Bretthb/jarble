@@ -32,7 +32,7 @@ async function main() {
       {
         slug: "openclaw",
         name: "OpenClaw",
-        description: "AI-powered WhatsApp assistant with conversation memory and tool use",
+        description: "AI agent with web chat, conversation memory, MCP tools, and multi-platform support",
         category: "bot",
         dockerImage: "ghcr.io/jarble-ai/openclaw:latest",
         cpuLimit: "2.0",

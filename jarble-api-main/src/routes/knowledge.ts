@@ -27,14 +27,12 @@ export const knowledgeRouter = Router();
 // ── Storage paths ────────────────────────────────────────────────────────
 
 function getKnowledgeDir(deploymentId: string): string {
-  if (env.NODE_ENV === "development") {
-    // Local dev - store under jarble-api-main/data/knowledge/{deploymentId}
-    const dir = join(process.cwd(), "data", "knowledge", deploymentId);
-    mkdirSync(join(dir, "chunks"), { recursive: true });
-    return dir;
-  }
-  // Prod - pod PVC
-  const dir = `/data/knowledge`;
+  // Always store per-deployment under the API's local data dir
+  // (the API pod doesn't have a /data PVC - that's on bot pods)
+  const base = env.NODE_ENV === "development"
+    ? join(process.cwd(), "data", "knowledge")
+    : join("/tmp", "knowledge");
+  const dir = join(base, deploymentId);
   mkdirSync(join(dir, "chunks"), { recursive: true });
   return dir;
 }

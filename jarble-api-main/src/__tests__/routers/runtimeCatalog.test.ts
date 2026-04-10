@@ -220,9 +220,9 @@ describe("runtimeCatalog router", () => {
       expect(result!.name).toBe("ZeroClaw");
     });
 
-    it("should return undefined for non-existent slug", async () => {
+    it("should return null for non-existent slug", async () => {
       const result = await anonCaller().runtimeCatalog.getBySlug({ slug: "nonexistent" });
-      expect(result).toBeUndefined();
+      expect(result).toBeNull();
     });
   });
 

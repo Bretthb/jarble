@@ -133,8 +133,8 @@ describe("template router", () => {
       const result = await anonCaller().template.list();
       expect(result.map((t: any) => t.slug)).toEqual([
         "general-assistant",
+        "full-stack-developer",
         "sales-coach",
-        "customer-support",
       ]);
     });
 

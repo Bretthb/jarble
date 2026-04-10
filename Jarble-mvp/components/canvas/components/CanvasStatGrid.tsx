@@ -1,13 +1,24 @@
 "use client";
 
 import { memo } from "react";
+import { icons } from "lucide-react";
 import { useCanvasAction } from "../CanvasActionContext";
+
+/** Resolve an icon name string (e.g. "activity", "arrow-up") to a Lucide component. */
+function resolveIcon(name?: unknown) {
+  if (!name || typeof name !== "string") return null;
+  // Convert kebab-case / snake_case to PascalCase (e.g. "arrow-up" → "ArrowUp")
+  const pascal = name
+    .replace(/[-_](.)/g, (_, c) => c.toUpperCase())
+    .replace(/^(.)/, (_, c) => c.toUpperCase());
+  return (icons as Record<string, React.ComponentType<{ className?: string; size?: number }>>)[pascal] ?? null;
+}
 
 export interface StatItem {
   label: string;
   value: string | number;
-  change?: string;
-  icon?: string;
+  change?: string | number;
+  icon?: unknown;
 }
 
 export interface CanvasStatGridProps {
@@ -18,11 +29,15 @@ export interface CanvasStatGridProps {
   lastUpdated?: string;
 }
 
-/** Determine trend direction from the change string. */
-function getTrend(change?: string): "up" | "down" | "neutral" {
-  if (!change) return "neutral";
-  if (change.startsWith("+") || change.startsWith("\u2191")) return "up";
-  if (change.startsWith("-") || change.startsWith("\u2193")) return "down";
+/** Determine trend direction from the change value. */
+function getTrend(change?: string | number): "up" | "down" | "neutral" {
+  if (change == null) return "neutral";
+  const s = String(change);
+  if (s.startsWith("+") || s.startsWith("\u2191")) return "up";
+  if (s.startsWith("-") || s.startsWith("\u2193")) return "down";
+  // Positive numbers without explicit sign → up
+  if (typeof change === "number" && change > 0) return "up";
+  if (typeof change === "number" && change < 0) return "down";
   return "neutral";
 }
 
@@ -127,17 +142,20 @@ function CanvasStatGridInner({
               >
                 {/* Icon + Label row */}
                 <div className="flex items-center gap-2 mb-2">
-                  {stat.icon && (
-                    <span
-                      className={[
-                        "inline-flex items-center justify-center h-8 w-8 rounded-full text-sm",
-                        "shadow-sm",
-                        ICON_BG[trend],
-                      ].join(" ")}
-                    >
-                      {stat.icon}
-                    </span>
-                  )}
+                  {stat.icon != null && (() => {
+                    const Icon = resolveIcon(stat.icon);
+                    return (
+                      <span
+                        className={[
+                          "inline-flex items-center justify-center h-8 w-8 rounded-full text-sm",
+                          "shadow-sm",
+                          ICON_BG[trend],
+                        ].join(" ")}
+                      >
+                        {Icon ? <Icon size={16} /> : String(stat.icon)}
+                      </span>
+                    );
+                  })()}
                   <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                     {stat.label}
                   </span>
@@ -156,7 +174,7 @@ function CanvasStatGridInner({
                       BADGE_CLASSES[trend],
                     ].join(" ")}
                   >
-                    {stat.change}
+                    {String(stat.change)}
                   </span>
                 )}
               </div>

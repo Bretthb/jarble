@@ -1549,7 +1549,7 @@ tamboAgentRouter.post("/", async (req, res) => {
               safeSendEvent(res, {
                 type: "TEXT_MESSAGE_CONTENT",
                 messageId,
-                delta: `\n\n*Delegation to ${job.roleName} failed: ${entry.reason}*`,
+                delta: `\n\n*Delegation to ${job.roleName} was unsuccessful. The team member may be busy or temporarily unavailable.*`,
               });
             }
           }

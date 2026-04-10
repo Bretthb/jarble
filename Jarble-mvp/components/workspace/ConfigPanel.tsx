@@ -22,6 +22,11 @@ import {
   TerminalSquare,
   Settings2,
   Save,
+  Key,
+  Eye,
+  EyeOff,
+  Shield,
+  Bot,
 } from "lucide-react";
 
 const TerminalPanel = lazy(() => import("./TerminalPanel"));
@@ -468,6 +473,9 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
           </div>
         )}
 
+        {/* Credentials overview */}
+        {deployment && <CredentialsSection deploymentId={deploymentId} deployment={dep} onUpdate={(updates: any) => updateMutation.mutate(updates)} isSaving={updateMutation.isPending} />}
+
         {/* Feedback display */}
         {feedback && (
           <div
@@ -478,6 +486,153 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
             }`}
           >
             {feedback.message}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Credentials Section ────────────────────────────────────────────────────
+
+const SOURCE_ICONS: Record<string, typeof Key> = { llm: Key, platform: Shield, user: Key, agent: Bot, system: Settings2 };
+const SOURCE_LABELS: Record<string, string> = { llm: "LLM", platform: "Platform", user: "Custom", agent: "Bot-stored", system: "System" };
+
+function CredentialsSection({
+  deploymentId,
+  deployment,
+  onUpdate,
+  isSaving,
+}: {
+  deploymentId: string;
+  deployment: any;
+  onUpdate: (updates: any) => void;
+  isSaving: boolean;
+}) {
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [newApiKey, setNewApiKey] = useState("");
+
+  const envVarQuery = trpc.deployment.getEnvVarMap.useQuery(
+    { id: deploymentId },
+    { staleTime: 30_000, refetchInterval: 60_000 }
+  );
+
+  const vars = envVarQuery.data?.vars ?? [];
+  const hasLlmKey = vars.some((v) => v.source === "llm" && v.key.includes("API_KEY"));
+  const platformVars = vars.filter((v) => v.source === "platform");
+  const customVars = vars.filter((v) => v.source === "user" || v.source === "agent");
+
+  const handleSaveApiKey = () => {
+    if (!newApiKey.trim()) return;
+    onUpdate({ id: deploymentId, llmApiKey: newApiKey.trim() });
+    setNewApiKey("");
+    setShowKeyInput(false);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Credentials</span>
+
+      <div className="rounded-lg border border-border/40 bg-secondary/20 p-3 space-y-2.5">
+        {/* LLM API Key */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Key className="w-3 h-3 text-muted-foreground" />
+              <span className="text-[11px] font-medium text-foreground">LLM API Key</span>
+            </div>
+            {hasLlmKey ? (
+              <span className="text-[10px] text-green-500 font-medium">Configured</span>
+            ) : (
+              <span className="text-[10px] text-amber-500 font-medium">Not set</span>
+            )}
+          </div>
+
+          {!showKeyInput ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowKeyInput(true)}
+              className="w-full h-7 text-[10px] gap-1"
+            >
+              <Key className="w-3 h-3" />
+              {hasLlmKey ? "Update API Key" : "Add API Key"}
+            </Button>
+          ) : (
+            <div className="space-y-1.5">
+              <input
+                type="password"
+                value={newApiKey}
+                onChange={(e) => setNewApiKey(e.target.value)}
+                placeholder="sk-... or key-..."
+                autoFocus
+                className="w-full px-2.5 py-1.5 bg-secondary/50 border border-border rounded-md text-foreground text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <div className="flex gap-1.5">
+                <Button
+                  size="sm"
+                  onClick={handleSaveApiKey}
+                  disabled={isSaving || !newApiKey.trim()}
+                  className="flex-1 h-7 text-[10px] gap-1 bg-primary hover:bg-primary/90 text-primary-foreground"
+                >
+                  {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                  Save
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setShowKeyInput(false); setNewApiKey(""); }}
+                  className="h-7 text-[10px]"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Platform credentials */}
+        {platformVars.length > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <Shield className="w-3 h-3 text-muted-foreground" />
+              <span className="text-[11px] font-medium text-foreground">Platform Tokens</span>
+            </div>
+            {platformVars.map((v) => (
+              <div key={v.key} className="flex items-center justify-between pl-4">
+                <span className="text-[10px] font-mono text-muted-foreground">{v.key}</span>
+                <span className="text-[10px] text-green-500">Active</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Custom/bot-stored secrets */}
+        {customVars.length > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5">
+              <Bot className="w-3 h-3 text-muted-foreground" />
+              <span className="text-[11px] font-medium text-foreground">Bot Environment</span>
+            </div>
+            {customVars.map((v) => (
+              <div key={v.key} className="flex items-center justify-between pl-4">
+                <span className="text-[10px] font-mono text-muted-foreground">{v.key}</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary/80 text-muted-foreground">
+                  {v.source === "agent" ? "bot-stored" : "user"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Empty state */}
+        {vars.length === 0 && !envVarQuery.isLoading && (
+          <p className="text-[10px] text-muted-foreground text-center py-2">No credentials configured yet</p>
+        )}
+
+        {envVarQuery.isLoading && (
+          <div className="flex items-center justify-center py-2">
+            <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
           </div>
         )}
       </div>

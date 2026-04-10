@@ -653,7 +653,16 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             }
           }
         } else if (delegationError) {
-          sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId, delta: `*Delegation to ${targetNode?.role || call.toolName} failed: ${delegationError}*\n\n` });
+          // Sanitize error - don't leak exec commands, env vars, or session IDs to the user
+          const sanitizedError = delegationError
+            ?.replace(/error executing command \[.*?\]/gs, "execution error")
+            ?.replace(/TRACEPARENT=\S+/g, "")
+            ?.replace(/JARBLE_CURRENT_SESSION_ID=\S+/g, "")
+            ?.replace(/--session-id \S+/g, "")
+            ?.replace(/--timeout \d+/g, "")
+            ?.replace(/npx openclaw agent --message.*$/gs, "")
+            ?.trim() || "an internal error occurred";
+          sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId, delta: `*Delegation to ${targetNode?.role || call.toolName} was unsuccessful. The team member may be busy or temporarily unavailable.*\n\n` });
         }
       }
 
