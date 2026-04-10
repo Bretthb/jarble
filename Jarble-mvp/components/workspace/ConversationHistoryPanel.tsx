@@ -34,6 +34,8 @@ function formatRelativeTime(timestamp: number): string {
 function stripControlTags(text: string): string {
   return text
     .replace(/\[(?:CANVAS_STATE|DELEGATION_CONTEXT|FLOW CONTEXT|FLOW SYSTEM INSTRUCTIONS[^\]]*)\][\s\S]*?\[\/(?:CANVAS_STATE|DELEGATION_CONTEXT|FLOW CONTEXT|FLOW SYSTEM INSTRUCTIONS)\]/gi, "")
+    .replace(/```jarble_delegate\s*\n[\s\S]*?```/g, "")
+    .replace(/```json\s*\n\s*\{[^}]*"tool"\s*:\s*"delegate_to_[^}]*\}\s*```/g, "")
     .trim();
 }
 

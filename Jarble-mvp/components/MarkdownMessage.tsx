@@ -3,7 +3,27 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+/**
+ * Replace raw jarble_delegate/json delegation blocks with clean styled cards.
+ * The bot emits these as fenced code blocks but users shouldn't see raw JSON.
+ */
+function transformDelegationBlocks(text: string): string {
+  return text
+    // Replace ```jarble_delegate { "to": "name", "task": "..." } ```
+    .replace(/```jarble_delegate\s*\n\s*\{[^}]*"to"\s*:\s*"([^"]+)"[^}]*"task"\s*:\s*"([^"]*)"[^}]*\}\s*\n?```/g,
+      (_, to, task) => `> **Delegating to ${to}:** ${task.slice(0, 120)}${task.length > 120 ? "..." : ""}\n`)
+    // Replace ```json { "tool": "delegate_to_name", "task": "..." } ```
+    .replace(/```json\s*\n\s*\{[^}]*"tool"\s*:\s*"delegate_to_([^"]+)"[^}]*"task"\s*:\s*"([^"]*)"[^}]*\}\s*\n?```/g,
+      (_, to, task) => `> **Delegating to ${to}:** ${task.slice(0, 120)}${task.length > 120 ? "..." : ""}\n`)
+    // Also handle { "to": "name", ... } without specific fenced tag
+    .replace(/```json\s*\n\s*\{[^}]*"to"\s*:\s*"([^"]+)"[^}]*"task"\s*:\s*"([^"]*)"[^}]*\}\s*\n?```/g,
+      (_, to, task) => `> **Delegating to ${to}:** ${task.slice(0, 120)}${task.length > 120 ? "..." : ""}\n`)
+    // Clean up excessive newlines after replacements
+    .replace(/\n{3,}/g, "\n\n");
+}
+
 export default function MarkdownMessage({ content }: { content: string }) {
+  const transformedContent = transformDelegationBlocks(content);
   return (
     <div className="break-words overflow-hidden" style={{ overflowWrap: "anywhere" }}>
     <ReactMarkdown
@@ -50,7 +70,7 @@ export default function MarkdownMessage({ content }: { content: string }) {
         ),
       }}
     >
-      {content}
+      {transformedContent}
     </ReactMarkdown>
     </div>
   );
