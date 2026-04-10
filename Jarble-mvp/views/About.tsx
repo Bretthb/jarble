@@ -138,7 +138,7 @@ export default function About() {
               Jarble: AI Deployment Made Simple
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              We handle the complexity so you can focus on what matters-using AI to grow your business.
+              We handle the complexity so you can focus on what matters: using AI to grow your business.
             </p>
           </div>
 
@@ -158,7 +158,7 @@ export default function About() {
               </div>
               <h3 className="text-xl font-serif font-medium mb-3">Universal Integration</h3>
               <p className="text-muted-foreground">
-                Deploy to WhatsApp, Discord, Slack, Telegram, and a full-featured web chat — all from a single dashboard. Your agent, everywhere your team already is.
+                Deploy to WhatsApp, Discord, Slack, Telegram, and a full-featured web chat, all from a single dashboard. Your agent, everywhere your team already is.
               </p>
             </div>
             <div className="bg-card/80 backdrop-blur-md border border-border rounded-2xl p-8 shadow-sm hover:border-primary/30 transition-colors animate-fade-in-up-fast">
@@ -167,7 +167,7 @@ export default function About() {
               </div>
               <h3 className="text-xl font-serif font-medium mb-3">Model Agnostic</h3>
               <p className="text-muted-foreground">
-                Use any AI provider-OpenAI, Anthropic, Google, Mistral-or let us handle it.
+                Use any AI provider (OpenAI, Anthropic, Google, Mistral) or let us handle it.
                 Switch models anytime without code changes.
               </p>
             </div>
@@ -182,7 +182,7 @@ export default function About() {
               <Zap className="w-8 h-8 text-primary mb-4" />
               <h3 className="font-semibold text-lg mb-2">MCP tools and skills</h3>
               <p className="text-muted-foreground text-sm leading-relaxed">
-                Agents connect to external tools via MCP — web search, calculators, custom APIs. Install skills from the marketplace or build your own.
+                Agents connect to external tools via MCP: web search, calculators, custom APIs. Install skills from the marketplace or build your own.
               </p>
             </div>
           </div>
@@ -202,7 +202,7 @@ export default function About() {
             {[
               { step: 1, title: "Choose Your Model", desc: "Select from top AI providers or use our managed service" },
               { step: 2, title: "Configure Behavior", desc: "Set personality, knowledge base, and guardrails" },
-              { step: 3, title: "Connect Platforms", desc: "Pick where your agent lives—Discord, Slack, web, and more." },
+              { step: 3, title: "Connect Platforms", desc: "Pick where your agent lives: Discord, Slack, web, and more." },
               { step: 4, title: "Deploy & Scale", desc: "Go live instantly, scale automatically as you grow" },
             ].map((item) => (
               <div key={item.step} className="relative animate-fade-in-up-fast">

@@ -53,7 +53,7 @@ const FAQ = [
   {
     question: "Why is the price so low?",
     answer:
-      "During beta, we charge exactly what the compute costs us — no margin. We want you building and deploying, not worrying about bills. This is the raw Hetzner server cost passed through directly.",
+      "During beta, we charge exactly what the compute costs us, no margin. We want you building and deploying, not worrying about bills. This is the raw Hetzner server cost passed through directly.",
   },
   {
     question: "What does 'per agent' mean?",
@@ -68,12 +68,12 @@ const FAQ = [
   {
     question: "How do I pay for LLM usage?",
     answer:
-      "Bring your own API key from OpenAI, Anthropic, Google, or OpenRouter — you pay your provider directly, and we never mark up AI costs. If you don't want to manage your own key, optional managed credits are available.",
+      "Bring your own API key from OpenAI, Anthropic, Google, or OpenRouter. You pay your provider directly, and we never mark up AI costs. If you don't want to manage your own key, optional managed credits are available.",
   },
   {
     question: "What happens when I stop an agent?",
     answer:
-      "Stopped agents don't incur compute costs. Your data and config persist on storage — restart anytime and pick up where you left off.",
+      "Stopped agents don't incur compute costs. Your data and config persist on storage. Restart anytime and pick up where you left off.",
   },
   {
     question: "What platforms can I connect?",
@@ -115,14 +115,14 @@ export default function Pricing() {
       <section className="pt-32 pb-16 px-4">
         <div className="max-w-4xl mx-auto text-center space-y-4 animate-fade-in-up">
           <span className="inline-flex items-center px-3 py-1 rounded-full bg-primary/10 text-xs font-medium text-primary border border-primary/20">
-            Beta Pricing — Cost Recovery Only
+            Beta Pricing: Cost Recovery Only
           </span>
           <h1 className="text-5xl lg:text-6xl font-serif font-medium tracking-tight">
             Pay for compute.
             <span className="block text-primary">Nothing else.</span>
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            During beta, you pay exactly what the server costs us — no markup, no
+            During beta, you pay exactly what the server costs us: no markup, no
             seat fees, no AI charges. Organizations and team members are always
             free.
           </p>
@@ -145,7 +145,7 @@ export default function Pricing() {
                 <span className="text-muted-foreground text-lg">/mo per agent</span>
               </div>
               <p className="text-sm text-muted-foreground">
-                Raw compute cost — $0 Jarble margin
+                Raw compute cost. $0 Jarble margin.
               </p>
             </div>
 
@@ -212,7 +212,7 @@ export default function Pricing() {
               AI Model Access
             </h2>
             <p className="text-muted-foreground">
-              Compute and AI are billed separately — you control both
+              Compute and AI are billed separately. You control both.
             </p>
           </div>
 
@@ -241,7 +241,7 @@ export default function Pricing() {
               <div className="mb-4">
                 <span className="text-2xl font-bold">Free</span>
                 <span className="text-sm text-muted-foreground ml-2">
-                  — you pay your provider directly
+                  . You pay your provider directly.
                 </span>
               </div>
 
@@ -249,7 +249,7 @@ export default function Pricing() {
                 {[
                   "Access to all models (GPT-4, Claude, Llama, Gemini)",
                   "Full control over model selection and costs",
-                  "No markup on API costs — ever",
+                  "No markup on API costs. Ever.",
                 ].map((item) => (
                   <li key={item} className="flex gap-2 text-sm">
                     <Check className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
@@ -273,7 +273,7 @@ export default function Pricing() {
                     </span>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    We handle the LLM key — just deploy and go
+                    We handle the LLM key. Just deploy and go.
                   </p>
                 </div>
               </div>
@@ -287,7 +287,7 @@ export default function Pricing() {
 
               <ul className="space-y-2">
                 {[
-                  "No API key needed — we provision one for you",
+                  "No API key needed. We provision one for you.",
                   "Set a monthly spending cap ($5 – $100)",
                   "Same models, managed by Jarble via OpenRouter",
                 ].map((item) => (
@@ -315,8 +315,8 @@ export default function Pricing() {
               Need dedicated infrastructure?
             </h2>
             <p className="text-lg text-muted-foreground mb-8 max-w-xl mx-auto">
-              Custom compute, dedicated CPU, SSO, audit logs, or SLAs
-              — let&apos;s talk.
+              Custom compute, dedicated CPU, SSO, audit logs, or SLAs.
+              Let&apos;s talk.
             </p>
             <Button
               size="lg"

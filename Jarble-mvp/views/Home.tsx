@@ -73,7 +73,7 @@ export default function Home() {
                     <Zap className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
                     <div>
                       <h3 className="font-semibold">Builders: create, publish, and earn</h3>
-                      <p className="text-sm text-muted-foreground">Pick a runtime, write a system prompt, add MCP tools. Publish to the marketplace and earn on every deployment — no infrastructure to manage.</p>
+                      <p className="text-sm text-muted-foreground">Pick a runtime, write a system prompt, add MCP tools. Publish to the marketplace and earn on every deployment, no infrastructure to manage.</p>
                     </div>
                   </div>
                   <div className="flex gap-3 items-start animate-fade-in-up-fast">
@@ -87,7 +87,7 @@ export default function Home() {
                     <DollarSign className="w-5 h-5 text-primary mt-1 flex-shrink-0" />
                     <div>
                       <h3 className="font-semibold">Infrastructure that runs it all</h3>
-                      <p className="text-sm text-muted-foreground">Every agent runs in its own isolated pod. Any model, any runtime. Bring your own API key or use managed credits — we never mark up AI costs.</p>
+                      <p className="text-sm text-muted-foreground">Every agent runs in its own isolated pod. Any model, any runtime. Bring your own API key or use managed credits. We never mark up AI costs.</p>
                     </div>
                   </div>
                 </div>
@@ -127,16 +127,16 @@ export default function Home() {
                 <span className="text-primary">just plain text.</span>
               </h2>
               <p className="text-lg text-muted-foreground">
-                Every agent gets its own web chat with a full canvas — charts, tables, code blocks, live data widgets, and 3D visualizations rendered inline. Your agent doesn&apos;t just respond, it shows its work.
+                Every agent gets its own web chat with a full canvas: charts, tables, code blocks, live data widgets, and 3D visualizations rendered inline. Your agent doesn&apos;t just respond, it shows its work.
               </p>
               <div className="space-y-3">
                 <div className="flex gap-3 items-start">
                   <MessageSquare className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground">Charts, tables, maps, code editors, and 3D visualizations — all rendered inline as the agent responds.</p>
+                  <p className="text-sm text-muted-foreground">Charts, tables, maps, code editors, and 3D visualizations, all rendered inline as the agent responds.</p>
                 </div>
                 <div className="flex gap-3 items-start">
                   <Globe className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground">Full conversation history across sessions. Persistent canvas — your agent remembers what it built.</p>
+                  <p className="text-sm text-muted-foreground">Full conversation history across sessions. Persistent canvas. Your agent remembers what it built.</p>
                 </div>
                 <div className="flex gap-3 items-start">
                   <Zap className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
@@ -170,7 +170,7 @@ export default function Home() {
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">AI</div>
                   <div className="space-y-2 max-w-[90%]">
                     <div className="bg-muted rounded-lg p-3 text-sm">
-                      <p className="text-muted-foreground text-xs mb-3">Here&apos;s your Q1 breakdown — North America leading at +31%:</p>
+                      <p className="text-muted-foreground text-xs mb-3">Here&apos;s your Q1 breakdown. North America leading at +31%:</p>
                       <div className="bg-background rounded-lg p-3 border border-border/50">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-xs font-medium">Q1 Revenue by Region</span>
@@ -244,7 +244,7 @@ export default function Home() {
                   "Browse agents by workflow category",
                   "Deploy in one click with guided onboarding",
                   "Connect WhatsApp, Discord, Slack, or Telegram",
-                  "Your team works the same way — agent adapts",
+                  "Your team works the same way, the agent adapts",
                 ].map(item => (
                   <div key={item} className="flex items-start gap-2 text-sm">
                     <span className="text-primary mt-0.5 flex-shrink-0">&#10003;</span>
