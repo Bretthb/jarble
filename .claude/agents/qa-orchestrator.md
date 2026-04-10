@@ -39,9 +39,10 @@ Based on discovery, generate a prioritized list of **test goals**. Each goal is 
 
 **Priority rules**:
 1. **HIGHEST — Changed code**: Files modified in recent commits get tested first. A changed router = API test. A changed page = UI test. A changed component = canvas test.
-2. **HIGH — Regression watchlist**: Bugs that were previously fixed need re-verification.
-3. **MEDIUM — Coverage gaps**: Routes/endpoints in the platform that haven't been tested recently (check coverage.md).
-4. **LOW — Routine**: Standard smoke tests (homepage loads, auth works, API health check).
+2. **HIGHEST — Visual regression**: For every page touched by recent changes, generate a visual regression test goal. The qa-explorer-ui agent MUST take screenshots and check for layout breakage, overlapping elements, broken images, empty sections, and viewport overflow.
+3. **HIGH — Regression watchlist**: Bugs that were previously fixed need re-verification.
+4. **MEDIUM — Coverage gaps**: Routes/endpoints in the platform that haven't been tested recently (check coverage.md).
+5. **LOW — Routine**: Standard smoke tests (homepage loads, auth works, API health check).
 
 **Test goal format** (use this exact structure in subagent prompts):
 ```

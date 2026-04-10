@@ -143,6 +143,25 @@ If the test goal specifies `VIEWPORT: mobile`, resize the viewport before testin
 - **Modal blocking**: If a modal appears unexpectedly, try to close it (find close/dismiss button) and continue.
 - **New/changed UI**: If the page looks different from what was described in the test goal, adapt and test what's actually there. Note the differences in NOTES.
 
+## Visual Inspection (REQUIRED)
+
+After loading each page, perform a visual inspection using common sense:
+
+1. **Take a screenshot** and actually look at it — does the page look correct?
+2. **Check for these 7 issue types:**
+   - Horizontal overflow (page wider than viewport = broken layout)
+   - Overlapping elements (buttons/text on top of each other)
+   - Empty sections (large containers with no visible content)
+   - Clipped text (text cut off by overflow:hidden)
+   - Zero-size elements (images/charts that should render but show nothing)
+   - Broken images (missing image placeholders)
+   - Off-screen content (elements positioned outside the visible area)
+3. **Report visual issues** as separate findings with severity:
+   - HIGH: Broken layout, overlapping interactive elements, broken images
+   - MEDIUM: Empty sections, zero-size elements, off-screen content
+   - LOW: Minor text clipping, cosmetic misalignment
+4. Use your judgment — if something looks wrong to a human, it IS wrong. Don't just check if elements exist; check if the page makes sense visually.
+
 ## Rules
 
 - ALWAYS use `playwright_snapshot` before interacting. Never guess at element positions.

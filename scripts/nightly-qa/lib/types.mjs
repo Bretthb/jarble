@@ -74,4 +74,5 @@ export const PersonaRegistry = [
   { id: "23-config-editor",      name: "Config Editor",       icon: "edit",         description: "Edits deployment config, changes system prompt, inspects all tabs" },
   { id: "24-canvas-interactor",  name: "Canvas Interactor",   icon: "move",         description: "Generates canvas cards, context menus, zoom, drag, close" },
   { id: "25-chaos-monkey",       name: "Chaos Monkey",        icon: "alert-triangle", description: "Randomized adversarial testing — XSS, malformed data, unauthorized access" },
+  { id: "26-visual-regression", name: "Visual Regression",   icon: "eye",            description: "Automated visual health checks — layout, images, overlap, clipping" },
 ];

@@ -93,6 +93,7 @@ const ALL_PERSONAS = [
   { num: 23, file: "./personas/23-config-editor.mjs" },
   { num: 24, file: "./personas/24-canvas-interactor.mjs" },
   { num: 25, file: "./personas/25-chaos-monkey.mjs" },
+  { num: 26, file: "./personas/26-visual-regression.mjs" },
 ];
 
 const PERSONAS = selectedPersonas

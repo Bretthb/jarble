@@ -6,6 +6,7 @@
 import { BrowserSession } from "../lib/browser.mjs";
 import { testStep, TestStatus, Thresholds } from "../lib/types.mjs";
 import { injectAuth } from "../lib/auth.mjs";
+import { runVisualHealthCheck } from "../lib/visualChecks.mjs";
 
 export default async function runNewDeveloper({ baseUrl, config = {} }) {
   const session = new BrowserSession("01-new-developer");
@@ -35,6 +36,10 @@ export default async function runNewDeveloper({ baseUrl, config = {} }) {
     );
     await session.page.waitForTimeout(3000);
     await session.screenshot("homepage");
+
+    // Visual health check: Homepage
+    const { step: homepageVisual } = await runVisualHealthCheck(session, "Homepage");
+    steps.push(homepageVisual);
 
     // Step 2: Check hero heading
     const heroText = await session.safeTextContent("h2");
@@ -71,6 +76,10 @@ export default async function runNewDeveloper({ baseUrl, config = {} }) {
     await session.page.waitForTimeout(2000);
     await session.screenshot("pricing-page");
 
+    // Visual health check: Pricing
+    const { step: pricingVisual } = await runVisualHealthCheck(session, "Pricing");
+    steps.push(pricingVisual);
+
     // Step 7: Verify pricing tiers render
     const pricingText = await session.safeTextContent("body");
     const hasTiers = pricingText && (
@@ -89,6 +98,10 @@ export default async function runNewDeveloper({ baseUrl, config = {} }) {
       testStep("About page loads", aboutLoadTime < Thresholds.PAGE_LOAD ? TestStatus.PASS : TestStatus.WARN, { loadTime: `${aboutLoadTime}ms` })
     );
     await session.screenshot("about-page");
+
+    // Visual health check: About
+    const { step: aboutVisual } = await runVisualHealthCheck(session, "About");
+    steps.push(aboutVisual);
 
     // Step 9: Verify about content
     const aboutText = await session.safeTextContent("body");
@@ -123,6 +136,10 @@ export default async function runNewDeveloper({ baseUrl, config = {} }) {
     );
     await session.page.waitForTimeout(2000);
     await session.screenshot("dashboard");
+
+    // Visual health check: Dashboard
+    const { step: dashboardVisual } = await runVisualHealthCheck(session, "Dashboard");
+    steps.push(dashboardVisual);
 
     // Step 12: Check dashboard content or auth redirect
     const dashUrl = session.page.url();
@@ -175,6 +192,10 @@ export default async function runNewDeveloper({ baseUrl, config = {} }) {
       testStep("Settings page loads", settingsLoadTime < Thresholds.NAVIGATION ? TestStatus.PASS : TestStatus.WARN, { loadTime: `${settingsLoadTime}ms` })
     );
     await session.screenshot("settings-page");
+
+    // Visual health check: Settings
+    const { step: settingsVisual } = await runVisualHealthCheck(session, "Settings");
+    steps.push(settingsVisual);
 
     // Step 19: Verify settings page has user info
     const settingsText = await session.safeTextContent("body");

@@ -9,6 +9,7 @@ import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { checkVisualHealth as _checkVisualHealth } from "./visualChecks.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPORT_DIR = resolve(__dirname, "..", "reports");
@@ -220,6 +221,16 @@ export class BrowserSession {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Run visual health checks on the current page.
+   * Detects viewport overflow, overlapping elements, empty sections,
+   * text clipping, zero-size elements, broken images, and off-screen content.
+   * @returns {Promise<{ type: string, severity: string, detail: string }[]>}
+   */
+  async checkVisualHealth() {
+    return _checkVisualHealth(this.page);
   }
 
   /**
