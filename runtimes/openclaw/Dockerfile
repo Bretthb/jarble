@@ -36,6 +36,26 @@ RUN npm init -y && \
     npx openclaw plugins enable whatsapp && \
     chown -R node:node /opt/openclaw
 
+# ── Install OTel bridge dependencies (JAR-51 Phase 2) ────────────────
+# Minimal set: SDK + OTLP exporter + auto-instrumentations (HTTP/fetch).
+# Enables cross-pod trace stitching — the bridge reads TRACEPARENT from
+# the env and attaches LLM call spans under the API caller's trace.
+# ~12MB installed footprint. Kept in /opt/openclaw/node_modules alongside
+# the OpenClaw runtime so NODE_OPTIONS=--require can find them.
+RUN npm install --no-save \
+    @opentelemetry/api@^1.9.1 \
+    @opentelemetry/sdk-node@^0.214.0 \
+    @opentelemetry/exporter-trace-otlp-http@^0.214.0 \
+    @opentelemetry/resources@^2.6.1 \
+    @opentelemetry/sdk-trace-node@^2.6.1 \
+    @opentelemetry/semantic-conventions@^1.40.0 \
+    @opentelemetry/auto-instrumentations-node@^0.72.0
+
+# ── Copy OTel bridge preload script ─────────────────────────────────
+# MUST live under /opt/openclaw/ so Node.js require() resolves the
+# @opentelemetry/* packages from /opt/openclaw/node_modules/.
+COPY otel-bridge.cjs /opt/openclaw/otel-bridge.cjs
+
 # ── Copy Jarble UI MCP server ────────────────────────────────────────
 # Zero-dependency Node.js script that exposes render_ui, define_component,
 # list_components, component_reference tools via stdio MCP protocol.
@@ -63,6 +83,13 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/file-watcher.sh
 ENV NODE_ENV=production
 ENV HOME=/data
 ENV OPENCLAW_HOME=/data/.openclaw
+# JAR-51 Phase 2: preload the OTel bridge for ALL Node.js processes in
+# the container — both the long-lived gateway (started by entrypoint.sh)
+# and one-shot `openclaw agent` processes (started via kubectl exec from
+# chatViaExec). This MUST be a Dockerfile ENV, not an entrypoint export,
+# because kubectl exec processes don't inherit entrypoint-set env vars.
+# The bridge is a no-op when LANGFUSE/OTEL keys are absent — zero overhead.
+ENV NODE_OPTIONS="--require /opt/openclaw/otel-bridge.cjs"
 WORKDIR /opt/openclaw
 
 # ── Run as non-root user ─────────────────────────────────────────────
