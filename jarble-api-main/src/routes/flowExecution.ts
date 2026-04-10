@@ -241,13 +241,17 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
 
     const executionId = `fex_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 
+    // Accept an optional initial prompt/task that gets injected into the entry node
+    const initialPrompt = typeof body.prompt === "string" ? body.prompt.slice(0, 10_000) : undefined;
+
     // Create the engine
     const engine = new FlowExecutionEngine(
       flowId,
       executionId,
       definition,
       user.id,
-      callerDeploymentId
+      callerDeploymentId,
+      initialPrompt
     );
 
     // Persist execution row to DB so checkpointState/persistState UPDATEs work.

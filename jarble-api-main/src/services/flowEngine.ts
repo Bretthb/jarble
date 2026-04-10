@@ -175,19 +175,30 @@ export class FlowExecutionEngine extends EventEmitter {
   /** Maximum allowed nesting depth for subflows */
   static MAX_NESTING_DEPTH = 3;
 
+  /** Optional initial prompt injected into entry node args as `task` */
+  private initialPrompt?: string;
+
   constructor(
     flowId: string,
     executionId: string,
     private definition: FlowDefinition,
     private userId: string,
     private callerDeploymentId?: string,
-    nestingDepth: number = 0
+    initialPromptOrNestingDepth?: string | number,
+    nestingDepth?: number
   ) {
     super();
     this.setMaxListeners(50);
 
+    // Handle overloaded constructor: (string prompt, number depth) or (number depth)
+    if (typeof initialPromptOrNestingDepth === "string") {
+      this.initialPrompt = initialPromptOrNestingDepth;
+      this.nestingDepth = nestingDepth ?? 0;
+    } else {
+      this.nestingDepth = initialPromptOrNestingDepth ?? nestingDepth ?? 0;
+    }
+
     this.abortController = new AbortController();
-    this.nestingDepth = nestingDepth;
 
     this.state = {
       flowId,
@@ -751,22 +762,32 @@ export class FlowExecutionEngine extends EventEmitter {
       this.state.stepResults
     );
 
+    // Inject initial prompt into entry node if provided and no task/message already set
+    if (this.initialPrompt && !resolvedArgs.task && !resolvedArgs.message) {
+      const incoming = this.incomingEdges.get(node.id) ?? [];
+      if (incoming.length === 0) {
+        // This is an entry node — inject the user's prompt
+        resolvedArgs.task = this.initialPrompt;
+      }
+    }
+
     // ── Team delegation path ────────────────────────────────────────────
-    // If the node has a deploymentId AND a role, it's a team node — use the
-    // delegation system which gives it full team awareness (role, goal,
-    // delegation tools for connected bots, system prompt augmentation).
-    if (node.deploymentId && node.role) {
+    // Any node with a deploymentId uses the delegation system, which gives
+    // it full team awareness (role, goal, delegation tools for connected
+    // bots, system prompt augmentation). Role is optional — nodes without
+    // a role still benefit from delegation context and timeout handling.
+    if (node.deploymentId) {
       return this.executeDeploymentViaDelegation(node, resolvedArgs);
     }
 
     // ── Legacy marketplace-hub path ─────────────────────────────────────
-    // Nodes without a role use the existing executeAgentCall via serviceId.
+    // Nodes without a deploymentId use the existing executeAgentCall via serviceId.
     const serviceId = node.serviceId;
     const skillName = node.skillName || "default";
 
     if (!serviceId) {
       throw new Error(
-        `Deployment node "${node.id}" has no serviceId and no deploymentId+role for delegation`
+        `Deployment node "${node.id}" has no serviceId and no deploymentId for delegation`
       );
     }
 

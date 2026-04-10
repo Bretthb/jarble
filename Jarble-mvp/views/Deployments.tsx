@@ -1593,6 +1593,8 @@ function FlowToolbar({
   onFlowNameChange,
   onRun,
   onCancel,
+  runPrompt,
+  onRunPromptChange,
   onSave,
   onAutoLayout,
   onNewFlow,
@@ -1610,6 +1612,8 @@ function FlowToolbar({
   onFlowNameChange: (name: string) => void;
   onRun: () => void;
   onCancel: () => void;
+  runPrompt: string;
+  onRunPromptChange: (v: string) => void;
   onSave: () => void;
   onAutoLayout: () => void;
   onNewFlow: () => void;
@@ -1821,10 +1825,19 @@ function FlowToolbar({
                 Stop
               </Button>
             ) : (
-              <Button size="sm" onClick={onRun} className="h-9 px-5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-900/20">
-                <Play className="w-4 h-4 mr-1.5" />
-                Run
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={runPrompt}
+                  onChange={(e) => onRunPromptChange(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && runPrompt.trim()) onRun(); }}
+                  placeholder="Enter a task..."
+                  className="h-9 w-48 px-2.5 text-xs bg-secondary/50 border border-border rounded-md text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+                <Button size="sm" onClick={onRun} className="h-9 px-5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-900/20">
+                  <Play className="w-4 h-4 mr-1.5" />
+                  Run
+                </Button>
+              </div>
             )}
 
             <div className="w-px h-6 bg-border mx-1" />
@@ -2711,13 +2724,15 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   }, [activeFlow, handleUpdateFlow]);
 
   // ── Run flow (auto-save first if unsaved) ────────────────────────
+  const [runPrompt, setRunPrompt] = useState("");
   const handleRun = useCallback(async () => {
     if (!activeFlowId) return;
     if (!isSaved) {
       handleSave();
     }
-    startExecution(activeFlowId);
-  }, [activeFlowId, isSaved, handleSave, startExecution]);
+    startExecution(activeFlowId, runPrompt.trim() || undefined);
+    setRunPrompt("");
+  }, [activeFlowId, isSaved, handleSave, startExecution, runPrompt]);
 
   // ── Cancel ────────────────────────────────────────────────────────
   const handleCancel = useCallback(() => {
@@ -3613,6 +3628,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         onFlowNameChange={handleFlowNameChange}
         onRun={handleRun}
         onCancel={handleCancel}
+        runPrompt={runPrompt}
+        onRunPromptChange={setRunPrompt}
         onSave={handleSave}
         onAutoLayout={handleAutoLayout}
         onNewFlow={handleNewFlow}

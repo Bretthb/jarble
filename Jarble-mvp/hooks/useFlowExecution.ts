@@ -38,7 +38,7 @@ export interface FlowExecutionState {
 
 interface UseFlowExecutionReturn {
   state: FlowExecutionState;
-  startExecution: (flowId: string) => Promise<void>;
+  startExecution: (flowId: string, prompt?: string) => Promise<void>;
   resumeExecution: (nodeId: string, input: unknown) => Promise<void>;
   cancel: () => void;
   reconnect: (executionId: string) => void;
@@ -338,7 +338,7 @@ export function useFlowExecution(): UseFlowExecutionReturn {
   // ─── Start execution (POST to create, then stream) ─────────────
 
   const startExecution = useCallback(
-    async (flowId: string) => {
+    async (flowId: string, prompt?: string) => {
       if (!isAuthenticated) return;
 
       // Clean up any existing stream
@@ -367,6 +367,7 @@ export function useFlowExecution(): UseFlowExecutionReturn {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
             },
+            body: JSON.stringify(prompt ? { prompt } : {}),
           }
         );
 
