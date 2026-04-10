@@ -1235,52 +1235,38 @@ podApiRouter.post("/platform/register-agent", async (req: Request, res: Response
 
     const now = dbDate();
 
-    // Upsert: update if slug already exists for this deployment, otherwise insert
-    const existing = await db.query.deploymentSubagents.findFirst({
-      where: and(
-        eq(tables.deploymentSubagents.deploymentId, deploymentId),
-        eq(tables.deploymentSubagents.slug, slug),
-      ),
-    });
-
-    let agentId: string;
-
-    if (existing) {
-      agentId = existing.id;
-      await db.update(tables.deploymentSubagents)
-        .set({
-          name,
-          description: description || existing.description,
-          systemPrompt: systemPrompt || existing.systemPrompt,
-          model: model || existing.model,
-          source: "delegation",
-          updatedAt: now,
-        })
-        .where(eq(tables.deploymentSubagents.id, agentId));
-
-      logger.info({ deploymentId, agentId, slug }, "Pod API: subagent updated");
-    } else {
-      agentId = `sa_${nanoid(12)}`;
-      await db.insert(tables.deploymentSubagents).values({
-        id: agentId,
-        deploymentId,
+    // Atomic upsert using ON CONFLICT to avoid TOCTOU race
+    const agentId = `sa_${nanoid(12)}`;
+    const result = await db.insert(tables.deploymentSubagents).values({
+      id: agentId,
+      deploymentId,
+      name,
+      slug,
+      description: description || null,
+      systemPrompt: systemPrompt || "",
+      model: model || null,
+      triggerType: "manual",
+      source: "delegation",
+      enabled: true,
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: [tables.deploymentSubagents.deploymentId, tables.deploymentSubagents.slug],
+      set: {
         name,
-        slug,
-        description: description || null,
-        systemPrompt: systemPrompt || "",
-        model: model || null,
-        triggerType: "manual",
+        description: description || undefined,
+        systemPrompt: systemPrompt || undefined,
+        model: model || undefined,
         source: "delegation",
-        enabled: true,
-        sortOrder: 0,
-        createdAt: now,
         updatedAt: now,
-      });
+      },
+    }).returning({ id: tables.deploymentSubagents.id });
 
-      logger.info({ deploymentId, agentId, slug }, "Pod API: subagent registered");
-    }
+    const resolvedId = result[0]?.id ?? agentId;
+    logger.info({ deploymentId, agentId: resolvedId, slug }, "Pod API: subagent upserted");
 
-    res.json({ success: true, agentId });
+    res.json({ success: true, agentId: resolvedId });
   } catch (err) {
     logger.error({ err, deploymentId }, "Pod API: register-agent failed");
     res.status(500).json({ error: "Failed to register agent", details: String(err) });
@@ -1398,6 +1384,17 @@ podApiRouter.post("/platform/log-action", async (req: Request, res: Response) =>
       res.status(400).json({ error: "Missing or invalid 'action'" });
       return;
     }
+    const trimmedAction = action.trim().slice(0, 100); // VARCHAR(100) column
+    if (!trimmedAction) {
+      res.status(400).json({ error: "'action' must not be empty" });
+      return;
+    }
+    // Cap details size to prevent bloating the traces table
+    let detailsStr: string | null = null;
+    if (details) {
+      detailsStr = typeof details === "string" ? details : JSON.stringify(details);
+      if (detailsStr.length > 10_000) detailsStr = detailsStr.slice(0, 10_000) + "... [truncated]";
+    }
 
     const now = Date.now();
     const id = `acl_${nanoid(12)}`;
@@ -1406,10 +1403,10 @@ podApiRouter.post("/platform/log-action", async (req: Request, res: Response) =>
       id,
       callerDeploymentId: deploymentId,
       calleeDeploymentId: deploymentId,  // self-action
-      skillName: action,
+      skillName: trimmedAction,
       kind: "bot_action",
       status: status || "completed",
-      requestBody: details ? (typeof details === "string" ? details : JSON.stringify(details)) : null,
+      requestBody: detailsStr,
       creditsCharged: 0,
       startMs: now,
       endMs: now,

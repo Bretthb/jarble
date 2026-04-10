@@ -1279,7 +1279,7 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", description: "Short action name (e.g. 'Fetched stock data', 'Sent email', 'Processed CSV')" },
+        action: { type: "string", maxLength: 100, description: "Short action name, max 100 chars (e.g. 'Fetched stock data', 'Sent email', 'Processed CSV')" },
         details: { type: "string", description: "Additional details or context (optional)" },
         status: { type: "string", enum: ["completed", "failed"], description: "Action outcome. Default: 'completed'" },
       },
@@ -6213,8 +6213,8 @@ async function executePlatformRegisterAgent(args) {
 
   if (!name) return { isError: true, text: "Missing required 'name' parameter" };
   if (!slug) return { isError: true, text: "Missing required 'slug' parameter" };
-  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(slug)) {
-    return { isError: true, text: "Invalid slug format. Must be lowercase alphanumeric with hyphens (e.g. 'lead-scorer')" };
+  if (!/^[a-z][a-z0-9-]{0,63}$/.test(slug)) {
+    return { isError: true, text: "Invalid slug format. Must start with a letter, lowercase alphanumeric with hyphens, max 64 chars (e.g. 'lead-scorer')" };
   }
   if (!description) return { isError: true, text: "Missing required 'description' parameter" };
 
