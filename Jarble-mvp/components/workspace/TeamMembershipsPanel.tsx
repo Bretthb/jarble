@@ -22,9 +22,10 @@
 
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
-import { X, Users, Crown, ExternalLink, Loader2 } from "lucide-react";
+import { X, Users, Crown, ExternalLink, Loader2, Check, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface TeamMembershipsPanelProps {
   deploymentId: string;
@@ -38,11 +39,18 @@ export default function TeamMembershipsPanel({
   const router = useRouter();
   const query = trpc.flows.listForDeployment.useQuery(
     { deploymentId },
-    {
-      // Memberships rarely change — 30s stale is plenty.
-      staleTime: 30_000,
-    },
+    { staleTime: 30_000 },
   );
+  const deploymentQuery = trpc.deployment.getById.useQuery({ id: deploymentId });
+  const activeFlowId = (deploymentQuery.data as any)?.activeFlowId ?? null;
+
+  const setActiveFlowMutation = trpc.deployment.setActiveFlow.useMutation({
+    onSuccess: (data) => {
+      deploymentQuery.refetch();
+      toast.success(data.activeFlowId ? "Team activated for delegation" : "Team deactivated");
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const memberships = query.data ?? [];
   const isLoading = query.isLoading;
@@ -146,19 +154,45 @@ export default function TeamMembershipsPanel({
                         {m.isEntry && " • entry point"}
                       </p>
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-xs shrink-0"
-                      onClick={() =>
-                        router.push(`/deployments?tab=botteams&flow=${m.flowId}`)
-                      }
-                      aria-label={`Open ${m.flowName} in Bot Teams`}
-                    >
-                      Open
-                      <ExternalLink className="w-3 h-3 ml-1" />
-                    </Button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {activeFlowId === m.flowId ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs border-emerald-500/40 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
+                          onClick={() => setActiveFlowMutation.mutate({ id: deploymentId, flowId: null })}
+                          disabled={setActiveFlowMutation.isPending}
+                        >
+                          <Check className="w-3 h-3 mr-1" />
+                          Active
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setActiveFlowMutation.mutate({ id: deploymentId, flowId: m.flowId })}
+                          disabled={setActiveFlowMutation.isPending}
+                        >
+                          <Zap className="w-3 h-3 mr-1" />
+                          Activate
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs"
+                        onClick={() =>
+                          router.push(`/deployments?tab=botteams&flow=${m.flowId}`)
+                        }
+                        aria-label={`Open ${m.flowName} in Bot Teams`}
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
 

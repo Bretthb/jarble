@@ -1108,8 +1108,11 @@ tamboAgentRouter.post("/", async (req, res) => {
         .limit(10);
 
       if (memberships.length > 0) {
-        // Use the first flow (a deployment might be in multiple teams, pick the primary one)
-        const membership = memberships[0];
+        // Use the active flow if set, otherwise fall back to the first membership
+        const activeFlowId = (deployment as any).activeFlowId;
+        const membership = (activeFlowId
+          ? memberships.find((m: any) => m.flowId === activeFlowId)
+          : null) || memberships[0];
 
         const flowRows = await db
           .select({

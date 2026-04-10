@@ -2008,6 +2008,35 @@ export const deploymentRouter = router({
     }),
 
   // Set deployment theme
+  setActiveFlow: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      flowId: z.string().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
+      });
+      if (!deployment) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+
+      // Verify the flow exists and this deployment is a member (if setting, not clearing)
+      if (input.flowId) {
+        const fdm = (tables as any).flowDeploymentMemberships;
+        if (fdm) {
+          const membership = await ctx.db.query.flowDeploymentMemberships.findFirst({
+            where: and(eq(fdm.deploymentId, input.id), eq(fdm.flowId, input.flowId)),
+          });
+          if (!membership) throw new TRPCError({ code: "BAD_REQUEST", message: "Deployment is not a member of this flow" });
+        }
+      }
+
+      await ctx.db.update(deployments)
+        .set({ activeFlowId: input.flowId } as any)
+        .where(eq(deployments.id, input.id));
+
+      return { success: true, activeFlowId: input.flowId };
+    }),
+
   setTheme: protectedProcedure
     .input(z.object({
       id: z.string(),

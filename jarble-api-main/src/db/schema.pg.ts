@@ -90,6 +90,8 @@ export const deployments = pgTable("deployments", {
   memoryScope: varchar("memory_scope", { length: 20 }).notNull().default("global"),
   /** Per-deployment delegation budget cap in cents. null = unlimited (falls back to global circuit breaker). */
   maxBudgetCents: integer("max_budget_cents"),
+  /** Which flow/team is active for delegation when chatting. null = auto-detect (first membership). */
+  activeFlowId: varchar("active_flow_id", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
