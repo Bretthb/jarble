@@ -14,6 +14,7 @@ import {
   FlowExecutionEngine,
   type FlowDefinition,
   type FlowExecutionState,
+  normalizeFlowDefinition,
 } from "../services/flowEngine.js";
 import { db, tables } from "../db/index.js";
 import { eq, and, inArray } from "drizzle-orm";
@@ -156,6 +157,11 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
       res.status(400).json({ error: "Missing flow definition in request body" });
       return;
     }
+
+    // Normalize orchestration fields (role/goal/canDelegate/contextScope) so
+    // nodes saved by the UI (fields under `config`) and by the API (fields at
+    // top level) both read identically in the engine and delegation layer.
+    definition = normalizeFlowDefinition(definition as any) as FlowDefinition;
 
     if (
       !Array.isArray(definition.nodes) ||

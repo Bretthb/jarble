@@ -43,6 +43,7 @@ import {
 } from "../services/flowDelegation.js";
 import { getDeploymentCapabilitiesBatch } from "../services/deploymentCapabilities.js";
 import type { FlowDefinition, FlowNode, FlowEdge } from "../services/flowEngine.js";
+import { normalizeFlowDefinition } from "../services/flowEngine.js";
 import {
   CUSTOM,
   RUN_STARTED,
@@ -251,6 +252,9 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         typeof dbFlow[0].definition === "string"
           ? JSON.parse(dbFlow[0].definition)
           : (dbFlow[0].definition as FlowDefinition);
+      // Normalize so nodes saved by the UI (fields under `config`) and by the
+      // API (fields at top level) both read identically downstream.
+      definition = normalizeFlowDefinition(definition);
     } catch {
       res.status(500).json({ error: "Stored flow definition is invalid" });
       return;

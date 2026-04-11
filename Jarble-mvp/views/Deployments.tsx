@@ -221,7 +221,10 @@ function parseApiFlow(row: ApiFlow): FlowDefinition {
     const def = JSON.parse(row.definition);
     nodes = Array.isArray(def.nodes)
       ? def.nodes.map((n: any) => {
-          // Restore orchestration fields from config
+          // Restore orchestration fields: prefer top-level (API-saved flows),
+          // fall back to config.* (UI-saved flows) so both storage formats
+          // hydrate into the same canvas state. See the normalizeFlowNode
+          // helper on the server for the matching read logic.
           const config = n.config || {};
           return {
             ...n,
@@ -230,11 +233,11 @@ function parseApiFlow(row: ApiFlow): FlowDefinition {
               ...(n.data || {}),
               id: n.deploymentId || n.data?.id || n.id,
               name: n.label || n.data?.name || n.id,
-              role: config.role || n.data?.role || "",
-              goal: config.goal || n.data?.goal || "",
-              canDelegate: config.canDelegate ?? n.data?.canDelegate ?? true,
-              contextScope: config.contextScope || n.data?.contextScope || "task",
-              isEntryPoint: config.isEntryPoint || n.data?.isEntryPoint || false,
+              role: n.role ?? config.role ?? n.data?.role ?? "",
+              goal: n.goal ?? config.goal ?? n.data?.goal ?? "",
+              canDelegate: n.canDelegate ?? config.canDelegate ?? n.data?.canDelegate ?? true,
+              contextScope: n.contextScope ?? config.contextScope ?? n.data?.contextScope ?? "task",
+              isEntryPoint: n.isEntryPoint ?? config.isEntryPoint ?? n.data?.isEntryPoint ?? false,
             },
           };
         })

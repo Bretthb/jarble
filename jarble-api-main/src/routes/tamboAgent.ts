@@ -94,6 +94,7 @@ import {
   type DelegationTool,
 } from "../services/flowDelegation.js";
 import type { FlowDefinition, FlowNode, FlowEdge } from "../services/flowEngine.js";
+import { normalizeFlowDefinition } from "../services/flowEngine.js";
 
 export const tamboAgentRouter = Router();
 
@@ -1125,10 +1126,13 @@ tamboAgentRouter.post("/", async (req, res) => {
           .limit(1);
 
         if (flowRows.length > 0) {
-          const def: FlowDefinition =
+          const rawDef: FlowDefinition =
             typeof flowRows[0].definition === "string"
               ? JSON.parse(flowRows[0].definition)
               : (flowRows[0].definition as FlowDefinition);
+          // Normalize so orchestration fields (role/goal/canDelegate/contextScope)
+          // stored under `config` by the UI are readable at the top level.
+          const def = normalizeFlowDefinition(rawDef as any) as FlowDefinition;
 
           if (def.nodes && def.edges) {
             const thisNode = def.nodes.find((n) => n.id === membership.nodeId);

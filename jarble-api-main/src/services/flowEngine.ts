@@ -67,6 +67,52 @@ export interface FlowDefinition {
   edges: FlowEdge[];
 }
 
+/**
+ * Normalize a flow node so that orchestration fields (role, goal, canDelegate,
+ * contextScope, isEntryPoint) are always readable at the top level.
+ *
+ * Historically the frontend canvas saves these fields into `node.config.*`
+ * while the Zod schema and server code read them from the top level. This
+ * helper bridges both formats so a UI-saved flow and an API-created flow
+ * behave identically.
+ *
+ * Top-level values win when set; otherwise values under `config` are promoted.
+ */
+export function normalizeFlowNode<T extends Partial<FlowNode> & { config?: any }>(
+  node: T,
+): T {
+  const cfg = (node?.config ?? {}) as Record<string, unknown>;
+  const pick = <K extends keyof FlowNode>(key: K): FlowNode[K] | undefined => {
+    const top = (node as any)[key];
+    if (top !== undefined) return top;
+    const fromCfg = cfg[key as string];
+    return fromCfg as FlowNode[K] | undefined;
+  };
+  return {
+    ...node,
+    role: pick("role"),
+    goal: pick("goal"),
+    canDelegate: pick("canDelegate"),
+    contextScope: pick("contextScope"),
+    isEntryPoint: pick("isEntryPoint"),
+    modelOverride: pick("modelOverride"),
+  } as T;
+}
+
+/**
+ * Normalize every node in a flow definition. Safe to call on already-normalized
+ * definitions (idempotent).
+ */
+export function normalizeFlowDefinition<T extends { nodes?: any[]; edges?: any[] }>(
+  def: T,
+): T {
+  if (!def || !Array.isArray(def.nodes)) return def;
+  return {
+    ...def,
+    nodes: def.nodes.map((n) => normalizeFlowNode(n)),
+  };
+}
+
 export interface StepResult {
   status: "pending" | "running" | "completed" | "failed" | "skipped";
   result?: unknown;
