@@ -860,6 +860,43 @@ export const openclawHandler: RuntimeHandler = {
     // for now — session-keyed partition lives in a follow-up.
     entries["JARBLE_MEMORY_SCOPE"] = deployment.memoryScope ?? "global";
 
+    // JAR-51 Phase 2 — OTel exporter credentials for the pod-side bridge.
+    //
+    // runtimes/openclaw/otel-bridge.cjs is preloaded via NODE_OPTIONS and
+    // reads these exact env var names to ship spans to Langfuse Cloud (or
+    // any OTLP/HTTP endpoint). If the API process has them configured, the
+    // pods that the API spawns should get them too — otherwise the pod
+    // traces never reach the collector and cross-pod correlation breaks.
+    //
+    // This pipe is fire-and-forget: if none are set on the API, we skip
+    // silently so dev environments without observability keep booting.
+    // Secrets are stored on the pod's Kubernetes Secret object same as
+    // every other credential; they never land on a pod's filesystem.
+    const otelPassthrough: Record<string, string | undefined> = {
+      LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY,
+      LANGFUSE_SECRET_KEY: process.env.LANGFUSE_SECRET_KEY,
+      LANGFUSE_BASE_URL: process.env.LANGFUSE_BASE_URL || process.env.LANGFUSE_HOST,
+      OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+      OTEL_EXPORTER_OTLP_HEADERS: process.env.OTEL_EXPORTER_OTLP_HEADERS,
+      OTEL_EXPORTER: process.env.OTEL_EXPORTER,
+    };
+    for (const [key, value] of Object.entries(otelPassthrough)) {
+      if (value && value.length > 0) {
+        entries[key] = value;
+      }
+    }
+    // Always tag the pod's OTel resource so every span it emits is
+    // attributable back to the originating deployment. This attribute
+    // gets read by otel-bridge.cjs via OTEL_RESOURCE_ATTRIBUTES (standard
+    // OTel convention — the SDK auto-parses comma-separated key=value).
+    if (Object.keys(otelPassthrough).some((k) => !!otelPassthrough[k])) {
+      const resourceAttrs = [
+        `service.name=openclaw-runtime`,
+        `jarble.deployment.id=${deployment.id}`,
+      ];
+      entries["OTEL_RESOURCE_ATTRIBUTES"] = resourceAttrs.join(",");
+    }
+
     // Platform credential env var fallbacks (OpenClaw reads these as backup)
     if (deployment.platformCredentials) {
       for (const [platformId, creds] of Object.entries(deployment.platformCredentials)) {
