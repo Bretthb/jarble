@@ -177,7 +177,13 @@ function resolveOtelContext(
 
 const MAX_BODY_CHARS = 10_000;
 
-export type AgentCallKind = "delegation" | "chat_turn" | "tool" | "flow_step" | "llm";
+export type AgentCallKind =
+  | "delegation"
+  | "chat_turn"
+  | "tool"
+  | "flow_step"
+  | "llm"
+  | "skill";
 export type AgentCallStatus = "pending" | "completed" | "failed" | "refunded";
 
 export interface StartAgentCallInput {
@@ -280,7 +286,9 @@ export async function startAgentCall(
             ? "jarble.flow.step"
             : input.kind === "llm"
               ? "jarble.llm.call"
-              : "jarble.unknown");
+              : input.kind === "skill"
+                ? "jarble.skill.call"
+                : "jarble.unknown");
 
   const requestBodyText =
     input.requestBody === undefined
