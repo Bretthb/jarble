@@ -923,6 +923,26 @@ async function chatViaExecInner(
     throw new Error("Bot returned an empty response");
   }
 
+  // Detect error-shaped replies that OpenClaw surfaces as pseudo-text payloads
+  // when its upstream LLM call fails (bad API key → "401 Missing Authentication
+  // header", provider timeout → "Error: ...", etc.). Without this, the error
+  // string is treated as a valid bot reply, streamed to the user, and
+  // persisted in chat history. The Dev deployment's three persisted
+  // "401 Missing Authentication header" messages from Cycle 1 are the exact
+  // symptom this prevents. See P0-A follow-up + isErrorShapedBotReply docs.
+  const { isErrorShapedBotReply } = await import("../utils/botResponseErrorShape.js");
+  if (isErrorShapedBotReply(rawText)) {
+    log.warn(
+      { podName, errShapePreview: rawText.slice(0, 200) },
+      "chatViaExec: bot response is error-shaped — treating as upstream LLM failure",
+    );
+    // Throw so the caller's catch branch (classifyError + user-friendly
+    // suggestion) runs instead of persisting this as an assistant message.
+    // The thrown error itself is then run through sanitizeDelegationError
+    // at the route layer (Cycles 2 + 8 fixes).
+    throw new Error(`Upstream LLM error: ${rawText.slice(0, 200)}`);
+  }
+
   // Strip inline <think>...</think> tags from the exec response text.
   // OpenClaw's --thinking flag puts reasoning in agentMeta, but some models
   // (especially via OpenRouter) emit <think> tags inline in the text field.
