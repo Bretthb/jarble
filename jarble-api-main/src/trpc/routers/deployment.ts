@@ -1390,12 +1390,26 @@ export const deploymentRouter = router({
           updates.memoryScope
         );
         if (needsRestart) {
-          // Delay restart slightly to let configSync push the new secret first
+          // Delay restart slightly to let configSync push the new secret first.
+          // Re-fetch status from DB before restarting: configSync's tier-2/3
+          // escalation may have already moved the deployment into "reloading" or
+          // "restarting". Calling restartDeployment while it's already restarting
+          // throws "Cannot restart a deployment that is reloading", which surfaces
+          // as an error to the user even though the pod is correctly coming back up.
+          const dbForRestart = ctx.db;
           setTimeout(async () => {
             try {
-              const { restartDeployment } = await import("../../k8s/lifecycle.js");
-              await restartDeployment(id);
-              logger.info({ deploymentId: id }, "Auto-restart after critical config change (API key/provider/model/memory)");
+              const fresh = await dbForRestart.query.deployments.findFirst({
+                where: eq(deployments.id, id),
+                columns: { status: true },
+              });
+              if (fresh?.status === "running") {
+                const { restartDeployment } = await import("../../k8s/lifecycle.js");
+                await restartDeployment(id);
+                logger.info({ deploymentId: id }, "Auto-restart after critical config change (API key/provider/model/memory)");
+              } else {
+                logger.info({ deploymentId: id, status: fresh?.status }, "Skipping auto-restart — configSync already triggered a restart");
+              }
             } catch (err) {
               logger.warn({ err, deploymentId: id }, "Auto-restart failed after config change — user may need to restart manually");
             }

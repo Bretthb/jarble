@@ -491,6 +491,42 @@ describe("openclawHandler.getSecretEntries", () => {
     expect(entries["OPENAI_API_KEY"]).toBeUndefined();
     expect(entries["GOOGLE_API_KEY"]).toBeUndefined();
   });
+
+  describe("JARBLE_API_URL derivation", () => {
+    const originalEnv = process.env.FRONTEND_URL;
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.FRONTEND_URL;
+      } else {
+        process.env.FRONTEND_URL = originalEnv;
+      }
+    });
+
+    it("derives api.jarble.ai from prod FRONTEND_URL (https://jarble.ai)", () => {
+      process.env.FRONTEND_URL = "https://jarble.ai";
+      const entries = openclawHandler.getSecretEntries(makeDeployment({}));
+      expect(entries["JARBLE_API_URL"]).toBe("https://api.jarble.ai");
+    });
+
+    it("derives api.jarble.ai from dev FRONTEND_URL (https://dev.jarble.ai) without double-prefix", () => {
+      process.env.FRONTEND_URL = "https://dev.jarble.ai";
+      const entries = openclawHandler.getSecretEntries(makeDeployment({}));
+      // Regression: old code produced "https://api.api.jarble.ai"
+      expect(entries["JARBLE_API_URL"]).toBe("https://api.jarble.ai");
+    });
+
+    it("leaves non-jarble.ai FRONTEND_URL unchanged (e.g. localhost)", () => {
+      process.env.FRONTEND_URL = "http://localhost:3000";
+      const entries = openclawHandler.getSecretEntries(makeDeployment({}));
+      expect(entries["JARBLE_API_URL"]).toBe("http://localhost:3000");
+    });
+
+    it("falls back to https://api.jarble.ai when FRONTEND_URL is unset", () => {
+      delete process.env.FRONTEND_URL;
+      const entries = openclawHandler.getSecretEntries(makeDeployment({}));
+      expect(entries["JARBLE_API_URL"]).toBe("https://api.jarble.ai");
+    });
+  });
 });
 
 // ── parseConfigs ─────────────────────────────────────────────────────────────
