@@ -534,6 +534,189 @@ describe("buildDelegationTools — collaborates edge (Cycle 4)", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────
+// Cycle 5: Reports (org-chart) edge semantics.
+// A `reports` edge from A to B means "A reports to B" — A is the reporter,
+// B is the manager. In delegation terms the code intentionally makes this
+// bidirectional: the reporter can hand info up (A delegates to B) AND the
+// manager can delegate tasks down (B delegates to A). This is the exact
+// behavior collaborates has, so these tests also pin the "reports ≡
+// collaborates behaviorally" invariant so any future divergence is caught.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("buildDelegationTools — reports edge (Cycle 5)", () => {
+  const REPORTER: any = {
+    id: "junior",
+    type: "deployment",
+    deploymentId: "dep-junior",
+    label: "Junior",
+    role: "Junior Engineer",
+    goal: "Write code",
+    position: { x: 0, y: 100 },
+  };
+  const MANAGER: any = {
+    id: "senior",
+    type: "deployment",
+    deploymentId: "dep-senior",
+    label: "Senior",
+    role: "Senior Engineer",
+    goal: "Review and assign work",
+    position: { x: 0, y: 0 },
+  };
+
+  it("reporter (source) builds a tool to manager (target) — upward path", () => {
+    // junior --reports--> senior
+    const edges: any[] = [
+      { id: "e1", source: "junior", target: "senior", type: "reports" },
+    ];
+    const tools = buildDelegationTools(REPORTER, [REPORTER, MANAGER], edges);
+    expect(tools).toHaveLength(1);
+    expect(tools[0].targetNodeId).toBe("senior");
+    expect(tools[0].targetDeploymentId).toBe("dep-senior");
+    expect(tools[0].name).toBe("delegate_to_senior_engineer");
+  });
+
+  it("manager (target) builds a tool to reporter (source) — downward path", () => {
+    // Same edge junior --reports--> senior, but now we build from senior's
+    // perspective. The filter flips the target so the manager delegates down.
+    const edges: any[] = [
+      { id: "e1", source: "junior", target: "senior", type: "reports" },
+    ];
+    const tools = buildDelegationTools(MANAGER, [REPORTER, MANAGER], edges);
+    expect(tools).toHaveLength(1);
+    expect(tools[0].targetNodeId).toBe("junior");
+    expect(tools[0].targetDeploymentId).toBe("dep-junior");
+    expect(tools[0].name).toBe("delegate_to_junior_engineer");
+  });
+
+  it("reports ≡ collaborates in tool-building invariant (behavioral parity)", () => {
+    // If a user labels an edge "reports" vs "collaborates", the tool-building
+    // output must be identical (both ends, both names, both descriptions).
+    // This test guards against a future well-intentioned change that
+    // accidentally makes reports one-way without also updating the filter.
+    const reportsEdges: any[] = [
+      { id: "e1", source: "junior", target: "senior", type: "reports" },
+    ];
+    const collabEdges: any[] = [
+      { id: "e1", source: "junior", target: "senior", type: "collaborates" },
+    ];
+
+    const juniorReports = buildDelegationTools(REPORTER, [REPORTER, MANAGER], reportsEdges);
+    const juniorCollab = buildDelegationTools(REPORTER, [REPORTER, MANAGER], collabEdges);
+    const seniorReports = buildDelegationTools(MANAGER, [REPORTER, MANAGER], reportsEdges);
+    const seniorCollab = buildDelegationTools(MANAGER, [REPORTER, MANAGER], collabEdges);
+
+    expect(juniorReports.length).toBe(juniorCollab.length);
+    expect(seniorReports.length).toBe(seniorCollab.length);
+    expect(juniorReports[0]?.targetNodeId).toBe(juniorCollab[0]?.targetNodeId);
+    expect(seniorReports[0]?.targetNodeId).toBe(seniorCollab[0]?.targetNodeId);
+  });
+
+  it("canDelegate=false on reporter blocks upward, manager still delegates down", () => {
+    const lockedJunior = { ...REPORTER, canDelegate: false };
+    const edges: any[] = [
+      { id: "e1", source: "junior", target: "senior", type: "reports" },
+    ];
+    // Junior can't delegate anywhere
+    expect(buildDelegationTools(lockedJunior, [lockedJunior, MANAGER], edges)).toEqual([]);
+    // Senior can still delegate down to junior
+    const seniorTools = buildDelegationTools(MANAGER, [lockedJunior, MANAGER], edges);
+    expect(seniorTools).toHaveLength(1);
+    expect(seniorTools[0].targetNodeId).toBe("junior");
+  });
+
+  it("canDelegate=false on manager blocks downward, reporter still reports up", () => {
+    const lockedSenior = { ...MANAGER, canDelegate: false };
+    const edges: any[] = [
+      { id: "e1", source: "junior", target: "senior", type: "reports" },
+    ];
+    // Senior can't delegate anywhere
+    expect(buildDelegationTools(lockedSenior, [REPORTER, lockedSenior], edges)).toEqual([]);
+    // Junior can still report up to senior
+    const juniorTools = buildDelegationTools(REPORTER, [REPORTER, lockedSenior], edges);
+    expect(juniorTools).toHaveLength(1);
+    expect(juniorTools[0].targetNodeId).toBe("senior");
+  });
+
+  it("honors the UI wire format (edge.label instead of edge.type)", () => {
+    const edges: any[] = [
+      { id: "e1", source: "junior", target: "senior", label: "reports" },
+    ];
+    expect(
+      buildDelegationTools(REPORTER, [REPORTER, MANAGER], edges)[0]?.targetNodeId,
+    ).toBe("senior");
+    expect(
+      buildDelegationTools(MANAGER, [REPORTER, MANAGER], edges)[0]?.targetNodeId,
+    ).toBe("junior");
+  });
+
+  it("skips a self-loop reports edge", () => {
+    const edges: any[] = [
+      { id: "e1", source: "junior", target: "junior", type: "reports" },
+    ];
+    expect(buildDelegationTools(REPORTER, [REPORTER], edges)).toEqual([]);
+  });
+
+  it("builds a 3-level org chart: intern → junior → senior", () => {
+    const INTERN: any = {
+      id: "intern",
+      type: "deployment",
+      deploymentId: "dep-intern",
+      label: "Intern",
+      role: "Intern",
+      position: { x: 0, y: 200 },
+    };
+    const edges: any[] = [
+      { id: "e1", source: "intern", target: "junior", type: "reports" },
+      { id: "e2", source: "junior", target: "senior", type: "reports" },
+    ];
+    // Intern reports only to junior (its direct manager)
+    const internTools = buildDelegationTools(INTERN, [INTERN, REPORTER, MANAGER], edges);
+    expect(internTools.map((t) => t.targetNodeId).sort()).toEqual(["junior"]);
+
+    // Junior sits in the middle — reports up to senior AND can delegate
+    // down to intern. Both edges match, so junior gets 2 tools.
+    const juniorTools = buildDelegationTools(REPORTER, [INTERN, REPORTER, MANAGER], edges);
+    expect(juniorTools.map((t) => t.targetNodeId).sort()).toEqual(["intern", "senior"]);
+
+    // Senior can delegate down to junior (but not to intern directly —
+    // there's no senior↔intern edge, delegation isn't transitive through
+    // the graph at tool-build time)
+    const seniorTools = buildDelegationTools(MANAGER, [INTERN, REPORTER, MANAGER], edges);
+    expect(seniorTools.map((t) => t.targetNodeId).sort()).toEqual(["junior"]);
+  });
+
+  it("de-dupes when a reports edge AND a delegates edge both point junior→senior", () => {
+    const edges: any[] = [
+      { id: "e1", source: "junior", target: "senior", type: "reports" },
+      { id: "e2", source: "junior", target: "senior", type: "delegates" },
+    ];
+    // First match wins (reports, in iteration order). Second is de-duped.
+    const tools = buildDelegationTools(REPORTER, [REPORTER, MANAGER], edges);
+    expect(tools).toHaveLength(1);
+    expect(tools[0].targetNodeId).toBe("senior");
+  });
+
+  it("counter-direction edges: junior→senior reports + senior→junior delegates", () => {
+    // The legacy pattern where someone wires a reports edge for the visual
+    // cue AND a separate delegates edge for the manager→reporter direction.
+    // With the new bidirectional reports semantics this is redundant, but
+    // it must not break (no errors, no extra tools, correct de-dup).
+    const edges: any[] = [
+      { id: "e1", source: "junior", target: "senior", type: "reports" },
+      { id: "e2", source: "senior", target: "junior", type: "delegates" },
+    ];
+    // Junior: the reports edge gives tool to senior. The senior→junior
+    // delegates edge doesn't match (junior is not source). 1 tool.
+    const juniorTools = buildDelegationTools(REPORTER, [REPORTER, MANAGER], edges);
+    expect(juniorTools.map((t) => t.targetNodeId)).toEqual(["senior"]);
+    // Senior: the reports edge flip gives tool to junior. The delegates
+    // edge also gives tool to junior (senior is source). De-duped to 1.
+    const seniorTools = buildDelegationTools(MANAGER, [REPORTER, MANAGER], edges);
+    expect(seniorTools.map((t) => t.targetNodeId)).toEqual(["junior"]);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
 // DelegationCycleError & DelegationDepthExceededError — surface is stable
 // and the error messages are sanitized (no raw exec output, no stack traces
 // leaked). These errors bubble up to the user as-is in some code paths, so
