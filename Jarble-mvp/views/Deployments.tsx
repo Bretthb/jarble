@@ -1399,27 +1399,48 @@ function FlowEdge({
             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
           }}
         >
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowDropdown((v) => !v);
-            }}
-            className={`
-              relative flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium
-              border backdrop-blur-sm transition-all cursor-pointer
-              hover:scale-105 active:scale-95
-              ${edgeType === "delegates" ? "bg-blue-500/15 text-blue-400 border-blue-500/25 hover:bg-blue-500/25" : ""}
-              ${edgeType === "reports" ? "bg-amber-500/15 text-amber-400 border-amber-500/25 hover:bg-amber-500/25" : ""}
-              ${edgeType === "collaborates" ? "bg-violet-500/15 text-violet-400 border-violet-500/25 hover:bg-violet-500/25" : ""}
-            `}
-          >
-            {edgeType === "delegates" && <ArrowRight className="w-2.5 h-2.5" />}
-            {edgeType === "reports" && <ArrowRight className="w-2.5 h-2.5 rotate-180" />}
-            {edgeType === "collaborates" && <ArrowLeftRight className="w-2.5 h-2.5" />}
-            {edgeTypeLabel(edgeType)}
-            <ChevronDown className="w-2.5 h-2.5 opacity-60" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDropdown((v) => !v);
+                }}
+                className={`
+                  relative flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium
+                  border backdrop-blur-sm transition-all cursor-pointer
+                  hover:scale-105 active:scale-95
+                  ${edgeType === "delegates" ? "bg-blue-500/15 text-blue-400 border-blue-500/25 hover:bg-blue-500/25" : ""}
+                  ${edgeType === "reports" ? "bg-amber-500/15 text-amber-400 border-amber-500/25 hover:bg-amber-500/25" : ""}
+                  ${edgeType === "collaborates" ? "bg-violet-500/15 text-violet-400 border-violet-500/25 hover:bg-violet-500/25" : ""}
+                `}
+              >
+                {edgeType === "delegates" && <ArrowRight className="w-2.5 h-2.5" />}
+                {edgeType === "reports" && <ArrowRight className="w-2.5 h-2.5 rotate-180" />}
+                {edgeType === "collaborates" && <ArrowLeftRight className="w-2.5 h-2.5" />}
+                {edgeTypeLabel(edgeType)}
+                <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[260px] text-[11px] leading-relaxed">
+              {edgeType === "delegates" && (
+                <>
+                  <strong>One-way delegation.</strong> The source bot can send tasks to the target bot. The target cannot initiate delegation back.
+                </>
+              )}
+              {edgeType === "reports" && (
+                <>
+                  <strong>Bidirectional reporting relationship.</strong> Despite the one-way arrow, BOTH ends can delegate to each other — the reporter can send information up AND the manager can delegate tasks down. If you need strict one-way delegation, use "delegates" instead.
+                </>
+              )}
+              {edgeType === "collaborates" && (
+                <>
+                  <strong>Bidirectional collaboration.</strong> Both bots can delegate tasks to each other. Useful for peer-to-peer workflows.
+                </>
+              )}
+            </TooltipContent>
+          </Tooltip>
 
           {/* Edge type dropdown */}
           {showDropdown && (
