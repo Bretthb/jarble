@@ -862,10 +862,17 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         },
       });
 
-      // Stream the entry bot's response directly
-      // Strip reasoning tags for clean display
+      // Stream the entry bot's response directly.
+      // Strip reasoning tags AND any jarble_delegate fenced blocks the LLM
+      // may have emitted on its own. Without this, when `canDelegate=false`
+      // blocks tool-call routing (or the bot just didn't match the parser),
+      // the raw ```jarble_delegate\n{...}``` block leaks into the user-facing
+      // text. The if-branch above already strips these when delegation runs;
+      // we must do it here too for the fall-through case.
       const cleanText = entryResult.text
         .replace(/<(think|reasoning)>[\s\S]*?<\/\1>/gi, "")
+        .replace(/```jarble_delegate\s*\n[\s\S]*?```/g, "")
+        .replace(/```json\s*\n\s*\{[^}]*"tool"\s*:\s*"delegate_to_[^}]*\}\s*```/g, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 

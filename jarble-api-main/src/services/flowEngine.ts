@@ -78,9 +78,15 @@ export interface FlowDefinition {
  *
  * Top-level values win when set; otherwise values under `config` are promoted.
  */
+type NormalizedFlowNode<T> = T &
+  Pick<
+    FlowNode,
+    "role" | "goal" | "canDelegate" | "contextScope" | "isEntryPoint" | "modelOverride"
+  >;
+
 export function normalizeFlowNode<T extends Partial<FlowNode> & { config?: any }>(
   node: T,
-): T {
+): NormalizedFlowNode<T> {
   const cfg = (node?.config ?? {}) as Record<string, unknown>;
   const pick = <K extends keyof FlowNode>(key: K): FlowNode[K] | undefined => {
     const top = (node as any)[key];
@@ -96,7 +102,7 @@ export function normalizeFlowNode<T extends Partial<FlowNode> & { config?: any }
     contextScope: pick("contextScope"),
     isEntryPoint: pick("isEntryPoint"),
     modelOverride: pick("modelOverride"),
-  } as T;
+  } as NormalizedFlowNode<T>;
 }
 
 /**

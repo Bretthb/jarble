@@ -327,6 +327,11 @@ function stripReasoningTags(text: string): string {
     // Malformed/partial tags: <think without closing >, bare </think>, etc.
     // Catches cases where the model starts <think but switches context mid-token.
     .replace(/<\/?(?:think|reasoning)\b[^>]*>?/gi, "")
+    // ```jarble_delegate``` fenced blocks are dispatch instructions from the
+    // bot (parsed into real delegation calls upstream). They must never survive
+    // into persisted chat history — otherwise the raw JSON leaks into future
+    // renders of the conversation.
+    .replace(/```jarble_delegate\s*\n[\s\S]*?```/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -1251,8 +1256,14 @@ tamboAgentRouter.post("/", async (req, res) => {
         }
         // else: still inside fence, suppress everything
       } else {
-        // Look for opening fence markers
-        const fenceMatch = combined.match(/```jarble_(?:ui|ui_update|ui_define|suggestions|design_context)\s*\n/);
+        // Look for opening fence markers. `jarble_delegate` is included so
+        // delegation tool-call blocks never leak to the user's chat stream
+        // (they're parsed out of rawText separately and routed through
+        // jarble.flow.delegation.start events). Without this suppression,
+        // any path that falls through to direct text streaming — including
+        // `canDelegate=false` nodes that the LLM ignores — would emit the
+        // raw ```jarble_delegate\n{...}``` block into the bubble.
+        const fenceMatch = combined.match(/```jarble_(?:ui|ui_update|ui_define|suggestions|design_context|delegate)\s*\n/);
         if (fenceMatch && fenceMatch.index !== undefined) {
           // Send text before the fence
           textToSend = combined.slice(0, fenceMatch.index);
