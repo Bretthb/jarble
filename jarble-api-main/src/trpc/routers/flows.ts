@@ -693,9 +693,38 @@ export const flowsRouter = router({
           );
         }
 
+        // Clear `activeFlowId` on deployments that WERE members but are no
+        // longer in the new definition. Without this, a removed bot keeps
+        // its stale active-team selection and tamboAgent silently falls
+        // back to `memberships[0]` (or no membership) — the same silent
+        // mis-routing pattern the delete path had. See Cycle 10 of the
+        // 2026-04-11 bot teams QA marathon.
+        const newDeploymentIds = getDefinitionDeploymentIds(input.definition);
+        const removed = [...oldDeploymentIds].filter((id) => !newDeploymentIds.has(id));
+        if (removed.length > 0) {
+          const deploymentsTableUpd = (tables as any).deployments;
+          if (deploymentsTableUpd?.activeFlowId) {
+            try {
+              await db
+                .update(deploymentsTableUpd)
+                .set({ activeFlowId: null })
+                .where(
+                  and(
+                    eq(deploymentsTableUpd.activeFlowId, input.id),
+                    inArray(deploymentsTableUpd.id, removed),
+                  ),
+                );
+            } catch (err) {
+              logger.error(
+                { flowId: input.id, removed, err: err instanceof Error ? err.message : String(err) },
+                "flows.update: failed to clear stale activeFlowId on removed members (non-fatal)",
+              );
+            }
+          }
+        }
+
         // Fire-and-forget configSync for the union of OLD ∪ NEW deployments
         // so leaving bots lose the Team Context block AND joining bots gain it.
-        const newDeploymentIds = getDefinitionDeploymentIds(input.definition);
         const union = new Set<string>([...oldDeploymentIds, ...newDeploymentIds]);
         fanoutSyncConfigs(union, `flow.update:${input.id}`);
       }
@@ -743,6 +772,29 @@ export const flowsRouter = router({
       // would still see a stale "you're on Team X" block — the explicit
       // fan-out below clears that case too.
       const formerDeploymentIds = await getCurrentMembershipDeploymentIds(input.id);
+
+      // Clear any dangling `activeFlowId` references BEFORE the delete.
+      // The column is a plain varchar with no FK to orchestrationFlows, so
+      // a delete / archive would otherwise leave deployments pointing at a
+      // flow that no longer exists. At runtime tamboAgent would silently
+      // fall back to `memberships[0]` without telling the user — the UI
+      // could display "active: Engineering Squad" while the bot actually
+      // routes via whichever membership happens to be first. See Cycle 10
+      // of the 2026-04-11 bot teams QA marathon for the diagnosis.
+      const deploymentsTableDel = (tables as any).deployments;
+      if (deploymentsTableDel?.activeFlowId) {
+        try {
+          await db
+            .update(deploymentsTableDel)
+            .set({ activeFlowId: null })
+            .where(eq(deploymentsTableDel.activeFlowId, input.id));
+        } catch (err) {
+          logger.error(
+            { flowId: input.id, err: err instanceof Error ? err.message : String(err) },
+            "flows.delete: failed to clear stale activeFlowId references (non-fatal — affected deployments will silently fall back to memberships[0])",
+          );
+        }
+      }
 
       if (input.hard) {
         // Hard delete - cascade deletes executions + memberships via FK
