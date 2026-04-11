@@ -23,6 +23,7 @@ import {
   enforceDelegationDepth,
   wouldCreateCycle,
   enforceNoCycle,
+  sanitizeDelegationError,
 } from "./flowDelegation.js";
 
 describe("parseDelegationCalls", () => {
@@ -1009,5 +1010,239 @@ describe("delegation cycle detection (Cycle 7)", () => {
     const ancestors = ["dep-t1"];  // nodeA (Generator) ran t1 first
     const target = "dep-t1";       // nodeC (Reviewer) wants to run t1 again
     expect(wouldCreateCycle(ancestors, target)).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Cycle 8: Error sanitization through delegation.
+// Replaces an inline regex chain at flowChat.ts:666-673 (which was dead
+// code — sanitizedError was computed and then never used) with a pure,
+// tested helper. Also plugs three real leak sites found during the audit:
+//
+//   1. flowChat.ts:525 — raw errMsg appended to user-visible text when
+//      the entry bot chatViaExec throws
+//   2. flowChat.ts:639 — raw delegationError emitted in the
+//      jarble.flow.delegation.end CUSTOM event value.error
+//   3. flowChat.ts:646 — raw delegationError stored in delegationTrace,
+//      which then ships via jarble.flow.chat.trace at line 890
+//
+// Each regression test below is a realistic failure-mode payload
+// drawn from what chatViaExec / executeInPod can throw today.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("sanitizeDelegationError (Cycle 8)", () => {
+  it("returns the fallback for null / undefined input", () => {
+    expect(sanitizeDelegationError(null)).toBe("an internal error occurred");
+    expect(sanitizeDelegationError(undefined)).toBe("an internal error occurred");
+  });
+
+  it("returns the fallback for genuinely empty input", () => {
+    // An all-whitespace or empty string has nothing to sanitize.
+    expect(sanitizeDelegationError("")).toBe("an internal error occurred");
+    expect(sanitizeDelegationError("   \n\t  ")).toBe("an internal error occurred");
+  });
+
+  it("reduces a pure-exec-garbage error to the `execution error` label", () => {
+    // When the only content is the exec wrapper, the `[...]` strip
+    // replaces the whole bracketed command with "execution error" —
+    // that's a safe, informative fallback (users see "execution error"
+    // instead of a broken fragment). The generic "an internal error
+    // occurred" fallback only fires when there's literally nothing left.
+    const raw = "error executing command [npx openclaw agent --session-id sess-x --timeout 300 --message \"hi\"]";
+    expect(sanitizeDelegationError(raw)).toBe("execution error");
+  });
+
+  it("passes through a clean error message unchanged", () => {
+    const clean = "Connection refused";
+    expect(sanitizeDelegationError(clean)).toBe("Connection refused");
+  });
+
+  it("replaces the `error executing command [...]` wrapper with `execution error`", () => {
+    const raw =
+      "error executing command [kubectl exec -n jarble bot-xyz -- node script.js]: exec failed: exit code 1";
+    const out = sanitizeDelegationError(raw);
+    expect(out).toContain("execution error");
+    expect(out).toContain("exec failed: exit code 1");
+    // The bracketed command should be gone
+    expect(out).not.toContain("kubectl exec");
+    expect(out).not.toContain("bot-xyz");
+  });
+
+  it("strips TRACEPARENT env var (W3C trace propagation)", () => {
+    const raw = "execution failed TRACEPARENT=00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01 and other context";
+    const out = sanitizeDelegationError(raw);
+    expect(out).not.toContain("TRACEPARENT=");
+    expect(out).not.toContain("0af7651916cd43dd8448eb211c80319c");
+  });
+
+  it("strips JARBLE_CURRENT_SESSION_ID env var", () => {
+    const raw = "timeout after 300s JARBLE_CURRENT_SESSION_ID=sess-abc123xyz";
+    const out = sanitizeDelegationError(raw);
+    expect(out).not.toContain("JARBLE_CURRENT_SESSION_ID");
+    expect(out).not.toContain("sess-abc123xyz");
+  });
+
+  it("strips --session-id CLI flag (space-separated)", () => {
+    const raw = "openclaw died while running --session-id sess-alice-42 and the pod restarted";
+    const out = sanitizeDelegationError(raw);
+    expect(out).not.toContain("sess-alice-42");
+    expect(out).toContain("pod restarted");
+  });
+
+  it("strips --session-id CLI flag (equals-separated)", () => {
+    const raw = "failed: --session-id=sess-bob-99 rejected by gateway";
+    const out = sanitizeDelegationError(raw);
+    expect(out).not.toContain("sess-bob-99");
+  });
+
+  it("strips --user-id CLI flag (both space and equals forms)", () => {
+    // Auth0 user ids commonly leak via exec command args — the old
+    // sanitizer missed this entirely. Cycle 8 hole plugged.
+    const raw1 = "error: --user-id auth0|abc123 could not be verified";
+    const raw2 = "error: --user-id=auth0|xyz789 rejected";
+    const out1 = sanitizeDelegationError(raw1);
+    const out2 = sanitizeDelegationError(raw2);
+    expect(out1).not.toContain("auth0|abc123");
+    expect(out2).not.toContain("auth0|xyz789");
+  });
+
+  it("strips --timeout CLI flag", () => {
+    const raw = "process killed --timeout 150 exceeded";
+    const out = sanitizeDelegationError(raw);
+    expect(out).not.toContain("--timeout 150");
+    expect(out).toContain("process killed");
+    expect(out).toContain("exceeded");
+  });
+
+  it("strips --thinking CLI flag", () => {
+    const raw = "invalid --thinking medium flag for this model";
+    const out = sanitizeDelegationError(raw);
+    expect(out).not.toContain("--thinking medium");
+  });
+
+  it("strips the full `npx openclaw agent --message ...` shell invocation", () => {
+    const raw =
+      'child exit 1 from npx openclaw agent --message "what is 2+2 really?" with trailing junk';
+    const out = sanitizeDelegationError(raw);
+    expect(out).not.toContain("npx openclaw agent");
+    expect(out).not.toContain("what is 2+2 really");
+    expect(out).toContain("child exit 1");
+  });
+
+  it("redacts Anthropic API keys (sk-ant-*)", () => {
+    // A REAL leak class — if an OpenClaw pod logs the key on auth
+    // failure, it can propagate up through chatViaExec's error.
+    const raw =
+      "authentication failed: invalid key sk-ant-api03-abcDEF1234567890_xyz and please rotate";
+    const out = sanitizeDelegationError(raw);
+    expect(out).toContain("[redacted api key]");
+    expect(out).not.toContain("sk-ant-api03");
+    expect(out).not.toContain("abcDEF1234567890");
+  });
+
+  it("redacts OpenRouter API keys (sk-or-*)", () => {
+    const raw = "gateway rejected sk-or-v1-abcd1234efgh5678 — please check billing";
+    const out = sanitizeDelegationError(raw);
+    expect(out).toContain("[redacted api key]");
+    expect(out).not.toContain("sk-or-v1-abcd1234efgh5678");
+  });
+
+  it("redacts generic sk-* tokens of length ≥ 20", () => {
+    const raw = "OpenAI call failed with key sk-proj-abc123DEF456ghi789JKL and 401 unauthorized";
+    const out = sanitizeDelegationError(raw);
+    expect(out).toContain("[redacted api key]");
+    expect(out).not.toContain("sk-proj-abc123DEF456ghi789JKL");
+  });
+
+  it("does NOT redact short 'sk-' prefixes that look like words", () => {
+    // Conservative regex — must not false-positive on things like
+    // "sk-test" or "sk-error" which are not keys.
+    const raw = "sk-test failed";
+    const out = sanitizeDelegationError(raw);
+    expect(out).toContain("sk-test");
+    expect(out).not.toContain("[redacted api key]");
+  });
+
+  it("redacts ANTHROPIC_API_KEY=, OPENROUTER_API_KEY=, OPENAI_API_KEY= env var assignments", () => {
+    const raw =
+      "env dump: ANTHROPIC_API_KEY=sk-ant-abc OPENROUTER_API_KEY=sk-or-xyz OPENAI_API_KEY=sk-def123 PATH=/usr/bin";
+    const out = sanitizeDelegationError(raw);
+    expect(out).toContain("[redacted env var]");
+    // All three keys redacted
+    expect(out).not.toContain("ANTHROPIC_API_KEY=sk-ant-abc");
+    expect(out).not.toContain("OPENROUTER_API_KEY=sk-or-xyz");
+    expect(out).not.toContain("OPENAI_API_KEY=sk-def123");
+    // PATH (not sensitive) remains
+    expect(out).toContain("PATH");
+  });
+
+  it("caps the final length at 300 chars with ellipsis", () => {
+    const long = "X".repeat(500);
+    const out = sanitizeDelegationError(long);
+    expect(out.length).toBeLessThanOrEqual(301); // 300 + ellipsis
+    expect(out.endsWith("…")).toBe(true);
+  });
+
+  it("does NOT cap short clean errors", () => {
+    const short = "Connection reset by peer";
+    expect(sanitizeDelegationError(short)).toBe(short);
+  });
+
+  it("collapses whitespace left by the strips", () => {
+    const raw = "timeout  --session-id sess-x   and   some    detail";
+    const out = sanitizeDelegationError(raw);
+    // After stripping "--session-id sess-x" and collapsing runs of spaces
+    expect(out).not.toMatch(/ {2,}/);
+    expect(out).toContain("timeout");
+    expect(out).toContain("some detail");
+  });
+
+  it("is idempotent (sanitizing a sanitized string is a no-op)", () => {
+    const raw = "error executing command [npx openclaw --timeout 100] failed sk-ant-abc TRACEPARENT=00-xyz";
+    const once = sanitizeDelegationError(raw);
+    const twice = sanitizeDelegationError(once);
+    expect(twice).toBe(once);
+  });
+
+  it("accepts Error objects, not just strings", () => {
+    const err = new Error("connection timeout --session-id sess-zzz");
+    const out = sanitizeDelegationError(err);
+    expect(out).toContain("connection timeout");
+    expect(out).not.toContain("sess-zzz");
+  });
+
+  it("accepts arbitrary non-string, non-Error values via String coercion", () => {
+    expect(sanitizeDelegationError(42)).toBe("42");
+    expect(sanitizeDelegationError(false)).toBe("false");
+    expect(sanitizeDelegationError({ foo: "bar" })).toBe("[object Object]");
+  });
+
+  it("handles a realistic multi-leak compound error without cross-contamination", () => {
+    // This is the worst-case scenario I can construct: exec wrapper +
+    // session id + timeout + trace parent + API key + stack trace style
+    // suffix. After sanitization nothing sensitive should remain and the
+    // user-visible sentence should still have a readable causal clause.
+    const raw = [
+      "error executing command [npx openclaw agent --session-id sess-u-42 --timeout 300 --user-id auth0|u42 --message \"what's next?\"]:",
+      "exec failed: ANTHROPIC_API_KEY=sk-ant-api03-SUPERSECRET401",
+      "TRACEPARENT=00-abc-def-01 at handleRequest (/app/src/services/openclawGateway.js:123:45)",
+    ].join(" ");
+    const out = sanitizeDelegationError(raw);
+
+    // Sensitive material gone
+    expect(out).not.toContain("sess-u-42");
+    expect(out).not.toContain("auth0|u42");
+    expect(out).not.toContain("what's next");
+    expect(out).not.toContain("sk-ant-api03-SUPERSECRET401");
+    expect(out).not.toContain("TRACEPARENT=");
+    expect(out).not.toContain("SUPERSECRET");
+
+    // Causal clause preserved
+    expect(out).toContain("execution error");
+    expect(out).toContain("exec failed");
+    // Since env var stripping runs before bare API key stripping, the whole
+    // ANTHROPIC_API_KEY=sk-ant-... chunk collapses to [redacted env var].
+    // A bare sk-ant- without env var wrapper would become [redacted api key].
+    expect(out).toContain("[redacted env var]");
   });
 });

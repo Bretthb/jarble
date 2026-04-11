@@ -149,6 +149,81 @@ export function enforceNoCycle(
   }
 }
 
+/**
+ * Sanitize a raw error string or Error object for user-facing display.
+ *
+ * Strips:
+ *   - `error executing command [...]` wrapper prefix
+ *   - session / trace / user id env vars and CLI flags
+ *   - `npx openclaw agent --message ...` shell invocation (to EOL)
+ *   - common API key formats (Anthropic sk-ant-*, OpenRouter sk-or-*,
+ *     generic sk-* of length ≥ 20)
+ *   - well-known sensitive env var assignments (ANTHROPIC_API_KEY=,
+ *     OPENROUTER_API_KEY=, OPENAI_API_KEY=)
+ *
+ * Caps the final length at 300 chars so a runaway stack trace can't
+ * flood the chat. Returns a fallback string when the input is null,
+ * undefined, or fully scrubbed.
+ *
+ * Pure helper — no I/O, idempotent, safe on already-sanitized strings.
+ * Used by the delegation failure path in `flowChat.ts` (both the
+ * user-visible delta and the `jarble.flow.delegation.end` CUSTOM
+ * event's `error` field) and by the entry-bot failure path.
+ *
+ * See Cycle 8 of the 2026-04-11 bot teams QA marathon for the test
+ * battery and the three concrete leak sites this helper replaces.
+ */
+export function sanitizeDelegationError(raw: unknown): string {
+  const FALLBACK = "an internal error occurred";
+  if (raw == null) return FALLBACK;
+  const str =
+    typeof raw === "string"
+      ? raw
+      : raw instanceof Error
+        ? raw.message
+        : String(raw);
+
+  const cleaned = str
+    // Exec wrapper — replace the whole bracketed command with a
+    // generic label so the user sees "execution error" instead of
+    // "error executing command [npx openclaw agent --session-id sess-xyz ...]"
+    .replace(/error executing command \[.*?\]/gs, "execution error")
+    // Tracing / session / user / timeout / thinking env vars + CLI flags
+    .replace(/TRACEPARENT=\S+/g, "")
+    .replace(/JARBLE_CURRENT_SESSION_ID=\S+/g, "")
+    .replace(/--session-id[= ]\S+/g, "")
+    .replace(/--user-id[= ]\S+/g, "")
+    .replace(/--timeout[= ]\d+/g, "")
+    .replace(/--thinking[= ]\S+/g, "")
+    // OpenClaw CLI invocation to EOL (swallows the user's literal message)
+    .replace(/npx openclaw agent --message.*$/gms, "")
+    // Explicit env var assignments for known sensitive keys — MUST come
+    // BEFORE the bare API-key regexes below. If bare keys were stripped
+    // first, the wrapping `ANTHROPIC_API_KEY=` prefix would be orphaned
+    // and the env var regex would then partially consume the replacement
+    // text, leaving a broken tail fragment. Strip env vars atomically.
+    .replace(/ANTHROPIC_API_KEY=\S+/g, "[redacted env var]")
+    .replace(/OPENROUTER_API_KEY=\S+/g, "[redacted env var]")
+    .replace(/OPENAI_API_KEY=\S+/g, "[redacted env var]")
+    // API keys — specific prefixes first, then generic sk-* (length ≥ 20)
+    .replace(/sk-ant-[A-Za-z0-9_-]+/g, "[redacted api key]")
+    .replace(/sk-or-[A-Za-z0-9_-]+/g, "[redacted api key]")
+    .replace(/sk-[A-Za-z0-9_-]{20,}/g, "[redacted api key]")
+    // Collapse whitespace left by the removals
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!cleaned) return FALLBACK;
+
+  // Length cap — stack traces and verbose error dumps can be hundreds
+  // of lines. 300 chars is enough for the causal sentence without
+  // flooding the chat bubble.
+  const MAX = 300;
+  return cleaned.length > MAX ? cleaned.slice(0, MAX).trimEnd() + "…" : cleaned;
+}
+
 /** Timeout for a single delegation call (ms) */
 // Must accommodate a full retry: 150s first attempt + 5s wait + 150s retry = 305s worst case.
 // Set to 330s to give 25s buffer. Without this headroom, the abort fires mid-retry

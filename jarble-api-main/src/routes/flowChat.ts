@@ -38,6 +38,7 @@ import {
   buildFlowSystemPrompt,
   parseDelegationCalls,
   executeDelegation,
+  sanitizeDelegationError,
   type DelegationTool,
   type DelegationResult,
 } from "../services/flowDelegation.js";
@@ -519,10 +520,15 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         });
       } else {
         log.error({ flowId, err: errMsg }, "Entry bot chat failed");
+        // Scrub the raw error before surfacing it to the user — errMsg may
+        // contain exec wrappers, session IDs, or API keys depending on what
+        // threw inside chatViaExec. See sanitizeDelegationError for the
+        // complete strip list.
+        const safeErr = sanitizeDelegationError(errMsg);
         sendEvent(res, {
           type: TEXT_MESSAGE_CONTENT,
           messageId,
-          delta: `Sorry, I couldn't reach the entry bot. Error: ${errMsg}`,
+          delta: `Sorry, I couldn't reach the entry bot. Error: ${safeErr}`,
         });
       }
       sendEvent(res, { type: TEXT_MESSAGE_END, messageId });
@@ -633,17 +639,23 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         const delegationResult = entry.status === "fulfilled" ? entry.value.result : null;
         const delegationError = entry.status === "fulfilled" ? entry.value.error : (entry.status === "rejected" ? String(entry.reason) : null);
 
+        // Scrub delegationError before emitting it on the wire — the raw
+        // error may contain exec wrappers, session IDs, or API keys and
+        // the frontend might surface this field to users.
+        const safeDelegationError = delegationError ? sanitizeDelegationError(delegationError) : null;
         sendEvent(res, { type: CUSTOM, name: "jarble.flow.delegation.end",
           value: { toolName: call.toolName, targetNodeId: tool.targetNodeId, targetDeploymentId: tool.targetDeploymentId,
             success: !!delegationResult, durationMs: delegationResult?.durationMs ?? 0, creditsUsed: delegationResult?.creditsUsed ?? 0,
-            error: delegationError, responsePreview: delegationResult?.response?.slice(0, 300) ?? "", uiBlockCount: delegationResult?.uiBlocks?.length ?? 0 } });
+            error: safeDelegationError, responsePreview: delegationResult?.response?.slice(0, 300) ?? "", uiBlockCount: delegationResult?.uiBlocks?.length ?? 0 } });
 
         delegationTrace.push({
           toolName: call.toolName, targetNodeId: tool.targetNodeId, targetDeploymentId: tool.targetDeploymentId,
           task: call.task, responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
           fullResponse: delegationResult?.response ?? "", durationMs: delegationResult?.durationMs ?? 0,
           creditsUsed: delegationResult?.creditsUsed ?? 0, success: !!delegationResult,
-          error: delegationError ?? undefined, uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
+          // Trace is emitted via jarble.flow.chat.trace at the end of the
+          // turn. Sanitize here so the client never sees raw exec fragments.
+          error: safeDelegationError ?? undefined, uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
         });
 
         if (delegationResult?.response || delegationResult?.uiBlocks?.length) {
@@ -662,15 +674,12 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             }
           }
         } else if (delegationError) {
-          // Sanitize error - don't leak exec commands, env vars, or session IDs to the user
-          const sanitizedError = delegationError
-            ?.replace(/error executing command \[.*?\]/gs, "execution error")
-            ?.replace(/TRACEPARENT=\S+/g, "")
-            ?.replace(/JARBLE_CURRENT_SESSION_ID=\S+/g, "")
-            ?.replace(/--session-id \S+/g, "")
-            ?.replace(/--timeout \d+/g, "")
-            ?.replace(/npx openclaw agent --message.*$/gs, "")
-            ?.trim() || "an internal error occurred";
+          // The user-visible delta stays intentionally generic — technical
+          // users can check the delegation.end event's `error` field for
+          // details, which is already sanitized above via the
+          // `safeDelegationError` local. Previously this branch computed
+          // a local sanitizedError that was never used (dead code, see
+          // Cycle 8 of the 2026-04-11 bot teams QA marathon).
           sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId, delta: `*Delegation to ${targetNode?.role || call.toolName} was unsuccessful. The team member may be busy or temporarily unavailable.*\n\n` });
         }
       }
