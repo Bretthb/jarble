@@ -183,6 +183,15 @@ interface DelegationTraceEntry {
   error?: string;
   /** Number of UI blocks produced by this delegation (for compose detection) */
   uiBlockCount: number;
+  /**
+   * Types of UI blocks the specialist produced (e.g. ["stat_grid", "data_table"]).
+   * Used by the synthesis prompt so when `fullResponse` is empty but the
+   * specialist DID render components, the coordinator sees a concrete
+   * manifest instead of an empty BEGIN/END block. Without this, the
+   * coordinator routinely writes "empty response" for blocks-only
+   * delegations — see Cycle 9 of the 2026-04-11 bot teams QA marathon.
+   */
+  blockTypes: string[];
 }
 
 // ── POST /:flowId/chat ──────────────────────────────────────────────────────
@@ -648,6 +657,15 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             success: !!delegationResult, durationMs: delegationResult?.durationMs ?? 0, creditsUsed: delegationResult?.creditsUsed ?? 0,
             error: safeDelegationError, responsePreview: delegationResult?.response?.slice(0, 300) ?? "", uiBlockCount: delegationResult?.uiBlocks?.length ?? 0 } });
 
+        // Harvest the block type list from the raw delegation result. This
+        // feeds the synthesis prompt when fullResponse is empty so the
+        // coordinator sees "(no text; rendered stat_grid, data_table)"
+        // instead of an empty BEGIN/END block.
+        const blockTypes = (delegationResult?.uiBlocks ?? [])
+          .map((b: any) => {
+            const t = b?.type ?? b?.component ?? b?.name;
+            return typeof t === "string" && t ? t : "component";
+          });
         delegationTrace.push({
           toolName: call.toolName, targetNodeId: tool.targetNodeId, targetDeploymentId: tool.targetDeploymentId,
           task: call.task, responsePreview: delegationResult?.response?.slice(0, 300) ?? "",
@@ -656,6 +674,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           // Trace is emitted via jarble.flow.chat.trace at the end of the
           // turn. Sanitize here so the client never sees raw exec fragments.
           error: safeDelegationError ?? undefined, uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
+          blockTypes,
         });
 
         if (delegationResult?.response || delegationResult?.uiBlocks?.length) {
@@ -713,7 +732,19 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           .filter((d) => d.success)
           .map((d) => {
             const slug = d.toolName.replace(/^delegate_to_/, "");
-            return `[BEGIN ${slug} FULL REPLY]\n${d.fullResponse}\n[END ${slug} FULL REPLY]`;
+            // When a specialist produces UI blocks but no text, `fullResponse`
+            // is empty. Previously the synthesis prompt put an empty body
+            // between the BEGIN/END markers and the coordinator routinely
+            // hallucinated "empty response" (see Cycles 4, 5, and 9 of the
+            // 2026-04-11 QA marathon). Substitute a block manifest so the
+            // coordinator sees concrete content and can summarize it.
+            const trimmedText = d.fullResponse.trim();
+            const body =
+              trimmedText ||
+              (d.uiBlockCount > 0
+                ? `(no text reply; rendered ${d.uiBlockCount} UI component${d.uiBlockCount > 1 ? "s" : ""}: ${d.blockTypes.join(", ")} — the user has already seen them streamed above)`
+                : "(no text reply, no components)");
+            return `[BEGIN ${slug} FULL REPLY]\n${body}\n[END ${slug} FULL REPLY]`;
           })
           .join("\n\n");
 
