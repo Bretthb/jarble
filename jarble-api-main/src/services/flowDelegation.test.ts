@@ -13,7 +13,13 @@ vi.mock("../utils/agentCallEvents.js", () => ({
   emitOrchestrationEnd: () => {},
 }));
 
-import { parseDelegationCalls } from "./flowDelegation.js";
+import {
+  buildDelegationTools,
+  parseDelegationCalls,
+  DelegationCycleError,
+  DelegationDepthExceededError,
+  getMaxDelegationDepth,
+} from "./flowDelegation.js";
 
 describe("parseDelegationCalls", () => {
   it("returns empty array for plain text with no JSON block", () => {
@@ -391,5 +397,179 @@ describe("flowChat delegation-mention heuristic (Fix #6)", () => {
     expect(
       DELEGATION_MENTION_REGEX.test("We can delegate responsibility in a team."),
     ).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Cycle 4: Collaborative (bidirectional) edge semantics.
+// Regression guards for the `collaborates` edge type — a single edge between
+// A and B must build delegation tools for BOTH A→B AND B→A. Also covers the
+// two wire formats the UI uses (edge.type vs edge.label), the canDelegate=false
+// interaction, and the cycle-detection constructor invariants.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("buildDelegationTools — collaborates edge (Cycle 4)", () => {
+  const A: any = {
+    id: "A",
+    type: "deployment",
+    deploymentId: "dep-A",
+    label: "Peer A",
+    role: "Researcher",
+    goal: "Gather facts",
+    position: { x: 0, y: 0 },
+  };
+  const B: any = {
+    id: "B",
+    type: "deployment",
+    deploymentId: "dep-B",
+    label: "Peer B",
+    role: "Critic",
+    goal: "Find flaws",
+    position: { x: 100, y: 0 },
+  };
+
+  it("builds a B-targeted tool for A from a single collaborates edge", () => {
+    const edges: any[] = [
+      { id: "e1", source: "A", target: "B", type: "collaborates" },
+    ];
+    const tools = buildDelegationTools(A, [A, B], edges);
+    expect(tools).toHaveLength(1);
+    expect(tools[0].targetNodeId).toBe("B");
+    expect(tools[0].targetDeploymentId).toBe("dep-B");
+    expect(tools[0].name).toBe("delegate_to_critic");
+  });
+
+  it("builds an A-targeted tool for B from the SAME collaborates edge", () => {
+    // This is the key bidirectional invariant — a single edge must be walked
+    // twice, once from each end, producing distinct tools pointing the
+    // opposite direction.
+    const edges: any[] = [
+      { id: "e1", source: "A", target: "B", type: "collaborates" },
+    ];
+    const tools = buildDelegationTools(B, [A, B], edges);
+    expect(tools).toHaveLength(1);
+    expect(tools[0].targetNodeId).toBe("A");
+    expect(tools[0].targetDeploymentId).toBe("dep-A");
+    expect(tools[0].name).toBe("delegate_to_researcher");
+  });
+
+  it("honors the UI wire format (edge.label instead of edge.type)", () => {
+    // The canvas saves edgeType into both `type` and `label`, but the
+    // getEdgeType fallback reads `type || label`. Test that a label-only
+    // edge still triggers bidirectional tool building.
+    const edges: any[] = [
+      { id: "e1", source: "A", target: "B", label: "collaborates" },
+    ];
+    expect(buildDelegationTools(A, [A, B], edges)[0]?.targetNodeId).toBe("B");
+    expect(buildDelegationTools(B, [A, B], edges)[0]?.targetNodeId).toBe("A");
+  });
+
+  it("respects canDelegate=false on the source even for collaborates", () => {
+    // canDelegate=false is a "can I delegate" gate, not a "can I be targeted"
+    // gate. So if A is locked (canDelegate=false) but B can still delegate,
+    // A's tool list is empty, but B's tool list still contains A.
+    const lockedA = { ...A, canDelegate: false };
+    const edges: any[] = [
+      { id: "e1", source: "A", target: "B", type: "collaborates" },
+    ];
+    expect(buildDelegationTools(lockedA, [lockedA, B], edges)).toEqual([]);
+    // B is still free to delegate to A
+    const bTools = buildDelegationTools(B, [lockedA, B], edges);
+    expect(bTools).toHaveLength(1);
+    expect(bTools[0].targetNodeId).toBe("A");
+  });
+
+  it("skips a self-loop collaborates edge", () => {
+    const selfEdge: any[] = [
+      { id: "e1", source: "A", target: "A", type: "collaborates" },
+    ];
+    expect(buildDelegationTools(A, [A], selfEdge)).toEqual([]);
+  });
+
+  it("de-dupes when a delegates edge AND a collaborates edge both point to B", () => {
+    // If the user wired a delegates edge AND a collaborates edge between A
+    // and B, A should NOT build two tools for B. The `tools.some(...)` guard
+    // at line 172 enforces this.
+    const edges: any[] = [
+      { id: "e1", source: "A", target: "B", type: "delegates" },
+      { id: "e2", source: "A", target: "B", type: "collaborates" },
+    ];
+    const tools = buildDelegationTools(A, [A, B], edges);
+    expect(tools).toHaveLength(1);
+    expect(tools[0].targetNodeId).toBe("B");
+  });
+
+  it("builds a three-way peer mesh (A↔B, B↔C, A↔C) with 2 tools per node", () => {
+    const C: any = {
+      id: "C",
+      type: "deployment",
+      deploymentId: "dep-C",
+      label: "Peer C",
+      role: "Synthesizer",
+      position: { x: 200, y: 0 },
+    };
+    const edges: any[] = [
+      { id: "e1", source: "A", target: "B", type: "collaborates" },
+      { id: "e2", source: "B", target: "C", type: "collaborates" },
+      { id: "e3", source: "A", target: "C", type: "collaborates" },
+    ];
+    const aTools = buildDelegationTools(A, [A, B, C], edges);
+    const bTools = buildDelegationTools(B, [A, B, C], edges);
+    const cTools = buildDelegationTools(C, [A, B, C], edges);
+
+    expect(aTools.map((t) => t.targetNodeId).sort()).toEqual(["B", "C"]);
+    expect(bTools.map((t) => t.targetNodeId).sort()).toEqual(["A", "C"]);
+    expect(cTools.map((t) => t.targetNodeId).sort()).toEqual(["A", "B"]);
+  });
+
+  it("skips nodes whose deploymentId is missing (orphan targets)", () => {
+    // A collaborates edge pointing at a node that has no deploymentId must
+    // not produce a tool — there's nothing callable on the other end.
+    const orphan: any = { id: "orphan", type: "deployment", label: "Orphan", position: { x: 0, y: 0 } };
+    const edges: any[] = [
+      { id: "e1", source: "A", target: "orphan", type: "collaborates" },
+    ];
+    expect(buildDelegationTools(A, [A, orphan], edges)).toEqual([]);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// DelegationCycleError & DelegationDepthExceededError — surface is stable
+// and the error messages are sanitized (no raw exec output, no stack traces
+// leaked). These errors bubble up to the user as-is in some code paths, so
+// the message shape is part of the contract.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("DelegationCycleError / DelegationDepthExceededError contract (Cycle 4)", () => {
+  it("DelegationCycleError exposes chain + target and has a useful message", () => {
+    const err = new DelegationCycleError(["dep-A", "dep-B"], "dep-A");
+    expect(err.name).toBe("DelegationCycleError");
+    expect(err.chain).toEqual(["dep-A", "dep-B"]);
+    expect(err.target).toBe("dep-A");
+    expect(err.message).toContain("Delegation cycle detected");
+    expect(err.message).toContain("dep-A");
+    expect(err.message).toContain("dep-B");
+    // Must not leak internal stack frames or shell fragments
+    expect(err.message).not.toMatch(/npx openclaw|kubectl|exec command/i);
+  });
+
+  it("DelegationDepthExceededError exposes depth + maxDepth and respects env override", () => {
+    const err = new DelegationDepthExceededError(9);
+    expect(err.name).toBe("DelegationDepthExceededError");
+    expect(err.depth).toBe(9);
+    expect(err.maxDepth).toBe(getMaxDelegationDepth());
+    expect(err.message).toContain("Delegation depth limit reached");
+    expect(err.message).toContain("depth=9");
+  });
+
+  it("cycle chain with 4 hops renders the full chain in the message", () => {
+    const chain = ["dep-A", "dep-B", "dep-C", "dep-D"];
+    const err = new DelegationCycleError(chain, "dep-A");
+    // A → B → C → D → A must appear in the rendered message
+    for (const id of chain) {
+      expect(err.message).toContain(id);
+    }
+    // Arrow between hops exists
+    expect(err.message).toContain("→");
   });
 });
