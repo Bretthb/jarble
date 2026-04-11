@@ -363,7 +363,7 @@ describe("chatViaHTTP", () => {
     expect(onDelta).toHaveBeenCalledWith("Hello world");
   });
 
-  it("strips <think> tags from delta.content", async () => {
+  it("preserves <think> tags in rawText so the upstream reasoning tracker can parse them (JAR-63)", async () => {
     const sse = sseLines([
       { choices: [{ delta: { content: "<think>internal reasoning</think>Visible text" } }] },
       { choices: [{ finish_reason: "stop" }] },
@@ -382,12 +382,15 @@ describe("chatViaHTTP", () => {
     });
 
     const result = await chatViaHTTP(opts, "hi", "ses-1");
-    // fullText (rawText) should NOT contain <think> content
-    expect(result.rawText).toBe("Visible text");
-    expect(result.rawText).not.toContain("<think>");
+    // JAR-63: rawText now contains the full content including <think> tags.
+    // The upstream createReasoningTracker() in tamboAgent.ts is responsible
+    // for splitting this into visible text + REASONING_* events. Stripping
+    // here silently dropped reasoning content from the primary HTTP path.
+    expect(result.rawText).toBe("<think>internal reasoning</think>Visible text");
+    expect(result.rawText).toContain("<think>");
   });
 
-  it("strips multi-chunk <think> tags spanning deltas", async () => {
+  it("preserves multi-chunk <think> tags spanning deltas (JAR-63)", async () => {
     const sse = sseLines([
       { choices: [{ delta: { content: "Before<think>start of thought" } }] },
       { choices: [{ delta: { content: " still thinking" } }] },
@@ -408,7 +411,60 @@ describe("chatViaHTTP", () => {
     });
 
     const result = await chatViaHTTP(opts, "hi", "ses-1");
-    expect(result.rawText).toBe("BeforeAfter");
+    // JAR-63: multi-chunk <think> spans are preserved verbatim in rawText
+    // and forwarded to onDelta. The reasoning tracker handles partial-tag
+    // buffering via findPartialOpenTag/findPartialCloseTag.
+    expect(result.rawText).toBe("Before<think>start of thought still thinking</think>After");
+  });
+
+  it("captures native reasoning from delta.reasoning_content (DeepSeek-style) (JAR-63)", async () => {
+    const sse = sseLines([
+      { choices: [{ delta: { reasoning_content: "step 1: ", content: "" } }] },
+      { choices: [{ delta: { reasoning_content: "step 2", content: "" } }] },
+      { choices: [{ delta: { content: "The answer is 42." } }] },
+      { choices: [{ finish_reason: "stop" }] },
+    ]);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      body: buildSSEStream([sse]),
+    });
+    mockExtractAllUIBlocks.mockReturnValue({
+      cleanText: "The answer is 42.",
+      uiBlocks: [],
+      uiUpdates: [],
+      componentDefs: [],
+      suggestions: [],
+      designContext: null,
+    });
+
+    const result = await chatViaHTTP(opts, "hi", "ses-1");
+    // Native reasoning is accumulated into nativeThinking, not into visible text
+    expect(result.nativeThinking).toBe("step 1: step 2");
+    expect(result.rawText).toBe("The answer is 42.");
+  });
+
+  it("captures native reasoning from delta.thinking (Anthropic-style) (JAR-63)", async () => {
+    const sse = sseLines([
+      { choices: [{ delta: { thinking: "Let me consider this carefully." } }] },
+      { choices: [{ delta: { content: "OK." } }] },
+      { choices: [{ finish_reason: "stop" }] },
+    ]);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      body: buildSSEStream([sse]),
+    });
+    mockExtractAllUIBlocks.mockReturnValue({
+      cleanText: "OK.",
+      uiBlocks: [],
+      uiUpdates: [],
+      componentDefs: [],
+      suggestions: [],
+      designContext: null,
+    });
+
+    const result = await chatViaHTTP(opts, "hi", "ses-1");
+    expect(result.nativeThinking).toBe("Let me consider this carefully.");
+    expect(result.rawText).toBe("OK.");
   });
 
   it("accumulates tool_calls and flushes as jarble_ui blocks", async () => {

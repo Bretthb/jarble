@@ -593,7 +593,6 @@ async function chatViaHTTPInner(
   let fullText = "";
   let nativeThinking = "";
   let emittedBlockCount = 0;
-  let isInsideThinkTag = false;
   const toolCallBuffers: Record<number, { name: string; args: string }> = {};
   let tokenUsageFromStream: { inputTokens: number; outputTokens: number; totalTokens: number } | undefined;
 
@@ -623,45 +622,68 @@ async function chatViaHTTPInner(
           const chunk = JSON.parse(data);
           const delta = chunk.choices?.[0]?.delta;
 
-          if (delta?.content) {
-            let content = delta.content;
-
-            // Strip thinking tags using a depth counter to handle nesting
-            // and unclosed tags. Processes the string char-by-char scanning
-            // for <think> and </think> markers, keeping only content at
-            // depth 0 (visible to the user).
-            {
-              let cleaned = "";
-              let i = 0;
-              let thinkDepth: number = isInsideThinkTag ? 1 : 0;
-              while (i < content.length) {
-                if (content.startsWith("<think>", i)) {
-                  thinkDepth++;
-                  i += 7;
-                } else if (content.startsWith("</think>", i)) {
-                  if (thinkDepth > 0) thinkDepth--;
-                  i += 8;
-                } else {
-                  if (thinkDepth === 0) cleaned += content[i];
-                  i++;
-                }
+          // JAR-63: Accumulate native reasoning from OpenAI-compat fields
+          // before falling through to <think> tag handling. Different
+          // providers surface reasoning in different places:
+          //   - Anthropic / OpenClaw `--thinking`: `delta.thinking` (string)
+          //     or content blocks with `type: "thinking"` in `delta.content`
+          //   - DeepSeek / Qwen: `delta.reasoning_content` (string)
+          //   - OpenRouter (generic): `delta.reasoning` (string)
+          // Native reasoning is NOT forwarded as a stream delta — it is
+          // returned via the GatewayResponse.nativeThinking field so
+          // tamboAgent can emit it as the highest-priority reasoning
+          // source. <think> tag content embedded in visible text is
+          // handled downstream by createReasoningTracker() in tamboAgent.
+          if (typeof delta?.thinking === "string" && delta.thinking) {
+            nativeThinking += delta.thinking;
+          }
+          if (typeof delta?.reasoning_content === "string" && delta.reasoning_content) {
+            nativeThinking += delta.reasoning_content;
+          }
+          if (typeof delta?.reasoning === "string" && delta.reasoning) {
+            nativeThinking += delta.reasoning;
+          }
+          // Also scan structured content blocks for type: "thinking"
+          // (mirrors the extractThinking helper used by chatViaGateway).
+          if (Array.isArray(delta?.content)) {
+            for (const block of delta.content) {
+              if (block && typeof block === "object" && (block as any).type === "thinking") {
+                const t = (block as any).thinking ?? (block as any).text ?? "";
+                if (typeof t === "string" && t) nativeThinking += t;
               }
-              isInsideThinkTag = thinkDepth > 0;
-              content = cleaned;
             }
+          }
 
-            if (content) {
-              fullText += content;
-              onDelta?.(fullText);
+          // Extract visible text content. For structured content arrays,
+          // only take text-typed blocks to avoid double-counting thinking
+          // blocks already captured above.
+          let visibleContent = "";
+          if (typeof delta?.content === "string") {
+            visibleContent = delta.content;
+          } else if (Array.isArray(delta?.content)) {
+            visibleContent = delta.content
+              .filter((b: any) => b && typeof b === "object" && b.type === "text")
+              .map((b: any) => b.text || "")
+              .join("");
+          }
 
-              // Incrementally detect UI blocks during streaming
-              if (onBlockDetected) {
-                const { uiBlocks } = extractUIBlocks(fullText);
-                for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
-                  onBlockDetected(uiBlocks[idx]);
-                }
-                emittedBlockCount = uiBlocks.length;
+          // JAR-63: Pass visibleContent through unchanged — including any
+          // <think>/<reasoning> tags — so the upstream reasoningTracker in
+          // tamboAgent.ts can parse them and emit REASONING_* events. The
+          // previous implementation stripped <think> tags here and silently
+          // dropped the content, which broke the Thinking UI in the
+          // primary HTTP transport path.
+          if (visibleContent) {
+            fullText += visibleContent;
+            onDelta?.(fullText);
+
+            // Incrementally detect UI blocks during streaming
+            if (onBlockDetected) {
+              const { uiBlocks } = extractUIBlocks(fullText);
+              for (let idx = emittedBlockCount; idx < uiBlocks.length; idx++) {
+                onBlockDetected(uiBlocks[idx]);
               }
+              emittedBlockCount = uiBlocks.length;
             }
           }
 
@@ -727,12 +749,6 @@ async function chatViaHTTPInner(
     }
     // Re-throw caller aborts and other errors as-is
     throw err;
-  }
-
-  // Warn if the stream ended inside an unclosed <think> tag — model
-  // output was silently suppressed, which looks like an empty response.
-  if (isInsideThinkTag) {
-    log.warn({ url, textLength: fullText.length }, "chatViaHTTP: stream ended with unclosed <think> tag — some content may have been suppressed");
   }
 
   if (!fullText) {
