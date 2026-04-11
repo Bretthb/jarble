@@ -28,6 +28,35 @@ import { cn } from "@/lib/utils";
 
 export type MemoryScope = "global" | "session" | "off";
 
+/**
+ * Aggregate a set of per-deployment memory scopes into a single team-level
+ * scope for the team chat disclosure banner. The rule is **loudest scope
+ * wins**: a team is only as private as its leakiest member.
+ *
+ *   - if any deployment is "global"  → team scope is "global"
+ *   - else if any is "session"        → team scope is "session"
+ *   - else if any is "off"            → team scope is "off"
+ *   - empty / all unknown             → "global" (privacy-safe default)
+ *
+ * Used by the team chat panel in views/Deployments.tsx to pick the banner
+ * variant rendered above the Bot Teams chat. Exported so it can be unit-
+ * tested in isolation.
+ */
+export function aggregateTeamMemoryScope(
+  scopes: ReadonlyArray<MemoryScope | null | undefined>,
+): MemoryScope {
+  let sawSession = false;
+  let sawOff = false;
+  for (const s of scopes) {
+    if (s === "global") return "global";
+    if (s === "session") sawSession = true;
+    else if (s === "off") sawOff = true;
+  }
+  if (sawSession) return "session";
+  if (sawOff) return "off";
+  return "global";
+}
+
 interface MemoryDisclosureBannerProps {
   scope: MemoryScope | null | undefined;
   className?: string;
