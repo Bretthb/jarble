@@ -79,6 +79,28 @@ agentHubRouter.post("/call", async (req, res) => {
       return;
     }
 
+    // ── JAR-50 fractal delegation topology ─────────────────────────────────────
+    // When the pod calling this endpoint is already executing inside a
+    // delegation tree (specialist B invoking a marketplace skill), it can
+    // stitch the resulting `agent_calls` row into the parent trace by
+    // forwarding these headers. Pods that don't set them stay as roots,
+    // preserving the existing top-level behavior.
+    //
+    // Pod side wiring lives in the MCP skill-tool caller and reads the
+    // pod-local delegation context (current call id, trace id) injected by
+    // `openclaw.ts` / `executeDelegation`. Until those changes land, the
+    // headers are simply absent and this block is a no-op — exactly the
+    // intended "no regression" path.
+    const parentCallIdHeader = (req.headers["x-parent-call-id"] as string | undefined) || null;
+    const traceIdHeader = (req.headers["x-trace-id"] as string | undefined) || null;
+    const parentSpanIdHeader = (req.headers["x-parent-span-id"] as string | undefined) || null;
+    const depthHeaderRaw = req.headers["x-delegation-depth"] as string | undefined;
+    const depthHeader = (() => {
+      if (!depthHeaderRaw) return undefined;
+      const n = Number(depthHeaderRaw);
+      return Number.isFinite(n) && n >= 0 && n < 20 ? Math.floor(n) : undefined;
+    })();
+
     // Verify the caller deployment belongs to this user
     const callerDeploy = await db
       .select({ userId: tables.deployments.userId })
@@ -113,6 +135,10 @@ agentHubRouter.post("/call", async (req, res) => {
       skillName,
       args: args || {},
       callerUserId: userId,
+      parentCallId: parentCallIdHeader,
+      traceId: traceIdHeader,
+      parentSpanId: parentSpanIdHeader,
+      depth: depthHeader,
     });
 
     // Notify SSE listeners that the agent call completed
